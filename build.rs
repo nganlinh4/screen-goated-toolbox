@@ -9,18 +9,31 @@ fn main() {
     let assets_dir = Path::new(&manifest_dir).join("assets");
     let _ = fs::create_dir_all(&assets_dir);
     
-    // Copy tray icon PNG
+    // Optimize Tray Icon (32x32 is standard for tray)
     let icon_path = Path::new(&manifest_dir).join("icon.png");
     if icon_path.exists() {
         let tray_icon_path = assets_dir.join("tray_icon.png");
-        let _ = fs::copy(&icon_path, &tray_icon_path);
+        if let Ok(img) = image::open(&icon_path) {
+            let resized = img.resize(32, 32, image::imageops::FilterType::Lanczos3);
+            let _ = resized.save(&tray_icon_path);
+        }
     }
     
-    // Generate multi-size ICO
+    // Optimize App Icon for embedding (256x256 max)
     let app_icon_path = assets_dir.join("app-icon.png");
+    let app_icon_small_path = assets_dir.join("app-icon-small.png");
+    
     if app_icon_path.exists() {
+        if let Ok(img) = image::open(&app_icon_path) {
+            let resized = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
+            let _ = resized.save(&app_icon_small_path);
+        }
+    }
+    
+    // Generate multi-size ICO from the optimized small icon
+    if app_icon_small_path.exists() {
         let ico_path = assets_dir.join("app.ico");
-        create_multi_size_ico(&app_icon_path, &ico_path);
+        create_multi_size_ico(&app_icon_small_path, &ico_path);
     }
     
     // Embed icon in Windows executable using manual windres compilation
@@ -67,6 +80,7 @@ fn main() {
     }
     
     println!("cargo:rerun-if-changed=assets/app-icon.png");
+    println!("cargo:rerun-if-changed=icon.png");
     println!("cargo:rerun-if-changed=app.rc");
     println!("cargo:rerun-if-changed=build.rs");
 }
@@ -75,7 +89,8 @@ fn create_multi_size_ico(png_path: &Path, ico_path: &Path) {
     let img = image::open(png_path).expect("Failed to open PNG");
     let mut file = fs::File::create(ico_path).expect("Failed to create ICO");
     
-    let sizes = [16, 32, 48, 64, 256];
+    // Reduced sizes to save space: 16, 32, 48, 256 (Removed 64)
+    let sizes = [16, 32, 48, 256];
     let num_images = sizes.len() as u16;
     
     // ICO Header

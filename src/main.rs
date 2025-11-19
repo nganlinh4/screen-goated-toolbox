@@ -76,7 +76,7 @@ fn main() -> eframe::Result<()> {
         .with_resizable(true);
     
     // Set window icon - embedded in binary
-    let app_icon_bytes = include_bytes!("../assets/app-icon.png");
+    let app_icon_bytes = include_bytes!("../assets/app-icon-small.png");
     if let Ok(img) = image::load_from_memory(app_icon_bytes) {
         let img_rgba = img.to_rgba8();
         let (width, height) = img_rgba.dimensions();
