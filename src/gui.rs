@@ -110,6 +110,7 @@ pub struct SettingsApp {
     is_quitting: bool,
     run_at_startup: bool,
     auto_launcher: Option<AutoLaunch>,
+    show_api_key: bool,
 }
 
 impl SettingsApp {

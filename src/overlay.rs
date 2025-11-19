@@ -196,13 +196,8 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
 fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) {
     let (img, config, model_name) = {
         let mut guard = app.lock().unwrap();
-        guard.use_maverick = !guard.use_maverick;
-        let model = if guard.use_maverick {
-            "meta-llama/llama-4-maverick-17b-128e-instruct"
-        } else {
-            "meta-llama/llama-4-scout-17b-16e-instruct"
-        };
-        (guard.original_screenshot.clone().unwrap(), guard.config.clone(), model.to_string())
+        let model = guard.model_selector.get_next_model();
+        (guard.original_screenshot.clone().unwrap(), guard.config.clone(), model)
     };
 
     let x_virt = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
@@ -323,7 +318,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
         WM_LBUTTONUP | WM_RBUTTONUP => {
             // Start fade-out animation
             IS_DISMISSING = true;
-            SetTimer(hwnd, 2, 16, None); // ~60 FPS
+            SetTimer(hwnd, 2, 8, None); // ~120 FPS (half duration)
             LRESULT(0)
         }
         WM_TIMER => {

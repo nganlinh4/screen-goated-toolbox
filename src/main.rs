@@ -5,6 +5,7 @@ mod api;
 mod gui;
 mod overlay;
 mod icon_gen;
+mod model_config;
 
 use std::sync::{Arc, Mutex};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -24,7 +25,7 @@ pub struct AppState {
     pub config: Config,
     pub original_screenshot: Option<ImageBuffer<image::Rgba<u8>, Vec<u8>>>,
     pub hotkey_updated: bool,
-    pub use_maverick: bool,
+    pub model_selector: model_config::ModelSelector,
 }
 
 lazy_static! {
@@ -32,7 +33,7 @@ lazy_static! {
         config: load_config(),
         original_screenshot: None,
         hotkey_updated: false,
-        use_maverick: false,
+        model_selector: model_config::ModelSelector::new(model_config::USE_MODEL_ROTATION),
     }));
 }
 
