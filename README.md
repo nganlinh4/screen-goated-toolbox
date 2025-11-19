@@ -4,6 +4,22 @@ A Windows utility that translates text from any region of your screen using Groq
 
 **"Grounded"** = anchored/positioned on screen regions — translation appears exactly where you selected.
 
+<div align="center">
+  <video src="demo-video.mp4" width="100%" controls></video>
+</div>
+
+## Screenshots
+
+<div align="center">
+  <img src="settings-UI-light.png" height="500" alt="Settings Light Mode" />
+  <img src="settings-UI-dark.png" height="500" alt="Settings Dark Mode" />
+</div>
+
+<div align="center">
+  <p><em>System Tray Integration</em></p>
+  <img src="appearance-in-system-tray.png" alt="System Tray" />
+</div>
+
 ## Features
 
 - **Region Selection:** Drag-and-select any part of the screen to translate
