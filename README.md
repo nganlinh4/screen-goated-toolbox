@@ -1,4 +1,4 @@
-# Screen Grounded Translator
+# Screen Grounded Translator (SGT)
 
 A Windows utility that translates text from any region of your screen using Groq's Vision API. Capture a selected area, perform OCR and translation using Llama-based vision models, and view the result in an overlay.
 
