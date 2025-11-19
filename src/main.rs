@@ -146,6 +146,13 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
     match msg {
         WM_HOTKEY => {
             if wparam.0 == 1 {
+                // Check if selection overlay is already active, dismiss it instead of opening a new one
+                if overlay::is_selection_overlay_active_and_dismiss() {
+                    // Successfully dismissed the active overlay, don't create a new one
+                    return LRESULT(0);
+                }
+                
+                // No overlay active, proceed with normal capture flow
                 match capture_full_screen() {
                     Ok(img) => {
                         {

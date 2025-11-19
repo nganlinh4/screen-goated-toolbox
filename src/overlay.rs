@@ -18,15 +18,32 @@ static mut IS_DRAGGING: bool = false;
 static mut IS_PROCESSING: bool = false;
 static mut SCAN_LINE_Y: i32 = 0;
 static mut SCAN_DIR: i32 = 5;
+static mut SELECTION_OVERLAY_ACTIVE: bool = false;
+static mut SELECTION_OVERLAY_HWND: HWND = HWND(0);
 
 fn to_wstring(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+// Helper to check if selection overlay is currently active and dismiss it
+pub fn is_selection_overlay_active_and_dismiss() -> bool {
+    unsafe {
+        if SELECTION_OVERLAY_ACTIVE && SELECTION_OVERLAY_HWND.0 != 0 {
+            PostMessageW(SELECTION_OVERLAY_HWND, WM_CLOSE, WPARAM(0), LPARAM(0));
+            true
+        } else {
+            false
+        }
+    }
 }
 
 // --- 1. SELECTION OVERLAY ---
 
 pub fn show_selection_overlay() {
     unsafe {
+        // Mark overlay as active
+        SELECTION_OVERLAY_ACTIVE = true;
+        
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SnippingOverlay");
         
@@ -55,6 +72,9 @@ pub fn show_selection_overlay() {
             None, None, instance, None
         );
 
+        // Store the window handle
+        SELECTION_OVERLAY_HWND = hwnd;
+
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 100, LWA_ALPHA);
 
         let mut msg = MSG::default();
@@ -63,6 +83,10 @@ pub fn show_selection_overlay() {
             DispatchMessageW(&msg);
             if msg.message == WM_CLOSE { break; }
         }
+        
+        // Mark overlay as inactive when it closes
+        SELECTION_OVERLAY_ACTIVE = false;
+        SELECTION_OVERLAY_HWND = HWND(0);
         
         UnregisterClassW(class_name, instance);
     }
