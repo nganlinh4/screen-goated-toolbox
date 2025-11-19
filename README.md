@@ -4,8 +4,10 @@ A Windows utility that translates text from any region of your screen using Groq
 
 **"Grounded"** = anchored/positioned on screen regions — translation appears exactly where you selected.
 
+## Demo
+
 <div align="center">
-  <video src="demo-video.mp4" width="100%" controls></video>
+  <img src="demo-video.gif" width="100%" alt="Screen Grounded Translator Demo" />
 </div>
 
 ## Screenshots
