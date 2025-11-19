@@ -10,7 +10,6 @@ struct GroqResponse {
     translation: String,
 }
 
-// Requirement 5: Function now accepts `model` argument
 pub async fn translate_image(
     api_key: String,
     target_lang: String,
@@ -31,7 +30,7 @@ pub async fn translate_image(
     );
 
     let payload = serde_json::json!({
-        "model": model, // Dynamic model selection
+        "model": model,
         "messages": [
             {
                 "role": "user",

@@ -1,66 +1,42 @@
 use eframe::egui;
 use crate::config::{Config, save_config, ISO_LANGUAGES, UiLanguage};
 use std::sync::{Arc, Mutex};
+use tray_icon::{TrayIcon, TrayIconEvent, MouseButton, MouseButtonState, menu::{Menu, MenuEvent}};
+use auto_launch::AutoLaunch;
 
-// --- Font Configuration for I18n ---
+// --- Font Configuration ---
 pub fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-
-    // 1. Load Segoe UI (Standard Windows font, perfect for English & Vietnamese)
     let viet_font_name = "segoe_ui";
     let viet_font_path = "C:\\Windows\\Fonts\\segoeui.ttf";
     let viet_fallback_path = "C:\\Windows\\Fonts\\arial.ttf";
+    let viet_data = std::fs::read(viet_font_path).or_else(|_| std::fs::read(viet_fallback_path));
 
-    let viet_data = std::fs::read(viet_font_path)
-        .or_else(|_| std::fs::read(viet_fallback_path));
-
-    // 2. Load Malgun Gothic (Standard Windows font, perfect for Korean)
     let korean_font_name = "malgun_gothic";
     let korean_font_path = "C:\\Windows\\Fonts\\malgun.ttf";
     let korean_data = std::fs::read(korean_font_path);
 
-    // 3. Register Fonts
     if let Ok(data) = viet_data {
-        fonts.font_data.insert(
-            viet_font_name.to_owned(),
-            egui::FontData::from_owned(data),
-        );
-        
-        // PRIORITY 1: Insert Segoe UI at the very top
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-            vec.insert(0, viet_font_name.to_owned());
-        }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-            vec.insert(0, viet_font_name.to_owned());
-        }
+        fonts.font_data.insert(viet_font_name.to_owned(), egui::FontData::from_owned(data));
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { vec.insert(0, viet_font_name.to_owned()); }
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { vec.insert(0, viet_font_name.to_owned()); }
     }
-
     if let Ok(data) = korean_data {
-        fonts.font_data.insert(
-            korean_font_name.to_owned(),
-            egui::FontData::from_owned(data),
-        );
-        
-        // PRIORITY 2: Insert Malgun Gothic AFTER Segoe UI safely
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-            // Check existence using the mutable ref 'vec' directly
-            let has_viet = vec.contains(&viet_font_name.to_string());
-            let idx = if has_viet { 1 } else { 0 };
-            vec.insert(idx, korean_font_name.to_owned());
+        fonts.font_data.insert(korean_font_name.to_owned(), egui::FontData::from_owned(data));
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { 
+            let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
+            vec.insert(idx, korean_font_name.to_owned()); 
         }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-            let has_viet = vec.contains(&viet_font_name.to_string());
-            let idx = if has_viet { 1 } else { 0 };
-            vec.insert(idx, korean_font_name.to_owned());
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { 
+             let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
+             vec.insert(idx, korean_font_name.to_owned()); 
         }
     }
-
     ctx.set_fonts(fonts);
 }
 
-// --- Localization Struct ---
+// --- Localization ---
 struct LocaleText {
-    window_title: &'static str,
     api_section: &'static str,
     api_key_label: &'static str,
     get_key_link: &'static str,
@@ -69,9 +45,7 @@ struct LocaleText {
     hotkey_section: &'static str,
     hotkey_label: &'static str,
     restart_note: &'static str,
-    appearance_section: &'static str,
-    dark_mode: &'static str,
-    ui_lang_label: &'static str,
+    startup_label: &'static str,
     footer_note: &'static str,
 }
 
@@ -79,7 +53,6 @@ impl LocaleText {
     fn get(lang: &UiLanguage) -> Self {
         match lang {
             UiLanguage::English => Self {
-                window_title: "Screen Translator Settings",
                 api_section: "API Configuration",
                 api_key_label: "Groq API Key:",
                 get_key_link: "Get API Key at console.groq.com",
@@ -88,13 +61,10 @@ impl LocaleText {
                 hotkey_section: "Controls",
                 hotkey_label: "Activation Hotkey:",
                 restart_note: "Note: Restart app to apply hotkey changes.",
-                appearance_section: "Appearance & Language",
-                dark_mode: "Dark Mode",
-                ui_lang_label: "Interface Language:",
-                footer_note: "Minimize this window to keep running in background.",
+                startup_label: "Run at Windows Startup",
+                footer_note: "Press hotkey and select region to translate. Closing this window minimizes to System Tray.",
             },
             UiLanguage::Vietnamese => Self {
-                window_title: "Cài Đặt Dịch Màn Hình",
                 api_section: "Cấu Hình API",
                 api_key_label: "Mã API Groq:",
                 get_key_link: "Lấy mã tại console.groq.com",
@@ -103,13 +73,10 @@ impl LocaleText {
                 hotkey_section: "Điều Khiển",
                 hotkey_label: "Phím Tắt Kích Hoạt:",
                 restart_note: "Lưu ý: Khởi động lại để áp dụng phím tắt mới.",
-                appearance_section: "Giao Diện & Ngôn Ngữ",
-                dark_mode: "Chế Độ Tối",
-                ui_lang_label: "Ngôn Ngữ Hiển Thị:",
-                footer_note: "Thu nhỏ cửa sổ này để ứng dụng chạy ngầm.",
+                startup_label: "Khởi động cùng Windows",
+                footer_note: "Bấm hotkey và chọn vùng trên màn hình để dịch, tắt cửa sổ này thì ứng dụng sẽ tiếp tục chạy trong System Tray",
             },
             UiLanguage::Korean => Self {
-                window_title: "화면 번역기 설정",
                 api_section: "API 구성",
                 api_key_label: "Groq API 키:",
                 get_key_link: "console.groq.com에서 키 발급",
@@ -118,10 +85,8 @@ impl LocaleText {
                 hotkey_section: "단축키 설정",
                 hotkey_label: "활성화 키:",
                 restart_note: "참고: 단축키 변경은 앱을 재시작해야 적용됩니다.",
-                appearance_section: "화면 및 언어",
-                dark_mode: "다크 모드",
-                ui_lang_label: "인터페이스 언어:",
-                footer_note: "백그라운드에서 실행하려면 창을 최소화하세요.",
+                startup_label: "Windows 시작 시 실행",
+                footer_note: "단축키를 눌러 번역할 영역을 선택하세요. 창을 닫으면 트레이에서 실행됩니다.",
             },
         }
     }
@@ -131,14 +96,41 @@ pub struct SettingsApp {
     config: Config,
     app_state_ref: Arc<Mutex<crate::AppState>>,
     search_query: String,
+    _tray_icon: TrayIcon,
+    _tray_menu: Menu,
+    // Logic fields
+    is_quitting: bool,
+    run_at_startup: bool,
+    auto_launcher: Option<AutoLaunch>,
 }
 
 impl SettingsApp {
-    pub fn new(config: Config, app_state: Arc<Mutex<crate::AppState>>) -> Self {
+    pub fn new(config: Config, app_state: Arc<Mutex<crate::AppState>>, tray_icon: TrayIcon, tray_menu: Menu) -> Self {
+        // Initialize AutoLaunch
+        // FIX: Pass empty args slice `&[]` instead of `false`
+        let app_name = "ScreenTranslator";
+        let app_path = std::env::current_exe().unwrap();
+        let args: &[&str] = &[]; // No command line args
+        
+        let auto = AutoLaunch::new(
+            app_name,
+            app_path.to_str().unwrap(),
+            args,
+        );
+
+        // FIX: auto is not an Option here, so we access it directly
+        let run_at_startup = auto.is_enabled().unwrap_or(false);
+
         Self {
             config,
             app_state_ref: app_state,
             search_query: String::new(),
+            _tray_icon: tray_icon,
+            _tray_menu: tray_menu,
+            is_quitting: false,
+            run_at_startup,
+            // FIX: Wrap in Some() because struct expects Option<AutoLaunch>
+            auto_launcher: Some(auto),
         }
     }
 
@@ -154,7 +146,34 @@ impl SettingsApp {
 
 impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 1. Apply Theme
+        // --- Handle Tray Events ---
+        if let Ok(event) = TrayIconEvent::receiver().try_recv() {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
+        }
+        
+        // --- Handle Menu Events (Quit) ---
+        if let Ok(event) = MenuEvent::receiver().try_recv() {
+            if event.id.0 == "1001" {
+                // User explicitly clicked Quit in Tray
+                self.is_quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+
+        // --- Handle Window Close Request ---
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if !self.is_quitting {
+                // If NOT quitting via menu, just hide (minimize to tray)
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            }
+            // If self.is_quitting is true, we let it close normally, which terminates the app loop
+        }
+
+        // --- Apply Theme ---
         if self.config.dark_mode {
             ctx.set_visuals(egui::Visuals::dark());
         } else {
@@ -164,39 +183,41 @@ impl eframe::App for SettingsApp {
         let text = LocaleText::get(&self.config.ui_language);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading(text.window_title);
-            ui.add_space(10.0);
-
-            // --- Appearance & Interface Language ---
-            ui.group(|ui| {
-                ui.heading(text.appearance_section);
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut self.config.dark_mode, text.dark_mode).clicked() {
+            // --- HEADER ---
+            ui.horizontal(|ui| {
+                ui.heading("Made by nganlinh4");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let theme_icon = if self.config.dark_mode { "🌙" } else { "☀" };
+                    if ui.button(theme_icon).on_hover_text("Toggle Theme").clicked() {
+                        self.config.dark_mode = !self.config.dark_mode;
                         self.save_and_sync();
                     }
                     
-                    ui.separator();
-                    ui.label(text.ui_lang_label);
-                    
+                    ui.add_space(5.0);
+
                     let original_lang = self.config.ui_language.clone();
-                    
-                    egui::ComboBox::from_id_source("ui_lang")
-                        .selected_text(format!("{:?}", self.config.ui_language))
+                    egui::ComboBox::from_id_source("header_lang_switch")
+                        .width(60.0)
+                        .selected_text(match self.config.ui_language {
+                            UiLanguage::English => "EN",
+                            UiLanguage::Vietnamese => "VI",
+                            UiLanguage::Korean => "KO",
+                        })
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut self.config.ui_language, UiLanguage::English, "English");
                             ui.selectable_value(&mut self.config.ui_language, UiLanguage::Vietnamese, "Vietnamese");
                             ui.selectable_value(&mut self.config.ui_language, UiLanguage::Korean, "Korean");
                         });
-                    
+
                     if original_lang != self.config.ui_language {
                         self.save_and_sync();
                     }
                 });
             });
-            
-            ui.add_space(10.0);
 
-            // --- API Key Section ---
+            ui.add_space(15.0);
+
+            // --- API Key ---
             ui.group(|ui| {
                 ui.heading(text.api_section);
                 ui.label(text.api_key_label);
@@ -204,7 +225,6 @@ impl eframe::App for SettingsApp {
                 if response.changed() {
                     self.save_and_sync();
                 }
-                
                 if ui.link(text.get_key_link).clicked() {
                     let _ = open::that("https://console.groq.com/keys");
                 }
@@ -212,33 +232,41 @@ impl eframe::App for SettingsApp {
 
             ui.add_space(10.0);
 
-            // --- Language Section (ISO Search) ---
+            // --- Language ---
             ui.group(|ui| {
                 ui.heading(text.lang_section);
-                // Use hint_text instead of tooltip so it doesn't block the list
                 ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
-                
                 ui.add_space(5.0);
-                
                 egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
                     let q = self.search_query.to_lowercase();
                     let filtered = ISO_LANGUAGES.iter().filter(|l| l.to_lowercase().contains(&q));
-
                     for lang in filtered {
                         if ui.radio_value(&mut self.config.target_language, lang.to_string(), *lang).clicked() {
                             self.save_and_sync();
                         }
                     }
                 });
-                
                 ui.label(format!("Current: {}", self.config.target_language));
             });
 
             ui.add_space(10.0);
 
-            // --- Hotkey Section ---
+            // --- Controls (Hotkey + Startup) ---
             ui.group(|ui| {
                 ui.heading(text.hotkey_section);
+                
+                // Startup Checkbox
+                if let Some(launcher) = &self.auto_launcher {
+                    if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
+                         if self.run_at_startup {
+                             let _ = launcher.enable();
+                         } else {
+                             let _ = launcher.disable();
+                         }
+                    }
+                }
+                
+                ui.add_space(5.0);
                 ui.label(text.hotkey_label);
                 
                 egui::ComboBox::from_id_source("hotkey_selector")
@@ -254,7 +282,6 @@ impl eframe::App for SettingsApp {
                             ("F9", 120, "F9"),
                             ("F10", 121, "F10"),
                         ];
-
                         for (label, code, short) in keys {
                             if ui.selectable_label(self.config.hotkey_code == code, label).clicked() {
                                 self.config.hotkey_code = code;
@@ -264,11 +291,7 @@ impl eframe::App for SettingsApp {
                         }
                     });
                  
-                 let warn_color = if self.config.dark_mode {
-                     egui::Color32::YELLOW
-                 } else {
-                     egui::Color32::from_rgb(200, 0, 0)
-                 };
+                 let warn_color = if self.config.dark_mode { egui::Color32::YELLOW } else { egui::Color32::from_rgb(200, 0, 0) };
                  ui.small(egui::RichText::new(text.restart_note).color(warn_color));
             });
 
@@ -277,5 +300,12 @@ impl eframe::App for SettingsApp {
                 ui.label(egui::RichText::new(text.footer_note).italics().weak());
             });
         });
+        
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+
+    // Clean exit handler
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        std::process::exit(0);
     }
 }

@@ -11,7 +11,7 @@ pub enum UiLanguage {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
     pub api_key: String,
-    pub target_language: String, // The language to translate TO
+    pub target_language: String, 
     pub hotkey_code: u32,
     pub hotkey_name: String,
     pub dark_mode: bool,
@@ -53,7 +53,6 @@ pub fn save_config(config: &Config) {
     let _ = std::fs::write(path, data);
 }
 
-// Comprehensive ISO-style list for LLM target languages
 pub const ISO_LANGUAGES: &[&str] = &[
     "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian", "Bengali", 
     "Bosnian", "Bulgarian", "Catalan", "Cebuano", "Chichewa", "Chinese (Simplified)", "Chinese (Traditional)", 

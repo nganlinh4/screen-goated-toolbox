@@ -4,6 +4,7 @@ mod config;
 mod api;
 mod gui;
 mod overlay;
+mod icon_gen;
 
 use std::sync::{Arc, Mutex};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -16,12 +17,13 @@ use windows::core::*;
 use lazy_static::lazy_static;
 use image::ImageBuffer;
 use config::{Config, load_config};
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem}};
 
 pub struct AppState {
     pub config: Config,
     pub original_screenshot: Option<ImageBuffer<image::Rgba<u8>, Vec<u8>>>,
     pub hotkey_updated: bool,
-    pub use_maverick: bool, // Requirement 5: State for model rotation
+    pub use_maverick: bool,
 }
 
 lazy_static! {
@@ -40,9 +42,21 @@ fn main() -> eframe::Result<()> {
         run_hotkey_listener();
     });
 
+    let tray_menu = Menu::new();
+    let quit_i = MenuItem::with_id("1001", "Quit", true, None);
+    let _ = tray_menu.append(&quit_i);
+
+    let icon = icon_gen::generate_icon();
+    let tray_icon = TrayIconBuilder::new()
+        .with_menu(Box::new(tray_menu.clone()))
+        .with_tooltip("Screen Translator (nganlinh4)")
+        .with_icon(icon)
+        .build()
+        .unwrap();
+
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 600.0]) // Slightly taller for new UI elements
+            .with_inner_size([400.0, 650.0])
             .with_resizable(false),
         ..Default::default()
     };
@@ -50,12 +64,11 @@ fn main() -> eframe::Result<()> {
     let initial_config = APP.lock().unwrap().config.clone();
     
     eframe::run_native(
-        "Screen Translator Settings",
+        "Screen Translator",
         options,
-        Box::new(|cc| {
-            // Requirement 4: Configure Fonts on Startup
+        Box::new(move |cc| {
             gui::configure_fonts(&cc.egui_ctx);
-            Box::new(gui::SettingsApp::new(initial_config, APP.clone()))
+            Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_icon, tray_menu))
         }),
     )
 }
