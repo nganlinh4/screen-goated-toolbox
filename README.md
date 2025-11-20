@@ -7,19 +7,19 @@ A Windows utility that translates text from any region of your screen using Groq
 ## Demo
 
 <div align="center">
-  <img src="demo-video.gif" width="100%" alt="Screen Grounded Translator Demo" />
+  <img src="docs/images/demo-video.gif" width="100%" alt="Screen Grounded Translator Demo" />
 </div>
 
 ## Screenshots
 
 <div align="center">
-  <img src="settings-UI-light.png" height="500" alt="Settings Light Mode" />
-  <img src="settings-UI-dark.png" height="500" alt="Settings Dark Mode" />
+  <img src="docs/images/settings-UI-light.png" height="500" alt="Settings Light Mode" />
+  <img src="docs/images/settings-UI-dark.png" height="500" alt="Settings Dark Mode" />
 </div>
 
 <div align="center">
   <p><em>System Tray Integration</em></p>
-  <img src="appearance-in-system-tray.png" alt="System Tray" />
+  <img src="docs/images/appearance-in-system-tray.png" alt="System Tray" />
 </div>
 
 ## Features
