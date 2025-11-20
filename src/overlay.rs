@@ -357,20 +357,20 @@ pub fn show_result_window(target_rect: RECT, text: String) {
             }
             wc.lpszClassName = class_name;
             wc.style = CS_HREDRAW | CS_VREDRAW;
-            // Paint with dark brush for DWM
-            wc.hbrBackground = HBRUSH(1); // Black brush
+            // For layered windows, use NULL background - we paint everything in WM_PAINT
+            wc.hbrBackground = HBRUSH(0);
             RegisterClassW(&wc);
         }
 
         let width = (target_rect.right - target_rect.left).abs();
         let height = (target_rect.bottom - target_rect.top).abs();
         
-        // Create window with WS_EX_TOOLWINDOW to prevent taskbar appearance
+        // Create window hidden (no WS_VISIBLE) to prevent white flash
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             class_name,
             PCWSTR(to_wstring(&text).as_ptr()),
-            WS_POPUP | WS_VISIBLE,
+            WS_POPUP,
             target_rect.left, target_rect.top, width, height,
             None, None, instance, None
         );
@@ -378,13 +378,22 @@ pub fn show_result_window(target_rect: RECT, text: String) {
         // Set initial transparency
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
         
-        // Apply Mica backdrop (Win11+)
-        let policy = DWM_SYSTEMBACKDROP_TYPE(2); // DWMSBT_MAINWINDOW = Mica
-        let _ = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &policy as *const _ as *const _, size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32);
+        // Use DWM Rounded Corners (Windows 11 style) instead of SetWindowRgn
+        // 33 = DWMWA_WINDOW_CORNER_PREFERENCE, 2 = DWMWCP_ROUND
+        let corner_preference = 2u32;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(33), // DWMWA_WINDOW_CORNER_PREFERENCE
+            &corner_preference as *const _ as *const _,
+            size_of::<u32>() as u32
+        );
         
-        // Apply rounded corners using region
-        let rgn = CreateRoundRectRgn(0, 0, width + 1, height + 1, 12, 12);
-        SetWindowRgn(hwnd, rgn, true);
+        // Force initial paint before showing
+        InvalidateRect(hwnd, None, false);
+        UpdateWindow(hwnd);
+        
+        // NOW show the window with proper rendering
+        ShowWindow(hwnd, SW_SHOW);
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
@@ -397,6 +406,10 @@ pub fn show_result_window(target_rect: RECT, text: String) {
 
 unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
+        WM_ERASEBKGND => {
+            // Prevent white flash by not letting Windows erase the background
+            LRESULT(1)
+        }
         WM_LBUTTONUP => {
             IS_DISMISSING = true;
             SetTimer(hwnd, 2, 8, None); 
@@ -442,10 +455,10 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
             
-            // Paint dark semi-transparent background
-            let brush = CreateSolidBrush(COLORREF(0x00222222)); // Dark background
-            FillRect(hdc, &rect, brush);
-            DeleteObject(brush);
+            // Paint dark background
+            let dark_brush = CreateSolidBrush(COLORREF(0x00222222)); // Dark background
+            FillRect(hdc, &rect, dark_brush);
+            DeleteObject(dark_brush);
             
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, COLORREF(0x00FFFFFF)); // White text
