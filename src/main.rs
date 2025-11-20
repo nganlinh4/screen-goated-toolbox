@@ -21,6 +21,13 @@ use image::ImageBuffer;
 use config::{Config, load_config};
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem}};
 
+// Global event for inter-process restore signaling (manual-reset event)
+lazy_static! {
+    pub static ref RESTORE_EVENT: Option<windows::Win32::Foundation::HANDLE> = unsafe {
+        CreateEventW(None, true, false, w!("ScreenGroundedTranslatorRestoreEvent")).ok()
+    };
+}
+
 
 pub struct AppState {
     pub config: Config,
@@ -39,12 +46,18 @@ lazy_static! {
 }
 
 fn main() -> eframe::Result<()> {
+    // Ensure the named event exists (for first instance, for second instance to signal)
+    let _ = RESTORE_EVENT.as_ref();
+    
     // Keep the handle alive for the duration of the program
     let _single_instance_mutex = unsafe {
         let instance = CreateMutexW(None, true, w!("ScreenGroundedTranslatorSingleInstanceMutex"));
         if let Ok(handle) = instance {
             if GetLastError() == ERROR_ALREADY_EXISTS {
-                // Another instance is running
+                // Another instance is running - signal it to restore
+                if let Some(event) = RESTORE_EVENT.as_ref() {
+                    let _ = SetEvent(*event);
+                }
                 return Ok(());
             }
             Some(handle)
@@ -60,7 +73,11 @@ fn main() -> eframe::Result<()> {
     });
 
     let tray_menu = Menu::new();
+    // Added "Settings" option so users can explicitly click to restore
+    // Ensure IDs match what we handle in gui.rs
+    let settings_i = MenuItem::with_id("1002", "Settings", true, None);
     let quit_i = MenuItem::with_id("1001", "Quit", true, None);
+    let _ = tray_menu.append(&settings_i);
     let _ = tray_menu.append(&quit_i);
 
     let icon = icon_gen::generate_icon();

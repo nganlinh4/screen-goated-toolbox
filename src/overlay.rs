@@ -270,7 +270,6 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
         
         // Store settings before config is moved
         let auto_copy = config.auto_copy;
-        let target_lang = config.target_language.clone();
         let api_key = config.api_key.clone();
         
         // Blocking call - no async/await needed
@@ -316,15 +315,15 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
     }
 }
 
-// --- 2. RESULT WINDOW (Fixed Padding & Taskbar) ---
+// --- 2. RESULT WINDOW (BLUR ACRYLIC) ---
 
 static mut IS_DISMISSING: bool = false;
-static mut DISMISS_ALPHA: u8 = 220;
+static mut DISMISS_ALPHA: u8 = 255;
 
 pub fn show_result_window(target_rect: RECT, text: String) {
     unsafe {
         IS_DISMISSING = false;
-        DISMISS_ALPHA = 220;
+        DISMISS_ALPHA = 255;
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("TranslationResult");
         
@@ -332,10 +331,9 @@ pub fn show_result_window(target_rect: RECT, text: String) {
         if !GetClassInfoW(instance, class_name, &mut wc).as_bool() {
             wc.lpfnWndProc = Some(result_wnd_proc);
             wc.hInstance = instance;
-            // Load custom broom cursor from embedded data
+            // Load custom broom cursor
             static BROOM_CURSOR_DATA: &[u8] = include_bytes!("../broom.cur");
             
-            // Write cursor to temp file
             let temp_path = std::env::temp_dir().join("broom_cursor.cur");
             if let Ok(()) = std::fs::write(&temp_path, BROOM_CURSOR_DATA) {
                 let path_wide: Vec<u16> = temp_path.to_string_lossy()
@@ -358,13 +356,16 @@ pub fn show_result_window(target_rect: RECT, text: String) {
                 wc.hCursor = LoadCursorW(None, IDC_HAND).unwrap();
             }
             wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW | CS_DROPSHADOW;
+            wc.style = CS_HREDRAW | CS_VREDRAW;
+            // Paint with dark brush for DWM
+            wc.hbrBackground = HBRUSH(1); // Black brush
             RegisterClassW(&wc);
         }
 
         let width = (target_rect.right - target_rect.left).abs();
         let height = (target_rect.bottom - target_rect.top).abs();
         
+        // Create window with WS_EX_TOOLWINDOW to prevent taskbar appearance
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             class_name,
@@ -374,9 +375,16 @@ pub fn show_result_window(target_rect: RECT, text: String) {
             None, None, instance, None
         );
 
-        let policy = DWM_SYSTEMBACKDROP_TYPE(2);
+        // Set initial transparency
+        SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
+        
+        // Apply Mica backdrop (Win11+)
+        let policy = DWM_SYSTEMBACKDROP_TYPE(2); // DWMSBT_MAINWINDOW = Mica
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &policy as *const _ as *const _, size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32);
-        SetLayeredWindowAttributes(hwnd, COLORREF(0), DISMISS_ALPHA, LWA_ALPHA);
+        
+        // Apply rounded corners using region
+        let rgn = CreateRoundRectRgn(0, 0, width + 1, height + 1, 12, 12);
+        SetWindowRgn(hwnd, rgn, true);
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
@@ -390,22 +398,16 @@ pub fn show_result_window(target_rect: RECT, text: String) {
 unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_LBUTTONUP => {
-            // Start fade-out animation on left click
             IS_DISMISSING = true;
-            SetTimer(hwnd, 2, 8, None); // ~120 FPS (half duration)
+            SetTimer(hwnd, 2, 8, None); 
             LRESULT(0)
         }
         WM_RBUTTONUP => {
-            // Right-click: copy to clipboard
             let text_len = GetWindowTextLengthW(hwnd) + 1;
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
-            
-            // Convert back to String (remove null terminator)
             let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
             copy_to_clipboard(&text, hwnd);
-            
-            // Dismiss window
             IS_DISMISSING = true;
             SetTimer(hwnd, 2, 8, None);
             LRESULT(0)
@@ -426,7 +428,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             if wparam.0 == VK_ESCAPE.0 as usize { 
                 DestroyWindow(hwnd); 
             } else if wparam.0 == 'C' as usize {
-                // Ctrl+C to copy
                 let text_len = GetWindowTextLengthW(hwnd) + 1;
                 let mut buf = vec![0u16; text_len as usize];
                 GetWindowTextW(hwnd, &mut buf);
@@ -441,34 +442,30 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
             
-            // 2. Background
-            let brush = CreateSolidBrush(COLORREF(0x00151515)); // Dark Grey
+            // Paint dark semi-transparent background
+            let brush = CreateSolidBrush(COLORREF(0x00222222)); // Dark background
             FillRect(hdc, &rect, brush);
             DeleteObject(brush);
-
+            
             SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, COLORREF(0x00FFFFFF));
+            SetTextColor(hdc, COLORREF(0x00FFFFFF)); // White text
             
             let text_len = GetWindowTextLengthW(hwnd) + 1;
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
             
-            // --- SMART PADDING LOGIC ---
-            // Reduced from 20px to 4px to allow small text selections to fit
             let padding = 4; 
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
             let available_w = (width - (padding * 2)).max(1); 
             let available_h = (height - (padding * 2)).max(1);
 
-            // Binary Search for Font Size
+            // Binary search for optimal font size
             let mut low = 10;
             let mut high = 72;
-            let mut optimal_size = 10; // Default to min
+            let mut optimal_size = 10; 
             let mut text_h = 0;
 
-            // If the box is really small, allow even smaller fonts if necessary, 
-            // but 10 is usually the readbility floor.
             while low <= high {
                 let mid = (low + high) / 2;
                 let hfont = CreateFontW(mid, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
@@ -488,18 +485,17 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 }
             }
 
-            // Draw with Optimal Size & Vertical Centering
+            // Draw text
             let hfont = CreateFontW(optimal_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
             SelectObject(hdc, hfont);
 
-            // Center Vertically: Top = padding + (AvailableH - TextH) / 2
             let offset_y = (available_h - text_h) / 2;
             let mut draw_rect = rect;
             draw_rect.left += padding; 
             draw_rect.right -= padding;
             draw_rect.top += padding + offset_y;
             
-            DrawTextW(hdc, &mut buf, &mut draw_rect, DT_LEFT | DT_WORDBREAK);
+            DrawTextW(hdc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
             
             DeleteObject(hfont);
             EndPaint(hwnd, &mut ps);

@@ -1,10 +1,15 @@
-
 use eframe::egui;
 use crate::config::{Config, save_config, ISO_LANGUAGES, UiLanguage};
 use std::sync::{Arc, Mutex};
 use tray_icon::{TrayIcon, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
 use auto_launch::AutoLaunch;
 use std::sync::mpsc::{Receiver, channel};
+use std::sync::atomic::{AtomicBool, Ordering};
+use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::*;
+use windows::Win32::System::Threading::*;
+use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+use windows::core::*;
 
 enum UserEvent {
     Tray(TrayIconEvent),
@@ -81,7 +86,7 @@ impl LocaleText {
                 api_section: "Cấu Hình API",
                 api_key_label: "Mã API Groq:",
                 get_key_link: "Lấy mã tại console.groq.com",
-                lang_section: "Ngôn Ngữ Đích",
+                lang_section: "Ngôn Ngữ Dịch",
                 search_placeholder: "Tìm kiếm ngôn ngữ...",
                 current_language_label: "Hiện tại:",
                 hotkey_section: "Điều Khiển",
@@ -111,11 +116,16 @@ impl LocaleText {
     }
 }
 
+// Global signal for window restoration (accessible from tray thread)
+lazy_static::lazy_static! {
+    static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+}
+
 pub struct SettingsApp {
     config: Config,
     app_state_ref: Arc<Mutex<crate::AppState>>,
     search_query: String,
-    tray_icon: TrayIcon,
+    tray_icon: Option<TrayIcon>,
     _tray_menu: Menu,
     event_rx: Receiver<UserEvent>,
     // Logic fields
@@ -151,16 +161,98 @@ impl SettingsApp {
             }
         });
 
+        // Spawn thread to wait for inter-process restore event
+        let _tx_restore = tx.clone();
+        let ctx_restore = ctx.clone();
+        std::thread::spawn(move || {
+            loop {
+                unsafe {
+                    // Try to open existing event (created by main.rs)
+                    match OpenEventW(EVENT_ALL_ACCESS, false, w!("ScreenGroundedTranslatorRestoreEvent")) {
+                        Ok(event_handle) => {
+                            // Wait for the event to be signaled (infinite wait)
+                            let result = WaitForSingleObject(event_handle, INFINITE);
+                            
+                            // Event was signaled
+                            if result == WAIT_OBJECT_0 {
+                                // Restore the window using Windows API directly
+                                // (same as tray menu does, works even if UI loop isn't running)
+                                let class_name = w!("eframe");
+                                let mut hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), None);
+                                
+                                if hwnd.0 == 0 {
+                                    let title = w!("Screen Grounded Translator");
+                                    hwnd = FindWindowW(None, PCWSTR(title.as_ptr()));
+                                }
+                                
+                                if hwnd.0 != 0 {
+                                    ShowWindow(hwnd, SW_RESTORE);
+                                    ShowWindow(hwnd, SW_SHOW);
+                                    SetForegroundWindow(hwnd);
+                                    SetFocus(hwnd);
+                                }
+                                
+                                // Also set the signal for the UI loop in case it's running
+                                RESTORE_SIGNAL.store(true, Ordering::SeqCst);
+                                ctx_restore.request_repaint();
+                                
+                                // Reset the manual-reset event for the next signal
+                                let _ = ResetEvent(event_handle);
+                            }
+                            
+                            let _ = CloseHandle(event_handle);
+                        }
+                        Err(_) => {
+                            // Event doesn't exist yet, wait a bit and retry
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                    }
+                }
+            }
+        });
+
         let tx_menu = tx.clone();
         let ctx_menu = ctx.clone();
         std::thread::spawn(move || {
             while let Ok(event) = MenuEvent::receiver().recv() {
-                if event.id.0 == "1001" {
-                    // Force exit immediately from this thread
-                    std::process::exit(0);
+                match event.id.0.as_str() {
+                    "1001" => {
+                        // QUIT - exit immediately
+                        std::process::exit(0);
+                    }
+                    "1002" => {
+                        // RESTORE - use Windows API to restore window directly
+                        // This works even if the UI loop isn't running
+                        unsafe {
+                            // Find main window by class name
+                            let class_name = w!("eframe");
+                            let mut hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), None);
+                            
+                            // Also try to find by window name
+                            if hwnd.0 == 0 {
+                                let title = w!("Screen Grounded Translator");
+                                hwnd = FindWindowW(None, PCWSTR(title.as_ptr()));
+                            }
+                            
+                            if hwnd.0 != 0 {
+                                // Show and restore window
+                                ShowWindow(hwnd, SW_RESTORE);
+                                ShowWindow(hwnd, SW_SHOW);
+                                SetForegroundWindow(hwnd);
+                                SetFocus(hwnd);
+                            }
+                        }
+                        
+                        // Also send signal in case we did find it
+                        RESTORE_SIGNAL.store(true, Ordering::SeqCst);
+                        let _ = tx_menu.send(UserEvent::Menu(event.clone()));
+                        ctx_menu.request_repaint();
+                    }
+                    _ => {
+                        let _ = tx_menu.send(UserEvent::Menu(event));
+                        ctx_menu.request_repaint();
+                    }
                 }
-                let _ = tx_menu.send(UserEvent::Menu(event));
-                ctx_menu.request_repaint();
             }
         });
 
@@ -168,7 +260,7 @@ impl SettingsApp {
             config,
             app_state_ref: app_state,
             search_query: String::new(),
-            tray_icon,
+            tray_icon: Some(tray_icon),
             _tray_menu: tray_menu,
             event_rx: rx,
             is_quitting: false,
@@ -186,25 +278,34 @@ impl SettingsApp {
              state.hotkey_updated = true;
         }
     }
+    
+    fn restore_window(&self, ctx: &egui::Context) {
+         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+         ctx.request_repaint();
+    }
 }
 
 impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check if restore signal was set by tray thread
+        if RESTORE_SIGNAL.swap(false, Ordering::SeqCst) {
+            self.restore_window(ctx);
+        }
+
         // --- Handle Pending Events ---
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 UserEvent::Tray(tray_event) => {
                     if let TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = tray_event {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                        ctx.request_repaint();
+                        self.restore_window(ctx);
                     }
                 }
                 UserEvent::Menu(menu_event) => {
-                    // Fallback if thread didn't catch it (unlikely)
-                    if menu_event.id.0 == "1001" {
-                        let _ = self.tray_icon.set_visible(false);
-                        std::process::exit(0);
+                    if menu_event.id.0 == "1002" {
+                        // SETTINGS - restore window
+                        self.restore_window(ctx);
                     }
                 }
             }
@@ -368,12 +469,13 @@ impl eframe::App for SettingsApp {
             });
         });
         
-        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        // Always request repaint so update() keeps running even when window is hidden
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 
     // Clean exit handler
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // Explicitly hide/remove the tray icon on exit
-        let _ = self.tray_icon.set_visible(false);
+        self.tray_icon = None;
     }
 }
