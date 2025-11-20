@@ -2,17 +2,31 @@ use std::fs::File;
 use std::io::{Write, Result};
 
 fn main() -> Result<()> {
-    let width = 32u32;
-    let height = 32u32;
-    
-    // Hotspot at the tip of the broom bristles (Bottom-Left)
-    // Adjusted to (1, 27) based on the pixel data analysis of your image.
-    let hotspot_x = 1u16;
-    let hotspot_y = 27u16;
+    // Canvas dimensions
+    let width = 32;
+    let height = 32;
 
-    // 32x32 ARGB Pixel Data extracted from 'input_file_1.png'
-    // Format: 0xAARRGGBB
-    let pixels: [u32; 1024] = [
+    // ==========================================
+    // 0. CONFIGURATION (Added : f32 to fix the error)
+    // ==========================================
+    let scale: f32 = 0.75; 
+    let border_radius: f32 = 1.0; 
+    let blur_edge: f32 = 0.8; 
+    
+    // Original Hotspot
+    let orig_hotspot_x: f32 = 1.0;
+    let orig_hotspot_y: f32 = 27.0;
+
+    // Calculate New Hotspot (centered scaling)
+    let center: f32 = 15.5;
+    let new_hotspot_x = (center + (orig_hotspot_x - center) * scale).round() as u16;
+    let new_hotspot_y = (center + (orig_hotspot_y - center) * scale).round() as u16;
+    
+    println!("Hotspot updated: ({}, {}) -> ({}, {})", 
+             orig_hotspot_x, orig_hotspot_y, new_hotspot_x, new_hotspot_y);
+
+    // Source Pixels (32x32 ARGB)
+    let raw_pixels: [u32; 1024] = [
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000,
@@ -143,86 +157,197 @@ fn main() -> Result<()> {
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000
     ];
 
+    // ==========================================
+    // 1. GENERATE SCALED IMAGE
+    // ==========================================
+    let mut scaled_buffer = vec![0u32; 1024];
+
+    // Bilinear interpolation helper
+    let get_color = |x: f32, y: f32| -> (f32, f32, f32, f32) {
+        if x < 0.0 || y < 0.0 || x >= (width - 1) as f32 || y >= (height - 1) as f32 {
+            return (0.0, 0.0, 0.0, 0.0);
+        }
+        let x_l = x.floor() as usize;
+        let y_l = y.floor() as usize;
+        let x_h = x_l + 1;
+        let y_h = y_l + 1;
+        let dx = x - x_l as f32;
+        let dy = y - y_l as f32;
+
+        let get_px = |ix, iy| {
+            let p = raw_pixels[iy * 32 + ix];
+            let a = (p >> 24) as u8 as f32;
+            let r = (p >> 16) as u8 as f32;
+            let g = (p >> 8) as u8 as f32;
+            let b = (p & 0xFF) as u8 as f32;
+            (a, r, g, b)
+        };
+
+        let c00 = get_px(x_l, y_l);
+        let c10 = get_px(x_h, y_l);
+        let c01 = get_px(x_l, y_h);
+        let c11 = get_px(x_h, y_h);
+
+        let blend = |v00, v10, v01, v11| {
+            let top = v00 * (1.0 - dx) + v10 * dx;
+            let bot = v01 * (1.0 - dx) + v11 * dx;
+            top * (1.0 - dy) + bot * dy
+        };
+
+        (
+            blend(c00.0, c10.0, c01.0, c11.0),
+            blend(c00.1, c10.1, c01.1, c11.1),
+            blend(c00.2, c10.2, c01.2, c11.2),
+            blend(c00.3, c10.3, c01.3, c11.3),
+        )
+    };
+
+    // Apply scaling logic
+    for y in 0..height {
+        for x in 0..width {
+            // Map dst(x,y) -> src(x,y)
+            // (x - cx) / scale + cx
+            let src_x = (x as f32 - center) / scale + center;
+            let src_y = (y as f32 - center) / scale + center;
+            
+            let (a, r, g, b) = get_color(src_x, src_y);
+            
+            let pix = ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+            scaled_buffer[y * 32 + x] = pix;
+        }
+    }
+
+    // ==========================================
+    // 2. COMPOSITE WITH AA BORDER
+    // ==========================================
+    let mut final_buffer = vec![0u32; 1024];
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = y * 32 + x;
+            let fg = scaled_buffer[idx];
+            let fg_a = ((fg >> 24) & 0xFF) as f32 / 255.0;
+            let fg_r = ((fg >> 16) & 0xFF) as f32 / 255.0;
+            let fg_g = ((fg >> 8) & 0xFF) as f32 / 255.0;
+            let fg_b = (fg & 0xFF) as f32 / 255.0;
+
+            // Calculate distance to nearest opaque pixel in scaled_buffer
+            // This creates a smooth "SDF" (Signed Distance Field) outline
+            let mut min_dist = 100.0f32;
+            
+            // Optimization: Only scan relevant area
+            let scan_radius = (border_radius + 2.0) as i32;
+            for dy in -scan_radius..=scan_radius {
+                for dx in -scan_radius..=scan_radius {
+                    let nx = x as i32 + dx;
+                    let ny = y as i32 + dy;
+                    if nx >= 0 && nx < 32 && ny >= 0 && ny < 32 {
+                        let n_idx = (ny * 32 + nx) as usize;
+                        // If pixel is opaque enough to be considered "body"
+                        if (scaled_buffer[n_idx] >> 24) > 128 {
+                            let dist = ((dx*dx + dy*dy) as f32).sqrt();
+                            if dist < min_dist {
+                                min_dist = dist;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Border Logic
+            // If min_dist < border_radius, we are inside the border.
+            // Use 'blur_edge' to smooth the transition.
+            let mut border_alpha = 0.0;
+            if min_dist < border_radius + blur_edge {
+                let val = (border_radius + blur_edge - min_dist) / blur_edge;
+                border_alpha = val.clamp(0.0, 1.0);
+            }
+
+            // Composition: (FG over Border) over Background(Transparent)
+            // Border Color: White
+            let b_r = 1.0; let b_g = 1.0; let b_b = 1.0;
+            
+            // Result Alpha
+            // A_out = A_fg + A_border * (1 - A_fg)
+            let out_a = fg_a + border_alpha * (1.0 - fg_a);
+            
+            if out_a > 0.0 {
+                // Result Color (Premultiplied logic simplified)
+                // C_out = (C_fg * A_fg + C_border * A_border * (1 - A_fg)) / A_out
+                let out_r = (fg_r * fg_a + b_r * border_alpha * (1.0 - fg_a)) / out_a;
+                let out_g = (fg_g * fg_a + b_g * border_alpha * (1.0 - fg_a)) / out_a;
+                let out_b = (fg_b * fg_a + b_b * border_alpha * (1.0 - fg_a)) / out_a;
+
+                final_buffer[idx] = 
+                    ((out_a * 255.0) as u32) << 24 |
+                    ((out_r * 255.0) as u32) << 16 |
+                    ((out_g * 255.0) as u32) << 8 |
+                    ((out_b * 255.0) as u32);
+            }
+        }
+    }
+
+    // ==========================================
+    // 3. WRITE CURSOR FILE
+    // ==========================================
     let mut cursor_data = Vec::new();
 
-    // 1. ICONDIR
-    cursor_data.extend_from_slice(&[0, 0]); // Reserved
-    cursor_data.extend_from_slice(&[2, 0]); // Type = Cursor
-    cursor_data.extend_from_slice(&[1, 0]); // Count = 1
+    // ICONDIR
+    cursor_data.extend_from_slice(&[0, 0, 2, 0, 1, 0]); 
 
-    // 2. ICONDIRENTRY
+    // ICONDIRENTRY
     cursor_data.push(width as u8);
     cursor_data.push(height as u8);
-    cursor_data.push(0); // Palette (0=Truecolor)
-    cursor_data.push(0); // Reserved
-    cursor_data.extend_from_slice(&hotspot_x.to_le_bytes());
-    cursor_data.extend_from_slice(&hotspot_y.to_le_bytes());
+    cursor_data.push(0);
+    cursor_data.push(0);
+    cursor_data.extend_from_slice(&new_hotspot_x.to_le_bytes());
+    cursor_data.extend_from_slice(&new_hotspot_y.to_le_bytes());
     
-    // Placeholder for size and offset
     let size_offset_idx = cursor_data.len();
-    cursor_data.extend_from_slice(&[0, 0, 0, 0]); 
-    cursor_data.extend_from_slice(&[22, 0, 0, 0]); // Offset constant
+    cursor_data.extend_from_slice(&[0, 0, 0, 0]); // Size placeholder
+    cursor_data.extend_from_slice(&[22, 0, 0, 0]); // Offset
 
     let bmp_start = cursor_data.len();
 
-    // 3. BITMAPINFOHEADER
-    cursor_data.extend_from_slice(&40u32.to_le_bytes()); // Size
+    // BITMAPINFOHEADER
+    cursor_data.extend_from_slice(&40u32.to_le_bytes());
     cursor_data.extend_from_slice(&(width as i32).to_le_bytes());
     cursor_data.extend_from_slice(&((height * 2) as i32).to_le_bytes());
-    cursor_data.extend_from_slice(&1u16.to_le_bytes()); // Planes
-    cursor_data.extend_from_slice(&32u16.to_le_bytes()); // BitCount
-    cursor_data.extend_from_slice(&0u32.to_le_bytes()); // Compression
-    cursor_data.extend_from_slice(&0u32.to_le_bytes()); // SizeImage
-    cursor_data.extend_from_slice(&0i32.to_le_bytes());
-    cursor_data.extend_from_slice(&0i32.to_le_bytes());
-    cursor_data.extend_from_slice(&0u32.to_le_bytes());
-    cursor_data.extend_from_slice(&0u32.to_le_bytes());
+    cursor_data.extend_from_slice(&1u16.to_le_bytes());
+    cursor_data.extend_from_slice(&32u16.to_le_bytes());
+    cursor_data.extend_from_slice(&[0; 24]); // Compression, Size, etc. (0 is fine for uncompressed)
 
-    // 4. Pixel Data (XOR Mask) - Write Bottom-Up
+    // Pixel Data (Bottom-Up)
     for y in (0..height).rev() {
         for x in 0..width {
-            let idx = (y * width + x) as usize;
-            let pixel = pixels[idx];
-            
-            // BGRA
+            let idx = y * width + x;
+            let pixel = final_buffer[idx];
             let a = (pixel >> 24) as u8;
             let r = (pixel >> 16) as u8;
             let g = (pixel >> 8) as u8;
             let b = pixel as u8;
-            
             cursor_data.extend_from_slice(&[b, g, r, a]);
         }
     }
 
-    // 5. AND Mask (1-bit transparency)
-    // 0 = Opaque, 1 = Transparent
-    let row_padding = ((width + 31) / 32) * 4 - ((width + 7) / 8);
+    // AND Mask (Transparency Mask for compatibility)
     for y in (0..height).rev() {
         let mut byte = 0u8;
         for x in 0..width {
-            let idx = (y * width + x) as usize;
-            let alpha = (pixels[idx] >> 24) as u8;
-            
-            // If alpha is 0, set bit to 1 (Transparent). 
-            // Windows uses AND mask for transparency in non-alpha cursors, 
-            // but for 32-bit cursors, it uses the Alpha channel if valid.
-            // However, we must set AND mask correctly for backward compat 
-            // or standard behavior.
-            // Convention: If Alpha=0, Mask=1. Else Mask=0.
-            if alpha == 0 { 
+            let idx = y * width + x;
+            // If pixel is mostly transparent, set mask bit to 1
+            if (final_buffer[idx] >> 24) < 10 { 
                 byte |= 1 << (7 - (x % 8)); 
             }
-            
             if (x + 1) % 8 == 0 {
                 cursor_data.push(byte);
                 byte = 0;
             }
         }
         if width % 8 != 0 { cursor_data.push(byte); }
-        for _ in 0..row_padding { cursor_data.push(0); }
     }
 
-    // Patch file size
+    // Patch Size
     let size = (cursor_data.len() - bmp_start) as u32;
     let sb = size.to_le_bytes();
     cursor_data[size_offset_idx] = sb[0];
@@ -233,6 +358,6 @@ fn main() -> Result<()> {
     let mut file = File::create("broom.cur")?;
     file.write_all(&cursor_data)?;
 
-    println!("✅ Created 'broom.cur'");
+    println!("✅ Created 'broom.cur' with scaling and AA border!");
     Ok(())
 }
