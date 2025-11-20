@@ -57,9 +57,3 @@ impl ModelSelector {
 /// Set this to `true` to rotate between Scout and Maverick models
 /// Set this to `false` to always use Scout only
 pub const USE_MODEL_ROTATION: bool = false;
-
-/// Available model names for reference
-pub mod models {
-    pub const SCOUT: &str = "meta-llama/llama-4-scout-17b-16e-instruct";
-    pub const MAVERICK: &str = "meta-llama/llama-4-maverick-17b-128e-instruct";
-}
