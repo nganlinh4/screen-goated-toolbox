@@ -270,8 +270,8 @@ fn get_error_message(error: &str, lang: &str) -> String {
 
 fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) {
     let (img, config, model_name) = {
-        let mut guard = app.lock().unwrap();
-        let model = guard.model_selector.get_next_model();
+        let guard = app.lock().unwrap();
+        let model = guard.model_selector.get_model();
         (guard.original_screenshot.clone().unwrap(), guard.config.clone(), model)
     };
 

@@ -17,6 +17,7 @@ pub struct Config {
     pub dark_mode: bool,
     pub ui_language: String,
     pub auto_copy: bool,
+    pub preferred_model: String,
 }
 
 impl Default for Config {
@@ -45,6 +46,7 @@ impl Default for Config {
             dark_mode,
             ui_language,
             auto_copy: false,
+            preferred_model: "scout".to_string(),
         }
     }
 }

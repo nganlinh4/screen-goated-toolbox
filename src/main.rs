@@ -37,11 +37,15 @@ pub struct AppState {
 }
 
 lazy_static! {
-    pub static ref APP: Arc<Mutex<AppState>> = Arc::new(Mutex::new(AppState {
-        config: load_config(),
-        original_screenshot: None,
-        hotkeys_updated: false,
-        model_selector: model_config::ModelSelector::new(model_config::USE_MODEL_ROTATION),
+    pub static ref APP: Arc<Mutex<AppState>> = Arc::new(Mutex::new({
+        let config = load_config();
+        let model_selector = model_config::ModelSelector::new(config.preferred_model.clone());
+        AppState {
+            config,
+            original_screenshot: None,
+            hotkeys_updated: false,
+            model_selector,
+        }
     }));
 }
 

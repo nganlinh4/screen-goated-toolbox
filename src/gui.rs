@@ -70,6 +70,9 @@ struct LocaleText {
     press_keys: &'static str,
     active_hotkeys_label: &'static str,
     add_hotkey_button: &'static str,
+    cancel_label: &'static str,
+    model_section: &'static str,
+    model_label: &'static str,
 }
 
 impl LocaleText {
@@ -91,6 +94,9 @@ impl LocaleText {
                 press_keys: "Ấn phím/tổ hợp phím (vd: F1, Ctrl+Q)...",
                 active_hotkeys_label: "Phím Tắt Hiện Tại:",
                 add_hotkey_button: "+ Thêm Phím Tắt",
+                cancel_label: "Hủy",
+                model_section: "Mô Hình Dịch",
+                model_label: "Chọn Mô Hình:",
             },
             "ko" => Self {
                 api_section: "API 구성",
@@ -108,6 +114,9 @@ impl LocaleText {
                 press_keys: "키/단축키를 입력하세요 (예: F1, Ctrl+Q)...",
                 active_hotkeys_label: "활성화된 단축키:",
                 add_hotkey_button: "+ 단축키 추가",
+                cancel_label: "취소",
+                model_section: "번역 모델",
+                model_label: "모델 선택:",
             },
             _ => Self {
                 // English (default)
@@ -126,6 +135,9 @@ impl LocaleText {
                 press_keys: "Press key/combination (e.g. F1, Ctrl+Q)...",
                 active_hotkeys_label: "Active Hotkeys:",
                 add_hotkey_button: "+ Add Hotkey",
+                cancel_label: "Cancel",
+                model_section: "Translation Model",
+                model_label: "Select Model:",
             },
         }
     }
@@ -430,7 +442,46 @@ impl eframe::App for SettingsApp {
                     ui.label(format!("{} {}", text.current_language_label, self.config.target_language));
                 });
 
-                // RIGHT COLUMN: Controls
+                // RIGHT COLUMN: Controls and Model
+                cols[1].group(|ui| {
+                    ui.heading(text.model_section);
+                    ui.label(text.model_label);
+                    let original_model = self.config.preferred_model.clone();
+                    let is_vietnamese = self.config.ui_language == "vi";
+                    
+                    // Get current model label for display
+                    let current_label = crate::model_config::get_model_by_id(&self.config.preferred_model)
+                        .map(|m| m.get_label_short(is_vietnamese))
+                        .unwrap_or_else(|| "Nhanh".to_string());
+                    
+                    egui::ComboBox::from_id_source("model_selector")
+                        .selected_text(current_label)
+                        .show_ui(ui, |ui| {
+                            for model in crate::model_config::get_all_models() {
+                                if model.enabled {
+                                    ui.selectable_value(
+                                        &mut self.config.preferred_model,
+                                        model.id.clone(),
+                                        model.get_label(is_vietnamese),
+                                    );
+                                } else {
+                                    // Grayed out disabled model
+                                    ui.add_enabled(false, egui::SelectableLabel::new(false, model.get_label(is_vietnamese)));
+                                }
+                            }
+                        });
+                    if original_model != self.config.preferred_model {
+                        self.save_and_sync();
+                        // Update the model selector in app state
+                        {
+                            let mut state = self.app_state_ref.lock().unwrap();
+                            state.model_selector.set_preferred_model(self.config.preferred_model.clone());
+                        }
+                    }
+                });
+
+                cols[1].add_space(10.0);
+
                 cols[1].group(|ui| {
                     ui.heading(text.hotkey_section);
                 if let Some(launcher) = &self.auto_launcher {
@@ -474,7 +525,7 @@ impl eframe::App for SettingsApp {
                     if self.recording_hotkey {
                         ui.horizontal(|ui| {
                             ui.colored_label(egui::Color32::YELLOW, text.press_keys);
-                            if ui.button("Cancel").clicked() {
+                            if ui.button(text.cancel_label).clicked() {
                                 self.recording_hotkey = false;
                             }
                         });
