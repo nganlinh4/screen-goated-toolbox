@@ -58,6 +58,8 @@ struct LocaleText {
     api_section: &'static str,
     api_key_label: &'static str,
     get_key_link: &'static str,
+    gemini_api_key_label: &'static str,
+    gemini_get_key_link: &'static str,
     lang_section: &'static str,
     search_placeholder: &'static str,
     current_language_label: &'static str,
@@ -85,6 +87,8 @@ impl LocaleText {
                 api_section: "Cấu Hình API",
                 api_key_label: "Mã API Groq:",
                 get_key_link: "Lấy mã tại console.groq.com",
+                gemini_api_key_label: "Mã API Gemini:",
+                gemini_get_key_link: "Lấy mã tại aistudio.google.com",
                 lang_section: "Ngôn Ngữ Mục Tiêu",
                 search_placeholder: "Tìm kiếm ngôn ngữ...",
                 current_language_label: "Hiện tại:",
@@ -108,6 +112,8 @@ impl LocaleText {
                 api_section: "API 구성",
                 api_key_label: "Groq API 키:",
                 get_key_link: "console.groq.com에서 키 발급",
+                gemini_api_key_label: "Gemini API 키:",
+                gemini_get_key_link: "aistudio.google.com에서 키 발급",
                 lang_section: "번역 대상 언어",
                 search_placeholder: "언어 검색...",
                 current_language_label: "현재:",
@@ -132,6 +138,8 @@ impl LocaleText {
                 api_section: "API Configuration",
                 api_key_label: "Groq API Key:",
                 get_key_link: "Get API Key at console.groq.com",
+                gemini_api_key_label: "Gemini API Key:",
+                gemini_get_key_link: "Get API Key at aistudio.google.com",
                 lang_section: "Translation Target",
                 search_placeholder: "Search language...",
                 current_language_label: "Current:",
@@ -171,6 +179,7 @@ pub struct SettingsApp {
     run_at_startup: bool,
     auto_launcher: Option<AutoLaunch>,
     show_api_key: bool,
+    show_gemini_api_key: bool,
     recording_hotkey: bool,
 }
 
@@ -269,6 +278,7 @@ impl SettingsApp {
             run_at_startup,
             auto_launcher: Some(auto),
             show_api_key: false,
+            show_gemini_api_key: false,
             recording_hotkey: false,
         }
     }
@@ -433,6 +443,18 @@ impl eframe::App for SettingsApp {
                         if ui.button(eye_icon).clicked() { self.show_api_key = !self.show_api_key; }
                     });
                     if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
+                    
+                    ui.add_space(8.0);
+                    ui.label(text.gemini_api_key_label);
+                    ui.horizontal(|ui| {
+                        let available = ui.available_width() - 32.0;
+                        if ui.add(egui::TextEdit::singleline(&mut self.config.gemini_api_key).password(!self.show_gemini_api_key).desired_width(available)).changed() {
+                            self.save_and_sync();
+                        }
+                        let eye_icon = if self.show_gemini_api_key { "👁" } else { "🔒" };
+                        if ui.button(eye_icon).clicked() { self.show_gemini_api_key = !self.show_gemini_api_key; }
+                    });
+                    if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
                 });
 
                 cols[0].add_space(10.0);

@@ -82,7 +82,7 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "Chính xác hơn",
             "More Accurate",
             "gemini-flash-lite-latest",
-            false, // Upcoming, disabled
+            true,
         ),
     ]
 }

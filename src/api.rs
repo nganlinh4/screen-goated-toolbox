@@ -40,9 +40,11 @@ struct ChatMessage {
 }
 
 pub fn translate_image_streaming<F>(
-    api_key: &str,
+    groq_api_key: &str,
+    gemini_api_key: &str,
     target_lang: String,
     model: String,
+    provider: String,
     image: ImageBuffer<Rgba<u8>, Vec<u8>>,
     streaming_enabled: bool,
     mut on_chunk: F,
@@ -60,71 +62,159 @@ where
         target_lang
     );
 
-    let payload = serde_json::json!({
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    { "type": "text", "text": prompt },
-                    { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
-                ]
-            }
-        ],
-        "stream": streaming_enabled
-    });
-
-    // Check if API key is empty
-    if api_key.trim().is_empty() {
-        return Err(anyhow::anyhow!("NO_API_KEY"));
-    }
-
-    let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
-        .set("Authorization", &format!("Bearer {}", api_key))
-        .send_json(payload)
-        .map_err(|e| {
-            let err_str = e.to_string();
-            if err_str.contains("401") {
-                anyhow::anyhow!("INVALID_API_KEY")
-            } else {
-                anyhow::anyhow!("{}", err_str)
-            }
-        })?;
-
     let mut full_content = String::new();
 
-    if streaming_enabled {
-        let reader = BufReader::new(resp.into_reader());
-        for line in reader.lines() {
-            let line = line?;
-            
-            if line.starts_with("data: ") {
-                let data = &line[6..]; // Remove "data: " prefix
-                
-                if data == "[DONE]" {
-                    break;
-                }
-                
-                match serde_json::from_str::<StreamChunk>(data) {
-                    Ok(chunk) => {
-                        if let Some(content) = chunk.choices.get(0)
-                            .and_then(|c| c.delta.content.as_ref()) {
-                            full_content.push_str(content);
-                            // Call callback with the chunk as we receive it
-                            on_chunk(content);
+    if provider == "google" {
+        // Gemini API
+        if gemini_api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!("NO_API_KEY"));
+        }
+
+        let method = if streaming_enabled { "streamGenerateContent" } else { "generateContent" };
+        let url = if streaming_enabled {
+            format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:{}?alt=sse",
+                model, method
+            )
+        } else {
+            format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:{}",
+                model, method
+            )
+        };
+
+        let payload = serde_json::json!({
+            "contents": [{
+                "role": "user",
+                "parts": [
+                    { "text": prompt },
+                    {
+                        "inline_data": {
+                            "mime_type": "image/png",
+                            "data": b64_image
                         }
                     }
-                    Err(_) => continue, // Skip malformed chunks
+                ]
+            }]
+        });
+
+        let resp = ureq::post(&url)
+            .set("x-goog-api-key", gemini_api_key)
+            .send_json(payload)
+            .map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("401") || err_str.contains("403") {
+                    anyhow::anyhow!("INVALID_API_KEY")
+                } else {
+                    anyhow::anyhow!("{}", err_str)
+                }
+            })?;
+
+        if streaming_enabled {
+            let reader = BufReader::new(resp.into_reader());
+
+            for line in reader.lines() {
+                let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
+                if line.starts_with("data: ") {
+                    let json_str = &line["data: ".len()..];
+                    if json_str.trim() == "[DONE]" { break; }
+
+                    if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
+                        if let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array()) {
+                            if let Some(first_candidate) = candidates.first() {
+                                if let Some(parts) = first_candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+                                    if let Some(first_part) = parts.first() {
+                                        if let Some(text) = first_part.get("text").and_then(|t| t.as_str()) {
+                                            full_content.push_str(text);
+                                            on_chunk(text);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            let chat_resp: serde_json::Value = resp.into_json()
+                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+
+            if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array()) {
+                if let Some(first_choice) = candidates.first() {
+                    if let Some(parts) = first_choice.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+                        full_content = parts.iter()
+                            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                            .collect::<String>();
+                        
+                        on_chunk(&full_content);
+                    }
                 }
             }
         }
     } else {
-        let chat_resp: ChatCompletionResponse = resp.into_json()
-            .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
-            
-        if let Some(choice) = chat_resp.choices.first() {
-            full_content = choice.message.content.clone();
-            on_chunk(&full_content);
+        // Groq API (default)
+        if groq_api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!("NO_API_KEY"));
+        }
+
+        let payload = serde_json::json!({
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": prompt },
+                        { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                    ]
+                }
+            ],
+            "stream": streaming_enabled
+        });
+
+        let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
+            .set("Authorization", &format!("Bearer {}", groq_api_key))
+            .send_json(payload)
+            .map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("401") {
+                    anyhow::anyhow!("INVALID_API_KEY")
+                } else {
+                    anyhow::anyhow!("{}", err_str)
+                }
+            })?;
+
+        if streaming_enabled {
+            let reader = BufReader::new(resp.into_reader());
+            for line in reader.lines() {
+                let line = line?;
+                
+                if line.starts_with("data: ") {
+                    let data = &line[6..];
+                    
+                    if data == "[DONE]" {
+                        break;
+                    }
+                    
+                    match serde_json::from_str::<StreamChunk>(data) {
+                        Ok(chunk) => {
+                            if let Some(content) = chunk.choices.get(0)
+                                .and_then(|c| c.delta.content.as_ref()) {
+                                full_content.push_str(content);
+                                on_chunk(content);
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+        } else {
+            let chat_resp: ChatCompletionResponse = resp.into_json()
+                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+                
+            if let Some(choice) = chat_resp.choices.first() {
+                full_content = choice.message.content.clone();
+                on_chunk(&full_content);
+            }
         }
     }
 

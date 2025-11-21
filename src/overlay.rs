@@ -275,10 +275,13 @@ fn get_error_message(error: &str, lang: &str) -> String {
 }
 
 fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) {
-    let (img, config, model_name) = {
+    let (img, config, model_name, provider) = {
         let guard = app.lock().unwrap();
+        let model_id = &guard.config.preferred_model;
+        let model_config = crate::model_config::get_model_by_id(model_id);
         let model = guard.model_selector.get_model();
-        (guard.original_screenshot.clone().unwrap(), guard.config.clone(), model)
+        let provider = model_config.map(|m| m.provider.clone()).unwrap_or_else(|| "groq".to_string());
+        (guard.original_screenshot.clone().unwrap(), guard.config.clone(), model, provider)
     };
 
     let x_virt = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
@@ -299,7 +302,8 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
         
         // Store settings before config is moved
         let auto_copy = config.auto_copy;
-        let api_key = config.api_key.clone();
+        let groq_api_key = config.api_key.clone();
+        let gemini_api_key = config.gemini_api_key.clone();
         let ui_language = config.ui_language.clone();
         let target_lang = config.target_language.clone();
         let streaming_enabled = config.streaming_enabled;
@@ -320,7 +324,7 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
                 let mut first_chunk_received = false;
                 
                 // Blocking call with callback for real-time updates
-                let res = translate_image_streaming(&api_key, target_lang, model_name, cropped, streaming_enabled, |chunk| {
+                let res = translate_image_streaming(&groq_api_key, &gemini_api_key, target_lang, model_name, provider, cropped, streaming_enabled, |chunk| {
                     let mut text = accumulated_clone.lock().unwrap();
                     text.push_str(chunk);
                     

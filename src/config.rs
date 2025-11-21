@@ -12,6 +12,7 @@ pub struct Hotkey {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
     pub api_key: String,
+    pub gemini_api_key: String,
     pub target_language: String,
     pub hotkeys: Vec<Hotkey>,
     pub dark_mode: bool,
@@ -43,6 +44,7 @@ impl Default for Config {
 
         Self {
             api_key: "".to_string(),
+            gemini_api_key: "".to_string(),
             target_language: "vi".to_string(),
             hotkeys: vec![Hotkey {
                 code: 192, // VK_OEM_3 (~)
