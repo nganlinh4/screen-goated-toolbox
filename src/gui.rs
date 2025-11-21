@@ -68,6 +68,8 @@ struct LocaleText {
     footer_note: &'static str,
     auto_copy_label: &'static str,
     press_keys: &'static str,
+    active_hotkeys_label: &'static str,
+    add_hotkey_button: &'static str,
 }
 
 impl LocaleText {
@@ -86,7 +88,9 @@ impl LocaleText {
                 fullscreen_note: "⚠ To use hotkey in fullscreen apps/games, run this app as Administrator.",
                 footer_note: "Press hotkey and select region to translate. Closing this window minimizes to System Tray.",
                 auto_copy_label: "Auto copy translation",
-                press_keys: "Press combination (e.g. Ctrl+Q)...",
+                press_keys: "Press key/combination (e.g. F1, Ctrl+Q)...",
+                active_hotkeys_label: "Active Hotkeys:",
+                add_hotkey_button: "+ Add Hotkey",
             },
             UiLanguage::Vietnamese => Self {
                 api_section: "Cấu Hình API",
@@ -101,7 +105,9 @@ impl LocaleText {
                 fullscreen_note: "⚠ Để sử dụng phím tắt trong các ứng dụng/trò chơi fullscreen, hãy chạy ứng dụng này dưới quyền Quản trị viên.",
                 footer_note: "Bấm hotkey và chọn vùng trên màn hình để dịch, tắt cửa sổ này thì ứng dụng sẽ tiếp tục chạy trong System Tray",
                 auto_copy_label: "Tự động copy bản dịch",
-                press_keys: "Ấn tổ hợp phím (vd: Ctrl+Q)...",
+                press_keys: "Ấn phím/tổ hợp phím (vd: F1, Ctrl+Q)...",
+                active_hotkeys_label: "Phím Tắt Hiện Tại:",
+                add_hotkey_button: "+ Thêm Phím Tắt",
             },
             UiLanguage::Korean => Self {
                 api_section: "API 구성",
@@ -116,7 +122,9 @@ impl LocaleText {
                 fullscreen_note: "⚠ 풀스크린 앱/게임에서 단축키를 사용하려면 관리자 권한으로 이 앱을 실행하세요.",
                 footer_note: "단축키를 눌러 번역할 영역을 선택하세요. 창을 닫으면 트레이에서 실행됩니다.",
                 auto_copy_label: "번역 자동 복사",
-                press_keys: "단축키를 입력하세요 (예: Ctrl+Q)...",
+                press_keys: "키/단축키를 입력하세요 (예: F1, Ctrl+Q)...",
+                active_hotkeys_label: "활성화된 단축키:",
+                add_hotkey_button: "+ 단축키 추가",
             },
         }
     }
@@ -384,45 +392,44 @@ impl eframe::App for SettingsApp {
 
             ui.add_space(15.0);
 
-            // --- API Key ---
-            ui.group(|ui| {
-                ui.heading(text.api_section);
-                ui.label(text.api_key_label);
-                ui.horizontal(|ui| {
-                    let available = ui.available_width() - 32.0;
-                    if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(available)).changed() {
-                        self.save_and_sync();
-                    }
-                    let eye_icon = if self.show_api_key { "👁" } else { "🔒" };
-                    if ui.button(eye_icon).clicked() { self.show_api_key = !self.show_api_key; }
-                });
-                if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
-            });
-
-            ui.add_space(10.0);
-
-            // --- Language ---
-            ui.group(|ui| {
-                ui.heading(text.lang_section);
-                ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
-                ui.add_space(5.0);
-                egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
-                    let q = self.search_query.to_lowercase();
-                    let filtered = ISO_LANGUAGES.iter().filter(|l| l.to_lowercase().contains(&q));
-                    for lang in filtered {
-                        if ui.radio_value(&mut self.config.target_language, lang.to_string(), *lang).clicked() {
+            // --- TWO COLUMN LAYOUT ---
+            ui.columns(2, |cols| {
+                // LEFT COLUMN: API Key and Language
+                cols[0].group(|ui| {
+                    ui.heading(text.api_section);
+                    ui.label(text.api_key_label);
+                    ui.horizontal(|ui| {
+                        let available = ui.available_width() - 32.0;
+                        if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(available)).changed() {
                             self.save_and_sync();
                         }
-                    }
+                        let eye_icon = if self.show_api_key { "👁" } else { "🔒" };
+                        if ui.button(eye_icon).clicked() { self.show_api_key = !self.show_api_key; }
+                    });
+                    if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
                 });
-                ui.label(format!("{} {}", text.current_language_label, self.config.target_language));
-            });
 
-            ui.add_space(10.0);
+                cols[0].add_space(10.0);
 
-            // --- Controls ---
-            ui.group(|ui| {
-                ui.heading(text.hotkey_section);
+                cols[0].group(|ui| {
+                    ui.heading(text.lang_section);
+                    ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
+                    ui.add_space(5.0);
+                    egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                        let q = self.search_query.to_lowercase();
+                        let filtered = ISO_LANGUAGES.iter().filter(|l| l.to_lowercase().contains(&q));
+                        for lang in filtered {
+                            if ui.radio_value(&mut self.config.target_language, lang.to_string(), *lang).clicked() {
+                                self.save_and_sync();
+                            }
+                        }
+                    });
+                    ui.label(format!("{} {}", text.current_language_label, self.config.target_language));
+                });
+
+                // RIGHT COLUMN: Controls
+                cols[1].group(|ui| {
+                    ui.heading(text.hotkey_section);
                 if let Some(launcher) = &self.auto_launcher {
                     if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
                          if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
@@ -431,37 +438,52 @@ impl eframe::App for SettingsApp {
                 ui.add_space(8.0);
                 if ui.checkbox(&mut self.config.auto_copy, text.auto_copy_label).clicked() { self.save_and_sync(); }
                 ui.add_space(8.0);
-                ui.label(text.hotkey_label);
+                ui.label(egui::RichText::new(text.hotkey_label).strong());
                 
-                // List Hotkeys
-                let hotkey_list: Vec<_> = self.config.hotkeys.iter().cloned().collect();
-                for (idx, hotkey) in hotkey_list.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        // Display the combo name (e.g. "Ctrl + Shift + S")
-                        ui.strong(&hotkey.name);
-                        if ui.button("✖").on_hover_text("Remove").clicked() {
-                            self.config.hotkeys.remove(idx);
+                    // List Hotkeys in a grid layout
+                    let hotkey_list: Vec<_> = self.config.hotkeys.iter().cloned().collect();
+                    if !hotkey_list.is_empty() {
+                        ui.label(text.active_hotkeys_label);
+                        let mut grid_indices_to_remove = Vec::new();
+                        egui::Grid::new("hotkey_grid")
+                            .num_columns(2)
+                            .spacing([8.0, 5.0])
+                            .show(ui, |ui| {
+                                for (idx, hotkey) in hotkey_list.iter().enumerate() {
+                                    ui.strong(&hotkey.name);
+                                    if ui.small_button("✖").on_hover_text("Remove").clicked() {
+                                        grid_indices_to_remove.push(idx);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                        
+                        // Remove hotkeys in reverse order to maintain correct indices
+                        for idx in grid_indices_to_remove.iter().rev() {
+                            self.config.hotkeys.remove(*idx);
+                        }
+                        if !grid_indices_to_remove.is_empty() {
                             self.save_and_sync();
                         }
-                    });
-                }
-                
-                // Recorder
-                if self.recording_hotkey {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(egui::Color32::YELLOW, text.press_keys);
-                        if ui.button("Cancel").clicked() {
-                            self.recording_hotkey = false;
-                        }
-                    });
-                } else {
-                    if ui.button("+ Add Shortcut").clicked() {
-                        self.recording_hotkey = true;
                     }
-                }
-                  
-                let warn_color = if self.config.dark_mode { egui::Color32::YELLOW } else { egui::Color32::from_rgb(200, 0, 0) };
-                ui.small(egui::RichText::new(text.fullscreen_note).color(warn_color));
+                    
+                    // Recorder
+                    if self.recording_hotkey {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(egui::Color32::YELLOW, text.press_keys);
+                            if ui.button("Cancel").clicked() {
+                                self.recording_hotkey = false;
+                            }
+                        });
+                    } else {
+                        if ui.button(text.add_hotkey_button).clicked() {
+                            self.recording_hotkey = true;
+                        }
+                    }
+                      
+                    let warn_color = if self.config.dark_mode { egui::Color32::YELLOW } else { egui::Color32::from_rgb(200, 0, 0) };
+                    ui.small(egui::RichText::new(text.fullscreen_note).color(warn_color));
+                });
             });
 
             ui.add_space(20.0);

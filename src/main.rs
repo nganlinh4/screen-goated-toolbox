@@ -89,7 +89,7 @@ fn main() -> eframe::Result<()> {
         .unwrap();
 
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([400.0, 650.0])
+        .with_inner_size([600.0, 500.0])
         .with_resizable(true);
     
     // Set window icon - embedded in binary
