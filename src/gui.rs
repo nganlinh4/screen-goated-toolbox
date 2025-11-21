@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::config::{Config, save_config, ISO_LANGUAGES, UiLanguage};
+use crate::config::{Config, save_config, get_all_languages};
 use std::sync::{Arc, Mutex};
 use tray_icon::{TrayIcon, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
 use auto_launch::AutoLaunch;
@@ -73,26 +73,9 @@ struct LocaleText {
 }
 
 impl LocaleText {
-    fn get(lang: &UiLanguage) -> Self {
-        match lang {
-            UiLanguage::English => Self {
-                api_section: "API Configuration",
-                api_key_label: "Groq API Key:",
-                get_key_link: "Get API Key at console.groq.com",
-                lang_section: "Translation Target",
-                search_placeholder: "Search language...",
-                current_language_label: "Current:",
-                hotkey_section: "Controls",
-                hotkey_label: "Activation Hotkey:",
-                startup_label: "Run at Windows Startup",
-                fullscreen_note: "⚠ To use hotkey in fullscreen apps/games, run this app as Administrator.",
-                footer_note: "Press hotkey and select region to translate. Closing this window minimizes to System Tray.",
-                auto_copy_label: "Auto copy translation",
-                press_keys: "Press key/combination (e.g. F1, Ctrl+Q)...",
-                active_hotkeys_label: "Active Hotkeys:",
-                add_hotkey_button: "+ Add Hotkey",
-            },
-            UiLanguage::Vietnamese => Self {
+    fn get(lang_code: &str) -> Self {
+        match lang_code {
+            "vi" => Self {
                 api_section: "Cấu Hình API",
                 api_key_label: "Mã API Groq:",
                 get_key_link: "Lấy mã tại console.groq.com",
@@ -109,7 +92,7 @@ impl LocaleText {
                 active_hotkeys_label: "Phím Tắt Hiện Tại:",
                 add_hotkey_button: "+ Thêm Phím Tắt",
             },
-            UiLanguage::Korean => Self {
+            "ko" => Self {
                 api_section: "API 구성",
                 api_key_label: "Groq API 키:",
                 get_key_link: "console.groq.com에서 키 발급",
@@ -125,6 +108,24 @@ impl LocaleText {
                 press_keys: "키/단축키를 입력하세요 (예: F1, Ctrl+Q)...",
                 active_hotkeys_label: "활성화된 단축키:",
                 add_hotkey_button: "+ 단축키 추가",
+            },
+            _ => Self {
+                // English (default)
+                api_section: "API Configuration",
+                api_key_label: "Groq API Key:",
+                get_key_link: "Get API Key at console.groq.com",
+                lang_section: "Translation Target",
+                search_placeholder: "Search language...",
+                current_language_label: "Current:",
+                hotkey_section: "Controls",
+                hotkey_label: "Activation Hotkey:",
+                startup_label: "Run at Windows Startup",
+                fullscreen_note: "⚠ To use hotkey in fullscreen apps/games, run this app as Administrator.",
+                footer_note: "Press hotkey and select region to translate. Closing this window minimizes to System Tray.",
+                auto_copy_label: "Auto copy translation",
+                press_keys: "Press key/combination (e.g. F1, Ctrl+Q)...",
+                active_hotkeys_label: "Active Hotkeys:",
+                add_hotkey_button: "+ Add Hotkey",
             },
         }
     }
@@ -372,17 +373,18 @@ impl eframe::App for SettingsApp {
                     }
                     ui.add_space(5.0);
                     let original_lang = self.config.ui_language.clone();
+                    let lang_display = match self.config.ui_language.as_str() {
+                        "vi" => "VI",
+                        "ko" => "KO",
+                        _ => "EN",
+                    };
                     egui::ComboBox::from_id_source("header_lang_switch")
                         .width(60.0)
-                        .selected_text(match self.config.ui_language {
-                            UiLanguage::English => "EN",
-                            UiLanguage::Vietnamese => "VI",
-                            UiLanguage::Korean => "KO",
-                        })
+                        .selected_text(lang_display)
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.config.ui_language, UiLanguage::English, "English");
-                            ui.selectable_value(&mut self.config.ui_language, UiLanguage::Vietnamese, "Vietnamese");
-                            ui.selectable_value(&mut self.config.ui_language, UiLanguage::Korean, "Korean");
+                            ui.selectable_value(&mut self.config.ui_language, "en".to_string(), "English");
+                            ui.selectable_value(&mut self.config.ui_language, "vi".to_string(), "Vietnamese");
+                            ui.selectable_value(&mut self.config.ui_language, "ko".to_string(), "Korean");
                         });
                     if original_lang != self.config.ui_language {
                         self.save_and_sync();
@@ -417,9 +419,10 @@ impl eframe::App for SettingsApp {
                     ui.add_space(5.0);
                     egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
                         let q = self.search_query.to_lowercase();
-                        let filtered = ISO_LANGUAGES.iter().filter(|l| l.to_lowercase().contains(&q));
+                        let all_languages = get_all_languages();
+                        let filtered = all_languages.iter().filter(|l| l.to_lowercase().contains(&q));
                         for lang in filtered {
-                            if ui.radio_value(&mut self.config.target_language, lang.to_string(), *lang).clicked() {
+                            if ui.radio_value(&mut self.config.target_language, lang.clone(), lang).clicked() {
                                 self.save_and_sync();
                             }
                         }

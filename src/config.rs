@@ -1,12 +1,6 @@
+use isolang::Language;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum UiLanguage {
-    English,
-    Vietnamese,
-    Korean,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Hotkey {
@@ -18,10 +12,10 @@ pub struct Hotkey {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
     pub api_key: String,
-    pub target_language: String, 
+    pub target_language: String,
     pub hotkeys: Vec<Hotkey>,
     pub dark_mode: bool,
-    pub ui_language: UiLanguage,
+    pub ui_language: String,
     pub auto_copy: bool,
 }
 
@@ -31,15 +25,10 @@ impl Default for Config {
         let ui_language = match sys_locale::get_locale() {
             Some(locale) => {
                 let lang = locale.to_lowercase();
-                if lang.starts_with("vi") {
-                    UiLanguage::Vietnamese
-                } else if lang.starts_with("ko") {
-                    UiLanguage::Korean
-                } else {
-                    UiLanguage::English
-                }
+                // Extract language code (e.g., "vi" from "vi_VN")
+                lang.split('_').next().unwrap_or("en").to_string()
             }
-            None => UiLanguage::English,
+            None => "en".to_string(),
         };
 
         // Detect system dark mode (Windows 10/11)
@@ -47,7 +36,7 @@ impl Default for Config {
 
         Self {
             api_key: "".to_string(),
-            target_language: "Vietnamese".to_string(),
+            target_language: "vi".to_string(),
             hotkeys: vec![Hotkey {
                 code: 192, // VK_OEM_3 (~)
                 name: "` / ~".to_string(),
@@ -64,7 +53,7 @@ fn is_system_dark_mode() -> bool {
     // Check Windows registry for AppsUseLightTheme (0 = dark, 1 = light)
     use winreg::RegKey;
     use winreg::enums::HKEY_CURRENT_USER;
-    
+
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     match hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize") {
         Ok(key) => {
@@ -77,7 +66,9 @@ fn is_system_dark_mode() -> bool {
 }
 
 pub fn get_config_path() -> PathBuf {
-    let config_dir = dirs::config_dir().unwrap_or_default().join("screen-grounded-translator");
+    let config_dir = dirs::config_dir()
+        .unwrap_or_default()
+        .join("screen-grounded-translator");
     let _ = std::fs::create_dir_all(&config_dir);
     config_dir.join("config.json")
 }
@@ -98,17 +89,30 @@ pub fn save_config(config: &Config) {
     let _ = std::fs::write(path, data);
 }
 
-pub const ISO_LANGUAGES: &[&str] = &[
-    "Afrikaans", "Albanian", "Amharic", "Arabic", "Armenian", "Azerbaijani", "Basque", "Belarusian", "Bengali", 
-    "Bosnian", "Bulgarian", "Catalan", "Cebuano", "Chichewa", "Chinese (Simplified)", "Chinese (Traditional)", 
-    "Corsican", "Croatian", "Czech", "Danish", "Dutch", "English", "Esperanto", "Estonian", "Filipino", "Finnish", 
-    "French", "Frisian", "Galician", "Georgian", "German", "Greek", "Gujarati", "Haitian Creole", "Hausa", 
-    "Hawaiian", "Hebrew", "Hindi", "Hmong", "Hungarian", "Icelandic", "Igbo", "Indonesian", "Irish", "Italian", 
-    "Japanese", "Javanese", "Kannada", "Kazakh", "Khmer", "Korean", "Kurdish (Kurmanji)", "Kyrgyz", "Lao", 
-    "Latin", "Latvian", "Lithuanian", "Luxembourgish", "Macedonian", "Malagasy", "Malay", "Malayalam", "Maltese", 
-    "Maori", "Marathi", "Mongolian", "Myanmar (Burmese)", "Nepali", "Norwegian", "Pashto", "Persian", "Polish", 
-    "Portuguese", "Punjabi", "Romanian", "Russian", "Samoan", "Scots Gaelic", "Serbian", "Sesotho", "Shona", 
-    "Sindhi", "Sinhala", "Slovak", "Slovenian", "Somali", "Spanish", "Sundanese", "Swahili", "Swedish", "Tajik", 
-    "Tamil", "Telugu", "Thai", "Turkish", "Ukrainian", "Urdu", "Uzbek", "Vietnamese", "Welsh", "Xhosa", "Yiddish", 
-    "Yoruba", "Zulu"
-];
+/// Get all available languages as a vector of language name strings
+pub fn get_all_languages() -> Vec<String> {
+    // Use Language::from_usize to iterate through all languages
+    // ISO 639-3 has ~7000+ language codes, so we iterate up to a safe upper bound
+    let mut languages = Vec::new();
+    for i in 0..10000 {
+        if let Some(lang) = Language::from_usize(i) {
+            languages.push(lang.to_name().to_string());
+        }
+    }
+    // Remove duplicates and sort
+    languages.sort();
+    languages.dedup();
+    languages
+}
+
+/// Check if a language code is valid (supports ISO 639-1 and 639-3)
+pub fn is_valid_language_code(code: &str) -> bool {
+    Language::from_639_1(code).is_some() || Language::from_639_3(code).is_some()
+}
+
+/// Get language name from ISO 639-1 or 639-3 code
+pub fn get_language_name(code: &str) -> Option<String> {
+    Language::from_639_1(code)
+        .or_else(|| Language::from_639_3(code))
+        .map(|lang| lang.to_name().to_string())
+}
