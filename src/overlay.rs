@@ -436,7 +436,7 @@ pub fn create_result_window(target_rect: RECT) -> HWND {
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             class_name,
-            w!("Processing..."),
+            w!(""),
             WS_POPUP,
             target_rect.left, target_rect.top, width, height,
             None, None, instance, None

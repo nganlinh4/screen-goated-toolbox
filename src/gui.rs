@@ -454,56 +454,59 @@ impl eframe::App for SettingsApp {
                     ui.label(format!("{} {}", text.current_language_label, self.config.target_language));
                 });
 
-                // RIGHT COLUMN: Controls and Model
+                // RIGHT COLUMN: Model and Streaming
                 cols[1].group(|ui| {
                     ui.heading(text.model_section);
-                    ui.label(text.model_label);
-                    let original_model = self.config.preferred_model.clone();
-                    let is_vietnamese = self.config.ui_language == "vi";
-                    
-                    // Get current model label for display
-                    let current_label = crate::model_config::get_model_by_id(&self.config.preferred_model)
-                        .map(|m| m.get_label_short(is_vietnamese))
-                        .unwrap_or_else(|| "Nhanh".to_string());
-                    
-                    egui::ComboBox::from_id_source("model_selector")
-                        .selected_text(current_label)
-                        .show_ui(ui, |ui| {
-                            for model in crate::model_config::get_all_models() {
-                                if model.enabled {
-                                    ui.selectable_value(
-                                        &mut self.config.preferred_model,
-                                        model.id.clone(),
-                                        model.get_label(is_vietnamese),
-                                    );
-                                } else {
-                                    // Grayed out disabled model
-                                    ui.add_enabled(false, egui::SelectableLabel::new(false, model.get_label(is_vietnamese)));
+                    ui.columns(2, |model_cols| {
+                        // LEFT COLUMN: Model Selection
+                        model_cols[0].label(text.model_label);
+                        let original_model = self.config.preferred_model.clone();
+                        let is_vietnamese = self.config.ui_language == "vi";
+                        
+                        // Get current model label for display
+                        let current_label = crate::model_config::get_model_by_id(&self.config.preferred_model)
+                            .map(|m| m.get_label_short(is_vietnamese))
+                            .unwrap_or_else(|| "Nhanh".to_string());
+                        
+                        egui::ComboBox::from_id_source("model_selector")
+                            .selected_text(current_label)
+                            .show_ui(&mut model_cols[0], |ui| {
+                                for model in crate::model_config::get_all_models() {
+                                    if model.enabled {
+                                        ui.selectable_value(
+                                            &mut self.config.preferred_model,
+                                            model.id.clone(),
+                                            model.get_label(is_vietnamese),
+                                        );
+                                    } else {
+                                        // Grayed out disabled model
+                                        ui.add_enabled(false, egui::SelectableLabel::new(false, model.get_label(is_vietnamese)));
+                                    }
                                 }
+                            });
+                        
+                        if original_model != self.config.preferred_model {
+                            self.save_and_sync();
+                            // Update the model selector in app state
+                            {
+                                let mut state = self.app_state_ref.lock().unwrap();
+                                state.model_selector.set_preferred_model(self.config.preferred_model.clone());
                             }
-                        });
-                    
-                    if original_model != self.config.preferred_model {
-                        self.save_and_sync();
-                        // Update the model selector in app state
-                        {
-                            let mut state = self.app_state_ref.lock().unwrap();
-                            state.model_selector.set_preferred_model(self.config.preferred_model.clone());
                         }
-                    }
-                    
-                    ui.add_space(8.0);
-                    ui.label(text.streaming_label);
-                    egui::ComboBox::from_id_source("streaming_selector")
-                        .selected_text(if self.config.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                        .show_ui(ui, |ui| {
-                            if ui.selectable_value(&mut self.config.streaming_enabled, true, text.streaming_option_stream).clicked() {
-                                self.save_and_sync();
-                            }
-                            if ui.selectable_value(&mut self.config.streaming_enabled, false, text.streaming_option_wait).clicked() {
-                                self.save_and_sync();
-                            }
-                        });
+
+                        // RIGHT COLUMN: Streaming Selection
+                        model_cols[1].label(text.streaming_label);
+                        egui::ComboBox::from_id_source("streaming_selector")
+                            .selected_text(if self.config.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                            .show_ui(&mut model_cols[1], |ui| {
+                                if ui.selectable_value(&mut self.config.streaming_enabled, true, text.streaming_option_stream).clicked() {
+                                    self.save_and_sync();
+                                }
+                                if ui.selectable_value(&mut self.config.streaming_enabled, false, text.streaming_option_wait).clicked() {
+                                    self.save_and_sync();
+                                }
+                            });
+                    });
                 });
 
                 cols[1].add_space(10.0);
