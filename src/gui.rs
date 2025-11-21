@@ -73,6 +73,9 @@ struct LocaleText {
     cancel_label: &'static str,
     model_section: &'static str,
     model_label: &'static str,
+    streaming_label: &'static str,
+    streaming_option_stream: &'static str,
+    streaming_option_wait: &'static str,
 }
 
 impl LocaleText {
@@ -97,6 +100,9 @@ impl LocaleText {
                 cancel_label: "Hủy",
                 model_section: "Mô Hình Dịch",
                 model_label: "Chọn Mô Hình:",
+                streaming_label: "Cách xuất chữ:",
+                streaming_option_stream: "Nhận gì hiện nấy",
+                streaming_option_wait: "Đợi hết mới hiện",
             },
             "ko" => Self {
                 api_section: "API 구성",
@@ -117,6 +123,9 @@ impl LocaleText {
                 cancel_label: "취소",
                 model_section: "번역 모델",
                 model_label: "모델 선택:",
+                streaming_label: "텍스트 출력 방식:",
+                streaming_option_stream: "실시간 스트리밍",
+                streaming_option_wait: "완료 후 표시",
             },
             _ => Self {
                 // English (default)
@@ -138,6 +147,9 @@ impl LocaleText {
                 cancel_label: "Cancel",
                 model_section: "Translation Model",
                 model_label: "Select Model:",
+                streaming_label: "Text Output:",
+                streaming_option_stream: "Stream as received",
+                streaming_option_wait: "Wait for completion",
             },
         }
     }
@@ -470,6 +482,7 @@ impl eframe::App for SettingsApp {
                                 }
                             }
                         });
+                    
                     if original_model != self.config.preferred_model {
                         self.save_and_sync();
                         // Update the model selector in app state
@@ -478,22 +491,35 @@ impl eframe::App for SettingsApp {
                             state.model_selector.set_preferred_model(self.config.preferred_model.clone());
                         }
                     }
+                    
+                    ui.add_space(8.0);
+                    ui.label(text.streaming_label);
+                    egui::ComboBox::from_id_source("streaming_selector")
+                        .selected_text(if self.config.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_value(&mut self.config.streaming_enabled, true, text.streaming_option_stream).clicked() {
+                                self.save_and_sync();
+                            }
+                            if ui.selectable_value(&mut self.config.streaming_enabled, false, text.streaming_option_wait).clicked() {
+                                self.save_and_sync();
+                            }
+                        });
                 });
 
                 cols[1].add_space(10.0);
 
                 cols[1].group(|ui| {
                     ui.heading(text.hotkey_section);
-                if let Some(launcher) = &self.auto_launcher {
-                    if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
-                         if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
+                    if let Some(launcher) = &self.auto_launcher {
+                        if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
+                             if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
+                        }
                     }
-                }
-                ui.add_space(8.0);
-                if ui.checkbox(&mut self.config.auto_copy, text.auto_copy_label).clicked() { self.save_and_sync(); }
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new(text.hotkey_label).strong());
-                
+                    ui.add_space(8.0);
+                    if ui.checkbox(&mut self.config.auto_copy, text.auto_copy_label).clicked() { self.save_and_sync(); }
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new(text.hotkey_label).strong());
+                    
                     // List Hotkeys in a grid layout
                     let hotkey_list: Vec<_> = self.config.hotkeys.iter().cloned().collect();
                     if !hotkey_list.is_empty() {

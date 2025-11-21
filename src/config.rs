@@ -18,6 +18,12 @@ pub struct Config {
     pub ui_language: String,
     pub auto_copy: bool,
     pub preferred_model: String,
+    #[serde(default = "default_streaming_enabled")]
+    pub streaming_enabled: bool,
+}
+
+fn default_streaming_enabled() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -47,6 +53,7 @@ impl Default for Config {
             ui_language,
             auto_copy: false,
             preferred_model: "scout".to_string(),
+            streaming_enabled: true,
         }
     }
 }
