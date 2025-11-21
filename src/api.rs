@@ -42,9 +42,22 @@ pub fn translate_image(
         "response_format": { "type": "json_object" }
     });
 
+    // Check if API key is empty
+    if api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("NO_API_KEY"));
+    }
+
     let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
         .set("Authorization", &format!("Bearer {}", api_key))
-        .send_json(payload)?;
+        .send_json(payload)
+        .map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("401") {
+                anyhow::anyhow!("INVALID_API_KEY")
+            } else {
+                anyhow::anyhow!("{}", err_str)
+            }
+        })?;
 
     let text_resp: String = resp.into_string()?;
 

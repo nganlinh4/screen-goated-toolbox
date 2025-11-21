@@ -245,6 +245,29 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
     }
 }
 
+fn get_error_message(error: &str, lang: &str) -> String {
+    match error {
+        "NO_API_KEY" => {
+            match lang {
+                "vi" => "Bạn chưa nhập API key!".to_string(),
+                _ => "You haven't entered an API key!".to_string(),
+            }
+        }
+        "INVALID_API_KEY" => {
+            match lang {
+                "vi" => "API key không hợp lệ!".to_string(),
+                _ => "Invalid API key!".to_string(),
+            }
+        }
+        _ => {
+            match lang {
+                "vi" => format!("Lỗi: {}", error),
+                _ => format!("Error: {}", error),
+            }
+        }
+    }
+}
+
 fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) {
     let (img, config, model_name) = {
         let mut guard = app.lock().unwrap();
@@ -271,6 +294,7 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
         // Store settings before config is moved
         let auto_copy = config.auto_copy;
         let api_key = config.api_key.clone();
+        let ui_language = config.ui_language.clone();
         
         // Blocking call - no async/await needed
         let res = translate_image(api_key, config.target_language, model_name, cropped);
@@ -301,8 +325,8 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
                 }
             }
             Err(e) => {
-                let err_msg = format!("Error: {}", e);
-                std::thread::spawn(move || show_result_window(rect, err_msg));
+                let error_msg = get_error_message(&e.to_string(), &ui_language);
+                std::thread::spawn(move || show_result_window(rect, error_msg));
             }
         }
     } else {
