@@ -11,6 +11,9 @@ use windows::Win32::System::Threading::*;
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::core::*;
 
+use crate::gui::locale::LocaleText;
+use crate::gui::key_mapping::egui_key_to_vk;
+
 // Windows Modifier Constants
 const MOD_ALT: u32 = 0x0001;
 const MOD_CONTROL: u32 = 0x0002;
@@ -20,147 +23,6 @@ const MOD_WIN: u32 = 0x0008;
 enum UserEvent {
     Tray(TrayIconEvent),
     Menu(MenuEvent),
-}
-
-// --- Font Configuration (Unchanged) ---
-pub fn configure_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    let viet_font_name = "segoe_ui";
-    let viet_font_path = "C:\\Windows\\Fonts\\segoeui.ttf";
-    let viet_fallback_path = "C:\\Windows\\Fonts\\arial.ttf";
-    let viet_data = std::fs::read(viet_font_path).or_else(|_| std::fs::read(viet_fallback_path));
-
-    let korean_font_name = "malgun_gothic";
-    let korean_font_path = "C:\\Windows\\Fonts\\malgun.ttf";
-    let korean_data = std::fs::read(korean_font_path);
-
-    if let Ok(data) = viet_data {
-        fonts.font_data.insert(viet_font_name.to_owned(), egui::FontData::from_owned(data));
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { vec.insert(0, viet_font_name.to_owned()); }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { vec.insert(0, viet_font_name.to_owned()); }
-    }
-    if let Ok(data) = korean_data {
-        fonts.font_data.insert(korean_font_name.to_owned(), egui::FontData::from_owned(data));
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { 
-            let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
-            vec.insert(idx, korean_font_name.to_owned()); 
-        }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { 
-             let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
-             vec.insert(idx, korean_font_name.to_owned()); 
-        }
-    }
-    ctx.set_fonts(fonts);
-}
-
-// --- Localization ---
-struct LocaleText {
-    api_section: &'static str,
-    api_key_label: &'static str,
-    get_key_link: &'static str,
-    gemini_api_key_label: &'static str,
-    gemini_get_key_link: &'static str,
-    lang_section: &'static str,
-    search_placeholder: &'static str,
-    current_language_label: &'static str,
-    hotkey_section: &'static str,
-    hotkey_label: &'static str,
-    startup_label: &'static str,
-    fullscreen_note: &'static str,
-    footer_note: &'static str,
-    auto_copy_label: &'static str,
-    press_keys: &'static str,
-    active_hotkeys_label: &'static str,
-    add_hotkey_button: &'static str,
-    cancel_label: &'static str,
-    model_section: &'static str,
-    model_label: &'static str,
-    streaming_label: &'static str,
-    streaming_option_stream: &'static str,
-    streaming_option_wait: &'static str,
-}
-
-impl LocaleText {
-    fn get(lang_code: &str) -> Self {
-        match lang_code {
-            "vi" => Self {
-                api_section: "Cấu Hình API",
-                api_key_label: "Mã API Groq:",
-                get_key_link: "Lấy mã tại console.groq.com",
-                gemini_api_key_label: "Mã API Gemini:",
-                gemini_get_key_link: "Lấy mã tại aistudio.google.com",
-                lang_section: "Ngôn Ngữ Mục Tiêu",
-                search_placeholder: "Tìm kiếm ngôn ngữ...",
-                current_language_label: "Hiện tại:",
-                hotkey_section: "Điều Khiển",
-                hotkey_label: "Phím Tắt Kích Hoạt:",
-                startup_label: "Khởi động cùng Windows",
-                fullscreen_note: "⚠ Để sử dụng phím tắt trong các ứng dụng/trò chơi fullscreen, hãy chạy ứng dụng này dưới quyền Quản trị viên.",
-                footer_note: "Bấm hotkey và chọn vùng trên màn hình để dịch, tắt cửa sổ này thì ứng dụng sẽ tiếp tục chạy trong System Tray",
-                auto_copy_label: "Tự động copy bản dịch",
-                press_keys: "Ấn phím/tổ hợp phím (vd: F1, Ctrl+Q)...",
-                active_hotkeys_label: "Phím Tắt Hiện Tại:",
-                add_hotkey_button: "+ Thêm Phím Tắt",
-                cancel_label: "Hủy",
-                model_section: "Mô Hình Dịch",
-                model_label: "Chọn Mô Hình:",
-                streaming_label: "Cách xuất chữ:",
-                streaming_option_stream: "Nhận gì hiện nấy",
-                streaming_option_wait: "Đợi hết mới hiện",
-            },
-            "ko" => Self {
-                api_section: "API 구성",
-                api_key_label: "Groq API 키:",
-                get_key_link: "console.groq.com에서 키 발급",
-                gemini_api_key_label: "Gemini API 키:",
-                gemini_get_key_link: "aistudio.google.com에서 키 발급",
-                lang_section: "번역 대상 언어",
-                search_placeholder: "언어 검색...",
-                current_language_label: "현재:",
-                hotkey_section: "단축키 설정",
-                hotkey_label: "활성화 키:",
-                startup_label: "Windows 시작 시 실행",
-                fullscreen_note: "⚠ 풀스크린 앱/게임에서 단축키를 사용하려면 관리자 권한으로 이 앱을 실행하세요.",
-                footer_note: "단축키를 눌러 번역할 영역을 선택하세요. 창을 닫으면 트레이에서 실행됩니다.",
-                auto_copy_label: "번역 자동 복사",
-                press_keys: "키/단축키를 입력하세요 (예: F1, Ctrl+Q)...",
-                active_hotkeys_label: "활성화된 단축키:",
-                add_hotkey_button: "+ 단축키 추가",
-                cancel_label: "취소",
-                model_section: "번역 모델",
-                model_label: "모델 선택:",
-                streaming_label: "텍스트 출력 방식:",
-                streaming_option_stream: "실시간 스트리밍",
-                streaming_option_wait: "완료 후 표시",
-            },
-            _ => Self {
-                // English (default)
-                api_section: "API Configuration",
-                api_key_label: "Groq API Key:",
-                get_key_link: "Get API Key at console.groq.com",
-                gemini_api_key_label: "Gemini API Key:",
-                gemini_get_key_link: "Get API Key at aistudio.google.com",
-                lang_section: "Translation Target",
-                search_placeholder: "Search language...",
-                current_language_label: "Current:",
-                hotkey_section: "Controls",
-                hotkey_label: "Activation Hotkey:",
-                startup_label: "Run at Windows Startup",
-                fullscreen_note: "⚠ To use hotkey in fullscreen apps/games, run this app as Administrator.",
-                footer_note: "Press hotkey and select region to translate. Closing this window minimizes to System Tray.",
-                auto_copy_label: "Auto copy translation",
-                press_keys: "Press key/combination (e.g. F1, Ctrl+Q)...",
-                active_hotkeys_label: "Active Hotkeys:",
-                add_hotkey_button: "+ Add Hotkey",
-                cancel_label: "Cancel",
-                model_section: "Translation Model",
-                model_label: "Select Model:",
-                streaming_label: "Text Output:",
-                streaming_option_stream: "Stream as received",
-                streaming_option_wait: "Wait for completion",
-            },
-        }
-    }
 }
 
 // Global signal for window restoration
@@ -605,60 +467,33 @@ impl eframe::App for SettingsApp {
     }
 }
 
-// Expanded Mapping Function: egui Key -> Windows Virtual Key (VK)
-// This covers Function keys, arrows, delete/insert, home/end, and standard alphanumerics
-fn egui_key_to_vk(key: &egui::Key) -> Option<u32> {
-    match key {
-        // Numbers
-        egui::Key::Num0 => Some(0x30), egui::Key::Num1 => Some(0x31), egui::Key::Num2 => Some(0x32),
-        egui::Key::Num3 => Some(0x33), egui::Key::Num4 => Some(0x34), egui::Key::Num5 => Some(0x35),
-        egui::Key::Num6 => Some(0x36), egui::Key::Num7 => Some(0x37), egui::Key::Num8 => Some(0x38),
-        egui::Key::Num9 => Some(0x39),
-        // Letters
-        egui::Key::A => Some(0x41), egui::Key::B => Some(0x42), egui::Key::C => Some(0x43),
-        egui::Key::D => Some(0x44), egui::Key::E => Some(0x45), egui::Key::F => Some(0x46),
-        egui::Key::G => Some(0x47), egui::Key::H => Some(0x48), egui::Key::I => Some(0x49),
-        egui::Key::J => Some(0x4A), egui::Key::K => Some(0x4B), egui::Key::L => Some(0x4C),
-        egui::Key::M => Some(0x4D), egui::Key::N => Some(0x4E), egui::Key::O => Some(0x4F),
-        egui::Key::P => Some(0x50), egui::Key::Q => Some(0x51), egui::Key::R => Some(0x52),
-        egui::Key::S => Some(0x53), egui::Key::T => Some(0x54), egui::Key::U => Some(0x55),
-        egui::Key::V => Some(0x56), egui::Key::W => Some(0x57), egui::Key::X => Some(0x58),
-        egui::Key::Y => Some(0x59), egui::Key::Z => Some(0x5A),
-        // Function Keys
-        egui::Key::F1 => Some(0x70), egui::Key::F2 => Some(0x71), egui::Key::F3 => Some(0x72),
-        egui::Key::F4 => Some(0x73), egui::Key::F5 => Some(0x74), egui::Key::F6 => Some(0x75),
-        egui::Key::F7 => Some(0x76), egui::Key::F8 => Some(0x77), egui::Key::F9 => Some(0x78),
-        egui::Key::F10 => Some(0x79), egui::Key::F11 => Some(0x7A), egui::Key::F12 => Some(0x7B),
-        egui::Key::F13 => Some(0x7C), egui::Key::F14 => Some(0x7D), egui::Key::F15 => Some(0x7E),
-        egui::Key::F16 => Some(0x7F), egui::Key::F17 => Some(0x80), egui::Key::F18 => Some(0x81),
-        egui::Key::F19 => Some(0x82), egui::Key::F20 => Some(0x83),
-        // Navigation / Editing
-        egui::Key::Escape => Some(0x1B),
-        egui::Key::Insert => Some(0x2D),
-        egui::Key::Delete => Some(0x2E),
-        egui::Key::Home => Some(0x24),
-        egui::Key::End => Some(0x23),
-        egui::Key::PageUp => Some(0x21),
-        egui::Key::PageDown => Some(0x22),
-        egui::Key::ArrowLeft => Some(0x25),
-        egui::Key::ArrowUp => Some(0x26),
-        egui::Key::ArrowRight => Some(0x27),
-        egui::Key::ArrowDown => Some(0x28),
-        egui::Key::Backspace => Some(0x08),
-        egui::Key::Enter => Some(0x0D),
-        egui::Key::Space => Some(0x20),
-        egui::Key::Tab => Some(0x09),
-        // Symbols
-        egui::Key::Backtick => Some(0xC0), // `
-        egui::Key::Minus => Some(0xBD),    // -
-        egui::Key::Plus => Some(0xBB),     // = (Plus is usually shift+=)
-        egui::Key::OpenBracket => Some(0xDB), // [
-        egui::Key::CloseBracket => Some(0xDD), // ]
-        egui::Key::Backslash => Some(0xDC), // \
-        egui::Key::Semicolon => Some(0xBA), // ;
-        egui::Key::Comma => Some(0xBC),     // ,
-        egui::Key::Period => Some(0xBE),    // .
-        egui::Key::Slash => Some(0xBF),     // /
-        _ => None,
+// --- Font Configuration (Unchanged) ---
+pub fn configure_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    let viet_font_name = "segoe_ui";
+    let viet_font_path = "C:\\Windows\\Fonts\\segoeui.ttf";
+    let viet_fallback_path = "C:\\Windows\\Fonts\\arial.ttf";
+    let viet_data = std::fs::read(viet_font_path).or_else(|_| std::fs::read(viet_fallback_path));
+
+    let korean_font_name = "malgun_gothic";
+    let korean_font_path = "C:\\Windows\\Fonts\\malgun.ttf";
+    let korean_data = std::fs::read(korean_font_path);
+
+    if let Ok(data) = viet_data {
+        fonts.font_data.insert(viet_font_name.to_owned(), egui::FontData::from_owned(data));
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { vec.insert(0, viet_font_name.to_owned()); }
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { vec.insert(0, viet_font_name.to_owned()); }
     }
+    if let Ok(data) = korean_data {
+        fonts.font_data.insert(korean_font_name.to_owned(), egui::FontData::from_owned(data));
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { 
+            let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
+            vec.insert(idx, korean_font_name.to_owned()); 
+        }
+        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { 
+             let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
+             vec.insert(idx, korean_font_name.to_owned()); 
+        }
+    }
+    ctx.set_fonts(fonts);
 }
