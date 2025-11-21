@@ -8,12 +8,18 @@ pub enum UiLanguage {
     Korean,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Hotkey {
+    pub code: u32,
+    pub name: String,
+    pub modifiers: u32,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
     pub api_key: String,
     pub target_language: String, 
-    pub hotkey_code: u32,
-    pub hotkey_name: String,
+    pub hotkeys: Vec<Hotkey>,
     pub dark_mode: bool,
     pub ui_language: UiLanguage,
     pub auto_copy: bool,
@@ -42,8 +48,11 @@ impl Default for Config {
         Self {
             api_key: "".to_string(),
             target_language: "Vietnamese".to_string(),
-            hotkey_code: 192, // VK_OEM_3 (~)
-            hotkey_name: "` / ~".to_string(),
+            hotkeys: vec![Hotkey {
+                code: 192, // VK_OEM_3 (~)
+                name: "` / ~".to_string(),
+                modifiers: 0,
+            }],
             dark_mode,
             ui_language,
             auto_copy: false,

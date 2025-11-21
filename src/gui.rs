@@ -11,12 +11,18 @@ use windows::Win32::System::Threading::*;
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::core::*;
 
+// Windows Modifier Constants
+const MOD_ALT: u32 = 0x0001;
+const MOD_CONTROL: u32 = 0x0002;
+const MOD_SHIFT: u32 = 0x0004;
+const MOD_WIN: u32 = 0x0008;
+
 enum UserEvent {
     Tray(TrayIconEvent),
     Menu(MenuEvent),
 }
 
-// --- Font Configuration ---
+// --- Font Configuration (Unchanged) ---
 pub fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let viet_font_name = "segoe_ui";
@@ -61,6 +67,7 @@ struct LocaleText {
     fullscreen_note: &'static str,
     footer_note: &'static str,
     auto_copy_label: &'static str,
+    press_keys: &'static str,
 }
 
 impl LocaleText {
@@ -79,6 +86,7 @@ impl LocaleText {
                 fullscreen_note: "⚠ To use hotkey in fullscreen apps/games, run this app as Administrator.",
                 footer_note: "Press hotkey and select region to translate. Closing this window minimizes to System Tray.",
                 auto_copy_label: "Auto copy translation",
+                press_keys: "Press combination (e.g. Ctrl+Q)...",
             },
             UiLanguage::Vietnamese => Self {
                 api_section: "Cấu Hình API",
@@ -93,6 +101,7 @@ impl LocaleText {
                 fullscreen_note: "⚠ Để sử dụng phím tắt trong các ứng dụng/trò chơi fullscreen, hãy chạy ứng dụng này dưới quyền Quản trị viên.",
                 footer_note: "Bấm hotkey và chọn vùng trên màn hình để dịch, tắt cửa sổ này thì ứng dụng sẽ tiếp tục chạy trong System Tray",
                 auto_copy_label: "Tự động copy bản dịch",
+                press_keys: "Ấn tổ hợp phím (vd: Ctrl+Q)...",
             },
             UiLanguage::Korean => Self {
                 api_section: "API 구성",
@@ -107,12 +116,13 @@ impl LocaleText {
                 fullscreen_note: "⚠ 풀스크린 앱/게임에서 단축키를 사용하려면 관리자 권한으로 이 앱을 실행하세요.",
                 footer_note: "단축키를 눌러 번역할 영역을 선택하세요. 창을 닫으면 트레이에서 실행됩니다.",
                 auto_copy_label: "번역 자동 복사",
+                press_keys: "단축키를 입력하세요 (예: Ctrl+Q)...",
             },
         }
     }
 }
 
-// Global signal for window restoration (accessible from tray thread)
+// Global signal for window restoration
 lazy_static::lazy_static! {
     static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
@@ -124,30 +134,24 @@ pub struct SettingsApp {
     tray_icon: Option<TrayIcon>,
     _tray_menu: Menu,
     event_rx: Receiver<UserEvent>,
-    // Logic fields
     is_quitting: bool,
     run_at_startup: bool,
     auto_launcher: Option<AutoLaunch>,
     show_api_key: bool,
+    recording_hotkey: bool,
 }
 
 impl SettingsApp {
     pub fn new(config: Config, app_state: Arc<Mutex<crate::AppState>>, tray_icon: TrayIcon, tray_menu: Menu, ctx: egui::Context) -> Self {
-        // Initialize AutoLaunch
         let app_name = "ScreenGroundedTranslator";
         let app_path = std::env::current_exe().unwrap();
-        let args: &[&str] = &[]; // No command line args
+        let args: &[&str] = &[];
         
-        let auto = AutoLaunch::new(
-            app_name,
-            app_path.to_str().unwrap(),
-            args,
-        );
-
+        let auto = AutoLaunch::new(app_name, app_path.to_str().unwrap(), args);
         let run_at_startup = auto.is_enabled().unwrap_or(false);
-
         let (tx, rx) = channel();
 
+        // Tray thread
         let tx_tray = tx.clone();
         let ctx_tray = ctx.clone();
         std::thread::spawn(move || {
@@ -157,97 +161,66 @@ impl SettingsApp {
             }
         });
 
-        // Spawn thread to wait for inter-process restore event
-        let _tx_restore = tx.clone();
+        // Restore signal listener
         let ctx_restore = ctx.clone();
         std::thread::spawn(move || {
             loop {
                 unsafe {
-                    // Try to open existing event (created by main.rs)
                     match OpenEventW(EVENT_ALL_ACCESS, false, w!("ScreenGroundedTranslatorRestoreEvent")) {
                         Ok(event_handle) => {
-                            // Wait for the event to be signaled (infinite wait)
                             let result = WaitForSingleObject(event_handle, INFINITE);
-                            
-                            // Event was signaled
                             if result == WAIT_OBJECT_0 {
-                                // Restore the window using Windows API directly
-                                // (same as tray menu does, works even if UI loop isn't running)
                                 let class_name = w!("eframe");
                                 let mut hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), None);
-                                
                                 if hwnd.0 == 0 {
                                     let title = w!("Screen Grounded Translator");
                                     hwnd = FindWindowW(None, PCWSTR(title.as_ptr()));
                                 }
-                                
                                 if hwnd.0 != 0 {
                                     ShowWindow(hwnd, SW_RESTORE);
                                     ShowWindow(hwnd, SW_SHOW);
                                     SetForegroundWindow(hwnd);
                                     SetFocus(hwnd);
                                 }
-                                
-                                // Also set the signal for the UI loop in case it's running
                                 RESTORE_SIGNAL.store(true, Ordering::SeqCst);
                                 ctx_restore.request_repaint();
-                                
-                                // Reset the manual-reset event for the next signal
                                 let _ = ResetEvent(event_handle);
                             }
-                            
                             let _ = CloseHandle(event_handle);
                         }
-                        Err(_) => {
-                            // Event doesn't exist yet, wait a bit and retry
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                        }
+                        Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
                     }
                 }
             }
         });
 
+        // Menu thread
         let tx_menu = tx.clone();
         let ctx_menu = ctx.clone();
         std::thread::spawn(move || {
             while let Ok(event) = MenuEvent::receiver().recv() {
                 match event.id.0.as_str() {
-                    "1001" => {
-                        // QUIT - exit immediately
-                        std::process::exit(0);
-                    }
+                    "1001" => std::process::exit(0),
                     "1002" => {
-                        // RESTORE - use Windows API to restore window directly
-                        // This works even if the UI loop isn't running
                         unsafe {
-                            // Find main window by class name
                             let class_name = w!("eframe");
                             let mut hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), None);
-                            
-                            // Also try to find by window name
                             if hwnd.0 == 0 {
                                 let title = w!("Screen Grounded Translator");
                                 hwnd = FindWindowW(None, PCWSTR(title.as_ptr()));
                             }
-                            
                             if hwnd.0 != 0 {
-                                // Show and restore window
                                 ShowWindow(hwnd, SW_RESTORE);
                                 ShowWindow(hwnd, SW_SHOW);
                                 SetForegroundWindow(hwnd);
                                 SetFocus(hwnd);
                             }
                         }
-                        
-                        // Also send signal in case we did find it
                         RESTORE_SIGNAL.store(true, Ordering::SeqCst);
                         let _ = tx_menu.send(UserEvent::Menu(event.clone()));
                         ctx_menu.request_repaint();
                     }
-                    _ => {
-                        let _ = tx_menu.send(UserEvent::Menu(event));
-                        ctx_menu.request_repaint();
-                    }
+                    _ => { let _ = tx_menu.send(UserEvent::Menu(event)); ctx_menu.request_repaint(); }
                 }
             }
         });
@@ -263,14 +236,14 @@ impl SettingsApp {
             run_at_startup,
             auto_launcher: Some(auto),
             show_api_key: false,
+            recording_hotkey: false,
         }
     }
 
     fn save_and_sync(&mut self) {
         let mut state = self.app_state_ref.lock().unwrap();
-        // Check if hotkey changed BEFORE updating state
-        if state.config.hotkey_code != self.config.hotkey_code {
-            state.hotkey_updated = true;
+        if state.config.hotkeys != self.config.hotkeys {
+            state.hotkeys_updated = true;
         }
         state.config = self.config.clone();
         drop(state);
@@ -287,9 +260,61 @@ impl SettingsApp {
 
 impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check if restore signal was set by tray thread
         if RESTORE_SIGNAL.swap(false, Ordering::SeqCst) {
             self.restore_window(ctx);
+        }
+
+        // --- Handle Hotkey Recording (Support Combinations) ---
+        if self.recording_hotkey {
+            let mut key_to_record: Option<(u32, String)> = None;
+            let mut modifiers_bitmap = 0;
+            
+            // Check modifiers and keys using egui state
+            ctx.input(|i| {
+                if i.modifiers.ctrl { modifiers_bitmap |= MOD_CONTROL; }
+                if i.modifiers.alt { modifiers_bitmap |= MOD_ALT; }
+                if i.modifiers.shift { modifiers_bitmap |= MOD_SHIFT; }
+                // mac command key usually maps to Win on Windows/Linux for egui
+                if i.modifiers.command { modifiers_bitmap |= MOD_WIN; } 
+
+                // Check for pressed keys
+                for event in &i.events {
+                    if let egui::Event::Key { key, pressed: true, .. } = event {
+                        if let Some(vk) = egui_key_to_vk(key) {
+                            // Filter out keys that are just modifier triggers themselves
+                            // (16=Shift, 17=Ctrl, 18=Alt, 91=Win, 92=RWin)
+                            if !matches!(vk, 16 | 17 | 18 | 91 | 92) {
+                                let key_name = format!("{:?}", key).trim_start_matches("Key").to_string();
+                                key_to_record = Some((vk, key_name));
+                            }
+                        }
+                    }
+                }
+            });
+
+            // If a non-modifier key is pressed, record the combo
+            if let Some((vk, key_name)) = key_to_record {
+                // Build name string
+                let mut name_parts = Vec::new();
+                if (modifiers_bitmap & MOD_CONTROL) != 0 { name_parts.push("Ctrl".to_string()); }
+                if (modifiers_bitmap & MOD_ALT) != 0 { name_parts.push("Alt".to_string()); }
+                if (modifiers_bitmap & MOD_SHIFT) != 0 { name_parts.push("Shift".to_string()); }
+                if (modifiers_bitmap & MOD_WIN) != 0 { name_parts.push("Win".to_string()); }
+                name_parts.push(key_name);
+                
+                let new_hotkey = crate::config::Hotkey {
+                    code: vk,
+                    modifiers: modifiers_bitmap,
+                    name: name_parts.join(" + "),
+                };
+
+                // Avoid duplicates
+                if !self.config.hotkeys.iter().any(|h| h.code == vk && h.modifiers == modifiers_bitmap) {
+                    self.config.hotkeys.push(new_hotkey);
+                    self.recording_hotkey = false;
+                    self.save_and_sync();
+                }
+            }
         }
 
         // --- Handle Pending Events ---
@@ -302,23 +327,19 @@ impl eframe::App for SettingsApp {
                 }
                 UserEvent::Menu(menu_event) => {
                     if menu_event.id.0 == "1002" {
-                        // SETTINGS - restore window
                         self.restore_window(ctx);
                     }
                 }
             }
         }
 
-        // --- Handle Window Close Request ---
         if ctx.input(|i| i.viewport().close_requested()) {
             if !self.is_quitting {
-                // If NOT quitting via menu, just hide (minimize to tray)
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             }
         }
 
-        // --- Apply Theme ---
         if self.config.dark_mode {
             ctx.set_visuals(egui::Visuals::dark());
         } else {
@@ -341,9 +362,7 @@ impl eframe::App for SettingsApp {
                         self.config.dark_mode = !self.config.dark_mode;
                         self.save_and_sync();
                     }
-                    
                     ui.add_space(5.0);
-
                     let original_lang = self.config.ui_language.clone();
                     egui::ComboBox::from_id_source("header_lang_switch")
                         .width(60.0)
@@ -357,7 +376,6 @@ impl eframe::App for SettingsApp {
                             ui.selectable_value(&mut self.config.ui_language, UiLanguage::Vietnamese, "Vietnamese");
                             ui.selectable_value(&mut self.config.ui_language, UiLanguage::Korean, "Korean");
                         });
-
                     if original_lang != self.config.ui_language {
                         self.save_and_sync();
                     }
@@ -372,19 +390,13 @@ impl eframe::App for SettingsApp {
                 ui.label(text.api_key_label);
                 ui.horizontal(|ui| {
                     let available = ui.available_width() - 32.0;
-                    if ui.add(egui::TextEdit::singleline(&mut self.config.api_key)
-                        .password(!self.show_api_key)
-                        .desired_width(available)).changed() {
+                    if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(available)).changed() {
                         self.save_and_sync();
                     }
                     let eye_icon = if self.show_api_key { "👁" } else { "🔒" };
-                    if ui.button(eye_icon).on_hover_text(if self.show_api_key { "Hide" } else { "Show" }).clicked() {
-                        self.show_api_key = !self.show_api_key;
-                    }
+                    if ui.button(eye_icon).clicked() { self.show_api_key = !self.show_api_key; }
                 });
-                if ui.link(text.get_key_link).clicked() {
-                    let _ = open::that("https://console.groq.com/keys");
-                }
+                if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
             });
 
             ui.add_space(10.0);
@@ -408,56 +420,49 @@ impl eframe::App for SettingsApp {
 
             ui.add_space(10.0);
 
-            // --- Controls (Hotkey + Startup) ---
+            // --- Controls ---
             ui.group(|ui| {
                 ui.heading(text.hotkey_section);
-                
-                // Startup Checkbox
                 if let Some(launcher) = &self.auto_launcher {
                     if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
-                         if self.run_at_startup {
-                             let _ = launcher.enable();
-                         } else {
-                             let _ = launcher.disable();
-                         }
+                         if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
                     }
                 }
-                
                 ui.add_space(8.0);
-                
-                // Auto-copy checkbox
-                if ui.checkbox(&mut self.config.auto_copy, text.auto_copy_label).clicked() {
-                    self.save_and_sync();
-                }
-                
+                if ui.checkbox(&mut self.config.auto_copy, text.auto_copy_label).clicked() { self.save_and_sync(); }
                 ui.add_space(8.0);
                 ui.label(text.hotkey_label);
                 
-                egui::ComboBox::from_id_source("hotkey_selector")
-                    .selected_text(&self.config.hotkey_name)
-                    .show_ui(ui, |ui| {
-                        let keys = [
-                            ("Tilde (~)", 192, "` / ~"),
-                            ("F2", 113, "F2"),
-                            ("F4", 115, "F4"),
-                            ("F6", 117, "F6"),
-                            ("F7", 118, "F7"),
-                            ("F8", 119, "F8"),
-                            ("F9", 120, "F9"),
-                            ("F10", 121, "F10"),
-                        ];
-                        for (label, code, short) in keys {
-                            if ui.selectable_label(self.config.hotkey_code == code, label).clicked() {
-                                self.config.hotkey_code = code;
-                                self.config.hotkey_name = short.to_string();
-                                self.save_and_sync();
-                            }
+                // List Hotkeys
+                let hotkey_list: Vec<_> = self.config.hotkeys.iter().cloned().collect();
+                for (idx, hotkey) in hotkey_list.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        // Display the combo name (e.g. "Ctrl + Shift + S")
+                        ui.strong(&hotkey.name);
+                        if ui.button("✖").on_hover_text("Remove").clicked() {
+                            self.config.hotkeys.remove(idx);
+                            self.save_and_sync();
                         }
                     });
+                }
+                
+                // Recorder
+                if self.recording_hotkey {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(egui::Color32::YELLOW, text.press_keys);
+                        if ui.button("Cancel").clicked() {
+                            self.recording_hotkey = false;
+                        }
+                    });
+                } else {
+                    if ui.button("+ Add Shortcut").clicked() {
+                        self.recording_hotkey = true;
+                    }
+                }
                   
-                  let warn_color = if self.config.dark_mode { egui::Color32::YELLOW } else { egui::Color32::from_rgb(200, 0, 0) };
-                  ui.small(egui::RichText::new(text.fullscreen_note).color(warn_color));
-                  });
+                let warn_color = if self.config.dark_mode { egui::Color32::YELLOW } else { egui::Color32::from_rgb(200, 0, 0) };
+                ui.small(egui::RichText::new(text.fullscreen_note).color(warn_color));
+            });
 
             ui.add_space(20.0);
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
@@ -465,13 +470,68 @@ impl eframe::App for SettingsApp {
             });
         });
         
-        // Always request repaint so update() keeps running even when window is hidden
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
 
-    // Clean exit handler
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // Explicitly hide/remove the tray icon on exit
         self.tray_icon = None;
+    }
+}
+
+// Expanded Mapping Function: egui Key -> Windows Virtual Key (VK)
+// This covers Function keys, arrows, delete/insert, home/end, and standard alphanumerics
+fn egui_key_to_vk(key: &egui::Key) -> Option<u32> {
+    match key {
+        // Numbers
+        egui::Key::Num0 => Some(0x30), egui::Key::Num1 => Some(0x31), egui::Key::Num2 => Some(0x32),
+        egui::Key::Num3 => Some(0x33), egui::Key::Num4 => Some(0x34), egui::Key::Num5 => Some(0x35),
+        egui::Key::Num6 => Some(0x36), egui::Key::Num7 => Some(0x37), egui::Key::Num8 => Some(0x38),
+        egui::Key::Num9 => Some(0x39),
+        // Letters
+        egui::Key::A => Some(0x41), egui::Key::B => Some(0x42), egui::Key::C => Some(0x43),
+        egui::Key::D => Some(0x44), egui::Key::E => Some(0x45), egui::Key::F => Some(0x46),
+        egui::Key::G => Some(0x47), egui::Key::H => Some(0x48), egui::Key::I => Some(0x49),
+        egui::Key::J => Some(0x4A), egui::Key::K => Some(0x4B), egui::Key::L => Some(0x4C),
+        egui::Key::M => Some(0x4D), egui::Key::N => Some(0x4E), egui::Key::O => Some(0x4F),
+        egui::Key::P => Some(0x50), egui::Key::Q => Some(0x51), egui::Key::R => Some(0x52),
+        egui::Key::S => Some(0x53), egui::Key::T => Some(0x54), egui::Key::U => Some(0x55),
+        egui::Key::V => Some(0x56), egui::Key::W => Some(0x57), egui::Key::X => Some(0x58),
+        egui::Key::Y => Some(0x59), egui::Key::Z => Some(0x5A),
+        // Function Keys
+        egui::Key::F1 => Some(0x70), egui::Key::F2 => Some(0x71), egui::Key::F3 => Some(0x72),
+        egui::Key::F4 => Some(0x73), egui::Key::F5 => Some(0x74), egui::Key::F6 => Some(0x75),
+        egui::Key::F7 => Some(0x76), egui::Key::F8 => Some(0x77), egui::Key::F9 => Some(0x78),
+        egui::Key::F10 => Some(0x79), egui::Key::F11 => Some(0x7A), egui::Key::F12 => Some(0x7B),
+        egui::Key::F13 => Some(0x7C), egui::Key::F14 => Some(0x7D), egui::Key::F15 => Some(0x7E),
+        egui::Key::F16 => Some(0x7F), egui::Key::F17 => Some(0x80), egui::Key::F18 => Some(0x81),
+        egui::Key::F19 => Some(0x82), egui::Key::F20 => Some(0x83),
+        // Navigation / Editing
+        egui::Key::Escape => Some(0x1B),
+        egui::Key::Insert => Some(0x2D),
+        egui::Key::Delete => Some(0x2E),
+        egui::Key::Home => Some(0x24),
+        egui::Key::End => Some(0x23),
+        egui::Key::PageUp => Some(0x21),
+        egui::Key::PageDown => Some(0x22),
+        egui::Key::ArrowLeft => Some(0x25),
+        egui::Key::ArrowUp => Some(0x26),
+        egui::Key::ArrowRight => Some(0x27),
+        egui::Key::ArrowDown => Some(0x28),
+        egui::Key::Backspace => Some(0x08),
+        egui::Key::Enter => Some(0x0D),
+        egui::Key::Space => Some(0x20),
+        egui::Key::Tab => Some(0x09),
+        // Symbols
+        egui::Key::Backtick => Some(0xC0), // `
+        egui::Key::Minus => Some(0xBD),    // -
+        egui::Key::Plus => Some(0xBB),     // = (Plus is usually shift+=)
+        egui::Key::OpenBracket => Some(0xDB), // [
+        egui::Key::CloseBracket => Some(0xDD), // ]
+        egui::Key::Backslash => Some(0xDC), // \
+        egui::Key::Semicolon => Some(0xBA), // ;
+        egui::Key::Comma => Some(0xBC),     // ,
+        egui::Key::Period => Some(0xBE),    // .
+        egui::Key::Slash => Some(0xBF),     // /
+        _ => None,
     }
 }

@@ -32,7 +32,7 @@ lazy_static! {
 pub struct AppState {
     pub config: Config,
     pub original_screenshot: Option<ImageBuffer<image::Rgba<u8>, Vec<u8>>>,
-    pub hotkey_updated: bool,
+    pub hotkeys_updated: bool,
     pub model_selector: model_config::ModelSelector,
 }
 
@@ -40,7 +40,7 @@ lazy_static! {
     pub static ref APP: Arc<Mutex<AppState>> = Arc::new(Mutex::new(AppState {
         config: load_config(),
         original_screenshot: None,
-        hotkey_updated: false,
+        hotkeys_updated: false,
         model_selector: model_config::ModelSelector::new(model_config::USE_MODEL_ROTATION),
     }));
 }
@@ -146,27 +146,35 @@ fn run_hotkey_listener() {
             None, None, instance, None
         );
 
-        let mut current_hotkey = APP.lock().unwrap().config.hotkey_code;
-        RegisterHotKey(hwnd, 1, HOT_KEY_MODIFIERS(0), current_hotkey);
+        let mut current_hotkeys: Vec<(u32, u32)> = APP.lock().unwrap().config.hotkeys.iter().map(|h| (h.code, h.modifiers)).collect();
+        for (id, (hotkey_code, modifiers)) in current_hotkeys.iter().enumerate() {
+            RegisterHotKey(hwnd, (id + 1) as i32, HOT_KEY_MODIFIERS(*modifiers), *hotkey_code);
+        }
         
         // Set a timer to check for hotkey updates periodically
-        SetTimer(hwnd, 1, 500, None); // Check every 500ms
+        SetTimer(hwnd, 999, 500, None); // Check every 500ms
 
         let mut msg = MSG::default();
         loop {
             if GetMessageW(&mut msg, None, 0, 0).into() {
                 match msg.message {
                     WM_TIMER => {
-                        // Check if hotkey was updated
+                        // Check if hotkeys were updated
                         let mut app = APP.lock().unwrap();
-                        if app.hotkey_updated {
-                            let new_hotkey = app.config.hotkey_code;
-                            if new_hotkey != current_hotkey {
-                                UnregisterHotKey(hwnd, 1);
-                                RegisterHotKey(hwnd, 1, HOT_KEY_MODIFIERS(0), new_hotkey);
-                                current_hotkey = new_hotkey;
+                        if app.hotkeys_updated {
+                            let new_hotkeys: Vec<(u32, u32)> = app.config.hotkeys.iter().map(|h| (h.code, h.modifiers)).collect();
+                            if new_hotkeys != current_hotkeys {
+                                // Unregister old hotkeys
+                                for id in 1..=current_hotkeys.len() as i32 {
+                                    UnregisterHotKey(hwnd, id);
+                                }
+                                // Register new hotkeys
+                                for (id, (hotkey_code, modifiers)) in new_hotkeys.iter().enumerate() {
+                                    RegisterHotKey(hwnd, (id + 1) as i32, HOT_KEY_MODIFIERS(*modifiers), *hotkey_code);
+                                }
+                                current_hotkeys = new_hotkeys;
                             }
-                            app.hotkey_updated = false;
+                            app.hotkeys_updated = false;
                         }
                     }
                     _ => {
@@ -182,7 +190,8 @@ fn run_hotkey_listener() {
 unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_HOTKEY => {
-            if wparam.0 == 1 {
+            // Handle any registered hotkey (wparam is the hotkey ID, which can be 1, 2, 3, etc.)
+            if wparam.0 > 0 {
                 // Check if selection overlay is already active, dismiss it instead of opening a new one
                 if overlay::is_selection_overlay_active_and_dismiss() {
                     // Successfully dismissed the active overlay, don't create a new one
