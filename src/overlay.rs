@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::mem::size_of;
 use image::GenericImageView; 
 
-use crate::{AppState, APP, api::translate_image};
+use crate::{AppState, APP, api::translate_image_streaming};
 
 static mut START_POS: POINT = POINT { x: 0, y: 0 };
 static mut CURR_POS: POINT = POINT { x: 0, y: 0 };
@@ -237,6 +237,12 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             EndPaint(hwnd, &mut ps);
             LRESULT(0)
         }
+        WM_CLOSE => {
+            KillTimer(hwnd, 1);
+            IS_PROCESSING = false;
+            DestroyWindow(hwnd);
+            LRESULT(0)
+        }
         WM_DESTROY => {
             PostQuitMessage(0);
             LRESULT(0)
@@ -295,47 +301,83 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
         let auto_copy = config.auto_copy;
         let api_key = config.api_key.clone();
         let ui_language = config.ui_language.clone();
+        let target_lang = config.target_language.clone();
+        let streaming_enabled = config.streaming_enabled;
         
-        // Blocking call - no async/await needed
-        let res = translate_image(api_key, config.target_language, model_name, cropped);
+        // NOTE: We do NOT close the overlay_hwnd here. We keep it open (and scanning)
+        // until the first chunk of data arrives.
         
-        unsafe {
-            KillTimer(overlay_hwnd, 1);
-            PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
+        // Spawn a dedicated UI thread for the result window
+        std::thread::spawn(move || {
+            // Create result window immediately but HIDDEN
+            let result_hwnd = create_result_window(rect);
+            
+            // Spawn a worker thread for the blocking API call
+            std::thread::spawn(move || {
+                // Accumulate text for final result and auto-copy
+                let accumulated = Arc::new(Mutex::new(String::new()));
+                let accumulated_clone = accumulated.clone();
+                let mut first_chunk_received = false;
+                
+                // Blocking call with callback for real-time updates
+                let res = translate_image_streaming(&api_key, target_lang, model_name, cropped, streaming_enabled, |chunk| {
+                    let mut text = accumulated_clone.lock().unwrap();
+                    text.push_str(chunk);
+                    
+                    // On first chunk, switch windows
+                    if !first_chunk_received {
+                        first_chunk_received = true;
+                        unsafe {
+                            // Close the selection/scanning overlay
+                            PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                            // Show the result window
+                            ShowWindow(result_hwnd, SW_SHOW);
+                        }
+                    }
+                    
+                    // Update the window in real-time
+                    update_result_window(&text);
+                });
 
-        match res {
-            Ok(text) => {
-                if !text.trim().is_empty() {
-                    let text_for_result = text.clone();
-                    
-                    std::thread::spawn(move || {
-                        show_result_window(rect, text_for_result);
-                    });
-                    
-                    // Apply auto-copy if enabled
-                    if auto_copy {
-                        let text_for_copy = text.clone();
-                        std::thread::spawn(move || {
-                            // Small delay to ensure window is created
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                            copy_to_clipboard(&text_for_copy, unsafe { GetActiveWindow() });
-                        });
+                match res {
+                    Ok(text) => {
+                        if !text.trim().is_empty() {
+                            // Apply auto-copy if enabled
+                            if auto_copy {
+                                std::thread::spawn(move || {
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                    copy_to_clipboard(&text, HWND(0));
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        // If we error out before showing the window, show it now
+                        if !first_chunk_received {
+                            unsafe {
+                                PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                                ShowWindow(result_hwnd, SW_SHOW);
+                            }
+                        }
+                        let error_msg = get_error_message(&e.to_string(), &ui_language);
+                        update_result_window(&error_msg);
                     }
                 }
+            });
+
+            // Run message loop on this thread to keep the result window responsive
+            unsafe {
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).into() {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                    if !IsWindow(result_hwnd).as_bool() { break; }
+                }
             }
-            Err(e) => {
-                let error_msg = get_error_message(&e.to_string(), &ui_language);
-                std::thread::spawn(move || show_result_window(rect, error_msg));
-            }
-        }
+        });
+
     } else {
         unsafe { PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
-    }
-    
-    unsafe {
-        IS_PROCESSING = false;
-        IS_DRAGGING = false;
     }
 }
 
@@ -343,6 +385,100 @@ fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) 
 
 static mut IS_DISMISSING: bool = false;
 static mut DISMISS_ALPHA: u8 = 255;
+static mut RESULT_HWND: HWND = HWND(0);
+static mut RESULT_RECT: RECT = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+
+pub fn create_result_window(target_rect: RECT) -> HWND {
+    unsafe {
+        IS_DISMISSING = false;
+        DISMISS_ALPHA = 255;
+        let instance = GetModuleHandleW(None).unwrap();
+        let class_name = w!("TranslationResult");
+        
+        let mut wc = WNDCLASSW::default();
+        if !GetClassInfoW(instance, class_name, &mut wc).as_bool() {
+            wc.lpfnWndProc = Some(result_wnd_proc);
+            wc.hInstance = instance;
+            // Load custom broom cursor
+            static BROOM_CURSOR_DATA: &[u8] = include_bytes!("../broom.cur");
+            
+            let temp_path = std::env::temp_dir().join("broom_cursor.cur");
+            if let Ok(()) = std::fs::write(&temp_path, BROOM_CURSOR_DATA) {
+                let path_wide: Vec<u16> = temp_path.to_string_lossy()
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
+                let cursor_handle = LoadImageW(
+                    None,
+                    PCWSTR(path_wide.as_ptr()),
+                    IMAGE_CURSOR,
+                    0, 0,
+                    LR_LOADFROMFILE | LR_DEFAULTSIZE
+                );
+                wc.hCursor = if let Ok(handle) = cursor_handle {
+                    HCURSOR(handle.0)
+                } else {
+                    LoadCursorW(None, IDC_HAND).unwrap()
+                };
+            } else {
+                wc.hCursor = LoadCursorW(None, IDC_HAND).unwrap();
+            }
+            wc.lpszClassName = class_name;
+            wc.style = CS_HREDRAW | CS_VREDRAW;
+            wc.hbrBackground = HBRUSH(0);
+            RegisterClassW(&wc);
+        }
+
+        let width = (target_rect.right - target_rect.left).abs();
+        let height = (target_rect.bottom - target_rect.top).abs();
+        
+        // Create window hidden (no WS_VISIBLE) to prevent white flash
+        let hwnd = CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+            class_name,
+            w!("Processing..."),
+            WS_POPUP,
+            target_rect.left, target_rect.top, width, height,
+            None, None, instance, None
+        );
+
+        // Set initial transparency
+        SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
+        
+        // Use DWM Rounded Corners (Windows 11 style)
+        let corner_preference = 2u32;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(33), // DWMWA_WINDOW_CORNER_PREFERENCE
+            &corner_preference as *const _ as *const _,
+            size_of::<u32>() as u32
+        );
+        
+        // Force initial paint
+        InvalidateRect(hwnd, None, false);
+        UpdateWindow(hwnd);
+        
+        RESULT_HWND = hwnd;
+        RESULT_RECT = target_rect;
+        
+        hwnd
+    }
+}
+
+pub fn update_result_window(text: &str) {
+    unsafe {
+        if !IsWindow(RESULT_HWND).as_bool() {
+            return;
+        }
+        
+        // Update window text
+        let wide_text = to_wstring(text);
+        SetWindowTextW(RESULT_HWND, PCWSTR(wide_text.as_ptr()));
+        
+        // Redraw
+        InvalidateRect(RESULT_HWND, None, false);
+    }
+}
 
 pub fn show_result_window(target_rect: RECT, text: String) {
     unsafe {
@@ -479,21 +615,27 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
             
-            // Paint dark background
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+
+            // Double buffering setup
+            let mem_dc = CreateCompatibleDC(hdc);
+            let mem_bitmap = CreateCompatibleBitmap(hdc, width, height);
+            let old_bitmap = SelectObject(mem_dc, mem_bitmap);
+
+            // Paint to memory DC
             let dark_brush = CreateSolidBrush(COLORREF(0x00222222)); // Dark background
-            FillRect(hdc, &rect, dark_brush);
+            FillRect(mem_dc, &rect, dark_brush);
             DeleteObject(dark_brush);
             
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, COLORREF(0x00FFFFFF)); // White text
+            SetBkMode(mem_dc, TRANSPARENT);
+            SetTextColor(mem_dc, COLORREF(0x00FFFFFF)); // White text
             
             let text_len = GetWindowTextLengthW(hwnd) + 1;
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
             
             let padding = 4; 
-            let width = rect.right - rect.left;
-            let height = rect.bottom - rect.top;
             let available_w = (width - (padding * 2)).max(1); 
             let available_h = (height - (padding * 2)).max(1);
 
@@ -506,11 +648,12 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             while low <= high {
                 let mid = (low + high) / 2;
                 let hfont = CreateFontW(mid, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-                SelectObject(hdc, hfont);
+                let old_font = SelectObject(mem_dc, hfont);
                 
                 let mut calc_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
-                let h = DrawTextW(hdc, &mut buf, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
+                let h = DrawTextW(mem_dc, &mut buf, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
                 
+                SelectObject(mem_dc, old_font);
                 DeleteObject(hfont);
 
                 if h <= available_h {
@@ -524,7 +667,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
 
             // Draw text
             let hfont = CreateFontW(optimal_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-            SelectObject(hdc, hfont);
+            let old_font = SelectObject(mem_dc, hfont);
 
             let offset_y = (available_h - text_h) / 2;
             let mut draw_rect = rect;
@@ -532,9 +675,19 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             draw_rect.right -= padding;
             draw_rect.top += padding + offset_y;
             
-            DrawTextW(hdc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
+            DrawTextW(mem_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
             
+            SelectObject(mem_dc, old_font);
             DeleteObject(hfont);
+
+            // Copy to screen
+            BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY).ok().unwrap();
+
+            // Cleanup
+            SelectObject(mem_dc, old_bitmap);
+            DeleteObject(mem_bitmap);
+            DeleteDC(mem_dc);
+            
             EndPaint(hwnd, &mut ps);
             LRESULT(0)
         }
