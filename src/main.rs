@@ -146,14 +146,34 @@ fn run_hotkey_listener() {
             None, None, instance, None
         );
 
-        let current_hotkey = APP.lock().unwrap().config.hotkey_code;
+        let mut current_hotkey = APP.lock().unwrap().config.hotkey_code;
         RegisterHotKey(hwnd, 1, HOT_KEY_MODIFIERS(0), current_hotkey);
+        
+        // Set a timer to check for hotkey updates periodically
+        SetTimer(hwnd, 1, 500, None); // Check every 500ms
 
         let mut msg = MSG::default();
         loop {
             if GetMessageW(&mut msg, None, 0, 0).into() {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+                match msg.message {
+                    WM_TIMER => {
+                        // Check if hotkey was updated
+                        let mut app = APP.lock().unwrap();
+                        if app.hotkey_updated {
+                            let new_hotkey = app.config.hotkey_code;
+                            if new_hotkey != current_hotkey {
+                                UnregisterHotKey(hwnd, 1);
+                                RegisterHotKey(hwnd, 1, HOT_KEY_MODIFIERS(0), new_hotkey);
+                                current_hotkey = new_hotkey;
+                            }
+                            app.hotkey_updated = false;
+                        }
+                    }
+                    _ => {
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                }
             }
         }
     }

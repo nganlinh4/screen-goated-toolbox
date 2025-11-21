@@ -57,7 +57,6 @@ struct LocaleText {
     current_language_label: &'static str,
     hotkey_section: &'static str,
     hotkey_label: &'static str,
-    restart_note: &'static str,
     startup_label: &'static str,
     fullscreen_note: &'static str,
     footer_note: &'static str,
@@ -76,7 +75,6 @@ impl LocaleText {
                 current_language_label: "Current:",
                 hotkey_section: "Controls",
                 hotkey_label: "Activation Hotkey:",
-                restart_note: "Note: Restart app to apply hotkey changes.",
                 startup_label: "Run at Windows Startup",
                 fullscreen_note: "⚠ To use hotkey in fullscreen apps/games, run this app as Administrator.",
                 footer_note: "Press hotkey and select region to translate. Closing this window minimizes to System Tray.",
@@ -91,7 +89,6 @@ impl LocaleText {
                 current_language_label: "Hiện tại:",
                 hotkey_section: "Điều Khiển",
                 hotkey_label: "Phím Tắt Kích Hoạt:",
-                restart_note: "Lưu ý: Khởi động lại để áp dụng phím tắt mới.",
                 startup_label: "Khởi động cùng Windows",
                 fullscreen_note: "⚠ Để sử dụng phím tắt trong các ứng dụng/trò chơi fullscreen, hãy chạy ứng dụng này dưới quyền Quản trị viên.",
                 footer_note: "Bấm hotkey và chọn vùng trên màn hình để dịch, tắt cửa sổ này thì ứng dụng sẽ tiếp tục chạy trong System Tray",
@@ -106,7 +103,6 @@ impl LocaleText {
                 current_language_label: "현재:",
                 hotkey_section: "단축키 설정",
                 hotkey_label: "활성화 키:",
-                restart_note: "참고: 단축키 변경은 앱을 재시작해야 적용됩니다.",
                 startup_label: "Windows 시작 시 실행",
                 fullscreen_note: "⚠ 풀스크린 앱/게임에서 단축키를 사용하려면 관리자 권한으로 이 앱을 실행하세요.",
                 footer_note: "단축키를 눌러 번역할 영역을 선택하세요. 창을 닫으면 트레이에서 실행됩니다.",
@@ -271,12 +267,14 @@ impl SettingsApp {
     }
 
     fn save_and_sync(&mut self) {
-        save_config(&self.config);
         let mut state = self.app_state_ref.lock().unwrap();
-        state.config = self.config.clone();
+        // Check if hotkey changed BEFORE updating state
         if state.config.hotkey_code != self.config.hotkey_code {
-             state.hotkey_updated = true;
+            state.hotkey_updated = true;
         }
+        state.config = self.config.clone();
+        drop(state);
+        save_config(&self.config);
     }
     
     fn restore_window(&self, ctx: &egui::Context) {
@@ -458,8 +456,6 @@ impl eframe::App for SettingsApp {
                     });
                   
                   let warn_color = if self.config.dark_mode { egui::Color32::YELLOW } else { egui::Color32::from_rgb(200, 0, 0) };
-                  ui.small(egui::RichText::new(text.restart_note).color(warn_color));
-                  ui.add_space(8.0);
                   ui.small(egui::RichText::new(text.fullscreen_note).color(warn_color));
                   });
 
