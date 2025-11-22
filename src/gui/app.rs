@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::config::{Config, save_config, get_all_languages};
+use crate::config::{Config, save_config, get_all_languages, Preset, Hotkey};
 use std::sync::{Arc, Mutex};
 use tray_icon::{TrayIcon, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
 use auto_launch::AutoLaunch;
@@ -13,8 +13,8 @@ use windows::core::*;
 
 use crate::gui::locale::LocaleText;
 use crate::gui::key_mapping::egui_key_to_vk;
+use crate::model_config::{get_all_models, ModelType, get_model_by_id};
 
-// Windows Modifier Constants
 const MOD_ALT: u32 = 0x0001;
 const MOD_CONTROL: u32 = 0x0002;
 const MOD_SHIFT: u32 = 0x0004;
@@ -25,15 +25,20 @@ enum UserEvent {
     Menu(MenuEvent),
 }
 
-// Global signal for window restoration
 lazy_static::lazy_static! {
     static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum ViewMode {
+    Global,
+    Preset(usize),
 }
 
 pub struct SettingsApp {
     config: Config,
     app_state_ref: Arc<Mutex<crate::AppState>>,
-    search_query: String,
+    search_query: String, // Shared search for languages
     tray_icon: Option<TrayIcon>,
     _tray_menu: Menu,
     event_rx: Receiver<UserEvent>,
@@ -42,7 +47,11 @@ pub struct SettingsApp {
     auto_launcher: Option<AutoLaunch>,
     show_api_key: bool,
     show_gemini_api_key: bool,
-    recording_hotkey: bool,
+    
+    // New State
+    view_mode: ViewMode,
+    recording_hotkey_for_preset: Option<usize>,
+    hotkey_conflict_msg: Option<String>,
 }
 
 impl SettingsApp {
@@ -106,13 +115,16 @@ impl SettingsApp {
                 match event.id.0.as_str() {
                     "1001" => std::process::exit(0),
                     "1002" => {
+                        // Try to find and restore window directly
                         unsafe {
                             let class_name = w!("eframe");
-                            let mut hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), None);
-                            if hwnd.0 == 0 {
+                            let hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), None);
+                            let hwnd = if hwnd.0 == 0 {
                                 let title = w!("Screen Grounded Translator");
-                                hwnd = FindWindowW(None, PCWSTR(title.as_ptr()));
-                            }
+                                FindWindowW(None, PCWSTR(title.as_ptr()))
+                            } else {
+                                hwnd
+                            };
                             if hwnd.0 != 0 {
                                 ShowWindow(hwnd, SW_RESTORE);
                                 ShowWindow(hwnd, SW_SHOW);
@@ -129,6 +141,13 @@ impl SettingsApp {
             }
         });
 
+        // Determine initial view mode
+        let view_mode = if config.presets.is_empty() {
+             ViewMode::Global 
+        } else {
+             ViewMode::Preset(if config.active_preset_idx < config.presets.len() { config.active_preset_idx } else { 0 })
+        };
+
         Self {
             config,
             app_state_ref: app_state,
@@ -141,16 +160,25 @@ impl SettingsApp {
             auto_launcher: Some(auto),
             show_api_key: false,
             show_gemini_api_key: false,
-            recording_hotkey: false,
+            view_mode,
+            recording_hotkey_for_preset: None,
+            hotkey_conflict_msg: None,
         }
     }
 
     fn save_and_sync(&mut self) {
-        let mut state = self.app_state_ref.lock().unwrap();
-        if state.config.hotkeys != self.config.hotkeys {
-            state.hotkeys_updated = true;
+        // Update active preset index in config for persistence
+        if let ViewMode::Preset(idx) = self.view_mode {
+            self.config.active_preset_idx = idx;
         }
+
+        let mut state = self.app_state_ref.lock().unwrap();
+        
+        // Check if hotkeys changed
+        // Simplification: Always signal update on save. Overhead is low.
+        state.hotkeys_updated = true;
         state.config = self.config.clone();
+        
         drop(state);
         save_config(&self.config);
     }
@@ -161,6 +189,18 @@ impl SettingsApp {
          ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
          ctx.request_repaint();
     }
+
+    fn check_hotkey_conflict(&self, vk: u32, mods: u32, current_preset_idx: usize) -> Option<String> {
+        for (idx, preset) in self.config.presets.iter().enumerate() {
+            if idx == current_preset_idx { continue; }
+            for hk in &preset.hotkeys {
+                if hk.code == vk && hk.modifiers == mods {
+                    return Some(format!("Conflict with '{}' in preset '{}'", hk.name, preset.name));
+                }
+            }
+        }
+        None
+    }
 }
 
 impl eframe::App for SettingsApp {
@@ -169,60 +209,70 @@ impl eframe::App for SettingsApp {
             self.restore_window(ctx);
         }
 
-        // --- Handle Hotkey Recording (Support Combinations) ---
-        if self.recording_hotkey {
-            let mut key_to_record: Option<(u32, String)> = None;
-            let mut modifiers_bitmap = 0;
-            
-            // Check modifiers and keys using egui state
-            ctx.input(|i| {
-                if i.modifiers.ctrl { modifiers_bitmap |= MOD_CONTROL; }
-                if i.modifiers.alt { modifiers_bitmap |= MOD_ALT; }
-                if i.modifiers.shift { modifiers_bitmap |= MOD_SHIFT; }
-                // mac command key usually maps to Win on Windows/Linux for egui
-                if i.modifiers.command { modifiers_bitmap |= MOD_WIN; } 
+        // --- Hotkey Recording Logic ---
+        if let Some(preset_idx) = self.recording_hotkey_for_preset {
+            let mut key_recorded: Option<(u32, u32, String)> = None;
+            let mut cancel = false;
 
-                // Check for pressed keys
-                for event in &i.events {
-                    if let egui::Event::Key { key, pressed: true, .. } = event {
-                        if let Some(vk) = egui_key_to_vk(key) {
-                            // Filter out keys that are just modifier triggers themselves
-                            // (16=Shift, 17=Ctrl, 18=Alt, 91=Win, 92=RWin)
-                            if !matches!(vk, 16 | 17 | 18 | 91 | 92) {
-                                let key_name = format!("{:?}", key).trim_start_matches("Key").to_string();
-                                key_to_record = Some((vk, key_name));
+            ctx.input(|i| {
+                if i.key_pressed(egui::Key::Escape) {
+                    cancel = true;
+                } else {
+                    let mut modifiers_bitmap = 0;
+                    if i.modifiers.ctrl { modifiers_bitmap |= MOD_CONTROL; }
+                    if i.modifiers.alt { modifiers_bitmap |= MOD_ALT; }
+                    if i.modifiers.shift { modifiers_bitmap |= MOD_SHIFT; }
+                    if i.modifiers.command { modifiers_bitmap |= MOD_WIN; }
+
+                    for event in &i.events {
+                        if let egui::Event::Key { key, pressed: true, .. } = event {
+                            if let Some(vk) = egui_key_to_vk(key) {
+                                if !matches!(vk, 16 | 17 | 18 | 91 | 92) {
+                                    let key_name = format!("{:?}", key).trim_start_matches("Key").to_string();
+                                    key_recorded = Some((vk, modifiers_bitmap, key_name));
+                                }
                             }
                         }
                     }
                 }
             });
 
-            // If a non-modifier key is pressed, record the combo
-            if let Some((vk, key_name)) = key_to_record {
-                // Build name string
-                let mut name_parts = Vec::new();
-                if (modifiers_bitmap & MOD_CONTROL) != 0 { name_parts.push("Ctrl".to_string()); }
-                if (modifiers_bitmap & MOD_ALT) != 0 { name_parts.push("Alt".to_string()); }
-                if (modifiers_bitmap & MOD_SHIFT) != 0 { name_parts.push("Shift".to_string()); }
-                if (modifiers_bitmap & MOD_WIN) != 0 { name_parts.push("Win".to_string()); }
-                name_parts.push(key_name);
-                
-                let new_hotkey = crate::config::Hotkey {
-                    code: vk,
-                    modifiers: modifiers_bitmap,
-                    name: name_parts.join(" + "),
-                };
+            if cancel {
+                self.recording_hotkey_for_preset = None;
+                self.hotkey_conflict_msg = None;
+            } else if let Some((vk, mods, key_name)) = key_recorded {
+                // Conflict Check
+                if let Some(msg) = self.check_hotkey_conflict(vk, mods, preset_idx) {
+                    self.hotkey_conflict_msg = Some(msg);
+                } else {
+                    // No conflict
+                    let mut name_parts = Vec::new();
+                    if (mods & MOD_CONTROL) != 0 { name_parts.push("Ctrl".to_string()); }
+                    if (mods & MOD_ALT) != 0 { name_parts.push("Alt".to_string()); }
+                    if (mods & MOD_SHIFT) != 0 { name_parts.push("Shift".to_string()); }
+                    if (mods & MOD_WIN) != 0 { name_parts.push("Win".to_string()); }
+                    name_parts.push(key_name);
 
-                // Avoid duplicates
-                if !self.config.hotkeys.iter().any(|h| h.code == vk && h.modifiers == modifiers_bitmap) {
-                    self.config.hotkeys.push(new_hotkey);
-                    self.recording_hotkey = false;
-                    self.save_and_sync();
+                    let new_hotkey = Hotkey {
+                        code: vk,
+                        modifiers: mods,
+                        name: name_parts.join(" + "),
+                    };
+
+                    if let Some(preset) = self.config.presets.get_mut(preset_idx) {
+                        if !preset.hotkeys.iter().any(|h| h.code == vk && h.modifiers == mods) {
+                            preset.hotkeys.push(new_hotkey);
+                            self.save_and_sync();
+                        }
+                    }
+                    self.recording_hotkey_for_preset = None;
+                    self.hotkey_conflict_msg = None;
                 }
             }
         }
 
-        // --- Handle Pending Events ---
+
+        // --- Event Handling ---
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
                 UserEvent::Tray(tray_event) => {
@@ -253,14 +303,11 @@ impl eframe::App for SettingsApp {
 
         let text = LocaleText::get(&self.config.ui_language);
 
+        // --- UI LAYOUT ---
         egui::CentralPanel::default().show(ctx, |ui| {
-            // --- HEADER ---
+            // Header
             ui.horizontal(|ui| {
-                ui.heading("Made by ");
-                ui.add(egui::Hyperlink::from_label_and_url(
-                    egui::RichText::new("nganlinh4").heading(),
-                    "https://github.com/nganlinh4/screen-grounded-translator"
-                ));
+                ui.heading("Screen Grounded Translator");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let theme_icon = if self.config.dark_mode { "🌙" } else { "☀" };
                     if ui.button(theme_icon).on_hover_text("Toggle Theme").clicked() {
@@ -268,6 +315,7 @@ impl eframe::App for SettingsApp {
                         self.save_and_sync();
                     }
                     ui.add_space(5.0);
+                    
                     let original_lang = self.config.ui_language.clone();
                     let lang_display = match self.config.ui_language.as_str() {
                         "vi" => "VI",
@@ -275,7 +323,7 @@ impl eframe::App for SettingsApp {
                         _ => "EN",
                     };
                     egui::ComboBox::from_id_source("header_lang_switch")
-                        .width(60.0)
+                        .width(50.0)
                         .selected_text(lang_display)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut self.config.ui_language, "en".to_string(), "English");
@@ -287,187 +335,302 @@ impl eframe::App for SettingsApp {
                     }
                 });
             });
+            ui.separator();
+            ui.add_space(10.0);
 
-            ui.add_space(15.0);
-
-            // --- TWO COLUMN LAYOUT ---
+            // Main Split
             ui.columns(2, |cols| {
-                // LEFT COLUMN: API Key and Language
-                cols[0].group(|ui| {
-                    ui.heading(text.api_section);
-                    ui.label(text.api_key_label);
-                    ui.horizontal(|ui| {
-                        let available = ui.available_width() - 32.0;
-                        if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(available)).changed() {
-                            self.save_and_sync();
-                        }
-                        let eye_icon = if self.show_api_key { "👁" } else { "🔒" };
-                        if ui.button(eye_icon).clicked() { self.show_api_key = !self.show_api_key; }
-                    });
-                    if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
+                // --- LEFT: SIDEBAR (Presets + Global) ---
+                cols[0].vertical(|ui| {
+                    // Global Settings Button
+                    let is_global = matches!(self.view_mode, ViewMode::Global);
+                    if ui.selectable_label(is_global, format!("⚙ {}", text.global_settings)).clicked() {
+                        self.view_mode = ViewMode::Global;
+                    }
                     
-                    ui.add_space(8.0);
-                    ui.label(text.gemini_api_key_label);
-                    ui.horizontal(|ui| {
-                        let available = ui.available_width() - 32.0;
-                        if ui.add(egui::TextEdit::singleline(&mut self.config.gemini_api_key).password(!self.show_gemini_api_key).desired_width(available)).changed() {
-                            self.save_and_sync();
-                        }
-                        let eye_icon = if self.show_gemini_api_key { "👁" } else { "🔒" };
-                        if ui.button(eye_icon).clicked() { self.show_gemini_api_key = !self.show_gemini_api_key; }
-                    });
-                    if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
-                });
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new(text.presets_section).strong());
+                    
+                    let mut preset_idx_to_delete = None;
 
-                cols[0].add_space(10.0);
-
-                cols[0].group(|ui| {
-                    ui.heading(text.lang_section);
-                    ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
-                    ui.add_space(5.0);
-                    egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
-                        let q = self.search_query.to_lowercase();
-                        let all_languages = get_all_languages();
-                        let filtered = all_languages.iter().filter(|l| l.to_lowercase().contains(&q));
-                        for lang in filtered {
-                            if ui.radio_value(&mut self.config.target_language, lang.clone(), lang).clicked() {
-                                self.save_and_sync();
-                            }
-                        }
-                    });
-                    ui.label(format!("{} {}", text.current_language_label, self.config.target_language));
-                });
-
-                // RIGHT COLUMN: Model and Streaming
-                cols[1].group(|ui| {
-                    ui.heading(text.model_section);
-                    ui.columns(2, |model_cols| {
-                        // LEFT COLUMN: Model Selection
-                        model_cols[0].label(text.model_label);
-                        let original_model = self.config.preferred_model.clone();
-                        let is_vietnamese = self.config.ui_language == "vi";
-                        
-                        // Get current model label for display
-                        let current_label = crate::model_config::get_model_by_id(&self.config.preferred_model)
-                            .map(|m| m.get_label_short(is_vietnamese))
-                            .unwrap_or_else(|| "Nhanh".to_string());
-                        
-                        egui::ComboBox::from_id_source("model_selector")
-                            .selected_text(current_label)
-                            .show_ui(&mut model_cols[0], |ui| {
-                                for model in crate::model_config::get_all_models() {
-                                    if model.enabled {
-                                        ui.selectable_value(
-                                            &mut self.config.preferred_model,
-                                            model.id.clone(),
-                                            model.get_label(is_vietnamese),
-                                        );
-                                    } else {
-                                        // Grayed out disabled model
-                                        ui.add_enabled(false, egui::SelectableLabel::new(false, model.get_label(is_vietnamese)));
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for (idx, preset) in self.config.presets.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
+                                if ui.selectable_label(is_selected, &preset.name).clicked() {
+                                    self.view_mode = ViewMode::Preset(idx);
+                                }
+                                // Delete button (small x)
+                                if self.config.presets.len() > 1 {
+                                    if ui.small_button("x").clicked() {
+                                        preset_idx_to_delete = Some(idx);
                                     }
                                 }
                             });
+                        }
                         
-                        if original_model != self.config.preferred_model {
+                        ui.add_space(5.0);
+                        if ui.button(text.add_preset_btn).clicked() {
+                            let mut new_preset = Preset::default();
+                            new_preset.name = format!("Preset {}", self.config.presets.len() + 1);
+                            self.config.presets.push(new_preset);
+                            self.view_mode = ViewMode::Preset(self.config.presets.len() - 1);
                             self.save_and_sync();
-                            // Update the model selector in app state
-                            {
-                                let mut state = self.app_state_ref.lock().unwrap();
-                                state.model_selector.set_preferred_model(self.config.preferred_model.clone());
+                        }
+                    });
+
+                    if let Some(idx) = preset_idx_to_delete {
+                        self.config.presets.remove(idx);
+                        if let ViewMode::Preset(curr) = self.view_mode {
+                            if curr >= idx && curr > 0 {
+                                self.view_mode = ViewMode::Preset(curr - 1);
+                            } else if self.config.presets.is_empty() {
+                                self.view_mode = ViewMode::Global;
+                            } else {
+                                self.view_mode = ViewMode::Preset(0);
                             }
                         }
-
-                        // RIGHT COLUMN: Streaming Selection
-                        model_cols[1].label(text.streaming_label);
-                        egui::ComboBox::from_id_source("streaming_selector")
-                            .selected_text(if self.config.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                            .show_ui(&mut model_cols[1], |ui| {
-                                if ui.selectable_value(&mut self.config.streaming_enabled, true, text.streaming_option_stream).clicked() {
-                                    self.save_and_sync();
-                                }
-                                if ui.selectable_value(&mut self.config.streaming_enabled, false, text.streaming_option_wait).clicked() {
-                                    self.save_and_sync();
-                                }
-                            });
-                    });
+                        self.save_and_sync();
+                    }
                 });
 
-                cols[1].add_space(10.0);
-
-                cols[1].group(|ui| {
-                    ui.heading(text.hotkey_section);
-                    if let Some(launcher) = &self.auto_launcher {
-                        if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
-                             if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
-                        }
-                    }
-                    ui.add_space(8.0);
-                    if ui.checkbox(&mut self.config.auto_copy, text.auto_copy_label).clicked() { self.save_and_sync(); }
-                    ui.add_space(8.0);
-                    ui.label(egui::RichText::new(text.hotkey_label).strong());
-                    
-                    // List Hotkeys in a grid layout
-                    let hotkey_list: Vec<_> = self.config.hotkeys.iter().cloned().collect();
-                    if !hotkey_list.is_empty() {
-                        ui.label(text.active_hotkeys_label);
-                        let mut grid_indices_to_remove = Vec::new();
-                        egui::Grid::new("hotkey_grid")
-                            .num_columns(2)
-                            .spacing([8.0, 5.0])
-                            .show(ui, |ui| {
-                                for (idx, hotkey) in hotkey_list.iter().enumerate() {
-                                    ui.strong(&hotkey.name);
-                                    if ui.small_button("✖").on_hover_text("Remove").clicked() {
-                                        grid_indices_to_remove.push(idx);
+                // --- RIGHT: DETAIL VIEW ---
+                cols[1].vertical(|ui| {
+                    match self.view_mode {
+                        ViewMode::Global => {
+                            ui.heading(text.global_settings);
+                            ui.add_space(10.0);
+                            
+                            // API Keys
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(text.api_section).strong());
+                                ui.label(text.api_key_label);
+                                ui.horizontal(|ui| {
+                                    if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(200.0)).changed() {
+                                        self.save_and_sync();
                                     }
-                                    ui.end_row();
+                                    if ui.button(if self.show_api_key { "👁" } else { "🔒" }).clicked() { self.show_api_key = !self.show_api_key; }
+                                });
+                                if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
+                                
+                                ui.add_space(5.0);
+                                ui.label(text.gemini_api_key_label);
+                                ui.horizontal(|ui| {
+                                    if ui.add(egui::TextEdit::singleline(&mut self.config.gemini_api_key).password(!self.show_gemini_api_key).desired_width(200.0)).changed() {
+                                        self.save_and_sync();
+                                    }
+                                    if ui.button(if self.show_gemini_api_key { "👁" } else { "🔒" }).clicked() { self.show_gemini_api_key = !self.show_gemini_api_key; }
+                                });
+                                if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
+                            });
+
+                            ui.add_space(10.0);
+                            if let Some(launcher) = &self.auto_launcher {
+                                if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
+                                    if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
+                                }
+                            }
+                        }
+                        
+                        ViewMode::Preset(idx) => {
+                            // Ensure index is valid (could be invalid if just deleted)
+                            if idx >= self.config.presets.len() {
+                                self.view_mode = ViewMode::Global; 
+                                return;
+                            }
+
+                            let mut preset = self.config.presets[idx].clone();
+                            let mut preset_changed = false;
+
+                            ui.heading(&preset.name);
+                            ui.add_space(5.0);
+
+                            // 1. Name
+                            ui.horizontal(|ui| {
+                                ui.label(text.preset_name_label);
+                                if ui.text_edit_singleline(&mut preset.name).changed() {
+                                    preset_changed = true;
                                 }
                             });
-                        
-                        // Remove hotkeys in reverse order to maintain correct indices
-                        for idx in grid_indices_to_remove.iter().rev() {
-                            self.config.hotkeys.remove(*idx);
-                        }
-                        if !grid_indices_to_remove.is_empty() {
-                            self.save_and_sync();
-                        }
-                    }
-                    
-                    // Recorder
-                    if self.recording_hotkey {
-                        ui.horizontal(|ui| {
-                            ui.colored_label(egui::Color32::YELLOW, text.press_keys);
-                            if ui.button(text.cancel_label).clicked() {
-                                self.recording_hotkey = false;
+
+                            // 2. Prompt & Language Tag
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(text.prompt_label).strong());
+                                if ui.add(egui::TextEdit::multiline(&mut preset.prompt).desired_rows(3).desired_width(f32::INFINITY)).changed() {
+                                    preset_changed = true;
+                                }
+                                if ui.button(text.insert_lang_btn).clicked() {
+                                    preset.prompt.push_str(" {language} ");
+                                    preset_changed = true;
+                                }
+                                
+                                // Language Dropdown (always show, as it defines the value for {language})
+                                ui.horizontal(|ui| {
+                                    ui.label(text.lang_for_tag_label);
+                                    ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder).desired_width(80.0));
+                                    
+                                    let q = self.search_query.to_lowercase();
+                                    let all_languages = get_all_languages();
+                                    
+                                    egui::ComboBox::from_id_source("preset_lang_combo")
+                                        .selected_text(&preset.selected_language)
+                                        .width(150.0)
+                                        .show_ui(ui, |ui| {
+                                            for lang in all_languages.iter() {
+                                                if q.is_empty() || lang.to_lowercase().contains(&q) {
+                                                    if ui.selectable_value(&mut preset.selected_language, lang.clone(), lang).clicked() {
+                                                        preset_changed = true;
+                                                    }
+                                                }
+                                            }
+                                        });
+                                });
+                            });
+
+                            // 3. Model & Settings
+                            let is_vietnamese = self.config.ui_language == "vi";
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(text.model_section).strong());
+                                
+                                // Vision Model Selector
+                                let current_label = get_model_by_id(&preset.model)
+                                    .map(|m| m.get_label(is_vietnamese))
+                                    .unwrap_or_else(|| preset.model.clone());
+
+                                egui::ComboBox::from_id_source("vision_model_selector")
+                                    .selected_text(current_label)
+                                    .width(250.0)
+                                    .show_ui(ui, |ui| {
+                                        for model in get_all_models() {
+                                            if model.enabled && model.model_type == ModelType::Vision {
+                                                if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(is_vietnamese)).clicked() {
+                                                    preset_changed = true;
+                                                }
+                                            }
+                                        }
+                                    });
+
+                                ui.horizontal(|ui| {
+                                    ui.label(text.streaming_label);
+                                    egui::ComboBox::from_id_source("stream_combo")
+                                        .selected_text(if preset.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                                        .show_ui(ui, |ui| {
+                                            if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
+                                            if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
+                                        });
+                                });
+
+                                if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
+                                    preset_changed = true;
+                                }
+                            });
+
+                            // 4. Retranslate
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(text.retranslate_section).strong());
+                                if ui.checkbox(&mut preset.retranslate, text.retranslate_checkbox).clicked() {
+                                    preset_changed = true;
+                                }
+
+                                if preset.retranslate {
+                                    // Target Language
+                                    ui.horizontal(|ui| {
+                                        ui.label(text.retranslate_to_label);
+                                        egui::ComboBox::from_id_source("retranslate_lang")
+                                            .selected_text(&preset.retranslate_to)
+                                            .width(120.0)
+                                            .show_ui(ui, |ui| {
+                                                for lang in get_all_languages().iter() {
+                                                     if ui.selectable_value(&mut preset.retranslate_to, lang.clone(), lang).clicked() {
+                                                          preset_changed = true;
+                                                     }
+                                                 }
+                                             });
+                                    });
+
+                                    // Text Model Selector
+                                    ui.horizontal(|ui| {
+                                        ui.label(text.retranslate_model_label);
+                                        let current_text_model = get_model_by_id(&preset.retranslate_model)
+                                            .map(|m| m.get_label(is_vietnamese))
+                                            .unwrap_or_else(|| preset.retranslate_model.clone());
+                                        
+                                        egui::ComboBox::from_id_source("text_model_selector")
+                                            .selected_text(current_text_model)
+                                            .width(180.0)
+                                            .show_ui(ui, |ui| {
+                                                for model in get_all_models() {
+                                                    if model.enabled && model.model_type == ModelType::Text {
+                                                        if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), model.get_label(is_vietnamese)).clicked() {
+                                                            preset_changed = true;
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                    });
+                                }
+                            });
+
+                            // 5. Hotkeys
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(text.hotkey_bag_label).strong());
+                                
+                                let mut indices_to_remove = Vec::new();
+                                for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.strong(&hotkey.name);
+                                        if ui.small_button("✖").clicked() {
+                                            indices_to_remove.push(h_idx);
+                                        }
+                                    });
+                                }
+                                for i in indices_to_remove.iter().rev() {
+                                    preset.hotkeys.remove(*i);
+                                    preset_changed = true;
+                                }
+
+                                if self.recording_hotkey_for_preset == Some(idx) {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(egui::Color32::YELLOW, text.press_keys);
+                                        if ui.button(text.cancel_label).clicked() {
+                                            self.recording_hotkey_for_preset = None;
+                                            self.hotkey_conflict_msg = None;
+                                        }
+                                    });
+                                    if let Some(msg) = &self.hotkey_conflict_msg {
+                                        ui.colored_label(egui::Color32::RED, msg);
+                                    }
+                                } else {
+                                    if ui.button(text.add_hotkey_button).clicked() {
+                                        self.recording_hotkey_for_preset = Some(idx);
+                                    }
+                                }
+                            });
+
+                            // Update the preset in the config
+                            if idx < self.config.presets.len() {
+                                self.config.presets[idx] = preset;
+                                // Save if anything changed
+                                if preset_changed {
+                                    self.save_and_sync();
+                                }
                             }
-                        });
-                    } else {
-                        if ui.button(text.add_hotkey_button).clicked() {
-                            self.recording_hotkey = true;
                         }
                     }
-                      
-                    let warn_color = if self.config.dark_mode { egui::Color32::YELLOW } else { egui::Color32::from_rgb(200, 0, 0) };
-                    ui.small(egui::RichText::new(text.fullscreen_note).color(warn_color));
                 });
             });
 
-            ui.add_space(20.0);
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.label(egui::RichText::new(text.footer_note).italics().weak());
             });
         });
-        
-        ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
-
+    
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.tray_icon = None;
     }
 }
 
-// --- Font Configuration (Unchanged) ---
 pub fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let viet_font_name = "segoe_ui";

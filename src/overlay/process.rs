@@ -3,19 +3,30 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use std::sync::{Arc, Mutex};
 use image::GenericImageView;
 
-use crate::{AppState, api::translate_image_streaming};
+use crate::{AppState, api::{translate_image_streaming, translate_text_streaming}};
 use super::utils::{copy_to_clipboard, get_error_message};
-use super::result::{create_result_window, update_result_window};
+use super::result::{create_result_window, update_window_text, WindowType};
 
-pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND) {
-    let (img, config, model_name, provider) = {
+pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND, preset_idx: usize) {
+    // 1. Snapshot and Configuration Retrieval
+    let (img, config, preset) = {
         let guard = app.lock().unwrap();
-        let model_id = &guard.config.preferred_model;
-        let model_config = crate::model_config::get_model_by_id(model_id);
-        let model = guard.model_selector.get_model();
-        let provider = model_config.map(|m| m.provider.clone()).unwrap_or_else(|| "groq".to_string());
-        (guard.original_screenshot.clone().unwrap(), guard.config.clone(), model, provider)
+        if preset_idx >= guard.config.presets.len() {
+            // Should not happen, but safety check
+            unsafe { PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+            return;
+        }
+        (
+            guard.original_screenshot.clone().unwrap(), 
+            guard.config.clone(),
+            guard.config.presets[preset_idx].clone()
+        )
     };
+
+    let model_id = &preset.model;
+    let model_config = crate::model_config::get_model_by_id(model_id);
+    let model_name = model_config.as_ref().map(|m| m.full_name.clone()).unwrap_or_else(|| "llama-3.2-11b-vision-preview".to_string());
+    let provider = model_config.as_ref().map(|m| m.provider.clone()).unwrap_or_else(|| "groq".to_string());
 
     let x_virt = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
     let y_virt = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
@@ -33,82 +44,168 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
     if crop_w > 0 && crop_h > 0 {
         let cropped = img.view(crop_x, crop_y, crop_w, crop_h).to_image();
         
-        // Store settings before config is moved
-        let auto_copy = config.auto_copy;
         let groq_api_key = config.api_key.clone();
         let gemini_api_key = config.gemini_api_key.clone();
         let ui_language = config.ui_language.clone();
-        let target_lang = config.target_language.clone();
-        let streaming_enabled = config.streaming_enabled;
         
-        // NOTE: We do NOT close the overlay_hwnd here. We keep it open (and scanning)
-        // until the first chunk of data arrives.
+        // Prepare Prompt
+        let final_prompt = preset.prompt.replace("{language}", &preset.selected_language);
         
-        // Spawn a dedicated UI thread for the result window
+        // Settings for thread
+        let streaming_enabled = preset.streaming_enabled;
+        let auto_copy = preset.auto_copy;
+        let do_retranslate = preset.retranslate;
+        let retranslate_to = preset.retranslate_to.clone();
+        let retranslate_model_id = preset.retranslate_model.clone();
+        
+        // Spawn UI Thread for Results
         std::thread::spawn(move || {
-            // Create result window immediately but HIDDEN
-            let result_hwnd = create_result_window(rect);
+            // Create Primary Window (Hidden initially)
+            let primary_hwnd = create_result_window(rect, WindowType::Primary);
             
-            // Spawn a worker thread for the blocking API call
+            // Worker thread for API calls
             std::thread::spawn(move || {
-                // Accumulate text for final result and auto-copy
-                let accumulated = Arc::new(Mutex::new(String::new()));
-                let accumulated_clone = accumulated.clone();
+                let accumulated_vision = Arc::new(Mutex::new(String::new()));
+                let acc_vis_clone = accumulated_vision.clone();
                 let mut first_chunk_received = false;
-                
-                // Blocking call with callback for real-time updates
-                let res = translate_image_streaming(&groq_api_key, &gemini_api_key, target_lang, model_name, provider, cropped, streaming_enabled, |chunk| {
-                    let mut text = accumulated_clone.lock().unwrap();
-                    text.push_str(chunk);
-                    
-                    // On first chunk, switch windows
-                    if !first_chunk_received {
-                        first_chunk_received = true;
-                        unsafe {
-                            // Close the selection/scanning overlay
-                            PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-                            // Show the result window
-                            ShowWindow(result_hwnd, SW_SHOW);
-                        }
-                    }
-                    
-                    // Update the window in real-time
-                    update_result_window(&text);
-                });
 
-                match res {
-                    Ok(text) => {
-                        if !text.trim().is_empty() {
-                            // Apply auto-copy if enabled
-                            if auto_copy {
+                // --- STEP 1: VISION API ---
+                let vision_res = translate_image_streaming(
+                    &groq_api_key, 
+                    &gemini_api_key, 
+                    final_prompt, 
+                    model_name, 
+                    provider, 
+                    cropped, 
+                    streaming_enabled, 
+                    |chunk| {
+                        let mut text = acc_vis_clone.lock().unwrap();
+                        text.push_str(chunk);
+                        
+                        if !first_chunk_received {
+                            first_chunk_received = true;
+                            unsafe {
+                                PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                                ShowWindow(primary_hwnd, SW_SHOW);
+                            }
+                        }
+                        update_window_text(primary_hwnd, &text);
+                    }
+                );
+
+                match vision_res {
+                    Ok(vision_text) => {
+                        // Ensure window is shown if it wasn't already (non-streaming or fast response)
+                        if !first_chunk_received {
+                             unsafe {
+                                PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                                ShowWindow(primary_hwnd, SW_SHOW);
+                            }
+                            update_window_text(primary_hwnd, &vision_text);
+                        }
+
+                        // --- STEP 2: RETRANSLATE (Optional) ---
+                        if do_retranslate && !vision_text.trim().is_empty() {
+                            // Create Secondary Window
+                            // We need to do this on the UI thread? No, create_result_window handles it?
+                            // Actually create_result_window creates a window on the CURRENT thread.
+                            // The current thread is this worker thread? 
+                            // NO. `create_result_window` creates a window. Windows must be pumped on the thread they are created.
+                            // This worker thread DOES NOT pump messages. The PARENT thread (spawned above) pumps messages for `primary_hwnd`.
+                            // So `primary_hwnd` was created on the parent thread.
+                            // If we want a secondary window, it ALSO needs to be created on the parent thread to share the message loop.
+                            
+                            // Solution: We cannot easily create the secondary window from THIS worker thread if we want the parent loop to handle it.
+                            // However, we can use `PostMessage` to signal the parent thread to create it? 
+                            // Or, simplified: Just spawn a NEW thread/loop for the secondary window?
+                            // Yes, spawning a new thread for the secondary window is easiest and isolates it.
+                            
+                            let vision_text_for_retrans = vision_text.clone();
+                            let groq_key_for_retrans = groq_api_key.clone();
+                            
+                            // Spawn Secondary UI Thread
+                            std::thread::spawn(move || {
+                                let secondary_hwnd = create_result_window(rect, WindowType::Secondary);
+                                unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
+                                update_window_text(secondary_hwnd, "Translating...");
+
+                                // API Call for Retranslation (Blocking in this UI thread? No, need another worker or just block since it's simple text?)
+                                // Better to block here? If we block, the window won't repaint.
+                                // So spawn a worker for text API too.
+                                
+                                std::thread::spawn(move || {
+                                    let acc_text = Arc::new(Mutex::new(String::new()));
+                                    let acc_text_clone = acc_text.clone();
+                                    
+                                    // Resolve text model
+                                    let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
+                                    let tm_name = tm_config.map(|m| m.full_name).unwrap_or("llama-3.1-8b-instant".to_string());
+
+                                    let text_res = translate_text_streaming(
+                                        &groq_key_for_retrans,
+                                        vision_text_for_retrans,
+                                        retranslate_to,
+                                        tm_name,
+                                        |chunk| {
+                                            let mut t = acc_text_clone.lock().unwrap();
+                                            t.push_str(chunk);
+                                            update_window_text(secondary_hwnd, &t);
+                                        }
+                                    );
+                                    
+                                    if let Ok(final_text) = text_res {
+                                        update_window_text(secondary_hwnd, &final_text);
+                                        if auto_copy {
+                                            std::thread::spawn(move || {
+                                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                                copy_to_clipboard(&final_text, HWND(0));
+                                            });
+                                        }
+                                    } else if let Err(e) = text_res {
+                                         update_window_text(secondary_hwnd, &format!("Error: {}", e));
+                                    }
+                                });
+
+                                // Message Loop for Secondary
+                                unsafe {
+                                    let mut msg = MSG::default();
+                                    while GetMessageW(&mut msg, None, 0, 0).into() {
+                                        TranslateMessage(&msg);
+                                        DispatchMessageW(&msg);
+                                        if !IsWindow(secondary_hwnd).as_bool() { break; }
+                                    }
+                                }
+                            });
+                        } else {
+                            // No retranslate, just copy the vision text
+                            if auto_copy && !vision_text.trim().is_empty() {
                                 std::thread::spawn(move || {
                                     std::thread::sleep(std::time::Duration::from_millis(100));
-                                    copy_to_clipboard(&text, HWND(0));
+                                    copy_to_clipboard(&vision_text, HWND(0));
                                 });
                             }
                         }
                     }
                     Err(e) => {
-                        // If we error out before showing the window, show it now
                         if !first_chunk_received {
                             unsafe {
                                 PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-                                ShowWindow(result_hwnd, SW_SHOW);
+                                ShowWindow(primary_hwnd, SW_SHOW);
                             }
                         }
                         let error_msg = get_error_message(&e.to_string(), &ui_language);
-                        update_result_window(&error_msg);
+                        update_window_text(primary_hwnd, &error_msg);
                     }
                 }
             });
 
-            // Run message loop on this thread to keep the result window responsive
+            // Message Loop for Primary
             unsafe {
                 let mut msg = MSG::default();
                 while GetMessageW(&mut msg, None, 0, 0).into() {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
-                    if !IsWindow(result_hwnd).as_bool() { break; }
+                    if !IsWindow(primary_hwnd).as_bool() { break; }
                 }
             }
         });

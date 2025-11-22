@@ -1,4 +1,3 @@
-use isolang::Language;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -10,69 +9,120 @@ pub struct Hotkey {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Config {
-    pub api_key: String,
-    pub gemini_api_key: String,
-    pub target_language: String,
-    pub hotkeys: Vec<Hotkey>,
-    pub dark_mode: bool,
-    pub ui_language: String,
-    pub auto_copy: bool,
-    pub preferred_model: String,
-    #[serde(default = "default_streaming_enabled")]
+pub struct Preset {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
+    pub selected_language: String, // Used if {language} is in prompt
+    pub model: String,
     pub streaming_enabled: bool,
+    pub auto_copy: bool,
+    pub hotkeys: Vec<Hotkey>,
+    pub retranslate: bool,
+    pub retranslate_to: String, // Target language for retranslation
+    pub retranslate_model: String,
 }
 
-fn default_streaming_enabled() -> bool {
-    true
-}
-
-impl Default for Config {
+impl Default for Preset {
     fn default() -> Self {
-        // Detect system language
-        let ui_language = match sys_locale::get_locale() {
-            Some(locale) => {
-                let lang = locale.to_lowercase();
-                // Extract language code (e.g., "vi" from "vi_VN")
-                lang.split('_').next().unwrap_or("en").to_string()
-            }
-            None => "en".to_string(),
-        };
-
-        // Detect system dark mode (Windows 10/11)
-        let dark_mode = is_system_dark_mode();
-
         Self {
-            api_key: "".to_string(),
-            gemini_api_key: "".to_string(),
-            target_language: "vi".to_string(),
-            hotkeys: vec![Hotkey {
-                code: 192, // VK_OEM_3 (~)
-                name: "` / ~".to_string(),
-                modifiers: 0,
-            }],
-            dark_mode,
-            ui_language,
+            id: format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
+            name: "New Preset".to_string(),
+            prompt: "Extract text from this image.".to_string(),
+            selected_language: "Vietnamese".to_string(),
+            model: "scout".to_string(),
+            streaming_enabled: true,
             auto_copy: false,
-            preferred_model: "scout".to_string(),
-            streaming_enabled: false,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "fast_text".to_string(),
         }
     }
 }
 
-fn is_system_dark_mode() -> bool {
-    // Check Windows registry for AppsUseLightTheme (0 = dark, 1 = light)
-    use winreg::RegKey;
-    use winreg::enums::HKEY_CURRENT_USER;
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Config {
+    pub api_key: String,
+    pub gemini_api_key: String,
+    pub presets: Vec<Preset>,
+    pub active_preset_idx: usize, // For UI selection
+    pub dark_mode: bool,
+    pub ui_language: String,
+}
 
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    match hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize") {
-        Ok(key) => {
-            key.get_value::<u32, _>("AppsUseLightTheme")
-                .map(|val| val == 0)
-                .unwrap_or(true) // Default to dark if can't read
+impl Default for Config {
+    fn default() -> Self {
+        let default_lang = "Vietnamese".to_string(); // Default target
+        
+        // 1. Translation Preset
+        let trans_preset = Preset {
+            id: "preset_translate".to_string(),
+            name: "Translation".to_string(),
+            prompt: "Extract text from this image and translate it to {language}. Output ONLY the translation text directly. Do not use JSON.".to_string(),
+            selected_language: default_lang.clone(),
+            model: "scout".to_string(),
+            streaming_enabled: true,
+            auto_copy: false,
+            hotkeys: vec![Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 }], // Tilde
+            retranslate: false,
+            retranslate_to: default_lang.clone(),
+            retranslate_model: "fast_text".to_string(),
+        };
+
+        // 2. OCR Preset
+        let ocr_preset = Preset {
+            id: "preset_ocr".to_string(),
+            name: "Trích xuất chữ (OCR)".to_string(),
+            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+            selected_language: "English".to_string(), // Irrelevant for pure OCR but kept
+            model: "scout".to_string(),
+            streaming_enabled: true,
+            auto_copy: true,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: default_lang.clone(),
+            retranslate_model: "fast_text".to_string(),
+        };
+
+        // 3. Summarize Preset
+        let sum_preset = Preset {
+            id: "preset_summarize".to_string(),
+            name: "Summarize Content".to_string(),
+            prompt: "Analyze this image and summarize its content in {language}.".to_string(),
+            selected_language: default_lang.clone(),
+            model: "maverick".to_string(), // Use better model
+            streaming_enabled: true,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: default_lang.clone(),
+            retranslate_model: "fast_text".to_string(),
+        };
+
+        // 4. Description Preset
+        let desc_preset = Preset {
+            id: "preset_desc".to_string(),
+            name: "Image Description".to_string(),
+            prompt: "Describe this image in detail in {language}.".to_string(),
+            selected_language: default_lang.clone(),
+            model: "scout".to_string(),
+            streaming_enabled: true,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: default_lang.clone(),
+            retranslate_model: "fast_text".to_string(),
+        };
+
+        Self {
+            api_key: "".to_string(),
+            gemini_api_key: "".to_string(),
+            presets: vec![trans_preset, ocr_preset, sum_preset, desc_preset],
+            active_preset_idx: 0,
+            dark_mode: true,
+            ui_language: "en".to_string(),
         }
-        Err(_) => true, // Default to dark
     }
 }
 
@@ -81,7 +131,7 @@ pub fn get_config_path() -> PathBuf {
         .unwrap_or_default()
         .join("screen-grounded-translator");
     let _ = std::fs::create_dir_all(&config_dir);
-    config_dir.join("config.json")
+    config_dir.join("config_v2.json") // Changed filename to avoid conflict/migration issues for now
 }
 
 pub fn load_config() -> Config {
@@ -102,11 +152,11 @@ pub fn save_config(config: &Config) {
 
 /// Get all available languages as a vector of language name strings
 pub fn get_all_languages() -> Vec<String> {
-    // Use Language::from_usize to iterate through all languages
+    // Use isolang crate to iterate through all languages
     // ISO 639-3 has ~7000+ language codes, so we iterate up to a safe upper bound
     let mut languages = Vec::new();
     for i in 0..10000 {
-        if let Some(lang) = Language::from_usize(i) {
+        if let Some(lang) = isolang::Language::from_usize(i) {
             languages.push(lang.to_name().to_string());
         }
     }
@@ -118,12 +168,12 @@ pub fn get_all_languages() -> Vec<String> {
 
 /// Check if a language code is valid (supports ISO 639-1 and 639-3)
 pub fn is_valid_language_code(code: &str) -> bool {
-    Language::from_639_1(code).is_some() || Language::from_639_3(code).is_some()
+    isolang::Language::from_639_1(code).is_some() || isolang::Language::from_639_3(code).is_some()
 }
 
 /// Get language name from ISO 639-1 or 639-3 code
 pub fn get_language_name(code: &str) -> Option<String> {
-    Language::from_639_1(code)
-        .or_else(|| Language::from_639_3(code))
+    isolang::Language::from_639_1(code)
+        .or_else(|| isolang::Language::from_639_3(code))
         .map(|lang| lang.to_name().to_string())
 }

@@ -8,47 +8,43 @@ use windows::core::*;
 use std::mem::size_of;
 
 use super::utils::to_wstring;
+use super::selection::load_broom_cursor;
 
+// We support up to 2 windows: Primary and Secondary
+static mut PRIMARY_HWND: HWND = HWND(0);
+static mut SECONDARY_HWND: HWND = HWND(0);
+
+// State tracking
 static mut IS_DISMISSING: bool = false;
 static mut DISMISS_ALPHA: u8 = 255;
-static mut RESULT_HWND: HWND = HWND(0);
-static mut RESULT_RECT: RECT = RECT { left: 0, top: 0, right: 0, bottom: 0 };
 
-pub fn create_result_window(target_rect: RECT) -> HWND {
+// Configuration for the window being created
+static mut CURRENT_BG_COLOR: u32 = 0x00222222;
+
+pub enum WindowType {
+    Primary,
+    Secondary,
+}
+
+pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
     unsafe {
-        IS_DISMISSING = false;
-        DISMISS_ALPHA = 255;
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("TranslationResult");
         
+        // Reset dismiss state when creating new primary
+        if matches!(win_type, WindowType::Primary) {
+            IS_DISMISSING = false;
+            DISMISS_ALPHA = 255;
+            // Close existing secondary if any
+            if IsWindow(SECONDARY_HWND).as_bool() { DestroyWindow(SECONDARY_HWND); }
+            if IsWindow(PRIMARY_HWND).as_bool() { DestroyWindow(PRIMARY_HWND); }
+        }
+
         let mut wc = WNDCLASSW::default();
         if !GetClassInfoW(instance, class_name, &mut wc).as_bool() {
             wc.lpfnWndProc = Some(result_wnd_proc);
             wc.hInstance = instance;
-            // Load custom broom cursor
-            static BROOM_CURSOR_DATA: &[u8] = include_bytes!("../../broom.cur");
-            
-            let temp_path = std::env::temp_dir().join("broom_cursor.cur");
-            if let Ok(()) = std::fs::write(&temp_path, BROOM_CURSOR_DATA) {
-                let path_wide: Vec<u16> = temp_path.to_string_lossy()
-                    .encode_utf16()
-                    .chain(std::iter::once(0))
-                    .collect();
-                let cursor_handle = LoadImageW(
-                    None,
-                    PCWSTR(path_wide.as_ptr()),
-                    IMAGE_CURSOR,
-                    0, 0,
-                    LR_LOADFROMFILE | LR_DEFAULTSIZE
-                );
-                wc.hCursor = if let Ok(handle) = cursor_handle {
-                    HCURSOR(handle.0)
-                } else {
-                    LoadCursorW(None, IDC_HAND).unwrap()
-                };
-            } else {
-                wc.hCursor = LoadCursorW(None, IDC_HAND).unwrap();
-            }
+            wc.hCursor = load_broom_cursor();
             wc.lpszClassName = class_name;
             wc.style = CS_HREDRAW | CS_VREDRAW;
             wc.hbrBackground = HBRUSH(0);
@@ -58,129 +54,75 @@ pub fn create_result_window(target_rect: RECT) -> HWND {
         let width = (target_rect.right - target_rect.left).abs();
         let height = (target_rect.bottom - target_rect.top).abs();
         
-        // Create window hidden (no WS_VISIBLE) to prevent white flash
+        // Determine position and color
+        let (x, y, color) = match win_type {
+            WindowType::Primary => {
+                CURRENT_BG_COLOR = 0x00222222; // Dark Gray
+                (target_rect.left, target_rect.top, 0x00222222)
+            },
+            WindowType::Secondary => {
+                // Position to the right of Primary by default
+                // TODO: Check screen bounds. For now, just +width + 10 padding
+                let padding = 10;
+                let new_x = target_rect.right + padding;
+                CURRENT_BG_COLOR = 0x002d4a22; // Dark Green-ish for distinction
+                (new_x, target_rect.top, 0x002d4a22)
+            }
+        };
+
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             class_name,
             w!(""),
             WS_POPUP,
-            target_rect.left, target_rect.top, width, height,
+            x, y, width, height,
             None, None, instance, None
         );
 
-        // Set initial transparency
+        // Store color in UserData or a map? 
+        // Simpler: We only paint in the wnd_proc. 
+        // We need to know WHICH window acts which way.
+        // Let's use SetWindowLongPtr with GWLP_USERDATA to store the color.
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, color as isize);
+
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
         
-        // Use DWM Rounded Corners (Windows 11 style)
         let corner_preference = 2u32;
         let _ = DwmSetWindowAttribute(
             hwnd,
-            DWMWINDOWATTRIBUTE(33), // DWMWA_WINDOW_CORNER_PREFERENCE
+            DWMWINDOWATTRIBUTE(33),
             &corner_preference as *const _ as *const _,
             size_of::<u32>() as u32
         );
         
-        // Force initial paint
+        match win_type {
+            WindowType::Primary => PRIMARY_HWND = hwnd,
+            WindowType::Secondary => SECONDARY_HWND = hwnd,
+        }
+        
         InvalidateRect(hwnd, None, false);
         UpdateWindow(hwnd);
-        
-        RESULT_HWND = hwnd;
-        RESULT_RECT = target_rect;
         
         hwnd
     }
 }
 
-pub fn update_result_window(text: &str) {
+pub fn update_window_text(hwnd: HWND, text: &str) {
     unsafe {
-        if !IsWindow(RESULT_HWND).as_bool() {
-            return;
-        }
-        
-        // Update window text
+        if !IsWindow(hwnd).as_bool() { return; }
         let wide_text = to_wstring(text);
-        SetWindowTextW(RESULT_HWND, PCWSTR(wide_text.as_ptr()));
-        
-        // Redraw
-        InvalidateRect(RESULT_HWND, None, false);
+        SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
+        InvalidateRect(hwnd, None, false);
     }
 }
 
+// Helper for single-shot error/status windows (always Primary)
 pub fn show_result_window(target_rect: RECT, text: String) {
+    let hwnd = create_result_window(target_rect, WindowType::Primary);
+    update_window_text(hwnd, &text);
+    unsafe { ShowWindow(hwnd, SW_SHOW); }
+    
     unsafe {
-        IS_DISMISSING = false;
-        DISMISS_ALPHA = 255;
-        let instance = GetModuleHandleW(None).unwrap();
-        let class_name = w!("TranslationResult");
-        
-        let mut wc = WNDCLASSW::default();
-        if !GetClassInfoW(instance, class_name, &mut wc).as_bool() {
-            wc.lpfnWndProc = Some(result_wnd_proc);
-            wc.hInstance = instance;
-            // Load custom broom cursor
-            static BROOM_CURSOR_DATA: &[u8] = include_bytes!("../../broom.cur");
-            
-            let temp_path = std::env::temp_dir().join("broom_cursor.cur");
-            if let Ok(()) = std::fs::write(&temp_path, BROOM_CURSOR_DATA) {
-                let path_wide: Vec<u16> = temp_path.to_string_lossy()
-                    .encode_utf16()
-                    .chain(std::iter::once(0))
-                    .collect();
-                let cursor_handle = LoadImageW(
-                    None,
-                    PCWSTR(path_wide.as_ptr()),
-                    IMAGE_CURSOR,
-                    0, 0,
-                    LR_LOADFROMFILE | LR_DEFAULTSIZE
-                );
-                wc.hCursor = if let Ok(handle) = cursor_handle {
-                    HCURSOR(handle.0)
-                } else {
-                    LoadCursorW(None, IDC_HAND).unwrap()
-                };
-            } else {
-                wc.hCursor = LoadCursorW(None, IDC_HAND).unwrap();
-            }
-            wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW;
-            // For layered windows, use NULL background - we paint everything in WM_PAINT
-            wc.hbrBackground = HBRUSH(0);
-            RegisterClassW(&wc);
-        }
-
-        let width = (target_rect.right - target_rect.left).abs();
-        let height = (target_rect.bottom - target_rect.top).abs();
-        
-        // Create window hidden (no WS_VISIBLE) to prevent white flash
-        let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
-            class_name,
-            PCWSTR(to_wstring(&text).as_ptr()),
-            WS_POPUP,
-            target_rect.left, target_rect.top, width, height,
-            None, None, instance, None
-        );
-
-        // Set initial transparency
-        SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
-        
-        // Use DWM Rounded Corners (Windows 11 style) instead of SetWindowRgn
-        // 33 = DWMWA_WINDOW_CORNER_PREFERENCE, 2 = DWMWCP_ROUND
-        let corner_preference = 2u32;
-        let _ = DwmSetWindowAttribute(
-            hwnd,
-            DWMWINDOWATTRIBUTE(33), // DWMWA_WINDOW_CORNER_PREFERENCE
-            &corner_preference as *const _ as *const _,
-            size_of::<u32>() as u32
-        );
-        
-        // Force initial paint before showing
-        InvalidateRect(hwnd, None, false);
-        UpdateWindow(hwnd);
-        
-        // NOW show the window with proper rendering
-        ShowWindow(hwnd, SW_SHOW);
-
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
             TranslateMessage(&msg);
@@ -192,40 +134,46 @@ pub fn show_result_window(target_rect: RECT, text: String) {
 
 unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
-        WM_ERASEBKGND => {
-            // Prevent white flash by not letting Windows erase the background
-            LRESULT(1)
-        }
-        WM_LBUTTONUP => {
+        WM_ERASEBKGND => LRESULT(1),
+        WM_LBUTTONUP | WM_RBUTTONUP => {
+            // Dismiss BOTH windows on click
             IS_DISMISSING = true;
-            SetTimer(hwnd, 2, 8, None); 
-            LRESULT(0)
-        }
-        WM_RBUTTONUP => {
-            let text_len = GetWindowTextLengthW(hwnd) + 1;
-            let mut buf = vec![0u16; text_len as usize];
-            GetWindowTextW(hwnd, &mut buf);
-            let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
-            super::utils::copy_to_clipboard(&text, hwnd);
-            IS_DISMISSING = true;
-            SetTimer(hwnd, 2, 8, None);
+            SetTimer(PRIMARY_HWND, 2, 8, None); 
+            
+            // Copy text if Right Click or 'C' (handled in logic)
+            if msg == WM_RBUTTONUP {
+                let text_len = GetWindowTextLengthW(hwnd) + 1;
+                let mut buf = vec![0u16; text_len as usize];
+                GetWindowTextW(hwnd, &mut buf);
+                let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
+                super::utils::copy_to_clipboard(&text, hwnd);
+            }
             LRESULT(0)
         }
         WM_TIMER => {
             if wparam.0 == 2 && IS_DISMISSING {
                 if DISMISS_ALPHA > 15 {
                     DISMISS_ALPHA = DISMISS_ALPHA.saturating_sub(15);
-                    SetLayeredWindowAttributes(hwnd, COLORREF(0), DISMISS_ALPHA, LWA_ALPHA);
+                    // Fade both
+                    if IsWindow(PRIMARY_HWND).as_bool() {
+                        SetLayeredWindowAttributes(PRIMARY_HWND, COLORREF(0), DISMISS_ALPHA, LWA_ALPHA);
+                    }
+                    if IsWindow(SECONDARY_HWND).as_bool() {
+                        SetLayeredWindowAttributes(SECONDARY_HWND, COLORREF(0), DISMISS_ALPHA, LWA_ALPHA);
+                    }
                 } else {
                     KillTimer(hwnd, 2);
-                    DestroyWindow(hwnd);
+                    if IsWindow(SECONDARY_HWND).as_bool() { DestroyWindow(SECONDARY_HWND); }
+                    if IsWindow(PRIMARY_HWND).as_bool() { DestroyWindow(PRIMARY_HWND); }
                 }
             }
             LRESULT(0)
         }
         WM_KEYDOWN => { 
             if wparam.0 == VK_ESCAPE.0 as usize { 
-                DestroyWindow(hwnd); 
+                // Destroy both
+                if IsWindow(SECONDARY_HWND).as_bool() { DestroyWindow(SECONDARY_HWND); }
+                if IsWindow(PRIMARY_HWND).as_bool() { DestroyWindow(PRIMARY_HWND); }
             } else if wparam.0 == 'C' as usize {
                 let text_len = GetWindowTextLengthW(hwnd) + 1;
                 let mut buf = vec![0u16; text_len as usize];
@@ -244,13 +192,13 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
 
-            // Double buffering setup
             let mem_dc = CreateCompatibleDC(hdc);
             let mem_bitmap = CreateCompatibleBitmap(hdc, width, height);
             let old_bitmap = SelectObject(mem_dc, mem_bitmap);
 
-            // Paint to memory DC
-            let dark_brush = CreateSolidBrush(COLORREF(0x00222222)); // Dark background
+            // Retrieve stored color
+            let bg_color_val = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as u32;
+            let dark_brush = CreateSolidBrush(COLORREF(bg_color_val));
             FillRect(mem_dc, &rect, dark_brush);
             DeleteObject(dark_brush);
             
@@ -265,7 +213,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let available_w = (width - (padding * 2)).max(1); 
             let available_h = (height - (padding * 2)).max(1);
 
-            // Binary search for optimal font size
+            // Simple Font Auto-size logic (Simplified for brevity)
             let mut low = 10;
             let mut high = 72;
             let mut optimal_size = 10; 
@@ -275,10 +223,8 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 let mid = (low + high) / 2;
                 let hfont = CreateFontW(mid, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
                 let old_font = SelectObject(mem_dc, hfont);
-                
                 let mut calc_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
                 let h = DrawTextW(mem_dc, &mut buf, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
-                
                 SelectObject(mem_dc, old_font);
                 DeleteObject(hfont);
 
@@ -291,7 +237,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 }
             }
 
-            // Draw text
             let hfont = CreateFontW(optimal_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
             let old_font = SelectObject(mem_dc, hfont);
 
@@ -305,11 +250,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             
             SelectObject(mem_dc, old_font);
             DeleteObject(hfont);
-
-            // Copy to screen
             BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY).ok().unwrap();
-
-            // Cleanup
             SelectObject(mem_dc, old_bitmap);
             DeleteObject(mem_bitmap);
             DeleteDC(mem_dc);

@@ -33,18 +33,15 @@ pub struct AppState {
     pub config: Config,
     pub original_screenshot: Option<ImageBuffer<image::Rgba<u8>, Vec<u8>>>,
     pub hotkeys_updated: bool,
-    pub model_selector: model_config::ModelSelector,
 }
 
 lazy_static! {
     pub static ref APP: Arc<Mutex<AppState>> = Arc::new(Mutex::new({
         let config = load_config();
-        let model_selector = model_config::ModelSelector::new(config.preferred_model.clone());
         AppState {
             config,
             original_screenshot: None,
             hotkeys_updated: false,
-            model_selector,
         }
     }));
 }
@@ -77,8 +74,6 @@ fn main() -> eframe::Result<()> {
     });
 
     let tray_menu = Menu::new();
-    // Added "Settings" option so users can explicitly click to restore
-    // Ensure IDs match what we handle in gui.rs
     let settings_i = MenuItem::with_id("1002", "Settings", true, None);
     let quit_i = MenuItem::with_id("1001", "Quit", true, None);
     let _ = tray_menu.append(&settings_i);
@@ -93,10 +88,9 @@ fn main() -> eframe::Result<()> {
         .unwrap();
 
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([600.0, 500.0])
+        .with_inner_size([700.0, 600.0]) // Increased size for new UI
         .with_resizable(true);
     
-    // Set window icon - embedded in binary
     let app_icon_bytes = include_bytes!("../assets/app-icon-small.png");
     if let Ok(img) = image::load_from_memory(app_icon_bytes) {
         let img_rgba = img.to_rgba8();
@@ -126,7 +120,32 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+fn register_all_hotkeys(hwnd: HWND) {
+    let app = APP.lock().unwrap();
+    let presets = &app.config.presets;
+    
+    for (p_idx, preset) in presets.iter().enumerate() {
+        for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
+            // ID encoding: 1000 * preset_idx + hotkey_idx + 1
+            // This assumes < 1000 presets and < 1000 hotkeys per preset.
+            let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
+            unsafe {
+                RegisterHotKey(hwnd, id, HOT_KEY_MODIFIERS(hotkey.modifiers), hotkey.code);
+            }
+        }
+    }
+}
 
+fn unregister_all_hotkeys(hwnd: HWND) {
+    let app = APP.lock().unwrap();
+    let presets = &app.config.presets;
+    for (p_idx, preset) in presets.iter().enumerate() {
+        for (h_idx, _) in preset.hotkeys.iter().enumerate() {
+            let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
+            unsafe { UnregisterHotKey(hwnd, id); }
+        }
+    }
+}
 
 fn run_hotkey_listener() {
     unsafe {
@@ -150,34 +169,23 @@ fn run_hotkey_listener() {
             None, None, instance, None
         );
 
-        let mut current_hotkeys: Vec<(u32, u32)> = APP.lock().unwrap().config.hotkeys.iter().map(|h| (h.code, h.modifiers)).collect();
-        for (id, (hotkey_code, modifiers)) in current_hotkeys.iter().enumerate() {
-            RegisterHotKey(hwnd, (id + 1) as i32, HOT_KEY_MODIFIERS(*modifiers), *hotkey_code);
-        }
+        register_all_hotkeys(hwnd);
         
-        // Set a timer to check for hotkey updates periodically
-        SetTimer(hwnd, 999, 500, None); // Check every 500ms
+        // Set timer to check updates
+        SetTimer(hwnd, 999, 500, None);
 
         let mut msg = MSG::default();
         loop {
             if GetMessageW(&mut msg, None, 0, 0).into() {
                 match msg.message {
                     WM_TIMER => {
-                        // Check if hotkeys were updated
-                        let mut app = APP.lock().unwrap();
+                        let app = APP.lock().unwrap();
                         if app.hotkeys_updated {
-                            let new_hotkeys: Vec<(u32, u32)> = app.config.hotkeys.iter().map(|h| (h.code, h.modifiers)).collect();
-                            if new_hotkeys != current_hotkeys {
-                                // Unregister old hotkeys
-                                for id in 1..=current_hotkeys.len() as i32 {
-                                    UnregisterHotKey(hwnd, id);
-                                }
-                                // Register new hotkeys
-                                for (id, (hotkey_code, modifiers)) in new_hotkeys.iter().enumerate() {
-                                    RegisterHotKey(hwnd, (id + 1) as i32, HOT_KEY_MODIFIERS(*modifiers), *hotkey_code);
-                                }
-                                current_hotkeys = new_hotkeys;
-                            }
+                            drop(app); // Release lock before unregistering
+                            unregister_all_hotkeys(hwnd);
+                            register_all_hotkeys(hwnd);
+                            
+                            let mut app = APP.lock().unwrap();
                             app.hotkeys_updated = false;
                         }
                     }
@@ -194,23 +202,24 @@ fn run_hotkey_listener() {
 unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_HOTKEY => {
-            // Handle any registered hotkey (wparam is the hotkey ID, which can be 1, 2, 3, etc.)
-            if wparam.0 > 0 {
-                // Check if selection overlay is already active, dismiss it instead of opening a new one
+            let id = wparam.0 as i32;
+            if id > 0 {
+                // Decode ID to get preset index
+                // ID = (p_idx * 1000) + h_idx + 1
+                let preset_idx = ((id - 1) / 1000) as usize;
+
                 if overlay::is_selection_overlay_active_and_dismiss() {
-                    // Successfully dismissed the active overlay, don't create a new one
                     return LRESULT(0);
                 }
                 
-                // No overlay active, proceed with normal capture flow
                 match capture_full_screen() {
                     Ok(img) => {
                         {
                             let mut app = APP.lock().unwrap();
                             app.original_screenshot = Some(img);
                         }
-                        std::thread::spawn(|| {
-                           overlay::show_selection_overlay(); 
+                        std::thread::spawn(move || {
+                           overlay::show_selection_overlay(preset_idx); 
                         });
                     },
                     Err(e) => println!("Capture Error: {}", e),
@@ -221,8 +230,6 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
-
-
 
 fn capture_full_screen() -> anyhow::Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
     unsafe {

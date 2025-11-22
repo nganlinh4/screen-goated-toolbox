@@ -8,6 +8,22 @@ use windows::core::*;
 use super::process::process_and_close;
 use crate::{APP};
 
+pub fn load_broom_cursor() -> HCURSOR {
+    unsafe {
+        let instance = GetModuleHandleW(None).unwrap();
+        
+        // Try to load from embedded resource (ID 101)
+        if let Ok(hcursor) = LoadCursorW(instance, PCWSTR(101 as *const u16)) {
+            if !hcursor.is_invalid() {
+                return hcursor;
+            }
+        }
+        
+        // Fallback to standard crosshair cursor if resource not found
+        LoadCursorW(None, IDC_CROSS).unwrap_or(HCURSOR(0))
+    }
+}
+
 static mut START_POS: POINT = POINT { x: 0, y: 0 };
 static mut CURR_POS: POINT = POINT { x: 0, y: 0 };
 static mut IS_DRAGGING: bool = false;
@@ -16,8 +32,8 @@ static mut SCAN_LINE_Y: i32 = 0;
 static mut SCAN_DIR: i32 = 5;
 static mut SELECTION_OVERLAY_ACTIVE: bool = false;
 static mut SELECTION_OVERLAY_HWND: HWND = HWND(0);
+static mut CURRENT_PRESET_IDX: usize = 0;
 
-// Helper to check if selection overlay is currently active and dismiss it
 pub fn is_selection_overlay_active_and_dismiss() -> bool {
     unsafe {
         if SELECTION_OVERLAY_ACTIVE && SELECTION_OVERLAY_HWND.0 != 0 {
@@ -29,9 +45,9 @@ pub fn is_selection_overlay_active_and_dismiss() -> bool {
     }
 }
 
-pub fn show_selection_overlay() {
+pub fn show_selection_overlay(preset_idx: usize) {
     unsafe {
-        // Mark overlay as active
+        CURRENT_PRESET_IDX = preset_idx;
         SELECTION_OVERLAY_ACTIVE = true;
         
         let instance = GetModuleHandleW(None).unwrap();
@@ -53,7 +69,6 @@ pub fn show_selection_overlay() {
         let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         
         let hwnd = CreateWindowExW(
-            // WS_EX_TOOLWINDOW prevents taskbar appearance
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
             w!("Snipping"),
@@ -62,7 +77,6 @@ pub fn show_selection_overlay() {
             None, None, instance, None
         );
 
-        // Store the window handle
         SELECTION_OVERLAY_HWND = hwnd;
 
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 100, LWA_ALPHA);
@@ -74,7 +88,6 @@ pub fn show_selection_overlay() {
             if msg.message == WM_CLOSE { break; }
         }
         
-        // Mark overlay as inactive when it closes
         SELECTION_OVERLAY_ACTIVE = false;
         SELECTION_OVERLAY_HWND = HWND(0);
         
@@ -126,8 +139,9 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                     SetTimer(hwnd, 1, 30, None);
                     
                     let app_clone = APP.clone();
+                    let p_idx = CURRENT_PRESET_IDX;
                     std::thread::spawn(move || {
-                        process_and_close(app_clone, rect, hwnd);
+                        process_and_close(app_clone, rect, hwnd, p_idx);
                     });
                 } else {
                     PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));

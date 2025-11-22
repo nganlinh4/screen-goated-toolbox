@@ -42,7 +42,7 @@ struct ChatMessage {
 pub fn translate_image_streaming<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
-    target_lang: String,
+    prompt: String,
     model: String,
     provider: String,
     image: ImageBuffer<Rgba<u8>, Vec<u8>>,
@@ -55,12 +55,6 @@ where
     let mut png_data = Vec::new();
     image.write_to(&mut Cursor::new(&mut png_data), ImageFormat::Png)?;
     let b64_image = general_purpose::STANDARD.encode(&png_data);
-
-    let prompt = format!(
-        "Extract text from this image and translate it to {}. \
-        Output ONLY the translation text directly. Do not use JSON. Do not include any other text.",
-        target_lang
-    );
 
     let mut full_content = String::new();
 
@@ -157,19 +151,40 @@ where
             return Err(anyhow::anyhow!("NO_API_KEY"));
         }
 
-        let payload = serde_json::json!({
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        { "type": "text", "text": prompt },
-                        { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
-                    ]
-                }
-            ],
-            "stream": streaming_enabled
-        });
+        let payload = if streaming_enabled {
+            serde_json::json!({
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            { "type": "text", "text": prompt },
+                            { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                        ]
+                    }
+                ],
+                "temperature": 0.1,
+                "max_completion_tokens": 1024,
+                "stream": true
+            })
+        } else {
+            serde_json::json!({
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            { "type": "text", "text": prompt },
+                            { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                        ]
+                    }
+                ],
+                "temperature": 0.1,
+                "max_completion_tokens": 1024,
+                "response_format": { "type": "json_object" },
+                "stream": false
+            })
+        };
 
         let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
             .set("Authorization", &format!("Bearer {}", groq_api_key))
@@ -178,6 +193,8 @@ where
                 let err_str = e.to_string();
                 if err_str.contains("401") {
                     anyhow::anyhow!("INVALID_API_KEY")
+                } else if err_str.contains("400") {
+                    anyhow::anyhow!("Groq API 400: Bad request. Check model availability or API request format.")
                 } else {
                     anyhow::anyhow!("{}", err_str)
                 }
@@ -187,14 +204,14 @@ where
             let reader = BufReader::new(resp.into_reader());
             for line in reader.lines() {
                 let line = line?;
-                
+
                 if line.starts_with("data: ") {
                     let data = &line[6..];
-                    
+
                     if data == "[DONE]" {
                         break;
                     }
-                    
+
                     match serde_json::from_str::<StreamChunk>(data) {
                         Ok(chunk) => {
                             if let Some(content) = chunk.choices.get(0)
@@ -210,9 +227,19 @@ where
         } else {
             let chat_resp: ChatCompletionResponse = resp.into_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
-                
+
             if let Some(choice) = chat_resp.choices.first() {
-                full_content = choice.message.content.clone();
+                let content_str = &choice.message.content;
+                // Parse JSON response (from response_format: json_object)
+                if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
+                    if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
+                        full_content = translation.to_string();
+                    } else {
+                        full_content = content_str.clone();
+                    }
+                } else {
+                    full_content = content_str.clone();
+                }
                 on_chunk(&full_content);
             }
         }
@@ -220,6 +247,73 @@ where
 
     if full_content.is_empty() {
         return Err(anyhow::anyhow!("No content received from API"));
+    }
+
+    Ok(full_content)
+}
+
+pub fn translate_text_streaming<F>(
+    groq_api_key: &str,
+    text: String,
+    target_lang: String,
+    model: String,
+    mut on_chunk: F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    if groq_api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("NO_API_KEY"));
+    }
+
+    let prompt = format!(
+        "Translate the following text to {}. Output ONLY the translation. Text:\n\n{}",
+        target_lang, text
+    );
+
+    let payload = serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "stream": true 
+    });
+
+    let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
+        .set("Authorization", &format!("Bearer {}", groq_api_key))
+        .send_json(payload)
+        .map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("401") {
+                anyhow::anyhow!("INVALID_API_KEY")
+            } else {
+                anyhow::anyhow!("{}", err_str)
+            }
+        })?;
+
+    let mut full_content = String::new();
+    let reader = BufReader::new(resp.into_reader());
+    
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("data: ") {
+            let data = &line[6..];
+            if data == "[DONE]" { break; }
+            
+            match serde_json::from_str::<StreamChunk>(data) {
+                Ok(chunk) => {
+                    if let Some(content) = chunk.choices.get(0)
+                        .and_then(|c| c.delta.content.as_ref()) {
+                        full_content.push_str(content);
+                        on_chunk(content);
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
     }
 
     Ok(full_content)
