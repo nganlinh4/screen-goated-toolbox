@@ -47,6 +47,7 @@ pub fn translate_image_streaming<F>(
     provider: String,
     image: ImageBuffer<Rgba<u8>, Vec<u8>>,
     streaming_enabled: bool,
+    use_json_format: bool,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -168,7 +169,7 @@ where
                 "stream": true
             })
         } else {
-            serde_json::json!({
+            let mut payload_obj = serde_json::json!({
                 "model": model,
                 "messages": [
                     {
@@ -181,9 +182,14 @@ where
                 ],
                 "temperature": 0.1,
                 "max_completion_tokens": 1024,
-                "response_format": { "type": "json_object" },
                 "stream": false
-            })
+            });
+            
+            if use_json_format {
+                payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
+            }
+            
+            payload_obj
         };
 
         let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
@@ -230,16 +236,23 @@ where
 
             if let Some(choice) = chat_resp.choices.first() {
                 let content_str = &choice.message.content;
-                // Parse JSON response (from response_format: json_object)
-                if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
-                    if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
-                        full_content = translation.to_string();
+                
+                if use_json_format {
+                    // Parse JSON response (from response_format: json_object)
+                    if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
+                        if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
+                            full_content = translation.to_string();
+                        } else {
+                            full_content = content_str.clone();
+                        }
                     } else {
                         full_content = content_str.clone();
                     }
                 } else {
+                    // Plain text response
                     full_content = content_str.clone();
                 }
+                
                 on_chunk(&full_content);
             }
         }
@@ -257,6 +270,7 @@ pub fn translate_text_streaming<F>(
     text: String,
     target_lang: String,
     model: String,
+    streaming_enabled: bool,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -271,16 +285,30 @@ where
         target_lang, text
     );
 
-    let payload = serde_json::json!({
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        "stream": true 
-    });
+    let payload = if streaming_enabled {
+        serde_json::json!({
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "stream": true
+        })
+    } else {
+        serde_json::json!({
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "response_format": { "type": "json_object" },
+            "stream": false
+        })
+    };
 
     let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
         .set("Authorization", &format!("Bearer {}", groq_api_key))
@@ -295,24 +323,45 @@ where
         })?;
 
     let mut full_content = String::new();
-    let reader = BufReader::new(resp.into_reader());
-    
-    for line in reader.lines() {
-        let line = line?;
-        if line.starts_with("data: ") {
-            let data = &line[6..];
-            if data == "[DONE]" { break; }
-            
-            match serde_json::from_str::<StreamChunk>(data) {
-                Ok(chunk) => {
-                    if let Some(content) = chunk.choices.get(0)
-                        .and_then(|c| c.delta.content.as_ref()) {
-                        full_content.push_str(content);
-                        on_chunk(content);
+
+    if streaming_enabled {
+        let reader = BufReader::new(resp.into_reader());
+        
+        for line in reader.lines() {
+            let line = line?;
+            if line.starts_with("data: ") {
+                let data = &line[6..];
+                if data == "[DONE]" { break; }
+                
+                match serde_json::from_str::<StreamChunk>(data) {
+                    Ok(chunk) => {
+                        if let Some(content) = chunk.choices.get(0)
+                            .and_then(|c| c.delta.content.as_ref()) {
+                            full_content.push_str(content);
+                            on_chunk(content);
+                        }
                     }
+                    Err(_) => continue,
                 }
-                Err(_) => continue,
             }
+        }
+    } else {
+        let chat_resp: ChatCompletionResponse = resp.into_json()
+            .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+
+        if let Some(choice) = chat_resp.choices.first() {
+            let content_str = &choice.message.content;
+            // Parse JSON response (from response_format: json_object)
+            if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
+                if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
+                    full_content = translation.to_string();
+                } else {
+                    full_content = content_str.clone();
+                }
+            } else {
+                full_content = content_str.clone();
+            }
+            on_chunk(&full_content);
         }
     }
 

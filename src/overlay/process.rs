@@ -57,6 +57,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         let do_retranslate = preset.retranslate;
         let retranslate_to = preset.retranslate_to.clone();
         let retranslate_model_id = preset.retranslate_model.clone();
+        let use_json_format = preset.id == "preset_translate";
         
         // Spawn UI Thread for Results
         std::thread::spawn(move || {
@@ -78,6 +79,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                     provider, 
                     cropped, 
                     streaming_enabled, 
+                    use_json_format,
                     |chunk| {
                         let mut text = acc_vis_clone.lock().unwrap();
                         text.push_str(chunk);
@@ -146,6 +148,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                                         vision_text_for_retrans,
                                         retranslate_to,
                                         tm_name,
+                                        streaming_enabled,
                                         |chunk| {
                                             let mut t = acc_text_clone.lock().unwrap();
                                             t.push_str(chunk);

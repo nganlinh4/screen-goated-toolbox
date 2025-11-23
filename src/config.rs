@@ -89,7 +89,7 @@ impl Default for Config {
         let sum_preset = Preset {
             id: "preset_summarize".to_string(),
             name: "Summarize Content".to_string(),
-            prompt: "Analyze this image and summarize its content in {language}.".to_string(),
+            prompt: "Analyze this image and summarize its content in {language}. Only return the summary text, super concisely.".to_string(),
             selected_language: default_lang.clone(),
             model: "maverick".to_string(), // Use better model
             streaming_enabled: true,
