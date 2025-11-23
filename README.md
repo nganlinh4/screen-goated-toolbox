@@ -20,8 +20,8 @@ A powerful Windows utility that captures any region of your screen and processes
 
 ## Screenshot
 
-![Screenshot](docs\images\screenshot.png)
-![Demo Video](docs\images\demo-video.gif)
+![Screenshot](docs/images/screenshot.png)
+![Demo Video](docs/images/demo-video.gif)
 
 ## Prerequisites
 
