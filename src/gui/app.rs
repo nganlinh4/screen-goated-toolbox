@@ -305,43 +305,38 @@ impl eframe::App for SettingsApp {
 
         // --- UI LAYOUT ---
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Header
-            ui.horizontal(|ui| {
-                ui.heading("Screen Grounded Translator");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let theme_icon = if self.config.dark_mode { "🌙" } else { "☀" };
-                    if ui.button(theme_icon).on_hover_text("Toggle Theme").clicked() {
-                        self.config.dark_mode = !self.config.dark_mode;
-                        self.save_and_sync();
-                    }
-                    ui.add_space(5.0);
-                    
-                    let original_lang = self.config.ui_language.clone();
-                    let lang_display = match self.config.ui_language.as_str() {
-                        "vi" => "VI",
-                        "ko" => "KO",
-                        _ => "EN",
-                    };
-                    egui::ComboBox::from_id_source("header_lang_switch")
-                        .width(50.0)
-                        .selected_text(lang_display)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.config.ui_language, "en".to_string(), "English");
-                            ui.selectable_value(&mut self.config.ui_language, "vi".to_string(), "Vietnamese");
-                            ui.selectable_value(&mut self.config.ui_language, "ko".to_string(), "Korean");
-                        });
-                    if original_lang != self.config.ui_language {
-                        self.save_and_sync();
-                    }
-                });
-            });
-            ui.separator();
-            ui.add_space(10.0);
-
             // Main Split
             ui.columns(2, |cols| {
                 // --- LEFT: SIDEBAR (Presets + Global) ---
                 cols[0].vertical(|ui| {
+                    // Theme & Language Controls (Moved from Header)
+                    ui.horizontal(|ui| {
+                        let theme_icon = if self.config.dark_mode { "🌙" } else { "☀" };
+                        if ui.button(theme_icon).on_hover_text("Toggle Theme").clicked() {
+                            self.config.dark_mode = !self.config.dark_mode;
+                            self.save_and_sync();
+                        }
+                        
+                        let original_lang = self.config.ui_language.clone();
+                        let lang_display = match self.config.ui_language.as_str() {
+                            "vi" => "VI",
+                            "ko" => "KO",
+                            _ => "EN",
+                        };
+                        egui::ComboBox::from_id_source("header_lang_switch")
+                            .width(60.0)
+                            .selected_text(lang_display)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.config.ui_language, "en".to_string(), "English");
+                                ui.selectable_value(&mut self.config.ui_language, "vi".to_string(), "Vietnamese");
+                                ui.selectable_value(&mut self.config.ui_language, "ko".to_string(), "Korean");
+                            });
+                        if original_lang != self.config.ui_language {
+                            self.save_and_sync();
+                        }
+                    });
+                    ui.add_space(5.0);
+
                     // Global Settings Button
                     let is_global = matches!(self.view_mode, ViewMode::Global);
                     if ui.selectable_label(is_global, format!("⚙ {}", text.global_settings)).clicked() {
@@ -398,7 +393,7 @@ impl eframe::App for SettingsApp {
                 cols[1].vertical(|ui| {
                     match self.view_mode {
                         ViewMode::Global => {
-                            ui.heading(text.global_settings);
+                            // Removed Heading
                             ui.add_space(10.0);
                             
                             // API Keys
@@ -430,6 +425,12 @@ impl eframe::App for SettingsApp {
                                     if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
                                 }
                             }
+
+                            ui.add_space(20.0);
+                            if ui.button(text.reset_defaults_btn).clicked() {
+                                self.config = Config::default();
+                                self.save_and_sync();
+                            }
                         }
                         
                         ViewMode::Preset(idx) => {
@@ -442,43 +443,47 @@ impl eframe::App for SettingsApp {
                             let mut preset = self.config.presets[idx].clone();
                             let mut preset_changed = false;
 
-                            ui.heading(&preset.name);
+                            // Removed Heading
                             ui.add_space(5.0);
 
-                            // 1. Name
+                            // 1. Name (Bigger)
                             ui.horizontal(|ui| {
-                                ui.label(text.preset_name_label);
-                                if ui.text_edit_singleline(&mut preset.name).changed() {
+                                ui.label(egui::RichText::new(text.preset_name_label).heading());
+                                if ui.add(egui::TextEdit::singleline(&mut preset.name).font(egui::TextStyle::Heading)).changed() {
                                     preset_changed = true;
                                 }
                             });
 
                             // 2. Prompt & Language Tag
                             ui.group(|ui| {
-                                ui.label(egui::RichText::new(text.prompt_label).strong());
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(text.prompt_label).strong());
+                                    if ui.button(text.insert_lang_btn).clicked() {
+                                        preset.prompt.push_str(" {language} ");
+                                        preset_changed = true;
+                                    }
+                                });
+                                
                                 if ui.add(egui::TextEdit::multiline(&mut preset.prompt).desired_rows(3).desired_width(f32::INFINITY)).changed() {
                                     preset_changed = true;
                                 }
-                                if ui.button(text.insert_lang_btn).clicked() {
-                                    preset.prompt.push_str(" {language} ");
-                                    preset_changed = true;
-                                }
                                 
-                                // Language Dropdown (always show, as it defines the value for {language})
+                                // Language Dropdown (Searchable)
                                 ui.horizontal(|ui| {
                                     ui.label(text.lang_for_tag_label);
-                                    ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder).desired_width(80.0));
                                     
-                                    let q = self.search_query.to_lowercase();
-                                    let all_languages = get_all_languages();
+                                    let id_source = "preset_lang_combo";
+                                    let current_val = &mut preset.selected_language;
                                     
-                                    egui::ComboBox::from_id_source("preset_lang_combo")
-                                        .selected_text(&preset.selected_language)
+                                    egui::ComboBox::from_id_source(id_source)
+                                        .selected_text(current_val.clone())
                                         .width(150.0)
                                         .show_ui(ui, |ui| {
-                                            for lang in all_languages.iter() {
+                                            ui.text_edit_singleline(&mut self.search_query);
+                                            let q = self.search_query.to_lowercase();
+                                            for lang in get_all_languages().iter() {
                                                 if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                    if ui.selectable_value(&mut preset.selected_language, lang.clone(), lang).clicked() {
+                                                    if ui.selectable_value(current_val, lang.clone(), lang).clicked() {
                                                         preset_changed = true;
                                                     }
                                                 }
@@ -533,19 +538,27 @@ impl eframe::App for SettingsApp {
                                 }
 
                                 if preset.retranslate {
-                                    // Target Language
+                                    // Target Language (Searchable)
                                     ui.horizontal(|ui| {
                                         ui.label(text.retranslate_to_label);
-                                        egui::ComboBox::from_id_source("retranslate_lang")
-                                            .selected_text(&preset.retranslate_to)
-                                            .width(120.0)
+                                        
+                                        let id_source = "retranslate_lang";
+                                        let current_val = &mut preset.retranslate_to;
+                                        
+                                        egui::ComboBox::from_id_source(id_source)
+                                            .selected_text(current_val.clone())
+                                            .width(150.0)
                                             .show_ui(ui, |ui| {
+                                                ui.text_edit_singleline(&mut self.search_query);
+                                                let q = self.search_query.to_lowercase();
                                                 for lang in get_all_languages().iter() {
-                                                     if ui.selectable_value(&mut preset.retranslate_to, lang.clone(), lang).clicked() {
-                                                          preset_changed = true;
-                                                     }
-                                                 }
-                                             });
+                                                    if q.is_empty() || lang.to_lowercase().contains(&q) {
+                                                        if ui.selectable_value(current_val, lang.clone(), lang).clicked() {
+                                                            preset_changed = true;
+                                                        }
+                                                    }
+                                                }
+                                            });
                                     });
 
                                     // Text Model Selector
@@ -631,9 +644,7 @@ impl eframe::App for SettingsApp {
                 });
             });
 
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new(text.footer_note).italics().weak());
-            });
+            // Removed Footer
         });
     }
     

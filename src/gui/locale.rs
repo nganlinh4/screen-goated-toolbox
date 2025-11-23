@@ -32,13 +32,14 @@ pub struct LocaleText {
     pub add_hotkey_button: &'static str,
     pub press_keys: &'static str,
     pub cancel_label: &'static str,
+    pub reset_defaults_btn: &'static str,
 }
 
 impl LocaleText {
     pub fn get(lang_code: &str) -> Self {
         match lang_code {
             "vi" => Self {
-                api_section: "Cấu Hình Chung",
+                api_section: "Cài Đặt Chung",
                 api_key_label: "Mã API Groq:",
                 get_key_link: "Lấy mã tại console.groq.com",
                 gemini_api_key_label: "Mã API Gemini:",
@@ -46,7 +47,7 @@ impl LocaleText {
                 presets_section: "Danh Sách Cấu Hình",
                 global_settings: "Cài Đặt Chung",
                 preset_name_label: "Tên Cấu Hình:",
-                prompt_label: "Câu Lệnh (Prompt):",
+                prompt_label: "Câu lệnh:",
                 insert_lang_btn: "Chèn thẻ {language}",
                 lang_for_tag_label: "Ngôn ngữ cho thẻ {language}:",
                 retranslate_section: "Dịch lại kết quả (Retranslate)",
@@ -57,7 +58,7 @@ impl LocaleText {
                 add_preset_btn: "+ Thêm Cấu Hình",
                 delete_preset_btn: "Xóa",
                 search_placeholder: "Tìm ngôn ngữ...",
-                model_section: "Mô Hình Dịch (Vision)",
+                model_section: "Mô hình hiểu ảnh",
                 model_label: "Mô hình:",
                 streaming_label: "Cách xuất chữ:",
                 streaming_option_stream: "Nhận gì hiện nấy",
@@ -65,14 +66,15 @@ impl LocaleText {
                 auto_copy_label: "Tự động copy",
                 startup_label: "Khởi động cùng Windows",
                 fullscreen_note: "⚠ Để dùng phím tắt trong game, chạy App dưới quyền Admin.",
-                footer_note: "SGT - Screen Grounded Translator",
+                footer_note: "",
                 active_hotkeys_label: "Danh sách phím:",
                 add_hotkey_button: "+ Thêm Phím",
                 press_keys: "Ấn tổ hợp phím...",
                 cancel_label: "Hủy",
+                reset_defaults_btn: "Khôi phục mặc định",
             },
             _ => Self {
-                api_section: "Global Configuration",
+                api_section: "Global Settings",
                 api_key_label: "Groq API Key:",
                 get_key_link: "Get API Key at console.groq.com",
                 gemini_api_key_label: "Gemini API Key:",
@@ -99,11 +101,12 @@ impl LocaleText {
                 auto_copy_label: "Auto copy result",
                 startup_label: "Run at Windows Startup",
                 fullscreen_note: "⚠ To use hotkeys in fullscreen apps, run as Admin.",
-                footer_note: "SGT - Screen Grounded Translator",
+                footer_note: "",
                 active_hotkeys_label: "Active Keys:",
                 add_hotkey_button: "+ Add Key",
                 press_keys: "Press combination...",
                 cancel_label: "Cancel",
+                reset_defaults_btn: "Reset to Defaults",
             },
         }
     }
