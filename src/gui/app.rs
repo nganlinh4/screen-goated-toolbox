@@ -52,6 +52,8 @@ pub struct SettingsApp {
     view_mode: ViewMode,
     recording_hotkey_for_preset: Option<usize>,
     hotkey_conflict_msg: Option<String>,
+    splash: Option<crate::gui::splash::SplashScreen>,
+    startup_centered: bool,
 }
 
 impl SettingsApp {
@@ -163,6 +165,8 @@ impl SettingsApp {
             view_mode,
             recording_hotkey_for_preset: None,
             hotkey_conflict_msg: None,
+            splash: Some(crate::gui::splash::SplashScreen::new(&ctx)),
+            startup_centered: false,
         }
     }
 
@@ -207,6 +211,43 @@ impl SettingsApp {
 
 impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Center window on startup
+        if !self.startup_centered {
+            if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
+                let outer_rect = ctx.input(|i| i.viewport().outer_rect);
+                let inner_rect = ctx.input(|i| i.viewport().inner_rect);
+                
+                let win_size = if let Some(rect) = outer_rect {
+                    rect.size()
+                } else if let Some(rect) = inner_rect {
+                    rect.size()
+                } else {
+                    egui::vec2(600.0, 500.0)
+                };
+
+                let x = (monitor_size.x - win_size.x) / 2.0;
+                let y = (monitor_size.y - win_size.y) / 2.0;
+                
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                self.startup_centered = true;
+            }
+        }
+
+        // Check Splash
+        if let Some(splash) = &mut self.splash {
+            // Render Splash
+            // We want the splash to cover everything, so we assume full window
+            match splash.update(ctx) {
+                crate::gui::splash::SplashStatus::Ongoing => {
+                    return; // Don't draw the rest of the UI yet
+                }
+                crate::gui::splash::SplashStatus::Finished => {
+                    self.splash = None; // Drop splash, proceed to normal UI
+                }
+            }
+        }
+
         if RESTORE_SIGNAL.swap(false, Ordering::SeqCst) {
             self.restore_window(ctx);
         }

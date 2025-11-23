@@ -91,7 +91,8 @@ fn main() -> eframe::Result<()> {
 
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size([600.0, 500.0]) // Increased size for new UI
-        .with_resizable(true);
+        .with_resizable(true)
+        .with_visible(false);
     
     let app_icon_bytes = include_bytes!("../assets/app-icon-small.png");
     if let Ok(img) = image::load_from_memory(app_icon_bytes) {
