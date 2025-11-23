@@ -54,6 +54,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         
         // Settings for thread
         let streaming_enabled = preset.streaming_enabled;
+        let retranslate_streaming_enabled = preset.retranslate_streaming_enabled;
         let auto_copy = preset.auto_copy;
         let do_retranslate = preset.retranslate;
         let retranslate_to = preset.retranslate_to.clone();
@@ -117,7 +118,6 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                             // This worker thread DOES NOT pump messages. The PARENT thread (spawned above) pumps messages for `primary_hwnd`.
                             // So `primary_hwnd` was created on the parent thread.
                             // If we want a secondary window, it ALSO needs to be created on the parent thread to share the message loop.
-                            
                             // Solution: We cannot easily create the secondary window from THIS worker thread if we want the parent loop to handle it.
                             // However, we can use `PostMessage` to signal the parent thread to create it? 
                             // Or, simplified: Just spawn a NEW thread/loop for the secondary window?
@@ -149,7 +149,8 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                                         vision_text_for_retrans,
                                         retranslate_to,
                                         tm_name,
-                                        streaming_enabled,
+                                        retranslate_streaming_enabled,
+                                        false, // Disable JSON format for text retranslation to avoid parsing errors
                                         |chunk| {
                                             let mut t = acc_text_clone.lock().unwrap();
                                             t.push_str(chunk);

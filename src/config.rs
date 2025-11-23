@@ -21,6 +21,7 @@ pub struct Preset {
     pub retranslate: bool,
     pub retranslate_to: String, // Target language for retranslation
     pub retranslate_model: String,
+    pub retranslate_streaming_enabled: bool,
 }
 
 impl Default for Preset {
@@ -37,6 +38,7 @@ impl Default for Preset {
             retranslate: false,
             retranslate_to: "Vietnamese".to_string(),
             retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
         }
     }
 }
@@ -68,6 +70,7 @@ impl Default for Config {
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
         };
 
         // 2. OCR Preset
@@ -83,6 +86,7 @@ impl Default for Config {
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
         };
 
         // 3. Summarize Preset
@@ -98,6 +102,7 @@ impl Default for Config {
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
         };
 
         // 4. Description Preset
@@ -113,6 +118,7 @@ impl Default for Config {
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
         };
 
         Self {

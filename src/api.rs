@@ -271,6 +271,7 @@ pub fn translate_text_streaming<F>(
     target_lang: String,
     model: String,
     streaming_enabled: bool,
+    use_json_format: bool,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -297,7 +298,7 @@ where
             "stream": true
         })
     } else {
-        serde_json::json!({
+        let mut payload_obj = serde_json::json!({
             "model": model,
             "messages": [
                 {
@@ -305,9 +306,14 @@ where
                     "content": prompt
                 }
             ],
-            "response_format": { "type": "json_object" },
             "stream": false
-        })
+        });
+        
+        if use_json_format {
+            payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
+        }
+        
+        payload_obj
     };
 
     let resp = ureq::post("https://api.groq.com/openai/v1/chat/completions")
@@ -351,16 +357,23 @@ where
 
         if let Some(choice) = chat_resp.choices.first() {
             let content_str = &choice.message.content;
-            // Parse JSON response (from response_format: json_object)
-            if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
-                if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
-                    full_content = translation.to_string();
+            
+            if use_json_format {
+                // Parse JSON response (from response_format: json_object)
+                if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
+                    if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
+                        full_content = translation.to_string();
+                    } else {
+                        full_content = content_str.clone();
+                    }
                 } else {
                     full_content = content_str.clone();
                 }
             } else {
+                // Plain text response
                 full_content = content_str.clone();
             }
+            
             on_chunk(&full_content);
         }
     }

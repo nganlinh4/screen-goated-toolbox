@@ -568,6 +568,17 @@ impl eframe::App for SettingsApp {
                                                 }
                                             });
                                     });
+
+                                    // Retranslate Streaming Toggle
+                                    ui.horizontal(|ui| {
+                                        ui.label(text.streaming_label);
+                                        egui::ComboBox::from_id_source("retranslate_stream_combo")
+                                            .selected_text(if preset.retranslate_streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                                            .show_ui(ui, |ui| {
+                                                if ui.selectable_value(&mut preset.retranslate_streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
+                                                if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
+                                            });
+                                    });
                                 }
                             });
 
