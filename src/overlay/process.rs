@@ -49,8 +49,17 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         let gemini_api_key = config.gemini_api_key.clone();
         let ui_language = config.ui_language.clone();
         
-        // Prepare Prompt
-        let final_prompt = preset.prompt.replace("{language}", &preset.selected_language);
+        // Prepare Prompt - replace all {languageN} with actual languages
+        let mut final_prompt = preset.prompt.clone();
+        
+        // Replace numbered language tags
+        for (key, value) in &preset.language_vars {
+            let pattern = format!("{{{}}}", key); // e.g., "{language1}"
+            final_prompt = final_prompt.replace(&pattern, value);
+        }
+        
+        // Backward compatibility: also replace old {language} tag
+        final_prompt = final_prompt.replace("{language}", &preset.selected_language);
         
         // Settings for thread
         let streaming_enabled = preset.streaming_enabled;

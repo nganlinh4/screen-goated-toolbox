@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Hotkey {
@@ -13,7 +14,9 @@ pub struct Preset {
     pub id: String,
     pub name: String,
     pub prompt: String,
-    pub selected_language: String, // Used if {language} is in prompt
+    pub selected_language: String, // Deprecated: kept for backward compatibility
+    #[serde(default)]
+    pub language_vars: HashMap<String, String>, // Maps {language1}, {language2}, etc.
     pub model: String,
     pub streaming_enabled: bool,
     pub auto_copy: bool,
@@ -40,6 +43,7 @@ impl Default for Preset {
             name: "New Preset".to_string(),
             prompt: "Extract text from this image.".to_string(),
             selected_language: "Vietnamese".to_string(),
+            language_vars: HashMap::new(),
             model: "scout".to_string(),
             streaming_enabled: false,
             auto_copy: false,
@@ -70,11 +74,15 @@ impl Default for Config {
         let default_lang = "Vietnamese".to_string(); // Default target
         
         // 1. Translation Preset
+        let mut trans_lang_vars = HashMap::new();
+        trans_lang_vars.insert("language1".to_string(), default_lang.clone());
+        
         let trans_preset = Preset {
             id: "preset_translate".to_string(),
             name: "Translation".to_string(),
-            prompt: "Extract text from this image and translate it to {language}. Output ONLY the translation text directly.".to_string(),
+            prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
             selected_language: default_lang.clone(),
+            language_vars: trans_lang_vars.clone(),
             model: "scout".to_string(),
             streaming_enabled: false,
             auto_copy: false,
@@ -88,12 +96,36 @@ impl Default for Config {
             is_upcoming: false,
         };
 
+        // 1.5. Translate+Retranslate Preset
+        let mut trans_retrans_lang_vars = HashMap::new();
+        trans_retrans_lang_vars.insert("language1".to_string(), "Korean".to_string());
+        
+        let trans_retrans_preset = Preset {
+            id: "preset_translate_retranslate".to_string(),
+            name: "Translate+Retranslate".to_string(),
+            prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+            selected_language: "Korean".to_string(),
+            language_vars: trans_retrans_lang_vars,
+            model: "scout".to_string(),
+            streaming_enabled: false,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: true,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            hide_overlay: false,
+            preset_type: "image".to_string(),
+            is_upcoming: false,
+        };
+
         // 2. OCR Preset
         let ocr_preset = Preset {
             id: "preset_ocr".to_string(),
             name: "Extract Text (OCR)".to_string(),
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
-            selected_language: "English".to_string(), // Irrelevant for pure OCR but kept
+            selected_language: "English".to_string(),
+            language_vars: HashMap::new(), // No language tags
             model: "scout".to_string(),
             streaming_enabled: false,
             auto_copy: true,
@@ -102,18 +134,22 @@ impl Default for Config {
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
-            hide_overlay: false,
+            hide_overlay: true, // UPDATED: Hide overlay by default for OCR
             preset_type: "image".to_string(),
             is_upcoming: false,
         };
 
         // 3. Summarize Preset
+        let mut sum_lang_vars = HashMap::new();
+        sum_lang_vars.insert("language1".to_string(), default_lang.clone());
+        
         let sum_preset = Preset {
             id: "preset_summarize".to_string(),
             name: "Summarize Content".to_string(),
-            prompt: "Analyze this image and summarize its content in {language}. Only return the summary text, super concisely.".to_string(),
+            prompt: "Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely.".to_string(),
             selected_language: default_lang.clone(),
-            model: "maverick".to_string(), // Use better model
+            language_vars: sum_lang_vars,
+            model: "scout".to_string(),
             streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
@@ -127,11 +163,15 @@ impl Default for Config {
         };
 
         // 4. Description Preset
+        let mut desc_lang_vars = HashMap::new();
+        desc_lang_vars.insert("language1".to_string(), default_lang.clone());
+        
         let desc_preset = Preset {
             id: "preset_desc".to_string(),
             name: "Image Description".to_string(),
-            prompt: "Describe this image in detail in {language}.".to_string(),
+            prompt: "Describe this image in detail in {language1}.".to_string(),
             selected_language: default_lang.clone(),
+            language_vars: desc_lang_vars,
             model: "scout".to_string(),
             streaming_enabled: false,
             auto_copy: false,
@@ -151,6 +191,7 @@ impl Default for Config {
             name: "Transcribe (upcoming)".to_string(),
             prompt: "".to_string(),
             selected_language: default_lang.clone(),
+            language_vars: HashMap::new(),
             model: "scout".to_string(),
             streaming_enabled: false,
             auto_copy: false,
@@ -167,7 +208,7 @@ impl Default for Config {
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
-            presets: vec![trans_preset, ocr_preset, sum_preset, desc_preset, upcoming_preset],
+            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, sum_preset, desc_preset, upcoming_preset],
             active_preset_idx: 0,
             dark_mode: true,
             ui_language: "vi".to_string(),

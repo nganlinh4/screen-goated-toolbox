@@ -113,7 +113,7 @@ fn main() -> eframe::Result<()> {
     let initial_config = APP.lock().unwrap().config.clone();
     
     eframe::run_native(
-        "Screen Grounded Translator",
+        "Screen Grounded Translator (SGT by nganlinh4)",
         options,
         Box::new(move |cc| {
             gui::configure_fonts(&cc.egui_ctx);

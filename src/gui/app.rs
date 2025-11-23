@@ -470,8 +470,8 @@ impl eframe::App for SettingsApp {
                             // Type Dropdown
                             ui.horizontal(|ui| {
                                 ui.label(text.preset_type_label);
-                                let image_label = if is_vietnamese { "Hiểu hình ảnh" } else { "Image Understanding" };
-                                let audio_label = if is_vietnamese { "Hiểu âm thanh (sắp có)" } else { "Audio Understanding (Coming soon)" };
+                                let image_label = text.preset_type_image;
+                                let audio_label = text.preset_type_audio;
                                 
                                 let selected_text = if preset.preset_type == "audio" { audio_label } else { image_label };
                                 
@@ -493,7 +493,22 @@ impl eframe::App for SettingsApp {
                                     ui.horizontal(|ui| {
                                         ui.label(egui::RichText::new(text.prompt_label).strong());
                                         if ui.button(text.insert_lang_btn).clicked() {
-                                            preset.prompt.push_str(" {language} ");
+                                            // Find the next language badge number
+                                            let mut max_num = 0;
+                                            for i in 1..=10 {
+                                                if preset.prompt.contains(&format!("{{language{}}}", i)) {
+                                                    max_num = i;
+                                                }
+                                            }
+                                            let next_num = max_num + 1;
+                                            preset.prompt.push_str(&format!(" {{language{}}} ", next_num));
+                                            
+                                            // Initialize in language_vars if not present
+                                            let key = format!("language{}", next_num);
+                                            if !preset.language_vars.contains_key(&key) {
+                                                preset.language_vars.insert(key, "Vietnamese".to_string());
+                                            }
+                                            
                                             preset_changed = true;
                                         }
                                     });
@@ -502,30 +517,55 @@ impl eframe::App for SettingsApp {
                                         preset_changed = true;
                                     }
                                     
-                                    // Language Dropdown (Searchable - using menu_button to fix focus issues)
-                                    ui.horizontal(|ui| {
-                                        ui.label(text.lang_for_tag_label);
+                                    // Detect all {languageN} patterns in the prompt
+                                    let mut detected_langs = Vec::new();
+                                    for i in 1..=10 {
+                                        let pattern = format!("{{language{}}}", i);
+                                        if preset.prompt.contains(&pattern) {
+                                            detected_langs.push(i);
+                                        }
+                                    }
+                                    
+                                    // Show language selectors for detected patterns
+                                    for num in detected_langs {
+                                        let key = format!("language{}", num);
                                         
-                                        let lang_label = preset.selected_language.clone();
-                                        ui.menu_button(lang_label, |ui| {
-                                            ui.style_mut().wrap = Some(false);
-                                            ui.set_min_width(150.0);
-                                            ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
+                                        // Ensure the key exists in language_vars
+                                        if !preset.language_vars.contains_key(&key) {
+                                            preset.language_vars.insert(key.clone(), "Vietnamese".to_string());
+                                        }
+                                        
+                                        // Always use numbered format: {language1}, {language2}, etc.
+                                        let label = match self.config.ui_language.as_str() {
+                                            "vi" => format!("Ngôn ngữ cho thẻ {{language{}}}:", num),
+                                            "ko" => format!("{{language{}}} 태그 언어:", num),
+                                            _ => format!("Language for {{language{}}} tag:", num),
+                                        };
+                                        
+                                        ui.horizontal(|ui| {
+                                            ui.label(label);
                                             
-                                            let q = self.search_query.to_lowercase();
-                                            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                                                for lang in get_all_languages().iter() {
-                                                    if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                        if ui.button(lang).clicked() {
-                                                            preset.selected_language = lang.clone();
-                                                            preset_changed = true;
-                                                            ui.close_menu();
+                                            let current_lang = preset.language_vars.get(&key).cloned().unwrap_or_else(|| "Vietnamese".to_string());
+                                            ui.menu_button(current_lang.clone(), |ui| {
+                                                ui.style_mut().wrap = Some(false);
+                                                ui.set_min_width(150.0);
+                                                ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
+                                                
+                                                let q = self.search_query.to_lowercase();
+                                                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                                                    for lang in get_all_languages().iter() {
+                                                        if q.is_empty() || lang.to_lowercase().contains(&q) {
+                                                            if ui.button(lang).clicked() {
+                                                                preset.language_vars.insert(key.clone(), lang.clone());
+                                                                preset_changed = true;
+                                                                ui.close_menu();
+                                                            }
                                                         }
                                                     }
-                                                }
+                                                });
                                             });
                                         });
-                                    });
+                                    }
                                 });
 
                                 // 3. Model & Settings
@@ -534,7 +574,7 @@ impl eframe::App for SettingsApp {
                                     
                                     // Vision Model Selector
                                     let full_label = get_model_by_id(&preset.model)
-                                        .map(|m| m.get_label(is_vietnamese))
+                                        .map(|m| m.get_label(&self.config.ui_language))
                                         .unwrap_or_else(|| preset.model.clone());
                                     
                                     // Short label for outer display
@@ -546,7 +586,7 @@ impl eframe::App for SettingsApp {
                                         .show_ui(ui, |ui| {
                                             for model in get_all_models() {
                                                 if model.enabled && model.model_type == ModelType::Vision {
-                                                    if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(is_vietnamese)).clicked() {
+                                                    if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
                                                         preset_changed = true;
                                                     }
                                                 }
@@ -613,7 +653,7 @@ impl eframe::App for SettingsApp {
                                             ui.horizontal(|ui| {
                                                 ui.label(text.retranslate_model_label);
                                                 let full_text_model = get_model_by_id(&preset.retranslate_model)
-                                                    .map(|m| m.get_label(is_vietnamese))
+                                                    .map(|m| m.get_label(&self.config.ui_language))
                                                     .unwrap_or_else(|| preset.retranslate_model.clone());
                                                 
                                                 let short_text_model = full_text_model.split('(').next().unwrap_or(&full_text_model).trim().to_string();
@@ -624,7 +664,7 @@ impl eframe::App for SettingsApp {
                                                     .show_ui(ui, |ui| {
                                                         for model in get_all_models() {
                                                             if model.enabled && model.model_type == ModelType::Text {
-                                                                if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), model.get_label(is_vietnamese)).clicked() {
+                                                                if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
                                                                     preset_changed = true;
                                                                 }
                                                             }
