@@ -129,8 +129,9 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                             // Spawn Secondary UI Thread
                             std::thread::spawn(move || {
                                 let secondary_hwnd = create_result_window(rect, WindowType::Secondary);
+                                super::result::link_windows(primary_hwnd, secondary_hwnd);
                                 unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
-                                update_window_text(secondary_hwnd, "Translating...");
+                                update_window_text(secondary_hwnd, "");
 
                                 // API Call for Retranslation (Blocking in this UI thread? No, need another worker or just block since it's simple text?)
                                 // Better to block here? If we block, the window won't repaint.

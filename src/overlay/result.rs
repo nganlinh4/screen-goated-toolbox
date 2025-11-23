@@ -18,6 +18,7 @@ struct WindowState {
     is_hovered: bool,
     copy_success: bool,
     bg_color: u32,
+    linked_window: Option<HWND>,
 }
 
 // Global map to track state of all active overlay windows
@@ -32,6 +33,16 @@ static mut CURRENT_BG_COLOR: u32 = 0x00222222;
 pub enum WindowType {
     Primary,
     Secondary,
+}
+
+pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
+    let mut states = WINDOW_STATES.lock().unwrap();
+    if let Some(s1) = states.get_mut(&(hwnd1.0 as isize)) {
+        s1.linked_window = Some(hwnd2);
+    }
+    if let Some(s2) = states.get_mut(&(hwnd2.0 as isize)) {
+        s2.linked_window = Some(hwnd1);
+    }
 }
 
 pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
@@ -108,6 +119,7 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 is_hovered: false,
                 copy_success: false,
                 bg_color: color,
+                linked_window: None,
             });
         }
 
@@ -157,6 +169,45 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
     match msg {
         WM_ERASEBKGND => LRESULT(1),
         
+        WM_SETCURSOR => {
+            // Check if over copy button
+            let cursor_pos = GetMessagePos();
+            let mut pt = POINT { x: (cursor_pos & 0xFFFF) as i32, y: ((cursor_pos >> 16) & 0xFFFF) as i32 };
+            ScreenToClient(hwnd, &mut pt);
+
+            let mut rect = RECT::default();
+            GetClientRect(hwnd, &mut rect);
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+            
+            let btn_size = 24;
+            let btn_rect = RECT { 
+                left: width - btn_size, 
+                top: height - btn_size, 
+                right: width, 
+                bottom: height 
+            };
+
+            let is_over_btn = pt.x >= btn_rect.left && pt.x <= btn_rect.right && pt.y >= btn_rect.top && pt.y <= btn_rect.bottom;
+            
+            // Only check if window is hovered (to match paint logic)
+            let is_hovered = {
+                let states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                    state.is_hovered
+                } else {
+                    false
+                }
+            };
+
+            if is_hovered && is_over_btn {
+                SetCursor(LoadCursorW(None, IDC_HAND).unwrap());
+                return LRESULT(1);
+            }
+            
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+
         WM_MOUSEMOVE => {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -233,6 +284,23 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
 
             // Dismiss THIS window
             SetTimer(hwnd, 2, 8, None); 
+            
+            // Dismiss LINKED window
+            let linked_hwnd = {
+                let states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                    state.linked_window
+                } else {
+                    None
+                }
+            };
+
+            if let Some(linked) = linked_hwnd {
+                if IsWindow(linked).as_bool() {
+                    SetTimer(linked, 2, 8, None);
+                }
+            }
+
             LRESULT(0)
         }
 
@@ -273,6 +341,21 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
         WM_KEYDOWN => { 
             if wparam.0 == VK_ESCAPE.0 as usize { 
                 PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                 // Dismiss LINKED window
+                let linked_hwnd = {
+                    let states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                        state.linked_window
+                    } else {
+                        None
+                    }
+                };
+                if let Some(linked) = linked_hwnd {
+                    if IsWindow(linked).as_bool() {
+                        PostMessageW(linked, WM_CLOSE, WPARAM(0), LPARAM(0));
+                    }
+                }
+
             } else if wparam.0 == 'C' as usize {
                 let text_len = GetWindowTextLengthW(hwnd) + 1;
                 let mut buf = vec![0u16; text_len as usize];
