@@ -185,9 +185,9 @@ where
                 "stream": false
             });
             
-            if use_json_format {
-                payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
-            }
+            // if use_json_format {
+            //    payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
+            // }
             
             payload_obj
         };

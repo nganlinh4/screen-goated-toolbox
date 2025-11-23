@@ -33,6 +33,7 @@ pub struct LocaleText {
     pub press_keys: &'static str,
     pub cancel_label: &'static str,
     pub reset_defaults_btn: &'static str,
+    pub hide_overlay_label: &'static str,
 }
 
 impl LocaleText {
@@ -50,7 +51,7 @@ impl LocaleText {
                 prompt_label: "Câu lệnh:",
                 insert_lang_btn: "Chèn thẻ {language}",
                 lang_for_tag_label: "Ngôn ngữ cho thẻ {language}:",
-                retranslate_section: "Dịch lại kết quả (Retranslate)",
+                retranslate_section: "Dịch lại kết quả",
                 retranslate_checkbox: "Bật dịch lại",
                 retranslate_to_label: "Dịch sang:",
                 retranslate_model_label: "Mô hình dịch lại:",
@@ -72,6 +73,7 @@ impl LocaleText {
                 press_keys: "Ấn tổ hợp phím...",
                 cancel_label: "Hủy",
                 reset_defaults_btn: "Khôi phục mặc định",
+                hide_overlay_label: "Ẩn overlay",
             },
             _ => Self {
                 api_section: "Global Settings",
@@ -107,6 +109,7 @@ impl LocaleText {
                 press_keys: "Press combination...",
                 cancel_label: "Cancel",
                 reset_defaults_btn: "Reset to Defaults",
+                hide_overlay_label: "Hide overlay",
             },
         }
     }

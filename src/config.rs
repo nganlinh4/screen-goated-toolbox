@@ -22,6 +22,7 @@ pub struct Preset {
     pub retranslate_to: String, // Target language for retranslation
     pub retranslate_model: String,
     pub retranslate_streaming_enabled: bool,
+    pub hide_overlay: bool,
 }
 
 impl Default for Preset {
@@ -32,13 +33,14 @@ impl Default for Preset {
             prompt: "Extract text from this image.".to_string(),
             selected_language: "Vietnamese".to_string(),
             model: "scout".to_string(),
-            streaming_enabled: true,
+            streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: "Vietnamese".to_string(),
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
+            hide_overlay: false,
         }
     }
 }
@@ -61,32 +63,34 @@ impl Default for Config {
         let trans_preset = Preset {
             id: "preset_translate".to_string(),
             name: "Translation".to_string(),
-            prompt: "Extract text from this image and translate it to {language}. Output ONLY the translation text directly. Do not use JSON.".to_string(),
+            prompt: "Extract text from this image and translate it to {language}. Output ONLY the translation text directly.".to_string(),
             selected_language: default_lang.clone(),
             model: "scout".to_string(),
-            streaming_enabled: true,
+            streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 }], // Tilde
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
+            hide_overlay: false,
         };
 
         // 2. OCR Preset
         let ocr_preset = Preset {
             id: "preset_ocr".to_string(),
-            name: "Trích xuất chữ (OCR)".to_string(),
+            name: "Extract Text (OCR)".to_string(),
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
             selected_language: "English".to_string(), // Irrelevant for pure OCR but kept
             model: "scout".to_string(),
-            streaming_enabled: true,
+            streaming_enabled: false,
             auto_copy: true,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
+            hide_overlay: false,
         };
 
         // 3. Summarize Preset
@@ -96,13 +100,14 @@ impl Default for Config {
             prompt: "Analyze this image and summarize its content in {language}. Only return the summary text, super concisely.".to_string(),
             selected_language: default_lang.clone(),
             model: "maverick".to_string(), // Use better model
-            streaming_enabled: true,
+            streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
+            hide_overlay: false,
         };
 
         // 4. Description Preset
@@ -112,13 +117,14 @@ impl Default for Config {
             prompt: "Describe this image in detail in {language}.".to_string(),
             selected_language: default_lang.clone(),
             model: "scout".to_string(),
-            streaming_enabled: true,
+            streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: default_lang.clone(),
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
+            hide_overlay: false,
         };
 
         Self {
@@ -127,7 +133,7 @@ impl Default for Config {
             presets: vec![trans_preset, ocr_preset, sum_preset, desc_preset],
             active_preset_idx: 0,
             dark_mode: true,
-            ui_language: "en".to_string(),
+            ui_language: "vi".to_string(),
         }
     }
 }

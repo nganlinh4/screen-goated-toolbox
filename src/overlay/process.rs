@@ -60,6 +60,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         let retranslate_to = preset.retranslate_to.clone();
         let retranslate_model_id = preset.retranslate_model.clone();
         let use_json_format = preset.id == "preset_translate";
+        let hide_overlay = preset.hide_overlay;
         
         // Spawn UI Thread for Results
         std::thread::spawn(move || {
@@ -90,10 +91,14 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                             first_chunk_received = true;
                             unsafe {
                                 PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-                                ShowWindow(primary_hwnd, SW_SHOW);
+                                if !hide_overlay {
+                                    ShowWindow(primary_hwnd, SW_SHOW);
+                                }
                             }
                         }
-                        update_window_text(primary_hwnd, &text);
+                        if !hide_overlay {
+                            update_window_text(primary_hwnd, &text);
+                        }
                     }
                 );
 
@@ -103,9 +108,13 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                         if !first_chunk_received {
                              unsafe {
                                 PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-                                ShowWindow(primary_hwnd, SW_SHOW);
+                                if !hide_overlay {
+                                    ShowWindow(primary_hwnd, SW_SHOW);
+                                }
                             }
-                            update_window_text(primary_hwnd, &vision_text);
+                            if !hide_overlay {
+                                update_window_text(primary_hwnd, &vision_text);
+                            }
                         }
 
                         // --- STEP 2: RETRANSLATE (Optional) ---
@@ -130,8 +139,10 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                             std::thread::spawn(move || {
                                 let secondary_hwnd = create_result_window(rect, WindowType::Secondary);
                                 super::result::link_windows(primary_hwnd, secondary_hwnd);
-                                unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
-                                update_window_text(secondary_hwnd, "");
+                                if !hide_overlay {
+                                    unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
+                                    update_window_text(secondary_hwnd, "");
+                                }
 
                                 // API Call for Retranslation (Blocking in this UI thread? No, need another worker or just block since it's simple text?)
                                 // Better to block here? If we block, the window won't repaint.
@@ -155,12 +166,16 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                                         |chunk| {
                                             let mut t = acc_text_clone.lock().unwrap();
                                             t.push_str(chunk);
-                                            update_window_text(secondary_hwnd, &t);
+                                            if !hide_overlay {
+                                                update_window_text(secondary_hwnd, &t);
+                                            }
                                         }
                                     );
                                     
                                     if let Ok(final_text) = text_res {
-                                        update_window_text(secondary_hwnd, &final_text);
+                                        if !hide_overlay {
+                                            update_window_text(secondary_hwnd, &final_text);
+                                        }
                                         if auto_copy {
                                             std::thread::spawn(move || {
                                                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -168,7 +183,9 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                                             });
                                         }
                                     } else if let Err(e) = text_res {
-                                         update_window_text(secondary_hwnd, &format!("Error: {}", e));
+                                         if !hide_overlay {
+                                            update_window_text(secondary_hwnd, &format!("Error: {}", e));
+                                         }
                                     }
                                 });
 

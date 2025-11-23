@@ -305,10 +305,14 @@ impl eframe::App for SettingsApp {
 
         // --- UI LAYOUT ---
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Main Split
-            ui.columns(2, |cols| {
+            // Main Split (3.5 : 6.5 ratio)
+            let available_width = ui.available_width();
+            let left_width = available_width * 0.35;
+            let right_width = available_width * 0.65; // Remaining width
+
+            ui.horizontal(|ui| {
                 // --- LEFT: SIDEBAR (Presets + Global) ---
-                cols[0].vertical(|ui| {
+                ui.allocate_ui_with_layout(egui::vec2(left_width, ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
                     // Theme & Language Controls (Moved from Header)
                     ui.horizontal(|ui| {
                         let theme_icon = if self.config.dark_mode { "🌙" } else { "☀" };
@@ -348,31 +352,30 @@ impl eframe::App for SettingsApp {
                     
                     let mut preset_idx_to_delete = None;
 
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for (idx, preset) in self.config.presets.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
-                                if ui.selectable_label(is_selected, &preset.name).clicked() {
-                                    self.view_mode = ViewMode::Preset(idx);
+                    // Removed ScrollArea wrapper as requested
+                    for (idx, preset) in self.config.presets.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
+                            if ui.selectable_label(is_selected, &preset.name).clicked() {
+                                self.view_mode = ViewMode::Preset(idx);
+                            }
+                            // Delete button (small x)
+                            if self.config.presets.len() > 1 {
+                                if ui.small_button("x").clicked() {
+                                    preset_idx_to_delete = Some(idx);
                                 }
-                                // Delete button (small x)
-                                if self.config.presets.len() > 1 {
-                                    if ui.small_button("x").clicked() {
-                                        preset_idx_to_delete = Some(idx);
-                                    }
-                                }
-                            });
-                        }
-                        
-                        ui.add_space(5.0);
-                        if ui.button(text.add_preset_btn).clicked() {
-                            let mut new_preset = Preset::default();
-                            new_preset.name = format!("Preset {}", self.config.presets.len() + 1);
-                            self.config.presets.push(new_preset);
-                            self.view_mode = ViewMode::Preset(self.config.presets.len() - 1);
-                            self.save_and_sync();
-                        }
-                    });
+                            }
+                        });
+                    }
+                    
+                    ui.add_space(5.0);
+                    if ui.button(text.add_preset_btn).clicked() {
+                        let mut new_preset = Preset::default();
+                        new_preset.name = format!("Preset {}", self.config.presets.len() + 1);
+                        self.config.presets.push(new_preset);
+                        self.view_mode = ViewMode::Preset(self.config.presets.len() - 1);
+                        self.save_and_sync();
+                    }
 
                     if let Some(idx) = preset_idx_to_delete {
                         self.config.presets.remove(idx);
@@ -389,8 +392,10 @@ impl eframe::App for SettingsApp {
                     }
                 });
 
+                ui.add_space(10.0); // Spacing between columns
+
                 // --- RIGHT: DETAIL VIEW ---
-                cols[1].vertical(|ui| {
+                ui.allocate_ui_with_layout(egui::vec2(right_width - 20.0, ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
                     match self.view_mode {
                         ViewMode::Global => {
                             // Removed Heading
@@ -468,27 +473,29 @@ impl eframe::App for SettingsApp {
                                     preset_changed = true;
                                 }
                                 
-                                // Language Dropdown (Searchable)
+                                // Language Dropdown (Searchable - using menu_button to fix focus issues)
                                 ui.horizontal(|ui| {
                                     ui.label(text.lang_for_tag_label);
                                     
-                                    let id_source = "preset_lang_combo";
-                                    let current_val = &mut preset.selected_language;
-                                    
-                                    egui::ComboBox::from_id_source(id_source)
-                                        .selected_text(current_val.clone())
-                                        .width(150.0)
-                                        .show_ui(ui, |ui| {
-                                            ui.text_edit_singleline(&mut self.search_query);
-                                            let q = self.search_query.to_lowercase();
+                                    let lang_label = preset.selected_language.clone();
+                                    ui.menu_button(lang_label, |ui| {
+                                        ui.style_mut().wrap = Some(false);
+                                        ui.set_min_width(150.0);
+                                        ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
+                                        
+                                        let q = self.search_query.to_lowercase();
+                                        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                                             for lang in get_all_languages().iter() {
                                                 if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                    if ui.selectable_value(current_val, lang.clone(), lang).clicked() {
+                                                    if ui.button(lang).clicked() {
+                                                        preset.selected_language = lang.clone();
                                                         preset_changed = true;
+                                                        ui.close_menu();
                                                     }
                                                 }
                                             }
                                         });
+                                    });
                                 });
                             });
 
@@ -498,12 +505,15 @@ impl eframe::App for SettingsApp {
                                 ui.label(egui::RichText::new(text.model_section).strong());
                                 
                                 // Vision Model Selector
-                                let current_label = get_model_by_id(&preset.model)
+                                let full_label = get_model_by_id(&preset.model)
                                     .map(|m| m.get_label(is_vietnamese))
                                     .unwrap_or_else(|| preset.model.clone());
+                                
+                                // Short label for outer display
+                                let short_label = full_label.split('(').next().unwrap_or(&full_label).trim().to_string();
 
                                 egui::ComboBox::from_id_source("vision_model_selector")
-                                    .selected_text(current_label)
+                                    .selected_text(short_label)
                                     .width(250.0)
                                     .show_ui(ui, |ui| {
                                         for model in get_all_models() {
@@ -525,9 +535,16 @@ impl eframe::App for SettingsApp {
                                         });
                                 });
 
-                                if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
-                                    preset_changed = true;
-                                }
+                                ui.horizontal(|ui| {
+                                    if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
+                                        preset_changed = true;
+                                    }
+                                    if preset.auto_copy {
+                                        if ui.checkbox(&mut preset.hide_overlay, text.hide_overlay_label).clicked() {
+                                            preset_changed = true;
+                                        }
+                                    }
+                                });
                             });
 
                             // 4. Retranslate
@@ -538,38 +555,42 @@ impl eframe::App for SettingsApp {
                                 }
 
                                 if preset.retranslate {
-                                    // Target Language (Searchable)
+                                    // Target Language (Searchable - using menu_button)
                                     ui.horizontal(|ui| {
                                         ui.label(text.retranslate_to_label);
                                         
-                                        let id_source = "retranslate_lang";
-                                        let current_val = &mut preset.retranslate_to;
-                                        
-                                        egui::ComboBox::from_id_source(id_source)
-                                            .selected_text(current_val.clone())
-                                            .width(150.0)
-                                            .show_ui(ui, |ui| {
-                                                ui.text_edit_singleline(&mut self.search_query);
-                                                let q = self.search_query.to_lowercase();
+                                        let retrans_label = preset.retranslate_to.clone();
+                                        ui.menu_button(retrans_label, |ui| {
+                                            ui.style_mut().wrap = Some(false);
+                                            ui.set_min_width(150.0);
+                                            ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
+                                            
+                                            let q = self.search_query.to_lowercase();
+                                            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                                                 for lang in get_all_languages().iter() {
                                                     if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                        if ui.selectable_value(current_val, lang.clone(), lang).clicked() {
+                                                        if ui.button(lang).clicked() {
+                                                            preset.retranslate_to = lang.clone();
                                                             preset_changed = true;
+                                                            ui.close_menu();
                                                         }
                                                     }
                                                 }
                                             });
+                                        });
                                     });
 
                                     // Text Model Selector
                                     ui.horizontal(|ui| {
                                         ui.label(text.retranslate_model_label);
-                                        let current_text_model = get_model_by_id(&preset.retranslate_model)
+                                        let full_text_model = get_model_by_id(&preset.retranslate_model)
                                             .map(|m| m.get_label(is_vietnamese))
                                             .unwrap_or_else(|| preset.retranslate_model.clone());
                                         
+                                        let short_text_model = full_text_model.split('(').next().unwrap_or(&full_text_model).trim().to_string();
+                                        
                                         egui::ComboBox::from_id_source("text_model_selector")
-                                            .selected_text(current_text_model)
+                                            .selected_text(short_text_model)
                                             .width(180.0)
                                             .show_ui(ui, |ui| {
                                                 for model in get_all_models() {
