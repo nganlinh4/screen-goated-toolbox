@@ -20,7 +20,7 @@ fn main() {
     }
     
     // Optimize App Icon for embedding (256x256 max)
-    let app_icon_path = assets_dir.join("app-icon.png");
+    let app_icon_path = assets_dir.join("app-icon-small.png");
     let app_icon_small_path = assets_dir.join("app-icon-small.png");
     
     if app_icon_path.exists() {
@@ -79,7 +79,7 @@ fn main() {
         }
     }
     
-    println!("cargo:rerun-if-changed=assets/app-icon.png");
+    println!("cargo:rerun-if-changed=assets/app-icon-small.png");
     println!("cargo:rerun-if-changed=icon.png");
     println!("cargo:rerun-if-changed=app.rc");
     println!("cargo:rerun-if-changed=build.rs");
