@@ -25,8 +25,9 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
 
     let model_id = &preset.model;
     let model_config = crate::model_config::get_model_by_id(model_id);
-    let model_name = model_config.as_ref().map(|m| m.full_name.clone()).unwrap_or_else(|| "llama-3.2-11b-vision-preview".to_string());
-    let provider = model_config.as_ref().map(|m| m.provider.clone()).unwrap_or_else(|| "groq".to_string());
+    let model_config = model_config.expect("Model config not found for preset model");
+    let model_name = model_config.full_name.clone();
+    let provider = model_config.provider.clone();
 
     let x_virt = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
     let y_virt = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
@@ -141,7 +142,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                                     
                                     // Resolve text model
                                     let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
-                                    let tm_name = tm_config.map(|m| m.full_name).unwrap_or("llama-3.1-8b-instant".to_string());
+                                    let tm_name = tm_config.map(|m| m.full_name).expect("Retranslate model not found");
 
                                     let text_res = translate_text_streaming(
                                         &groq_key_for_retrans,

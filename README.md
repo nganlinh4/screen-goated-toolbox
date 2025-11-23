@@ -25,7 +25,7 @@ A Windows utility that translates text from any region of your screen using Groq
 ## Features
 
 - **Region Selection:** Drag-and-select any part of the screen to translate
-- **Vision-based Translation:** Uses Groq (Llama 3.2 Vision) for simultaneous text extraction and translation
+- **Vision-based Translation:** Uses Groq for simultaneous text extraction and translation
 - **Overlay Results:** Displays translation in a floating window
 - **System Tray:** Minimizes to tray for background operation
 - **Multi-language Support:** Translate to Vietnamese, Korean, English, and 100+ other languages

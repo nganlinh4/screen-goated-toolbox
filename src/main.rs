@@ -33,6 +33,7 @@ pub struct AppState {
     pub config: Config,
     pub original_screenshot: Option<ImageBuffer<image::Rgba<u8>, Vec<u8>>>,
     pub hotkeys_updated: bool,
+    pub registered_hotkey_ids: Vec<i32>, // Track IDs of currently registered hotkeys
 }
 
 lazy_static! {
@@ -42,6 +43,7 @@ lazy_static! {
             config,
             original_screenshot: None,
             hotkeys_updated: false,
+            registered_hotkey_ids: Vec::new(),
         }
     }));
 }
@@ -121,9 +123,10 @@ fn main() -> eframe::Result<()> {
 }
 
 fn register_all_hotkeys(hwnd: HWND) {
-    let app = APP.lock().unwrap();
+    let mut app = APP.lock().unwrap();
     let presets = &app.config.presets;
     
+    let mut registered_ids = Vec::new();
     for (p_idx, preset) in presets.iter().enumerate() {
         for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
             // ID encoding: 1000 * preset_idx + hotkey_idx + 1
@@ -132,18 +135,16 @@ fn register_all_hotkeys(hwnd: HWND) {
             unsafe {
                 RegisterHotKey(hwnd, id, HOT_KEY_MODIFIERS(hotkey.modifiers), hotkey.code);
             }
+            registered_ids.push(id);
         }
     }
+    app.registered_hotkey_ids = registered_ids;
 }
 
 fn unregister_all_hotkeys(hwnd: HWND) {
     let app = APP.lock().unwrap();
-    let presets = &app.config.presets;
-    for (p_idx, preset) in presets.iter().enumerate() {
-        for (h_idx, _) in preset.hotkeys.iter().enumerate() {
-            let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
-            unsafe { UnregisterHotKey(hwnd, id); }
-        }
+    for &id in &app.registered_hotkey_ids {
+        unsafe { UnregisterHotKey(hwnd, id); }
     }
 }
 

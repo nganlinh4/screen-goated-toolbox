@@ -79,9 +79,9 @@ pub fn get_all_models() -> Vec<ModelConfig> {
         ModelConfig::new(
             "fast_text",
             "groq",
-            "Cực nhanh (Text)",
-            "Super Fast (Text)",
-            "llama-3.1-8b-instant",
+            "Cực nhanh",
+            "Super Fast",
+            "openai/gpt-oss-20b",
             ModelType::Text,
             true,
         ),
