@@ -10,12 +10,12 @@ fn main() {
     let _ = fs::create_dir_all(&assets_dir);
     
     // Optimize Tray Icon (32x32 is standard for tray)
-    let icon_path = Path::new(&manifest_dir).join("icon.png");
-    if icon_path.exists() {
+    let tray_source = Path::new(&manifest_dir).join("assets").join("tray-icon.png");
+    if tray_source.exists() {
         let tray_icon_path = assets_dir.join("tray_icon.png");
-        if let Ok(img) = image::open(&icon_path) {
+        if let Ok(img) = image::open(&tray_source) {
             let resized = img.resize(32, 32, image::imageops::FilterType::Lanczos3);
-            let _ = resized.save(&tray_icon_path);
+            let _ = resized.save_with_format(&tray_icon_path, image::ImageFormat::Png);
         }
     }
     
