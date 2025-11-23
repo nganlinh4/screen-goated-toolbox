@@ -149,22 +149,6 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
     }
 }
 
-// Helper for single-shot error/status windows
-pub fn show_result_window(target_rect: RECT, text: String) {
-    let hwnd = create_result_window(target_rect, WindowType::Primary);
-    update_window_text(hwnd, &text);
-    unsafe { ShowWindow(hwnd, SW_SHOW); }
-    
-    unsafe {
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).into() {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-            if !IsWindow(hwnd).as_bool() { break; }
-        }
-    }
-}
-
 unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_ERASEBKGND => LRESULT(1),

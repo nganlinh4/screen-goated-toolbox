@@ -5,11 +5,6 @@ use base64::{Engine as _, engine::general_purpose};
 use std::io::{Cursor, BufRead, BufReader};
 
 #[derive(Serialize, Deserialize)]
-struct GroqResponse {
-    translation: String,
-}
-
-#[derive(Serialize, Deserialize)]
 struct StreamChunk {
     choices: Vec<Choice>,
 }
@@ -169,7 +164,7 @@ where
                 "stream": true
             })
         } else {
-            let mut payload_obj = serde_json::json!({
+            let payload_obj = serde_json::json!({
                 "model": model,
                 "messages": [
                     {

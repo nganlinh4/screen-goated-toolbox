@@ -79,7 +79,7 @@ impl Default for Config {
         
         let trans_preset = Preset {
             id: "preset_translate".to_string(),
-            name: "Translation".to_string(),
+            name: "Translate".to_string(),
             prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
             selected_language: default_lang.clone(),
             language_vars: trans_lang_vars.clone(),
@@ -256,14 +256,3 @@ pub fn get_all_languages() -> Vec<String> {
     languages
 }
 
-/// Check if a language code is valid (supports ISO 639-1 and 639-3)
-pub fn is_valid_language_code(code: &str) -> bool {
-    isolang::Language::from_639_1(code).is_some() || isolang::Language::from_639_3(code).is_some()
-}
-
-/// Get language name from ISO 639-1 or 639-3 code
-pub fn get_language_name(code: &str) -> Option<String> {
-    isolang::Language::from_639_1(code)
-        .or_else(|| isolang::Language::from_639_3(code))
-        .map(|lang| lang.to_name().to_string())
-}

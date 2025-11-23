@@ -466,7 +466,7 @@ impl eframe::App for SettingsApp {
 
                             let mut preset = self.config.presets[idx].clone();
                             let mut preset_changed = false;
-                            let is_vietnamese = self.config.ui_language == "vi";
+                            let _is_vietnamese = self.config.ui_language == "vi";
 
                             // Removed Heading
                             ui.add_space(5.0);
