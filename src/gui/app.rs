@@ -440,7 +440,17 @@ impl eframe::App for SettingsApp {
 
                             ui.add_space(20.0);
                             if ui.button(text.reset_defaults_btn).clicked() {
+                                // Save API keys before resetting
+                                let saved_groq_key = self.config.api_key.clone();
+                                let saved_gemini_key = self.config.gemini_api_key.clone();
+                                
+                                // Reset to defaults
                                 self.config = Config::default();
+                                
+                                // Restore API keys
+                                self.config.api_key = saved_groq_key;
+                                self.config.gemini_api_key = saved_gemini_key;
+                                
                                 self.save_and_sync();
                             }
                         }
