@@ -621,7 +621,11 @@ impl eframe::App for SettingsApp {
                                                         }
                                                     }
                                                 });
+
+
                                             });
+
+
                                         });
                                     }
                                 });
@@ -659,11 +663,16 @@ impl eframe::App for SettingsApp {
                                                 if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
                                                 if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
                                             });
+
+
                                     });
 
                                     ui.horizontal(|ui| {
                                         if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
                                             preset_changed = true;
+                                            if preset.auto_copy {
+                                                preset.retranslate_auto_copy = false;
+                                            }
                                         }
                                         if preset.auto_copy {
                                             if ui.checkbox(&mut preset.hide_overlay, text.hide_overlay_label).clicked() {
@@ -704,8 +713,14 @@ impl eframe::App for SettingsApp {
                                                             }
                                                         }
                                                     });
+
+
                                                 });
+
+
                                             });
+
+
 
                                             // Text Model Selector
                                             ui.horizontal(|ui| {
@@ -728,7 +743,11 @@ impl eframe::App for SettingsApp {
                                                             }
                                                         }
                                                     });
+
+
                                             });
+
+
 
                                             // Retranslate Streaming Toggle
                                             ui.horizontal(|ui| {
@@ -740,6 +759,18 @@ impl eframe::App for SettingsApp {
                                                         if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
                                                     });
                                             });
+
+                                            // Retranslate Auto Copy
+                                            ui.horizontal(|ui| {
+                                                if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
+                                                    preset_changed = true;
+                                                    if preset.retranslate_auto_copy {
+                                                        preset.auto_copy = false;
+                                                    }
+                                                }
+                                            });
+
+
                                         }
                                     });
                                 }

@@ -42,11 +42,7 @@ fn main() {
         let ico_path = Path::new(&manifest_dir).join("assets").join("app.ico");
         let rc_path = Path::new(&manifest_dir).join("app.rc");
         
-        println!("cargo:warning=Checking icon path: {:?}", ico_path);
-        
         if ico_path.exists() && rc_path.exists() {
-            println!("cargo:warning=Found icon and rc file, compiling resources manually...");
-            
             // Define output path for the object file in the OUT_DIR
             let out_dir = std::env::var("OUT_DIR").unwrap();
             let res_path = Path::new(&out_dir).join("resources.o");
@@ -61,21 +57,16 @@ fn main() {
                 
             match status {
                 Ok(s) if s.success() => {
-                    println!("cargo:warning=Manual windres compilation successful!");
                     // Tell Cargo to pass the object file to the linker
                     println!("cargo:rustc-link-arg={}", res_path.display());
                 },
                 Ok(s) => {
-                    println!("cargo:warning=Manual windres compilation failed with exit code: {}", s);
-                    panic!("windres failed");
+                    panic!("windres failed with exit code: {}", s);
                 },
                 Err(e) => {
-                    println!("cargo:warning=Failed to execute windres: {}", e);
                     panic!("Failed to execute windres: {}", e);
                 }
             }
-        } else {
-            println!("cargo:warning=Missing app.ico or app.rc!");
         }
     }
     

@@ -65,6 +65,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         let streaming_enabled = preset.streaming_enabled;
         let retranslate_streaming_enabled = preset.retranslate_streaming_enabled;
         let auto_copy = preset.auto_copy;
+        let retranslate_auto_copy = preset.retranslate_auto_copy;
         let do_retranslate = preset.retranslate;
         let retranslate_to = preset.retranslate_to.clone();
         let retranslate_model_id = preset.retranslate_model.clone();
@@ -126,6 +127,15 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                             }
                         }
 
+                        // --- STEP 1.5: MAIN AUTO COPY ---
+                        if auto_copy && !vision_text.trim().is_empty() {
+                            let vt = vision_text.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                copy_to_clipboard(&vt, HWND(0));
+                            });
+                        }
+
                         // --- STEP 2: RETRANSLATE (Optional) ---
                         if do_retranslate && !vision_text.trim().is_empty() {
                             // Create Secondary Window
@@ -185,7 +195,7 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                                         if !hide_overlay {
                                             update_window_text(secondary_hwnd, &final_text);
                                         }
-                                        if auto_copy {
+                                        if retranslate_auto_copy {
                                             std::thread::spawn(move || {
                                                 std::thread::sleep(std::time::Duration::from_millis(100));
                                                 copy_to_clipboard(&final_text, HWND(0));
@@ -208,14 +218,6 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                                     }
                                 }
                             });
-                        } else {
-                            // No retranslate, just copy the vision text
-                            if auto_copy && !vision_text.trim().is_empty() {
-                                std::thread::spawn(move || {
-                                    std::thread::sleep(std::time::Duration::from_millis(100));
-                                    copy_to_clipboard(&vision_text, HWND(0));
-                                });
-                            }
                         }
                     }
                     Err(e) => {
