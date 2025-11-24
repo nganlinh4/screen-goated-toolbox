@@ -29,6 +29,7 @@ static mut CURRENT_PRESET_IDX: usize = 0;
 static mut ANIMATION_OFFSET: f32 = 0.0;
 
 // Helper: HSV to RGB
+#[inline(always)]
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> u32 {
     let c = v * s;
     let h_prime = (h % 360.0) / 60.0;
@@ -50,6 +51,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> u32 {
 }
 
 // Signed Distance Function for Rounded Box
+#[inline(always)]
 fn sd_rounded_box(px: f32, py: f32, bx: f32, by: f32, r: f32) -> f32 {
     let qx = px.abs() - bx + r;
     let qy = py.abs() - by + r;
@@ -211,7 +213,8 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             }
             
             if timer_id == ANIM_TIMER_ID && IS_PROCESSING {
-                ANIMATION_OFFSET += 3.0; 
+                // INCREASED SPEED: Was 3.0, now 5.0 for snappier movement
+                ANIMATION_OFFSET += 5.0; 
                 if ANIMATION_OFFSET > 360.0 { ANIMATION_OFFSET -= 360.0; }
                 InvalidateRect(hwnd, None, false);
             }
@@ -287,21 +290,17 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
 }
 
 // Unified Software Renderer using SDF for AA and Glow
+// OPTIMIZED: Skips hollow center of large boxes to avoid wasted pixel processing
 unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glowing: bool, time_offset: f32) {
-    // Determine dynamic reach based on box size
     let min_dim = w.min(h) as f32;
     let perimeter = 2.0 * (w + h) as f32;
     
-    // Scale reach: min 30px, max 180px based on 20% of smallest side
-    // Increased max range to 180 for "Epic" feel on large screens
     let dynamic_base_scale = if is_glowing {
         (min_dim * 0.2).clamp(30.0, 180.0)
     } else {
         2.0
     };
 
-    // Calculate buffer padding to accommodate the glow
-    // Increased multiplier to 1.7 to prevent clipping the more dramatic waves
     let max_possible_reach = if is_glowing { dynamic_base_scale * 1.7 } else { 2.0 };
     let pad = max_possible_reach.ceil() as i32 + 4; 
     
@@ -333,123 +332,96 @@ unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glowing
         let center_y = (pad as f32) + by;
 
         let time_rad = time_offset.to_radians();
-        
-        // --- UPDATED FREQUENCY SCALING (Drama Tuned) ---
-        // Moderate scaling: 1800.0 divisor.
-        // Ensures large boxes have structure, but not "spikes".
-        let complexity_scale = 1.0 + (perimeter / 1800.0);
-        
-        // Frequencies: 2.0 and 5.0 base.
-        // Creates a nice organic interference pattern.
+        let complexity_scale = 1.0 + (perimeter / 1800.0); 
         let freq1 = (2.0 * complexity_scale).round();
         let freq2 = (5.0 * complexity_scale).round();
-        
-        // Scale speed slower for large objects to maintain "majestic" feel
-        let time_mult = 1.0 / complexity_scale.sqrt();
+        let time_mult = 1.0;
+
+        // --- OPTIMIZATION: Inner skip zone for hollow centers ---
+        let safe_skip_dist = max_possible_reach * 1.1; 
+        let skip_x_min = (center_x - bx + safe_skip_dist).ceil() as i32;
+        let skip_x_max = (center_x + bx - safe_skip_dist).floor() as i32;
+        let skip_y_min = (center_y - by + safe_skip_dist).ceil() as i32;
+        let skip_y_max = (center_y + by - safe_skip_dist).floor() as i32;
+        let do_skip = skip_x_max > skip_x_min && skip_y_max > skip_y_min;
+
+        // Pixel rendering closure
+        let render_pixel = |x: i32, y: i32, idx: usize, pixels: &mut [u32]| {
+            let px = (x as f32) - center_x;
+            let py = (y as f32) - center_y;
+            let d = sd_rounded_box(px, py, bx, by, CORNER_RADIUS);
+            
+            let mut final_col = 0u32;
+            let mut final_alpha = 0.0f32;
+
+            if is_glowing {
+                if d > 0.0 {
+                    let aa = (1.5 - d).clamp(0.0, 1.0);
+                    if aa > 0.0 {
+                        final_alpha = aa;
+                        final_col = 0x00FFFFFF; 
+                    }
+                } else {
+                    let angle = py.atan2(px);
+                    let noise = (angle * freq1 + time_rad * 2.0 * time_mult).sin() * 0.5 
+                              + (angle * freq2 - time_rad * 3.0 * time_mult).sin() * 0.4;
+                    
+                    let local_glow_width = dynamic_base_scale + (noise * (dynamic_base_scale * 0.65));
+                    let dist_in = d.abs();
+                    
+                    let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
+                    let intensity = (1.0 - t).powi(3); 
+                    final_alpha = intensity;
+                    
+                    if dist_in < 4.0 { final_alpha = 1.0; }
+                    if final_alpha > 0.005 {
+                        let deg = angle.to_degrees() + 180.0;
+                        let hue = (deg + time_offset) % 360.0;
+                        let rgb = hsv_to_rgb(hue, 0.8, 1.0);
+                        if dist_in < 2.0 { final_col = 0x00FFFFFF; } else { final_col = rgb; }
+                    }
+                }
+            } else {
+                let border_width = 2.0;
+                let dist_from_stroke_center = (d + (border_width * 0.5)).abs();
+                let stroke_mask = (1.0 - (dist_from_stroke_center - (border_width * 0.5))).clamp(0.0, 1.0);
+                final_alpha = stroke_mask;
+                final_col = 0x00CCCCCC; 
+            }
+
+            if final_alpha > 0.0 {
+                let r = ((final_col >> 16) & 0xFF) as f32;
+                let g = ((final_col >> 8) & 0xFF) as f32;
+                let b = (final_col & 0xFF) as f32;
+                pixels[idx] = (((r * final_alpha) as u32) << 16) | (((g * final_alpha) as u32) << 8) | ((b * final_alpha) as u32);
+            } else {
+                pixels[idx] = 0;
+            }
+        };
 
         for y in 0..buf_h {
-            for x in 0..buf_w {
-                let px = (x as f32) - center_x;
-                let py = (y as f32) - center_y;
-                
-                // Base distance to rounded box
-                let d = sd_rounded_box(px, py, bx, by, CORNER_RADIUS);
-                
-                let mut final_col = 0u32;
-                let mut final_alpha = 0.0f32;
-
-                if is_glowing {
-                    // --- ANIMATED GLOW MODE ---
-                    if d > 0.0 {
-                        // Anti-aliased outer edge (fades out in 1.5px)
-                        let aa = (1.5 - d).clamp(0.0, 1.0);
-                        if aa > 0.0 {
-                            final_alpha = aa;
-                            final_col = 0x00FFFFFF; 
-                        }
-                    } else {
-                        // Inside: d <= 0
-                        let angle = py.atan2(px);
-                        
-                        // Noise logic with DRAMA
-                         // Increased secondary wave amplitude (0.2 -> 0.4) for stronger interference
-                         let noise = (angle * freq1 + time_rad * 2.0 * time_mult).sin() * 0.5 
-                                   + (angle * freq2 - time_rad * 3.0 * time_mult).sin() * 0.4;
-                         
-                         // Scale local glow width dynamically
-                         // Increased Variance Multiplier: 0.4 -> 0.65
-                         // This makes the waves go much deeper/shallower = Dramatic pulsing
-                         let local_glow_width = dynamic_base_scale + (noise * (dynamic_base_scale * 0.65));
-
-                        // Distance factor (0.0 at edge, 1.0 at deep center)
-                        let dist_in = d.abs();
-                        
-                        // Cubic Falloff: Strength drops rapidly away from border
-                        let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
-                        let intensity = (1.0 - t).powi(3); 
-                        
-                        // Base Alpha is mostly transparent, highlighted by intensity
-                        final_alpha = intensity;
-                        
-                        // Boost the border region significantly
-                        if dist_in < 4.0 {
-                            final_alpha = 1.0; // Solid border
-                        }
-
-                        if final_alpha > 0.005 {
-                            // HSV Rainbow Calculation
-                            let deg = angle.to_degrees() + 180.0;
-                            let hue = (deg + time_offset) % 360.0;
-                            let rgb = hsv_to_rgb(hue, 0.8, 1.0);
-                            
-                            // Blend towards white at the very edge (dist_in < 2.0)
-                            if dist_in < 2.0 {
-                                final_col = 0x00FFFFFF;
-                            } else {
-                                final_col = rgb;
-                            }
-                        }
-                    }
-
-                } else {
-                    // --- STATIC DRAG MODE (Gray Box with AA) ---
-                    let border_width = 2.0;
-                    
-                    // Inner AA (Hollow center)
-                    // We want opacity 1.0 between d=0 and d=-border_width
-                    // And fading out at d > 0 and d < -border_width
-                    
-                    let dist_from_stroke_center = (d + (border_width * 0.5)).abs();
-                    // Stroke width covers roughly +/- border_width/2
-                    let stroke_mask = (1.0 - (dist_from_stroke_center - (border_width * 0.5))).clamp(0.0, 1.0);
-
-                    final_alpha = stroke_mask;
-                    final_col = 0x00CCCCCC; // Light Gray
+            let in_vertical_skip = do_skip && y > skip_y_min && y < skip_y_max;
+            
+            if in_vertical_skip {
+                // Render left strip
+                for x in 0..skip_x_min {
+                    render_pixel(x, y, (y * buf_w + x) as usize, pixels);
                 }
-
-                // Write Pixel if visible
-                if final_alpha > 0.0 {
-                    let r = ((final_col >> 16) & 0xFF) as f32;
-                    let g = ((final_col >> 8) & 0xFF) as f32;
-                    let b = (final_col & 0xFF) as f32;
-                    
-                    let r_out = (r * final_alpha) as u32;
-                    let g_out = (g * final_alpha) as u32;
-                    let b_out = (b * final_alpha) as u32;
-                    
-                    pixels[(y * buf_w + x) as usize] = (r_out << 16) | (g_out << 8) | b_out;
-                } else {
-                    pixels[(y * buf_w + x) as usize] = 0;
+                // Right strip
+                for x in skip_x_max..buf_w {
+                    render_pixel(x, y, (y * buf_w + x) as usize, pixels);
+                }
+            } else {
+                // Full row
+                for x in 0..buf_w {
+                    render_pixel(x, y, (y * buf_w + x) as usize, pixels);
                 }
             }
         }
         
         let mem_dc = CreateCompatibleDC(hdc_dest);
         let old_bmp = SelectObject(mem_dc, hbm);
-        
-        // SRCPAINT (Additive) works best for the glow against the darkened background
         let _ = BitBlt(hdc_dest, bounds.left - pad, bounds.top - pad, buf_w, buf_h, mem_dc, 0, 0, SRCPAINT);
-        
         SelectObject(mem_dc, old_bmp);
         DeleteDC(mem_dc);
     }
