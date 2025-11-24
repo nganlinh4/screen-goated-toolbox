@@ -213,7 +213,7 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             }
             
             if timer_id == ANIM_TIMER_ID && IS_PROCESSING {
-                // INCREASED SPEED: Was 3.0, now 5.0 for snappier movement
+                // ANIMATION UPDATE
                 ANIMATION_OFFSET += 5.0; 
                 if ANIMATION_OFFSET > 360.0 { ANIMATION_OFFSET -= 360.0; }
                 InvalidateRect(hwnd, None, false);
@@ -301,7 +301,7 @@ unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glowing
         2.0
     };
 
-    let max_possible_reach = if is_glowing { dynamic_base_scale * 1.7 } else { 2.0 };
+    let max_possible_reach = if is_glowing { dynamic_base_scale * 1.7 } else { 3.0 };
     let pad = max_possible_reach.ceil() as i32 + 4; 
     
     let buf_w = w + (pad * 2);
@@ -331,91 +331,103 @@ unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glowing
         let center_x = (pad as f32) + bx;
         let center_y = (pad as f32) + by;
 
+        // Clamp radius to ensure box doesn't fold over itself
+        let eff_radius = CORNER_RADIUS.min(bx).min(by);
+
         let time_rad = time_offset.to_radians();
         let complexity_scale = 1.0 + (perimeter / 1800.0); 
         let freq1 = (2.0 * complexity_scale).round();
         let freq2 = (5.0 * complexity_scale).round();
         let time_mult = 1.0;
 
-        // --- OPTIMIZATION: Inner skip zone for hollow centers ---
-        let safe_skip_dist = max_possible_reach * 1.1; 
+        // Optimization: Inner Skip Logic
+        // Inflate safe zone by corner radius to avoid clipping inner rounded corners
+        let safe_skip_dist = max_possible_reach + eff_radius + 2.0;
         let skip_x_min = (center_x - bx + safe_skip_dist).ceil() as i32;
         let skip_x_max = (center_x + bx - safe_skip_dist).floor() as i32;
         let skip_y_min = (center_y - by + safe_skip_dist).ceil() as i32;
         let skip_y_max = (center_y + by - safe_skip_dist).floor() as i32;
+        
         let do_skip = skip_x_max > skip_x_min && skip_y_max > skip_y_min;
 
-        // Pixel rendering closure
-        let render_pixel = |x: i32, y: i32, idx: usize, pixels: &mut [u32]| {
-            let px = (x as f32) - center_x;
-            let py = (y as f32) - center_y;
-            let d = sd_rounded_box(px, py, bx, by, CORNER_RADIUS);
-            
-            let mut final_col = 0u32;
-            let mut final_alpha = 0.0f32;
+        let mut render_pixel = |x: i32, y: i32, idx: usize| {
+             let px = (x as f32) - center_x;
+             let py = (y as f32) - center_y;
+             
+             // Calculate Base Rounded Box SDF
+             let d = sd_rounded_box(px, py, bx, by, eff_radius);
+             
+             let mut final_col = 0u32;
+             let mut final_alpha = 0.0f32;
 
-            if is_glowing {
-                if d > 0.0 {
-                    let aa = (1.5 - d).clamp(0.0, 1.0);
-                    if aa > 0.0 {
-                        final_alpha = aa;
-                        final_col = 0x00FFFFFF; 
-                    }
-                } else {
-                    let angle = py.atan2(px);
-                    let noise = (angle * freq1 + time_rad * 2.0 * time_mult).sin() * 0.5 
-                              + (angle * freq2 - time_rad * 3.0 * time_mult).sin() * 0.4;
-                    
-                    let local_glow_width = dynamic_base_scale + (noise * (dynamic_base_scale * 0.65));
-                    let dist_in = d.abs();
-                    
-                    let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
-                    let intensity = (1.0 - t).powi(3); 
-                    final_alpha = intensity;
-                    
-                    if dist_in < 4.0 { final_alpha = 1.0; }
-                    if final_alpha > 0.005 {
-                        let deg = angle.to_degrees() + 180.0;
-                        let hue = (deg + time_offset) % 360.0;
-                        let rgb = hsv_to_rgb(hue, 0.8, 1.0);
-                        if dist_in < 2.0 { final_col = 0x00FFFFFF; } else { final_col = rgb; }
-                    }
-                }
-            } else {
-                let border_width = 2.0;
-                let dist_from_stroke_center = (d + (border_width * 0.5)).abs();
-                let stroke_mask = (1.0 - (dist_from_stroke_center - (border_width * 0.5))).clamp(0.0, 1.0);
-                final_alpha = stroke_mask;
-                final_col = 0x00CCCCCC; 
-            }
+             if is_glowing {
+                 // --- ANIMATED GLOW MODE ---
+                 if d > 0.0 {
+                     // AA Edge
+                     let aa = (1.5 - d).clamp(0.0, 1.0);
+                     if aa > 0.0 {
+                         final_alpha = aa;
+                         final_col = 0x00FFFFFF; 
+                     }
+                 } else {
+                     // Glow
+                     let angle = py.atan2(px);
+                     let noise = (angle * freq1 + time_rad * 2.0 * time_mult).sin() * 0.5 
+                               + (angle * freq2 - time_rad * 3.0 * time_mult).sin() * 0.4;
+                     
+                     let local_glow_width = dynamic_base_scale + (noise * (dynamic_base_scale * 0.65));
+                     let dist_in = d.abs();
+                     
+                     let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
+                     let intensity = (1.0 - t).powi(3); 
+                     
+                     final_alpha = intensity;
+                     if dist_in < 4.0 { final_alpha = 1.0; }
 
-            if final_alpha > 0.0 {
-                let r = ((final_col >> 16) & 0xFF) as f32;
-                let g = ((final_col >> 8) & 0xFF) as f32;
-                let b = (final_col & 0xFF) as f32;
-                pixels[idx] = (((r * final_alpha) as u32) << 16) | (((g * final_alpha) as u32) << 8) | ((b * final_alpha) as u32);
-            } else {
-                pixels[idx] = 0;
-            }
+                     if final_alpha > 0.005 {
+                         let deg = angle.to_degrees() + 180.0;
+                         let hue = (deg + time_offset) % 360.0;
+                         let rgb = hsv_to_rgb(hue, 0.8, 1.0);
+                         if dist_in < 2.0 { final_col = 0x00FFFFFF; } else { final_col = rgb; }
+                     }
+                 }
+             } else {
+                 // --- STATIC DRAG MODE (FIXED) ---
+                 // Use SINGLE SDF 'd' to define a consistent band of width 'border_width'.
+                 // Inner edge is at d = -border_width.
+                 // Outer edge is at d = 0.
+                 
+                 let border_width = 3.0; // Thickness
+                 
+                 // Outer AA: Fades out as d goes > 0
+                 let alpha_outer = (1.0 - d).clamp(0.0, 1.0);
+                 
+                 // Inner AA: Fades out as d goes < -border_width
+                 // If d = -2.5, d + 2 + 1 = 0.5 (mid-fade)
+                 // If d = -3.0, d + 2 + 1 = 0.0 (transparent)
+                 let alpha_inner = (d + border_width + 1.0).clamp(0.0, 1.0);
+                 
+                 final_alpha = alpha_outer * alpha_inner;
+                 final_col = 0x00CCCCCC; 
+             }
+
+             if final_alpha > 0.0 {
+                 let r = ((final_col >> 16) & 0xFF) as f32;
+                 let g = ((final_col >> 8) & 0xFF) as f32;
+                 let b = (final_col & 0xFF) as f32;
+                 pixels[idx] = (((r * final_alpha) as u32) << 16) | (((g * final_alpha) as u32) << 8) | ((b * final_alpha) as u32);
+             } else {
+                 pixels[idx] = 0;
+             }
         };
 
         for y in 0..buf_h {
             let in_vertical_skip = do_skip && y > skip_y_min && y < skip_y_max;
-            
             if in_vertical_skip {
-                // Render left strip
-                for x in 0..skip_x_min {
-                    render_pixel(x, y, (y * buf_w + x) as usize, pixels);
-                }
-                // Right strip
-                for x in skip_x_max..buf_w {
-                    render_pixel(x, y, (y * buf_w + x) as usize, pixels);
-                }
+                for x in 0..skip_x_min { render_pixel(x, y, (y * buf_w + x) as usize); }
+                for x in skip_x_max..buf_w { render_pixel(x, y, (y * buf_w + x) as usize); }
             } else {
-                // Full row
-                for x in 0..buf_w {
-                    render_pixel(x, y, (y * buf_w + x) as usize, pixels);
-                }
+                for x in 0..buf_w { render_pixel(x, y, (y * buf_w + x) as usize); }
             }
         }
         
