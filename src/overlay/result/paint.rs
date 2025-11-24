@@ -71,7 +71,7 @@ pub fn paint_window(hwnd: HWND) {
                 let particles: Vec<(f32, f32, f32, f32, u32)> = state.physics.particles.iter()
                     .map(|p| (p.x, p.y, p.life, p.size, p.color)).collect();
                 
-                let show_broom = (state.is_hovered && !state.on_copy_btn) || state.physics.mode != AnimationMode::Idle;
+                let show_broom = (state.is_hovered && !state.on_copy_btn) || state.physics.mode == AnimationMode::Smashing;
 
                 (state.bg_color, state.is_hovered, state.copy_success, 
                  if show_broom {
