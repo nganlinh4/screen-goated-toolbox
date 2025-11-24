@@ -24,6 +24,31 @@ pub fn load_broom_cursor() -> HCURSOR {
     }
 }
 
+// --- DATA CRUNCH EFFECT STATE ---
+struct GlitchParticle {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    life: f32,
+    color: u32, // COLORREF format: 0x00BBGGRR
+}
+
+static mut PARTICLES: Vec<GlitchParticle> = Vec::new();
+static mut RNG_SEED: u32 = 54321;
+
+unsafe fn rand_range(min: i32, max: i32) -> i32 {
+    if min >= max { return min; }
+    RNG_SEED = RNG_SEED.wrapping_mul(1103515245).wrapping_add(12345);
+    let val = (RNG_SEED / 65536) as i32;
+    min + (val.abs() % (max - min))
+}
+
+unsafe fn rand_float() -> f32 {
+    RNG_SEED = RNG_SEED.wrapping_mul(1103515245).wrapping_add(12345);
+    (RNG_SEED as f32) / (u32::MAX as f32)
+}
+
 static mut START_POS: POINT = POINT { x: 0, y: 0 };
 static mut CURR_POS: POINT = POINT { x: 0, y: 0 };
 static mut IS_DRAGGING: bool = false;
@@ -49,6 +74,7 @@ pub fn show_selection_overlay(preset_idx: usize) {
     unsafe {
         CURRENT_PRESET_IDX = preset_idx;
         SELECTION_OVERLAY_ACTIVE = true;
+        PARTICLES.clear(); // Reset particles
         
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SnippingOverlay");
@@ -90,6 +116,7 @@ pub fn show_selection_overlay(preset_idx: usize) {
         
         SELECTION_OVERLAY_ACTIVE = false;
         SELECTION_OVERLAY_HWND = HWND(0);
+        PARTICLES.clear();
         
         UnregisterClassW(class_name, instance);
     }
@@ -135,7 +162,7 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                 if (rect.right - rect.left) > 10 && (rect.bottom - rect.top) > 10 {
                     IS_PROCESSING = true;
                     SCAN_LINE_Y = rect.top;
-                    InvalidateRect(hwnd, None, false);
+                    // Start timer for animation (30ms ~ 33fps)
                     SetTimer(hwnd, 1, 30, None);
                     
                     let app_clone = APP.clone();
@@ -158,10 +185,47 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                     bottom: START_POS.y.max(CURR_POS.y),
                 };
                 
+                // Update Scan Line
                 SCAN_LINE_Y += SCAN_DIR;
                 if SCAN_LINE_Y > rect.bottom || SCAN_LINE_Y < rect.top {
                     SCAN_DIR = -SCAN_DIR;
                 }
+
+                // --- DATA CRUNCH PARTICLES ---
+                // Spawn new
+                let region_w = rect.right - rect.left;
+                if region_w > 0 {
+                    let count = rand_range(1, 4); // 1-3 particles per frame
+                    for _ in 0..count {
+                        let w = rand_range(2, 6);
+                        let h = rand_range(5, 15);
+                        let x = rand_range(rect.left, rect.right - w);
+                        
+                        // Mix of Matrix Green and Cyan
+                        let is_cyan = rand_float() > 0.7;
+                        let color = if is_cyan { 0x00FFFF00 } else { 0x0000FF00 }; // BGR
+
+                        PARTICLES.push(GlitchParticle {
+                            x,
+                            y: SCAN_LINE_Y,
+                            w,
+                            h,
+                            life: 1.0,
+                            color,
+                        });
+                    }
+                }
+
+                // Update
+                let mut keep = Vec::with_capacity(PARTICLES.len());
+                for mut p in PARTICLES.drain(..) {
+                    p.life -= 0.15; // Fast decay
+                    if p.life > 0.0 {
+                        keep.push(p);
+                    }
+                }
+                PARTICLES = keep;
+
                 InvalidateRect(hwnd, None, false);
             }
             LRESULT(0)
@@ -176,35 +240,76 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             let mem_bitmap = CreateCompatibleBitmap(hdc, width, height);
             SelectObject(mem_dc, mem_bitmap);
 
+            // Clear Background
             let brush = CreateSolidBrush(COLORREF(0x00000000));
             let full_rect = RECT { left: 0, top: 0, right: width, bottom: height };
             FillRect(mem_dc, &full_rect, brush);
             DeleteObject(brush);
 
             if IS_DRAGGING || IS_PROCESSING {
-                let rect = RECT {
-                    left: (START_POS.x.min(CURR_POS.x)) - GetSystemMetrics(SM_XVIRTUALSCREEN),
-                    top: (START_POS.y.min(CURR_POS.y)) - GetSystemMetrics(SM_YVIRTUALSCREEN),
-                    right: (START_POS.x.max(CURR_POS.x)) - GetSystemMetrics(SM_XVIRTUALSCREEN),
-                    bottom: (START_POS.y.max(CURR_POS.y)) - GetSystemMetrics(SM_YVIRTUALSCREEN),
+                let rect_abs = RECT {
+                    left: START_POS.x.min(CURR_POS.x),
+                    top: START_POS.y.min(CURR_POS.y),
+                    right: START_POS.x.max(CURR_POS.x),
+                    bottom: START_POS.y.max(CURR_POS.y),
+                };
+
+                let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+
+                let rect_rel = RECT {
+                    left: rect_abs.left - screen_x,
+                    top: rect_abs.top - screen_y,
+                    right: rect_abs.right - screen_x,
+                    bottom: rect_abs.bottom - screen_y,
                 };
                 
+                // Draw Selection Frame
                 let frame_brush = CreateSolidBrush(COLORREF(0x00FFFFFF));
-                FrameRect(mem_dc, &rect, frame_brush);
+                FrameRect(mem_dc, &rect_rel, frame_brush);
                 DeleteObject(frame_brush);
                 
                 if IS_PROCESSING {
-                     let scan_y_rel = SCAN_LINE_Y - GetSystemMetrics(SM_YVIRTUALSCREEN);
-                     let scan_rect = RECT {
-                          left: rect.left + 2,
-                          top: scan_y_rel,
-                          right: rect.right - 2,
-                          bottom: scan_y_rel + 2
-                      };
-                      let scan_brush = CreateSolidBrush(COLORREF(0x0000FF00));
-                      FillRect(mem_dc, &scan_rect, scan_brush);
-                      DeleteObject(scan_brush);
-                 }
+                    // Draw Glitch Particles (Behind the line)
+                    for p in &PARTICLES {
+                        // Simple opacity simulation: flip color if life is low, or just draw smaller
+                        let draw_h = if p.life < 0.5 { p.h / 2 } else { p.h };
+                        let p_rect = RECT {
+                            left: p.x - screen_x,
+                            top: p.y - screen_y,
+                            right: p.x - screen_x + p.w,
+                            bottom: p.y - screen_y + draw_h,
+                        };
+                        let p_brush = CreateSolidBrush(COLORREF(p.color));
+                        FillRect(mem_dc, &p_rect, p_brush);
+                        DeleteObject(p_brush);
+                    }
+
+                    // Draw Main Scan Line
+                    let scan_y_rel = SCAN_LINE_Y - screen_y;
+                    
+                    // Glow/Outer (Green)
+                    let line_outer = RECT {
+                        left: rect_rel.left + 1,
+                        top: scan_y_rel - 1,
+                        right: rect_rel.right - 1,
+                        bottom: scan_y_rel + 1
+                    };
+                    let scan_brush = CreateSolidBrush(COLORREF(0x0000FF00));
+                    FillRect(mem_dc, &line_outer, scan_brush);
+                    DeleteObject(scan_brush);
+                    
+                    // Core (White)
+                    let line_core = RECT {
+                        left: rect_rel.left + 1,
+                        top: scan_y_rel,
+                        right: rect_rel.right - 1,
+                        bottom: scan_y_rel + 1
+                    };
+                    let white_brush = CreateSolidBrush(COLORREF(0x00FFFFFF));
+                    FillRect(mem_dc, &line_core, white_brush);
+                    DeleteObject(white_brush);
+                }
             }
 
             BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY).ok().unwrap();
