@@ -1,41 +1,43 @@
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use crate::overlay::broom_assets::BroomState;
 
-// --- PHYSICS & ANIMATION STATES ---
-
+// --- DYNAMIC PARTICLES ---
 pub struct DustParticle {
     pub x: f32,
     pub y: f32,
     pub vx: f32,
     pub vy: f32,
     pub life: f32, // 1.0 to 0.0
-    pub _color: u32,
+    pub size: f32,
+    pub color: u32,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum AnimationMode {
-    Idle,
-    MovingLeft,
-    MovingRight,
-    Sweeping,
+    Idle,       // Normal mouse movement
+    Smashing,   // User clicked (Sweep start)
+    DragOut,    // User holding/dragging out
 }
 
 pub struct CursorPhysics {
     pub x: f32,
     pub y: f32,
     
-    // Animation State
+    // Spring Physics
+    pub current_tilt: f32,   // Current angle in degrees
+    pub tilt_velocity: f32,  // Angular velocity
+    
+    // Deformation
+    pub squish_factor: f32,  // 1.0 = normal, 0.5 = flat
+    pub bristle_bend: f32,   // Lag of bristles
+    
+    // Logic
     pub mode: AnimationMode,
-    pub frame_timer: i32,
-    pub sweep_stage: usize, 
-    pub idle_frame: usize, 
-    pub sway_decay: i32, // Smoothing for directional changes
-
+    pub state_timer: f32,
     pub particles: Vec<DustParticle>,
-    pub bitmaps: HashMap<usize, HBITMAP>, 
+    
+    // Clean up
     pub initialized: bool,
 }
 
@@ -43,19 +45,18 @@ impl Default for CursorPhysics {
     fn default() -> Self {
         Self {
             x: 0.0, y: 0.0,
+            current_tilt: 0.0,
+            tilt_velocity: 0.0,
+            squish_factor: 1.0,
+            bristle_bend: 0.0,
             mode: AnimationMode::Idle,
-            frame_timer: 0,
-            sweep_stage: 0,
-            idle_frame: 0,
-            sway_decay: 0,
+            state_timer: 0.0,
             particles: Vec::new(),
-            bitmaps: HashMap::new(),
             initialized: false,
         }
     }
 }
 
-// State for each window
 pub struct WindowState {
     pub alpha: u8,
     pub is_hovered: bool,
@@ -82,20 +83,5 @@ pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
     }
     if let Some(s2) = states.get_mut(&(hwnd2.0 as isize)) {
         s2.linked_window = Some(hwnd1);
-    }
-}
-
-// Map enum variants to integers for HashMap
-pub fn state_to_idx(s: BroomState) -> usize {
-    match s {
-        BroomState::Idle1 => 0,
-        BroomState::Idle2 => 1,
-        BroomState::Left => 2,
-        BroomState::Right => 3,
-        BroomState::Sweep1Windup => 4,
-        BroomState::Sweep2Smash => 5,
-        BroomState::Sweep3DragR => 6,
-        BroomState::Sweep4DragL => 7,
-        BroomState::Sweep5Lift => 8,
     }
 }

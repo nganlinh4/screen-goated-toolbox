@@ -1,183 +1,112 @@
-// Procedural Pixel Art Generator for Broom Cursor
-// Generates 9 frames of animation
+pub const BROOM_W: i32 = 48; // Increased canvas size for rotation space
+pub const BROOM_H: i32 = 48;
 
-pub const BROOM_W: i32 = 32;
-pub const BROOM_H: i32 = 32;
-
-#[derive(Clone, Copy)]
-pub enum BroomState {
-    Idle1,
-    Idle2,
-    Left,
-    Right,
-    Sweep1Windup,
-    Sweep2Smash,
-    Sweep3DragR,
-    Sweep4DragL,
-    Sweep5Lift,
+#[derive(Clone, Copy, Default)]
+pub struct BroomRenderParams {
+    pub tilt_angle: f32, // Degrees, negative = left, positive = right
+    pub squish: f32,     // 1.0 = normal, 0.5 = smashed
+    pub bend: f32,       // Curvature of bristles (drag effect)
+    pub opacity: f32,    // 0.0 to 1.0
 }
 
-pub fn get_broom_pixels(state: BroomState) -> Vec<u32> {
+pub fn render_procedural_broom(params: BroomRenderParams) -> Vec<u32> {
     let mut pixels = vec![0u32; (BROOM_W * BROOM_H) as usize];
 
     // Palette
-    const _T: u32 = 0x00000000; // Transparent
-    const H_DK: u32 = 0xFF5D4037; // Handle Dark
-    const H_LT: u32 = 0xFF8D6E63; // Handle Light
-    const BAND: u32 = 0xFFB71C1C; // Band Red
-    const S_DK: u32 = 0xFFFBC02D; // Straw Dark
-    const S_LT: u32 = 0xFFFFF176; // Straw Light
-    const S_SH: u32 = 0xFFF57F17; // Straw Shadow
+    let alpha = (params.opacity * 255.0) as u32;
+    if alpha == 0 { return pixels; }
 
-    let set_px = |p: &mut Vec<u32>, x: i32, y: i32, c: u32| {
+    let c_handle_dk = (alpha << 24) | 0x005D4037;
+    let c_handle_lt = (alpha << 24) | 0x008D6E63;
+    let c_band      = (alpha << 24) | 0x00B71C1C;
+    let c_straw_dk  = (alpha << 24) | 0x00FBC02D;
+    let c_straw_lt  = (alpha << 24) | 0x00FFF176;
+    let c_straw_sh  = (alpha << 24) | 0x00F57F17;
+
+    // Helper to blend pixels (simple AA)
+    let mut draw_pixel = |x: i32, y: i32, color: u32| {
         if x >= 0 && x < BROOM_W && y >= 0 && y < BROOM_H {
-            p[(y * BROOM_W + x) as usize] = c;
+            pixels[(y * BROOM_W + x) as usize] = color;
         }
     };
 
-    // Center bottom reference
-    let cx = 16.0;
-    let mut cy = 28.0;
+    // Center of the broom's "neck" (pivot point)
+    let pivot_x = (BROOM_W / 2) as f32;
+    let pivot_y = (BROOM_H as f32) * 0.65; // Lower pivot to allow handle swing
 
-    // Animation Params
-    let mut tilt: f32 = 0.0; // degrees
-    let mut squish = 1.0;
-    let mut spread = 0.0;
-    // head_offset_x moves the connection point (Band + Handle Base)
-    let mut head_offset_x = 0.0; 
+    let rad = params.tilt_angle.to_radians();
+    let sin_a = rad.sin();
+    let cos_a = rad.cos();
 
-    match state {
-        BroomState::Idle1 => { cy -= 0.0; }
-        BroomState::Idle2 => { cy -= 1.0; } // Bob up
-        BroomState::Left => { 
-            // Mouse moves Left -> Head drags Right -> Handle tilts Right (Top-Left to Bottom-Right)
-            // Positive Rotation
-            tilt = 20.0; 
-            head_offset_x = 4.0; 
-            spread = -1.0; 
-        }
-        BroomState::Right => { 
-            // Mouse moves Right -> Head drags Left -> Handle tilts Left (Top-Right to Bottom-Left)
-            // Negative Rotation
-            tilt = -20.0; 
-            head_offset_x = -4.0; 
-            spread = 1.0; 
-        }
-        BroomState::Sweep1Windup => {
-            tilt = -25.0; // Wind up back
-            cy -= 5.0;
-            head_offset_x = -2.0;
-        }
-        BroomState::Sweep2Smash => {
-            tilt = 0.0;
-            squish = 0.5; // Big squish
-            cy += 2.0;
-            spread = 5.0;
-        }
-        BroomState::Sweep3DragR => {
-            tilt = 15.0;
-            squish = 0.8;
-            head_offset_x = 4.0;
-        }
-        BroomState::Sweep4DragL => {
-            tilt = -15.0;
-            squish = 0.8;
-            head_offset_x = -4.0;
-        }
-        BroomState::Sweep5Lift => {
-            tilt = 0.0;
-            cy -= 3.0;
-        }
-    }
-
-    // The calculated center of the broom head (Band position)
-    let head_cx = cx + head_offset_x;
-
-    // 1. Draw Bristles
-    let bristle_h = (10.0 * squish) as i32;
+    // 1. Draw Bristles (Bottom part)
+    // The bristles hang down from the pivot, affected by 'squish' and 'bend'
+    let bristle_len = 16.0 * params.squish;
     let top_w = 8.0;
-    let bot_w = 14.0 + spread;
+    let bot_w = 16.0 + (1.0 - params.squish) * 10.0; // Spreads when squished
 
-    for y in 0..bristle_h {
-        let prog = y as f32 / bristle_h as f32;
-        let cur_w = top_w + (bot_w - top_w) * prog;
+    for y_step in 0..bristle_len as i32 {
+        let prog = y_step as f32 / bristle_len;
         
-        // Center bristles on the shifted head center
-        let start_x = head_cx - (cur_w / 2.0);
-        
-        let mut skew = 0.0;
-        let rad = tilt.to_radians();
-        
-        // Calculate Skew based on tilt to align with handle angle
-        let tilt_skew = rad.tan() * (bristle_h - y) as f32;
+        // Calculate the center line of the bristles
+        // We apply rotation + the 'bend' factor (lagging behind movement)
+        let current_y_rel = y_step as f32;
+        let bend_offset = params.bend * prog * prog * 10.0; // Quadratic bend
 
-        match state {
-            // Apply tilt skew so bristles look continuous with handle
-            BroomState::Left | BroomState::Right | BroomState::Sweep1Windup => skew = tilt_skew,
-            // During sweep drag, apply exaggerated drag skew
-            BroomState::Sweep3DragR => skew = -3.0 * prog,
-            BroomState::Sweep4DragL => skew = 3.0 * prog,
-            BroomState::Sweep2Smash => skew = 0.0, // Flat smash
-            _ => {}
-        }
+        // Rotate the center line
+        let cx = pivot_x - (current_y_rel * sin_a) + (bend_offset * cos_a);
+        let cy = pivot_y + (current_y_rel * cos_a) + (bend_offset * sin_a);
 
-        let py = (cy as i32) - bristle_h + y;
-        let start_x_int = (start_x + skew).round() as i32;
-        let end_x_int = (start_x + skew + cur_w).round() as i32;
+        let current_w = top_w + (bot_w - top_w) * prog;
+        let half_w = current_w / 2.0;
 
-        for px in start_x_int..end_x_int {
-            // Texture
-            let is_shadow = (px + y) % 3 == 0;
-            let is_light = (px - y) % 4 == 0;
-            let col = if is_shadow { S_SH } else if is_light { S_LT } else { S_DK };
-            set_px(&mut pixels, px, py, col);
+        let start_x = (cx - half_w).round() as i32;
+        let end_x = (cx + half_w).round() as i32;
+        let py = cy.round() as i32;
+
+        for px in start_x..=end_x {
+            // Texture pattern
+            let seed = (px * 7 + y_step * 13) % 5;
+            let col = match seed {
+                0 => c_straw_sh,
+                1 | 2 => c_straw_lt,
+                _ => c_straw_dk
+            };
+            draw_pixel(px, py, col);
         }
     }
 
-    // 2. Draw Band (The Red Connector)
-    let band_y = (cy as i32) - bristle_h;
-    let band_h = 3;
-    for y in 0..band_h {
-        let py = band_y - y;
-        let start_x = (head_cx - (top_w / 2.0)).round() as i32;
+    // 2. Draw Band (Neck)
+    let band_h = 3.0;
+    for y_step in 0..band_h as i32 {
+        let rel_y = -(y_step as f32); // Go up from pivot
+        let cx = pivot_x + (rel_y * sin_a);
+        let cy = pivot_y - (rel_y * cos_a);
         
-        // Tilt band slightly
-        let rad = tilt.to_radians();
-        let _tilt_off = (rad.tan() * (bristle_h + y) as f32).round() as i32;
-        
-        // Note: We intentionally don't add tilt_off here because head_cx assumes 
-        // the BASE of the handle. The band sits right at that base.
-        // However, to make it look 3D, we can shift it slightly if tilted strongly.
-        let fine_tune = if tilt.abs() > 10.0 { (tilt / 10.0) as i32 } else { 0 };
-
-        for px in (start_x + fine_tune)..(start_x + fine_tune + top_w as i32) {
-            set_px(&mut pixels, px, py, BAND);
+        let half_w = top_w / 2.0 + 1.0; // Slightly wider
+        for px in (cx - half_w).round() as i32 ..= (cx + half_w).round() as i32 {
+             draw_pixel(px, cy.round() as i32, c_band);
         }
     }
 
-    // 3. Draw Handle
-    let handle_len = 16;
-    let handle_start_y = band_y - band_h;
+    // 3. Draw Handle (pointing UPWARD from the pivot)
+    let handle_len = 20.0;
     
-    for i in 0..handle_len {
-        let rad = tilt.to_radians();
+    for i in 0..handle_len as i32 {
+        // rel_y is POSITIVE going upward from pivot
+        let rel_y = (i as f32) + band_h; 
         
-        // Pivot point is exactly `head_cx`
-        let pivot_x = head_cx;
-        let pivot_y = handle_start_y as f32;
-        
-        // Point relative to pivot (going UP)
-        let rel_y = -(i as f32);
-        
-        // Rotate
-        let rot_x = -rel_y * rad.sin();
-        let rot_y = rel_y * rad.cos();
-        
-        let px = (pivot_x + rot_x).round() as i32;
-        let py = (pivot_y + rot_y).round() as i32;
-        
-        set_px(&mut pixels, px, py, H_DK);
-        set_px(&mut pixels, px + 1, py, H_LT);
+        // Handle is rigid, follows tilt exactly
+        // When tilted right (positive angle), handle top goes right
+        // When tilted left (negative angle), handle top goes left
+        let cx = pivot_x + (rel_y * sin_a);
+        let cy = pivot_y - (rel_y * cos_a); // Negative because Y increases downward in screen coords
+
+        let px = cx.round() as i32;
+        let py = cy.round() as i32;
+
+        // Thickness 2
+        draw_pixel(px, py, c_handle_dk);
+        draw_pixel(px + 1, py, c_handle_lt);
     }
 
     pixels

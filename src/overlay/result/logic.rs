@@ -3,78 +3,104 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::Graphics::Gdi::*;
 use super::state::{WINDOW_STATES, AnimationMode, DustParticle};
 
-// Helper for RNG
-fn rand() -> u32 {
-    static mut SEED: u32 = 98765;
+fn rand_float(min: f32, max: f32) -> f32 {
+    static mut SEED: u32 = 12345;
     unsafe {
         SEED = SEED.wrapping_mul(1103515245).wrapping_add(12345);
-        (SEED / 65536) % 32768
+        let norm = (SEED as f32) / (u32::MAX as f32);
+        min + norm * (max - min)
     }
 }
 
 pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
     unsafe {
-        if wparam.0 == 3 { // Animation Loop (16ms)
+        if wparam.0 == 3 { // 60 FPS Physics Loop
             let mut should_close = false;
             
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                    state.physics.frame_timer += 1;
+                    let p = &mut state.physics;
+
+                    // --- 1. MOUSE PHYSICS (Spring System) ---
+                    // Hooke's Law for Handle Tilt:
+                    // Force = -k * x - c * v
+                    // k = stiffness, c = damping
                     
-                    // 1. Idle Animation (Bob every 20 frames)
-                    if state.physics.mode == AnimationMode::Idle {
-                        if state.physics.frame_timer > 20 {
-                            state.physics.idle_frame = (state.physics.idle_frame + 1) % 2;
-                            state.physics.frame_timer = 0;
-                        }
-                    }
+                    // Natural wobble rest point is 0.0
+                    let spring_stiffness = 0.15;
+                    let damping = 0.85;
+                    
+                    p.tilt_velocity += (0.0 - p.current_tilt) * spring_stiffness;
+                    p.tilt_velocity *= damping;
+                    p.current_tilt += p.tilt_velocity;
 
-                    // 2. Sweep Animation Controller
-                    if state.physics.mode == AnimationMode::Sweeping {
-                        // Fade out logic 
-                        if state.physics.sweep_stage >= 1 {
-                            state.alpha = state.alpha.saturating_sub(15);
-                            SetLayeredWindowAttributes(hwnd, COLORREF(0), state.alpha, LWA_ALPHA);
-                        }
+                    // Bristle bend follows tilt but lags slightly
+                    p.bristle_bend = p.bristle_bend * 0.8 + (p.current_tilt / 10.0) * 0.2;
 
-                        // Frame duration
-                        if state.physics.frame_timer > 3 {
-                            state.physics.sweep_stage += 1;
-                            state.physics.frame_timer = 0;
-
-                            // Trigger Dust on Smash (Stage 1)
-                            if state.physics.sweep_stage == 1 {
-                                let cx = state.physics.x;
-                                let cy = state.physics.y + 26.0; 
-                                for _ in 0..12 {
-                                    state.physics.particles.push(DustParticle {
-                                        x: cx + (rand() % 20) as f32 - 10.0,
+                    // --- 2. ANIMATION STATE MACHINE ---
+                    match p.mode {
+                        AnimationMode::Idle => {
+                            p.squish_factor = p.squish_factor * 0.9 + 1.0 * 0.1; // Return to 1.0
+                        },
+                        AnimationMode::Smashing => {
+                            p.state_timer += 1.0;
+                            
+                            // 0-3 frames: Wind up (Squash down slightly)
+                            if p.state_timer < 4.0 {
+                                p.squish_factor = 0.9;
+                                p.current_tilt -= 5.0; // Lean back
+                            } 
+                            // 4th frame: IMPACT
+                            else if p.state_timer >= 4.0 && p.state_timer < 5.0 {
+                                p.squish_factor = 0.4; // Extreme squish
+                                p.current_tilt = 0.0;  // Snap vertical
+                                
+                                // EXPLOSION OF PARTICLES
+                                let cx = p.x;
+                                let cy = p.y + 20.0;
+                                for _ in 0..15 {
+                                    p.particles.push(DustParticle {
+                                        x: cx + rand_float(-10.0, 10.0),
                                         y: cy,
-                                        vx: (rand() % 10) as f32 - 5.0,
-                                        vy: -((rand() % 6) as f32 + 2.0),
+                                        vx: rand_float(-8.0, 8.0),
+                                        vy: rand_float(-2.0, -8.0), // Explode up
                                         life: 1.0,
-                                        _color: 0xFFDDDDDD,
+                                        size: rand_float(2.0, 5.0),
+                                        color: 0xFFDDDDDD,
                                     });
                                 }
                             }
+                            // Recovery / Transition to DragOut
+                            else if p.state_timer > 8.0 {
+                                p.mode = AnimationMode::DragOut;
+                            }
+                        },
+                        AnimationMode::DragOut => {
+                            p.state_timer += 1.0;
+                            p.squish_factor = p.squish_factor * 0.8 + 1.2 * 0.2; // Stretch up
                             
-                            if state.physics.sweep_stage > 4 || state.alpha == 0 {
+                            // Fade out logic
+                            if state.alpha > 10 {
+                                state.alpha = state.alpha.saturating_sub(15);
+                                SetLayeredWindowAttributes(hwnd, COLORREF(0), state.alpha, LWA_ALPHA);
+                            } else {
                                 should_close = true;
                             }
                         }
                     }
 
-                    // 3. Update Particles
+                    // --- 3. PARTICLE PHYSICS ---
                     let mut keep = Vec::new();
-                    for mut p in state.physics.particles.drain(..) {
-                        p.x += p.vx;
-                        p.y += p.vy;
-                        p.vy += 0.4; // Gravity
-                        p.life -= 0.1;
-                        if p.life > 0.0 { keep.push(p); }
+                    for mut pt in p.particles.drain(..) {
+                        pt.x += pt.vx;
+                        pt.y += pt.vy;
+                        pt.vy += 0.5; // Gravity
+                        pt.vx *= 0.92; // Air resistance
+                        pt.life -= 0.03;
+                        if pt.life > 0.0 { keep.push(pt); }
                     }
-                    state.physics.particles = keep;
+                    p.particles = keep;
 
                     InvalidateRect(hwnd, None, false);
                 }
@@ -95,7 +121,24 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
             // Revert Copy Icon
             KillTimer(hwnd, 1);
             let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) { state.copy_success = false; }
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) { 
+                state.copy_success = false; 
+                
+                // Spawn sparkles for success
+                 let cx = state.physics.x;
+                 let cy = state.physics.y;
+                 for _ in 0..8 {
+                    state.physics.particles.push(DustParticle {
+                        x: cx + rand_float(-10.0, 10.0),
+                        y: cy,
+                        vx: rand_float(-2.0, 2.0),
+                        vy: rand_float(-2.0, -5.0),
+                        life: 1.0,
+                        size: rand_float(1.0, 3.0),
+                        color: 0xFF00FF00, // Green sparkles
+                    });
+                }
+            }
             InvalidateRect(hwnd, None, false);
         }
     }

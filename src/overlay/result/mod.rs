@@ -8,13 +8,12 @@ use windows::core::*;
 use std::mem::size_of;
 
 use crate::overlay::utils::to_wstring;
-use crate::overlay::broom_assets::{BroomState, get_broom_pixels};
 
 mod state;
 mod paint;
 mod logic;
 
-use state::{WINDOW_STATES, WindowState, CursorPhysics, AnimationMode, state_to_idx};
+use state::{WINDOW_STATES, WindowState, CursorPhysics, AnimationMode};
 pub use state::{WindowType, link_windows};
 
 static mut CURRENT_BG_COLOR: u32 = 0x00222222;
@@ -82,18 +81,8 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
             None, None, instance, None
         );
 
-        // Pre-generate assets
+        // Initialize physics (no pre-generation needed)
         let mut physics = CursorPhysics::default();
-        let states_list = [
-            BroomState::Idle1, BroomState::Idle2, BroomState::Left, BroomState::Right,
-            BroomState::Sweep1Windup, BroomState::Sweep2Smash, BroomState::Sweep3DragR,
-            BroomState::Sweep4DragL, BroomState::Sweep5Lift
-        ];
-        
-        for s in states_list {
-            let px = get_broom_pixels(s);
-            physics.bitmaps.insert(state_to_idx(s), paint::create_bitmap_from_pixels(&px));
-        }
         physics.initialized = true;
 
         {
@@ -172,6 +161,17 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 let dx = x - state.physics.x;
                 
+                // --- PHYSICS INPUT ---
+                // If moving horizontally, add velocity to the tilt (Spring Force)
+                // Limit the impulse to prevent spinning out of control
+                let impulse = (dx * 1.5).clamp(-20.0, 20.0);
+                
+                // We subtract because dragging right tilts handle left
+                state.physics.tilt_velocity -= impulse * 0.2; 
+                
+                // Clamp max tilt
+                state.physics.current_tilt = state.physics.current_tilt.clamp(-45.0, 45.0);
+
                 // Copy Button Hit Test
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
@@ -180,25 +180,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 let btn_size = 24;
                 let btn_rect = RECT { left: width - btn_size, top: height - btn_size, right: width, bottom: height };
                 state.on_copy_btn = x as i32 >= btn_rect.left && x as i32 <= btn_rect.right && y as i32 >= btn_rect.top && y as i32 <= btn_rect.bottom;
-
-                // Physics: Only update sway if not sweeping
-                if state.physics.mode != AnimationMode::Sweeping {
-                    // Increased threshold to 2.0 to prevent jitter
-                    if dx > 2.0 {
-                        state.physics.mode = AnimationMode::MovingRight;
-                        state.physics.sway_decay = 8; // Reset decay counter
-                    } else if dx < -2.0 {
-                        state.physics.mode = AnimationMode::MovingLeft;
-                        state.physics.sway_decay = 8;
-                    } else {
-                        // Slowly return to idle
-                        if state.physics.sway_decay > 0 {
-                            state.physics.sway_decay -= 1;
-                        } else {
-                            state.physics.mode = AnimationMode::Idle;
-                        }
-                    }
-                }
                 
                 state.physics.x = x;
                 state.physics.y = y;
@@ -266,13 +247,14 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 if is_copy_click && msg == WM_LBUTTONUP { return LRESULT(0); }
             }
 
-            // --- TRIGGER SWEEP ANIMATION ---
-            {
-                let mut states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                    state.physics.mode = AnimationMode::Sweeping;
-                    state.physics.sweep_stage = 0;
-                    state.physics.frame_timer = 0;
+            // --- TRIGGER SMASH ANIMATION ---
+            if !is_copy_click {
+                 {
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                        state.physics.mode = AnimationMode::Smashing;
+                        state.physics.state_timer = 0.0;
+                    }
                 }
             }
             LRESULT(0)
@@ -285,11 +267,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
 
         WM_DESTROY => {
             let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.remove(&(hwnd.0 as isize)) {
-                for (_, hbm) in state.physics.bitmaps {
-                    DeleteObject(hbm);
-                }
-            }
+            states.remove(&(hwnd.0 as isize));
             LRESULT(0)
         }
 

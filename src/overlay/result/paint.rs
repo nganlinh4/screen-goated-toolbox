@@ -1,20 +1,19 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::*;
+use windows::core::w;
 use std::mem::size_of;
-use crate::overlay::broom_assets::{BroomState, BROOM_W, BROOM_H};
-use super::state::{WINDOW_STATES, AnimationMode, state_to_idx};
+use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
+use super::state::{WINDOW_STATES, AnimationMode};
 
-// Helper: Convert Vec<u32> to HBITMAP
-pub fn create_bitmap_from_pixels(pixels: &[u32]) -> HBITMAP {
+pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
     unsafe {
         let hdc = GetDC(None);
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: BROOM_W,
-                biHeight: -BROOM_H, // Top-down
+                biWidth: w,
+                biHeight: -h, // Top-down
                 biPlanes: 1,
                 biBitCount: 32,
                 biCompression: BI_RGB.0 as u32,
@@ -48,38 +47,35 @@ pub fn paint_window(hwnd: HWND) {
         let width = rect.right - rect.left;
         let height = rect.bottom - rect.top;
 
+        // Double buffering for window content
         let mem_dc = CreateCompatibleDC(hdc);
         let mem_bitmap = CreateCompatibleBitmap(hdc, width, height);
         let old_bitmap = SelectObject(mem_dc, mem_bitmap);
 
-        // Fetch State
+        // Fetch State & Render Broom on the fly
         let (bg_color, is_hovered, copy_success, render_data) = {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                let bmp_idx = match state.physics.mode {
-                    AnimationMode::Idle => state.physics.idle_frame,
-                    AnimationMode::MovingLeft => state_to_idx(BroomState::Left),
-                    AnimationMode::MovingRight => state_to_idx(BroomState::Right),
-                    AnimationMode::Sweeping => match state.physics.sweep_stage {
-                        0 => state_to_idx(BroomState::Sweep1Windup),
-                        1 => state_to_idx(BroomState::Sweep2Smash),
-                        2 => state_to_idx(BroomState::Sweep3DragR),
-                        3 => state_to_idx(BroomState::Sweep4DragL),
-                        _ => state_to_idx(BroomState::Sweep5Lift),
-                    }
+                
+                // 1. Generate Broom Pixel Data
+                let params = BroomRenderParams {
+                    tilt_angle: state.physics.current_tilt,
+                    squish: state.physics.squish_factor,
+                    bend: state.physics.bristle_bend,
+                    opacity: 1.0, // Can fade out here if needed
                 };
+                
+                let pixels = render_procedural_broom(params);
+                let hbm_broom = create_bitmap_from_pixels(&pixels, BROOM_W, BROOM_H);
 
-                let hbm = state.physics.bitmaps.get(&bmp_idx).cloned().unwrap_or(HBITMAP(0));
+                let particles: Vec<(f32, f32, f32, f32, u32)> = state.physics.particles.iter()
+                    .map(|p| (p.x, p.y, p.life, p.size, p.color)).collect();
                 
-                let particles: Vec<(f32, f32, f32)> = state.physics.particles.iter()
-                    .map(|p| (p.x, p.y, p.life)).collect();
-                
-                // Show Broom if: Hovering AND (Not on button OR Sweeping)
-                let show_broom = (state.is_hovered && !state.on_copy_btn) || state.physics.mode == AnimationMode::Sweeping;
+                let show_broom = (state.is_hovered && !state.on_copy_btn) || state.physics.mode != AnimationMode::Idle;
 
                 (state.bg_color, state.is_hovered, state.copy_success, 
                  if show_broom {
-                     Some((state.physics.x, state.physics.y, hbm, particles))
+                     Some((state.physics.x, state.physics.y, hbm_broom, particles))
                  } else {
                      None
                  })
@@ -96,7 +92,6 @@ pub fn paint_window(hwnd: HWND) {
         SetBkMode(mem_dc, TRANSPARENT);
         SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
 
-        // Draw Text
         let text_len = GetWindowTextLengthW(hwnd) + 1;
         let mut buf = vec![0u16; text_len as usize];
         GetWindowTextW(hwnd, &mut buf);
@@ -109,8 +104,8 @@ pub fn paint_window(hwnd: HWND) {
         SelectObject(mem_dc, old_font);
         DeleteObject(hfont);
 
-        // Draw Copy Button
         if is_hovered {
+            // Draw Copy button
             let btn_size = 24;
             let btn_rect = RECT { left: width - btn_size, top: height - btn_size, right: width, bottom: height };
             let btn_brush = CreateSolidBrush(COLORREF(0x00444444));
@@ -133,38 +128,50 @@ pub fn paint_window(hwnd: HWND) {
             DeleteObject(icon_pen);
         }
 
+        // --- RENDER DYNAMIC ASSETS ---
         if let Some((px, py, hbm, particles)) = render_data {
-            // Draw Dust
-            let particle_brush = CreateSolidBrush(COLORREF(0x00CCCCCC));
-            for (d_x, d_y, life) in particles {
-                let sz = (life * 4.0) as i32;
-                if sz > 0 {
-                    let d_rect = RECT { left: d_x as i32, top: d_y as i32, right: d_x as i32 + sz, bottom: d_y as i32 + sz };
-                    FillRect(mem_dc, &d_rect, particle_brush);
+            // 1. Draw Particles with Size/Color
+            for (d_x, d_y, life, size, col) in particles {
+                // Manually blend particle color (basic alpha fade simulation)
+                let cur_size = (size * life).ceil() as i32;
+                if cur_size > 0 {
+                    let p_rect = RECT { left: d_x as i32, top: d_y as i32, right: d_x as i32 + cur_size, bottom: d_y as i32 + cur_size };
+                    // Convert ARGB 0xAARRGGBB to COLORREF 0x00BBGGRR
+                    let r = (col >> 16) & 0xFF;
+                    let g = (col >> 8) & 0xFF;
+                    let b = col & 0xFF;
+                    let cr = (b << 16) | (g << 8) | r;
+                    
+                    let brush = CreateSolidBrush(COLORREF(cr));
+                    FillRect(mem_dc, &p_rect, brush);
+                    DeleteObject(brush);
                 }
             }
-            DeleteObject(particle_brush);
 
-            // Draw Broom
+            // 2. Draw Broom (Alpha Blend)
             if hbm.0 != 0 {
                 let broom_dc = CreateCompatibleDC(hdc);
-                SelectObject(broom_dc, hbm);
+                let old_hbm_broom = SelectObject(broom_dc, hbm);
                 
                 let mut bf = BLENDFUNCTION::default();
                 bf.BlendOp = AC_SRC_OVER as u8;
                 bf.SourceConstantAlpha = 255;
                 bf.AlphaFormat = AC_SRC_ALPHA as u8;
 
-                // Hotspot adjustment (Center Bottom)
-                let draw_x = px as i32 - 16;
-                let draw_y = py as i32 - 28;
+                // Adjust hotspot based on pivot (Pivot is roughly center-bottom visually)
+                let draw_x = px as i32 - (BROOM_W / 2); 
+                let draw_y = py as i32 - (BROOM_H as f32 * 0.65) as i32; // Align pivot to mouse Y
 
                 GdiAlphaBlend(
                     mem_dc, draw_x, draw_y, BROOM_W, BROOM_H,
                     broom_dc, 0, 0, BROOM_W, BROOM_H,
                     bf
                 );
+                
+                // Cleanup temporary broom bitmap
+                SelectObject(broom_dc, old_hbm_broom);
                 DeleteDC(broom_dc);
+                DeleteObject(hbm); // Important: delete the per-frame bitmap
             }
         }
 
