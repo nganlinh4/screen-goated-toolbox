@@ -257,6 +257,32 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                     }
                 }
             }
+            
+            // Dismiss linked window as well (synchronized fade)
+            let (linked_hwnd, main_alpha) = {
+                let states = WINDOW_STATES.lock().unwrap();
+                let linked = if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                    state.linked_window
+                } else {
+                    None
+                };
+                let alpha = if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                    state.alpha
+                } else {
+                    220
+                };
+                (linked, alpha)
+            };
+            if let Some(linked) = linked_hwnd {
+                if IsWindow(linked).as_bool() {
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(linked.0 as isize)) {
+                        state.physics.mode = AnimationMode::DragOut;
+                        state.physics.state_timer = 0.0;
+                        state.alpha = main_alpha;
+                    }
+                }
+            }
             LRESULT(0)
         }
 
