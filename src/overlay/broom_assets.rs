@@ -34,38 +34,66 @@ pub fn render_procedural_broom(params: BroomRenderParams) -> Vec<u32> {
     let pivot_x = (BROOM_W / 2) as f32;
     let pivot_y = (BROOM_H as f32) * 0.65; // Lower pivot to allow handle swing
 
-    let rad = params.tilt_angle.to_radians();
-    let sin_a = rad.sin();
-    let cos_a = rad.cos();
+    // --- PHYSICS SEPARATION ---
+    // 1. Handle Angle: Dampened (0.5x) to be less sensitive/jittery
+    let handle_rad = (params.tilt_angle * 0.5).to_radians();
+    let h_sin = handle_rad.sin();
+    let h_cos = handle_rad.cos();
 
+    // 2. Bristle Angle: Uses full tilt for "swishy" effect, blended later
+    let bristle_target_rad = params.tilt_angle.to_radians();
+
+    // ---------------------------------------------------------
     // 1. Draw Bristles (Bottom part)
-    // The bristles hang down from the pivot, affected by 'squish' and 'bend'
+    // ---------------------------------------------------------
     let bristle_len = 16.0 * params.squish;
     let top_w = 8.0;
     let bot_w = 16.0 + (1.0 - params.squish) * 10.0; // Spreads when squished
+    
+    // Increase density: 2 steps per logical pixel unit to close gaps
+    let steps = (bristle_len * 2.0) as i32; 
 
-    for y_step in 0..bristle_len as i32 {
-        let prog = y_step as f32 / bristle_len;
+    for i in 0..steps {
+        let prog = i as f32 / steps as f32; // 0.0 to 1.0
         
-        // Calculate the center line of the bristles
-        // We apply rotation + the 'bend' factor (lagging behind movement)
-        let current_y_rel = y_step as f32;
-        let bend_offset = params.bend * prog * prog * 10.0; // Quadratic bend
+        // INTERPOLATION:
+        // Top of bristles (prog=0) must align with Handle (handle_rad) to prevent detachment.
+        // Bottom of bristles (prog=1) swings fully to bristle_target_rad.
+        // We use cubic interpolation (prog^3) to keep the neck stiff and tips loose.
+        let current_angle = handle_rad + (bristle_target_rad - handle_rad) * (prog * prog * prog);
+        
+        let b_sin = current_angle.sin();
+        let b_cos = current_angle.cos();
+
+        let current_y_rel = prog * bristle_len;
+        
+        // Bend applies mostly at the tips. 
+        // We clamp it slightly to prevent "yellow strings detached" look at high velocity.
+        let bend_offset = params.bend * prog * prog * 8.0; 
 
         // Rotate the center line
-        let cx = pivot_x - (current_y_rel * sin_a) + (bend_offset * cos_a);
-        let cy = pivot_y + (current_y_rel * cos_a) + (bend_offset * sin_a);
+        let cx = pivot_x - (current_y_rel * b_sin) + (bend_offset * b_cos);
+        let cy = pivot_y + (current_y_rel * b_cos) + (bend_offset * b_sin);
 
         let current_w = top_w + (bot_w - top_w) * prog;
-        let half_w = current_w / 2.0;
+        
+        // Add slight buffer (+0.5) to width to prevent aliasing gaps during rotation
+        let half_w = (current_w / 2.0) + 0.5;
 
         let start_x = (cx - half_w).round() as i32;
         let end_x = (cx + half_w).round() as i32;
         let py = cy.round() as i32;
 
         for px in start_x..=end_x {
-            // Texture pattern
-            let seed = (px * 7 + y_step * 13) % 5;
+            // Texture Logic Update:
+            // Calculate position relative to the center (cx) to make the "strings" follow the bend.
+            // Using absolute screen coordinates (px, py) causes horizontal banding noise.
+            // Using relative coordinates creates continuous vertical strands.
+            let rel_x = (px as f32 - cx).round() as i32;
+            
+            // Map relative X to a seed. +20 ensures positive index logic.
+            let seed = ((rel_x + 20) * 7) % 5;
+            
             let col = match seed {
                 0 => c_straw_sh,
                 1 | 2 => c_straw_lt,
@@ -75,31 +103,34 @@ pub fn render_procedural_broom(params: BroomRenderParams) -> Vec<u32> {
         }
     }
 
-    // 2. Draw Band (Neck)
+    // ---------------------------------------------------------
+    // 2. Draw Band (Neck) - Rigidly attached to Handle
+    // ---------------------------------------------------------
     let band_h = 3.0;
     for y_step in 0..band_h as i32 {
         let rel_y = -(y_step as f32); // Go up from pivot
-        let cx = pivot_x + (rel_y * sin_a);
-        let cy = pivot_y - (rel_y * cos_a);
         
-        let half_w = top_w / 2.0 + 1.0; // Slightly wider
+        // Use Handle Math (h_sin, h_cos)
+        let cx = pivot_x + (rel_y * h_sin);
+        let cy = pivot_y - (rel_y * h_cos);
+        
+        let half_w = top_w / 2.0 + 1.5; // Slightly wider to cover bristle roots
         for px in (cx - half_w).round() as i32 ..= (cx + half_w).round() as i32 {
              draw_pixel(px, cy.round() as i32, c_band);
         }
     }
 
-    // 3. Draw Handle (pointing UPWARD from the pivot)
+    // ---------------------------------------------------------
+    // 3. Draw Handle - Rigid, less sensitive
+    // ---------------------------------------------------------
     let handle_len = 20.0;
     
     for i in 0..handle_len as i32 {
-        // rel_y is POSITIVE going upward from pivot
         let rel_y = (i as f32) + band_h; 
         
-        // Handle is rigid, follows tilt exactly
-        // When tilted right (positive angle), handle top goes right
-        // When tilted left (negative angle), handle top goes left
-        let cx = pivot_x + (rel_y * sin_a);
-        let cy = pivot_y - (rel_y * cos_a); // Negative because Y increases downward in screen coords
+        // Use Handle Math (h_sin, h_cos)
+        let cx = pivot_x + (rel_y * h_sin);
+        let cy = pivot_y - (rel_y * h_cos); // Upward on screen
 
         let px = cx.round() as i32;
         let py = cy.round() as i32;
