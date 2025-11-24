@@ -95,12 +95,46 @@ pub fn paint_window(hwnd: HWND) {
         let text_len = GetWindowTextLengthW(hwnd) + 1;
         let mut buf = vec![0u16; text_len as usize];
         GetWindowTextW(hwnd, &mut buf);
-        let mut draw_rect = rect;
-        draw_rect.left += 5; draw_rect.right -= 5; draw_rect.top += 5;
-        
-        let hfont = CreateFontW(16, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+
+        let padding = 4;
+        let available_w = (width - (padding * 2)).max(1);
+        let available_h = (height - (padding * 2)).max(1);
+
+        // Binary Search for Optimal Font Size
+        let mut low = 10;
+        let mut high = 72;
+        let mut optimal_size = 10;
+        let mut text_h = 0;
+
+        while low <= high {
+            let mid = (low + high) / 2;
+            let hfont = CreateFontW(mid, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+            let old_font = SelectObject(mem_dc, hfont);
+            let mut calc_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
+            let h = DrawTextW(mem_dc, &mut buf, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
+            SelectObject(mem_dc, old_font);
+            DeleteObject(hfont);
+
+            if h <= available_h {
+                optimal_size = mid;
+                text_h = h;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        let hfont = CreateFontW(optimal_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
         let old_font = SelectObject(mem_dc, hfont);
-        DrawTextW(mem_dc, &mut buf, &mut draw_rect, DT_LEFT | DT_WORDBREAK);
+
+        let offset_y = (available_h - text_h) / 2;
+        let mut draw_rect = rect;
+        draw_rect.left += padding;
+        draw_rect.right -= padding;
+        draw_rect.top += padding + offset_y;
+
+        DrawTextW(mem_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
+
         SelectObject(mem_dc, old_font);
         DeleteObject(hfont);
 
