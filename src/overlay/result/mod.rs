@@ -95,6 +95,12 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 bg_color: color,
                 linked_window: None,
                 physics,
+                // Init Cache
+                font_cache_dirty: true,
+                cached_font_size: 10,
+                content_bitmap: HBITMAP(0),
+                last_w: 0,
+                last_h: 0,
             });
         }
 
@@ -124,6 +130,15 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
         if !IsWindow(hwnd).as_bool() { return; }
         let wide_text = to_wstring(text);
         SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
+        
+        // Mark cache dirty to trigger redraw on next paint
+        {
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                state.font_cache_dirty = true;
+            }
+        }
+
         InvalidateRect(hwnd, None, false);
     }
 }
@@ -293,7 +308,12 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
 
         WM_DESTROY => {
             let mut states = WINDOW_STATES.lock().unwrap();
-            states.remove(&(hwnd.0 as isize));
+            // Cleanup bitmap resource
+            if let Some(state) = states.remove(&(hwnd.0 as isize)) {
+                if state.content_bitmap.0 != 0 {
+                    DeleteObject(state.content_bitmap);
+                }
+            }
             LRESULT(0)
         }
 

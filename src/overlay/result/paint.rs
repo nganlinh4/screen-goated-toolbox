@@ -47,99 +47,169 @@ pub fn paint_window(hwnd: HWND) {
         let width = rect.right - rect.left;
         let height = rect.bottom - rect.top;
 
-        // Double buffering for window content
+        // Double buffer target (frame buffer)
         let mem_dc = CreateCompatibleDC(hdc);
         let mem_bitmap = CreateCompatibleBitmap(hdc, width, height);
         let old_bitmap = SelectObject(mem_dc, mem_bitmap);
 
-        // Fetch State & Render Broom on the fly
-        let (bg_color, is_hovered, copy_success, render_data) = {
+        // --- STEP 1: SNAPSHOT STATE & GET CACHE ---
+        let (
+            bg_color, 
+            is_hovered, 
+            copy_success, 
+            broom_data, 
+            particles, 
+            mut cached_bm,
+            mut cache_dirty
+        ) = {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 
-                // 1. Generate Broom Pixel Data
-                let params = BroomRenderParams {
-                    tilt_angle: state.physics.current_tilt,
-                    squish: state.physics.squish_factor,
-                    bend: state.physics.bristle_bend,
-                    opacity: 1.0, // Can fade out here if needed
-                };
-                
-                let pixels = render_procedural_broom(params);
-                let hbm_broom = create_bitmap_from_pixels(&pixels, BROOM_W, BROOM_H);
+                // Invalidate if resized
+                if state.last_w != width || state.last_h != height {
+                    state.font_cache_dirty = true;
+                    state.last_w = width;
+                    state.last_h = height;
+                }
 
-                let particles: Vec<(f32, f32, f32, f32, u32)> = state.physics.particles.iter()
+                let particles_vec: Vec<(f32, f32, f32, f32, u32)> = state.physics.particles.iter()
                     .map(|p| (p.x, p.y, p.life, p.size, p.color)).collect();
                 
                 let show_broom = (state.is_hovered && !state.on_copy_btn) || state.physics.mode == AnimationMode::Smashing;
+                let broom_info = if show_broom {
+                     Some((
+                         state.physics.x, 
+                         state.physics.y, 
+                         BroomRenderParams {
+                            tilt_angle: state.physics.current_tilt,
+                            squish: state.physics.squish_factor,
+                            bend: state.physics.bristle_bend,
+                            opacity: 1.0,
+                        }
+                     ))
+                } else {
+                    None
+                };
 
-                (state.bg_color, state.is_hovered, state.copy_success, 
-                 if show_broom {
-                     Some((state.physics.x, state.physics.y, hbm_broom, particles))
-                 } else {
-                     None
-                 })
+                (
+                    state.bg_color, 
+                    state.is_hovered, 
+                    state.copy_success, 
+                    broom_info,
+                    particles_vec,
+                    state.content_bitmap,
+                    state.font_cache_dirty
+                )
             } else {
-                (0x00222222, false, false, None)
+                (0x00222222, false, false, None, Vec::new(), HBITMAP(0), true)
             }
         };
 
-        // Draw Background
-        let dark_brush = CreateSolidBrush(COLORREF(bg_color));
-        FillRect(mem_dc, &rect, dark_brush);
-        DeleteObject(dark_brush);
-        
-        SetBkMode(mem_dc, TRANSPARENT);
-        SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
+        // --- STEP 2: REGENERATE STATIC CONTENT IF DIRTY ---
+        // If the text/layout changed, we redraw the text onto a permanent bitmap (cached_bm).
+        // If not, we skip this entirely and just use the existing bitmap.
+        if cache_dirty || cached_bm.0 == 0 {
+            // Cleanup old bitmap if valid
+            if cached_bm.0 != 0 {
+                DeleteObject(cached_bm);
+            }
 
-        let text_len = GetWindowTextLengthW(hwnd) + 1;
-        let mut buf = vec![0u16; text_len as usize];
-        GetWindowTextW(hwnd, &mut buf);
+            // Create new static bitmap for background + text
+            cached_bm = CreateCompatibleBitmap(hdc, width, height);
+            let cache_dc = CreateCompatibleDC(hdc);
+            let old_cache_bm = SelectObject(cache_dc, cached_bm);
 
-        let padding = 4;
-        let available_w = (width - (padding * 2)).max(1);
-        let available_h = (height - (padding * 2)).max(1);
+            // 1. Draw Background
+            let dark_brush = CreateSolidBrush(COLORREF(bg_color));
+            let fill_rect = RECT { left: 0, top: 0, right: width, bottom: height };
+            FillRect(cache_dc, &fill_rect, dark_brush);
+            DeleteObject(dark_brush);
 
-        // Binary Search for Optimal Font Size
-        let mut low = 10;
-        let mut high = 72;
-        let mut optimal_size = 10;
-        let mut text_h = 0;
+            SetBkMode(cache_dc, TRANSPARENT);
+            SetTextColor(cache_dc, COLORREF(0x00FFFFFF));
 
-        while low <= high {
-            let mid = (low + high) / 2;
-            let hfont = CreateFontW(mid, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-            let old_font = SelectObject(mem_dc, hfont);
-            let mut calc_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
-            let h = DrawTextW(mem_dc, &mut buf, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
-            SelectObject(mem_dc, old_font);
+            let text_len = GetWindowTextLengthW(hwnd) + 1;
+            let mut buf = vec![0u16; text_len as usize];
+            GetWindowTextW(hwnd, &mut buf);
+
+            let padding = 4;
+            let available_w = (width - (padding * 2)).max(1);
+            let available_h = (height - (padding * 2)).max(1);
+
+            // 2. Binary Search for Font Size (Only happens on update)
+            let mut low = 10;
+            let mut high = 72;
+            let mut optimal = 10;
+            
+            while low <= high {
+                let mid = (low + high) / 2;
+                let hfont = CreateFontW(mid, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+                let old_font = SelectObject(cache_dc, hfont);
+                let mut calc_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
+                let h = DrawTextW(cache_dc, &mut buf, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
+                SelectObject(cache_dc, old_font);
+                DeleteObject(hfont);
+
+                if h <= available_h {
+                    optimal = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            let font_size = optimal;
+
+            // 3. Draw Text
+            let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+            let old_font = SelectObject(cache_dc, hfont);
+
+            let mut measure_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
+            let text_h = DrawTextW(cache_dc, &mut buf, &mut measure_rect, DT_CALCRECT | DT_WORDBREAK);
+            
+            let offset_y = (available_h - text_h) / 2;
+            let mut draw_rect = RECT { left: padding, top: padding + offset_y, right: width - padding, bottom: height - padding };
+
+            DrawTextW(cache_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
+
+            SelectObject(cache_dc, old_font);
             DeleteObject(hfont);
+            
+            // Clean up cache DC
+            SelectObject(cache_dc, old_cache_bm);
+            DeleteDC(cache_dc);
 
-            if h <= available_h {
-                optimal_size = mid;
-                text_h = h;
-                low = mid + 1;
-            } else {
-                high = mid - 1;
+            // Update State
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                state.content_bitmap = cached_bm;
+                state.cached_font_size = font_size;
+                state.font_cache_dirty = false;
             }
         }
 
-        let hfont = CreateFontW(optimal_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-        let old_font = SelectObject(mem_dc, hfont);
+        // --- STEP 3: BLIT STATIC CONTENT ---
+        // Just copy the pre-rendered text/bg. Extremely fast.
+        if cached_bm.0 != 0 {
+            let cache_dc = CreateCompatibleDC(hdc);
+            let old_cbm = SelectObject(cache_dc, cached_bm);
+            BitBlt(mem_dc, 0, 0, width, height, cache_dc, 0, 0, SRCCOPY).ok();
+            SelectObject(cache_dc, old_cbm);
+            DeleteDC(cache_dc);
+        }
 
-        let offset_y = (available_h - text_h) / 2;
-        let mut draw_rect = rect;
-        draw_rect.left += padding;
-        draw_rect.right -= padding;
-        draw_rect.top += padding + offset_y;
+        // --- STEP 4: RENDER DYNAMIC ELEMENTS ---
+        
+        // Broom (Outside Lock)
+        let broom_bitmap_data = if let Some((bx, by, params)) = broom_data {
+            let pixels = render_procedural_broom(params);
+            let hbm = create_bitmap_from_pixels(&pixels, BROOM_W, BROOM_H);
+            Some((bx, by, hbm))
+        } else {
+            None
+        };
 
-        DrawTextW(mem_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
-
-        SelectObject(mem_dc, old_font);
-        DeleteObject(hfont);
-
+        // Copy Button (Dynamic on hover)
         if is_hovered {
-            // Draw Copy button
             let btn_size = 24;
             let btn_rect = RECT { left: width - btn_size, top: height - btn_size, right: width, bottom: height };
             let btn_brush = CreateSolidBrush(COLORREF(0x00444444));
@@ -162,28 +232,25 @@ pub fn paint_window(hwnd: HWND) {
             DeleteObject(icon_pen);
         }
 
-        // --- RENDER DYNAMIC ASSETS ---
-        if let Some((px, py, hbm, particles)) = render_data {
-            // 1. Draw Particles with Size/Color
-            for (d_x, d_y, life, size, col) in particles {
-                // Manually blend particle color (basic alpha fade simulation)
-                let cur_size = (size * life).ceil() as i32;
-                if cur_size > 0 {
-                    let p_rect = RECT { left: d_x as i32, top: d_y as i32, right: d_x as i32 + cur_size, bottom: d_y as i32 + cur_size };
-                    // Convert ARGB 0xAARRGGBB to COLORREF 0x00BBGGRR
-                    let r = (col >> 16) & 0xFF;
-                    let g = (col >> 8) & 0xFF;
-                    let b = col & 0xFF;
-                    let cr = (b << 16) | (g << 8) | r;
-                    
-                    let brush = CreateSolidBrush(COLORREF(cr));
-                    FillRect(mem_dc, &p_rect, brush);
-                    DeleteObject(brush);
-                }
+        // Particles
+        for (d_x, d_y, life, size, col) in particles {
+            let cur_size = (size * life).ceil() as i32;
+            if cur_size > 0 {
+                let p_rect = RECT { left: d_x as i32, top: d_y as i32, right: d_x as i32 + cur_size, bottom: d_y as i32 + cur_size };
+                let r = (col >> 16) & 0xFF;
+                let g = (col >> 8) & 0xFF;
+                let b = col & 0xFF;
+                let cr = (b << 16) | (g << 8) | r;
+                
+                let brush = CreateSolidBrush(COLORREF(cr));
+                FillRect(mem_dc, &p_rect, brush);
+                DeleteObject(brush);
             }
+        }
 
-            // 2. Draw Broom (Alpha Blend)
-            if hbm.0 != 0 {
+        // Broom Overlay
+        if let Some((px, py, hbm)) = broom_bitmap_data {
+             if hbm.0 != 0 {
                 let broom_dc = CreateCompatibleDC(hdc);
                 let old_hbm_broom = SelectObject(broom_dc, hbm);
                 
@@ -192,9 +259,8 @@ pub fn paint_window(hwnd: HWND) {
                 bf.SourceConstantAlpha = 255;
                 bf.AlphaFormat = AC_SRC_ALPHA as u8;
 
-                // Adjust hotspot based on pivot (Pivot is roughly center-bottom visually)
                 let draw_x = px as i32 - (BROOM_W / 2); 
-                let draw_y = py as i32 - (BROOM_H as f32 * 0.65) as i32; // Align pivot to mouse Y
+                let draw_y = py as i32 - (BROOM_H as f32 * 0.65) as i32; 
 
                 GdiAlphaBlend(
                     mem_dc, draw_x, draw_y, BROOM_W, BROOM_H,
@@ -202,13 +268,13 @@ pub fn paint_window(hwnd: HWND) {
                     bf
                 );
                 
-                // Cleanup temporary broom bitmap
                 SelectObject(broom_dc, old_hbm_broom);
                 DeleteDC(broom_dc);
-                DeleteObject(hbm); // Important: delete the per-frame bitmap
+                DeleteObject(hbm);
             }
         }
 
+        // Final Blit to Window DC
         let _ = BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY).ok();
         
         SelectObject(mem_dc, old_bitmap);

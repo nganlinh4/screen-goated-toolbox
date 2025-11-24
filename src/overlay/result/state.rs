@@ -1,6 +1,7 @@
 use windows::Win32::Foundation::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use windows::Win32::Graphics::Gdi::HBITMAP;
 
 // --- DYNAMIC PARTICLES ---
 pub struct DustParticle {
@@ -65,6 +66,13 @@ pub struct WindowState {
     pub bg_color: u32,
     pub linked_window: Option<HWND>,
     pub physics: CursorPhysics,
+    
+    // --- CACHING ---
+    pub font_cache_dirty: bool,
+    pub cached_font_size: i32,
+    pub content_bitmap: HBITMAP, // Cached static text/bg
+    pub last_w: i32,
+    pub last_h: i32,
 }
 
 lazy_static::lazy_static! {
