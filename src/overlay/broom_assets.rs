@@ -35,13 +35,13 @@ pub fn render_procedural_broom(params: BroomRenderParams) -> Vec<u32> {
     let pivot_y = (BROOM_H as f32) * 0.65; // Lower pivot to allow handle swing
 
     // --- PHYSICS SEPARATION ---
-    // 1. Handle Angle: Dampened (0.5x) to be less sensitive/jittery
-    let handle_rad = (params.tilt_angle * 0.5).to_radians();
+    // 1. Handle Angle: Dampened (0.25x) to be less sensitive/jittery
+    let handle_rad = (params.tilt_angle * 0.25).to_radians();
     let h_sin = handle_rad.sin();
     let h_cos = handle_rad.cos();
 
-    // 2. Bristle Angle: Uses full tilt for "swishy" effect, blended later
-    let bristle_target_rad = params.tilt_angle.to_radians();
+    // 2. Bristle Angle: Uses half tilt for "swishy" effect, blended later
+    let bristle_target_rad = (params.tilt_angle * 0.5).to_radians();
 
     // ---------------------------------------------------------
     // 1. Draw Bristles (Bottom part)

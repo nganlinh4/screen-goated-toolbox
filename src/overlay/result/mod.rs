@@ -170,7 +170,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 state.physics.tilt_velocity -= impulse * 0.2; 
                 
                 // Clamp max tilt
-                state.physics.current_tilt = state.physics.current_tilt.clamp(-45.0, 45.0);
+                state.physics.current_tilt = state.physics.current_tilt.clamp(-22.5, 22.5);
 
                 // Copy Button Hit Test
                 let mut rect = RECT::default();
