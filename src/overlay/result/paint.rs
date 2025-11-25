@@ -11,7 +11,6 @@ unsafe fn measure_text_height(hdc: windows::Win32::Graphics::Gdi::CreatedHDC, te
     let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
     let old_font = SelectObject(hdc, hfont);
     let mut calc_rect = RECT { left: 0, top: 0, right: width, bottom: 0 };
-    // DT_CALCRECT is faster than drawing
     DrawTextW(hdc, text, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
     SelectObject(hdc, old_font);
     DeleteObject(hfont);
@@ -119,30 +118,39 @@ pub fn paint_window(hwnd: HWND) {
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
 
-            let padding = 12; // More padding looks better
-            let available_w = (width - (padding * 2)).max(1);
-            let available_h = (height - (padding * 2)).max(1);
-
-            // === OPTIMIZATION: PURE BINARY SEARCH (Safe & Fast) ===
-            // We removed the "Fast Path" because it broke small windows.
-            // Binary search is fast enough (max 6 checks).
+            // === MAXIMIZE TEXT FILL ===
+            // 1. Horizontal: Keep standard 12px padding so words don't touch sides.
+            let h_padding = 12;
+            let available_w = (width - (h_padding * 2)).max(1);
             
+            // 2. Vertical: Relax the constraint.
+            // Instead of enforcing 12px top/bottom, only enforce 4px safety margin.
+            // This allows the font to grow much larger.
+            let v_safety_margin = 4; 
+            let available_h = (height - v_safety_margin).max(1);
+
+            // === OPTIMIZATION: BINARY SEARCH ===
             let mut low = 8;
-            // CRITICAL FIX: Cap the start search size by the window height.
-            // If window is 20px high, don't even try font size 72.
-            let max_possible = available_h.min(72);
-            let mut high = max_possible; 
+            // Cap max font size based on height, but allow up to 100px for large screens
+            let max_possible = available_h.min(100); 
+            let mut high = max_possible;
             let mut best_fit = 8;
 
-            while low <= high {
-                let mid = (low + high) / 2;
-                let h = measure_text_height(cache_dc, &mut buf, mid, available_w);
-                
-                if h <= available_h {
-                    best_fit = mid;
-                    low = mid + 1; // Fit? Try bigger.
-                } else {
-                    high = mid - 1; // Overflow? Try smaller.
+            if high < low {
+                best_fit = 8;
+            } else {
+                while low <= high {
+                    let mid = (low + high) / 2;
+                    let h = measure_text_height(cache_dc, &mut buf, mid, available_w);
+                    
+                    // Strict check against available_h.
+                    // Since available_h is (height - 4), this effectively fills the box.
+                    if h <= available_h {
+                        best_fit = mid;
+                        low = mid + 1; 
+                    } else {
+                        high = mid - 1; 
+                    }
                 }
             }
             font_size = best_fit;
@@ -151,13 +159,22 @@ pub fn paint_window(hwnd: HWND) {
             let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
             let old_font = SelectObject(cache_dc, hfont);
 
-            // Center Vertically
+            // === ALIGNMENT: CENTER VERTICALLY ===
+            // Now that we maximized the size, centering looks best.
+            // Even if there is leftover space (e.g., 10px), it will be 5px top / 5px bottom.
             let mut measure_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
             DrawTextW(cache_dc, &mut buf, &mut measure_rect, DT_CALCRECT | DT_WORDBREAK);
             let text_h = measure_rect.bottom;
-            let offset_y = ((available_h - text_h) / 2).max(0); // Prevent negative
             
-            let mut draw_rect = RECT { left: padding, top: padding + offset_y, right: width - padding, bottom: height - padding };
+            let offset_y = ((height - text_h) / 2).max(0);
+            
+            // Use h_padding for X, calculated offset_y for Y
+            let mut draw_rect = RECT { 
+                left: h_padding, 
+                top: offset_y, 
+                right: width - h_padding, 
+                bottom: height // Allow drawing to bottom edge
+            };
 
             DrawTextW(cache_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
 
@@ -185,14 +202,12 @@ pub fn paint_window(hwnd: HWND) {
         }
 
         // --- STEP 4: DYNAMIC OVERLAY (Broom/Particles) ---
-        // Broom
         let broom_bitmap_data = if let Some((bx, by, params)) = broom_data {
             let pixels = render_procedural_broom(params);
             let hbm = create_bitmap_from_pixels(&pixels, BROOM_W, BROOM_H);
             Some((bx, by, hbm))
         } else { None };
 
-        // Particles
         for (d_x, d_y, life, size, col) in particles {
             let cur_size = (size * life).ceil() as i32;
             if cur_size > 0 {
@@ -207,7 +222,6 @@ pub fn paint_window(hwnd: HWND) {
             }
         }
 
-        // Copy Button (Hover)
         if is_hovered {
              let btn_size = 24;
              let btn_rect = RECT { left: width - btn_size, top: height - btn_size, right: width, bottom: height };
