@@ -8,12 +8,40 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::System::Threading::*;
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, BOOL, LPARAM, RECT};
+use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR, GetMonitorInfoW, MONITORINFOEXW};
 use windows::core::*;
 
 use crate::gui::locale::LocaleText;
 use crate::gui::key_mapping::egui_key_to_vk;
 use crate::model_config::{get_all_models, ModelType, get_model_by_id};
+
+// --- Monitor Enumeration Helper ---
+struct MonitorEnumContext {
+    monitors: Vec<String>,
+}
+
+unsafe extern "system" fn monitor_enum_proc(_hmonitor: HMONITOR, _hdc: HDC, _lprc: *mut RECT, dwdata: LPARAM) -> BOOL {
+    let context = &mut *(dwdata.0 as *mut MonitorEnumContext);
+    let mut mi = MONITORINFOEXW::default();
+    mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    
+    if GetMonitorInfoW(_hmonitor, &mut mi as *mut _ as *mut _).as_bool() {
+        let device_name = String::from_utf16_lossy(&mi.szDevice);
+        let trimmed_name = device_name.trim_matches(char::from(0)).to_string();
+        context.monitors.push(trimmed_name);
+    }
+    BOOL(1)
+}
+
+fn get_monitor_names() -> Vec<String> {
+    let mut ctx = MonitorEnumContext { monitors: Vec::new() };
+    unsafe {
+        EnumDisplayMonitors(HDC(0), None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
+    }
+    ctx.monitors
+}
+// ----------------------------------
 
 const MOD_ALT: u32 = 0x0001;
 const MOD_CONTROL: u32 = 0x0002;
@@ -54,6 +82,9 @@ pub struct SettingsApp {
     hotkey_conflict_msg: Option<String>,
     splash: Option<crate::gui::splash::SplashScreen>,
     startup_centered: bool,
+    
+    // Cache monitors
+    cached_monitors: Vec<String>,
 }
 
 impl SettingsApp {
@@ -149,6 +180,8 @@ impl SettingsApp {
         } else {
              ViewMode::Preset(if config.active_preset_idx < config.presets.len() { config.active_preset_idx } else { 0 })
         };
+        
+        let cached_monitors = get_monitor_names();
 
         Self {
             config,
@@ -167,6 +200,7 @@ impl SettingsApp {
             hotkey_conflict_msg: None,
             splash: Some(crate::gui::splash::SplashScreen::new(&ctx)),
             startup_centered: false,
+            cached_monitors,
         }
     }
 
@@ -401,14 +435,15 @@ impl eframe::App for SettingsApp {
                     let mut preset_idx_to_delete = None;
 
                     // Removed ScrollArea wrapper as requested
-                    for (idx, preset) in self.config.presets.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
-                            
-                            // START: MODIFICATION FOR ICONS
-                            let icon = if preset.preset_type == "audio" { "🎤" } else { "🖼" };
-                            let label_text = format!("{} {}", icon, preset.name);
-                            // END: MODIFICATION FOR ICONS
+                     for (idx, preset) in self.config.presets.iter().enumerate() {
+                         ui.horizontal(|ui| {
+                             let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
+                             
+                             let icon = if preset.preset_type == "audio" { "🎤" } 
+                             else if preset.preset_type == "video" { "🎥" } 
+                             else { "🖼" };
+                             
+                             let label_text = format!("{} {}", icon, preset.name);
                             
                             if preset.is_upcoming {
                                 ui.add_enabled_ui(false, |ui| {
@@ -531,33 +566,72 @@ impl eframe::App for SettingsApp {
                             });
                             
                             // Type Dropdown
-                            ui.horizontal(|ui| {
-                                ui.label(text.preset_type_label);
-                                let image_label = text.preset_type_image;
-                                let audio_label = text.preset_type_audio;
-                                
-                                let selected_text = if preset.preset_type == "audio" { audio_label } else { image_label };
-                                
-                                egui::ComboBox::from_id_source("preset_type_combo")
-                                    .selected_text(selected_text)
-                                    .show_ui(ui, |ui| {
-                                        if ui.selectable_value(&mut preset.preset_type, "image".to_string(), image_label).clicked() {
-                                            preset.model = "scout".to_string(); // Reset model default
-                                            preset_changed = true;
-                                        }
-                                        if ui.selectable_value(&mut preset.preset_type, "audio".to_string(), audio_label).clicked() {
-                                            preset.model = "whisper-fast".to_string(); // Reset model default
-                                            preset_changed = true;
-                                        }
-                                    });
-                            });
+                             ui.horizontal(|ui| {
+                                 ui.label(text.preset_type_label);
+                                 let image_label = text.preset_type_image;
+                                 let audio_label = text.preset_type_audio;
+                                 let video_label = text.preset_type_video;
+                                 
+                                 let selected_text = match preset.preset_type.as_str() {
+                                     "audio" => audio_label,
+                                     "video" => video_label,
+                                     _ => image_label,
+                                 };
+                                 
+                                 egui::ComboBox::from_id_source("preset_type_combo")
+                                     .selected_text(selected_text)
+                                     .show_ui(ui, |ui| {
+                                         if ui.selectable_value(&mut preset.preset_type, "image".to_string(), image_label).clicked() {
+                                             preset.model = "scout".to_string(); 
+                                             preset_changed = true;
+                                         }
+                                         if ui.selectable_value(&mut preset.preset_type, "audio".to_string(), audio_label).clicked() {
+                                             preset.model = "whisper-fast".to_string(); 
+                                             preset_changed = true;
+                                         }
+                                         // Grayed out Video Option
+                                         ui.add_enabled_ui(false, |ui| {
+                                             let _ = ui.selectable_value(&mut preset.preset_type, "video".to_string(), video_label);
+                                         });
+                                     });
+                             });
 
-                            let is_audio = preset.preset_type == "audio";
-                            // Show prompt controls if it's an image preset OR a Gemini audio model (which can use a prompt for translation/analysis)
-                            let show_prompt_controls = !is_audio || (is_audio && preset.model == "gemini-audio");
+                             let is_audio = preset.preset_type == "audio";
+                             let is_video = preset.preset_type == "video";
 
-                            // 2. Main Configuration (Different for Image vs Audio)
-                            if show_prompt_controls {
+                             // --- VIDEO PLACEHOLDER UI ---
+                             if is_video {
+                                 ui.group(|ui| {
+                                     ui.label(egui::RichText::new(text.capture_method_label).strong());
+                                     
+                                     egui::ComboBox::from_id_source("video_cap_method")
+                                         .selected_text(if preset.video_capture_method == "region" {
+                                             text.region_capture.to_string()
+                                         } else {
+                                             preset.video_capture_method.strip_prefix("monitor:").unwrap_or("Unknown").to_string()
+                                         })
+                                         .show_ui(ui, |ui| {
+                                             if ui.selectable_value(&mut preset.video_capture_method, "region".to_string(), text.region_capture).clicked() {
+                                                 preset_changed = true;
+                                             }
+                                             for monitor in &self.cached_monitors {
+                                                 let val = format!("monitor:{}", monitor);
+                                                 let label = format!("Full screen ({})", monitor);
+                                                 if ui.selectable_value(&mut preset.video_capture_method, val, label).clicked() {
+                                                     preset_changed = true;
+                                                 }
+                                             }
+                                         });
+                                 });
+                                 // Hide everything else for video placeholder
+                             } else {
+                                 // STANDARD UI (Image/Audio)
+                                 
+                                 // Show prompt controls if it's an image preset OR a Gemini audio model (which can use a prompt for translation/analysis)
+                                 let show_prompt_controls = !is_audio || (is_audio && preset.model == "gemini-audio");
+
+                                 // 2. Main Configuration (Different for Image vs Audio)
+                                 if show_prompt_controls {
                                 // --- IMAGE PROMPT SETTINGS / GEMINI AUDIO PROMPT SETTINGS ---
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
@@ -781,42 +855,45 @@ impl eframe::App for SettingsApp {
                                     }
                                 });
                             }
+                             }
 
-                            // 5. Hotkeys
-                            ui.group(|ui| {
-                                ui.label(egui::RichText::new(text.hotkeys_section).strong());
-                                
-                                let mut hotkey_to_remove = None;
-                                for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        ui.label(&hotkey.name);
-                                        if ui.small_button("x").clicked() {
-                                            hotkey_to_remove = Some(h_idx);
-                                        }
-                                    });
-                                }
-                                if let Some(h_idx) = hotkey_to_remove {
-                                    preset.hotkeys.remove(h_idx);
-                                    preset_changed = true;
-                                }
+                            // 5. Hotkeys (hidden for video placeholder presets)
+                            if !is_video {
+                               ui.group(|ui| {
+                                   ui.label(egui::RichText::new(text.hotkeys_section).strong());
+                                   
+                                   let mut hotkey_to_remove = None;
+                                   for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
+                                       ui.horizontal(|ui| {
+                                           ui.label(&hotkey.name);
+                                           if ui.small_button("x").clicked() {
+                                               hotkey_to_remove = Some(h_idx);
+                                           }
+                                       });
+                                   }
+                                   if let Some(h_idx) = hotkey_to_remove {
+                                       preset.hotkeys.remove(h_idx);
+                                       preset_changed = true;
+                                   }
 
-                                if self.recording_hotkey_for_preset == Some(idx) {
-                                    ui.horizontal(|ui| {
-                                        ui.colored_label(egui::Color32::YELLOW, text.press_keys);
-                                        if ui.button(text.cancel_label).clicked() {
-                                            self.recording_hotkey_for_preset = None;
-                                            self.hotkey_conflict_msg = None;
-                                        }
-                                    });
-                                    if let Some(msg) = &self.hotkey_conflict_msg {
-                                        ui.colored_label(egui::Color32::RED, msg);
-                                    }
-                                } else {
-                                    if ui.button(text.add_hotkey_button).clicked() {
-                                        self.recording_hotkey_for_preset = Some(idx);
-                                    }
-                                }
-                            });
+                                   if self.recording_hotkey_for_preset == Some(idx) {
+                                       ui.horizontal(|ui| {
+                                           ui.colored_label(egui::Color32::YELLOW, text.press_keys);
+                                           if ui.button(text.cancel_label).clicked() {
+                                               self.recording_hotkey_for_preset = None;
+                                               self.hotkey_conflict_msg = None;
+                                           }
+                                       });
+                                       if let Some(msg) = &self.hotkey_conflict_msg {
+                                           ui.colored_label(egui::Color32::RED, msg);
+                                       }
+                                   } else {
+                                       if ui.button(text.add_hotkey_button).clicked() {
+                                           self.recording_hotkey_for_preset = Some(idx);
+                                       }
+                                   }
+                               });
+                            }
 
                             // Update the preset in the config
                             if idx < self.config.presets.len() {

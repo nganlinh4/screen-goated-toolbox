@@ -29,13 +29,17 @@ pub struct Preset {
     pub retranslate_auto_copy: bool,
     pub hide_overlay: bool,
     #[serde(default = "default_preset_type")]
-    pub preset_type: String, // "image" or "audio"
+    pub preset_type: String, // "image", "audio", "video"
     
-    // --- New Audio Fields ---
+    // --- Audio Fields ---
     #[serde(default = "default_audio_source")]
     pub audio_source: String, // "mic" or "device"
     #[serde(default)]
     pub hide_recording_ui: bool,
+
+    // --- Video Fields ---
+    #[serde(default)]
+    pub video_capture_method: String, // "region" or "monitor:DeviceName"
 
     #[serde(default)]
     pub is_upcoming: bool,
@@ -65,6 +69,7 @@ impl Default for Preset {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         }
     }
@@ -107,6 +112,7 @@ pub struct Config {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -133,6 +139,7 @@ pub struct Config {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -156,6 +163,7 @@ pub struct Config {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -179,6 +187,7 @@ pub struct Config {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -205,6 +214,7 @@ pub struct Config {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -231,6 +241,7 @@ pub struct Config {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -254,6 +265,7 @@ pub struct Config {
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -277,6 +289,7 @@ pub struct Config {
             preset_type: "audio".to_string(),
             audio_source: "device".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -300,6 +313,7 @@ pub struct Config {
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
         };
 
@@ -326,13 +340,42 @@ pub struct Config {
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
             is_upcoming: false,
+        };
+
+        // 9. Video Summarize Placeholder (NEW)
+        let video_placeholder_preset = Preset {
+            id: "preset_video_summary_placeholder".to_string(),
+            name: "Summarize video".to_string(),
+            prompt: "".to_string(),
+            selected_language: default_lang.clone(),
+            language_vars: HashMap::new(),
+            model: "".to_string(),
+            streaming_enabled: false,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: default_lang.clone(),
+            retranslate_model: "".to_string(),
+            retranslate_streaming_enabled: false,
+            retranslate_auto_copy: false,
+            hide_overlay: false,
+            preset_type: "video".to_string(),
+            audio_source: "".to_string(),
+            hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
+            is_upcoming: true, // Mark as upcoming to gray out in sidebar
         };
 
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
-            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, sum_preset, desc_preset, audio_preset, study_lang_preset, transcribe_retrans_preset, quicker_reply_preset],
+            presets: vec![
+                trans_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, 
+                sum_preset, desc_preset, audio_preset, study_lang_preset, 
+                transcribe_retrans_preset, quicker_reply_preset, video_placeholder_preset
+            ],
             active_preset_idx: 0,
             dark_mode: true,
             ui_language: "vi".to_string(),

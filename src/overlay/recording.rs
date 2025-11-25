@@ -160,15 +160,27 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
                          final_col = 0x00050505;
                     } else {
                         let angle = py.atan2(px);
-                        let noise = (angle * 2.0 + time_rad * 3.0).sin() * 0.2;
-                        let glow_width = 8.0 + (noise * 5.0);
+                        
+                        // Modified Glow Logic based on Processing State
+                        let noise = if is_waiting {
+                            // "Inner random reach" - high speed, high frequency, spiky
+                            (angle * 10.0 - time_rad * 8.0).sin() * 0.5
+                        } else {
+                            // Smooth breathing
+                            (angle * 2.0 + time_rad * 3.0).sin() * 0.2
+                        };
+                        
+                        let glow_width = if is_waiting { 14.0 } else { 8.0 } + (noise * 5.0);
                         
                         let t = (d / glow_width).clamp(0.0, 1.0);
                         let glow_intensity = (1.0 - t).powi(2);
                         
                         if glow_intensity > 0.01 {
-                            let hue = (angle.to_degrees() + ANIMATION_OFFSET * 2.0) % 360.0;
-                            let rgb = super::paint_utils::hsv_to_rgb(hue, 0.85, 1.0);
+                            let hue_offset = if is_waiting { ANIMATION_OFFSET * 4.0 } else { ANIMATION_OFFSET * 2.0 };
+                            let hue = (angle.to_degrees() + hue_offset) % 360.0;
+                            // More vibrant during processing
+                            let sat = if is_waiting { 1.0 } else { 0.85 };
+                            let rgb = super::paint_utils::hsv_to_rgb(hue, sat, 1.0);
                             final_col = rgb;
                             final_alpha = glow_intensity;
                         }
@@ -192,14 +204,16 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
             }
         }
 
-        // 2. Draw Icons directly to pixels
-        let white_pixel = 0xFFFFFFFF; // A=255, R=255, G=255, B=255
+        // 2. Draw Icons directly to pixels (Skip if processing for cleaner look?)
+        // Let's keep them but maybe dim them? No, keep standard behavior.
+        if !is_waiting {
+            let white_pixel = 0xFFFFFFFF;
 
-        // -- PAUSE / PLAY BUTTON (Left) --
-        let p_cx = BTN_OFFSET; 
-        let p_cy = height / 2;
+            // -- PAUSE / PLAY BUTTON (Left) --
+            let p_cx = BTN_OFFSET; 
+            let p_cy = height / 2;
 
-        if IS_PAUSED {
+            if IS_PAUSED {
             // Draw Play Triangle
             for y in (p_cy - 12)..(p_cy + 12) {
                 for x in (p_cx - 8)..(p_cx + 12) {
@@ -228,24 +242,25 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
         }
 
         // -- CLOSE BUTTON (X) (Right) --
-        let c_cx = width - BTN_OFFSET;
-        let c_cy = height / 2;
-        let thickness = 2.0;
-        
-        for y in (c_cy - 10)..(c_cy + 10) {
-            for x in (c_cx - 10)..(c_cx + 10) {
-                if x >= 0 && x < width && y >= 0 && y < height {
-                    let dx = (x - c_cx) as f32;
-                    let dy = (y - c_cy) as f32;
-                    let dist1 = (dx - dy).abs() * 0.7071;
-                    let dist2 = (dx + dy).abs() * 0.7071;
-                    if dist1 < thickness || dist2 < thickness {
-                         pixels[(y * width + x) as usize] = white_pixel;
-                    }
-                }
-            }
+         let c_cx = width - BTN_OFFSET;
+         let c_cy = height / 2;
+         let thickness = 2.0;
+         
+         for y in (c_cy - 10)..(c_cy + 10) {
+             for x in (c_cx - 10)..(c_cx + 10) {
+                 if x >= 0 && x < width && y >= 0 && y < height {
+                     let dx = (x - c_cx) as f32;
+                     let dy = (y - c_cy) as f32;
+                     let dist1 = (dx - dy).abs() * 0.7071;
+                     let dist2 = (dx + dy).abs() * 0.7071;
+                     if dist1 < thickness || dist2 < thickness {
+                          pixels[(y * width + x) as usize] = white_pixel;
+                     }
+                 }
+             }
+         }
         }
-    }
+        }
 
     SetBkMode(mem_dc, TRANSPARENT);
     SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
@@ -267,26 +282,26 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
     };
 
     let mut text_w = crate::overlay::utils::to_wstring(src_text);
-    // Draw in top half (bottom at 45px)
     let mut tr = RECT { left: 0, top: 0, right: width, bottom: 45 };
     DrawTextW(mem_dc, &mut text_w, &mut tr, DT_CENTER | DT_BOTTOM | DT_SINGLELINE);
 
     SelectObject(mem_dc, old_font);
     DeleteObject(hfont_main);
 
-    // --- SUB INSTRUCTION TEXT ---
-    // Tucked right under main text
-    let hfont_sub = CreateFontW(14, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-    SelectObject(mem_dc, hfont_sub);
-    SetTextColor(mem_dc, COLORREF(0x00DDDDDD)); 
+    // Only show sub-text if not processing
+    if !is_waiting {
+        let hfont_sub = CreateFontW(14, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+        SelectObject(mem_dc, hfont_sub);
+        SetTextColor(mem_dc, COLORREF(0x00DDDDDD)); 
 
-    let sub_text = "Bấm hotkey lần nữa để xử lý âm thanh";
-    let mut sub_text_w = crate::overlay::utils::to_wstring(sub_text);
-    let mut tr_sub = RECT { left: 0, top: 47, right: width, bottom: height };
-    DrawTextW(mem_dc, &mut sub_text_w, &mut tr_sub, DT_CENTER | DT_TOP | DT_SINGLELINE);
+        let sub_text = "Bấm hotkey lần nữa để xử lý âm thanh";
+        let mut sub_text_w = crate::overlay::utils::to_wstring(sub_text);
+        let mut tr_sub = RECT { left: 0, top: 47, right: width, bottom: height };
+        DrawTextW(mem_dc, &mut sub_text_w, &mut tr_sub, DT_CENTER | DT_TOP | DT_SINGLELINE);
 
-    SelectObject(mem_dc, old_font);
-    DeleteObject(hfont_sub);
+        SelectObject(mem_dc, old_font);
+        DeleteObject(hfont_sub);
+    }
 
     let pt_src = POINT { x: 0, y: 0 };
     let size = SIZE { cx: width, cy: height };
@@ -306,14 +321,17 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
 unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_SETCURSOR => {
-            // Robust Hit Test Check using lParam (Low Word = HitTest Result)
             let hit_test = (lparam.0 & 0xFFFF) as i16 as i32;
+            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
             
             if hit_test == HTCLIENT as i32 {
-                SetCursor(LoadCursorW(None, IDC_HAND).unwrap());
+                if is_processing {
+                    SetCursor(LoadCursorW(None, IDC_APPSTARTING).unwrap());
+                } else {
+                    SetCursor(LoadCursorW(None, IDC_HAND).unwrap());
+                }
                 LRESULT(1)
             } else {
-                 // Delegate to default (will likely be IDC_ARROW due to HTCAPTION)
                  DefWindowProcW(hwnd, msg, wparam, lparam)
             }
         }
@@ -324,15 +342,19 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             GetWindowRect(hwnd, &mut rect);
             let local_x = x - rect.left;
             
-            // Buttons Areas -> HTCLIENT (Trigger Hand Cursor)
-            // Use precise radius detection
             let center_left = BTN_OFFSET;
             let center_right = UI_WIDTH - BTN_OFFSET;
             
-            if (local_x - center_left).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
-            if (local_x - center_right).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
+            // Only allow button clicks if not processing
+            if !AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
+                if (local_x - center_left).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
+                if (local_x - center_right).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
+            } else {
+                // During processing, return HTCLIENT for the whole window
+                // This consumes clicks in LBUTTONDOWN (where we ignore them), preventing dragging (HTCAPTION) and button actions.
+                return LRESULT(HTCLIENT as isize);
+            }
 
-            // Center Area -> HTCAPTION (Trigger Arrow + Drag)
             LRESULT(HTCAPTION as isize)
         }
         WM_LBUTTONDOWN => {
@@ -342,28 +364,36 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             let center_left = BTN_OFFSET;
             let center_right = UI_WIDTH - BTN_OFFSET;
             
-            // Hit check logic matches NCHITTEST
-            if (x - center_left).abs() < HIT_RADIUS {
-                IS_PAUSED = !IS_PAUSED;
-                AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
-                paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
-            } else if (x - center_right).abs() < HIT_RADIUS {
-                AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
-                PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+            if !AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
+                if (x - center_left).abs() < HIT_RADIUS {
+                    IS_PAUSED = !IS_PAUSED;
+                    AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
+                    paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
+                } else if (x - center_right).abs() < HIT_RADIUS {
+                    AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
+                    PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
             }
             LRESULT(0)
         }
         WM_TIMER => {
-            if AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
-                 ANIMATION_OFFSET += 3.0;
+            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+            
+            if is_processing {
+                // Rapid Clockwise Animation for Processing
+                // Reduced speed from 20.0 to 8.0
+                ANIMATION_OFFSET -= 8.0;
             } else if !IS_PAUSED {
+                // Standard Counter-Clockwise Animation
                 ANIMATION_OFFSET += 5.0;
             }
-            if ANIMATION_OFFSET > 360.0 { ANIMATION_OFFSET -= 360.0; }
             
-            // Fade In Logic
+            // Keep offset bounded to prevent float precision issues over long runs
+            if ANIMATION_OFFSET > 3600.0 { ANIMATION_OFFSET -= 3600.0; }
+            if ANIMATION_OFFSET < -3600.0 { ANIMATION_OFFSET += 3600.0; }
+            
             if CURRENT_ALPHA < 255 {
-                CURRENT_ALPHA += 15; // Fade speed
+                CURRENT_ALPHA += 15;
                 if CURRENT_ALPHA > 255 { CURRENT_ALPHA = 255; }
             }
 
