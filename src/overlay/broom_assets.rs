@@ -22,11 +22,23 @@ pub fn render_procedural_broom(params: BroomRenderParams) -> Vec<u32> {
     let c_straw_dk  = (alpha << 24) | 0x00FBC02D;
     let c_straw_lt  = (alpha << 24) | 0x00FFF176;
     let c_straw_sh  = (alpha << 24) | 0x00F57F17;
+    
+    // Shadow color (Black with 30% opacity)
+    let shadow_alpha = (alpha as f32 * 0.3) as u32;
+    let c_shadow = (shadow_alpha << 24) | 0x00000000;
 
-    // Helper to blend pixels (simple AA)
-    let mut draw_pixel = |x: i32, y: i32, color: u32| {
+    // Helper to draw pixels
+    let mut draw_pixel = |x: i32, y: i32, color: u32, is_shadow: bool| {
         if x >= 0 && x < BROOM_W && y >= 0 && y < BROOM_H {
-            pixels[(y * BROOM_W + x) as usize] = color;
+            let idx = (y * BROOM_W + x) as usize;
+            if is_shadow {
+                // Only write shadow if pixel is empty
+                if pixels[idx] == 0 {
+                    pixels[idx] = color;
+                }
+            } else {
+                pixels[idx] = color;
+            }
         }
     };
 
@@ -43,101 +55,86 @@ pub fn render_procedural_broom(params: BroomRenderParams) -> Vec<u32> {
     // 2. Bristle Angle: Uses half tilt for "swishy" effect, blended later
     let bristle_target_rad = (params.tilt_angle * 0.5).to_radians();
 
-    // ---------------------------------------------------------
-    // 1. Draw Bristles (Bottom part)
-    // ---------------------------------------------------------
     let bristle_len = 16.0 * params.squish;
     let top_w = 8.0;
-    let bot_w = 16.0 + (1.0 - params.squish) * 10.0; // Spreads when squished
-    
-    // Increase density: 2 steps per logical pixel unit to close gaps
+    let bot_w = 16.0 + (1.0 - params.squish) * 10.0;
     let steps = (bristle_len * 2.0) as i32; 
 
-    for i in 0..steps {
-        let prog = i as f32 / steps as f32; // 0.0 to 1.0
-        
-        // INTERPOLATION:
-        // Top of bristles (prog=0) must align with Handle (handle_rad) to prevent detachment.
-        // Bottom of bristles (prog=1) swings fully to bristle_target_rad.
-        // We use cubic interpolation (prog^3) to keep the neck stiff and tips loose.
-        let current_angle = handle_rad + (bristle_target_rad - handle_rad) * (prog * prog * prog);
-        
-        let b_sin = current_angle.sin();
-        let b_cos = current_angle.cos();
+    // Shadow offset
+    let sx = 2.0; 
+    let sy = 2.0;
 
-        let current_y_rel = prog * bristle_len;
-        
-        // Bend applies mostly at the tips. 
-        // We clamp it slightly to prevent "yellow strings detached" look at high velocity.
-        let bend_offset = params.bend * prog * prog * 8.0; 
+    for pass in 0..2 {
+        let is_shadow = pass == 0;
+        let offset_x = if is_shadow { sx } else { 0.0 };
+        let offset_y = if is_shadow { sy } else { 0.0 };
 
-        // Rotate the center line
-        let cx = pivot_x - (current_y_rel * b_sin) + (bend_offset * b_cos);
-        let cy = pivot_y + (current_y_rel * b_cos) + (bend_offset * b_sin);
+        // ---------------------------------------------------------
+        // Draw Bristles
+        // ---------------------------------------------------------
+        for i in 0..steps {
+            let prog = i as f32 / steps as f32;
+            let current_angle = handle_rad + (bristle_target_rad - handle_rad) * (prog * prog * prog);
+            let b_sin = current_angle.sin();
+            let b_cos = current_angle.cos();
+            let current_y_rel = prog * bristle_len;
+            let bend_offset = params.bend * prog * prog * 8.0; 
 
-        let current_w = top_w + (bot_w - top_w) * prog;
-        
-        // Add slight buffer (+0.5) to width to prevent aliasing gaps during rotation
-        let half_w = (current_w / 2.0) + 0.5;
+            let cx = pivot_x - (current_y_rel * b_sin) + (bend_offset * b_cos) + offset_x;
+            let cy = pivot_y + (current_y_rel * b_cos) + (bend_offset * b_sin) + offset_y;
 
-        let start_x = (cx - half_w).round() as i32;
-        let end_x = (cx + half_w).round() as i32;
-        let py = cy.round() as i32;
+            let current_w = top_w + (bot_w - top_w) * prog;
+            let half_w = (current_w / 2.0) + 0.5;
 
-        for px in start_x..=end_x {
-            // Texture Logic Update:
-            // Calculate position relative to the center (cx) to make the "strings" follow the bend.
-            // Using absolute screen coordinates (px, py) causes horizontal banding noise.
-            // Using relative coordinates creates continuous vertical strands.
-            let rel_x = (px as f32 - cx).round() as i32;
-            
-            // Map relative X to a seed. +20 ensures positive index logic.
-            let seed = ((rel_x + 20) * 7) % 5;
-            
-            let col = match seed {
-                0 => c_straw_sh,
-                1 | 2 => c_straw_lt,
-                _ => c_straw_dk
-            };
-            draw_pixel(px, py, col);
+            let start_x = (cx - half_w).round() as i32;
+            let end_x = (cx + half_w).round() as i32;
+            let py = cy.round() as i32;
+
+            for px in start_x..=end_x {
+                if is_shadow {
+                    draw_pixel(px, py, c_shadow, true);
+                } else {
+                    let rel_x = (px as f32 - cx).round() as i32;
+                    let seed = ((rel_x + 20) * 7) % 5;
+                    let col = match seed {
+                        0 => c_straw_sh,
+                        1 | 2 => c_straw_lt,
+                        _ => c_straw_dk
+                    };
+                    draw_pixel(px, py, col, false);
+                }
+            }
         }
-    }
+        
+        // ---------------------------------------------------------
+        // Draw Band (Neck) - Rigidly attached to Handle
+        // ---------------------------------------------------------
+        if !is_shadow {
+            let band_h = 3.0;
+            for y_step in 0..band_h as i32 {
+                let rel_y = -(y_step as f32);
+                let cx = pivot_x + (rel_y * h_sin);
+                let cy = pivot_y - (rel_y * h_cos);
+                let half_w = top_w / 2.0 + 1.5;
+                for px in (cx - half_w).round() as i32 ..= (cx + half_w).round() as i32 {
+                     draw_pixel(px, cy.round() as i32, c_band, false);
+                }
+            }
 
-    // ---------------------------------------------------------
-    // 2. Draw Band (Neck) - Rigidly attached to Handle
-    // ---------------------------------------------------------
-    let band_h = 3.0;
-    for y_step in 0..band_h as i32 {
-        let rel_y = -(y_step as f32); // Go up from pivot
-        
-        // Use Handle Math (h_sin, h_cos)
-        let cx = pivot_x + (rel_y * h_sin);
-        let cy = pivot_y - (rel_y * h_cos);
-        
-        let half_w = top_w / 2.0 + 1.5; // Slightly wider to cover bristle roots
-        for px in (cx - half_w).round() as i32 ..= (cx + half_w).round() as i32 {
-             draw_pixel(px, cy.round() as i32, c_band);
+            // ---------------------------------------------------------
+            // Draw Handle - Rigid, less sensitive
+            // ---------------------------------------------------------
+            let handle_len = 20.0;
+            for i in 0..handle_len as i32 {
+                let rel_y = (i as f32) + 3.0; 
+                let cx = pivot_x + (rel_y * h_sin);
+                let cy = pivot_y - (rel_y * h_cos);
+                let px = cx.round() as i32;
+                let py = cy.round() as i32;
+                draw_pixel(px, py, c_handle_dk, false);
+                draw_pixel(px + 1, py, c_handle_lt, false);
+            }
         }
-    }
-
-    // ---------------------------------------------------------
-    // 3. Draw Handle - Rigid, less sensitive
-    // ---------------------------------------------------------
-    let handle_len = 20.0;
-    
-    for i in 0..handle_len as i32 {
-        let rel_y = (i as f32) + band_h; 
-        
-        // Use Handle Math (h_sin, h_cos)
-        let cx = pivot_x + (rel_y * h_sin);
-        let cy = pivot_y - (rel_y * h_cos); // Upward on screen
-
-        let px = cx.round() as i32;
-        let py = cy.round() as i32;
-
-        // Thickness 2
-        draw_pixel(px, py, c_handle_dk);
-        draw_pixel(px + 1, py, c_handle_lt);
     }
 
     pixels
