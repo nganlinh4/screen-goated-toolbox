@@ -54,13 +54,28 @@ pub fn paint_window(hwnd: HWND) {
         let width = rect.right - rect.left;
         let height = rect.bottom - rect.top;
 
+        // DIB Section for direct pixel access
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: width,
+                biHeight: -height, // Top-down
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0 as u32,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut p_bits: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mem_bitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &mut p_bits, None, 0).unwrap();
         let mem_dc = CreateCompatibleDC(hdc);
-        let mem_bitmap = CreateCompatibleBitmap(hdc, width, height);
         let old_bitmap = SelectObject(mem_dc, mem_bitmap);
 
         // --- STEP 1: SNAPSHOT STATE ---
         let (
-            bg_color, is_hovered, copy_success, broom_data, particles, 
+            bg_color_u32, is_hovered, on_copy_btn, copy_success, broom_data, particles, 
             mut cached_bm, mut font_size, mut cache_dirty
         ) = {
             let mut states = WINDOW_STATES.lock().unwrap();
@@ -90,13 +105,38 @@ pub fn paint_window(hwnd: HWND) {
                 } else { None };
 
                 (
-                    state.bg_color, state.is_hovered, state.copy_success, broom_info, particles_vec,
+                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size, state.font_cache_dirty
                 )
             } else {
-                (0x00222222, false, false, None, Vec::new(), HBITMAP(0), 72, true)
+                (0x00222222, false, false, false, None, Vec::new(), HBITMAP(0), 72, true)
             }
         };
+
+        // --- STEP 1.5: DRAW BACKGROUND GRADIENT ---
+        if !p_bits.is_null() {
+            let raw_pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (width * height) as usize);
+            
+            let top_r = (bg_color_u32 >> 16) & 0xFF;
+            let top_g = (bg_color_u32 >> 8) & 0xFF;
+            let top_b = bg_color_u32 & 0xFF;
+
+            let bot_r = (top_r as f32 * 0.6) as u32;
+            let bot_g = (top_g as f32 * 0.6) as u32;
+            let bot_b = (top_b as f32 * 0.6) as u32;
+
+            for y in 0..height {
+                let t = y as f32 / height as f32;
+                let r = (top_r as f32 * (1.0 - t) + bot_r as f32 * t) as u32;
+                let g = (top_g as f32 * (1.0 - t) + bot_g as f32 * t) as u32;
+                let b = (top_b as f32 * (1.0 - t) + bot_b as f32 * t) as u32;
+                let col = (255 << 24) | (r << 16) | (g << 8) | b;
+                
+                let start = (y * width) as usize;
+                let end = start + width as usize;
+                raw_pixels[start..end].fill(col);
+            }
+        }
 
         // --- STEP 2: SMART FONT UPDATE ---
         if cache_dirty || cached_bm.0 == 0 {
@@ -106,7 +146,7 @@ pub fn paint_window(hwnd: HWND) {
             let cache_dc = CreateCompatibleDC(hdc);
             let old_cache_bm = SelectObject(cache_dc, cached_bm);
 
-            let dark_brush = CreateSolidBrush(COLORREF(bg_color));
+            let dark_brush = CreateSolidBrush(COLORREF(bg_color_u32));
             let fill_rect = RECT { left: 0, top: 0, right: width, bottom: height };
             FillRect(cache_dc, &fill_rect, dark_brush);
             DeleteObject(dark_brush);
@@ -118,20 +158,12 @@ pub fn paint_window(hwnd: HWND) {
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
 
-            // === MAXIMIZE TEXT FILL ===
-            // 1. Horizontal: Keep standard 12px padding so words don't touch sides.
             let h_padding = 12;
             let available_w = (width - (h_padding * 2)).max(1);
-            
-            // 2. Vertical: Relax the constraint.
-            // Instead of enforcing 12px top/bottom, only enforce 4px safety margin.
-            // This allows the font to grow much larger.
             let v_safety_margin = 4; 
             let available_h = (height - v_safety_margin).max(1);
 
-            // === OPTIMIZATION: BINARY SEARCH ===
             let mut low = 8;
-            // Cap max font size based on height, but allow up to 100px for large screens
             let max_possible = available_h.min(100); 
             let mut high = max_possible;
             let mut best_fit = 8;
@@ -142,9 +174,6 @@ pub fn paint_window(hwnd: HWND) {
                 while low <= high {
                     let mid = (low + high) / 2;
                     let h = measure_text_height(cache_dc, &mut buf, mid, available_w);
-                    
-                    // Strict check against available_h.
-                    // Since available_h is (height - 4), this effectively fills the box.
                     if h <= available_h {
                         best_fit = mid;
                         low = mid + 1; 
@@ -155,32 +184,25 @@ pub fn paint_window(hwnd: HWND) {
             }
             font_size = best_fit;
 
-            // Draw Final Text
             let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
             let old_font = SelectObject(cache_dc, hfont);
 
-            // === ALIGNMENT: CENTER VERTICALLY ===
-            // Now that we maximized the size, centering looks best.
-            // Even if there is leftover space (e.g., 10px), it will be 5px top / 5px bottom.
             let mut measure_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
             DrawTextW(cache_dc, &mut buf, &mut measure_rect, DT_CALCRECT | DT_WORDBREAK);
             let text_h = measure_rect.bottom;
             
             let offset_y = ((height - text_h) / 2).max(0);
-            
-            // Use h_padding for X, calculated offset_y for Y
             let mut draw_rect = RECT { 
                 left: h_padding, 
                 top: offset_y, 
                 right: width - h_padding, 
-                bottom: height // Allow drawing to bottom edge
+                bottom: height
             };
 
             DrawTextW(cache_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
 
             SelectObject(cache_dc, old_font);
             DeleteObject(hfont);
-            
             SelectObject(cache_dc, old_cache_bm);
             DeleteDC(cache_dc);
 
@@ -201,45 +223,174 @@ pub fn paint_window(hwnd: HWND) {
             DeleteDC(cache_dc);
         }
 
-        // --- STEP 4: DYNAMIC OVERLAY (Broom/Particles) ---
+        // --- STEP 4: DYNAMIC PARTICLES ---
+        if !particles.is_empty() && !p_bits.is_null() {
+            let raw_pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (width * height) as usize);
+
+            for (d_x, d_y, life, size, col) in particles {
+                if life <= 0.0 { continue; }
+                let radius = (size * life); 
+                if radius < 0.5 { continue; }
+
+                let p_r = ((col >> 16) & 0xFF) as f32;
+                let p_g = ((col >> 8) & 0xFF) as f32;
+                let p_b = (col & 0xFF) as f32;
+                let p_max_alpha = 255.0 * life;
+
+                let min_x = (d_x - radius - 1.0).floor() as i32;
+                let max_x = (d_x + radius + 1.0).ceil() as i32;
+                let min_y = (d_y - radius - 1.0).floor() as i32;
+                let max_y = (d_y + radius + 1.0).ceil() as i32;
+
+                let start_x = min_x.max(0);
+                let end_x = max_x.min(width - 1);
+                let start_y = min_y.max(0);
+                let end_y = max_y.min(height - 1);
+
+                for y in start_y..=end_y {
+                    for x in start_x..=end_x {
+                        let dx = x as f32 - d_x;
+                        let dy = y as f32 - d_y;
+                        let dist = (dx*dx + dy*dy).sqrt();
+                        let aa_edge = (radius + 0.5 - dist).clamp(0.0, 1.0);
+
+                        if aa_edge > 0.0 {
+                            let idx = (y * width + x) as usize;
+                            let bg_px = raw_pixels[idx];
+
+                            let bg_b = (bg_px & 0xFF) as f32;
+                            let bg_g = ((bg_px >> 8) & 0xFF) as f32;
+                            let bg_r = ((bg_px >> 16) & 0xFF) as f32;
+
+                            let final_alpha_norm = (p_max_alpha * aa_edge) / 255.0;
+                            let inv_alpha = 1.0 - final_alpha_norm;
+
+                            let out_r = (p_r * final_alpha_norm + bg_r * inv_alpha) as u32;
+                            let out_g = (p_g * final_alpha_norm + bg_g * inv_alpha) as u32;
+                            let out_b = (p_b * final_alpha_norm + bg_b * inv_alpha) as u32;
+
+                            raw_pixels[idx] = (255 << 24) | (out_r << 16) | (out_g << 8) | out_b;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- STEP 5: DYNAMIC BROOM ---
         let broom_bitmap_data = if let Some((bx, by, params)) = broom_data {
             let pixels = render_procedural_broom(params);
             let hbm = create_bitmap_from_pixels(&pixels, BROOM_W, BROOM_H);
             Some((bx, by, hbm))
         } else { None };
 
-        for (d_x, d_y, life, size, col) in particles {
-            let cur_size = (size * life).ceil() as i32;
-            if cur_size > 0 {
-                let p_rect = RECT { left: d_x as i32, top: d_y as i32, right: d_x as i32 + cur_size, bottom: d_y as i32 + cur_size };
-                let r = (col >> 16) & 0xFF;
-                let g = (col >> 8) & 0xFF;
-                let b = col & 0xFF;
-                let cr = (b << 16) | (g << 8) | r;
-                let brush = CreateSolidBrush(COLORREF(cr));
-                FillRect(mem_dc, &p_rect, brush);
-                DeleteObject(brush);
-            }
-        }
+        // --- STEP 6: HIGH-VISIBILITY ROUNDED BUTTON ---
+        if is_hovered && !p_bits.is_null() {
+            let raw_pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (width * height) as usize);
+            
+            let btn_size = 28; 
+            let margin = 12;
+            let cx = (width - margin - btn_size / 2) as f32;
+            let cy = (height - margin - btn_size / 2) as f32;
+            let radius = 13.0;
 
-        if is_hovered {
-             let btn_size = 24;
-             let btn_rect = RECT { left: width - btn_size, top: height - btn_size, right: width, bottom: height };
-             let btn_brush = CreateSolidBrush(COLORREF(0x00444444));
-             FillRect(mem_dc, &btn_rect, btn_brush);
-             DeleteObject(btn_brush);
-             let icon_pen = if copy_success { CreatePen(PS_SOLID, 2, COLORREF(0x0000FF00)) } else { CreatePen(PS_SOLID, 2, COLORREF(0x00AAAAAA)) };
-             let old_pen = SelectObject(mem_dc, icon_pen);
-             if copy_success {
-                 MoveToEx(mem_dc, btn_rect.left + 6, btn_rect.top + 12, None);
-                 LineTo(mem_dc, btn_rect.left + 10, btn_rect.top + 16);
-                 LineTo(mem_dc, btn_rect.left + 18, btn_rect.top + 8);
-             } else {
-                 Rectangle(mem_dc, btn_rect.left + 6, btn_rect.top + 6, btn_rect.right - 6, btn_rect.bottom - 4);
-                 Rectangle(mem_dc, btn_rect.left + 9, btn_rect.top + 4, btn_rect.right - 9, btn_rect.top + 8);
-             }
-             SelectObject(mem_dc, old_pen);
-             DeleteObject(icon_pen);
+            // Button color logic
+            let (tr, tg, tb) = if copy_success {
+                (30.0, 180.0, 30.0) // Success Green
+            } else if on_copy_btn {
+                (128.0, 128.0, 128.0) // Hover Bright
+            } else {
+                (80.0, 80.0, 80.0)    // Standard Visible Grey
+            };
+
+            let b_start_x = (cx - radius - 4.0) as i32;
+            let b_end_x = (cx + radius + 4.0) as i32;
+            let b_start_y = (cy - radius - 4.0) as i32;
+            let b_end_y = (cy + radius + 4.0) as i32;
+
+            for y in b_start_y.max(0)..b_end_y.min(height) {
+                for x in b_start_x.max(0)..b_end_x.min(width) {
+                    let dx = (x as f32 - cx).abs();
+                    let dy = (y as f32 - cy).abs();
+                    let dist = (dx*dx + dy*dy).sqrt();
+                    
+                    // 1. AA for Button Body
+                    let aa_body = (radius + 0.5 - dist).clamp(0.0, 1.0);
+
+                    // 2. Smooth Ring Border (Thickness 1.5px)
+                    let border_inner_radius = radius - 1.5;
+                    let border_outer = (radius + 0.5 - dist).clamp(0.0, 1.0);
+                    let border_inner = (dist - (border_inner_radius - 0.5)).clamp(0.0, 1.0);
+                    let border_alpha = border_outer * border_inner * 0.6; // 60% opacity white border
+
+                    if aa_body > 0.0 || border_alpha > 0.0 {
+                        let idx = (y * width + x) as usize;
+                        let bg = raw_pixels[idx];
+                        let bg_b = (bg & 0xFF) as f32;
+                        let bg_g = ((bg >> 8) & 0xFF) as f32;
+                        let bg_r = ((bg >> 16) & 0xFF) as f32;
+                        
+                        let mut final_r = bg_r;
+                        let mut final_g = bg_g;
+                        let mut final_b = bg_b;
+
+                        // Apply Body Color
+                        if aa_body > 0.0 {
+                            let alpha = 0.9 * aa_body;
+                            let inv = 1.0 - alpha;
+                            final_r = tr * alpha + final_r * inv;
+                            final_g = tg * alpha + final_g * inv;
+                            final_b = tb * alpha + final_b * inv;
+                        }
+
+                        // Apply Additive White Border
+                        if border_alpha > 0.0 {
+                            final_r += 255.0 * border_alpha;
+                            final_g += 255.0 * border_alpha;
+                            final_b += 255.0 * border_alpha;
+                        }
+
+                        final_r = final_r.min(255.0);
+                        final_g = final_g.min(255.0);
+                        final_b = final_b.min(255.0);
+                        
+                        raw_pixels[idx] = (255 << 24) | ((final_r as u32) << 16) | ((final_g as u32) << 8) | (final_b as u32);
+                    }
+                }
+            }
+
+            // Draw Icon (GDI)
+            let icx = (width - margin - btn_size / 2);
+            let icy = (height - margin - btn_size / 2);
+
+            let icon_pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FFFFFF));
+            let old_pen = SelectObject(mem_dc, icon_pen);
+            
+            if copy_success {
+                // Checkmark
+                MoveToEx(mem_dc, icx - 4, icy, None);
+                LineTo(mem_dc, icx - 1, icy + 4);
+                LineTo(mem_dc, icx + 5, icy - 4);
+            } else {
+                // Copy Icon (Two rects) with Occlusion
+                let r2_l = icx - 5; let r2_t = icy - 4; let r2_r = icx + 2; let r2_b = icy + 1;
+                let r1_l = icx - 3; let r1_t = icy - 2; let r1_r = icx + 5; let r1_b = icy + 4;
+                
+                // Draw Back Rect (Outline)
+                let null_brush = GetStockObject(NULL_BRUSH);
+                let old_brush = SelectObject(mem_dc, null_brush);
+                Rectangle(mem_dc, r2_l, r2_t, r2_r, r2_b);
+                
+                // Fill Front Rect (Masking)
+                let brush_col = (tb as u32) << 16 | (tg as u32) << 8 | (tr as u32);
+                let solid_brush = CreateSolidBrush(COLORREF(brush_col));
+                SelectObject(mem_dc, solid_brush);
+                Rectangle(mem_dc, r1_l, r1_t, r1_r, r1_b);
+                
+                SelectObject(mem_dc, old_brush);
+                DeleteObject(solid_brush);
+            }
+            SelectObject(mem_dc, old_pen);
+            DeleteObject(icon_pen);
         }
 
         if let Some((px, py, hbm)) = broom_bitmap_data {

@@ -175,9 +175,25 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 GetClientRect(hwnd, &mut rect);
                 let width = rect.right - rect.left;
                 let height = rect.bottom - rect.top;
-                let btn_size = 24;
-                let btn_rect = RECT { left: width - btn_size, top: height - btn_size, right: width, bottom: height };
-                state.on_copy_btn = x as i32 >= btn_rect.left && x as i32 <= btn_rect.right && y as i32 >= btn_rect.top && y as i32 <= btn_rect.bottom;
+                
+                // === UPDATED HITBOX LOGIC ===
+                // Button Visuals: Size 28, Margin 12 (from Edge)
+                let btn_size = 28;
+                let margin = 12;
+                let btn_rect = RECT { 
+                    left: width - margin - btn_size, 
+                    top: height - margin - btn_size, 
+                    right: width - margin, 
+                    bottom: height - margin 
+                };
+                
+                // Expand hitbox slightly (padding) for easier clicking
+                let padding = 4;
+                state.on_copy_btn = 
+                    x as i32 >= btn_rect.left - padding && 
+                    x as i32 <= btn_rect.right + padding && 
+                    y as i32 >= btn_rect.top - padding && 
+                    y as i32 <= btn_rect.bottom + padding;
                 
                 state.physics.x = x;
                 state.physics.y = y;
@@ -217,9 +233,23 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
             
-            let btn_size = 24;
-            let btn_rect = RECT { left: width - btn_size, top: height - btn_size, right: width, bottom: height };
-            let is_copy_click = x >= btn_rect.left && x <= btn_rect.right && y >= btn_rect.top && y <= btn_rect.bottom;
+            // === UPDATED HITBOX LOGIC FOR CLICK ===
+            let btn_size = 28;
+            let margin = 12;
+            let btn_rect = RECT { 
+                left: width - margin - btn_size, 
+                top: height - margin - btn_size, 
+                right: width - margin, 
+                bottom: height - margin 
+            };
+            
+            // Same padding as hover
+            let padding = 4;
+            let is_copy_click = 
+                x >= btn_rect.left - padding && 
+                x <= btn_rect.right + padding && 
+                y >= btn_rect.top - padding && 
+                y <= btn_rect.bottom + padding;
 
             if is_copy_click || msg == WM_RBUTTONUP {
                  let text_len = GetWindowTextLengthW(hwnd) + 1;
