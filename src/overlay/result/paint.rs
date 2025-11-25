@@ -123,34 +123,29 @@ pub fn paint_window(hwnd: HWND) {
             let available_w = (width - (padding * 2)).max(1);
             let available_h = (height - (padding * 2)).max(1);
 
-            // === OPTIMIZATION: FAST PATH & BINARY SEARCH ===
+            // === OPTIMIZATION: PURE BINARY SEARCH (Safe & Fast) ===
+            // We removed the "Fast Path" because it broke small windows.
+            // Binary search is fast enough (max 6 checks).
             
-            // 1. FAST PATH: If text is short (< 100 chars), assume it fits at max size.
-            // This eliminates lag when text first appears.
-            if text_len < 100 {
-                font_size = 64; // Slightly safer max than 72
-            } else {
-                // 2. BINARY SEARCH
-                // Since text grows, font size usually shrinks. 
-                // We search between [8, current_font_size]. We never check larger sizes.
-                let mut low = 8;
-                let mut high = font_size.max(24).min(72); // Cap high at previous size or 72
-                let mut best_fit = 8;
+            let mut low = 8;
+            // CRITICAL FIX: Cap the start search size by the window height.
+            // If window is 20px high, don't even try font size 72.
+            let max_possible = available_h.min(72);
+            let mut high = max_possible; 
+            let mut best_fit = 8;
 
-                // Max 6 iterations (log2(64) = 6). Very fast.
-                while low <= high {
-                    let mid = (low + high) / 2;
-                    let h = measure_text_height(cache_dc, &mut buf, mid, available_w);
-                    
-                    if h <= available_h {
-                        best_fit = mid;
-                        low = mid + 1; // Try bigger
-                    } else {
-                        high = mid - 1; // Too big, try smaller
-                    }
+            while low <= high {
+                let mid = (low + high) / 2;
+                let h = measure_text_height(cache_dc, &mut buf, mid, available_w);
+                
+                if h <= available_h {
+                    best_fit = mid;
+                    low = mid + 1; // Fit? Try bigger.
+                } else {
+                    high = mid - 1; // Overflow? Try smaller.
                 }
-                font_size = best_fit;
             }
+            font_size = best_fit;
 
             // Draw Final Text
             let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));

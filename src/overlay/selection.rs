@@ -223,19 +223,20 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                     bottom: rect_abs.bottom - screen_y,
                 };
                 
-                // Use Software Renderer for AA in both cases
-                if IS_PROCESSING {
-                    let w = (r.right - r.left) as i32;
-                    let h = (r.bottom - r.top) as i32;
-                    if w > 0 && h > 0 {
-                        super::paint_utils::render_box_sdf_old_style(HDC(mem_dc.0), r, w, h, ANIMATION_OFFSET);
-                    }
-                } else {
-                    let w = (r.right - r.left) as i32;
-                    let h = (r.bottom - r.top) as i32;
-                    if w > 0 && h > 0 {
-                        super::paint_utils::render_box_sdf(HDC(mem_dc.0), r, w, h, false, 0.0);
-                    }
+                let w = (r.right - r.left) as i32;
+                let h = (r.bottom - r.top) as i32;
+                if w > 0 && h > 0 {
+                    // FIX: Always use the optimized render_box_sdf.
+                    // Pass IS_PROCESSING as the is_glowing flag for animated rainbow.
+                    // Pass ANIMATION_OFFSET for time-based animation.
+                    super::paint_utils::render_box_sdf(
+                        HDC(mem_dc.0),
+                        r,
+                        w,
+                        h,
+                        IS_PROCESSING, // True = Animated Rainbow, False = Static White
+                        ANIMATION_OFFSET
+                    );
                 }
             }
 

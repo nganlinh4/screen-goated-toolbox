@@ -22,8 +22,6 @@ pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> u32 {
     let g_u = ((g + m) * 255.0) as u32;
     let b_u = ((b + m) * 255.0) as u32;
 
-    // PRE-MULTIPLIED ALPHA format: (A << 24) | (R << 16) | (G << 8) | B
-    // But helper just returns RGB here
     (r_u << 16) | (g_u << 8) | b_u 
 }
 
@@ -36,135 +34,18 @@ pub fn sd_rounded_box(px: f32, py: f32, bx: f32, by: f32, r: f32) -> f32 {
     len_max_q + min_max_q - r
 }
 
-pub unsafe fn render_box_sdf_old_style(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, time_offset: f32) {
-    let min_dim = w.min(h) as f32;
-    let perimeter = 2.0 * (w + h) as f32;
-
-    let dynamic_base_scale = (min_dim * 0.2).clamp(30.0, 180.0);
-    let max_possible_reach = dynamic_base_scale * 1.7;
-    let pad = max_possible_reach.ceil() as i32 + 4;
-
-    let buf_w = w + (pad * 2);
-    let buf_h = h + (pad * 2);
-
-    let bmi = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: buf_w,
-            biHeight: -buf_h,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0 as u32,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let mut p_bits: *mut core::ffi::c_void = std::ptr::null_mut();
-    let hbm = CreateDIBSection(hdc_dest, &bmi, DIB_RGB_COLORS, &mut p_bits, None, 0).unwrap();
-
-    if !p_bits.is_null() {
-        let pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (buf_w * buf_h) as usize);
-
-        let center_x = (w as f32) / 2.0 + pad as f32;
-        let center_y = (h as f32) / 2.0 + pad as f32;
-        let bx = (w as f32) / 2.0;
-        let by = (h as f32) / 2.0;
-
-        let eff_radius = CORNER_RADIUS.min(bx).min(by);
-        let time_rad = time_offset.to_radians();
-        let complexity_scale = 1.0 + (perimeter / 1800.0);
-        let freq1 = (2.0 * complexity_scale).round();
-        let freq2 = (5.0 * complexity_scale).round();
-        let time_mult = 1.0;
-
-        let safe_skip_dist = max_possible_reach + eff_radius + 2.0;
-        let skip_x_min = (center_x - bx + safe_skip_dist).ceil() as i32;
-        let skip_x_max = (center_x + bx - safe_skip_dist).floor() as i32;
-        let skip_y_min = (center_y - by + safe_skip_dist).ceil() as i32;
-        let skip_y_max = (center_y + by - safe_skip_dist).floor() as i32;
-
-        let do_skip = skip_x_max > skip_x_min && skip_y_max > skip_y_min;
-
-        for y in 0..buf_h {
-            let in_vertical_skip = do_skip && y > skip_y_min && y < skip_y_max;
-            let y_range: Box<dyn Iterator<Item = i32>> = if in_vertical_skip {
-                Box::new(
-                    (0..skip_x_min).chain(skip_x_max..buf_w)
-                )
-            } else {
-                Box::new(0..buf_w)
-            };
-
-            for x in y_range {
-                let idx = (y * buf_w + x) as usize;
-                let px = (x as f32) - center_x;
-                let py = (y as f32) - center_y;
-
-                let d = sd_rounded_box(px, py, bx, by, eff_radius);
-
-                let mut final_col = 0u32;
-                let mut final_alpha = 0.0f32;
-
-                if d > 0.0 {
-                    let aa = (1.5 - d).clamp(0.0, 1.0);
-                    if aa > 0.0 {
-                        final_alpha = aa;
-                        final_col = 0x00FFFFFF;
-                    }
-                } else {
-                    let angle = py.atan2(px);
-                    let noise = (angle * freq1 + time_rad * 2.0 * time_mult).sin() * 0.5
-                              + (angle * freq2 - time_rad * 3.0 * time_mult).sin() * 0.4;
-
-                    let local_glow_width = dynamic_base_scale + (noise * (dynamic_base_scale * 0.65));
-                    let dist_in = d.abs();
-
-                    let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
-                    let intensity = (1.0 - t).powi(3);
-
-                    final_alpha = intensity;
-                    if dist_in < 4.0 { final_alpha = 1.0; }
-
-                    if final_alpha > 0.005 {
-                        let deg = angle.to_degrees() + 180.0;
-                        let hue = (deg + time_offset) % 360.0;
-                        let rgb = hsv_to_rgb(hue, 0.8, 1.0);
-                        if dist_in < 2.0 { final_col = 0x00FFFFFF; } else { final_col = rgb; }
-                    }
-                }
-
-                if final_alpha > 0.0 {
-                    let r = ((final_col >> 16) & 0xFF) as f32;
-                    let g = ((final_col >> 8) & 0xFF) as f32;
-                    let b = (final_col & 0xFF) as f32;
-                    // PRE-MULTIPLY ALPHA
-                    let a = (final_alpha * 255.0) as u32;
-                    let r_pre = ((r * final_alpha) as u32).min(255);
-                    let g_pre = ((g * final_alpha) as u32).min(255);
-                    let b_pre = ((b * final_alpha) as u32).min(255);
-                    pixels[idx] = (a << 24) | (r_pre << 16) | (g_pre << 8) | b_pre;
-                } else {
-                    pixels[idx] = 0;
-                }
-            }
-        }
-
-        let mem_dc = CreateCompatibleDC(hdc_dest);
-        let old_bmp = SelectObject(mem_dc, hbm);
-        let _ = BitBlt(hdc_dest, bounds.left - pad, bounds.top - pad, buf_w, buf_h, mem_dc, 0, 0, SRCCOPY);
-        SelectObject(mem_dc, old_bmp);
-        DeleteDC(mem_dc);
-    }
-
-    DeleteObject(hbm);
-}
-
 pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glowing: bool, time_offset: f32) {
+    // Increase padding for the white border anti-aliasing
     let pad = 20;
+
     let buf_w = w + (pad * 2);
     let buf_h = h + (pad * 2);
-    
+
+    // Threshold: 450,000 pixels (~670x670).
+    // Small/Medium boxes -> Beautiful Inner Glow (Fancy Loop)
+    // Massive boxes -> Fast Outer Glow (Fast Loop)
+    let is_large_area = (w as i64 * h as i64) > 450_000;
+
     let bmi = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -180,74 +61,139 @@ pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glo
 
     let mut p_bits: *mut core::ffi::c_void = std::ptr::null_mut();
     let hbm = CreateDIBSection(hdc_dest, &bmi, DIB_RGB_COLORS, &mut p_bits, None, 0).unwrap();
-    
+
     if !p_bits.is_null() {
         let pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (buf_w * buf_h) as usize);
-        
+
         let bx = (w as f32) / 2.0;
         let by = (h as f32) / 2.0;
         let center_x = (pad as f32) + bx;
         let center_y = (pad as f32) + by;
-
         let eff_radius = CORNER_RADIUS.min(bx).min(by);
-        let time_rad = time_offset.to_radians();
 
-        // Render loop
-        for y in 0..buf_h {
-            for x in 0..buf_w {
-                let idx = (y * buf_w + x) as usize;
-                let px = (x as f32) - center_x;
+        if is_large_area && is_glowing {
+            // === FAST LOOP (For Massive Selections) ===
+            // Optimization: Outer glow, global color, no atan2.
+            let time_rad = time_offset.to_radians();
+            let glow_width = 12.0 + (time_rad * 4.0).sin() * 4.0;
+
+            let hue = (time_offset * 3.0) % 360.0;
+            let global_color = hsv_to_rgb(hue, 0.75, 1.0);
+
+            let gc_r = ((global_color >> 16) & 0xFF) as u32;
+            let gc_g = ((global_color >> 8) & 0xFF) as u32;
+            let gc_b = (global_color & 0xFF) as u32;
+
+            for y in 0..buf_h {
                 let py = (y as f32) - center_y;
-                
-                let d = sd_rounded_box(px, py, bx, by, eff_radius);
-                
-                let mut final_col = 0x00FFFFFF;
-                let mut final_alpha = 0.0f32;
+                for x in 0..buf_w {
+                    let px = (x as f32) - center_x;
 
-                if is_glowing {
+                    let qx = px.abs() - bx + eff_radius;
+                    let qy = py.abs() - by + eff_radius;
+                    let d = if qx > 0.0 && qy > 0.0 { ((qx * qx + qy * qy).sqrt()) - eff_radius } else { qx.max(qy) - eff_radius };
+
                     if d <= 0.0 {
-                         final_alpha = 0.85; 
-                         final_col = 0x00111111;
-                    } else {
-                        let angle = py.atan2(px);
-                        let noise = (angle * 2.0 + time_rad * 3.0).sin() * 0.2;
-                        let glow_width = 8.0 + (noise * 5.0);
-                        
-                        let t = (d / glow_width).clamp(0.0, 1.0);
-                        final_alpha = (1.0 - t).powi(2);
-                        
-                        if final_alpha > 0.01 {
-                            let hue = (angle.to_degrees() + time_offset * 2.0) % 360.0;
-                            final_col = hsv_to_rgb(hue, 0.8, 1.0);
+                        pixels[(y * buf_w + x) as usize] = 0xD80E0E0E; // Dark inside
+                    } else if d < glow_width {
+                        let t = d / glow_width;
+                        let alpha_f = (1.0 - t).powi(2);
+                        let a = (alpha_f * 255.0) as u32;
+                        if a > 0 {
+                            let r = (gc_r * a) >> 8;
+                            let g = (gc_g * a) >> 8;
+                            let b = (gc_b * a) >> 8;
+                            pixels[(y * buf_w + x) as usize] = (a << 24) | (r << 16) | (g << 8) | b;
                         }
                     }
-                } else {
-                     if d <= 0.0 {
+                }
+            }
+        } else {
+            // === FANCY LOOP (Restored "Old Style" Inner Glow) ===
+            // This replicates the logic from your recording overlay/old code exactly.
+
+            let time_rad = time_offset.to_radians();
+            let min_dim = (w.min(h) as f32);
+            let perimeter = 2.0 * (w + h) as f32;
+
+            // Logic restored from render_box_sdf_old_style
+            let dynamic_base_scale = (min_dim * 0.2).clamp(30.0, 180.0);
+            let complexity_scale = 1.0 + (perimeter / 1800.0);
+            let freq1 = (2.0 * complexity_scale).round();
+            let freq2 = (5.0 * complexity_scale).round();
+
+            for y in 0..buf_h {
+                for x in 0..buf_w {
+                    let idx = (y * buf_w + x) as usize;
+                    let px = (x as f32) - center_x;
+                    let py = (y as f32) - center_y;
+
+                    let d = sd_rounded_box(px, py, bx, by, eff_radius);
+
+                    let mut final_col = 0u32;
+                    let mut final_alpha = 0.0f32;
+
+                    if d > 0.0 {
+                        // Outside: White border
+                        let aa = (1.5 - d).clamp(0.0, 1.0);
+                        if aa > 0.0 {
+                            final_alpha = aa;
+                            final_col = 0x00FFFFFF;
+                        }
+                    } else if is_glowing {
+                        // Inside: The Beautiful Chaotic Rainbow Glow
+                        let angle = py.atan2(px);
+
+                        // Restored Noise Function
+                        let noise = (angle * freq1 + time_rad * 2.0).sin() * 0.5
+                                  + (angle * freq2 - time_rad * 3.0).sin() * 0.4;
+
+                        let local_glow_width = dynamic_base_scale + (noise * (dynamic_base_scale * 0.65));
+                        let dist_in = d.abs();
+
+                        let t = (dist_in / local_glow_width).clamp(0.0, 1.0);
+                        let intensity = (1.0 - t).powi(3);
+
+                        final_alpha = intensity;
+                        // Prevent center transparency hole if scale is small
+                        if dist_in < 4.0 { final_alpha = 1.0; }
+
+                        if final_alpha > 0.005 {
+                            let deg = angle.to_degrees() + 180.0;
+                            let hue = (deg + time_offset) % 360.0;
+                            // Brighter saturation/value for the "neon" look
+                            let rgb = hsv_to_rgb(hue, 0.8, 1.0);
+
+                            // Center core is white
+                            if dist_in < 2.0 { final_col = 0x00FFFFFF; } else { final_col = rgb; }
+                        }
+                    } else {
+                        // Dragging (Static)
                         final_alpha = 0.85;
                         final_col = 0x00111111;
-                     } else if d < 2.0 {
-                        final_alpha = 1.0;
-                        final_col = 0x00AAAAAA;
-                     }
-                }
+                    }
 
-                // PRE-MULTIPLY ALPHA for ARGB format
-                let a = (final_alpha * 255.0) as u32;
-                let r = ((final_col >> 16) & 0xFF) * a / 255;
-                let g = ((final_col >> 8) & 0xFF) * a / 255;
-                let b = (final_col & 0xFF) * a / 255;
-                
-                pixels[idx] = (a << 24) | (r << 16) | (g << 8) | b;
+                    if final_alpha > 0.0 {
+                        let a = (final_alpha * 255.0) as u32;
+                        let r = ((final_col >> 16) & 0xFF) as f32;
+                        let g = ((final_col >> 8) & 0xFF) as f32;
+                        let b = (final_col & 0xFF) as f32;
+
+                        let r_pre = ((r * final_alpha) as u32).min(255);
+                        let g_pre = ((g * final_alpha) as u32).min(255);
+                        let b_pre = ((b * final_alpha) as u32).min(255);
+
+                        pixels[idx] = (a << 24) | (r_pre << 16) | (g_pre << 8) | b_pre;
+                    } else {
+                        pixels[idx] = 0;
+                    }
+                }
             }
         }
-        
-        // Select the bitmap into the destination DC and draw
+
         let mem_dc = CreateCompatibleDC(hdc_dest);
         let old_bmp = SelectObject(mem_dc, hbm);
-        
-        // Use BitBlt for selection overlay (non-alpha)
         let _ = BitBlt(hdc_dest, bounds.left - pad, bounds.top - pad, buf_w, buf_h, mem_dc, 0, 0, SRCCOPY);
-        
         SelectObject(mem_dc, old_bmp);
         DeleteDC(mem_dc);
     }
