@@ -206,25 +206,43 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         WM_HOTKEY => {
             let id = wparam.0 as i32;
             if id > 0 {
-                // Decode ID to get preset index
-                // ID = (p_idx * 1000) + h_idx + 1
                 let preset_idx = ((id - 1) / 1000) as usize;
-
-                if overlay::is_selection_overlay_active_and_dismiss() {
-                    return LRESULT(0);
-                }
                 
-                match capture_full_screen() {
-                    Ok(img) => {
-                        {
-                            let mut app = APP.lock().unwrap();
-                            app.original_screenshot = Some(img);
-                        }
+                // Get preset type
+                let preset_type = {
+                    let app = APP.lock().unwrap();
+                    if preset_idx < app.config.presets.len() {
+                        app.config.presets[preset_idx].preset_type.clone()
+                    } else { "image".to_string() }
+                };
+
+                if preset_type == "audio" {
+                    if overlay::is_recording_overlay_active() {
+                        // Stop and Submit
+                        overlay::stop_recording_and_submit();
+                    } else {
+                        // Start Recording
                         std::thread::spawn(move || {
-                           overlay::show_selection_overlay(preset_idx); 
+                            overlay::show_recording_overlay(preset_idx);
                         });
-                    },
-                    Err(e) => println!("Capture Error: {}", e),
+                    }
+                } else {
+                    // Image Flow
+                    if overlay::is_selection_overlay_active_and_dismiss() {
+                        return LRESULT(0);
+                    }
+                    match capture_full_screen() {
+                        Ok(img) => {
+                            {
+                                let mut app = APP.lock().unwrap();
+                                app.original_screenshot = Some(img);
+                            }
+                            std::thread::spawn(move || {
+                               overlay::show_selection_overlay(preset_idx); 
+                            });
+                        },
+                        Err(e) => println!("Capture Error: {}", e),
+                    }
                 }
             }
             LRESULT(0)

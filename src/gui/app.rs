@@ -537,21 +537,46 @@ impl eframe::App for SettingsApp {
                                     .selected_text(selected_text)
                                     .show_ui(ui, |ui| {
                                         if ui.selectable_value(&mut preset.preset_type, "image".to_string(), image_label).clicked() {
+                                            preset.model = "scout".to_string(); // Reset model default
                                             preset_changed = true;
                                         }
-                                        ui.add_enabled_ui(false, |ui| {
-                                            ui.selectable_value(&mut preset.preset_type, "audio".to_string(), audio_label);
-                                        });
+                                        if ui.selectable_value(&mut preset.preset_type, "audio".to_string(), audio_label).clicked() {
+                                            preset.model = "whisper-fast".to_string(); // Reset model default
+                                            preset_changed = true;
+                                        }
                                     });
                             });
 
-                            // 2. Prompt & Language Tag
-                            if !preset.is_upcoming {
+                            let is_audio = preset.preset_type == "audio";
+
+                            // 2. Main Configuration (Different for Image vs Audio)
+                            if is_audio {
+                                // --- AUDIO SETTINGS ---
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new(text.audio_source_label).strong());
+                                    
+                                    ui.horizontal(|ui| {
+                                        if ui.radio_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() {
+                                            preset_changed = true;
+                                        }
+                                        if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() {
+                                            preset_changed = true;
+                                        }
+                                    });
+
+                                    ui.add_space(5.0);
+                                    if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() {
+                                        preset_changed = true;
+                                    }
+                                });
+
+                            } else {
+                                // --- IMAGE PROMPT SETTINGS ---
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.label(egui::RichText::new(text.prompt_label).strong());
                                         if ui.button(text.insert_lang_btn).clicked() {
-                                            // Find the next language badge number
+                                            // ... (existing insert lang logic) ...
                                             let mut max_num = 0;
                                             for i in 1..=10 {
                                                 if preset.prompt.contains(&format!("{{language{}}}", i)) {
@@ -560,13 +585,10 @@ impl eframe::App for SettingsApp {
                                             }
                                             let next_num = max_num + 1;
                                             preset.prompt.push_str(&format!(" {{language{}}} ", next_num));
-                                            
-                                            // Initialize in language_vars if not present
                                             let key = format!("language{}", next_num);
                                             if !preset.language_vars.contains_key(&key) {
                                                 preset.language_vars.insert(key, "Vietnamese".to_string());
                                             }
-                                            
                                             preset_changed = true;
                                         }
                                     });
@@ -575,7 +597,7 @@ impl eframe::App for SettingsApp {
                                         preset_changed = true;
                                     }
                                     
-                                    // Detect all {languageN} patterns in the prompt
+                                    // ... (existing language tag selectors logic) ...
                                     let mut detected_langs = Vec::new();
                                     for i in 1..=10 {
                                         let pattern = format!("{{language{}}}", i);
@@ -584,31 +606,23 @@ impl eframe::App for SettingsApp {
                                         }
                                     }
                                     
-                                    // Show language selectors for detected patterns
                                     for num in detected_langs {
                                         let key = format!("language{}", num);
-                                        
-                                        // Ensure the key exists in language_vars
                                         if !preset.language_vars.contains_key(&key) {
                                             preset.language_vars.insert(key.clone(), "Vietnamese".to_string());
                                         }
-                                        
-                                        // Always use numbered format: {language1}, {language2}, etc.
                                         let label = match self.config.ui_language.as_str() {
                                             "vi" => format!("Ngôn ngữ cho thẻ {{language{}}}:", num),
                                             "ko" => format!("{{language{}}} 태그 언어:", num),
                                             _ => format!("Language for {{language{}}} tag:", num),
                                         };
-                                        
                                         ui.horizontal(|ui| {
                                             ui.label(label);
-                                            
                                             let current_lang = preset.language_vars.get(&key).cloned().unwrap_or_else(|| "Vietnamese".to_string());
                                             ui.menu_button(current_lang.clone(), |ui| {
                                                 ui.style_mut().wrap = Some(false);
                                                 ui.set_min_width(150.0);
                                                 ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
-                                                
                                                 let q = self.search_query.to_lowercase();
                                                 egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                                                     for lang in get_all_languages().iter() {
@@ -621,40 +635,38 @@ impl eframe::App for SettingsApp {
                                                         }
                                                     }
                                                 });
-
-
                                             });
-
-
                                         });
                                     }
                                 });
+                            }
 
-                                // 3. Model & Settings
-                                ui.group(|ui| {
-                                    ui.label(egui::RichText::new(text.model_section).strong());
-                                    
-                                    // Vision Model Selector
-                                    let full_label = get_model_by_id(&preset.model)
-                                        .map(|m| m.get_label(&self.config.ui_language))
-                                        .unwrap_or_else(|| preset.model.clone());
-                                    
-                                    // Short label for outer display
-                                    let short_label = full_label.split('(').next().unwrap_or(&full_label).trim().to_string();
+                            // 3. Model & Settings (Shared structure, filtered by type)
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(text.model_section).strong());
+                                
+                                let full_label = get_model_by_id(&preset.model)
+                                    .map(|m| m.get_label(&self.config.ui_language))
+                                    .unwrap_or_else(|| preset.model.clone());
+                                let short_label = full_label.split('(').next().unwrap_or(&full_label).trim().to_string();
 
-                                    egui::ComboBox::from_id_source("vision_model_selector")
-                                        .selected_text(short_label)
-                                        .width(250.0)
-                                        .show_ui(ui, |ui| {
-                                            for model in get_all_models() {
-                                                if model.enabled && model.model_type == ModelType::Vision {
-                                                    if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
-                                                        preset_changed = true;
-                                                    }
+                                egui::ComboBox::from_id_source("model_selector")
+                                    .selected_text(short_label)
+                                    .width(250.0)
+                                    .show_ui(ui, |ui| {
+                                        let target_type = if is_audio { ModelType::Audio } else { ModelType::Vision };
+                                        for model in get_all_models() {
+                                            if model.enabled && model.model_type == target_type {
+                                                if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
+                                                    preset_changed = true;
                                                 }
                                             }
-                                        });
+                                        }
+                                    });
 
+                                // Audio doesn't support streaming "As Received" typically for single transcription, usually waits for chunk
+                                // But keeping logic simple.
+                                if !is_audio {
                                     ui.horizontal(|ui| {
                                         ui.label(text.streaming_label);
                                         egui::ComboBox::from_id_source("stream_combo")
@@ -663,154 +675,124 @@ impl eframe::App for SettingsApp {
                                                 if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
                                                 if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
                                             });
-
-
-                                    });
-
-                                    ui.horizontal(|ui| {
-                                        if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
-                                            preset_changed = true;
-                                            if preset.auto_copy {
-                                                preset.retranslate_auto_copy = false;
-                                            }
-                                        }
-                                        if preset.auto_copy {
-                                            if ui.checkbox(&mut preset.hide_overlay, text.hide_overlay_label).clicked() {
-                                                preset_changed = true;
-                                            }
-                                        }
-                                    });
-                                });
-
-                                // 4. Retranslate
-                                if !preset.hide_overlay {
-                                    ui.group(|ui| {
-                                        ui.label(egui::RichText::new(text.retranslate_section).strong());
-                                        if ui.checkbox(&mut preset.retranslate, text.retranslate_checkbox).clicked() {
-                                            preset_changed = true;
-                                        }
-
-                                        if preset.retranslate {
-                                            // Target Language (Searchable - using menu_button)
-                                            ui.horizontal(|ui| {
-                                                ui.label(text.retranslate_to_label);
-                                                
-                                                let retrans_label = preset.retranslate_to.clone();
-                                                ui.menu_button(retrans_label, |ui| {
-                                                    ui.style_mut().wrap = Some(false);
-                                                    ui.set_min_width(150.0);
-                                                    ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
-                                                    
-                                                    let q = self.search_query.to_lowercase();
-                                                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                                                        for lang in get_all_languages().iter() {
-                                                            if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                                if ui.button(lang).clicked() {
-                                                                    preset.retranslate_to = lang.clone();
-                                                                    preset_changed = true;
-                                                                    ui.close_menu();
-                                                                }
-                                                            }
-                                                        }
-                                                    });
-
-
-                                                });
-
-
-                                            });
-
-
-
-                                            // Text Model Selector
-                                            ui.horizontal(|ui| {
-                                                ui.label(text.retranslate_model_label);
-                                                let full_text_model = get_model_by_id(&preset.retranslate_model)
-                                                    .map(|m| m.get_label(&self.config.ui_language))
-                                                    .unwrap_or_else(|| preset.retranslate_model.clone());
-                                                
-                                                let short_text_model = full_text_model.split('(').next().unwrap_or(&full_text_model).trim().to_string();
-                                                
-                                                egui::ComboBox::from_id_source("text_model_selector")
-                                                    .selected_text(short_text_model)
-                                                    .width(180.0)
-                                                    .show_ui(ui, |ui| {
-                                                        for model in get_all_models() {
-                                                            if model.enabled && model.model_type == ModelType::Text {
-                                                                if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
-                                                                    preset_changed = true;
-                                                                }
-                                                            }
-                                                        }
-                                                    });
-
-
-                                            });
-
-
-
-                                            // Retranslate Streaming Toggle
-                                            ui.horizontal(|ui| {
-                                                ui.label(text.streaming_label);
-                                                egui::ComboBox::from_id_source("retranslate_stream_combo")
-                                                    .selected_text(if preset.retranslate_streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                                                    .show_ui(ui, |ui| {
-                                                        if ui.selectable_value(&mut preset.retranslate_streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
-                                                        if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
-                                                    });
-                                            });
-
-                                            // Retranslate Auto Copy
-                                            ui.horizontal(|ui| {
-                                                if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
-                                                    preset_changed = true;
-                                                    if preset.retranslate_auto_copy {
-                                                        preset.auto_copy = false;
-                                                    }
-                                                }
-                                            });
-
-
-                                        }
                                     });
                                 }
 
-                                // 5. Hotkeys
-                                ui.group(|ui| {
-                                    ui.label(egui::RichText::new(text.hotkey_bag_label).strong());
-                                    
-                                    let mut indices_to_remove = Vec::new();
-                                    for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
-                                        ui.horizontal(|ui| {
-                                            ui.strong(&hotkey.name);
-                                            if ui.small_button("✖").clicked() {
-                                                indices_to_remove.push(h_idx);
-                                            }
-                                        });
-                                    }
-                                    for i in indices_to_remove.iter().rev() {
-                                        preset.hotkeys.remove(*i);
+                                ui.horizontal(|ui| {
+                                    if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
                                         preset_changed = true;
+                                        if preset.auto_copy { preset.retranslate_auto_copy = false; }
                                     }
-
-                                    if self.recording_hotkey_for_preset == Some(idx) {
-                                        ui.horizontal(|ui| {
-                                            ui.colored_label(egui::Color32::YELLOW, text.press_keys);
-                                            if ui.button(text.cancel_label).clicked() {
-                                                self.recording_hotkey_for_preset = None;
-                                                self.hotkey_conflict_msg = None;
-                                            }
-                                        });
-                                        if let Some(msg) = &self.hotkey_conflict_msg {
-                                            ui.colored_label(egui::Color32::RED, msg);
-                                        }
-                                    } else {
-                                        if ui.button(text.add_hotkey_button).clicked() {
-                                            self.recording_hotkey_for_preset = Some(idx);
+                                    if preset.auto_copy {
+                                        if ui.checkbox(&mut preset.hide_overlay, text.hide_overlay_label).clicked() {
+                                            preset_changed = true;
                                         }
                                     }
                                 });
+                            });
+
+                            // 4. Retranslate (Shared)
+                            // Audio usually needs retranslation? Yes, Transcribe -> Translate.
+                            if !preset.hide_overlay {
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new(text.retranslate_section).strong());
+                                    if ui.checkbox(&mut preset.retranslate, text.retranslate_checkbox).clicked() {
+                                        preset_changed = true;
+                                    }
+
+                                    if preset.retranslate {
+                                        // Target Language
+                                        ui.horizontal(|ui| {
+                                            ui.label(text.retranslate_to_label);
+                                            let retrans_label = preset.retranslate_to.clone();
+                                            ui.menu_button(retrans_label, |ui| {
+                                                ui.style_mut().wrap = Some(false);
+                                                ui.set_min_width(150.0);
+                                                ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
+                                                let q = self.search_query.to_lowercase();
+                                                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                                                    for lang in get_all_languages().iter() {
+                                                        if q.is_empty() || lang.to_lowercase().contains(&q) {
+                                                            if ui.button(lang).clicked() {
+                                                                preset.retranslate_to = lang.clone();
+                                                                preset_changed = true;
+                                                                ui.close_menu();
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            });
+                                        });
+
+                                        // Text Model Selector
+                                        ui.horizontal(|ui| {
+                                            ui.label(text.retranslate_model_label);
+                                            let full_text_model = get_model_by_id(&preset.retranslate_model)
+                                                .map(|m| m.get_label(&self.config.ui_language))
+                                                .unwrap_or_else(|| preset.retranslate_model.clone());
+                                            
+                                            let short_text_model = full_text_model.split('(').next().unwrap_or(&full_text_model).trim().to_string();
+                                            
+                                            egui::ComboBox::from_id_source("text_model_selector")
+                                                .selected_text(short_text_model)
+                                                .width(180.0)
+                                                .show_ui(ui, |ui| {
+                                                    for model in get_all_models() {
+                                                        if model.enabled && model.model_type == ModelType::Text {
+                                                            if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
+                                                                preset_changed = true;
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                        });
+
+                                        // Retranslate Settings
+                                        ui.horizontal(|ui| {
+                                            if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
+                                                preset_changed = true;
+                                                if preset.retranslate_auto_copy { preset.auto_copy = false; }
+                                            }
+                                        });
+                                    }
+                                });
                             }
+
+                            // 5. Hotkeys
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new(text.hotkeys_section).strong());
+                                
+                                let mut hotkey_to_remove = None;
+                                for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
+                                    ui.horizontal(|ui| {
+                                        ui.label(&hotkey.name);
+                                        if ui.small_button("x").clicked() {
+                                            hotkey_to_remove = Some(h_idx);
+                                        }
+                                    });
+                                }
+                                if let Some(h_idx) = hotkey_to_remove {
+                                    preset.hotkeys.remove(h_idx);
+                                    preset_changed = true;
+                                }
+
+                                if self.recording_hotkey_for_preset == Some(idx) {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(egui::Color32::YELLOW, text.press_keys);
+                                        if ui.button(text.cancel_label).clicked() {
+                                            self.recording_hotkey_for_preset = None;
+                                            self.hotkey_conflict_msg = None;
+                                        }
+                                    });
+                                    if let Some(msg) = &self.hotkey_conflict_msg {
+                                        ui.colored_label(egui::Color32::RED, msg);
+                                    }
+                                } else {
+                                    if ui.button(text.add_hotkey_button).clicked() {
+                                        self.recording_hotkey_for_preset = Some(idx);
+                                    }
+                                }
+                            });
 
                             // Update the preset in the config
                             if idx < self.config.presets.len() {

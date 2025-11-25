@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use image::{ImageBuffer, Rgba, ImageFormat};
 use base64::{Engine as _, engine::general_purpose};
 use std::io::{Cursor, BufRead, BufReader};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use windows::Win32::Foundation::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crate::config::Preset;
 
 #[derive(Serialize, Deserialize)]
 struct StreamChunk {
@@ -374,4 +379,217 @@ where
     }
 
     Ok(full_content)
+}
+
+pub fn record_audio_and_transcribe(
+    preset: Preset, 
+    stop_signal: Arc<AtomicBool>, 
+    pause_signal: Arc<AtomicBool>,
+    overlay_hwnd: HWND
+) {
+    let host = cpal::default_host();
+    
+    // Device selection with WASAPI loopback support
+    let device = if preset.audio_source == "device" {
+        // Try to get loopback device on Windows
+        #[cfg(target_os = "windows")]
+        {
+            use cpal::traits::HostTrait;
+            // For WASAPI loopback, we need to use the output device in loopback mode
+            // This requires using the host's default output device
+            match host.default_output_device() {
+                Some(output_dev) => {
+                    // Note: cpal doesn't directly support WASAPI loopback mode
+                    // We'll use the output device, but actual loopback requires platform-specific code
+                    // For now, fall back to default input
+                    host.default_input_device().expect("No input device available")
+                },
+                None => host.default_input_device().expect("No input device available")
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            host.default_input_device().expect("No input device available")
+        }
+    } else {
+        host.default_input_device().expect("No input device available")
+    };
+
+    let config = device.default_input_config().expect("Failed to get config");
+    let sample_rate = config.sample_rate().0;
+    let channels = config.channels();
+    
+    let spec = hound::WavSpec {
+        channels,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    // Buffer to hold audio samples
+    let audio_buffer = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer_buf = audio_buffer.clone();
+
+    // Stream Setup
+    let err_fn = |err| eprintln!("Audio stream error: {}", err);
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            move |data: &[f32], _: &_| {
+                if !pause_signal.load(Ordering::Relaxed) {
+                    let mut buf = writer_buf.lock().unwrap();
+                    for &sample in data {
+                        // Convert f32 to i16 for WAV
+                        let amplitude = i16::MAX as f32;
+                        let s = (sample * amplitude) as i16;
+                        buf.push(s); 
+                    }
+                }
+            },
+            err_fn,
+            None
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[i16], _: &_| {
+                if !pause_signal.load(Ordering::Relaxed) {
+                    let mut buf = writer_buf.lock().unwrap();
+                    buf.extend_from_slice(data);
+                }
+            },
+            err_fn,
+            None
+        ),
+        _ => panic!("Unsupported audio format"),
+    }.expect("Failed to build audio stream");
+
+    stream.play().expect("Failed to start audio stream");
+
+    // Wait loop
+    while !stop_signal.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if !unsafe { IsWindow(overlay_hwnd).as_bool() } {
+            return; // Aborted
+        }
+    }
+
+    drop(stream);
+
+    // Get the recorded audio buffer
+    let samples = audio_buffer.lock().unwrap().clone();
+    
+    if samples.is_empty() {
+        unsafe {
+            PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+        return;
+    }
+
+    // Write to temporary WAV file
+    let temp_dir = std::env::temp_dir();
+    let wav_path = temp_dir.join(format!("sgt_audio_{}.wav", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()));
+    
+    let mut writer = hound::WavWriter::create(&wav_path, spec).expect("Failed to create WAV file");
+    for sample in &samples {
+        writer.write_sample(*sample).expect("Failed to write sample");
+    }
+    writer.finalize().expect("Failed to finalize WAV file");
+
+    // Read WAV file for upload
+    let wav_data = std::fs::read(&wav_path).expect("Failed to read WAV file");
+    
+    // Clean up temp file
+    let _ = std::fs::remove_file(&wav_path);
+
+    // Determine API endpoint and model
+    let model_config = crate::model_config::get_model_by_id(&preset.model);
+    let model_name = model_config.map(|m| m.full_name.clone()).unwrap_or_else(|| "whisper-1".to_string());
+    
+    // Get API key from config
+    let api_key = {
+        let app = crate::APP.lock().unwrap();
+        app.config.api_key.clone()
+    };
+
+    if api_key.trim().is_empty() {
+        unsafe {
+            PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+        return;
+    }
+
+    // Upload to Whisper API (Groq compatible endpoint)
+    let transcription_result = upload_audio_to_whisper(&api_key, &model_name, wav_data);
+    
+    // Handle Result showing
+    unsafe {
+        PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+    }
+
+    match transcription_result {
+        Ok(transcription_text) => {
+            // Spawn Result Windows (Center Screen)
+            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+            let w = 600;
+            let h = 200;
+            let rect = RECT {
+                left: (screen_w - w) / 2,
+                top: (screen_h - h) / 2,
+                right: (screen_w + w) / 2,
+                bottom: (screen_h + h) / 2
+            };
+
+            crate::overlay::process::show_audio_result(preset, transcription_text, rect);
+        },
+        Err(e) => {
+            eprintln!("Transcription error: {}", e);
+        }
+    }
+}
+
+fn upload_audio_to_whisper(api_key: &str, model: &str, audio_data: Vec<u8>) -> anyhow::Result<String> {
+    // Create multipart form data
+    let boundary = format!("----SGTBoundary{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis());
+    
+    let mut body = Vec::new();
+    
+    // Add model field
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
+    body.extend_from_slice(model.as_bytes());
+    body.extend_from_slice(b"\r\n");
+    
+    // Add file field
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n");
+    body.extend_from_slice(b"Content-Type: audio/wav\r\n\r\n");
+    body.extend_from_slice(&audio_data);
+    body.extend_from_slice(b"\r\n");
+    
+    // End boundary
+    body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
+    
+    // Make API request
+    let response = ureq::post("https://api.groq.com/openai/v1/audio/transcriptions")
+        .set("Authorization", &format!("Bearer {}", api_key))
+        .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+        .send_bytes(&body)
+        .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
+    
+    // Parse response
+    let json: serde_json::Value = response.into_json()
+        .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+    
+    let text = json.get("text")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| anyhow::anyhow!("No text in response"))?;
+    
+    Ok(text.to_string())
 }

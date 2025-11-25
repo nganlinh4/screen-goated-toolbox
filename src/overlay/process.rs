@@ -5,7 +5,7 @@ use image::GenericImageView;
 
 use crate::{AppState, api::{translate_image_streaming, translate_text_streaming}};
 use super::utils::{copy_to_clipboard, get_error_message};
-use super::result::{create_result_window, update_window_text, WindowType};
+use super::result::{create_result_window, update_window_text, WindowType, link_windows};
 
 pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND, preset_idx: usize) {
     // 1. Snapshot and Configuration Retrieval
@@ -247,4 +247,107 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
     } else {
         unsafe { PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
     }
+}
+
+pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT) {
+    let hide_overlay = preset.hide_overlay;
+    let auto_copy = preset.auto_copy;
+    let retranslate = preset.retranslate;
+    let retranslate_to = preset.retranslate_to.clone();
+    let retranslate_model_id = preset.retranslate_model.clone();
+    let retranslate_streaming_enabled = preset.retranslate_streaming_enabled;
+    let retranslate_auto_copy = preset.retranslate_auto_copy;
+    
+    std::thread::spawn(move || {
+        let primary_hwnd = create_result_window(rect, WindowType::Primary);
+        if !hide_overlay {
+            unsafe { ShowWindow(primary_hwnd, SW_SHOW); }
+            update_window_text(primary_hwnd, &text);
+        }
+        
+        if auto_copy {
+            copy_to_clipboard(&text, HWND(0));
+        }
+
+        // Retranslation logic (reused from process_and_close)
+        if retranslate && !text.trim().is_empty() {
+            let text_for_retrans = text.clone();
+            let groq_key = {
+                let app = crate::APP.lock().unwrap();
+                app.config.api_key.clone()
+            };
+            
+            // Spawn Secondary UI Thread (same as image processing)
+            std::thread::spawn(move || {
+                let secondary_hwnd = create_result_window(rect, WindowType::Secondary);
+                link_windows(primary_hwnd, secondary_hwnd);
+                if !hide_overlay {
+                    unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
+                    update_window_text(secondary_hwnd, "");
+                }
+
+                // API Call for Retranslation
+                std::thread::spawn(move || {
+                    let acc_text = Arc::new(Mutex::new(String::new()));
+                    let acc_text_clone = acc_text.clone();
+                    
+                    // Resolve text model
+                    let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
+                    let tm_name = tm_config.map(|m| m.full_name).expect("Retranslate model not found");
+
+                    let text_res = translate_text_streaming(
+                        &groq_key,
+                        text_for_retrans,
+                        retranslate_to,
+                        tm_name,
+                        retranslate_streaming_enabled,
+                        false,
+                        |chunk| {
+                            let mut t = acc_text_clone.lock().unwrap();
+                            t.push_str(chunk);
+                            if !hide_overlay {
+                                update_window_text(secondary_hwnd, &t);
+                            }
+                        }
+                    );
+                    
+                    if let Ok(final_text) = text_res {
+                        if !hide_overlay {
+                            update_window_text(secondary_hwnd, &final_text);
+                        }
+                        if retranslate_auto_copy {
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                                copy_to_clipboard(&final_text, HWND(0));
+                            });
+                        }
+                    } else if let Err(e) = text_res {
+                        if !hide_overlay {
+                            update_window_text(secondary_hwnd, &format!("Error: {}", e));
+                        }
+                    }
+                });
+
+                // Message Loop for Secondary
+                unsafe {
+                    let mut msg = MSG::default();
+                    while GetMessageW(&mut msg, None, 0, 0).into() {
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                        if !IsWindow(secondary_hwnd).as_bool() { break; }
+                    }
+                }
+            });
+        }
+        
+        // Pump messages for primary window
+        unsafe {
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).into() {
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+                if !IsWindow(primary_hwnd).as_bool() { break; }
+            }
+        }
+    });
 }

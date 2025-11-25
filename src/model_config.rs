@@ -4,6 +4,7 @@
 pub enum ModelType {
     Vision,
     Text,
+    Audio,
 }
 
 #[derive(Clone, Debug)]
@@ -94,6 +95,28 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "Super Fast",
             "openai/gpt-oss-20b",
             ModelType::Text,
+            true,
+        ),
+
+        // --- AUDIO MODELS ---
+        ModelConfig::new(
+            "whisper-fast",
+            "groq",
+            "Nhanh",
+            "빠름",
+            "Fast",
+            "whisper-large-v3-turbo",
+            ModelType::Audio,
+            true,
+        ),
+        ModelConfig::new(
+            "whisper-accurate",
+            "groq",
+            "Chính xác",
+            "정확함",
+            "Accurate",
+            "whisper-large-v3",
+            ModelType::Audio,
             true,
         ),
     ]

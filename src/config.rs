@@ -14,29 +14,35 @@ pub struct Preset {
     pub id: String,
     pub name: String,
     pub prompt: String,
-    pub selected_language: String, // Deprecated: kept for backward compatibility
+    pub selected_language: String, 
     #[serde(default)]
-    pub language_vars: HashMap<String, String>, // Maps {language1}, {language2}, etc.
+    pub language_vars: HashMap<String, String>,
     pub model: String,
     pub streaming_enabled: bool,
     pub auto_copy: bool,
     pub hotkeys: Vec<Hotkey>,
     pub retranslate: bool,
-    pub retranslate_to: String, // Target language for retranslation
+    pub retranslate_to: String,
     pub retranslate_model: String,
     pub retranslate_streaming_enabled: bool,
     #[serde(default)]
     pub retranslate_auto_copy: bool,
     pub hide_overlay: bool,
     #[serde(default = "default_preset_type")]
-    pub preset_type: String,
+    pub preset_type: String, // "image" or "audio"
+    
+    // --- New Audio Fields ---
+    #[serde(default = "default_audio_source")]
+    pub audio_source: String, // "mic" or "device"
+    #[serde(default)]
+    pub hide_recording_ui: bool,
+
     #[serde(default)]
     pub is_upcoming: bool,
 }
 
-fn default_preset_type() -> String {
-    "image".to_string()
-}
+fn default_preset_type() -> String { "image".to_string() }
+fn default_audio_source() -> String { "mic".to_string() }
 
 impl Default for Preset {
     fn default() -> Self {
@@ -57,6 +63,8 @@ impl Default for Preset {
             retranslate_auto_copy: false,
             hide_overlay: false,
             preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
             is_upcoming: false,
         }
     }
@@ -72,9 +80,9 @@ pub struct Config {
     pub ui_language: String,
 }
 
-impl Default for Config {
+    impl Default for Config {
     fn default() -> Self {
-        let default_lang = "Vietnamese".to_string(); // Default target
+        let default_lang = "Vietnamese".to_string(); 
         
         // 1. Translation Preset
         let mut trans_lang_vars = HashMap::new();
@@ -97,30 +105,8 @@ impl Default for Config {
             retranslate_auto_copy: false,
             hide_overlay: false,
             preset_type: "image".to_string(),
-            is_upcoming: false,
-        };
-
-        // 1.5. Translate+Retranslate Preset
-        let mut trans_retrans_lang_vars = HashMap::new();
-        trans_retrans_lang_vars.insert("language1".to_string(), "Korean".to_string());
-        
-        let trans_retrans_preset = Preset {
-            id: "preset_translate_retranslate".to_string(),
-            name: "Translate+Retranslate".to_string(),
-            prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
-            selected_language: "Korean".to_string(),
-            language_vars: trans_retrans_lang_vars,
-            model: "scout".to_string(),
-            streaming_enabled: false,
-            auto_copy: false,
-            hotkeys: vec![],
-            retranslate: true,
-            retranslate_to: "Vietnamese".to_string(),
-            retranslate_model: "fast_text".to_string(),
-            retranslate_streaming_enabled: true,
-            retranslate_auto_copy: false,
-            hide_overlay: false,
-            preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
             is_upcoming: false,
         };
 
@@ -140,8 +126,10 @@ impl Default for Config {
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
-            hide_overlay: true, // UPDATED: Hide overlay by default for OCR
+            hide_overlay: true, 
             preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
             is_upcoming: false,
         };
 
@@ -166,6 +154,8 @@ impl Default for Config {
             retranslate_auto_copy: false,
             hide_overlay: false,
             preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
             is_upcoming: false,
         };
 
@@ -190,17 +180,19 @@ impl Default for Config {
             retranslate_auto_copy: false,
             hide_overlay: false,
             preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
             is_upcoming: false,
         };
 
-        // 5. Transcribe (Upcoming)
-        let upcoming_preset = Preset {
+        // 5. Transcribe (Audio)
+        let audio_preset = Preset {
             id: "preset_transcribe".to_string(),
-            name: "Transcribe (upcoming)".to_string(),
+            name: "Transcribe Audio".to_string(),
             prompt: "".to_string(),
             selected_language: default_lang.clone(),
             language_vars: HashMap::new(),
-            model: "scout".to_string(),
+            model: "whisper-fast".to_string(),
             streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
@@ -211,13 +203,15 @@ impl Default for Config {
             retranslate_auto_copy: false,
             hide_overlay: false,
             preset_type: "audio".to_string(),
-            is_upcoming: true,
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
+            is_upcoming: false,
         };
 
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
-            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, sum_preset, desc_preset, upcoming_preset],
+            presets: vec![trans_preset, ocr_preset, sum_preset, desc_preset, audio_preset],
             active_preset_idx: 0,
             dark_mode: true,
             ui_language: "vi".to_string(),
