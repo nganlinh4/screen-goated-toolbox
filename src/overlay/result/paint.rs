@@ -289,8 +289,16 @@ pub fn paint_window(hwnd: HWND) {
             
             let btn_size = 28; 
             let margin = 12;
+            
+            // === ADAPTIVE VERTICAL CENTER ===
+            let threshold_h = btn_size + (margin * 2);
+            let cy = if height < threshold_h {
+                (height as f32) / 2.0
+            } else {
+                (height - margin - btn_size / 2) as f32
+            };
+            
             let cx = (width - margin - btn_size / 2) as f32;
-            let cy = (height - margin - btn_size / 2) as f32;
             let radius = 13.0;
 
             // Button color logic
@@ -359,8 +367,9 @@ pub fn paint_window(hwnd: HWND) {
             }
 
             // Draw Icon (GDI)
-            let icx = (width - margin - btn_size / 2);
-            let icy = (height - margin - btn_size / 2);
+            // Use accurate rounding for GDI coordinates to match button center (cx, cy)
+            let icx = cx.round() as i32;
+            let icy = cy.round() as i32;
 
             let icon_pen = CreatePen(PS_SOLID, 2, COLORREF(0x00FFFFFF));
             let old_pen = SelectObject(mem_dc, icon_pen);

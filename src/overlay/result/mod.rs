@@ -139,6 +139,30 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
     }
 }
 
+// Helper to calculate button position dynamically
+fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let btn_size = 28;
+    let margin = 12;
+    
+    // Adaptive Positioning:
+    // If window is too short (less than button + 2*margin), center vertically.
+    // Otherwise, stick to bottom-right.
+    let threshold_h = btn_size + (margin * 2);
+    
+    let top = if window_h < threshold_h {
+        (window_h - btn_size) / 2
+    } else {
+        window_h - margin - btn_size
+    };
+
+    RECT {
+        left: window_w - margin - btn_size,
+        top,
+        right: window_w - margin,
+        bottom: top + btn_size,
+    }
+}
+
 unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_ERASEBKGND => LRESULT(1),
@@ -176,19 +200,10 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 let width = rect.right - rect.left;
                 let height = rect.bottom - rect.top;
                 
-                // === UPDATED HITBOX LOGIC ===
-                // Button Visuals: Size 28, Margin 12 (from Edge)
-                let btn_size = 28;
-                let margin = 12;
-                let btn_rect = RECT { 
-                    left: width - margin - btn_size, 
-                    top: height - margin - btn_size, 
-                    right: width - margin, 
-                    bottom: height - margin 
-                };
-                
-                // Expand hitbox slightly (padding) for easier clicking
+                // === UPDATED HITBOX LOGIC WITH ADAPTIVE CENTERING ===
+                let btn_rect = get_copy_btn_rect(width, height);
                 let padding = 4;
+                
                 state.on_copy_btn = 
                     x as i32 >= btn_rect.left - padding && 
                     x as i32 <= btn_rect.right + padding && 
@@ -233,18 +248,10 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let width = rect.right - rect.left;
             let height = rect.bottom - rect.top;
             
-            // === UPDATED HITBOX LOGIC FOR CLICK ===
-            let btn_size = 28;
-            let margin = 12;
-            let btn_rect = RECT { 
-                left: width - margin - btn_size, 
-                top: height - margin - btn_size, 
-                right: width - margin, 
-                bottom: height - margin 
-            };
-            
-            // Same padding as hover
+            // === UPDATED HITBOX LOGIC FOR CLICK WITH ADAPTIVE CENTERING ===
+            let btn_rect = get_copy_btn_rect(width, height);
             let padding = 4;
+            
             let is_copy_click = 
                 x >= btn_rect.left - padding && 
                 x <= btn_rect.right + padding && 
