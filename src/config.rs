@@ -159,6 +159,29 @@ pub struct Config {
             is_upcoming: false,
         };
 
+        // 2.5. Extract text+Retranslate Preset
+        let extract_retrans_preset = Preset {
+            id: "preset_extract_retranslate".to_string(),
+            name: "Extract text+Retranslate".to_string(),
+            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+            selected_language: "English".to_string(),
+            language_vars: HashMap::new(),
+            model: "scout".to_string(),
+            streaming_enabled: false,
+            auto_copy: true,
+            hotkeys: vec![],
+            retranslate: true,
+            retranslate_to: default_lang.clone(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            hide_overlay: false,
+            preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
+            is_upcoming: false,
+        };
+
         // 3. Summarize Preset
         let mut sum_lang_vars = HashMap::new();
         sum_lang_vars.insert("language1".to_string(), default_lang.clone());
@@ -214,7 +237,7 @@ pub struct Config {
         // 5. Transcribe (Audio)
         let audio_preset = Preset {
             id: "preset_transcribe".to_string(),
-            name: "Transcribe Audio".to_string(),
+            name: "Transcribe Speech".to_string(),
             prompt: "".to_string(),
             selected_language: default_lang.clone(),
             language_vars: HashMap::new(),
@@ -234,10 +257,56 @@ pub struct Config {
             is_upcoming: false,
         };
 
+        // 6. Study language Preset
+        let study_lang_preset = Preset {
+            id: "preset_study_language".to_string(),
+            name: "Study language".to_string(),
+            prompt: "".to_string(),
+            selected_language: default_lang.clone(),
+            language_vars: HashMap::new(),
+            model: "whisper-fast".to_string(),
+            streaming_enabled: false,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: true,
+            retranslate_to: default_lang.clone(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            hide_overlay: false,
+            preset_type: "audio".to_string(),
+            audio_source: "device".to_string(),
+            hide_recording_ui: false,
+            is_upcoming: false,
+        };
+
+        // 7. Quick foreigner reply Preset
+        let quick_reply_preset = Preset {
+            id: "preset_quick_foreigner_reply".to_string(),
+            name: "Quick foreigner reply".to_string(),
+            prompt: "".to_string(),
+            selected_language: "Korean".to_string(),
+            language_vars: HashMap::new(),
+            model: "whisper-fast".to_string(),
+            streaming_enabled: false,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: true,
+            retranslate_to: "Korean".to_string(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: true,
+            hide_overlay: false,
+            preset_type: "audio".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
+            is_upcoming: false,
+        };
+
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
-            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, sum_preset, desc_preset, audio_preset],
+            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, sum_preset, desc_preset, audio_preset, study_lang_preset, quick_reply_preset],
             active_preset_idx: 0,
             dark_mode: true,
             ui_language: "vi".to_string(),
