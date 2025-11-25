@@ -110,6 +110,32 @@ pub struct Config {
             is_upcoming: false,
         };
 
+        // 1.5. Translate+Retranslate Preset
+        let mut trans_retrans_lang_vars = HashMap::new();
+        trans_retrans_lang_vars.insert("language1".to_string(), "Korean".to_string());
+
+        let trans_retrans_preset = Preset {
+            id: "preset_translate_retranslate".to_string(),
+            name: "Translate+Retranslate".to_string(),
+            prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+            selected_language: "Korean".to_string(),
+            language_vars: trans_retrans_lang_vars,
+            model: "scout".to_string(),
+            streaming_enabled: false,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: true,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            hide_overlay: false,
+            preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
+            is_upcoming: false,
+        };
+
         // 2. OCR Preset
         let ocr_preset = Preset {
             id: "preset_ocr".to_string(),
@@ -211,7 +237,7 @@ pub struct Config {
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
-            presets: vec![trans_preset, ocr_preset, sum_preset, desc_preset, audio_preset],
+            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, sum_preset, desc_preset, audio_preset],
             active_preset_idx: 0,
             dark_mode: true,
             ui_language: "vi".to_string(),
