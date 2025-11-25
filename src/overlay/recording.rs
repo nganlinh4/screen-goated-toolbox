@@ -13,6 +13,12 @@ static mut ANIMATION_OFFSET: f32 = 0.0;
 static mut CURRENT_PRESET_IDX: usize = 0;
 static mut CURRENT_ALPHA: i32 = 0; // For fade-in
 
+// --- UI CONSTANTS ---
+const UI_WIDTH: i32 = 350;   // More compact width
+const UI_HEIGHT: i32 = 80;   // Reduced height
+const BTN_OFFSET: i32 = 40;  // Distance from edge to icon center
+const HIT_RADIUS: i32 = 25;  // Clickable radius around buttons
+
 // Shared flag for the audio thread
 lazy_static::lazy_static! {
     pub static ref AUDIO_STOP_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -60,19 +66,17 @@ pub fn show_recording_overlay(preset_idx: usize) {
             RegisterClassW(&wc);
         }
 
-        let w = 420; // Slightly wider to accommodate text comfortably
-        let h = 100; // Taller for sub-text
         let screen_x = GetSystemMetrics(SM_CXSCREEN);
         let screen_y = GetSystemMetrics(SM_CYSCREEN);
-        let x = (screen_x - w) / 2;
-        let y = (screen_y - h) / 2;
+        let x = (screen_x - UI_WIDTH) / 2;
+        let y = (screen_y - UI_HEIGHT) / 2;
 
         let hwnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
             w!("SGT Recording"),
             WS_POPUP,
-            x, y, w, h,
+            x, y, UI_WIDTH, UI_HEIGHT,
             None, None, instance, None
         );
 
@@ -82,7 +86,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
 
         if !preset.hide_recording_ui {
             // Initially 0 alpha, will fade in via timer
-            paint_layered_window(hwnd, w, h, 0);
+            paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, 0);
             ShowWindow(hwnd, SW_SHOW);
         }
 
@@ -137,6 +141,7 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
         
         let time_rad = ANIMATION_OFFSET.to_radians();
         
+        // 1. Draw Background (SDF)
         for y in 0..height {
             for x in 0..width {
                 let idx = (y * width + x) as usize;
@@ -186,13 +191,68 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
                 pixels[idx] = (a << 24) | (r << 16) | (g << 8) | b;
             }
         }
+
+        // 2. Draw Icons directly to pixels
+        let white_pixel = 0xFFFFFFFF; // A=255, R=255, G=255, B=255
+
+        // -- PAUSE / PLAY BUTTON (Left) --
+        let p_cx = BTN_OFFSET; 
+        let p_cy = height / 2;
+
+        if IS_PAUSED {
+            // Draw Play Triangle
+            for y in (p_cy - 12)..(p_cy + 12) {
+                for x in (p_cx - 8)..(p_cx + 12) {
+                    if x >= 0 && x < width && y >= 0 && y < height {
+                        let dx = x - p_cx;
+                        let dy = y - p_cy;
+                        if dx >= -6 && dx <= 10 {
+                            let max_y = (10.0 - dx as f32) * 0.625;
+                            if (dy as f32).abs() <= max_y + 0.8 {
+                                pixels[(y * width + x) as usize] = white_pixel;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Draw Pause Bars (||)
+            for y in (p_cy - 10)..=(p_cy + 10) {
+                for x in (p_cx - 8)..=(p_cx + 8) {
+                    if x > p_cx - 2 && x < p_cx + 2 { continue; } // Gap
+                    if x >= 0 && x < width && y >= 0 && y < height {
+                        pixels[(y * width + x) as usize] = white_pixel;
+                    }
+                }
+            }
+        }
+
+        // -- CLOSE BUTTON (X) (Right) --
+        let c_cx = width - BTN_OFFSET;
+        let c_cy = height / 2;
+        let thickness = 2.0;
+        
+        for y in (c_cy - 10)..(c_cy + 10) {
+            for x in (c_cx - 10)..(c_cx + 10) {
+                if x >= 0 && x < width && y >= 0 && y < height {
+                    let dx = (x - c_cx) as f32;
+                    let dy = (y - c_cy) as f32;
+                    let dist1 = (dx - dy).abs() * 0.7071;
+                    let dist2 = (dx + dy).abs() * 0.7071;
+                    if dist1 < thickness || dist2 < thickness {
+                         pixels[(y * width + x) as usize] = white_pixel;
+                    }
+                }
+            }
+        }
     }
 
     SetBkMode(mem_dc, TRANSPARENT);
     SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
 
     // --- MAIN STATUS TEXT ---
-    let hfont_main = CreateFontW(20, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+    // Moved up significantly to be optically centered in top half
+    let hfont_main = CreateFontW(19, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
     let old_font = SelectObject(mem_dc, hfont_main);
 
     let src_text = if is_waiting {
@@ -207,59 +267,26 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
     };
 
     let mut text_w = crate::overlay::utils::to_wstring(src_text);
-    // Move main text up slightly (bottom=60)
-    let mut tr = RECT { left: 0, top: 0, right: width, bottom: 65 };
+    // Draw in top half (bottom at 45px)
+    let mut tr = RECT { left: 0, top: 0, right: width, bottom: 45 };
     DrawTextW(mem_dc, &mut text_w, &mut tr, DT_CENTER | DT_BOTTOM | DT_SINGLELINE);
 
     SelectObject(mem_dc, old_font);
     DeleteObject(hfont_main);
 
     // --- SUB INSTRUCTION TEXT ---
-    let hfont_sub = CreateFontW(15, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+    // Tucked right under main text
+    let hfont_sub = CreateFontW(14, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
     SelectObject(mem_dc, hfont_sub);
-    
-    // Greyish color for subtext (0xBBBBBB)
     SetTextColor(mem_dc, COLORREF(0x00DDDDDD)); 
 
     let sub_text = "Bấm hotkey lần nữa để xử lý âm thanh";
     let mut sub_text_w = crate::overlay::utils::to_wstring(sub_text);
-    let mut tr_sub = RECT { left: 0, top: 68, right: width, bottom: height };
+    let mut tr_sub = RECT { left: 0, top: 47, right: width, bottom: height };
     DrawTextW(mem_dc, &mut sub_text_w, &mut tr_sub, DT_CENTER | DT_TOP | DT_SINGLELINE);
 
     SelectObject(mem_dc, old_font);
     DeleteObject(hfont_sub);
-
-
-    // DRAW BIG BUTTONS
-    let pen = CreatePen(PS_SOLID, 3, COLORREF(0x00FFFFFF)); 
-    let old_pen = SelectObject(mem_dc, pen);
-    let brush_white = CreateSolidBrush(COLORREF(0x00FFFFFF));
-    let brush_none = GetStockObject(NULL_BRUSH);
-
-    // Pause Button
-    // Vertical Center
-    let p_cx = 45; // Moved slightly inward
-    let p_cy = height / 2;
-    if IS_PAUSED {
-        SelectObject(mem_dc, brush_white);
-        let pts = [POINT{x: p_cx - 6, y: p_cy - 10}, POINT{x: p_cx - 6, y: p_cy + 10}, POINT{x: p_cx + 10, y: p_cy}];
-        Polygon(mem_dc, &pts);
-    } else {
-        SelectObject(mem_dc, brush_white);
-        Rectangle(mem_dc, p_cx - 8, p_cy - 10, p_cx - 2, p_cy + 10);
-        Rectangle(mem_dc, p_cx + 2, p_cy - 10, p_cx + 8, p_cy + 10);
-    }
-
-    // Close Button
-    let c_cx = width - 45;
-    let c_cy = height / 2;
-    SelectObject(mem_dc, brush_none);
-    MoveToEx(mem_dc, c_cx - 8, c_cy - 8, None); LineTo(mem_dc, c_cx + 8, c_cy + 8);
-    MoveToEx(mem_dc, c_cx + 8, c_cy - 8, None); LineTo(mem_dc, c_cx - 8, c_cy + 8);
-
-    SelectObject(mem_dc, old_pen);
-    DeleteObject(pen);
-    DeleteObject(brush_white);
 
     let pt_src = POINT { x: 0, y: 0 };
     let size = SIZE { cx: width, cy: height };
@@ -298,9 +325,12 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             let local_x = x - rect.left;
             
             // Buttons Areas -> HTCLIENT (Trigger Hand Cursor)
-            if local_x < 90 { return LRESULT(HTCLIENT as isize); } 
-            let w = rect.right - rect.left;
-            if local_x > w - 90 { return LRESULT(HTCLIENT as isize); } 
+            // Use precise radius detection
+            let center_left = BTN_OFFSET;
+            let center_right = UI_WIDTH - BTN_OFFSET;
+            
+            if (local_x - center_left).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
+            if (local_x - center_right).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
 
             // Center Area -> HTCAPTION (Trigger Arrow + Drag)
             LRESULT(HTCAPTION as isize)
@@ -308,13 +338,16 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
         WM_LBUTTONDOWN => {
             let x = (lparam.0 & 0xFFFF) as i16 as i32;
             // Note: lparam coords are relative to client area (top-left 0,0)
-            let w = 420; 
             
-            if x < 90 {
+            let center_left = BTN_OFFSET;
+            let center_right = UI_WIDTH - BTN_OFFSET;
+            
+            // Hit check logic matches NCHITTEST
+            if (x - center_left).abs() < HIT_RADIUS {
                 IS_PAUSED = !IS_PAUSED;
                 AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
-                paint_layered_window(hwnd, w, 100, CURRENT_ALPHA as u8);
-            } else if x > w - 90 {
+                paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
+            } else if (x - center_right).abs() < HIT_RADIUS {
                 AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
                 PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
             }
@@ -334,7 +367,7 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                 if CURRENT_ALPHA > 255 { CURRENT_ALPHA = 255; }
             }
 
-            paint_layered_window(hwnd, 420, 100, CURRENT_ALPHA as u8);
+            paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
             LRESULT(0)
         }
         WM_CLOSE => {
