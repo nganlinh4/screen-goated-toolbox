@@ -244,6 +244,10 @@ impl SettingsApp {
 }
 
 impl eframe::App for SettingsApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0, 0.0, 0.0, 0.0]
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Center window on startup
         if !self.startup_centered {

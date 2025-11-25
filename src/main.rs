@@ -90,9 +90,11 @@ fn main() -> eframe::Result<()> {
         .unwrap();
 
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([600.0, 500.0]) // Increased size for new UI
+        .with_inner_size([600.0, 500.0]) 
         .with_resizable(true)
-        .with_visible(false);
+        .with_visible(false)
+        .with_transparent(true)  // Critical for rounded corners
+        .with_decorations(true); // We keep decorations for the main app, but turn them off for splash dynamically
     
     let app_icon_bytes = include_bytes!("../assets/app-icon-small.png");
     if let Ok(img) = image::load_from_memory(app_icon_bytes) {

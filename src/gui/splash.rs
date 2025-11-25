@@ -323,16 +323,20 @@ impl SplashScreen {
         }
 
         // Render Frame
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.paint(ui, t);
-        });
+        // Use Frame::none() to remove margins, ensuring the background fills the window
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none())
+            .show(ctx, |ui| {
+                self.paint(ui, t);
+            });
 
         SplashStatus::Ongoing
     }
 
     fn paint(&self, ui: &mut egui::Ui, t: f32) {
-        let painter = ui.painter();
         let rect = ui.max_rect();
+        // Clip to visible area to prevent over-drawing artifacts
+        let painter = ui.painter().with_clip_rect(rect);
         let center = rect.center();
         
         // --- 1. GLOBAL OPACITY ---
@@ -343,7 +347,7 @@ impl SplashScreen {
         };
 
         // --- 2. BACKGROUND ---
-        painter.rect_filled(rect, 0.0, C_VOID);
+        painter.rect_filled(rect, 32.0, C_VOID);
         
         // Grid Floor (Cyber Plane)
         if master_alpha > 0.1 {
@@ -501,15 +505,8 @@ impl SplashScreen {
             );
         }
         
-        // --- 6. POST PROCESS: SCANLINES ---
-        // Simple horizontal lines overlay
-        let scan_alpha = (20.0 * master_alpha) as u8;
-        for i in (0..rect.height() as i32).step_by(4) {
-             painter.line_segment(
-                [Pos2::new(rect.left(), rect.top() + i as f32), Pos2::new(rect.right(), rect.top() + i as f32)],
-                Stroke::new(1.0, Color32::from_black_alpha(scan_alpha))
-            );
-        }
+        // --- 6. POST PROCESS: SCANLINES REMOVED ---
+        // Removed to prevent artifacts on transparent corners.
     }
 }
 
