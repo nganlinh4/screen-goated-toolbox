@@ -280,9 +280,9 @@ pub struct Config {
             is_upcoming: false,
         };
 
-        // 7. Quick foreigner reply Preset
-        let quick_reply_preset = Preset {
-            id: "preset_quick_foreigner_reply".to_string(),
+        // 7. Quick foreigner reply
+        let transcribe_retrans_preset = Preset {
+            id: "preset_transcribe_retranslate".to_string(),
             name: "Quick foreigner reply".to_string(),
             prompt: "".to_string(),
             selected_language: "Korean".to_string(),
@@ -303,10 +303,36 @@ pub struct Config {
             is_upcoming: false,
         };
 
+        // 8. Quicker foreigner reply Preset (new 4th audio preset with gemini-audio)
+        let mut quicker_reply_lang_vars = HashMap::new();
+        quicker_reply_lang_vars.insert("language1".to_string(), "Korean".to_string());
+
+        let quicker_reply_preset = Preset {
+            id: "preset_quicker_foreigner_reply".to_string(),
+            name: "Quicker foreigner reply".to_string(),
+            prompt: "Transcribe the audio and translate it to {language1}. Only output the translated text.".to_string(),
+            selected_language: "Korean".to_string(),
+            language_vars: quicker_reply_lang_vars,
+            model: "gemini-audio".to_string(),
+            streaming_enabled: false,
+            auto_copy: true,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            hide_overlay: true,
+            preset_type: "audio".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: true,
+            is_upcoming: false,
+        };
+
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
-            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, sum_preset, desc_preset, audio_preset, study_lang_preset, quick_reply_preset],
+            presets: vec![trans_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, sum_preset, desc_preset, audio_preset, study_lang_preset, transcribe_retrans_preset, quicker_reply_preset],
             active_preset_idx: 0,
             dark_mode: true,
             ui_language: "vi".to_string(),

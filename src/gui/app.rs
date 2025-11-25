@@ -405,12 +405,17 @@ impl eframe::App for SettingsApp {
                         ui.horizontal(|ui| {
                             let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
                             
+                            // START: MODIFICATION FOR ICONS
+                            let icon = if preset.preset_type == "audio" { "🎙️" } else { "📸" };
+                            let label_text = format!("{} {}", icon, preset.name);
+                            // END: MODIFICATION FOR ICONS
+                            
                             if preset.is_upcoming {
                                 ui.add_enabled_ui(false, |ui| {
-                                    let _ = ui.selectable_label(is_selected, &preset.name);
+                                    let _ = ui.selectable_label(is_selected, &label_text);
                                 });
                             } else {
-                                if ui.selectable_label(is_selected, &preset.name).clicked() {
+                                if ui.selectable_label(is_selected, &label_text).clicked() {
                                     self.view_mode = ViewMode::Preset(idx);
                                 }
                                 // Delete button (small x)
@@ -548,30 +553,12 @@ impl eframe::App for SettingsApp {
                             });
 
                             let is_audio = preset.preset_type == "audio";
+                            // Show prompt controls if it's an image preset OR a Gemini audio model (which can use a prompt for translation/analysis)
+                            let show_prompt_controls = !is_audio || (is_audio && preset.model == "gemini-audio");
 
                             // 2. Main Configuration (Different for Image vs Audio)
-                            if is_audio {
-                                // --- AUDIO SETTINGS ---
-                                ui.group(|ui| {
-                                    ui.label(egui::RichText::new(text.audio_source_label).strong());
-                                    
-                                    ui.horizontal(|ui| {
-                                        if ui.radio_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() {
-                                            preset_changed = true;
-                                        }
-                                        if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() {
-                                            preset_changed = true;
-                                        }
-                                    });
-
-                                    ui.add_space(5.0);
-                                    if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() {
-                                        preset_changed = true;
-                                    }
-                                });
-
-                            } else {
-                                // --- IMAGE PROMPT SETTINGS ---
+                            if show_prompt_controls {
+                                // --- IMAGE PROMPT SETTINGS / GEMINI AUDIO PROMPT SETTINGS ---
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.label(egui::RichText::new(text.prompt_label).strong());
@@ -641,6 +628,27 @@ impl eframe::App for SettingsApp {
                                 });
                             }
 
+                            if is_audio {
+                                // --- AUDIO SOURCE SETTINGS ---
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new(text.audio_source_label).strong());
+                                    
+                                    ui.horizontal(|ui| {
+                                        if ui.radio_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() {
+                                            preset_changed = true;
+                                        }
+                                        if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() {
+                                            preset_changed = true;
+                                        }
+                                    });
+
+                                    ui.add_space(5.0);
+                                    if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() {
+                                        preset_changed = true;
+                                    }
+                                });
+                            }
+
                             // 3. Model & Settings (Shared structure, filtered by type)
                             ui.group(|ui| {
                                 ui.label(egui::RichText::new(text.model_section).strong());
@@ -659,6 +667,15 @@ impl eframe::App for SettingsApp {
                                             if model.enabled && model.model_type == target_type {
                                                 if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
                                                     preset_changed = true;
+                                                    
+                                                    // START: NEW LOGIC FOR GEMINI AUDIO PROMPT PRE-FILL
+                                                    if is_audio && preset.model == "gemini-audio" && preset.prompt.trim().is_empty() {
+                                                        preset.prompt = "Transcribe the audio accurately.".to_string();
+                                                    } else if is_audio && preset.model != "gemini-audio" && preset.prompt == "Transcribe the audio accurately." {
+                                                        // Reset prompt when switching away from Gemini Audio if it's the default
+                                                        preset.prompt = "".to_string();
+                                                    }
+                                                    // END: NEW LOGIC
                                                 }
                                             }
                                         }

@@ -8,6 +8,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::config::Preset;
+use crate::model_config::get_model_by_id;
 
 #[derive(Serialize, Deserialize)]
 struct StreamChunk {
@@ -381,6 +382,86 @@ where
     Ok(full_content)
 }
 
+pub fn transcribe_audio_gemini<F>(
+    gemini_api_key: &str,
+    prompt: String,
+    model: String,
+    wav_data: Vec<u8>,
+    mut on_chunk: F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    if gemini_api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("NO_API_KEY"));
+    }
+
+    let b64_audio = general_purpose::STANDARD.encode(&wav_data);
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+        model
+    );
+
+    let payload = serde_json::json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                { "text": prompt },
+                {
+                    "inline_data": {
+                        "mime_type": "audio/wav",
+                        "data": b64_audio
+                    }
+                }
+            ]
+        }]
+    });
+
+    let resp = ureq::post(&url)
+        .set("x-goog-api-key", gemini_api_key)
+        .send_json(payload)
+        .map_err(|e| {
+            let err_str = e.to_string();
+            if err_str.contains("401") || err_str.contains("403") {
+                anyhow::anyhow!("INVALID_API_KEY")
+            } else {
+                anyhow::anyhow!("Gemini Audio API Error: {}", err_str)
+            }
+        })?;
+
+    let mut full_content = String::new();
+    let reader = BufReader::new(resp.into_reader());
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
+        if line.starts_with("data: ") {
+            let json_str = &line["data: ".len()..];
+            if json_str.trim() == "[DONE]" { break; }
+
+            if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
+                if let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array()) {
+                    if let Some(first_candidate) = candidates.first() {
+                        if let Some(parts) = first_candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+                            if let Some(first_part) = parts.first() {
+                                if let Some(text) = first_part.get("text").and_then(|t| t.as_str()) {
+                                    full_content.push_str(text);
+                                    on_chunk(text);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if full_content.is_empty() {
+        return Err(anyhow::anyhow!("No content received from Gemini Audio API"));
+    }
+    
+    Ok(full_content)
+}
+
 pub fn record_audio_and_transcribe(
     preset: Preset, 
     stop_signal: Arc<AtomicBool>, 
@@ -531,26 +612,36 @@ pub fn record_audio_and_transcribe(
     // Read WAV file for upload
     let wav_data = std::fs::read(&wav_path).expect("Failed to read WAV file");
     
-    // Determine API endpoint and model
-    let model_config = crate::model_config::get_model_by_id(&preset.model);
-    let model_name = model_config.map(|m| m.full_name.clone()).unwrap_or_else(|| "whisper-large-v3-turbo".to_string());
+    // Determine API endpoint, model, and provider
+    let model_config = get_model_by_id(&preset.model);
+    let model_config = model_config.expect("Model config not found for preset model");
+    let model_name = model_config.full_name.clone();
+    let provider = model_config.provider.clone();
     
-    // Get API key from config
-    let api_key = {
+    // Get API keys from config
+    let (groq_api_key, gemini_api_key) = {
         let app = crate::APP.lock().unwrap();
-        app.config.api_key.clone()
+        (app.config.api_key.clone(), app.config.gemini_api_key.clone())
     };
 
-    if api_key.trim().is_empty() {
-        eprintln!("Error: No API Key found.");
-        unsafe {
-            PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+    // --- LOGIC SPLIT: Groq (Whisper API) vs Google (Multimodal Chat API) ---
+    let transcription_result = if provider == "groq" {
+        if groq_api_key.trim().is_empty() {
+            Err(anyhow::anyhow!("NO_API_KEY"))
+        } else {
+            upload_audio_to_whisper(&groq_api_key, &model_name, wav_data)
         }
-        return;
-    }
-
-    // Upload to Whisper API
-    let transcription_result = upload_audio_to_whisper(&api_key, &model_name, wav_data);
+    } else if provider == "google" {
+        // Must use the multimodal approach
+        if gemini_api_key.trim().is_empty() {
+            Err(anyhow::anyhow!("NO_API_KEY"))
+        } else {
+            // Pass the prompt for Gemini models
+            transcribe_audio_gemini(&gemini_api_key, preset.prompt.clone(), model_name, wav_data, |_| {})
+        }
+    } else {
+        Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
+    };
     
     // Handle Result showing
     unsafe {

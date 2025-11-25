@@ -119,6 +119,16 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             ModelType::Audio,
             true,
         ),
+        ModelConfig::new(
+            "gemini-audio",
+            "google",
+            "Chính xác hơn",
+            "더 정확함",
+            "More Accurate",
+            "gemini-flash-lite-latest",
+            ModelType::Audio,
+            true,
+        ),
     ]
 }
 
