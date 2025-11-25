@@ -42,6 +42,11 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 CURRENT_BG_COLOR = 0x00222222; 
                 (target_rect.left, target_rect.top, 0x00222222)
             },
+            WindowType::SecondaryExplicit => {
+                // Exact coordinates provided, but use Green theme
+                CURRENT_BG_COLOR = 0x002d4a22;
+                (target_rect.left, target_rect.top, 0x002d4a22)
+            },
             WindowType::Secondary => {
                 let padding = 10;
                 let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
