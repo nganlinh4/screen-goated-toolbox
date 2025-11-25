@@ -11,6 +11,7 @@ static mut IS_RECORDING: bool = false;
 static mut IS_PAUSED: bool = false;
 static mut ANIMATION_OFFSET: f32 = 0.0;
 static mut CURRENT_PRESET_IDX: usize = 0;
+static mut CURRENT_ALPHA: i32 = 0; // For fade-in
 
 // Shared flag for the audio thread
 lazy_static::lazy_static! {
@@ -26,6 +27,7 @@ pub fn stop_recording_and_submit() {
     unsafe {
         if IS_RECORDING && RECORDING_HWND.0 != 0 {
             AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
+            // Force immediate update to show "Processing"
             PostMessageW(RECORDING_HWND, WM_TIMER, WPARAM(0), LPARAM(0));
         }
     }
@@ -41,6 +43,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
         IS_PAUSED = false;
         CURRENT_PRESET_IDX = preset_idx;
         ANIMATION_OFFSET = 0.0;
+        CURRENT_ALPHA = 0; // Start invisible
         AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
         AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
 
@@ -57,8 +60,8 @@ pub fn show_recording_overlay(preset_idx: usize) {
             RegisterClassW(&wc);
         }
 
-        let w = 400; 
-        let h = 90;
+        let w = 420; // Slightly wider to accommodate text comfortably
+        let h = 100; // Taller for sub-text
         let screen_x = GetSystemMetrics(SM_CXSCREEN);
         let screen_y = GetSystemMetrics(SM_CYSCREEN);
         let x = (screen_x - w) / 2;
@@ -78,8 +81,9 @@ pub fn show_recording_overlay(preset_idx: usize) {
         SetTimer(hwnd, 1, 16, None); 
 
         if !preset.hide_recording_ui {
+            // Initially 0 alpha, will fade in via timer
+            paint_layered_window(hwnd, w, h, 0);
             ShowWindow(hwnd, SW_SHOW);
-            paint_layered_window(hwnd, w, h);
         }
 
         std::thread::spawn(move || {
@@ -98,7 +102,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
     }
 }
 
-unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
+unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
     let screen_dc = GetDC(None);
     
     let bmi = windows::Win32::Graphics::Gdi::BITMAPINFO {
@@ -187,8 +191,9 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
     SetBkMode(mem_dc, TRANSPARENT);
     SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
 
-    let hfont = CreateFontW(22, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-    let old_font = SelectObject(mem_dc, hfont);
+    // --- MAIN STATUS TEXT ---
+    let hfont_main = CreateFontW(20, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+    let old_font = SelectObject(mem_dc, hfont_main);
 
     let src_text = if is_waiting {
         "Đang xử lý..."
@@ -202,19 +207,38 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
     };
 
     let mut text_w = crate::overlay::utils::to_wstring(src_text);
-    let mut tr = RECT { left: 0, top: 0, right: width, bottom: height };
-    DrawTextW(mem_dc, &mut text_w, &mut tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    // Move main text up slightly (bottom=60)
+    let mut tr = RECT { left: 0, top: 0, right: width, bottom: 65 };
+    DrawTextW(mem_dc, &mut text_w, &mut tr, DT_CENTER | DT_BOTTOM | DT_SINGLELINE);
 
     SelectObject(mem_dc, old_font);
-    DeleteObject(hfont);
+    DeleteObject(hfont_main);
 
+    // --- SUB INSTRUCTION TEXT ---
+    let hfont_sub = CreateFontW(15, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+    SelectObject(mem_dc, hfont_sub);
+    
+    // Greyish color for subtext (0xBBBBBB)
+    SetTextColor(mem_dc, COLORREF(0x00DDDDDD)); 
+
+    let sub_text = "Bấm hotkey lần nữa để xử lý âm thanh";
+    let mut sub_text_w = crate::overlay::utils::to_wstring(sub_text);
+    let mut tr_sub = RECT { left: 0, top: 68, right: width, bottom: height };
+    DrawTextW(mem_dc, &mut sub_text_w, &mut tr_sub, DT_CENTER | DT_TOP | DT_SINGLELINE);
+
+    SelectObject(mem_dc, old_font);
+    DeleteObject(hfont_sub);
+
+
+    // DRAW BIG BUTTONS
     let pen = CreatePen(PS_SOLID, 3, COLORREF(0x00FFFFFF)); 
     let old_pen = SelectObject(mem_dc, pen);
     let brush_white = CreateSolidBrush(COLORREF(0x00FFFFFF));
     let brush_none = GetStockObject(NULL_BRUSH);
 
     // Pause Button
-    let p_cx = 40;
+    // Vertical Center
+    let p_cx = 45; // Moved slightly inward
     let p_cy = height / 2;
     if IS_PAUSED {
         SelectObject(mem_dc, brush_white);
@@ -227,7 +251,7 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
     }
 
     // Close Button
-    let c_cx = width - 40;
+    let c_cx = width - 45;
     let c_cy = height / 2;
     SelectObject(mem_dc, brush_none);
     MoveToEx(mem_dc, c_cx - 8, c_cy - 8, None); LineTo(mem_dc, c_cx + 8, c_cy + 8);
@@ -241,7 +265,7 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
     let size = SIZE { cx: width, cy: height };
     let mut blend = BLENDFUNCTION::default();
     blend.BlendOp = AC_SRC_OVER as u8;
-    blend.SourceConstantAlpha = 255;
+    blend.SourceConstantAlpha = alpha; // Use the fading alpha
     blend.AlphaFormat = AC_SRC_ALPHA as u8;
 
     UpdateLayeredWindow(hwnd, HDC(0), None, Some(&size), mem_dc, Some(&pt_src), COLORREF(0), Some(&blend), ULW_ALPHA);
@@ -254,6 +278,18 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
 
 unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
+        WM_SETCURSOR => {
+            // Robust Hit Test Check using lParam (Low Word = HitTest Result)
+            let hit_test = (lparam.0 & 0xFFFF) as i16 as i32;
+            
+            if hit_test == HTCLIENT as i32 {
+                SetCursor(LoadCursorW(None, IDC_HAND).unwrap());
+                LRESULT(1)
+            } else {
+                 // Delegate to default (will likely be IDC_ARROW due to HTCAPTION)
+                 DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+        }
         WM_NCHITTEST => {
             let x = (lparam.0 & 0xFFFF) as i16 as i32;
             
@@ -261,21 +297,24 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             GetWindowRect(hwnd, &mut rect);
             let local_x = x - rect.left;
             
-            if local_x < 80 { return LRESULT(HTCLIENT as isize); } 
+            // Buttons Areas -> HTCLIENT (Trigger Hand Cursor)
+            if local_x < 90 { return LRESULT(HTCLIENT as isize); } 
             let w = rect.right - rect.left;
-            if local_x > w - 80 { return LRESULT(HTCLIENT as isize); } 
+            if local_x > w - 90 { return LRESULT(HTCLIENT as isize); } 
 
+            // Center Area -> HTCAPTION (Trigger Arrow + Drag)
             LRESULT(HTCAPTION as isize)
         }
         WM_LBUTTONDOWN => {
             let x = (lparam.0 & 0xFFFF) as i16 as i32;
-            let w = 400; 
+            // Note: lparam coords are relative to client area (top-left 0,0)
+            let w = 420; 
             
-            if x < 80 {
+            if x < 90 {
                 IS_PAUSED = !IS_PAUSED;
                 AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
-                paint_layered_window(hwnd, w, 90);
-            } else if x > w - 80 {
+                paint_layered_window(hwnd, w, 100, CURRENT_ALPHA as u8);
+            } else if x > w - 90 {
                 AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
                 PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
             }
@@ -288,7 +327,14 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                 ANIMATION_OFFSET += 5.0;
             }
             if ANIMATION_OFFSET > 360.0 { ANIMATION_OFFSET -= 360.0; }
-            paint_layered_window(hwnd, 400, 90);
+            
+            // Fade In Logic
+            if CURRENT_ALPHA < 255 {
+                CURRENT_ALPHA += 15; // Fade speed
+                if CURRENT_ALPHA > 255 { CURRENT_ALPHA = 255; }
+            }
+
+            paint_layered_window(hwnd, 420, 100, CURRENT_ALPHA as u8);
             LRESULT(0)
         }
         WM_CLOSE => {

@@ -85,7 +85,7 @@ lazy_static::lazy_static! {
 pub enum WindowType {
     Primary,
     Secondary,
-    SecondaryExplicit,
+    SecondaryExplicit, // New type: Trust the coordinates, use Secondary color
 }
 
 pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
