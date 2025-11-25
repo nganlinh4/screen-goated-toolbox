@@ -215,7 +215,7 @@ pub struct Config {
         let desc_preset = Preset {
             id: "preset_desc".to_string(),
             name: "Image Description".to_string(),
-            prompt: "Describe this image in detail in {language1}.".to_string(),
+            prompt: "Describe this image in {language1}.".to_string(),
             selected_language: default_lang.clone(),
             language_vars: desc_lang_vars,
             model: "scout".to_string(),
@@ -325,7 +325,7 @@ pub struct Config {
             hide_overlay: true,
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
-            hide_recording_ui: true,
+            hide_recording_ui: false,
             is_upcoming: false,
         };
 

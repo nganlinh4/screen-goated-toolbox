@@ -624,6 +624,18 @@ pub fn record_audio_and_transcribe(
         (app.config.api_key.clone(), app.config.gemini_api_key.clone())
     };
 
+    // Prepare Prompt - replace all {languageN} with actual languages (same as image processing flow)
+    let mut final_prompt = preset.prompt.clone();
+    
+    // Replace numbered language tags
+    for (key, value) in &preset.language_vars {
+        let pattern = format!("{{{}}}", key); // e.g., "{language1}"
+        final_prompt = final_prompt.replace(&pattern, value);
+    }
+    
+    // Backward compatibility: also replace old {language} tag
+    final_prompt = final_prompt.replace("{language}", &preset.selected_language);
+    
     // --- LOGIC SPLIT: Groq (Whisper API) vs Google (Multimodal Chat API) ---
     let transcription_result = if provider == "groq" {
         if groq_api_key.trim().is_empty() {
@@ -636,8 +648,8 @@ pub fn record_audio_and_transcribe(
         if gemini_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY"))
         } else {
-            // Pass the prompt for Gemini models
-            transcribe_audio_gemini(&gemini_api_key, preset.prompt.clone(), model_name, wav_data, |_| {})
+            // Pass the prompt for Gemini models with variable substitution applied
+            transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
         }
     } else {
         Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
