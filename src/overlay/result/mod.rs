@@ -43,8 +43,8 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 (target_rect.left, target_rect.top, 0x00222222)
             },
             WindowType::SecondaryExplicit => {
-                // Exact coordinates provided, but use Green theme
-                CURRENT_BG_COLOR = 0x002d4a22;
+                // Exact positioning + Secondary Color
+                CURRENT_BG_COLOR = 0x002d4a22; 
                 (target_rect.left, target_rect.top, 0x002d4a22)
             },
             WindowType::Secondary => {
@@ -54,7 +54,6 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
                 let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
                 
-                // Logic to position secondary window smartly
                 let screen_right = screen_x + screen_w;
                 let screen_bottom = screen_y + screen_h;
 
@@ -102,7 +101,7 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 linked_window: None,
                 physics,
                 font_cache_dirty: true,
-                cached_font_size: 72, // Initialize with MAX size, so it shrinks to fit
+                cached_font_size: 72,
                 content_bitmap: HBITMAP(0),
                 last_w: 0,
                 last_h: 0,
@@ -120,7 +119,7 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
             size_of::<u32>() as u32
         );
         
-        SetTimer(hwnd, 3, 16, None); // 60 FPS Timer
+        SetTimer(hwnd, 3, 16, None);
         
         InvalidateRect(hwnd, None, false);
         UpdateWindow(hwnd);
@@ -129,16 +128,12 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
     }
 }
 
-// Updated: Does NOT invalidate rect immediately. 
-// Just queues the data. Timer loop handles the rest.
 pub fn update_window_text(hwnd: HWND, text: &str) {
     if !unsafe { IsWindow(hwnd).as_bool() } { return; }
     
     let mut states = WINDOW_STATES.lock().unwrap();
     if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
         state.pending_text = Some(text.to_string());
-        // We DO NOT call InvalidateRect here anymore.
-        // This allows the text stream to run at 1000hz without killing the UI.
     }
 }
 
@@ -271,8 +266,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
         }
 
         WM_TIMER => {
-            // CHECK FOR PENDING TEXT UPDATES HERE
-            // This caps the text updates to the timer speed (60fps)
             let mut need_repaint = false;
             let mut pending_update: Option<String> = None;
             
@@ -289,7 +282,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 let wide_text = to_wstring(&txt);
                 SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
                 
-                // Now we mark dirty
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                     state.font_cache_dirty = true;
