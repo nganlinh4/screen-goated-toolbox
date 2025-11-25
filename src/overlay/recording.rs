@@ -25,11 +25,7 @@ pub fn is_recording_overlay_active() -> bool {
 pub fn stop_recording_and_submit() {
     unsafe {
         if IS_RECORDING && RECORDING_HWND.0 != 0 {
-            // Signal stop
             AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
-            // Force repaint to show "Waiting..." immediately
-            // But since we use UpdateLayeredWindow, we trigger a timer update or post message
-            // Sending a timer message forces a frame update
             PostMessageW(RECORDING_HWND, WM_TIMER, WPARAM(0), LPARAM(0));
         }
     }
@@ -61,14 +57,13 @@ pub fn show_recording_overlay(preset_idx: usize) {
             RegisterClassW(&wc);
         }
 
-        let w = 340;
-        let h = 80;
+        let w = 400; 
+        let h = 90;
         let screen_x = GetSystemMetrics(SM_CXSCREEN);
         let screen_y = GetSystemMetrics(SM_CYSCREEN);
         let x = (screen_x - w) / 2;
         let y = (screen_y - h) / 2;
 
-        // Use WS_EX_LAYERED for per-pixel alpha (UpdateLayeredWindow)
         let hwnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
@@ -80,16 +75,13 @@ pub fn show_recording_overlay(preset_idx: usize) {
 
         RECORDING_HWND = hwnd;
         
-        SetTimer(hwnd, 1, 16, None); // Animation timer
+        SetTimer(hwnd, 1, 16, None); 
 
-        // HIDE RECORDING UI LOGIC
         if !preset.hide_recording_ui {
             ShowWindow(hwnd, SW_SHOW);
-            // Initial paint to avoid flicker
             paint_layered_window(hwnd, w, h);
         }
 
-        // Start Audio Recording Thread
         std::thread::spawn(move || {
             crate::api::record_audio_and_transcribe(preset, AUDIO_STOP_SIGNAL.clone(), AUDIO_PAUSE_SIGNAL.clone(), hwnd);
         });
@@ -106,11 +98,9 @@ pub fn show_recording_overlay(preset_idx: usize) {
     }
 }
 
-// Helper to draw the window with full alpha channel
 unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
     let screen_dc = GetDC(None);
     
-    // Create a 32-bit DIB for proper alpha support
     let bmi = windows::Win32::Graphics::Gdi::BITMAPINFO {
         bmiHeader: windows::Win32::Graphics::Gdi::BITMAPINFOHEADER {
             biSize: std::mem::size_of::<windows::Win32::Graphics::Gdi::BITMAPINFOHEADER>() as u32,
@@ -130,12 +120,9 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
     let mem_dc = CreateCompatibleDC(screen_dc);
     let old_bitmap = SelectObject(mem_dc, bitmap);
 
-    // 1. Draw Content
-    // Fill background with gradient glow
     let is_waiting = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
     let should_animate = !IS_PAUSED || is_waiting;
     
-    // Render directly to pixels with pre-multiplied alpha
     if !p_bits.is_null() {
         let pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (width * height) as usize);
         
@@ -152,39 +139,41 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
                 let px = (x as f32) - center_x;
                 let py = (y as f32) - center_y;
                 
-                let d = super::paint_utils::sd_rounded_box(px, py, bx, by, 12.0);
+                // Rounded Box SDF
+                let d = super::paint_utils::sd_rounded_box(px, py, bx - 2.0, by - 2.0, 16.0);
                 
-                let mut final_col = 0x00FFFFFF;
+                let mut final_col = 0x000000;
                 let mut final_alpha = 0.0f32;
 
                 if should_animate {
                     if d <= 0.0 {
-                         final_alpha = 0.85; 
-                         final_col = 0x00111111;
+                         final_alpha = 0.40; 
+                         final_col = 0x00050505;
                     } else {
                         let angle = py.atan2(px);
                         let noise = (angle * 2.0 + time_rad * 3.0).sin() * 0.2;
                         let glow_width = 8.0 + (noise * 5.0);
                         
                         let t = (d / glow_width).clamp(0.0, 1.0);
-                        final_alpha = (1.0 - t).powi(2);
+                        let glow_intensity = (1.0 - t).powi(2);
                         
-                        if final_alpha > 0.01 {
+                        if glow_intensity > 0.01 {
                             let hue = (angle.to_degrees() + ANIMATION_OFFSET * 2.0) % 360.0;
-                            final_col = super::paint_utils::hsv_to_rgb(hue, 0.8, 1.0);
+                            let rgb = super::paint_utils::hsv_to_rgb(hue, 0.85, 1.0);
+                            final_col = rgb;
+                            final_alpha = glow_intensity;
                         }
                     }
                 } else {
                      if d <= 0.0 {
-                        final_alpha = 0.85;
-                        final_col = 0x00111111;
+                        final_alpha = 0.40;
+                        final_col = 0x00050505;
                      } else if d < 2.0 {
-                        final_alpha = 1.0;
+                        final_alpha = 0.8;
                         final_col = 0x00AAAAAA;
                      }
                 }
 
-                // PRE-MULTIPLY ALPHA
                 let a = (final_alpha * 255.0) as u32;
                 let r = ((final_col >> 16) & 0xFF) * a / 255;
                 let g = ((final_col >> 8) & 0xFF) * a / 255;
@@ -195,70 +184,59 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
         }
     }
 
-    // Text & UI
     SetBkMode(mem_dc, TRANSPARENT);
-    SetTextColor(mem_dc, COLORREF(0x00FFFFFF)); // White text
+    SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
 
-    // Choose Font
-    let hfont = CreateFontW(18, 0, 0, 0, FW_SEMIBOLD.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+    let hfont = CreateFontW(22, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
     let old_font = SelectObject(mem_dc, hfont);
 
     let src_text = if is_waiting {
-        "Đang xử lý kết quả..."
+        "Đang xử lý..."
     } else {
         if CURRENT_PRESET_IDX < APP.lock().unwrap().config.presets.len() {
              let p = &APP.lock().unwrap().config.presets[CURRENT_PRESET_IDX];
-             if IS_PAUSED {
-                 "Đã tạm dừng"
-             } else if p.audio_source == "device" {
-                 "Đang ghi âm thiết bị..." 
-             } else {
-                 "Đang ghi âm micro..."
-             }
+             if IS_PAUSED { "Tạm dừng" } 
+             else if p.audio_source == "device" { "Ghi âm máy..." } 
+             else { "Ghi âm mic..." }
         } else { "Recording..." }
     };
 
     let mut text_w = crate::overlay::utils::to_wstring(src_text);
-    let mut tr = RECT { left: 40, top: 0, right: width - 40, bottom: height }; // Padding for buttons
+    let mut tr = RECT { left: 0, top: 0, right: width, bottom: height };
     DrawTextW(mem_dc, &mut text_w, &mut tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     SelectObject(mem_dc, old_font);
     DeleteObject(hfont);
 
-    // Draw Buttons (Manual drawing for visual feedback)
-    let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00DDDDDD));
-    let brush = CreateSolidBrush(COLORREF(0x00DDDDDD));
+    let pen = CreatePen(PS_SOLID, 3, COLORREF(0x00FFFFFF)); 
     let old_pen = SelectObject(mem_dc, pen);
-    let old_brush = SelectObject(mem_dc, brush);
+    let brush_white = CreateSolidBrush(COLORREF(0x00FFFFFF));
+    let brush_none = GetStockObject(NULL_BRUSH);
 
-    // Cancel / Close (X) - Top Right
-    // Area: Rightmost 30px
-    let btn_x = width - 25;
-    let btn_y = 15;
-    MoveToEx(mem_dc, btn_x - 5, btn_y - 5, None); LineTo(mem_dc, btn_x + 5, btn_y + 5);
-    MoveToEx(mem_dc, btn_x + 5, btn_y - 5, None); LineTo(mem_dc, btn_x - 5, btn_y + 5);
-
-    // Pause / Play - Left side
-    // Area: Leftmost 30px
-    let play_x = 25;
-    let play_y = height / 2; 
-
+    // Pause Button
+    let p_cx = 40;
+    let p_cy = height / 2;
     if IS_PAUSED {
-        // Play Triangle
-        let pts = [POINT{x: play_x - 4, y: play_y - 6}, POINT{x: play_x - 4, y: play_y + 6}, POINT{x: play_x + 6, y: play_y}];
+        SelectObject(mem_dc, brush_white);
+        let pts = [POINT{x: p_cx - 6, y: p_cy - 10}, POINT{x: p_cx - 6, y: p_cy + 10}, POINT{x: p_cx + 10, y: p_cy}];
         Polygon(mem_dc, &pts);
     } else {
-        // Pause Bars
-        Rectangle(mem_dc, play_x - 5, play_y - 6, play_x - 2, play_y + 6);
-        Rectangle(mem_dc, play_x + 2, play_y - 6, play_x + 5, play_y + 6);
+        SelectObject(mem_dc, brush_white);
+        Rectangle(mem_dc, p_cx - 8, p_cy - 10, p_cx - 2, p_cy + 10);
+        Rectangle(mem_dc, p_cx + 2, p_cy - 10, p_cx + 8, p_cy + 10);
     }
 
-    SelectObject(mem_dc, old_pen);
-    SelectObject(mem_dc, old_brush);
-    DeleteObject(pen);
-    DeleteObject(brush);
+    // Close Button
+    let c_cx = width - 40;
+    let c_cy = height / 2;
+    SelectObject(mem_dc, brush_none);
+    MoveToEx(mem_dc, c_cx - 8, c_cy - 8, None); LineTo(mem_dc, c_cx + 8, c_cy + 8);
+    MoveToEx(mem_dc, c_cx + 8, c_cy - 8, None); LineTo(mem_dc, c_cx - 8, c_cy + 8);
 
-    // 2. Update Layered Window
+    SelectObject(mem_dc, old_pen);
+    DeleteObject(pen);
+    DeleteObject(brush_white);
+
     let pt_src = POINT { x: 0, y: 0 };
     let size = SIZE { cx: width, cy: height };
     let mut blend = BLENDFUNCTION::default();
@@ -277,41 +255,27 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32) {
 unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_NCHITTEST => {
-            // Check buttons first
             let x = (lparam.0 & 0xFFFF) as i16 as i32;
-            let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
             
             let mut rect = RECT::default();
             GetWindowRect(hwnd, &mut rect);
             let local_x = x - rect.left;
-            let local_y = y - rect.top;
+            
+            if local_x < 80 { return LRESULT(HTCLIENT as isize); } 
             let w = rect.right - rect.left;
-            let h = rect.bottom - rect.top;
-
-            // Pause Area (Left 40px)
-            if local_x < 40 && local_y > 10 && local_y < h - 10 {
-                return LRESULT(HTCLIENT as isize);
-            }
-            // Close Area (Right 40px, Top 40px)
-            if local_x > w - 40 && local_y < 40 {
-                return LRESULT(HTCLIENT as isize);
-            }
+            if local_x > w - 80 { return LRESULT(HTCLIENT as isize); } 
 
             LRESULT(HTCAPTION as isize)
         }
         WM_LBUTTONDOWN => {
             let x = (lparam.0 & 0xFFFF) as i16 as i32;
-            let w = 340; // Window width known
+            let w = 400; 
             
-            // Left click logic based on coordinate
-            if x < 40 {
-                // Pause/Play
+            if x < 80 {
                 IS_PAUSED = !IS_PAUSED;
                 AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
-                // Force immediate repaint
-                paint_layered_window(hwnd, w, 80);
-            } else if x > w - 40 {
-                // Cancel
+                paint_layered_window(hwnd, w, 90);
+            } else if x > w - 80 {
                 AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
                 PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
             }
@@ -319,14 +283,12 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
         }
         WM_TIMER => {
             if AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
-                 ANIMATION_OFFSET += 3.0; // Slow rotate waiting
+                 ANIMATION_OFFSET += 3.0;
             } else if !IS_PAUSED {
-                ANIMATION_OFFSET += 5.0; // Normal rotate
+                ANIMATION_OFFSET += 5.0;
             }
             if ANIMATION_OFFSET > 360.0 { ANIMATION_OFFSET -= 360.0; }
-            
-            // Repaint using UpdateLayeredWindow
-            paint_layered_window(hwnd, 340, 80);
+            paint_layered_window(hwnd, 400, 90);
             LRESULT(0)
         }
         WM_CLOSE => {

@@ -278,7 +278,7 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
             };
             
             std::thread::spawn(move || {
-                let secondary_hwnd = create_result_window(rect_sec, WindowType::Secondary);
+                let secondary_hwnd = create_result_window(rect_sec, WindowType::SecondaryExplicit);
                 link_windows(primary_hwnd, secondary_hwnd);
                 
                 if !hide_overlay {
