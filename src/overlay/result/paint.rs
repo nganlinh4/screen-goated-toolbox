@@ -6,6 +6,18 @@ use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
 use super::state::{WINDOW_STATES, AnimationMode};
 
+// Helper: Efficiently measure text height
+unsafe fn measure_text_height(hdc: windows::Win32::Graphics::Gdi::CreatedHDC, text: &mut [u16], font_size: i32, width: i32) -> i32 {
+    let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+    let old_font = SelectObject(hdc, hfont);
+    let mut calc_rect = RECT { left: 0, top: 0, right: width, bottom: 0 };
+    // DT_CALCRECT is faster than drawing
+    DrawTextW(hdc, text, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
+    SelectObject(hdc, old_font);
+    DeleteObject(hfont);
+    calc_rect.bottom
+}
+
 pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
     unsafe {
         let hdc = GetDC(None);
@@ -107,65 +119,49 @@ pub fn paint_window(hwnd: HWND) {
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
 
-            let padding = 8; // Slightly more padding
+            let padding = 12; // More padding looks better
             let available_w = (width - (padding * 2)).max(1);
             let available_h = (height - (padding * 2)).max(1);
 
-            // === OPTIMIZATION: HEURISTIC JUMP + FINE TUNING ===
-            // 1. Jump to estimated size based on text ratio (single calculation)
-            // 2. Fine-tune shrinking if needed (non-linear scaling correction)
-            // 3. Fine-tune growing to fill available space (up to 10% threshold)
+            // === OPTIMIZATION: FAST PATH & BINARY SEARCH ===
             
-            let mut test_size = if font_size < 8 { 72 } else { font_size };
-            
-            // Helper to measure (same as before)
-            let mut measure_text = |fs: i32| -> i32 {
-                 let hfont = CreateFontW(fs, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-                 let old_font = SelectObject(cache_dc, hfont);
-                 let mut calc_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
-                 let h = DrawTextW(cache_dc, &mut buf, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
-                 SelectObject(cache_dc, old_font);
-                 DeleteObject(hfont);
-                 h
-            };
+            // 1. FAST PATH: If text is short (< 100 chars), assume it fits at max size.
+            // This eliminates lag when text first appears.
+            if text_len < 100 {
+                font_size = 64; // Slightly safer max than 72
+            } else {
+                // 2. BINARY SEARCH
+                // Since text grows, font size usually shrinks. 
+                // We search between [8, current_font_size]. We never check larger sizes.
+                let mut low = 8;
+                let mut high = font_size.max(24).min(72); // Cap high at previous size or 72
+                let mut best_fit = 8;
 
-            let mut current_h = measure_text(test_size);
-
-            // 1. JUMP: If text is huge, jump directly to estimated size
-            if current_h > available_h {
-                let ratio = available_h as f32 / current_h as f32;
-                // Target slightly smaller (0.95) to ensure fit, max 8px floor
-                let target_size = (test_size as f32 * ratio * 0.95) as i32;
-                test_size = target_size.max(8); 
-                current_h = measure_text(test_size);
+                // Max 6 iterations (log2(64) = 6). Very fast.
+                while low <= high {
+                    let mid = (low + high) / 2;
+                    let h = measure_text_height(cache_dc, &mut buf, mid, available_w);
+                    
+                    if h <= available_h {
+                        best_fit = mid;
+                        low = mid + 1; // Try bigger
+                    } else {
+                        high = mid - 1; // Too big, try smaller
+                    }
+                }
+                font_size = best_fit;
             }
-
-            // 2. FINE TUNE (Shrink): If still overflowing (e.g. non-linear scaling)
-            while current_h > available_h && test_size > 8 {
-                test_size -= 1;
-                current_h = measure_text(test_size);
-            }
-
-            // 3. FINE TUNE (Grow): If we have extra space, fill it
-            // Only grow if we have >10% vertical space to avoid jitter
-            while current_h < (available_h as f32 * 0.9) as i32 && test_size < 72 {
-                let next_size = test_size + 1;
-                let next_h = measure_text(next_size);
-                if next_h > available_h { break; } // Stop if next size would overflow
-                test_size = next_size;
-                current_h = next_h;
-            }
-            
-            font_size = test_size;
 
             // Draw Final Text
             let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
             let old_font = SelectObject(cache_dc, hfont);
 
-            // Recalc final rect for centering
+            // Center Vertically
             let mut measure_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
-            let text_h = DrawTextW(cache_dc, &mut buf, &mut measure_rect, DT_CALCRECT | DT_WORDBREAK);
-            let offset_y = (available_h - text_h) / 2;
+            DrawTextW(cache_dc, &mut buf, &mut measure_rect, DT_CALCRECT | DT_WORDBREAK);
+            let text_h = measure_rect.bottom;
+            let offset_y = ((available_h - text_h) / 2).max(0); // Prevent negative
+            
             let mut draw_rect = RECT { left: padding, top: padding + offset_y, right: width - padding, bottom: height - padding };
 
             DrawTextW(cache_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK);
