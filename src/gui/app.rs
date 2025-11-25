@@ -406,7 +406,7 @@ impl eframe::App for SettingsApp {
                             let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
                             
                             // START: MODIFICATION FOR ICONS
-                            let icon = if preset.preset_type == "audio" { "🎙️" } else { "📸" };
+                            let icon = if preset.preset_type == "audio" { "🎤" } else { "🖼" };
                             let label_text = format!("{} {}", icon, preset.name);
                             // END: MODIFICATION FOR ICONS
                             
@@ -681,19 +681,16 @@ impl eframe::App for SettingsApp {
                                         }
                                     });
 
-                                // Audio doesn't support streaming "As Received" typically for single transcription, usually waits for chunk
-                                // But keeping logic simple.
-                                if !is_audio {
-                                    ui.horizontal(|ui| {
-                                        ui.label(text.streaming_label);
-                                        egui::ComboBox::from_id_source("stream_combo")
-                                            .selected_text(if preset.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                                            .show_ui(ui, |ui| {
-                                                if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
-                                                if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
-                                            });
-                                    });
-                                }
+                                // Streaming settings available for all types
+                                ui.horizontal(|ui| {
+                                    ui.label(text.streaming_label);
+                                    egui::ComboBox::from_id_source("stream_combo")
+                                        .selected_text(if preset.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                                        .show_ui(ui, |ui| {
+                                            if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
+                                            if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
+                                        });
+                                });
 
                                 ui.horizontal(|ui| {
                                     if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
@@ -765,6 +762,16 @@ impl eframe::App for SettingsApp {
                                         });
 
                                         // Retranslate Settings
+                                        ui.horizontal(|ui| {
+                                            ui.label(text.streaming_label);
+                                            egui::ComboBox::from_id_source("retrans_stream_combo")
+                                                .selected_text(if preset.retranslate_streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                                                .show_ui(ui, |ui| {
+                                                    if ui.selectable_value(&mut preset.retranslate_streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
+                                                    if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
+                                                });
+                                        });
+
                                         ui.horizontal(|ui| {
                                             if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
                                                 preset_changed = true;

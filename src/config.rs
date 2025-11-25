@@ -310,7 +310,7 @@ pub struct Config {
         let quicker_reply_preset = Preset {
             id: "preset_quicker_foreigner_reply".to_string(),
             name: "Quicker foreigner reply".to_string(),
-            prompt: "Transcribe the audio and translate it to {language1}. Only output the translated text.".to_string(),
+            prompt: "Translate the audio to {language1}. Only output the translated text.".to_string(),
             selected_language: "Korean".to_string(),
             language_vars: quicker_reply_lang_vars,
             model: "gemini-audio".to_string(),
