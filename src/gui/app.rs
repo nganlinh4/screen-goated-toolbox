@@ -222,6 +222,16 @@ impl SettingsApp {
         
         drop(state);
         save_config(&self.config);
+        
+        // FIX 7: Post message to hotkey listener to reload hotkeys instead of waiting for timer
+        unsafe {
+            let class = w!("HotkeyListenerClass");
+            let title = w!("Listener");
+            let hwnd = windows::Win32::UI::WindowsAndMessaging::FindWindowW(class, title);
+            if hwnd.0 != 0 {
+                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(hwnd, 0x0400 + 101, windows::Win32::Foundation::WPARAM(0), windows::Win32::Foundation::LPARAM(0));
+            }
+        }
     }
     
     fn restore_window(&self, ctx: &egui::Context) {
@@ -1059,13 +1069,18 @@ impl eframe::App for SettingsApp {
 pub fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let viet_font_name = "segoe_ui";
-    let viet_font_path = "C:\\Windows\\Fonts\\segoeui.ttf";
-    let viet_fallback_path = "C:\\Windows\\Fonts\\arial.ttf";
-    let viet_data = std::fs::read(viet_font_path).or_else(|_| std::fs::read(viet_fallback_path));
+    
+    // FIX 8: Dynamic Windows font path instead of hardcoded
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
+    let font_dir = std::path::Path::new(&windir).join("Fonts");
+    
+    let viet_font_path = font_dir.join("segoeui.ttf");
+    let viet_fallback_path = font_dir.join("arial.ttf");
+    let viet_data = std::fs::read(&viet_font_path).or_else(|_| std::fs::read(&viet_fallback_path));
 
     let korean_font_name = "malgun_gothic";
-    let korean_font_path = "C:\\Windows\\Fonts\\malgun.ttf";
-    let korean_data = std::fs::read(korean_font_path);
+    let korean_font_path = font_dir.join("malgun.ttf");
+    let korean_data = std::fs::read(&korean_font_path);
 
     if let Ok(data) = viet_data {
         fonts.font_data.insert(viet_font_name.to_owned(), egui::FontData::from_owned(data));

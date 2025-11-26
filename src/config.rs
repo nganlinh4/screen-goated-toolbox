@@ -407,19 +407,22 @@ pub fn save_config(config: &Config) {
     let _ = std::fs::write(path, data);
 }
 
-/// Get all available languages as a vector of language name strings
-pub fn get_all_languages() -> Vec<String> {
-    // Use isolang crate to iterate through all languages
-    // ISO 639-3 has ~7000+ language codes, so we iterate up to a safe upper bound
-    let mut languages = Vec::new();
-    for i in 0..10000 {
-        if let Some(lang) = isolang::Language::from_usize(i) {
-            languages.push(lang.to_name().to_string());
+lazy_static::lazy_static! {
+    static ref ALL_LANGUAGES: Vec<String> = {
+        let mut languages = Vec::new();
+        for i in 0..10000 {
+            if let Some(lang) = isolang::Language::from_usize(i) {
+                languages.push(lang.to_name().to_string());
+            }
         }
-    }
-    // Remove duplicates and sort
-    languages.sort();
-    languages.dedup();
-    languages
+        languages.sort();
+        languages.dedup();
+        languages
+    };
+}
+
+/// Get all available languages as a vector of language name strings
+pub fn get_all_languages() -> &'static Vec<String> {
+    &ALL_LANGUAGES
 }
 

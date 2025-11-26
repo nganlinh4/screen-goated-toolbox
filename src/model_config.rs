@@ -63,8 +63,8 @@ impl ModelConfig {
     }
 }
 
-pub fn get_all_models() -> Vec<ModelConfig> {
-    vec![
+lazy_static::lazy_static! {
+    static ref ALL_MODELS: Vec<ModelConfig> = vec![
         ModelConfig::new(
             "scout",
             "groq",
@@ -186,9 +186,13 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             true,
             "50 lượt/ngày"
         ),
-    ]
+    ];
+}
+
+pub fn get_all_models() -> &'static [ModelConfig] {
+    &ALL_MODELS
 }
 
 pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
-    get_all_models().into_iter().find(|m| m.id == id)
+    get_all_models().iter().find(|m| m.id == id).cloned()
 }

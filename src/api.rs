@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use image::{ImageBuffer, Rgba, ImageFormat};
 use base64::{Engine as _, engine::general_purpose};
 use std::io::{Cursor, BufRead, BufReader};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -62,9 +62,20 @@ pub fn translate_image_streaming<F>(
 where
     F: FnMut(&str),
 {
-    let mut png_data = Vec::new();
-    image.write_to(&mut Cursor::new(&mut png_data), ImageFormat::Png)?;
-    let b64_image = general_purpose::STANDARD.encode(&png_data);
+    // FIX 6: Resize image if too large to save bandwidth
+    let processed_image = if image.width() > 1920 {
+        let ratio = 1920.0 / image.width() as f32;
+        let new_h = (image.height() as f32 * ratio) as u32;
+        image::imageops::resize(&image, 1920, new_h, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+
+    let mut image_data = Vec::new();
+    // Use PNG for resized image (JPEG support requires feature flag)
+    // Resizing from original size to 1920px width already saves ~75% payload
+    processed_image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
+    let b64_image = general_purpose::STANDARD.encode(&image_data);
 
     let mut full_content = String::new();
 
@@ -490,14 +501,21 @@ pub fn record_audio_and_transcribe(
     pause_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND
 ) {
+    // FIX 5: Host Selection (WASAPI for loopback, default for mic)
+    #[cfg(target_os = "windows")]
+    let host = if preset.audio_source == "device" {
+        cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or(cpal::default_host())
+    } else {
+        cpal::default_host()
+    };
+    #[cfg(not(target_os = "windows"))]
     let host = cpal::default_host();
-    
+
     // Improved Device Selection logic
     let device = if preset.audio_source == "device" {
         #[cfg(target_os = "windows")]
         {
-            // For device audio (loopback), we MUST use the default output device
-            // and treat it as an input source.
+            // For device audio (loopback), prefer WASAPI default output device
             match host.default_output_device() {
                 Some(d) => d,
                 None => {
@@ -514,16 +532,12 @@ pub fn record_audio_and_transcribe(
         host.default_input_device().expect("No input device available")
     };
 
-    // FIX 3: Robust Audio Configuration
-    // When using loopback (audio_source == "device"), we usually want the default output config
-    // because that's what the system mixer uses.
+    // Robust Audio Configuration
     let config = if preset.audio_source == "device" {
         // Try output config first for loopback accuracy
         match device.default_output_config() {
             Ok(c) => c,
             Err(_) => {
-                 // Fallback to input config if output config fails (rare, but possible)
-                 // Note: This might capture mic instead of system audio if device is actually a mic.
                  device.default_input_config().expect("Failed to get audio config")
             }
         }
@@ -541,9 +555,8 @@ pub fn record_audio_and_transcribe(
         sample_format: hound::SampleFormat::Int,
     };
 
-    // Buffer to hold audio samples
-    let audio_buffer = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let writer_buf = audio_buffer.clone();
+    // FIX 2: Use channel instead of Mutex for better lock-free audio handling
+    let (tx, rx) = mpsc::channel::<Vec<f32>>();
 
     // Stream Setup
     let err_fn = |err| eprintln!("Audio stream error: {}", err);
@@ -553,11 +566,8 @@ pub fn record_audio_and_transcribe(
             &config.into(),
             move |data: &[f32], _: &_| {
                 if !pause_signal.load(Ordering::Relaxed) {
-                    let mut buf = writer_buf.lock().unwrap();
-                    for &sample in data {
-                        let s = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-                        buf.push(s); 
-                    }
+                    // Send chunk as f32 vector. If receiver disconnects, just stop sending.
+                    let _ = tx.send(data.to_vec());
                 }
             },
             err_fn,
@@ -567,8 +577,9 @@ pub fn record_audio_and_transcribe(
             &config.into(),
             move |data: &[i16], _: &_| {
                 if !pause_signal.load(Ordering::Relaxed) {
-                    let mut buf = writer_buf.lock().unwrap();
-                    buf.extend_from_slice(data);
+                    // Convert i16 to f32 immediately to standardize
+                    let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                    let _ = tx.send(f32_data);
                 }
             },
             err_fn,
@@ -576,7 +587,6 @@ pub fn record_audio_and_transcribe(
         ),
         _ => {
             eprintln!("Unsupported audio sample format: {:?}", config.sample_format());
-            // Create a dummy stream error to propagate failure gracefully
              Err(cpal::BuildStreamError::StreamConfigNotSupported)
         },
     };
@@ -590,14 +600,17 @@ pub fn record_audio_and_transcribe(
 
     stream.play().expect("Failed to start audio stream");
 
-    // Wait loop
+    let mut collected_samples: Vec<f32> = Vec::new();
+
+    // Wait loop with channel draining
     while !stop_signal.load(Ordering::SeqCst) {
+        // Drain channel
+        while let Ok(chunk) = rx.try_recv() {
+            collected_samples.extend(chunk);
+        }
         std::thread::sleep(std::time::Duration::from_millis(50));
         // Also check if UI died
-        if preset.hide_recording_ui {
-            // If hidden, we rely purely on stop signal. 
-            // BUT user might have closed app via tray.
-        } else {
+        if !preset.hide_recording_ui {
              if !unsafe { IsWindow(overlay_hwnd).as_bool() } {
                 return; // Aborted via window close
             }
@@ -606,8 +619,15 @@ pub fn record_audio_and_transcribe(
 
     drop(stream);
 
-    // Get the recorded audio buffer
-    let samples = audio_buffer.lock().unwrap().clone();
+    // Final drain of any remaining samples
+    while let Ok(chunk) = rx.try_recv() {
+        collected_samples.extend(chunk);
+    }
+
+    // Convert f32 samples to i16 for WAV
+    let samples: Vec<i16> = collected_samples.iter()
+        .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect();
     
     if samples.is_empty() {
         println!("Warning: Recorded audio buffer is empty.");

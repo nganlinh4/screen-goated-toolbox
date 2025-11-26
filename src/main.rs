@@ -155,6 +155,9 @@ fn unregister_all_hotkeys(hwnd: HWND) {
     }
 }
 
+// FIX 7: Custom message for hotkey reloading (instead of timer polling)
+const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
+
 fn run_hotkey_listener() {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
@@ -178,29 +181,20 @@ fn run_hotkey_listener() {
         );
 
         register_all_hotkeys(hwnd);
-        
-        // Set timer to check updates
-        SetTimer(hwnd, 999, 500, None);
 
         let mut msg = MSG::default();
         loop {
             if GetMessageW(&mut msg, None, 0, 0).into() {
-                match msg.message {
-                    WM_TIMER => {
-                        let app = APP.lock().unwrap();
-                        if app.hotkeys_updated {
-                            drop(app); // Release lock before unregistering
-                            unregister_all_hotkeys(hwnd);
-                            register_all_hotkeys(hwnd);
-                            
-                            let mut app = APP.lock().unwrap();
-                            app.hotkeys_updated = false;
-                        }
-                    }
-                    _ => {
-                        TranslateMessage(&msg);
-                        DispatchMessageW(&msg);
-                    }
+                // FIX 7: Handle custom message instead of timer
+                if msg.message == WM_RELOAD_HOTKEYS {
+                    unregister_all_hotkeys(hwnd);
+                    register_all_hotkeys(hwnd);
+                    
+                    let mut app = APP.lock().unwrap();
+                    app.hotkeys_updated = false;
+                } else {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
                 }
             }
         }

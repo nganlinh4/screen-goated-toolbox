@@ -113,6 +113,11 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 last_h: 0,
                 pending_text: None,
                 last_text_update_time: 0,
+                // FIX 1: Initialize background cache fields
+                bg_bitmap: HBITMAP(0),
+                bg_bits: std::ptr::null_mut(),
+                bg_w: 0,
+                bg_h: 0,
             });
         }
 
@@ -355,6 +360,10 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             if let Some(state) = states.remove(&(hwnd.0 as isize)) {
                 if state.content_bitmap.0 != 0 {
                     DeleteObject(state.content_bitmap);
+                }
+                // FIX 1: Clean up background cache
+                if state.bg_bitmap.0 != 0 {
+                    DeleteObject(state.bg_bitmap);
                 }
             }
             LRESULT(0)

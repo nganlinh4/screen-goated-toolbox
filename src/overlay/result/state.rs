@@ -79,7 +79,18 @@ pub struct WindowState {
     
     // NEW: Timestamp for throttling text updates (in milliseconds)
     pub last_text_update_time: u32,
+    
+    // FIX 1: BACKGROUND CACHING (Avoid redrawing gradient every frame)
+    pub bg_bitmap: HBITMAP,
+    pub bg_bits: *mut core::ffi::c_void, // Raw pointer to pixels
+    pub bg_w: i32,
+    pub bg_h: i32,
 }
+
+// SAFETY: Raw pointers are not Send/Sync, but we only use them within the main thread
+// This is safe because all access is synchronized via WINDOW_STATES mutex
+unsafe impl Send for WindowState {}
+unsafe impl Sync for WindowState {}
 
 lazy_static::lazy_static! {
     pub static ref WINDOW_STATES: Mutex<HashMap<isize, WindowState>> = Mutex::new(HashMap::new());
