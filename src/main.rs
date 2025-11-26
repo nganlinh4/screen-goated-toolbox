@@ -94,7 +94,7 @@ fn main() -> eframe::Result<()> {
         .unwrap();
 
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([600.0, 500.0]) 
+        .with_inner_size([620.0, 500.0]) 
         .with_resizable(true)
         .with_visible(false)
         .with_transparent(true)  // Critical for rounded corners

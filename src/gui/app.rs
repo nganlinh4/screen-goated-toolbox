@@ -811,29 +811,32 @@ impl eframe::App for SettingsApp {
                                                         model.quota_limit
                                                     );
                                                     if ui.selectable_value(&mut preset.model, model.id.clone(), dropdown_label).clicked() {
-                                                        preset_changed = true;
-                                                        
-                                                        // START: NEW LOGIC FOR GEMINI AUDIO PROMPT PRE-FILL
-                                                        if is_audio && preset.model.contains("gemini") && preset.prompt.trim().is_empty() {
-                                                            preset.prompt = "Transcribe the audio accurately.".to_string();
-                                                        } else if is_audio && !preset.model.contains("gemini") && preset.prompt == "Transcribe the audio accurately." {
-                                                            // Reset prompt when switching away from Gemini Audio if it's the default
-                                                            preset.prompt = "".to_string();
-                                                        }
-                                                        // END: NEW LOGIC
-                                                    }
-                                                }
-                                            }
-                                        });
+                                                                         preset_changed = true;
+                                                                         
+                                                                         // START: NEW LOGIC FOR GEMINI AUDIO PROMPT PRE-FILL
+                                                                         if is_audio && preset.model.contains("gemini") && preset.prompt.trim().is_empty() {
+                                                                             preset.prompt = "Transcribe the audio accurately.".to_string();
+                                                                         } else if is_audio && !preset.model.contains("gemini") && preset.prompt == "Transcribe the audio accurately." {
+                                                                             // Reset prompt when switching away from Gemini Audio if it's the default
+                                                                             preset.prompt = "".to_string();
+                                                                         }
+                                                                         // END: NEW LOGIC
+                                                                     }
+                                                                 }
+                                                             }
+                                                         });
 
-                                    ui.label(text.streaming_label);
-                                    egui::ComboBox::from_id_source("stream_combo")
-                                        .selected_text(if preset.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                                        .show_ui(ui, |ui| {
-                                            if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
-                                            if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
-                                        });
-                                });
+                                                     // Hide Streaming control when "Hide Overlay" is active
+                                                     if !preset.hide_overlay {
+                                                         ui.label(text.streaming_label);
+                                                         egui::ComboBox::from_id_source("stream_combo")
+                                                             .selected_text(if preset.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                                                             .show_ui(ui, |ui| {
+                                                                 if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
+                                                                 if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
+                                                             });
+                                                     }
+                                                    });
 
                                 // Auto copy + Hide overlay on same line
                                 ui.horizontal(|ui| {
@@ -922,23 +925,25 @@ impl eframe::App for SettingsApp {
                                                 });
                                             
                                             if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
-                                                preset_changed = true;
-                                                if preset.retranslate_auto_copy { preset.auto_copy = false; }
-                                            }
-                                        });
+                                                 preset_changed = true;
+                                                 if preset.retranslate_auto_copy { preset.auto_copy = false; }
+                                             }
+                                            });
 
-                                        // Retranslate Settings
-                                        ui.horizontal(|ui| {
-                                            ui.label(text.streaming_label);
-                                            egui::ComboBox::from_id_source("retrans_stream_combo")
-                                                .selected_text(if preset.retranslate_streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                                                .show_ui(ui, |ui| {
-                                                    if ui.selectable_value(&mut preset.retranslate_streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
-                                                    if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
-                                                });
-                                        });
-                                    }
-                                });
+                                            // Retranslate Settings - Hide Streaming control when "Hide Overlay" is active
+                                            if !preset.hide_overlay {
+                                             ui.horizontal(|ui| {
+                                                 ui.label(text.streaming_label);
+                                                 egui::ComboBox::from_id_source("retrans_stream_combo")
+                                                     .selected_text(if preset.retranslate_streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
+                                                     .show_ui(ui, |ui| {
+                                                         if ui.selectable_value(&mut preset.retranslate_streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
+                                                         if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
+                                                     });
+                                             });
+                                            }
+                                            }
+                                            });
                             }
                              }
 
