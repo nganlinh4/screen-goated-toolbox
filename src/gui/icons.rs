@@ -235,55 +235,56 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
         }
 
         Icon::Delete => {
-            // Trash Can (Replaces abstract X)
-            let lid_y = center.y - 3.2 * scale;
-            let w_top = 8.0 * scale;
-            let w_bot = 5.5 * scale;
+            // Trash Can (Simplified & Re-aligned)
+            // Shift up significantly (2.0 scale units) for better optical alignment in the button
+            let c = center - egui::vec2(0.0, 2.0 * scale);
+            
+            let lid_y = c.y - 3.2 * scale;
+            let w_lid = 8.0 * scale; 
+            let w_can_top = 6.0 * scale;
+            let w_can_bot = 4.5 * scale;
             let h_can = 7.0 * scale;
 
             // Lid line
             painter.line_segment(
-                [egui::pos2(center.x - w_top/2.0, lid_y), egui::pos2(center.x + w_top/2.0, lid_y)],
+                [egui::pos2(c.x - w_lid/2.0, lid_y), egui::pos2(c.x + w_lid/2.0, lid_y)],
                 stroke
             );
+            
             // Handle
             painter.line_segment(
-                [egui::pos2(center.x - 1.0*scale, lid_y), egui::pos2(center.x - 1.0*scale, lid_y - 1.0*scale)],
+                [egui::pos2(c.x - 1.0*scale, lid_y), egui::pos2(c.x - 1.0*scale, lid_y - 1.0*scale)],
                 stroke
             );
             painter.line_segment(
-                [egui::pos2(center.x - 1.0*scale, lid_y - 1.0*scale), egui::pos2(center.x + 1.0*scale, lid_y - 1.0*scale)],
+                [egui::pos2(c.x - 1.0*scale, lid_y - 1.0*scale), egui::pos2(c.x + 1.0*scale, lid_y - 1.0*scale)],
                 stroke
             );
             painter.line_segment(
-                [egui::pos2(center.x + 1.0*scale, lid_y - 1.0*scale), egui::pos2(center.x + 1.0*scale, lid_y)],
+                [egui::pos2(c.x + 1.0*scale, lid_y - 1.0*scale), egui::pos2(c.x + 1.0*scale, lid_y)],
                 stroke
             );
 
-            // Can Body
-            let p1 = egui::pos2(center.x - w_top/2.0 + 1.0*scale, lid_y);
-            let p2 = egui::pos2(center.x - w_bot/2.0, lid_y + h_can);
-            let p3 = egui::pos2(center.x + w_bot/2.0, lid_y + h_can);
-            let p4 = egui::pos2(center.x + w_top/2.0 - 1.0*scale, lid_y);
+            // Can Body (Clean - Removed Ribs for less boldness)
+            let p1 = egui::pos2(c.x - w_can_top/2.0, lid_y);
+            let p2 = egui::pos2(c.x - w_can_bot/2.0, lid_y + h_can);
+            let p3 = egui::pos2(c.x + w_can_bot/2.0, lid_y + h_can);
+            let p4 = egui::pos2(c.x + w_can_top/2.0, lid_y);
 
             painter.add(egui::Shape::line(vec![p1, p2, p3, p4], stroke));
-
-            // Ribs
-            let rib_top = lid_y + 1.5*scale;
-            let rib_bot = lid_y + h_can - 1.5*scale;
-            painter.line_segment([egui::pos2(center.x, rib_top), egui::pos2(center.x, rib_bot)], stroke);
-            painter.line_segment([egui::pos2(center.x - 1.5*scale, rib_top), egui::pos2(center.x - 1.2*scale, rib_bot)], stroke);
-            painter.line_segment([egui::pos2(center.x + 1.5*scale, rib_top), egui::pos2(center.x + 1.2*scale, rib_bot)], stroke);
         }
 
         Icon::Info => {
+            // Shift up slightly for alignment
+            let c = center - egui::vec2(0.0, 1.0 * scale);
+            
             // Circle
-            painter.circle_stroke(center, 5.0 * scale, stroke);
+            painter.circle_stroke(c, 5.0 * scale, stroke);
             // Dot (Floating)
-            painter.circle_filled(center - egui::vec2(0.0, 1.8 * scale), 0.6 * scale, color);
+            painter.circle_filled(c - egui::vec2(0.0, 1.8 * scale), 0.6 * scale, color);
             // Line
             painter.rect_filled(
-                egui::Rect::from_center_size(center + egui::vec2(0.0, 1.0 * scale), egui::vec2(1.0 * scale, 2.5 * scale)),
+                egui::Rect::from_center_size(c + egui::vec2(0.0, 1.0 * scale), egui::vec2(1.0 * scale, 2.5 * scale)),
                 0.4 * scale,
                 color,
             );
