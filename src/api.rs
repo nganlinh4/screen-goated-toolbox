@@ -9,6 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::config::Preset;
 use crate::model_config::get_model_by_id;
+use crate::APP;
 
 #[derive(Serialize, Deserialize)]
 struct StreamChunk {
@@ -186,10 +187,6 @@ where
                 "stream": false
             });
             
-            // if use_json_format {
-            //    payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
-            // }
-            
             payload_obj
         };
 
@@ -206,6 +203,17 @@ where
                     anyhow::anyhow!("{}", err_str)
                 }
             })?;
+
+        // --- CAPTURE RATE LIMITS ---
+        if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+             let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+             let usage_str = format!("{} / {}", remaining, limit);
+             
+             if let Ok(mut app) = APP.lock() {
+                 app.model_usage_stats.insert(model.clone(), usage_str);
+             }
+        }
+        // ---------------------------
 
         if streaming_enabled {
             let reader = BufReader::new(resp.into_reader());
@@ -239,7 +247,6 @@ where
                 let content_str = &choice.message.content;
                 
                 if use_json_format {
-                    // Parse JSON response (from response_format: json_object)
                     if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
                         if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
                             full_content = translation.to_string();
@@ -250,7 +257,6 @@ where
                         full_content = content_str.clone();
                     }
                 } else {
-                    // Plain text response
                     full_content = content_str.clone();
                 }
                 
@@ -329,6 +335,17 @@ where
             }
         })?;
 
+    // --- CAPTURE RATE LIMITS ---
+    if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+         let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+         let usage_str = format!("{} / {}", remaining, limit);
+         
+         if let Ok(mut app) = APP.lock() {
+             app.model_usage_stats.insert(model.clone(), usage_str);
+         }
+    }
+    // ---------------------------
+
     let mut full_content = String::new();
 
     if streaming_enabled {
@@ -360,7 +377,6 @@ where
             let content_str = &choice.message.content;
             
             if use_json_format {
-                // Parse JSON response (from response_format: json_object)
                 if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
                     if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
                         full_content = translation.to_string();
@@ -371,7 +387,6 @@ where
                     full_content = content_str.clone();
                 }
             } else {
-                // Plain text response
                 full_content = content_str.clone();
             }
             
@@ -523,9 +538,6 @@ pub fn record_audio_and_transcribe(
     // Stream Setup
     let err_fn = |err| eprintln!("Audio stream error: {}", err);
     
-    // We strictly assume the device supports the config we got.
-    // For Loopback on Windows with CPAL, we must simply build an input stream on the output device.
-    // CPAL handles the WASAPI loopback flag internally if it detects it's an output device used for input.
     let stream_res = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
             &config.into(),
@@ -604,10 +616,7 @@ pub fn record_audio_and_transcribe(
     }
     writer.finalize().expect("Failed to finalize WAV file");
 
-    // DEBUG: Log the path so user can listen
     println!("DEBUG: Audio file saved to: {:?}", wav_path);
-    // DO NOT DELETE FILE FOR DEBUGGING
-    // let _ = std::fs::remove_file(&wav_path);
 
     // Read WAV file for upload
     let wav_data = std::fs::read(&wav_path).expect("Failed to read WAV file");
@@ -731,6 +740,16 @@ fn upload_audio_to_whisper(api_key: &str, model: &str, audio_data: Vec<u8>) -> a
         .send_bytes(&body)
         .map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
     
+    // --- CAPTURE RATE LIMITS ---
+    if let Some(remaining) = response.header("x-ratelimit-remaining-requests") {
+         let limit = response.header("x-ratelimit-limit-requests").unwrap_or("?");
+         let usage_str = format!("{} / {}", remaining, limit);
+         if let Ok(mut app) = APP.lock() {
+             app.model_usage_stats.insert(model.to_string(), usage_str);
+         }
+    }
+    // ---------------------------
+
     // Parse response
     let json: serde_json::Value = response.into_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;

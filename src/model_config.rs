@@ -17,6 +17,7 @@ pub struct ModelConfig {
     pub full_name: String,
     pub model_type: ModelType,
     pub enabled: bool,
+    pub quota_limit: String, 
 }
 
 impl ModelConfig {
@@ -29,6 +30,7 @@ impl ModelConfig {
         full_name: &str,
         model_type: ModelType,
         enabled: bool,
+        quota_limit: &str,
     ) -> Self {
         Self {
             id: id.to_string(),
@@ -39,6 +41,7 @@ impl ModelConfig {
             full_name: full_name.to_string(),
             model_type,
             enabled,
+            quota_limit: quota_limit.to_string(),
         }
     }
 
@@ -54,7 +57,6 @@ impl ModelConfig {
 
 pub fn get_all_models() -> Vec<ModelConfig> {
     vec![
-        // --- VISION MODELS ---
         ModelConfig::new(
             "scout",
             "groq",
@@ -64,6 +66,7 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "meta-llama/llama-4-scout-17b-16e-instruct",
             ModelType::Vision,
             true,
+            "1000 lượt/ngày"
         ),
         ModelConfig::new(
             "maverick",
@@ -74,6 +77,7 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "meta-llama/llama-4-maverick-17b-128e-instruct",
             ModelType::Vision,
             true,
+            "1000 lượt/ngày"
         ),
         ModelConfig::new(
             "gemini-flash-lite",
@@ -84,9 +88,30 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "gemini-flash-lite-latest",
             ModelType::Vision,
             true,
+            "1000 lượt/ngày"
         ),
-        
-        // --- TEXT MODELS (For Retranslate) ---
+        ModelConfig::new(
+            "gemini-flash",
+            "google",
+            "Rất chính xác",
+            "매우 정확함",
+            "Very Accurate",
+            "gemini-flash-latest",
+            ModelType::Vision,
+            true,
+            "250 lượt/ngày"
+        ),
+        ModelConfig::new(
+            "gemini-pro",
+            "google",
+            "Siêu chính xác, chậm",
+            "초정밀, 느림",
+            "Super Accurate, Slow",
+            "gemini-2.5-pro",
+            ModelType::Vision,
+            true,
+            "50 lượt/ngày"
+        ),
         ModelConfig::new(
             "fast_text",
             "groq",
@@ -96,9 +121,8 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "openai/gpt-oss-20b",
             ModelType::Text,
             true,
+            "1000 lượt/ngày"
         ),
-
-        // --- AUDIO MODELS ---
         ModelConfig::new(
             "whisper-fast",
             "groq",
@@ -108,6 +132,7 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "whisper-large-v3-turbo",
             ModelType::Audio,
             true,
+            "8h audio/ngày"
         ),
         ModelConfig::new(
             "whisper-accurate",
@@ -118,6 +143,7 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "whisper-large-v3",
             ModelType::Audio,
             true,
+            "8h audio/ngày"
         ),
         ModelConfig::new(
             "gemini-audio",
@@ -128,6 +154,29 @@ pub fn get_all_models() -> Vec<ModelConfig> {
             "gemini-flash-lite-latest",
             ModelType::Audio,
             true,
+            "1000 lượt/ngày"
+        ),
+        ModelConfig::new(
+            "gemini-audio-flash",
+            "google",
+            "Rất chính xác",
+            "매우 정확함",
+            "Very Accurate",
+            "gemini-flash-latest",
+            ModelType::Audio,
+            true,
+            "250 lượt/ngày"
+        ),
+        ModelConfig::new(
+            "gemini-audio-pro",
+            "google",
+            "Siêu chính xác, chậm",
+            "초정밀, 느림",
+            "Super Accurate, Slow",
+            "gemini-2.5-pro",
+            ModelType::Audio,
+            true,
+            "50 lượt/ngày"
         ),
     ]
 }

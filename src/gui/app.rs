@@ -524,6 +524,48 @@ impl eframe::App for SettingsApp {
                             });
 
                             ui.add_space(10.0);
+                            
+                            // --- NEW: USAGE STATISTICS ---
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("📊 Usage Statistics (Daily)").strong());
+                                
+                                let usage_stats = {
+                                    let app = self.app_state_ref.lock().unwrap();
+                                    app.model_usage_stats.clone()
+                                };
+
+                                egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
+                                    ui.label(egui::RichText::new("Model").strong());
+                                    ui.label(egui::RichText::new("Remaining / Total").strong());
+                                    ui.end_row();
+
+                                    for model in get_all_models() {
+                                        if !model.enabled { continue; }
+                                        
+                                        // 1. Model Name
+                                        let label_text = model.get_label("en");
+                                        let model_name = label_text.split(" - ").next().unwrap_or(&model.id).to_string();
+                                        ui.label(model_name); // Simple name
+                                        
+                                        // 2. Real-time Status
+                                        if model.provider == "groq" {
+                                            // Look up by FULL NAME
+                                            let status = usage_stats.get(&model.full_name).cloned().unwrap_or_else(|| {
+                                                "??? / ?".to_string()
+                                            });
+                                            ui.label(status);
+                                        } else if model.provider == "google" {
+                                            // Link for Gemini
+                                            ui.hyperlink_to("Check Usage ↗", "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                            });
+                            // -----------------------------
+
+                            ui.add_space(10.0);
+
                             if let Some(launcher) = &self.auto_launcher {
                                 if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
                                     if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
@@ -632,7 +674,7 @@ impl eframe::App for SettingsApp {
                                  // STANDARD UI (Image/Audio)
                                  
                                  // Show prompt controls if it's an image preset OR a Gemini audio model (which can use a prompt for translation/analysis)
-                                 let show_prompt_controls = !is_audio || (is_audio && preset.model == "gemini-audio");
+                                 let show_prompt_controls = !is_audio || (is_audio && preset.model.contains("gemini"));
 
                                  // 2. Main Configuration (Different for Image vs Audio)
                                  if show_prompt_controls {
@@ -731,24 +773,40 @@ impl eframe::App for SettingsApp {
                                 
                                 // Model selector + Streaming on same line
                                 ui.horizontal(|ui| {
-                                    let full_label = get_model_by_id(&preset.model)
-                                        .map(|m| m.get_label(&self.config.ui_language))
-                                        .unwrap_or_else(|| preset.model.clone());
-                                    let short_label = full_label.split('(').next().unwrap_or(&full_label).trim().to_string();
+                                    let selected_model = get_model_by_id(&preset.model);
+                                    // Display only the speed name (Nhanh, Rất Nhanh, etc.)
+                                    let display_label = selected_model.as_ref()
+                                        .map(|m| match self.config.ui_language.as_str() {
+                                            "vi" => &m.name_vi,
+                                            "ko" => &m.name_ko,
+                                            _ => &m.name_en,
+                                        })
+                                        .map(|s| s.as_str())
+                                        .unwrap_or(&preset.model);
 
                                     egui::ComboBox::from_id_source("model_selector")
-                                        .selected_text(short_label)
+                                        .selected_text(display_label)
                                         .show_ui(ui, |ui| {
                                             let target_type = if is_audio { ModelType::Audio } else { ModelType::Vision };
                                             for model in get_all_models() {
                                                 if model.enabled && model.model_type == target_type {
-                                                    if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
+                                                    // Show full details in dropdown: "Nhanh (meta-llama/...) - 1000 lượt/ngày"
+                                                    let dropdown_label = format!("{} ({}) - {}", 
+                                                        match self.config.ui_language.as_str() {
+                                                            "vi" => &model.name_vi,
+                                                            "ko" => &model.name_ko,
+                                                            _ => &model.name_en,
+                                                        },
+                                                        model.full_name,
+                                                        model.quota_limit
+                                                    );
+                                                    if ui.selectable_value(&mut preset.model, model.id.clone(), dropdown_label).clicked() {
                                                         preset_changed = true;
                                                         
                                                         // START: NEW LOGIC FOR GEMINI AUDIO PROMPT PRE-FILL
-                                                        if is_audio && preset.model == "gemini-audio" && preset.prompt.trim().is_empty() {
+                                                        if is_audio && preset.model.contains("gemini") && preset.prompt.trim().is_empty() {
                                                             preset.prompt = "Transcribe the audio accurately.".to_string();
-                                                        } else if is_audio && preset.model != "gemini-audio" && preset.prompt == "Transcribe the audio accurately." {
+                                                        } else if is_audio && !preset.model.contains("gemini") && preset.prompt == "Transcribe the audio accurately." {
                                                             // Reset prompt when switching away from Gemini Audio if it's the default
                                                             preset.prompt = "".to_string();
                                                         }
@@ -820,18 +878,33 @@ impl eframe::App for SettingsApp {
                                         // Text Model Selector + Auto Copy on same line
                                         ui.horizontal(|ui| {
                                             ui.label(text.retranslate_model_label);
-                                            let full_text_model = get_model_by_id(&preset.retranslate_model)
-                                                .map(|m| m.get_label(&self.config.ui_language))
-                                                .unwrap_or_else(|| preset.retranslate_model.clone());
-                                            
-                                            let short_text_model = full_text_model.split('(').next().unwrap_or(&full_text_model).trim().to_string();
+                                            let text_model = get_model_by_id(&preset.retranslate_model);
+                                            // Display only the speed name
+                                            let text_display_label = text_model.as_ref()
+                                                .map(|m| match self.config.ui_language.as_str() {
+                                                    "vi" => &m.name_vi,
+                                                    "ko" => &m.name_ko,
+                                                    _ => &m.name_en,
+                                                })
+                                                .map(|s| s.as_str())
+                                                .unwrap_or(&preset.retranslate_model);
                                             
                                             egui::ComboBox::from_id_source("text_model_selector")
-                                                .selected_text(short_text_model)
+                                                .selected_text(text_display_label)
                                                 .show_ui(ui, |ui| {
                                                     for model in get_all_models() {
                                                         if model.enabled && model.model_type == ModelType::Text {
-                                                            if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
+                                                            // Show full details in dropdown: "Nhanh (meta-llama/...) - 1000 lượt/ngày"
+                                                            let dropdown_label = format!("{} ({}) - {}", 
+                                                                match self.config.ui_language.as_str() {
+                                                                    "vi" => &model.name_vi,
+                                                                    "ko" => &model.name_ko,
+                                                                    _ => &model.name_en,
+                                                                },
+                                                                model.full_name,
+                                                                model.quota_limit
+                                                            );
+                                                            if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), dropdown_label).clicked() {
                                                                 preset_changed = true;
                                                             }
                                                         }

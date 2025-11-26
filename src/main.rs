@@ -20,6 +20,7 @@ use lazy_static::lazy_static;
 use image::ImageBuffer;
 use config::{Config, load_config};
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem}};
+use std::collections::HashMap;
 
 // Global event for inter-process restore signaling (manual-reset event)
 lazy_static! {
@@ -34,6 +35,8 @@ pub struct AppState {
     pub original_screenshot: Option<ImageBuffer<image::Rgba<u8>, Vec<u8>>>,
     pub hotkeys_updated: bool,
     pub registered_hotkey_ids: Vec<i32>, // Track IDs of currently registered hotkeys
+    // New: Track API usage limits (Key: Model Full Name, Value: "Remaining / Total")
+    pub model_usage_stats: HashMap<String, String>, 
 }
 
 lazy_static! {
@@ -44,6 +47,7 @@ lazy_static! {
             original_screenshot: None,
             hotkeys_updated: false,
             registered_hotkey_ids: Vec::new(),
+            model_usage_stats: HashMap::new(),
         }
     }));
 }
