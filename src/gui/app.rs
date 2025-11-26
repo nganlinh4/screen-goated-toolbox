@@ -660,24 +660,31 @@ impl eframe::App for SettingsApp {
                                  ui.group(|ui| {
                                      ui.label(egui::RichText::new(text.capture_method_label).strong());
                                      
-                                     egui::ComboBox::from_id_source("video_cap_method")
-                                         .selected_text(if preset.video_capture_method == "region" {
-                                             text.region_capture.to_string()
-                                         } else {
-                                             preset.video_capture_method.strip_prefix("monitor:").unwrap_or("Unknown").to_string()
-                                         })
-                                         .show_ui(ui, |ui| {
-                                             if ui.selectable_value(&mut preset.video_capture_method, "region".to_string(), text.region_capture).clicked() {
-                                                 preset_changed = true;
-                                             }
-                                             for monitor in &self.cached_monitors {
-                                                 let val = format!("monitor:{}", monitor);
-                                                 let label = format!("Full screen ({})", monitor);
-                                                 if ui.selectable_value(&mut preset.video_capture_method, val, label).clicked() {
+                                     // FIX 2: Monitor List Refresh Button
+                                     ui.horizontal(|ui| {
+                                         if ui.button("↻").on_hover_text("Refresh Monitors").clicked() {
+                                             self.cached_monitors = get_monitor_names();
+                                         }
+
+                                         egui::ComboBox::from_id_source("video_cap_method")
+                                             .selected_text(if preset.video_capture_method == "region" {
+                                                 text.region_capture.to_string()
+                                             } else {
+                                                 preset.video_capture_method.strip_prefix("monitor:").unwrap_or("Unknown").to_string()
+                                             })
+                                             .show_ui(ui, |ui| {
+                                                 if ui.selectable_value(&mut preset.video_capture_method, "region".to_string(), text.region_capture).clicked() {
                                                      preset_changed = true;
                                                  }
-                                             }
-                                         });
+                                                 for monitor in &self.cached_monitors {
+                                                     let val = format!("monitor:{}", monitor);
+                                                     let label = format!("Full screen ({})", monitor);
+                                                     if ui.selectable_value(&mut preset.video_capture_method, val, label).clicked() {
+                                                         preset_changed = true;
+                                                     }
+                                                 }
+                                             });
+                                     });
                                  });
                                  // Hide everything else for video placeholder
                              } else {
@@ -712,6 +719,11 @@ impl eframe::App for SettingsApp {
                                     
                                     if ui.add(egui::TextEdit::multiline(&mut preset.prompt).desired_rows(3).desired_width(f32::INFINITY)).changed() {
                                         preset_changed = true;
+                                    }
+                                    
+                                    // FIX 4: Empty Prompt Warning
+                                    if preset.prompt.trim().is_empty() {
+                                        ui.colored_label(egui::Color32::RED, text.empty_prompt_warning);
                                     }
                                     
                                     // ... (existing language tag selectors logic) ...

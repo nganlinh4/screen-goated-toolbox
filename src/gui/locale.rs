@@ -44,6 +44,7 @@ pub struct LocaleText {
     pub usage_model_column: &'static str,
     pub usage_remaining_column: &'static str,
     pub usage_check_link: &'static str,
+    pub empty_prompt_warning: &'static str,
 }
 
 impl LocaleText {
@@ -94,6 +95,7 @@ impl LocaleText {
                 usage_model_column: "Mô hình",
                 usage_remaining_column: "Còn lại / Tổng",
                 usage_check_link: "Xem lượng dùng ↗",
+                empty_prompt_warning: "Cảnh báo: Câu lệnh trống có thể cho kết quả không như mong đợi!",
             },
             "ko" => Self {
                 api_section: "전역 설정",
@@ -140,6 +142,7 @@ impl LocaleText {
                 usage_model_column: "모델",
                 usage_remaining_column: "남은 / 전체",
                 usage_check_link: "사용량 확인 ↗",
+                empty_prompt_warning: "경고: 빈 프롬프트는 예측할 수 없는 결과를 낼 수 있습니다!",
             },
             _ => Self {
                 api_section: "Global Settings",
@@ -186,6 +189,7 @@ impl LocaleText {
                 usage_model_column: "Model",
                 usage_remaining_column: "Remaining / Total",
                 usage_check_link: "Check Usage ↗",
+                empty_prompt_warning: "Warning: Empty prompt may yield unpredictable results!",
             },
         }
     }

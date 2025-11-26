@@ -507,13 +507,22 @@ pub fn record_audio_and_transcribe(
         host.default_input_device().expect("No input device available")
     };
 
-    // Try to get a config. For loopback, we often need the default output config
-    // but we use it to build an input stream.
+    // FIX 3: Robust Audio Configuration
+    // When using loopback (audio_source == "device"), we usually want the default output config
+    // because that's what the system mixer uses.
     let config = if preset.audio_source == "device" {
-        device.default_output_config().or_else(|_| device.default_input_config())
+        // Try output config first for loopback accuracy
+        match device.default_output_config() {
+            Ok(c) => c,
+            Err(_) => {
+                 // Fallback to input config if output config fails (rare, but possible)
+                 // Note: This might capture mic instead of system audio if device is actually a mic.
+                 device.default_input_config().expect("Failed to get audio config")
+            }
+        }
     } else {
-        device.default_input_config()
-    }.expect("Failed to get device config");
+        device.default_input_config().expect("Failed to get audio config")
+    };
 
     let sample_rate = config.sample_rate().0;
     let channels = config.channels();
@@ -558,7 +567,11 @@ pub fn record_audio_and_transcribe(
             err_fn,
             None
         ),
-        _ => panic!("Unsupported audio format"),
+        _ => {
+            eprintln!("Unsupported audio sample format: {:?}", config.sample_format());
+            // Create a dummy stream error to propagate failure gracefully
+             Err(cpal::BuildStreamError::StreamConfigNotSupported)
+        },
     };
 
     if let Err(e) = stream_res {
@@ -612,6 +625,9 @@ pub fn record_audio_and_transcribe(
 
     // Read WAV file for upload
     let wav_data = std::fs::read(&wav_path).expect("Failed to read WAV file");
+    
+    // FIX 1: Clean up the temporary file immediately after reading
+    let _ = std::fs::remove_file(&wav_path);
     
     // Determine API endpoint, model, and provider
     let model_config = get_model_by_id(&preset.model);
