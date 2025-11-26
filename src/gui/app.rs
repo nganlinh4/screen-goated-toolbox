@@ -527,7 +527,10 @@ impl eframe::App for SettingsApp {
                             
                             // --- NEW: USAGE STATISTICS ---
                             ui.group(|ui| {
-                                ui.label(egui::RichText::new(text.usage_statistics_title).strong());
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(text.usage_statistics_title).strong());
+                                    ui.label("ℹ").on_hover_text(text.usage_statistics_tooltip);
+                                });
                                 
                                 let usage_stats = {
                                     let app = self.app_state_ref.lock().unwrap();
@@ -573,27 +576,27 @@ impl eframe::App for SettingsApp {
 
                             ui.add_space(10.0);
 
-                            if let Some(launcher) = &self.auto_launcher {
-                                if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
-                                    if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
+                            ui.horizontal(|ui| {
+                                if let Some(launcher) = &self.auto_launcher {
+                                    if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
+                                        if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
+                                    }
                                 }
-                            }
-
-                            ui.add_space(20.0);
-                            if ui.button(text.reset_defaults_btn).clicked() {
-                                // Save API keys before resetting
-                                let saved_groq_key = self.config.api_key.clone();
-                                let saved_gemini_key = self.config.gemini_api_key.clone();
-                                
-                                // Reset to defaults
-                                self.config = Config::default();
-                                
-                                // Restore API keys
-                                self.config.api_key = saved_groq_key;
-                                self.config.gemini_api_key = saved_gemini_key;
-                                
-                                self.save_and_sync();
-                            }
+                                if ui.button(text.reset_defaults_btn).clicked() {
+                                    // Save API keys before resetting
+                                    let saved_groq_key = self.config.api_key.clone();
+                                    let saved_gemini_key = self.config.gemini_api_key.clone();
+                                    
+                                    // Reset to defaults
+                                    self.config = Config::default();
+                                    
+                                    // Restore API keys
+                                    self.config.api_key = saved_groq_key;
+                                    self.config.gemini_api_key = saved_gemini_key;
+                                    
+                                    self.save_and_sync();
+                                }
+                            });
                         }
                         
                         ViewMode::Preset(idx) => {
