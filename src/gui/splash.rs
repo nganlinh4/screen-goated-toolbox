@@ -1,22 +1,32 @@
 use eframe::egui;
-use eframe::egui::{Color32, Pos2, Rect, Vec2, FontId, Align2, Stroke};
+use eframe::egui::{Color32, Pos2, Rect, Vec2, FontId, Align2, Stroke, Shape};
 use std::f32::consts::PI;
+use std::cmp::Ordering;
 
 // --- CONFIGURATION ---
-const ANIMATION_DURATION: f32 = 7.5;
-const PHASE_ASSEMBLE: f32 = 0.5;   // Particles start moving to targets
-const PHASE_CONNECT: f32 = 2.5;    // Neural lines appear
-const PHASE_STABILIZE: f32 = 5.0;  // Lock in and glow
-const FADE_OUT_START: f32 = 6.5;
+const ANIMATION_DURATION: f32 = 8.5;
+const START_TRANSITION: f32 = 3.0; 
+// We no longer use FADE_OUT_START for the whole screen, only for debris
 
-// --- PALETTE (Holographic Tech) ---
-const C_VOID: Color32 = Color32::from_rgb(10, 11, 16);          // Deep Space
-const C_CYAN: Color32 = Color32::from_rgb(0, 240, 255);         // Data Stream
-const C_MAGENTA: Color32 = Color32::from_rgb(255, 0, 128);      // System Core
-const C_WHITE: Color32 = Color32::from_rgb(220, 240, 255);      // High Energy
+// --- PALETTE ---
+const C_VOID: Color32 = Color32::from_rgb(10, 12, 18);
+const C_CYAN: Color32 = Color32::from_rgb(0, 255, 240);
+const C_MAGENTA: Color32 = Color32::from_rgb(255, 0, 110);
+const C_WHITE: Color32 = Color32::from_rgb(240, 245, 255);
+const C_SHADOW: Color32 = Color32::from_rgb(20, 20, 30);
+
+// --- MATH UTILS ---
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
 
 // --- 3D MATH KERNEL ---
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 struct Vec3 { x: f32, y: f32, z: f32 }
 
 impl Vec3 {
@@ -26,60 +36,61 @@ impl Vec3 {
     fn add(self, v: Vec3) -> Self { Self::new(self.x + v.x, self.y + v.y, self.z + v.z) }
     fn sub(self, v: Vec3) -> Self { Self::new(self.x - v.x, self.y - v.y, self.z - v.z) }
     fn mul(self, s: f32) -> Self { Self::new(self.x * s, self.y * s, self.z * s) }
+    fn dot(self, v: Vec3) -> f32 { self.x * v.x + self.y * v.y + self.z * v.z }
     fn len(self) -> f32 { (self.x*self.x + self.y*self.y + self.z*self.z).sqrt() }
-    
-    fn rotate_y(self, angle: f32) -> Self {
-        let (s, c) = angle.sin_cos();
-        Self::new(self.x * c + self.z * s, self.y, -self.x * s + self.z * c)
+    fn normalize(self) -> Self {
+        let l = self.len();
+        if l == 0.0 { Self::ZERO } else { self.mul(1.0/l) }
     }
+    fn lerp(self, target: Vec3, t: f32) -> Self {
+        Self::new(
+            lerp(self.x, target.x, t),
+            lerp(self.y, target.y, t),
+            lerp(self.z, target.z, t)
+        )
+    }
+    
     fn rotate_x(self, angle: f32) -> Self {
         let (s, c) = angle.sin_cos();
         Self::new(self.x, self.y * c - self.z * s, self.y * s + self.z * c)
     }
-
-    // Returns (ScreenPos, Scale, Z-Depth)
-    fn project(self, center: Pos2, fov_scale: f32, cam_z: f32) -> Option<(Pos2, f32, f32)> {
-        let z_depth = cam_z - self.z;
-        if z_depth <= 10.0 { return None; } // Near clip plane
-        let scale = fov_scale / z_depth;
-        let x = center.x + self.x * scale;
-        let y = center.y - self.y * scale; 
-        Some((Pos2::new(x, y), scale, z_depth))
+    fn rotate_y(self, angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new(self.x * c + self.z * s, self.y, -self.x * s + self.z * c)
+    }
+    fn rotate_z(self, angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new(self.x * c - self.y * s, self.x * s + self.y * c, self.z)
     }
 }
 
-// --- PARTICLE SYSTEM ---
-#[derive(PartialEq, Clone, Copy)]
-enum PType {
-    CoreVoxel,  // The SGT Text
-    Node,       // Points on the Neural Sphere
-    DataBit,    // Fast orbiting bits
-}
-
-struct Particle {
+// --- GEOMETRY ENGINE ---
+struct Voxel {
+    helix_radius: f32,
+    helix_angle_offset: f32,
+    helix_y: f32,
+    
+    target_pos: Vec3,
+    
+    // Animation State
     pos: Vec3,
-    start_pos: Vec3,
-    target: Vec3,
-    vel: Vec3,
+    rot: Vec3,
+    scale: f32,
     
-    ptype: PType,
+    // Physics State (Interactive)
+    velocity: Vec3,
+    
     color: Color32,
-    base_size: f32,
-    
-    // Connectivity
-    connections: Vec<usize>, // Indices of neighbors to draw lines to
-    
-    // Animation
-    phase_offset: f32,
+    noise_factor: f32,
+    is_debris: bool,
 }
 
 pub struct SplashScreen {
     start_time: f64,
-    particles: Vec<Particle>,
+    voxels: Vec<Voxel>,
     init_done: bool,
-    mouse_influence: Vec2,
-    
-    // Dynamic Text State
+    mouse_influence: Vec2, // For camera parallax
+    mouse_world_pos: Vec3, // For interaction
     loading_text: String,
 }
 
@@ -92,149 +103,87 @@ impl SplashScreen {
     pub fn new(ctx: &egui::Context) -> Self {
         Self {
             start_time: ctx.input(|i| i.time),
-            particles: Vec::with_capacity(2500),
+            voxels: Vec::with_capacity(500),
             init_done: false,
             mouse_influence: Vec2::ZERO,
-            loading_text: "INITIALIZING NEURAL LINK...".to_string(),
+            mouse_world_pos: Vec3::ZERO,
+            loading_text: "TRANSLATING...".to_string(),
         }
     }
 
     fn init_scene(&mut self) {
-        let mut rng_state = 1337u64;
+        let mut rng_state = 12345u64;
         let mut rng = || {
             rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
             (rng_state >> 32) as f32 / 4294967295.0
         };
 
-        // --- 1. SGT LOGO (Central Voxel Grid) ---
-        // Dense grid for solid look
-        let s_grid = [" XXX ", "X   X", "X    ", " XXX ", "    X", "X   X", " XXX "];
-        let g_grid = [" XXX ", "X   X", "X    ", "X XX ", "X   X", "X   X", " XXX "];
-        let t_grid = ["XXXXX", "  X  ", "  X  ", "  X  ", "  X  ", "  X  ", "  X  "];
+        // --- GENERATE S G T VOXELS ---
+        let s_map = [ " ####", "##   ", " ### ", "   ##", "#### " ];
+        let g_map = [ " ####", "##   ", "## ##", "##  #", " ####" ];
+        let t_map = [ "#####", "  #  ", "  #  ", "  #  ", "  #  " ];
 
-        let mut spawn_voxels = |grid: &[&str], x_offset: f32| {
-            for (row, line) in grid.iter().enumerate() {
-                for (col, char) in line.chars().enumerate() {
-                    if char == 'X' {
-                        // Extrude depth
-                        for d in 0..2 {
-                            let tx = (x_offset + col as f32) * 14.0;
-                            let ty = ((3.0 - row as f32) * 14.0) + 0.0;
-                            let tz = (d as f32 * 14.0) - 7.0;
+        let spacing = 14.0;
+        let mut total_voxels = 0;
 
-                            let target = Vec3::new(tx, ty, tz);
-                            let start = Vec3::new(
-                                (rng() - 0.5) * 800.0,
-                                (rng() - 0.5) * 800.0,
-                                -500.0 + rng() * 1000.0
-                            );
+        let mut spawn_letter = |map: &[&str], offset_x: f32, color_theme: Color32| {
+            for (y, row) in map.iter().enumerate() {
+                for (x, ch) in row.chars().enumerate() {
+                    if ch == '#' {
+                        total_voxels += 1;
+                        
+                        let tx = offset_x + (x as f32 * spacing);
+                        let ty = (2.0 - y as f32) * spacing;
+                        let tz = 0.0;
+                        let target = Vec3::new(tx, ty, tz);
 
-                            self.particles.push(Particle {
-                                pos: start,
-                                start_pos: start,
-                                target,
-                                vel: Vec3::ZERO,
-                                ptype: PType::CoreVoxel,
-                                color: C_WHITE,
-                                base_size: 4.0,
-                                connections: Vec::new(), // Voxels are solid, no lines needed
-                                phase_offset: rng(),
-                            });
-                        }
+                        let strand_idx = total_voxels % 2;
+                        let h_y = ((total_voxels as f32 * 3.0) % 240.0) - 120.0; 
+                        let h_radius = 60.0;
+                        let h_angle = (if strand_idx == 0 { 0.0 } else { PI }) + (h_y * 0.05);
+
+                        self.voxels.push(Voxel {
+                            helix_radius: h_radius,
+                            helix_angle_offset: h_angle,
+                            helix_y: h_y,
+                            target_pos: target,
+                            pos: Vec3::ZERO,
+                            rot: Vec3::new(rng() * 6.0, rng() * 6.0, rng() * 6.0),
+                            scale: 0.1,
+                            velocity: Vec3::ZERO,
+                            color: if rng() > 0.85 { C_WHITE } else { color_theme },
+                            noise_factor: rng(),
+                            is_debris: false,
+                        });
                     }
                 }
             }
         };
 
-        spawn_voxels(&s_grid, -14.0);
-        spawn_voxels(&g_grid, -2.5);
-        spawn_voxels(&t_grid, 9.0);
+        spawn_letter(&s_map, -110.0, C_CYAN);
+        spawn_letter(&g_map, -25.0, C_MAGENTA);
+        spawn_letter(&t_map, 60.0, C_CYAN);
 
-        // --- 2. NEURAL SPHERE (The World) ---
-        // Fibonacci Sphere algorithm for even distribution
-        let num_nodes = 300;
-        let sphere_radius = 220.0;
-        let phi = PI * (3.0 - 5.0f32.sqrt()); // Golden angle
+        // --- DECORATIVE DEBRIS ---
+        for _ in 0..60 {
+            let h_y = (rng() * 300.0) - 150.0;
+            let h_radius = 80.0 + rng() * 60.0;
+            let h_angle = rng() * PI * 2.0;
+            let target = Vec3::new(h_angle.cos(), 0.0, h_angle.sin()).mul(500.0);
 
-        let sphere_start_idx = self.particles.len();
-
-        for i in 0..num_nodes {
-            let y = 1.0 - (i as f32 / (num_nodes - 1) as f32) * 2.0; // y goes from 1 to -1
-            let radius = (1.0 - y * y).sqrt();
-            let theta = phi * i as f32;
-
-            let x = theta.cos() * radius;
-            let z = theta.sin() * radius;
-
-            let target = Vec3::new(x * sphere_radius, y * sphere_radius, z * sphere_radius);
-            
-            // Start exploded
-            let start = target.mul(3.5);
-
-            self.particles.push(Particle {
-                pos: start,
-                start_pos: start,
-                target,
-                vel: Vec3::ZERO,
-                ptype: PType::Node,
-                color: C_CYAN,
-                base_size: 2.5,
-                connections: Vec::new(),
-                phase_offset: rng(),
+            self.voxels.push(Voxel {
+                helix_radius: h_radius,
+                helix_angle_offset: h_angle,
+                helix_y: h_y,
+                target_pos: target,
+                pos: Vec3::ZERO,
+                rot: Vec3::new(rng(), rng(), rng()),
+                scale: 0.3,
+                velocity: Vec3::ZERO,
+                color: C_SHADOW,
+                noise_factor: rng(),
+                is_debris: true,
             });
-        }
-
-        // Pre-calculate connections (Nearest Neighbors on Sphere)
-        // This is O(N^2) but N=300 is tiny, so it's instant.
-        // Doing this once at init allows 60FPS rendering of lines.
-        for i in sphere_start_idx..self.particles.len() {
-            let p1_target = self.particles[i].target;
-            let mut neighbors = Vec::new();
-            
-            for j in sphere_start_idx..self.particles.len() {
-                if i == j { continue; }
-                let dist = p1_target.sub(self.particles[j].target).len();
-                if dist < 45.0 { // Connection threshold
-                    neighbors.push((dist, j));
-                }
-            }
-            // Keep closest 3
-            neighbors.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            for (_, idx) in neighbors.iter().take(3) {
-                self.particles[i].connections.push(*idx);
-            }
-        }
-
-        // --- 3. DATA RINGS (Counter-Rotating) ---
-        for r in 0..2 {
-            let count = 150;
-            let radius = 280.0 + (r as f32 * 40.0);
-            let speed_mult = if r == 0 { 1.0 } else { -0.7 };
-            
-            for i in 0..count {
-                let angle = (i as f32 / count as f32) * PI * 2.0;
-                let x = angle.cos() * radius;
-                let z = angle.sin() * radius;
-                // Tilt the rings
-                let tilt = 0.3;
-                let y = z * tilt; 
-                let z = z * (1.0 - tilt); // Flatten z slightly
-
-                let target = Vec3::new(x, y, z);
-                let start = Vec3::new(x, 2000.0 * speed_mult, z); // Rain down
-
-                self.particles.push(Particle {
-                    pos: start,
-                    start_pos: start,
-                    target,
-                    vel: Vec3::new(0.0, speed_mult, 0.0), // Store rotation direction in Y vel
-                    ptype: PType::DataBit,
-                    color: if r == 0 { C_MAGENTA } else { C_CYAN },
-                    base_size: 1.5,
-                    connections: Vec::new(),
-                    phase_offset: rng(),
-                });
-            }
         }
 
         self.init_done = true;
@@ -246,295 +195,311 @@ impl SplashScreen {
         let now = ctx.input(|i| i.time);
         let t = (now - self.start_time) as f32;
         
+        // Wait Phase Logic
         if t > ANIMATION_DURATION {
-            return SplashStatus::Finished;
+            // Click anywhere to continue
+            if ctx.input(|i| i.pointer.any_click()) {
+                return SplashStatus::Finished;
+            }
         }
         ctx.request_repaint();
 
-        // 1. Mouse Gyroscope
+        // --- MOUSE INPUT & 3D PROJECTION INVERSION ---
         if let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) {
             let rect = ctx.input(|i| i.screen_rect());
             let center = rect.center();
+            
+            // Parallax (Screen Space)
             let tx = (pointer.x - center.x) / center.x;
             let ty = (pointer.y - center.y) / center.y;
-            // Smooth lerp
             self.mouse_influence.x += (tx - self.mouse_influence.x) * 0.05;
             self.mouse_influence.y += (ty - self.mouse_influence.y) * 0.05;
+
+            // World Space Projection
+            // Clamp T for physics calc so we don't drift
+            let physics_t = t.min(ANIMATION_DURATION);
+            let cam_dist = 600.0 + smoothstep(0.0, 8.0, physics_t) * 100.0;
+            let fov = 800.0;
+            
+            let mouse_wx = (pointer.x - center.x) * cam_dist / fov;
+            let mouse_wy = -(pointer.y - center.y) * cam_dist / fov;
+            self.mouse_world_pos = Vec3::new(mouse_wx, mouse_wy, 0.0);
         }
 
-        // 2. Status Text Logic
-        if t < 2.0 { self.loading_text = "Translate".to_string(); }
-        else if t < 3.5 { self.loading_text = "OCR".to_string(); }
-        else if t < 4.5 { self.loading_text = "Transcribe".to_string(); }
+        // Update Text based on timeline
+        if t < 2.0 { self.loading_text = "TRANSLATING...".to_string(); }
+        else if t < 4.0 { self.loading_text = "OCR...".to_string(); }
+        else if t < 6.0 { self.loading_text = "TRANSCRIBING...".to_string(); }
         else { self.loading_text = "nganlinh4".to_string(); }
 
-        // 3. Physics Engine
-        let assemble_factor = ((t - PHASE_ASSEMBLE) / 2.0).clamp(0.0, 1.0);
-        let ease_assemble = 1.0 - (1.0 - assemble_factor).powi(4); // Quartic ease out
+        // --- PHYSICS UPDATE ---
+        // Freeze the "Assemble" animation state when done so it doesn't drift
+        let physics_t = t.min(ANIMATION_DURATION); 
+        let helix_spin = physics_t * 2.0 + (physics_t * physics_t * 0.2); 
         
-        for p in &mut self.particles {
-            match p.ptype {
-                PType::CoreVoxel | PType::Node => {
-                    // Magnetic Assembly
-                    // Blend between chaotic start and orderly target
-                    let dest = if t < PHASE_ASSEMBLE {
-                        p.start_pos
-                    } else {
-                        // Lerp towards target
-                        let v = p.target.sub(p.start_pos);
-                        p.start_pos.add(v.mul(ease_assemble))
-                    };
-                    
-                    // Add "breathing" noise
-                    let pulse = (t * 2.0 + p.phase_offset * 10.0).sin() * 2.0;
-                    let noisy_dest = dest.add(Vec3::new(pulse, pulse, pulse));
+        for v in &mut self.voxels {
+            let my_start = START_TRANSITION + (v.noise_factor * 1.5); 
+            let my_end = my_start + 2.0;
+            let progress = smoothstep(my_start, my_end, physics_t);
 
-                    // Spring physics to reach noisy_dest
-                    let diff = noisy_dest.sub(p.pos);
-                    p.vel = p.vel.add(diff.mul(0.1)).mul(0.85); // Stiff spring
-                    p.pos = p.pos.add(p.vel);
-                },
+            // 1. Base Position (Helix or Target)
+            if progress <= 0.0 {
+                // Helix Mode
+                let current_h_y = v.helix_y + (physics_t * 2.0 + v.noise_factor * 10.0).sin() * 5.0;
+                let current_angle = v.helix_angle_offset + helix_spin;
+                let current_radius = v.helix_radius * (1.0 + physics_t * 0.1);
                 
-                PType::DataBit => {
-                    // Orbit Logic
-                    let rot_speed = p.vel.y * 1.5; // Stored in Y
-                    let rot = t * rot_speed;
-                    
-                    // Rotate the TARGET around Y
-                    let orbital_pos = p.target.rotate_y(rot);
-                    
-                    // Lerp vertically from start (rain effect) to orbit plane
-                    let current_y = if t < PHASE_ASSEMBLE {
-                        p.start_pos.y * (1.0 - ease_assemble) + orbital_pos.y * ease_assemble
-                    } else {
-                        orbital_pos.y
-                    };
+                v.pos = Vec3::new(
+                    current_angle.cos() * current_radius,
+                    current_h_y,
+                    current_angle.sin() * current_radius
+                );
+                v.rot.y += 0.05;
+                v.scale = 0.8;
+                v.velocity = Vec3::ZERO;
+            } else {
+                // Transition / Target Mode
+                let current_h_y = v.helix_y + (physics_t * 2.0 + v.noise_factor * 10.0).sin() * 5.0;
+                let current_angle = v.helix_angle_offset + helix_spin;
+                let current_radius = v.helix_radius * (1.0 + physics_t * 0.1);
+                let helix_pos = Vec3::new(
+                    current_angle.cos() * current_radius,
+                    current_h_y,
+                    current_angle.sin() * current_radius
+                );
 
-                    let final_target = Vec3::new(orbital_pos.x, current_y, orbital_pos.z);
+                let target_base = v.target_pos;
+                let mut pos = helix_pos.lerp(target_base, progress);
+
+                // --- INTERACTIVE PHYSICS (Repulsion) ---
+                if progress > 0.9 && !v.is_debris {
+                    let to_mouse = pos.sub(self.mouse_world_pos);
+                    let dist_sq = to_mouse.x*to_mouse.x + to_mouse.y*to_mouse.y; 
                     
-                    let diff = final_target.sub(p.pos);
-                    p.vel.x = p.vel.x * 0.9 + diff.x * 0.1;
-                    p.vel.z = p.vel.z * 0.9 + diff.z * 0.1;
-                    p.pos.x += p.vel.x;
-                    p.pos.y = current_y; // Lock Y hard
-                    p.pos.z += p.vel.z;
+                    if dist_sq < 6400.0 {
+                        let dist = dist_sq.sqrt();
+                        let force = (80.0 - dist) / 80.0; 
+                        let push_dir = to_mouse.normalize();
+                        
+                        v.velocity = v.velocity.add(push_dir.mul(force * 2.0));
+                        
+                        v.rot.x += push_dir.y * force * 0.2;
+                        v.rot.y -= push_dir.x * force * 0.2;
+                    }
+                }
+
+                // Apply Velocity & Damping (Spring back to target)
+                let displacement = pos.sub(target_base);
+                let spring_force = displacement.mul(-0.1); 
+                v.velocity = v.velocity.add(spring_force);
+                v.velocity = v.velocity.mul(0.90); 
+                
+                pos = pos.add(v.velocity);
+                v.pos = pos;
+
+                v.rot = v.rot.lerp(Vec3::ZERO, 0.1); 
+                
+                if progress > 0.95 {
+                    let impact = (physics_t - my_end).max(0.0);
+                    let pulse = (impact * 10.0).sin() * (-3.0 * impact).exp() * 0.5;
+                    v.scale = 1.0 + pulse;
+                } else {
+                    v.scale = lerp(0.8, 1.0, progress);
                 }
             }
         }
 
-        // Render Frame
-        // Use Frame::none() to remove margins, ensuring the background fills the window
         egui::CentralPanel::default()
             .frame(egui::Frame::none())
             .show(ctx, |ui| {
-                self.paint(ui, t);
+                self.render(ui, t);
             });
 
         SplashStatus::Ongoing
     }
 
-    fn paint(&self, ui: &mut egui::Ui, t: f32) {
+    fn render(&self, ui: &mut egui::Ui, t: f32) {
         let rect = ui.max_rect();
-        // Clip to visible area to prevent over-drawing artifacts
         let painter = ui.painter().with_clip_rect(rect);
         let center = rect.center();
         
-        // --- 1. GLOBAL OPACITY ---
-        let master_alpha = if t > FADE_OUT_START {
-            (1.0 - (t - FADE_OUT_START) * 1.5).clamp(0.0, 1.0)
-        } else {
-            (t * 2.0).clamp(0.0, 1.0) // Fade in
-        };
+        // Fade Logic (Fade In only, no auto Fade Out for UI)
+        let alpha = if t < 1.0 { t } else { 1.0 };
+        let master_alpha = alpha.clamp(0.0, 1.0);
 
-        // --- 2. BACKGROUND ---
+        // Background
         painter.rect_filled(rect, 32.0, C_VOID);
-        
-        // Grid Floor (Cyber Plane)
-        if master_alpha > 0.1 {
-            let grid_t = (t * 0.2) % 1.0;
-            let horizon_y = center.y + 200.0;
+
+        // Grid
+        if master_alpha > 0.05 {
+            // Clamp t for camera movement so it doesn't fly away infinitely
+            let render_t = t.min(ANIMATION_DURATION + 5.0);
+            let cam_y = 150.0 + (render_t * 30.0);
+            let horizon = center.y + 100.0;
             let corner_radius = 32.0;
-
-            for i in 0..10 {
-                let z_fac = (i as f32 + grid_t) / 10.0; // 0 to 1
-                let y = horizon_y + (z_fac * z_fac * 200.0);
+            
+            for i in 0..12 {
+                let z_dist = 1.0 + (i as f32 * 0.5) - ((cam_y * 0.05) % 0.5);
+                let perspective = 200.0 / z_dist;
+                let y = horizon + perspective * 0.8;
                 
-                // Skip lines completely outside vertical bounds
-                if y < rect.top() || y > rect.bottom() { continue; }
+                if y > rect.bottom() || y < horizon { continue; }
 
-                let w = rect.width() * z_fac * 2.0;
-                let alpha = (1.0 - z_fac) * 0.1 * master_alpha;
+                let w = rect.width() * (2.0 / z_dist);
                 
-                // Corner Clipping Logic to prevent drawing outside rounded corners
                 let mut x_min = rect.left();
                 let mut x_max = rect.right();
-
-                // Only calculate for bottom corners as grid is strictly on floor
+                
                 if y > rect.bottom() - corner_radius {
                     let dy = y - (rect.bottom() - corner_radius);
-                    // Safe sqrt to prevent domain errors
-                    let dx = (corner_radius.powi(2) - dy.min(corner_radius).powi(2)).max(0.0).sqrt();
+                    let dx = (corner_radius.powi(2) - dy.powi(2)).max(0.0).sqrt();
                     x_min = rect.left() + corner_radius - dx;
                     x_max = rect.right() - corner_radius + dx;
                 }
-                
-                let line_start_x = (center.x - w).clamp(x_min, x_max);
-                let line_end_x = (center.x + w).clamp(x_min, x_max);
-                
-                if line_start_x < line_end_x {
-                    let line_color = C_CYAN.linear_multiply(alpha);
+
+                let x1 = (center.x - w).clamp(x_min, x_max);
+                let x2 = (center.x + w).clamp(x_min, x_max);
+
+                let alpha_grid = (1.0 - (y - horizon) / (rect.bottom() - horizon)) * master_alpha * 0.4;
+                if alpha_grid > 0.0 && x1 < x2 {
                     painter.line_segment(
-                        [Pos2::new(line_start_x, y), Pos2::new(line_end_x, y)],
-                        Stroke::new(1.0, line_color)
+                        [Pos2::new(x1, y), Pos2::new(x2, y)], 
+                        Stroke::new(2.0, C_MAGENTA.linear_multiply(alpha_grid))
                     );
                 }
             }
         }
 
-        // --- 3. CAMERA PROJECTION ---
-        let fov = 1000.0;
-        let cam_dist = 2000.0 - (ease_out_cubic((t / 5.0).clamp(0.0, 1.0)) * 800.0);
-        let cam_rot = Vec3::new(
-            self.mouse_influence.y * 0.3, 
-            self.mouse_influence.x * 0.3 + (t * 0.2), 
-            0.0
+        // 3D RENDERER
+        let physics_t = t.min(ANIMATION_DURATION);
+        let fov = 800.0;
+        let cam_dist = 600.0 + smoothstep(0.0, 8.0, physics_t) * 100.0; 
+        
+        let global_rot = Vec3::new(
+             self.mouse_influence.y * 0.2, 
+             self.mouse_influence.x * 0.2, 
+             0.0
         );
 
-        // Transform & Sort Particles
-        // (Z-Depth, ScreenPos, Scale, Color, Type, Size, &Connections)
-        let mut draw_list = Vec::with_capacity(self.particles.len());
+        let light_dir = Vec3::new(-0.5, -1.0, -0.5).normalize();
+        
+        let mut draw_list: Vec<(f32, Vec<Pos2>, Color32, bool)> = Vec::with_capacity(self.voxels.len() * 6);
 
-        for (idx, p) in self.particles.iter().enumerate() {
-            // Apply Camera Rot
-            let view_pos = p.pos.rotate_y(cam_rot.y).rotate_x(cam_rot.x);
+        let cube_size = 6.0;
+        let verts = [
+            Vec3::new(-1.0, -1.0, -1.0), Vec3::new( 1.0, -1.0, -1.0), Vec3::new( 1.0,  1.0, -1.0), Vec3::new(-1.0,  1.0, -1.0),
+            Vec3::new(-1.0, -1.0,  1.0), Vec3::new( 1.0, -1.0,  1.0), Vec3::new( 1.0,  1.0,  1.0), Vec3::new(-1.0,  1.0,  1.0),
+        ];
+        let faces = [
+            ([0, 1, 2, 3], Vec3::new(0.0, 0.0, -1.0)),
+            ([1, 5, 6, 2], Vec3::new(1.0, 0.0, 0.0)),
+            ([5, 4, 7, 6], Vec3::new(0.0, 0.0, 1.0)),
+            ([4, 0, 3, 7], Vec3::new(-1.0, 0.0, 0.0)),
+            ([3, 2, 6, 7], Vec3::new(0.0, 1.0, 0.0)),
+            ([4, 5, 1, 0], Vec3::new(0.0, -1.0, 0.0)),
+        ];
+
+        // Fade out debris completely by t=6.5
+        let debris_fade = 1.0 - smoothstep(4.5, 6.5, physics_t);
+
+        for v in &self.voxels {
+            if v.is_debris && debris_fade <= 0.01 { continue; }
+
+            let mut v_center = v.pos;
+            v_center = v_center.rotate_x(global_rot.x).rotate_y(global_rot.y).rotate_z(global_rot.z);
             
-            if let Some((screen_pos, scale, z)) = view_pos.project(center, fov, cam_dist) {
-                // Depth Fog
-                let fog = (1.0 - (z / 3000.0)).clamp(0.2, 1.0);
-                let col = p.color.linear_multiply(fog * master_alpha);
-                
-                draw_list.push((z, screen_pos, scale, col, p.ptype, p.base_size, &p.connections, idx));
-            }
-        }
-        
-        // Sort: Furthest first
-        draw_list.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+            if v_center.z > cam_dist - 10.0 { continue; }
 
-        // --- 4. RENDER LAYERS ---
-        
-        // A. PLEXUS LINES (Draw first so nodes are on top)
-        if t > PHASE_CONNECT {
-            let line_alpha = ((t - PHASE_CONNECT)).clamp(0.0, 1.0) * master_alpha * 0.4;
-            if line_alpha > 0.05 {
-                // We need a quick lookup map for screen positions
-                let mut screen_map = std::collections::HashMap::new();
-                for (_, pos, _, _, _, _, _, idx) in &draw_list {
-                    screen_map.insert(*idx, *pos);
-                }
+            for (indices, normal) in &faces {
+                let rot_normal = normal
+                    .rotate_x(v.rot.x).rotate_y(v.rot.y).rotate_z(v.rot.z)
+                    .rotate_x(global_rot.x).rotate_y(global_rot.y).rotate_z(global_rot.z);
+
+                if rot_normal.z > 0.0 { continue; }
+
+                let diffuse = rot_normal.dot(light_dir).max(0.0);
+                let intensity = 0.3 + 0.7 * diffuse;
                 
-                let stroke = Stroke::new(1.0, C_CYAN.linear_multiply(line_alpha));
+                let mut alpha_local = master_alpha;
+                if v.is_debris { alpha_local *= debris_fade; }
+
+                let r = (v.color.r() as f32 * intensity) as u8;
+                let g = (v.color.g() as f32 * intensity) as u8;
+                let b = (v.color.b() as f32 * intensity) as u8;
+                let face_color = Color32::from_rgba_premultiplied(r, g, b, (255.0 * alpha_local) as u8);
+
+                let mut poly_verts = Vec::with_capacity(4);
+                let mut avg_z = 0.0;
                 
-                // Only iterate particles that have connections (Sphere nodes)
-                for (_, pos_a, _, _, ptype, _, conns, idx) in &draw_list {
-                    if *ptype == PType::Node {
-                        for &target_idx in *conns {
-                            // Only draw if target index is "greater" to avoid double drawing lines
-                            // Or simpler: just draw them.
-                            if let Some(pos_b) = screen_map.get(&target_idx) {
-                                painter.line_segment([*pos_a, *pos_b], stroke);
-                            }
-                        }
+                for &idx in indices {
+                    let local_v = verts[idx].mul(cube_size * v.scale);
+                    let rot_v = local_v.rotate_x(v.rot.x).rotate_y(v.rot.y).rotate_z(v.rot.z);
+                    let world_v = rot_v.add(v.pos);
+                    let final_v = world_v.rotate_x(global_rot.x).rotate_y(global_rot.y).rotate_z(global_rot.z);
+                    
+                    let z_depth = cam_dist - final_v.z;
+                    avg_z += z_depth;
+                    
+                    if z_depth > 1.0 {
+                        let scale = fov / z_depth;
+                        let x = center.x + final_v.x * scale;
+                        let y = center.y - final_v.y * scale;
+                        poly_verts.push(Pos2::new(x, y));
                     }
                 }
-            }
-        }
 
-        // B. PARTICLES
-        for (_, pos, scale, col, ptype, base_size, _, _) in &draw_list {
-            let size = base_size * scale;
-            if size < 1.0 { continue; }
-
-            match ptype {
-                PType::CoreVoxel => {
-                    // Holographic Voxel
-                    painter.rect_filled(
-                        Rect::from_center_size(*pos, Vec2::splat(size)),
-                        1.0,
-                        *col
-                    );
-                    // Glow
-                    painter.circle_filled(*pos, size * 2.0, col.linear_multiply(0.2));
-                },
-                PType::Node => {
-                    // Neural Node
-                    painter.circle_filled(*pos, size, *col);
-                },
-                PType::DataBit => {
-                    // Data Stream
-                    painter.rect_filled(
-                        Rect::from_center_size(*pos, Vec2::new(size * 3.0, size)), // Dash shape
-                        0.0,
-                        *col
-                    );
+                if poly_verts.len() == 4 {
+                    avg_z /= 4.0;
+                    draw_list.push((avg_z, poly_verts, face_color, v.color == C_WHITE));
                 }
             }
         }
 
-        // --- 5. UI OVERLAY (HUD) ---
-        if master_alpha > 0.1 {
-            // A. Progress Bar
-            let bar_w = 300.0;
-            let bar_h = 4.0;
-            let progress = (t / PHASE_STABILIZE).clamp(0.0, 1.0);
-            
-            let bar_rect = Rect::from_center_size(
-                center + Vec2::new(0.0, 200.0),
-                Vec2::new(bar_w, bar_h)
-            );
-            
-            // BG
-            painter.rect_filled(bar_rect, 2.0, Color32::from_white_alpha(30));
-            // Fill
-            let mut fill_rect = bar_rect;
-            fill_rect.set_width(bar_w * progress);
-            painter.rect_filled(fill_rect, 2.0, C_CYAN.linear_multiply(master_alpha));
-            
-            // B. Main Title (with Chromatic Aberration)
-            let title_pos = center + Vec2::new(0.0, 150.0);
-            let font = FontId::proportional(22.0);
-            
-            // Red Shift
-            painter.text(
-                title_pos + Vec2::new(-2.0, 0.0), Align2::CENTER_TOP, "SCREEN GROUNDED TRANSLATOR", 
-                font.clone(), Color32::from_rgba_premultiplied(255, 0, 0, (100.0 * master_alpha) as u8)
-            );
-            // Blue Shift
-            painter.text(
-                title_pos + Vec2::new(2.0, 0.0), Align2::CENTER_TOP, "SCREEN GROUNDED TRANSLATOR", 
-                font.clone(), Color32::from_rgba_premultiplied(0, 255, 255, (100.0 * master_alpha) as u8)
-            );
-            // White Core
-            painter.text(
-                title_pos, Align2::CENTER_TOP, "SCREEN GROUNDED TRANSLATOR", 
-                font, C_WHITE.linear_multiply(master_alpha)
-            );
+        draw_list.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
 
-            // C. Status Text (Typewriter style)
+        for (_, verts, col, is_glowing) in draw_list {
+            painter.add(Shape::convex_polygon(verts.clone(), col, Stroke::NONE));
+            
+            if master_alpha > 0.8 {
+                let stroke_col = if is_glowing { C_CYAN.linear_multiply(0.3) } else { Color32::from_black_alpha(40) };
+                painter.add(Shape::closed_line(verts, Stroke::new(1.0, stroke_col)));
+            }
+        }
+
+        if master_alpha > 0.1 {
             painter.text(
-                center + Vec2::new(0.0, 220.0),
+                center + Vec2::new(0.0, 180.0),
+                Align2::CENTER_TOP,
+                "SCREEN GROUNDED TRANSLATOR",
+                FontId::proportional(24.0),
+                C_WHITE.linear_multiply(master_alpha)
+            );
+            painter.text(
+                center + Vec2::new(0.0, 210.0),
                 Align2::CENTER_TOP,
                 &self.loading_text,
                 FontId::monospace(12.0),
                 C_CYAN.linear_multiply(master_alpha)
             );
-        }
-        
-        // --- 6. POST PROCESS: SCANLINES REMOVED ---
-        // Removed to prevent artifacts on transparent corners.
-    }
-}
+            
+            let bar_rect = Rect::from_center_size(center + Vec2::new(0.0, 230.0), Vec2::new(200.0, 4.0));
+            painter.rect_filled(bar_rect, 2.0, Color32::from_white_alpha(30));
+            let prog = (physics_t / (ANIMATION_DURATION - 1.0)).clamp(0.0, 1.0);
+            let mut fill = bar_rect;
+            fill.set_width(bar_rect.width() * prog);
+            painter.rect_filled(fill, 2.0, C_MAGENTA.linear_multiply(master_alpha));
 
-// Helper Easing
-fn ease_out_cubic(t: f32) -> f32 {
-    1.0 - (1.0 - t).powi(3)
+            // Click Anywhere Text
+            if t > ANIMATION_DURATION {
+                let pulse = (t * 5.0).sin().abs() * 0.7 + 0.3; // Blinking
+                painter.text(
+                    center + Vec2::new(0.0, 250.0),
+                    Align2::CENTER_TOP,
+                    "Click anywhere to continue",
+                    FontId::proportional(14.0),
+                    C_CYAN.linear_multiply(master_alpha * pulse)
+                );
+            }
+        }
+    }
 }
