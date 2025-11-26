@@ -492,10 +492,7 @@ pub fn record_audio_and_transcribe(
             // For device audio (loopback), we MUST use the default output device
             // and treat it as an input source.
             match host.default_output_device() {
-                Some(d) => {
-                    println!("Debug: Selected Output Device for Loopback: {}", d.name().unwrap_or_default());
-                    d
-                },
+                Some(d) => d,
                 None => {
                     eprintln!("Error: No default output device found for loopback.");
                     host.default_input_device().expect("No input device available")
@@ -507,7 +504,6 @@ pub fn record_audio_and_transcribe(
             host.default_input_device().expect("No input device available")
         }
     } else {
-        println!("Debug: Selected Microphone Input");
         host.default_input_device().expect("No input device available")
     };
 
@@ -518,8 +514,6 @@ pub fn record_audio_and_transcribe(
     } else {
         device.default_input_config()
     }.expect("Failed to get device config");
-
-    println!("Audio Config: Channels={}, Sample Rate={}", config.channels(), config.sample_rate().0);
 
     let sample_rate = config.sample_rate().0;
     let channels = config.channels();
@@ -615,8 +609,6 @@ pub fn record_audio_and_transcribe(
         writer.write_sample(*sample).expect("Failed to write sample");
     }
     writer.finalize().expect("Failed to finalize WAV file");
-
-    println!("DEBUG: Audio file saved to: {:?}", wav_path);
 
     // Read WAV file for upload
     let wav_data = std::fs::read(&wav_path).expect("Failed to read WAV file");

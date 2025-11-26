@@ -53,6 +53,14 @@ impl ModelConfig {
         };
         format!("{} ({})", name, self.full_name)
     }
+
+    pub fn get_name_only(&self, ui_language: &str) -> String {
+        match ui_language {
+            "vi" => self.name_vi.clone(),
+            "ko" => self.name_ko.clone(),
+            _ => self.name_en.clone(),
+        }
+    }
 }
 
 pub fn get_all_models() -> Vec<ModelConfig> {

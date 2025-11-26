@@ -527,7 +527,7 @@ impl eframe::App for SettingsApp {
                             
                             // --- NEW: USAGE STATISTICS ---
                             ui.group(|ui| {
-                                ui.label(egui::RichText::new("📊 Usage Statistics (Daily)").strong());
+                                ui.label(egui::RichText::new(text.usage_statistics_title).strong());
                                 
                                 let usage_stats = {
                                     let app = self.app_state_ref.lock().unwrap();
@@ -535,17 +535,24 @@ impl eframe::App for SettingsApp {
                                 };
 
                                 egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
-                                    ui.label(egui::RichText::new("Model").strong());
-                                    ui.label(egui::RichText::new("Remaining / Total").strong());
+                                    ui.label(egui::RichText::new(text.usage_model_column).strong());
+                                    ui.label(egui::RichText::new(text.usage_remaining_column).strong());
                                     ui.end_row();
 
+                                    // Track shown models to avoid duplicates (by full_name)
+                                    let mut shown_models = std::collections::HashSet::new();
+                                    
                                     for model in get_all_models() {
                                         if !model.enabled { continue; }
                                         
-                                        // 1. Model Name
-                                        let label_text = model.get_label("en");
-                                        let model_name = label_text.split(" - ").next().unwrap_or(&model.id).to_string();
-                                        ui.label(model_name); // Simple name
+                                        // Skip duplicates (same full_name)
+                                        if shown_models.contains(&model.full_name) {
+                                            continue;
+                                        }
+                                        shown_models.insert(model.full_name.clone());
+                                        
+                                        // Display model name without speed labels
+                                        ui.label(model.full_name.clone());
                                         
                                         // 2. Real-time Status
                                         if model.provider == "groq" {
@@ -556,7 +563,7 @@ impl eframe::App for SettingsApp {
                                             ui.label(status);
                                         } else if model.provider == "google" {
                                             // Link for Gemini
-                                            ui.hyperlink_to("Check Usage ↗", "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
+                                            ui.hyperlink_to(text.usage_check_link, "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
                                         }
                                         ui.end_row();
                                     }

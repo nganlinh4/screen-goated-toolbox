@@ -347,7 +347,7 @@ pub struct Config {
         // 9. Video Summarize Placeholder (NEW)
         let video_placeholder_preset = Preset {
             id: "preset_video_summary_placeholder".to_string(),
-            name: "Summarize video".to_string(),
+            name: "Summarize video (upcoming)".to_string(),
             prompt: "".to_string(),
             selected_language: default_lang.clone(),
             language_vars: HashMap::new(),

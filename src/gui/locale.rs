@@ -39,6 +39,10 @@ pub struct LocaleText {
     pub audio_src_device: &'static str,
     pub hide_recording_ui_label: &'static str,
     pub hotkeys_section: &'static str,
+    pub usage_statistics_title: &'static str,
+    pub usage_model_column: &'static str,
+    pub usage_remaining_column: &'static str,
+    pub usage_check_link: &'static str,
 }
 
 impl LocaleText {
@@ -76,7 +80,7 @@ impl LocaleText {
                 preset_type_label: "Loại hình:",
                 preset_type_image: "Hiểu hình ảnh",
                 preset_type_audio: "Hiểu âm thanh",
-                preset_type_video: "Hiểu video",
+                preset_type_video: "Hiểu video (upcoming)",
                 capture_method_label: "Phương pháp quay:",
                 region_capture: "Chọn vùng màn hình",
                 audio_source_label: "Nguồn âm thanh:",
@@ -84,6 +88,10 @@ impl LocaleText {
                 audio_src_device: "Âm thanh máy tính",
                 hide_recording_ui_label: "Ẩn giao diện ghi âm",
                 hotkeys_section: "Phím tắt",
+                usage_statistics_title: "📊 Thống kê sử dụng (dùng mô hình ít nhất một lần để hiện chính xác)",
+                usage_model_column: "Mô hình",
+                usage_remaining_column: "Còn lại / Tổng",
+                usage_check_link: "Xem lượng dùng ↗",
             },
             "ko" => Self {
                 api_section: "전역 설정",
@@ -117,7 +125,7 @@ impl LocaleText {
                 preset_type_label: "유형:",
                 preset_type_image: "이미지 이해",
                 preset_type_audio: "오디오 이해",
-                preset_type_video: "비디오 이해",
+                preset_type_video: "비디오 이해 (upcoming)",
                 capture_method_label: "캡처 방법:",
                 region_capture: "영역 캡처",
                 audio_source_label: "오디오 소스:",
@@ -125,6 +133,10 @@ impl LocaleText {
                 audio_src_device: "컴퓨터 오디오",
                 hide_recording_ui_label: "녹음 UI 숨기기",
                 hotkeys_section: "단축키",
+                usage_statistics_title: "📊 사용 통계 (정확한 데이터를 보려면 모델을 최소 한 번 사용하세요)",
+                usage_model_column: "모델",
+                usage_remaining_column: "남은 / 전체",
+                usage_check_link: "사용량 확인 ↗",
             },
             _ => Self {
                 api_section: "Global Settings",
@@ -158,7 +170,7 @@ impl LocaleText {
                 preset_type_label: "Type:",
                 preset_type_image: "Image Understanding",
                 preset_type_audio: "Audio Understanding",
-                preset_type_video: "Video Understanding",
+                preset_type_video: "Video Understanding (upcoming)",
                 capture_method_label: "Capture Method:",
                 region_capture: "Region Capture",
                 audio_source_label: "Audio Source:",
@@ -166,6 +178,10 @@ impl LocaleText {
                 audio_src_device: "Device Audio",
                 hide_recording_ui_label: "Hide Recording UI",
                 hotkeys_section: "Hotkeys",
+                usage_statistics_title: "📊 Usage Statistics (use a model at least once for accurate data)",
+                usage_model_column: "Model",
+                usage_remaining_column: "Remaining / Total",
+                usage_check_link: "Check Usage ↗",
             },
         }
     }
