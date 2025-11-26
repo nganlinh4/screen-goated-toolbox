@@ -718,12 +718,10 @@ impl eframe::App for SettingsApp {
                                         if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() {
                                             preset_changed = true;
                                         }
+                                        if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() {
+                                            preset_changed = true;
+                                        }
                                     });
-
-                                    ui.add_space(5.0);
-                                    if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() {
-                                        preset_changed = true;
-                                    }
                                 });
                             }
 
@@ -731,36 +729,35 @@ impl eframe::App for SettingsApp {
                             ui.group(|ui| {
                                 ui.label(egui::RichText::new(text.model_section).strong());
                                 
-                                let full_label = get_model_by_id(&preset.model)
-                                    .map(|m| m.get_label(&self.config.ui_language))
-                                    .unwrap_or_else(|| preset.model.clone());
-                                let short_label = full_label.split('(').next().unwrap_or(&full_label).trim().to_string();
+                                // Model selector + Streaming on same line
+                                ui.horizontal(|ui| {
+                                    let full_label = get_model_by_id(&preset.model)
+                                        .map(|m| m.get_label(&self.config.ui_language))
+                                        .unwrap_or_else(|| preset.model.clone());
+                                    let short_label = full_label.split('(').next().unwrap_or(&full_label).trim().to_string();
 
-                                egui::ComboBox::from_id_source("model_selector")
-                                    .selected_text(short_label)
-                                    .width(250.0)
-                                    .show_ui(ui, |ui| {
-                                        let target_type = if is_audio { ModelType::Audio } else { ModelType::Vision };
-                                        for model in get_all_models() {
-                                            if model.enabled && model.model_type == target_type {
-                                                if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
-                                                    preset_changed = true;
-                                                    
-                                                    // START: NEW LOGIC FOR GEMINI AUDIO PROMPT PRE-FILL
-                                                    if is_audio && preset.model == "gemini-audio" && preset.prompt.trim().is_empty() {
-                                                        preset.prompt = "Transcribe the audio accurately.".to_string();
-                                                    } else if is_audio && preset.model != "gemini-audio" && preset.prompt == "Transcribe the audio accurately." {
-                                                        // Reset prompt when switching away from Gemini Audio if it's the default
-                                                        preset.prompt = "".to_string();
+                                    egui::ComboBox::from_id_source("model_selector")
+                                        .selected_text(short_label)
+                                        .show_ui(ui, |ui| {
+                                            let target_type = if is_audio { ModelType::Audio } else { ModelType::Vision };
+                                            for model in get_all_models() {
+                                                if model.enabled && model.model_type == target_type {
+                                                    if ui.selectable_value(&mut preset.model, model.id.clone(), model.get_label(&self.config.ui_language)).clicked() {
+                                                        preset_changed = true;
+                                                        
+                                                        // START: NEW LOGIC FOR GEMINI AUDIO PROMPT PRE-FILL
+                                                        if is_audio && preset.model == "gemini-audio" && preset.prompt.trim().is_empty() {
+                                                            preset.prompt = "Transcribe the audio accurately.".to_string();
+                                                        } else if is_audio && preset.model != "gemini-audio" && preset.prompt == "Transcribe the audio accurately." {
+                                                            // Reset prompt when switching away from Gemini Audio if it's the default
+                                                            preset.prompt = "".to_string();
+                                                        }
+                                                        // END: NEW LOGIC
                                                     }
-                                                    // END: NEW LOGIC
                                                 }
                                             }
-                                        }
-                                    });
+                                        });
 
-                                // Streaming settings available for all types
-                                ui.horizontal(|ui| {
                                     ui.label(text.streaming_label);
                                     egui::ComboBox::from_id_source("stream_combo")
                                         .selected_text(if preset.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
@@ -770,6 +767,7 @@ impl eframe::App for SettingsApp {
                                         });
                                 });
 
+                                // Auto copy + Hide overlay on same line
                                 ui.horizontal(|ui| {
                                     if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
                                         preset_changed = true;
@@ -788,13 +786,14 @@ impl eframe::App for SettingsApp {
                             if !preset.hide_overlay {
                                 ui.group(|ui| {
                                     ui.label(egui::RichText::new(text.retranslate_section).strong());
-                                    if ui.checkbox(&mut preset.retranslate, text.retranslate_checkbox).clicked() {
-                                        preset_changed = true;
-                                    }
-
-                                    if preset.retranslate {
-                                        // Target Language
-                                        ui.horizontal(|ui| {
+                                    
+                                    // Enable retranslate + Target Language on same line
+                                    ui.horizontal(|ui| {
+                                        if ui.checkbox(&mut preset.retranslate, text.retranslate_checkbox).clicked() {
+                                            preset_changed = true;
+                                        }
+                                        
+                                        if preset.retranslate {
                                             ui.label(text.retranslate_to_label);
                                             let retrans_label = preset.retranslate_to.clone();
                                             ui.menu_button(retrans_label, |ui| {
@@ -814,9 +813,11 @@ impl eframe::App for SettingsApp {
                                                     }
                                                 });
                                             });
-                                        });
+                                        }
+                                    });
 
-                                        // Text Model Selector
+                                    if preset.retranslate {
+                                        // Text Model Selector + Auto Copy on same line
                                         ui.horizontal(|ui| {
                                             ui.label(text.retranslate_model_label);
                                             let full_text_model = get_model_by_id(&preset.retranslate_model)
@@ -827,7 +828,6 @@ impl eframe::App for SettingsApp {
                                             
                                             egui::ComboBox::from_id_source("text_model_selector")
                                                 .selected_text(short_text_model)
-                                                .width(180.0)
                                                 .show_ui(ui, |ui| {
                                                     for model in get_all_models() {
                                                         if model.enabled && model.model_type == ModelType::Text {
@@ -837,6 +837,11 @@ impl eframe::App for SettingsApp {
                                                         }
                                                     }
                                                 });
+                                            
+                                            if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
+                                                preset_changed = true;
+                                                if preset.retranslate_auto_copy { preset.auto_copy = false; }
+                                            }
                                         });
 
                                         // Retranslate Settings
@@ -848,13 +853,6 @@ impl eframe::App for SettingsApp {
                                                     if ui.selectable_value(&mut preset.retranslate_streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
                                                     if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
                                                 });
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
-                                                preset_changed = true;
-                                                if preset.retranslate_auto_copy { preset.auto_copy = false; }
-                                            }
                                         });
                                     }
                                 });
