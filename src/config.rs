@@ -146,7 +146,7 @@ pub struct Config {
         // 2. OCR Preset
         let ocr_preset = Preset {
             id: "preset_ocr".to_string(),
-            name: "Extract Text (OCR)".to_string(),
+            name: "Extract text (OCR)".to_string(),
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
             selected_language: "English".to_string(),
             language_vars: HashMap::new(), // No language tags
@@ -197,7 +197,7 @@ pub struct Config {
         
         let sum_preset = Preset {
             id: "preset_summarize".to_string(),
-            name: "Summarize Content".to_string(),
+            name: "Summarize content".to_string(),
             prompt: "Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely.".to_string(),
             selected_language: default_lang.clone(),
             language_vars: sum_lang_vars,
@@ -224,7 +224,7 @@ pub struct Config {
         
         let desc_preset = Preset {
             id: "preset_desc".to_string(),
-            name: "Image Description".to_string(),
+            name: "Image description".to_string(),
             prompt: "Describe this image in {language1}.".to_string(),
             selected_language: default_lang.clone(),
             language_vars: desc_lang_vars,
@@ -248,7 +248,7 @@ pub struct Config {
         // 5. Transcribe (Audio)
         let audio_preset = Preset {
             id: "preset_transcribe".to_string(),
-            name: "Transcribe Speech".to_string(),
+            name: "Transcribe speech".to_string(),
             prompt: "".to_string(),
             selected_language: default_lang.clone(),
             language_vars: HashMap::new(),

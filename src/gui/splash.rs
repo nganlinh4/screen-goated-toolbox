@@ -195,7 +195,7 @@ impl SplashScreen {
         
         if self.exit_start_time.is_none() {
             let t = (now - self.start_time) as f32;
-            if t > ANIMATION_DURATION {
+            if t > ANIMATION_DURATION - 1.0 {
                 if ctx.input(|i| i.pointer.any_click()) {
                     self.exit_start_time = Some(now);
                 }
@@ -544,7 +544,7 @@ impl SplashScreen {
             fill.set_width(bar_rect.width() * prog);
             painter.rect_filled(fill, 2.0, magenta_color);
 
-            if t > ANIMATION_DURATION {
+            if t > ANIMATION_DURATION - 1.0 {
                 let pulse = (t * 5.0).sin().abs() * 0.7 + 0.3; 
                 painter.text(
                     // Moved to TOP (negative Y) so it is visible and not hidden by taskbar
