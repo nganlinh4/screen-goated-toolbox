@@ -13,7 +13,6 @@ const FADE_TIMER_ID: usize = 2;
 const ANIM_TIMER_ID: usize = 1;
 const TARGET_OPACITY: u8 = 120; 
 const FADE_STEP: u8 = 40; // Increased for much faster fade (approx 3 frames / 50ms)
-const CORNER_RADIUS: f32 = 12.0;
 
 // --- STATE ---
 static mut START_POS: POINT = POINT { x: 0, y: 0 };

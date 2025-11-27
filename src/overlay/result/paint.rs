@@ -58,12 +58,12 @@ pub fn paint_window(hwnd: HWND) {
         let height = rect.bottom - rect.top;
 
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
-        // We lock the mutex ONCE to read state and update caches if dirty.
-        let (
-            bg_color_u32, is_hovered, on_copy_btn, copy_success, broom_data, particles,
-            mut cached_text_bm, mut font_size, mut cache_dirty,
-            mut cached_bg_bm // The background gradient cache
-        ) = {
+         // We lock the mutex ONCE to read state and update caches if dirty.
+         let (
+             bg_color_u32, is_hovered, on_copy_btn, copy_success, broom_data, particles,
+             mut cached_text_bm, _cached_font_size, cache_dirty,
+             cached_bg_bm // The background gradient cache
+         ) = {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 
@@ -131,7 +131,7 @@ pub fn paint_window(hwnd: HWND) {
 
                 (
                     state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, broom_info, particles_vec,
-                    state.content_bitmap, state.cached_font_size, state.font_cache_dirty,
+                    state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap
                 )
             } else {
@@ -161,7 +161,7 @@ pub fn paint_window(hwnd: HWND) {
         if cached_bg_bm.0 != 0 {
             let cache_dc = CreateCompatibleDC(hdc);
             let old_cbm = SelectObject(cache_dc, cached_bg_bm);
-            BitBlt(mem_dc, 0, 0, width, height, cache_dc, 0, 0, SRCCOPY).ok();
+            let _ = BitBlt(mem_dc, 0, 0, width, height, cache_dc, 0, 0, SRCCOPY).ok();
             SelectObject(cache_dc, old_cbm);
             DeleteDC(cache_dc);
         }
@@ -212,9 +212,9 @@ pub fn paint_window(hwnd: HWND) {
                     }
                 }
             }
-            font_size = best_fit;
+            let font_size_val = best_fit;
 
-            let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+            let hfont = CreateFontW(font_size_val, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
             let old_font = SelectObject(cache_dc, hfont);
 
             let mut measure_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
@@ -235,19 +235,19 @@ pub fn paint_window(hwnd: HWND) {
             DeleteDC(cache_dc);
 
             // Update State with new text cache
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                state.content_bitmap = cached_text_bm;
-                state.cached_font_size = font_size;
-                state.font_cache_dirty = false;
-            }
+             let mut states = WINDOW_STATES.lock().unwrap();
+             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                 state.content_bitmap = cached_text_bm;
+                 state.cached_font_size = font_size_val;
+                 state.font_cache_dirty = false;
+             }
         }
 
         // 3.1 Blit Text Cache -> Scratch
         if cached_text_bm.0 != 0 {
             let cache_dc = CreateCompatibleDC(hdc);
             let old_cbm = SelectObject(cache_dc, cached_text_bm);
-            BitBlt(mem_dc, 0, 0, width, height, cache_dc, 0, 0, SRCCOPY).ok();
+            let _ = BitBlt(mem_dc, 0, 0, width, height, cache_dc, 0, 0, SRCCOPY).ok();
             SelectObject(cache_dc, old_cbm);
             DeleteDC(cache_dc);
         }
@@ -441,7 +441,7 @@ pub fn paint_window(hwnd: HWND) {
         }
 
         // --- PHASE 6: FINAL BLIT TO SCREEN ---
-        BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY).ok();
+        let _ = BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY).ok();
 
         // Cleanup Scratch Resources
         SelectObject(mem_dc, old_scratch);
