@@ -239,7 +239,7 @@ impl SplashScreen {
             else if t_abs < 6.0 { self.loading_text = "TRANSCRIBING...".to_string(); }
             else { self.loading_text = "nganlinh4".to_string(); }
         } else {
-            self.loading_text = "HYPERLINK_ENGAGED".to_string();
+            self.loading_text = "READY TO ROCK!".to_string();
         }
 
         // --- PHYSICS UPDATE ---
@@ -531,7 +531,7 @@ impl SplashScreen {
             if t > ANIMATION_DURATION {
                 let pulse = (t * 5.0).sin().abs() * 0.7 + 0.3; 
                 painter.text(
-                    center + Vec2::new(0.0, 250.0),
+                    center - Vec2::new(0.0, 220.0), // Changed from +250.0 to -220.0 to show at TOP
                     Align2::CENTER_TOP,
                     "Click anywhere to continue",
                     FontId::proportional(14.0),
