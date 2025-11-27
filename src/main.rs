@@ -29,7 +29,6 @@ lazy_static! {
     };
 }
 
-
 pub struct AppState {
     pub config: Config,
     pub original_screenshot: Option<ImageBuffer<image::Rgba<u8>, Vec<u8>>>,
@@ -96,9 +95,12 @@ fn main() -> eframe::Result<()> {
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size([620.0, 500.0]) 
         .with_resizable(true)
-        .with_visible(false)
-        .with_transparent(true)  // Critical for rounded corners
-        .with_decorations(true); // We keep decorations for the main app, but turn them off for splash dynamically
+        .with_visible(false) // Start invisible
+        // FIX: Spawn off-screen to prevent (0,0) flash. 
+        // App.rs will move it to center before showing.
+        .with_position(eframe::egui::pos2(-2000.0, -2000.0)) 
+        .with_transparent(true) 
+        .with_decorations(true); 
     
     let app_icon_bytes = include_bytes!("../assets/app-icon-small.png");
     if let Ok(img) = image::load_from_memory(app_icon_bytes) {
@@ -137,7 +139,6 @@ fn register_all_hotkeys(hwnd: HWND) {
     for (p_idx, preset) in presets.iter().enumerate() {
         for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
             // ID encoding: 1000 * preset_idx + hotkey_idx + 1
-            // This assumes < 1000 presets and < 1000 hotkeys per preset.
             let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
             unsafe {
                 RegisterHotKey(hwnd, id, HOT_KEY_MODIFIERS(hotkey.modifiers), hotkey.code);
@@ -155,7 +156,6 @@ fn unregister_all_hotkeys(hwnd: HWND) {
     }
 }
 
-// FIX 7: Custom message for hotkey reloading (instead of timer polling)
 const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
 
 fn run_hotkey_listener() {
@@ -185,12 +185,11 @@ fn run_hotkey_listener() {
         let mut msg = MSG::default();
         loop {
             if GetMessageW(&mut msg, None, 0, 0).into() {
-                // FIX 7: Handle custom message instead of timer
                 if msg.message == WM_RELOAD_HOTKEYS {
                     unregister_all_hotkeys(hwnd);
                     register_all_hotkeys(hwnd);
                     
-                    if let Ok(mut app) = APP.lock() { // FIXED: Safer lock
+                    if let Ok(mut app) = APP.lock() {
                          app.hotkeys_updated = false;
                     }
                 } else {
@@ -209,30 +208,26 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             if id > 0 {
                 let preset_idx = ((id - 1) / 1000) as usize;
                 
-                // Get preset type
                 let preset_type = {
-                    if let Ok(app) = APP.lock() { // FIXED: Safer lock check
+                    if let Ok(app) = APP.lock() {
                         if preset_idx < app.config.presets.len() {
                             app.config.presets[preset_idx].preset_type.clone()
                         } else { "image".to_string() }
                     } else {
                         eprintln!("Error: APP mutex poisoned on hotkey trigger.");
-                        return LRESULT(0); // Cannot proceed if mutex is poisoned
+                        return LRESULT(0);
                     }
                 };
 
                 if preset_type == "audio" {
                     if overlay::is_recording_overlay_active() {
-                        // Stop and Submit
                         overlay::stop_recording_and_submit();
                     } else {
-                        // Start Recording
                         std::thread::spawn(move || {
                             overlay::show_recording_overlay(preset_idx);
                         });
                     }
                 } else {
-                    // Image Flow
                     if overlay::is_selection_overlay_active_and_dismiss() {
                         return LRESULT(0);
                     }
@@ -240,21 +235,14 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     let app_clone = APP.clone();
                     let p_idx = preset_idx;
 
-                    // FIX: Spawn a thread to perform the blocking capture *before* showing the UI.
-                    // This is the original behavior, but now protected against mutex poisoning,
-                    // and correctly runs on a separate thread from the Hotkey Listener loop.
                     std::thread::spawn(move || {
                         match capture_full_screen() {
                             Ok(img) => {
-                                // Store image SAFELY
                                 if let Ok(mut app) = app_clone.lock() {
                                     app.original_screenshot = Some(img);
                                 } else {
-                                    eprintln!("Warning: APP mutex poisoned, failed to store screenshot.");
-                                    return; // Cannot proceed if state cannot be updated.
+                                    return;
                                 }
-
-                                // Show the selection UI only AFTER the capture is complete and stored
                                 overlay::show_selection_overlay(p_idx);
                             },
                             Err(e) => {
@@ -279,13 +267,14 @@ fn capture_full_screen() -> anyhow::Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>
 
         let hdc_screen = GetDC(None);
         let hdc_mem = CreateCompatibleDC(hdc_screen);
-        // FIX: Error handling on resource creation
         let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
+        
         if hbitmap.0 == 0 {
              DeleteDC(hdc_mem);
              ReleaseDC(None, hdc_screen);
              return Err(anyhow::anyhow!("GDI Error: Failed to create compatible bitmap."));
         }
+        
         SelectObject(hdc_mem, hbitmap);
 
         BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, x, y, SRCCOPY).ok()?;
