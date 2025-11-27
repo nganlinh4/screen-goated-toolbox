@@ -21,47 +21,49 @@ pub struct ModelConfig {
 }
 
 impl ModelConfig {
-    pub fn new(
-        id: &str,
-        provider: &str,
-        name_vi: &str,
-        name_ko: &str,
-        name_en: &str,
-        full_name: &str,
-        model_type: ModelType,
-        enabled: bool,
-        quota_limit: &str,
-    ) -> Self {
-        Self {
-            id: id.to_string(),
-            provider: provider.to_string(),
-            name_vi: name_vi.to_string(),
-            name_ko: name_ko.to_string(),
-            name_en: name_en.to_string(),
-            full_name: full_name.to_string(),
-            model_type,
-            enabled,
-            quota_limit: quota_limit.to_string(),
-        }
-    }
+     pub fn new(
+         id: &str,
+         provider: &str,
+         name_vi: &str,
+         name_ko: &str,
+         name_en: &str,
+         full_name: &str,
+         model_type: ModelType,
+         enabled: bool,
+         quota_limit: &str,
+     ) -> Self {
+         Self {
+             id: id.to_string(),
+             provider: provider.to_string(),
+             name_vi: name_vi.to_string(),
+             name_ko: name_ko.to_string(),
+             name_en: name_en.to_string(),
+             full_name: full_name.to_string(),
+             model_type,
+             enabled,
+             quota_limit: quota_limit.to_string(),
+         }
+     }
 
-    pub fn get_label(&self, ui_language: &str) -> String {
-        let name = match ui_language {
-            "vi" => &self.name_vi,
-            "ko" => &self.name_ko,
-            _ => &self.name_en,
-        };
-        format!("{} ({})", name, self.full_name)
-    }
+     #[allow(dead_code)]
+     pub fn get_label(&self, ui_language: &str) -> String {
+         let name = match ui_language {
+             "vi" => &self.name_vi,
+             "ko" => &self.name_ko,
+             _ => &self.name_en,
+         };
+         format!("{} ({})", name, self.full_name)
+     }
 
-    pub fn get_name_only(&self, ui_language: &str) -> String {
-        match ui_language {
-            "vi" => self.name_vi.clone(),
-            "ko" => self.name_ko.clone(),
-            _ => self.name_en.clone(),
-        }
-    }
-}
+     #[allow(dead_code)]
+     pub fn get_name_only(&self, ui_language: &str) -> String {
+         match ui_language {
+             "vi" => self.name_vi.clone(),
+             "ko" => self.name_ko.clone(),
+             _ => self.name_en.clone(),
+         }
+     }
+ }
 
 lazy_static::lazy_static! {
     static ref ALL_MODELS: Vec<ModelConfig> = vec![

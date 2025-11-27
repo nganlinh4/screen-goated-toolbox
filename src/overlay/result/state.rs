@@ -81,10 +81,11 @@ pub struct WindowState {
     pub last_text_update_time: u32,
     
     // FIX 1: BACKGROUND CACHING (Avoid redrawing gradient every frame)
-    pub bg_bitmap: HBITMAP,
-    pub bg_bits: *mut core::ffi::c_void, // Raw pointer to pixels
-    pub bg_w: i32,
-    pub bg_h: i32,
+     pub bg_bitmap: HBITMAP,
+     #[allow(dead_code)]
+     pub bg_bits: *mut core::ffi::c_void, // Raw pointer to pixels
+     pub bg_w: i32,
+     pub bg_h: i32,
 }
 
 // SAFETY: Raw pointers are not Send/Sync, but we only use them within the main thread

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use image::{ImageBuffer, Rgba, ImageFormat};
+use image::{ImageBuffer, Rgba};
 use base64::{Engine as _, engine::general_purpose};
 use std::io::{Cursor, BufRead, BufReader};
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc};
