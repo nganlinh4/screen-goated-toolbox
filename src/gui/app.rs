@@ -272,7 +272,7 @@ impl eframe::App for SettingsApp {
         if self.startup_stage == 0 {
             // Get the monitor size in logical points (DPI aware)
             if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
-                let width = 620.0;
+                let width = 635.0;
                 let height = 500.0;
                 // Calculate center (Assuming primary monitor starts at 0,0)
                 let x = (monitor_size.x - width) / 2.0;

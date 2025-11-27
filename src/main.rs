@@ -93,7 +93,7 @@ fn main() -> eframe::Result<()> {
         .unwrap();
 
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([620.0, 500.0]) 
+        .with_inner_size([635.0, 500.0]) 
         .with_resizable(true)
         .with_visible(false) // Start invisible
         // FIX: Spawn off-screen to prevent (0,0) flash. 
