@@ -83,7 +83,9 @@ pub struct SettingsApp {
     hotkey_conflict_msg: Option<String>,
     splash: Option<crate::gui::splash::SplashScreen>,
     fade_in_start: Option<f64>,
-    startup_centered: bool,
+    
+    // 0 = Init/Offscreen, 1 = Move Sent, 2 = Visible Sent
+    startup_stage: u8, 
     
     // Cache monitors
     cached_monitors: Vec<String>,
@@ -202,7 +204,7 @@ impl SettingsApp {
             hotkey_conflict_msg: None,
             splash: Some(crate::gui::splash::SplashScreen::new(&ctx)),
             fade_in_start: None,
-            startup_centered: false,
+            startup_stage: 0,
             cached_monitors,
         }
     }
@@ -262,27 +264,32 @@ impl eframe::App for SettingsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Center window on startup
-        if !self.startup_centered {
+        // --- 2-Stage Anti-Flash Centering Logic ---
+        // 1. Window starts offscreen (-2000, -2000).
+        // 2. Stage 0: Calculate center, move window.
+        // 3. Stage 1: Make visible.
+        
+        if self.startup_stage == 0 {
+            // Get the monitor size in logical points (DPI aware)
             if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
-                let outer_rect = ctx.input(|i| i.viewport().outer_rect);
-                let inner_rect = ctx.input(|i| i.viewport().inner_rect);
+                let width = 620.0;
+                let height = 500.0;
+                // Calculate center (Assuming primary monitor starts at 0,0)
+                let x = (monitor_size.x - width) / 2.0;
+                let y = (monitor_size.y - height) / 2.0;
                 
-                let win_size = if let Some(rect) = outer_rect {
-                    rect.size()
-                } else if let Some(rect) = inner_rect {
-                    rect.size()
-                } else {
-                    egui::vec2(600.0, 500.0)
-                };
-
-                let x = (monitor_size.x - win_size.x) / 2.0;
-                let y = (monitor_size.y - win_size.y) / 2.0;
-                
+                // Move invisible window to center
                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                self.startup_centered = true;
+                
+                // Advance to next stage (Visible) in next frame
+                self.startup_stage = 1;
+                ctx.request_repaint();
+                return; // Do not draw this frame
             }
+        } else if self.startup_stage == 1 {
+            // Now that we've moved it, make it visible
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            self.startup_stage = 2;
         }
 
         // Check Splash
