@@ -1,8 +1,5 @@
 id ICON "assets/app.ico"
 
-// Embedded cursor resource
-101 CURSOR "broom.cur"
-
 1 VERSIONINFO
 FILEVERSION 1,0,0,0
 PRODUCTVERSION 1,0,0,0
