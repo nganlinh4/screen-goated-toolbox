@@ -709,7 +709,7 @@ impl eframe::App for SettingsApp {
                                      
                                      // FIX 2: Monitor List Refresh Button
                                      ui.horizontal(|ui| {
-                                         if ui.button("↻").on_hover_text("Refresh Monitors").clicked() {
+                                         if icon_button(ui, Icon::Refresh).on_hover_text("Refresh Monitors").clicked() {
                                              self.cached_monitors = get_monitor_names();
                                          }
 

@@ -18,6 +18,7 @@ pub enum Icon {
     Delete, // Now renders as a Trash Can
     Info,
     Statistics,
+    Refresh,
 }
 
 /// Main entry point: Draw a clickable icon button
@@ -318,6 +319,55 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
                 egui::pos2(x3 + bar_w, base_y - h3 - t_offset - 2.0*scale), // Shoot up
             ];
             painter.add(egui::Shape::line(points, egui::Stroke::new(1.2 * scale, color)));
+        }
+
+        Icon::Refresh => {
+            // Smaller radius for a cleaner look (was 8.0)
+            let r = 6.0 * scale;
+            
+            // Slightly thinner stroke for elegance
+            let refresh_stroke = egui::Stroke::new(1.2 * scale, color);
+
+            let segments = 30;
+            
+            // Gap at the top (~12 o'clock).
+            // Screen coordinates: 0=Right, PI/2=Bottom, PI=Left, -PI/2=Top.
+            // Clockwise movement = increasing angle.
+            
+            // Start at 12:30 (Top-Right)
+            let start_angle = -PI / 2.0 + 0.6;
+            // Sweep clockwise to 11:30 (Top-Left), leaving a gap at the top
+            let sweep = 2.0 * PI - 1.2;
+            
+            let mut points = Vec::new();
+            for i in 0..=segments {
+                let t = i as f32 / segments as f32;
+                let angle = start_angle + sweep * t;
+                points.push(center + egui::vec2(angle.cos() * r, angle.sin() * r));
+            }
+            
+            // Draw the circle arc
+            painter.add(egui::Shape::line(points.clone(), refresh_stroke));
+            
+            // Draw Arrowhead at the end of the arc
+            if let Some(tip) = points.last() {
+                let end_angle = start_angle + sweep;
+                let arrow_len = 3.5 * scale;
+                
+                // The direction the line is moving at the end (tangent)
+                // For a clockwise circle, tangent is +90 degrees from the radius vector
+                let tangent = end_angle + PI / 2.0;
+                
+                // Calculate wings pointing backwards from the tip
+                let wing_offset = 0.6; // ~35 degrees
+                let back_angle1 = tangent - PI + wing_offset;
+                let back_angle2 = tangent - PI - wing_offset;
+
+                let p1 = *tip + egui::vec2(back_angle1.cos() * arrow_len, back_angle1.sin() * arrow_len);
+                let p2 = *tip + egui::vec2(back_angle2.cos() * arrow_len, back_angle2.sin() * arrow_len);
+
+                painter.add(egui::Shape::line(vec![p1, *tip, p2], refresh_stroke));
+            }
         }
     }
 }
