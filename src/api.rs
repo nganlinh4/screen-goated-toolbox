@@ -499,6 +499,8 @@ pub fn record_audio_and_transcribe(
     preset: Preset, 
     stop_signal: Arc<AtomicBool>, 
     pause_signal: Arc<AtomicBool>,
+    // FIX: New argument to handle user cancellation
+    abort_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND
 ) {
     // FIX 5: Host Selection (WASAPI for loopback, default for mic)
@@ -618,6 +620,17 @@ pub fn record_audio_and_transcribe(
     }
 
     drop(stream);
+
+    // FIX: Check if we should ABORT instead of submitting
+    if abort_signal.load(Ordering::SeqCst) {
+        println!("Audio recording aborted by user.");
+        unsafe {
+            if IsWindow(overlay_hwnd).as_bool() {
+                 PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+        return;
+    }
 
     // Final drain of any remaining samples
     while let Ok(chunk) = rx.try_recv() {

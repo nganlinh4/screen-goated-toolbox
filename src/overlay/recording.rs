@@ -23,6 +23,8 @@ const HIT_RADIUS: i32 = 25;  // Clickable radius around buttons
 lazy_static::lazy_static! {
     pub static ref AUDIO_STOP_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref AUDIO_PAUSE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    // FIX: New signal to explicitly abort/discard recording
+    pub static ref AUDIO_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
 // OPTIMIZATION: Thread-safe one-time window class registration
@@ -55,6 +57,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
         CURRENT_ALPHA = 0; // Start invisible
         AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
         AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
+        AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst); // Reset abort signal
 
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("RecordingOverlay");
@@ -95,7 +98,14 @@ pub fn show_recording_overlay(preset_idx: usize) {
         }
 
         std::thread::spawn(move || {
-            crate::api::record_audio_and_transcribe(preset, AUDIO_STOP_SIGNAL.clone(), AUDIO_PAUSE_SIGNAL.clone(), hwnd);
+            // FIX: Pass AUDIO_ABORT_SIGNAL to the worker thread
+            crate::api::record_audio_and_transcribe(
+                preset, 
+                AUDIO_STOP_SIGNAL.clone(), 
+                AUDIO_PAUSE_SIGNAL.clone(), 
+                AUDIO_ABORT_SIGNAL.clone(),
+                hwnd
+            );
         });
 
         let mut msg = MSG::default();
@@ -374,7 +384,9 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                     AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
                     paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
                 } else if (x - center_right).abs() < HIT_RADIUS {
-                    AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
+                    // FIX: Clicked "X" button -> ABORT, NOT SUBMIT
+                    AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst); 
+                    AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst); // Stop loop
                     PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
             }
@@ -405,6 +417,8 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             LRESULT(0)
         }
         WM_CLOSE => {
+            // FIX: Ensure clean stop even if Alt+F4
+            AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
             AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
             DestroyWindow(hwnd);
             PostQuitMessage(0);
