@@ -1,21 +1,22 @@
 # Screen Grounded Translator (SGT)
 
-A powerful Windows utility that captures any region of your screen and processes it using advanced AI Vision models. Whether you need to translate text, extract code (OCR), summarize content, or get image descriptions, SGT handles it with customizable presets and global hotkeys.
+A powerful Windows utility that captures any region of your screen **or records system/microphone audio** and processes it using advanced AI models. Whether you need to translate text, extract code (OCR), summarize content, get image descriptions, **or transcribe meetings**, SGT handles it with customizable presets and global hotkeys.
 
 **"Grounded"** = Anchored on screen regions — results appear in an overlay exactly where you selected them.
 
 ## Key Features
 
-- **Multi-Provider Support:** Utilize **Groq** (Llama 4 Vision) or **Google Gemini** (Flash Lite) for fast and accurate processing.
-- **Preset System:** Create unlimited custom profiles (e.g., "Translate to Vietnamese", "OCR Code", "Summarize Image").
+- **Multi-Modal Support:** Utilize **Groq** (Llama 4, Whisper, GPT-OSS) or **Google Gemini** (Flash, Pro) for Vision, Text, and Audio processing.
+- **Audio Intelligence:** Record and transcribe/translate audio from your **Microphone** or **System Sound** (Device Audio/Loopback).
+- **Preset System:** Create unlimited custom profiles (e.g., "Translate Image", "Transcribe Meeting", "Quick Foreigner Reply").
 - **Advanced Hotkeys:** Assign custom key combinations (e.g., `Ctrl+Alt+T`, `Win+Shift+S`) to specific presets.
-- **Retranslation Pipeline:** Chain a Vision model (to extract text) with a Text model (to translate/refine) for higher accuracy.
-- **Dynamic Prompts:** Customize prompts with language tags (e.g., `{language1}`) to switch targets easily.
+- **Retranslation Pipeline:** Chain models (e.g., Vision/Audio -> Text Model) for higher accuracy.
 - **Smart Overlay:**
   - Streaming text support (Typewriter effect).
   - Auto-copy to clipboard.
   - "Broom" cursor for precise selection.
-  - Linked windows for dual-view (original text + translation).
+  - Linked windows for dual-view.
+- **Usage Statistics:** Monitor your API usage limits directly in the app.
 - **Localization:** UI available in English, Vietnamese, and Korean.
 
 ## Screenshot
@@ -27,8 +28,8 @@ A powerful Windows utility that captures any region of your screen and processes
 
 - **OS:** Windows 10 or Windows 11.
 - **API Keys:**
-  - **Groq:** [Get a free key here](https://console.groq.com/keys) (Recommended for Llama models).
-  - **Google Gemini:** [Get a free key here](https://aistudio.google.com/app/apikey) (Optional, for Gemini models).
+  - **Groq:** [Get a free key here](https://console.groq.com/keys) (Required for Llama, Whisper, & GPT-OSS models).
+  - **Google Gemini:** [Get a free key here](https://aistudio.google.com/app/apikey) (Required for Gemini Vision & Audio models).
 
 ## Installation
 
@@ -54,50 +55,60 @@ Run the executable found in `target/release/`.
    - Paste your **Groq API Key** and/or **Gemini API Key**.
    - Toggle **Run at Windows Startup** if desired.
 3. **Configure a Preset:**
-   - Select a preset on the left (e.g., "Translate").
-   - **Prompt:** Define what the AI should do (e.g., "Extract text and translate to {language1}").
-   - **Model:** Choose between `Scout` (Fast), `Maverick` (Accurate), or `Gemini`.
-   - **Hotkeys:** Click "Add Key" and press your desired combination (e.g., `Alt+Q`).
+   - Select a preset on the left or create a new one.
+   - **Type:** Choose `Image Understanding` or `Audio Understanding`.
+   - **Prompt:** Define the AI instruction (e.g., "Translate to {language1}").
+   - **Model:** Select your preferred model (e.g., `Llama 4 Scout`, `Gemini Flash`, `Whisper`).
+   - **Hotkeys:** Click "Add Key" to assign a shortcut.
 4. **Capture:**
-   - Press your hotkey. The screen will dim.
-   - Drag to select the area you want to process.
-   - The result will appear in an overlay window.
+   - **Image:** Press hotkey -> Drag to select area -> Result appears in overlay.
+   - **Audio:** Press hotkey -> Recording overlay appears -> Press hotkey again to finish.
 
 ## Configuration Guide
 
-### The Preset System
-Unlike the old version, SGT now uses **Presets**. You can define specific behaviors for different hotkeys:
-
-* **Translation:** Vision Model reads image -> Text Model translates it.
-* **OCR (Text Extraction):** Vision Model extracts text -> Auto-copies to clipboard -> Hides overlay.
-* **Summarization:** Vision Model analyzes visual content -> Returns a summary.
+### Preset Types
+* **Image Understanding:** Captures a screen region (OCR, Translation, Description).
+* **Audio Understanding:** Records audio from **Mic** or **Device** (System Audio). Useful for meetings, videos, or quick voice commands.
+* **Video Understanding:** (Upcoming feature).
 
 ### Retranslation (Pipeline)
-For complex translations, enabling **Retranslation** is recommended:
-1. **Vision Model:** Reads the raw text from the image.
-2. **Retranslate Model:** (Usually a fast text model like `gpt-oss-20b`) takes that raw text and translates it to your target language.
-   *This often results in higher quality translations than Vision models alone.*
+For higher quality results, SGT can chain models:
+1. **Extraction:** Vision/Audio model extracts raw text/transcript.
+2. **Retranslation:** A specialized Text model (e.g., `GPT-OSS`, `Kimi`, `Gemini`) translates/refines the output.
 
 ### Available Models
-* **Vision Models (Image Understanding):**
-  * `Scout` (Llama 4 Scout 17B 16E) - Extremely fast, good for general text.
-  * `Maverick` (Llama 4 Maverick 17B 128E) - Highly accurate instruction following.
-  * `Gemini Flash Lite` (Google) - Balanced performance.
-* **Text Models (Retranslation):**
-  * `Fast Text` (OpenAI/GPT-OSS via Groq).
+
+**Vision Models (Image):**
+* `Scout` (Llama 4 Scout 17B) - Extremely fast, good for general text.
+* `Maverick` (Llama 4 Maverick 17B) - Highly accurate instruction following.
+* `Gemini Flash Lite` (Google) - Efficient and fast.
+* `Gemini Flash` (Google) - Balanced performance.
+* `Gemini 2.5 Pro` (Google) - Highest accuracy, best for reasoning.
+
+**Audio Models (Speech):**
+* `Whisper Fast` (Large v3 Turbo) - Fast transcription via Groq.
+* `Whisper Accurate` (Large v3) - High accuracy transcription via Groq.
+* `Gemini Audio` (Flash Lite / Flash / 2.5 Pro) - Native multimodal audio understanding (can summarize/translate directly).
+
+**Text Models (Retranslation):**
+* `Fast Text` (GPT-OSS 20B) - Super fast.
+* `Fast 120B` (GPT-OSS 120B) - Balanced speed/quality.
+* `Accurate` (Kimi k2-instruct) - High quality Chinese/English handling.
+* `Gemini Text` (Flash Lite / Flash / 2.5 Pro) - Google's text capabilities.
 
 ## Troubleshooting
 
 **Hotkey conflict / Not working:**
-* If using the app in games or elevated applications (Task Manager, Registry Editor), you must **run SGT as Administrator**.
-* Ensure no other background app is using the same key combination.
+* If using the app in games or elevated applications, **run SGT as Administrator**.
+* Check for conflicts with other apps.
 
 **"NO_API_KEY" Error:**
-* Ensure you have entered keys in the "Global Settings" (Gear icon) tab.
-* Ensure the specific preset is using a model that corresponds to the key you provided (e.g., don't select Gemini model if you only provided a Groq key).
+* Ensure keys are entered in "Global Settings".
+* Verify the selected preset uses a model matching the provider key you entered (Groq vs Google).
 
-**Window behaves strangely:**
-* Double-click the system tray icon or use the tray menu "Settings" to force restore the UI.
+**Audio Recording Issues:**
+* Ensure your default microphone or output device is active in Windows Sound Settings.
+* If recording "Device Audio", play some sound to ensure the loopback stream has data.
 
 ## License
 
