@@ -308,6 +308,11 @@ impl eframe::App for SettingsApp {
                 // Move invisible window to calculated center
                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x_logical, y_logical)));
                 
+                // FIX: Force the InnerSize explicitly here. 
+                // This forces eframe to recalculate the client area on the specific monitor 
+                // BEFORE the window becomes visible, fixing the hitbox offset.
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(635.0, 500.0)));
+                
                 self.startup_stage = 1;
                 ctx.request_repaint();
                 return;
@@ -325,6 +330,11 @@ impl eframe::App for SettingsApp {
             if let Some(splash) = &mut self.splash {
                 splash.reset_timer(ctx);
             }
+            
+            // FIX: Send the size command ONE MORE TIME just before visibility.
+            // This acts like the "Maximize/Unmaximize" trick programmatically.
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(635.0, 500.0)));
+            
             // 2. Show the window (buffer is already dark from previous frame)
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             self.startup_stage = 3;

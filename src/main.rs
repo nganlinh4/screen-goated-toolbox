@@ -13,7 +13,6 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::UI::HiDpi::*;
 use windows::Win32::System::Threading::*;
 use windows::core::*;
 use lazy_static::lazy_static;
@@ -72,8 +71,6 @@ fn main() -> eframe::Result<()> {
         }
     };
 
-    unsafe { let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); }
-
     std::thread::spawn(|| {
         run_hotkey_listener();
     });
@@ -96,9 +93,6 @@ fn main() -> eframe::Result<()> {
         .with_inner_size([635.0, 500.0]) 
         .with_resizable(true)
         .with_visible(false) // Start invisible
-        // FIX: Spawn off-screen to prevent (0,0) flash. 
-        // App.rs will move it to center before showing.
-        .with_position(eframe::egui::pos2(-2000.0, -2000.0)) 
         .with_transparent(true) 
         .with_decorations(false); // FIX: Start without decorations to prevent white titlebar flash
     
