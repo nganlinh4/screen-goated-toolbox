@@ -52,9 +52,9 @@ impl LocaleText {
     pub fn get(lang_code: &str) -> Self {
         match lang_code {
             "vi" => Self {
-                api_section: "Cài Đặt Chung",
-                api_key_label: "Mã API Groq:",
-                get_key_link: "Lấy mã tại console.groq.com",
+                 api_section: "Cài Đặt Chung",
+                 api_key_label: "Mã API Groq:",
+                 get_key_link: "Lấy tại console.groq.com",
                 gemini_api_key_label: "Mã API Gemini:",
                 gemini_get_key_link: "Lấy mã tại aistudio.google.com",
                 presets_section: "Danh Sách Cấu Hình",

@@ -597,26 +597,30 @@ impl eframe::App for SettingsApp {
                             // API Keys
                             ui.group(|ui| {
                                 ui.label(egui::RichText::new(text.api_section).strong());
-                                ui.label(text.api_key_label);
                                 ui.horizontal(|ui| {
-                                    if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(200.0)).changed() {
+                                    ui.label(text.api_key_label);
+                                    if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
+                                });
+                                ui.horizontal(|ui| {
+                                    if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(320.0)).changed() {
                                         self.save_and_sync();
                                     }
                                     let eye_icon = if self.show_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
                                     if icon_button(ui, eye_icon).clicked() { self.show_api_key = !self.show_api_key; }
                                 });
-                                if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
                                 
                                 ui.add_space(5.0);
-                                ui.label(text.gemini_api_key_label);
                                 ui.horizontal(|ui| {
-                                    if ui.add(egui::TextEdit::singleline(&mut self.config.gemini_api_key).password(!self.show_gemini_api_key).desired_width(200.0)).changed() {
+                                    ui.label(text.gemini_api_key_label);
+                                    if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
+                                });
+                                ui.horizontal(|ui| {
+                                    if ui.add(egui::TextEdit::singleline(&mut self.config.gemini_api_key).password(!self.show_gemini_api_key).desired_width(320.0)).changed() {
                                         self.save_and_sync();
                                     }
                                     let eye_icon = if self.show_gemini_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
                                     if icon_button(ui, eye_icon).clicked() { self.show_gemini_api_key = !self.show_gemini_api_key; }
                                 });
-                                if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
                             });
 
                             ui.add_space(10.0);
