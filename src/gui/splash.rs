@@ -159,9 +159,12 @@ impl SplashScreen {
             }
         };
 
-        spawn_letter(&s_map, -110.0, C_CYAN);
-        spawn_letter(&g_map, -25.0, C_MAGENTA);
-        spawn_letter(&t_map, 60.0, C_CYAN);
+        // ADJUSTMENT: Shift all letters left by 10 units to mathematically center the "SGT" text
+        // Previous: -110, -25, 60 (Midpoint +10)
+        // New:      -120, -35, 50 (Midpoint 0)
+        spawn_letter(&s_map, -120.0, C_CYAN);
+        spawn_letter(&g_map, -35.0, C_MAGENTA);
+        spawn_letter(&t_map, 50.0, C_CYAN);
 
         for _ in 0..60 {
             let h_y = (rng() * 300.0) - 150.0;

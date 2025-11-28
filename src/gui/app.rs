@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::System::Threading::*;
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, BOOL, LPARAM, RECT};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR, GetMonitorInfoW, MONITORINFOEXW};
+use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, BOOL, LPARAM, RECT, POINT};
+use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR, GetMonitorInfoW, MONITORINFOEXW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::core::*;
 
 use crate::gui::locale::LocaleText;
@@ -270,21 +270,47 @@ impl eframe::App for SettingsApp {
         // Stage 2: Reveal window.
         
         if self.startup_stage == 0 {
-            // Get the monitor size in logical points (DPI aware)
-            if let Some(monitor_size) = ctx.input(|i| i.viewport().monitor_size) {
-                let width = 635.0;
-                let height = 500.0;
-                // Calculate center (Assuming primary monitor starts at 0,0)
-                let x = (monitor_size.x - width) / 2.0;
-                let y = (monitor_size.y - height) / 2.0;
+            unsafe {
+                // 1. Get Cursor Position to find the target monitor (where user launched app)
+                let mut cursor_pos = POINT::default();
+                GetCursorPos(&mut cursor_pos);
                 
-                // Move invisible window to center
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                // 2. Get Monitor from Cursor
+                let h_monitor = MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST);
                 
-                // Go to warm-up stage
+                // 3. Get Monitor Work Area (Physical Pixels, accounts for Taskbar & Position)
+                let mut mi = MONITORINFO::default();
+                mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                GetMonitorInfoW(h_monitor, &mut mi);
+                
+                let work_w = (mi.rcWork.right - mi.rcWork.left) as f32;
+                let work_h = (mi.rcWork.bottom - mi.rcWork.top) as f32;
+                let work_left = mi.rcWork.left as f32;
+                let work_top = mi.rcWork.top as f32;
+                
+                // 4. Get Scale Factor (DPI)
+                let pixels_per_point = ctx.pixels_per_point();
+                
+                // 5. Calculate Window Size in Physical Pixels
+                let win_w_logical = 635.0;
+                let win_h_logical = 500.0;
+                let win_w_physical = win_w_logical * pixels_per_point;
+                let win_h_physical = win_h_logical * pixels_per_point;
+                
+                // 6. Calculate Center in Physical Pixels
+                let center_x_physical = work_left + (work_w - win_w_physical) / 2.0;
+                let center_y_physical = work_top + (work_h - win_h_physical) / 2.0;
+                
+                // 7. Convert back to Logical Points for eframe
+                let x_logical = center_x_physical / pixels_per_point;
+                let y_logical = center_y_physical / pixels_per_point;
+                
+                // Move invisible window to calculated center
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x_logical, y_logical)));
+                
                 self.startup_stage = 1;
                 ctx.request_repaint();
-                return; // Skip drawing this frame, just moved
+                return;
             }
         } else if self.startup_stage == 1 {
             // WARM-UP FRAME:
