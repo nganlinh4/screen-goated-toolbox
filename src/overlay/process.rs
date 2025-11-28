@@ -137,59 +137,65 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                         }
 
                         // --- STEP 2: RETRANSLATE (Optional) ---
-                        if do_retranslate && !vision_text.trim().is_empty() {
-                            // Create Secondary Window
-                            // We need to do this on the UI thread? No, create_result_window handles it?
-                            // Actually create_result_window creates a window on the CURRENT thread.
-                            // The current thread is this worker thread? 
-                            // NO. `create_result_window` creates a window. Windows must be pumped on the thread they are created.
-                            // This worker thread DOES NOT pump messages. The PARENT thread (spawned above) pumps messages for `primary_hwnd`.
-                            // So `primary_hwnd` was created on the parent thread.
-                            // If we want a secondary window, it ALSO needs to be created on the parent thread to share the message loop.
-                            // Solution: We cannot easily create the secondary window from THIS worker thread if we want the parent loop to handle it.
-                            // However, we can use `PostMessage` to signal the parent thread to create it? 
-                            // Or, simplified: Just spawn a NEW thread/loop for the secondary window?
-                            // Yes, spawning a new thread for the secondary window is easiest and isolates it.
-                            
-                            let vision_text_for_retrans = vision_text.clone();
-                            let groq_key_for_retrans = groq_api_key.clone();
-                            
-                            // Spawn Secondary UI Thread
-                            std::thread::spawn(move || {
-                                let secondary_hwnd = create_result_window(rect, WindowType::Secondary);
-                                super::result::link_windows(primary_hwnd, secondary_hwnd);
-                                if !hide_overlay {
-                                    unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
-                                    update_window_text(secondary_hwnd, "");
-                                }
+                         if do_retranslate && !vision_text.trim().is_empty() {
+                             // Create Secondary Window
+                             // We need to do this on the UI thread? No, create_result_window handles it?
+                             // Actually create_result_window creates a window on the CURRENT thread.
+                             // The current thread is this worker thread? 
+                             // NO. `create_result_window` creates a window. Windows must be pumped on the thread they are created.
+                             // This worker thread DOES NOT pump messages. The PARENT thread (spawned above) pumps messages for `primary_hwnd`.
+                             // So `primary_hwnd` was created on the parent thread.
+                             // If we want a secondary window, it ALSO needs to be created on the parent thread to share the message loop.
+                             // Solution: We cannot easily create the secondary window from THIS worker thread if we want the parent loop to handle it.
+                             // However, we can use `PostMessage` to signal the parent thread to create it? 
+                             // Or, simplified: Just spawn a NEW thread/loop for the secondary window?
+                             // Yes, spawning a new thread for the secondary window is easiest and isolates it.
+                             
+                             let vision_text_for_retrans = vision_text.clone();
+                             let groq_key_for_retrans = groq_api_key.clone();
+                             let gemini_key_for_retrans = gemini_api_key.clone(); // Capture key
+                             
+                             // Spawn Secondary UI Thread
+                             std::thread::spawn(move || {
+                                 let secondary_hwnd = create_result_window(rect, WindowType::Secondary);
+                                 super::result::link_windows(primary_hwnd, secondary_hwnd);
+                                 if !hide_overlay {
+                                     unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
+                                     update_window_text(secondary_hwnd, "");
+                                 }
 
-                                // API Call for Retranslation (Blocking in this UI thread? No, need another worker or just block since it's simple text?)
-                                // Better to block here? If we block, the window won't repaint.
-                                // So spawn a worker for text API too.
-                                
-                                std::thread::spawn(move || {
-                                    let acc_text = Arc::new(Mutex::new(String::new()));
-                                    let acc_text_clone = acc_text.clone();
-                                    
-                                    // Resolve text model
-                                    let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
-                                    let tm_name = tm_config.map(|m| m.full_name).expect("Retranslate model not found");
+                                 // API Call for Retranslation (Blocking in this UI thread? No, need another worker or just block since it's simple text?)
+                                 // Better to block here? If we block, the window won't repaint.
+                                 // So spawn a worker for text API too.
+                                 
+                                 std::thread::spawn(move || {
+                                     let acc_text = Arc::new(Mutex::new(String::new()));
+                                     let acc_text_clone = acc_text.clone();
+                                     
+                                     // Resolve text model
+                                     let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
+                                     let (tm_name, tm_provider) = match tm_config {
+                                         Some(m) => (m.full_name, m.provider),
+                                         None => ("openai/gpt-oss-20b".to_string(), "groq".to_string())
+                                     };
 
-                                    let text_res = translate_text_streaming(
-                                        &groq_key_for_retrans,
-                                        vision_text_for_retrans,
-                                        retranslate_to,
-                                        tm_name,
-                                        retranslate_streaming_enabled,
-                                        false, // Disable JSON format for text retranslation to avoid parsing errors
-                                        |chunk| {
-                                            let mut t = acc_text_clone.lock().unwrap();
-                                            t.push_str(chunk);
-                                            if !hide_overlay {
-                                                update_window_text(secondary_hwnd, &t);
-                                            }
-                                        }
-                                    );
+                                     let text_res = translate_text_streaming(
+                                         &groq_key_for_retrans,
+                                         &gemini_key_for_retrans, // Pass Gemini Key
+                                         vision_text_for_retrans,
+                                         retranslate_to,
+                                         tm_name,
+                                         tm_provider, // Pass Provider
+                                         retranslate_streaming_enabled,
+                                         false,
+                                         |chunk| {
+                                             let mut t = acc_text_clone.lock().unwrap();
+                                             t.push_str(chunk);
+                                             if !hide_overlay {
+                                                 update_window_text(secondary_hwnd, &t);
+                                             }
+                                         }
+                                     );
                                     
                                     if let Ok(final_text) = text_res {
                                         if !hide_overlay {
@@ -272,9 +278,9 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
         if retranslate && !text.trim().is_empty() {
             let rect_sec = retrans_rect.unwrap();
             let text_for_retrans = text.clone();
-            let groq_key = {
+            let (groq_key, gemini_key) = {
                 let app = crate::APP.lock().unwrap();
-                app.config.api_key.clone()
+                (app.config.api_key.clone(), app.config.gemini_api_key.clone())
             };
             
             std::thread::spawn(move || {
@@ -292,13 +298,18 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
                     let acc_text_clone = acc_text.clone();
                     
                     let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
-                    let tm_name = tm_config.map(|m| m.full_name).unwrap_or_else(|| "openai/gpt-oss-20b".to_string());
+                    let (tm_name, tm_provider) = match tm_config {
+                        Some(m) => (m.full_name, m.provider),
+                        None => ("openai/gpt-oss-20b".to_string(), "groq".to_string())
+                    };
 
                     let text_res = translate_text_streaming(
                         &groq_key,
+                        &gemini_key,
                         text_for_retrans,
                         retranslate_to,
                         tm_name,
+                        tm_provider,
                         retranslate_streaming_enabled,
                         false,
                         |chunk| {

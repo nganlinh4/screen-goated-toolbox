@@ -134,6 +134,61 @@ lazy_static::lazy_static! {
             "1000 lượt/ngày"
         ),
         ModelConfig::new(
+            "text_fast_120b",
+            "groq",
+            "Nhanh",
+            "빠름",
+            "Fast",
+            "openai/gpt-oss-120b",
+            ModelType::Text,
+            true,
+            "1000 lượt/ngày"
+        ),
+        ModelConfig::new(
+            "text_accurate_kimi",
+            "groq",
+            "Chính xác",
+            "정확함",
+            "Accurate",
+            "moonshotai/kimi-k2-instruct-0905",
+            ModelType::Text,
+            true,
+            "1000 lượt/ngày"
+        ),
+        ModelConfig::new(
+            "text_gemini_flash_lite",
+            "google",
+            "Chính xác hơn",
+            "더 정확함",
+            "More Accurate",
+            "gemini-flash-lite-latest",
+            ModelType::Text,
+            true,
+            "1000 lượt/ngày"
+        ),
+        ModelConfig::new(
+            "text_gemini_flash",
+            "google",
+            "Rất chính xác",
+            "매우 정확함",
+            "Very Accurate",
+            "gemini-flash-latest",
+            ModelType::Text,
+            true,
+            "250 lượt/ngày"
+        ),
+        ModelConfig::new(
+            "text_gemini_pro",
+            "google",
+            "Siêu chính xác, chậm",
+            "초정밀, 느림",
+            "Super Accurate, Slow",
+            "gemini-2.5-pro",
+            ModelType::Text,
+            true,
+            "50 lượt/ngày"
+        ),
+        ModelConfig::new(
             "whisper-fast",
             "groq",
             "Nhanh",
