@@ -128,8 +128,8 @@ fn main() -> eframe::Result<()> {
         .with_inner_size([635.0, 500.0]) 
         .with_resizable(true)
         .with_visible(false) // Start invisible
-        .with_transparent(true) 
-        .with_decorations(false); // FIX: Start without decorations to prevent white titlebar flash
+        .with_transparent(false) 
+        .with_decorations(true); // FIX: Start WITH decorations, opaque window
     
     let app_icon_bytes = include_bytes!("../assets/app-icon-small.png");
     if let Ok(img) = image::load_from_memory(app_icon_bytes) {

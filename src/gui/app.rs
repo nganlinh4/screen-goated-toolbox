@@ -342,9 +342,6 @@ impl eframe::App for SettingsApp {
 
         // Check Splash
         if let Some(splash) = &mut self.splash {
-            // Hide decorations during splash (redundant but safe)
-            ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
-            
             // Render Splash
             // We want the splash to cover everything, so we assume full window
             match splash.update(ctx) {
@@ -354,8 +351,6 @@ impl eframe::App for SettingsApp {
                 crate::gui::splash::SplashStatus::Finished => {
                     self.splash = None; // Drop splash, proceed to normal UI
                     self.fade_in_start = Some(ctx.input(|i| i.time)); // Start fade in
-                    // Restore decorations when splash is done
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
                 }
             }
         }

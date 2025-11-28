@@ -353,7 +353,7 @@ impl SplashScreen {
             let bg_alpha = (t * t).clamp(0.0, 1.0); 
             bg_color = bg_color.linear_multiply(bg_alpha);
         }
-        painter.rect_filled(rect, 32.0, bg_color);
+        painter.rect_filled(rect, 0.0, bg_color);
 
         // 2. Grid
         if master_alpha > 0.05 {
