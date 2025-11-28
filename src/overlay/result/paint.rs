@@ -57,6 +57,25 @@ pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
     }
 }
 
+// --- MATH HELPERS FOR SDF ICONS ---
+fn dist_segment(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
+    let pax = px - ax;
+    let pay = py - ay;
+    let bax = bx - ax;
+    let bay = by - ay;
+    let h = (pax * bax + pay * bay) / (bax * bax + bay * bay).max(0.001);
+    let h = h.clamp(0.0, 1.0);
+    let dx = pax - bax * h;
+    let dy = pay - bay * h;
+    (dx*dx + dy*dy).sqrt()
+}
+
+fn sd_box(px: f32, py: f32, cx: f32, cy: f32, w: f32, h: f32) -> f32 {
+    let dx = (px - cx).abs() - w;
+    let dy = (py - cy).abs() - h;
+    (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt() + dx.max(dy).min(0.0)
+}
+
 pub fn paint_window(hwnd: HWND) {
     unsafe {
         let mut ps = PAINTSTRUCT::default();
@@ -214,10 +233,6 @@ pub fn paint_window(hwnd: HWND) {
                     let mid = (low + high) / 2;
                     let (h, w) = measure_text_bounds(cache_dc, &mut buf, mid, available_w);
                     
-                    // FIX: Check BOTH height and width constraints.
-                    // Even if the height fits, if the text expands horizontally beyond available_w
-                    // (which happens with long words like filenames that GDI refuses to break),
-                    // we must reject this font size.
                     if h <= available_h && w <= available_w {
                         best_fit = mid;
                         low = mid + 1;
@@ -324,7 +339,7 @@ pub fn paint_window(hwnd: HWND) {
                 }
             }
 
-            // 4.2 Copy Button (Rounded Rect)
+            // 4.2 Copy Button (Rounded Rect) & Icons (Antialiased & Thick)
             if is_hovered {
                 let btn_size = 28;
                 let margin = 12;
@@ -352,8 +367,10 @@ pub fn paint_window(hwnd: HWND) {
 
                 for y in b_start_y.max(0)..b_end_y.min(height) {
                     for x in b_start_x.max(0)..b_end_x.min(width) {
-                        let dx = (x as f32 - cx).abs();
-                        let dy = (y as f32 - cy).abs();
+                        let fx = x as f32;
+                        let fy = y as f32;
+                        let dx = (fx - cx).abs();
+                        let dy = (fy - cy).abs();
                         let dist = (dx*dx + dy*dy).sqrt();
                         
                         // 1. AA for Button Body
@@ -365,7 +382,39 @@ pub fn paint_window(hwnd: HWND) {
                         let border_inner = (dist - (border_inner_radius - 0.5)).clamp(0.0, 1.0);
                         let border_alpha = border_outer * border_inner * 0.6; // 60% opacity white border
 
-                        if aa_body > 0.0 || border_alpha > 0.0 {
+                        // 3. Icon Anti-Aliasing (SDF) with Increased Thickness
+                        let mut icon_alpha = 0.0;
+                        
+                        if copy_success {
+                            // Checkmark (Tick) - THICKER
+                            // Points: Left(-4,0) -> Mid(-1,3) -> Right(4,-4)
+                            let d1 = dist_segment(fx, fy, cx - 4.0, cy, cx - 1.0, cy + 3.0);
+                            let d2 = dist_segment(fx, fy, cx - 1.0, cy + 3.0, cx + 4.0, cy - 4.0);
+                            let d = d1.min(d2);
+                            // Increased thickness threshold from 1.2 to 1.8
+                            icon_alpha = (1.8 - d).clamp(0.0, 1.0);
+                        } else {
+                            // Copy Icon (Two rounded rects) - THICKER
+                            
+                            // Back Rect: Centered at (-2, -2) relatively, size 6x8 outline
+                            let back_d = sd_box(fx, fy, cx - 2.0, cy - 2.0, 3.0, 4.0);
+                            // Increased stroke width from 0.75 to 1.25
+                            let back_outline = (1.25 - back_d.abs()).clamp(0.0, 1.0);
+                            
+                            // Front Rect: Centered at (+2, +2) relatively, size 6x8 filled
+                            let front_d = sd_box(fx, fy, cx + 2.0, cy + 2.0, 3.0, 4.0);
+                            // Standard AA edge (0.8 allows a slight softness)
+                            let front_fill = (0.8 - front_d).clamp(0.0, 1.0);
+                            
+                            // Masking: Don't draw back rect where front rect (plus margin) is
+                            let mask_d = sd_box(fx, fy, cx + 2.0, cy + 2.0, 4.5, 5.5);
+                            let mask = (mask_d).clamp(0.0, 1.0); 
+                            
+                            // Combine
+                            icon_alpha = (front_fill + back_outline * mask).clamp(0.0, 1.0);
+                        }
+
+                        if aa_body > 0.0 || border_alpha > 0.0 || icon_alpha > 0.0 {
                             let idx = (y * width + x) as usize;
                             let bg = raw_pixels[idx];
                             let bg_b = (bg & 0xFF) as f32;
@@ -376,7 +425,9 @@ pub fn paint_window(hwnd: HWND) {
                             let mut final_g = bg_g;
                             let mut final_b = bg_b;
 
-                            // Apply Body Color
+                            // Composite: Body -> Border -> Icon
+                            
+                            // A. Body
                             if aa_body > 0.0 {
                                 let alpha = 0.9 * aa_body;
                                 let inv = 1.0 - alpha;
@@ -385,11 +436,19 @@ pub fn paint_window(hwnd: HWND) {
                                 final_b = tb * alpha + final_b * inv;
                             }
 
-                            // Apply Additive White Border
+                            // B. Border (Additive)
                             if border_alpha > 0.0 {
                                 final_r += 255.0 * border_alpha;
                                 final_g += 255.0 * border_alpha;
                                 final_b += 255.0 * border_alpha;
+                            }
+
+                            // C. Icon (White, Normal Blend on top of result)
+                            if icon_alpha > 0.0 {
+                                let inv_icon = 1.0 - icon_alpha;
+                                final_r = 255.0 * icon_alpha + final_r * inv_icon;
+                                final_g = 255.0 * icon_alpha + final_g * inv_icon;
+                                final_b = 255.0 * icon_alpha + final_b * inv_icon;
                             }
 
                             final_r = final_r.min(255.0);
@@ -400,37 +459,6 @@ pub fn paint_window(hwnd: HWND) {
                         }
                     }
                 }
-
-                // Draw Icon (GDI)
-                let icx = cx.round() as i32;
-                let icy = cy.round() as i32;
-                let icon_pen = GdiObj::from_hpen(CreatePen(PS_SOLID, 2, COLORREF(0x00FFFFFF)));
-                let old_pen = SelectObject(mem_dc, icon_pen.0);
-                
-                if copy_success {
-                    // Checkmark
-                    MoveToEx(mem_dc, icx - 4, icy, None);
-                    LineTo(mem_dc, icx - 1, icy + 4);
-                    LineTo(mem_dc, icx + 5, icy - 4);
-                } else {
-                    // Copy Icon (Two rects) with Occlusion
-                    let r2_l = icx - 5; let r2_t = icy - 4; let r2_r = icx + 2; let r2_b = icy + 1;
-                    let r1_l = icx - 3; let r1_t = icy - 2; let r1_r = icx + 5; let r1_b = icy + 4;
-                    
-                    // Draw Back Rect (Outline)
-                    let null_brush = GetStockObject(NULL_BRUSH);
-                    let old_brush = SelectObject(mem_dc, null_brush);
-                    Rectangle(mem_dc, r2_l, r2_t, r2_r, r2_b);
-                    
-                    // Fill Front Rect (Masking)
-                    let brush_col = (tb as u32) << 16 | (tg as u32) << 8 | (tr as u32);
-                    let solid_brush = GdiObj::from_hbrush(CreateSolidBrush(COLORREF(brush_col)));
-                    SelectObject(mem_dc, solid_brush.0);
-                    Rectangle(mem_dc, r1_l, r1_t, r1_r, r1_b);
-                    
-                    SelectObject(mem_dc, old_brush);
-                }
-                SelectObject(mem_dc, old_pen);
             }
         }
 
