@@ -8,6 +8,7 @@ mod icon_gen;
 mod model_config;
 
 use std::sync::{Arc, Mutex};
+use std::panic;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::System::LibraryLoader::*;
@@ -51,6 +52,40 @@ lazy_static! {
 }
 
 fn main() -> eframe::Result<()> {
+    // --- CRASH HANDLER START ---
+    panic::set_hook(Box::new(|panic_info| {
+        // 1. Format the error message
+        let location = if let Some(location) = panic_info.location() {
+            format!("File: {}\nLine: {}", location.file(), location.line())
+        } else {
+            "Unknown location".to_string()
+        };
+
+        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic payload".to_string()
+        };
+
+        let error_msg = format!("CRASH DETECTED!\n\nError: {}\n\nLocation:\n{}", payload, location);
+
+        // Show a Windows Message Box so the user knows it crashed
+        let wide_msg: Vec<u16> = error_msg.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide_title: Vec<u16> = "SGT Crash Report".encode_utf16().chain(std::iter::once(0)).collect();
+
+        unsafe {
+            MessageBoxW(
+                None,
+                PCWSTR(wide_msg.as_ptr()),
+                PCWSTR(wide_title.as_ptr()),
+                MB_ICONERROR | MB_OK
+            );
+        }
+    }));
+    // --- CRASH HANDLER END ---
+    
     // Ensure the named event exists (for first instance, for second instance to signal)
     let _ = RESTORE_EVENT.as_ref();
     
@@ -154,7 +189,15 @@ const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
 
 fn run_hotkey_listener() {
     unsafe {
-        let instance = GetModuleHandleW(None).unwrap();
+        // Error handling: GetModuleHandleW should not fail, but handle it
+        let instance = match GetModuleHandleW(None) {
+            Ok(h) => h,
+            Err(_) => {
+                eprintln!("Error: Failed to get module handle for hotkey listener");
+                return;
+            }
+        };
+        
         let class_name = w!("HotkeyListenerClass");
         
         let wc = WNDCLASSW {
@@ -163,7 +206,9 @@ fn run_hotkey_listener() {
             lpszClassName: class_name,
             ..Default::default()
         };
-        RegisterClassW(&wc);
+        
+        // RegisterClassW can fail if class already exists, which is okay
+        let _ = RegisterClassW(&wc);
         
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
@@ -173,6 +218,12 @@ fn run_hotkey_listener() {
             0, 0, 0, 0,
             None, None, instance, None
         );
+        
+        // Error handling: hwnd is invalid if creation failed
+        if hwnd.0 == 0 {
+            eprintln!("Error: Failed to create hotkey listener window");
+            return;
+        }
 
         register_all_hotkeys(hwnd);
 
@@ -258,9 +309,23 @@ fn capture_full_screen() -> anyhow::Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>
         let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
         let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        
+        // Validate dimensions
+        if width <= 0 || height <= 0 {
+            return Err(anyhow::anyhow!("GDI Error: Invalid screen dimensions ({} x {})", width, height));
+        }
 
         let hdc_screen = GetDC(None);
+        if hdc_screen.0 == 0 {
+            return Err(anyhow::anyhow!("GDI Error: Failed to get screen device context"));
+        }
+        
         let hdc_mem = CreateCompatibleDC(hdc_screen);
+        if hdc_mem.0 == 0 {
+            ReleaseDC(None, hdc_screen);
+            return Err(anyhow::anyhow!("GDI Error: Failed to create compatible device context"));
+        }
+        
         let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
         
         if hbitmap.0 == 0 {
