@@ -476,6 +476,22 @@ impl eframe::App for SettingsApp {
         }
 
         // --- UI LAYOUT ---
+
+        // 1. Footer (Bottom Panel)
+        egui::TopBottomPanel::bottom("footer_panel")
+            .resizable(false)
+            .show_separator_line(false) // Remove the bar
+            .frame(egui::Frame::none().inner_margin(egui::Margin::symmetric(10.0, 4.0))) // Compact height
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(text.footer_admin_text).size(11.0).color(ui.visuals().weak_text_color()));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(text.footer_version).size(11.0).color(ui.visuals().weak_text_color()));
+                    });
+                });
+            });
+
+        // 2. Main Content
         egui::CentralPanel::default().show(ctx, |ui| {
             // Main Split (3.5 : 6.5 ratio)
             let available_width = ui.available_width();
@@ -1109,10 +1125,8 @@ impl eframe::App for SettingsApp {
                         }
                     }
                 });
-            });
-
-            // Removed Footer
-        });
+            }); // End of Main Split
+        }); // End of CentralPanel
     }
     
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
