@@ -40,8 +40,9 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
             let _ = RegisterClassW(&wc);
         });
 
-        let width = (target_rect.right - target_rect.left).abs().max(100);
-        let height = (target_rect.bottom - target_rect.top).abs().max(50);
+        // FIX: Removed .max(100) and .max(50) to allow small overlays
+        let width = (target_rect.right - target_rect.left).abs();
+        let height = (target_rect.bottom - target_rect.top).abs();
         
         let (x, y, color) = match win_type {
             WindowType::Primary => {
@@ -380,8 +381,9 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                         let mut new_rect = state.drag_start_window_rect;
                         
                         // Minimum size constraint
-                        let min_w = 120;
-                        let min_h = 60;
+                        // FIX: Reduced minimum size to allow smaller resizing
+                        let min_w = 20;
+                        let min_h = 20;
                         
                         match edge {
                             ResizeEdge::Right | ResizeEdge::TopRight | ResizeEdge::BottomRight => {

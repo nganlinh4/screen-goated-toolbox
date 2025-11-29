@@ -220,7 +220,8 @@ pub fn paint_window(hwnd: HWND) {
             GetWindowTextW(hwnd, &mut buf);
 
             // Font sizing logic
-            let h_padding = 12;
+            // FIX: Reduced padding to 6 to accommodate smaller windows
+            let h_padding = 6; 
             let available_w = (width - (h_padding * 2)).max(1);
             let v_safety_margin = 4;
             let available_h = (height - v_safety_margin).max(1);
@@ -387,16 +388,15 @@ pub fn paint_window(hwnd: HWND) {
                         let border_alpha = border_outer * border_inner * 0.6; // 60% opacity white border
 
                         // 3. Icon Anti-Aliasing (SDF) with Increased Thickness
-                        let mut icon_alpha = 0.0;
-                        
-                        if copy_success {
+                        // FIX: Initialize with expression to avoid warning
+                        let icon_alpha = if copy_success {
                             // Checkmark (Tick) - THICKER
                             // Points: Left(-4,0) -> Mid(-1,3) -> Right(4,-4)
                             let d1 = dist_segment(fx, fy, cx - 4.0, cy, cx - 1.0, cy + 3.0);
                             let d2 = dist_segment(fx, fy, cx - 1.0, cy + 3.0, cx + 4.0, cy - 4.0);
                             let d = d1.min(d2);
                             // Increased thickness threshold from 1.2 to 1.8
-                            icon_alpha = (1.8 - d).clamp(0.0, 1.0);
+                            (1.8 - d).clamp(0.0, 1.0)
                         } else {
                             // Copy Icon (Two rounded rects) - THICKER
                             
@@ -415,8 +415,8 @@ pub fn paint_window(hwnd: HWND) {
                             let mask = (mask_d).clamp(0.0, 1.0); 
                             
                             // Combine
-                            icon_alpha = (front_fill + back_outline * mask).clamp(0.0, 1.0);
-                        }
+                            (front_fill + back_outline * mask).clamp(0.0, 1.0)
+                        };
 
                         if aa_body > 0.0 || border_alpha > 0.0 || icon_alpha > 0.0 {
                             let idx = (y * width + x) as usize;
