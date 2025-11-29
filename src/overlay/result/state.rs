@@ -21,6 +21,26 @@ pub enum AnimationMode {
     DragOut,    // User holding/dragging out
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ResizeEdge {
+    None,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum InteractionMode {
+    None,
+    Resizing(ResizeEdge),
+    DraggingWindow,
+}
+
 pub struct CursorPhysics {
     pub x: f32,
     pub y: f32,
@@ -67,6 +87,13 @@ pub struct WindowState {
     pub linked_window: Option<HWND>,
     pub physics: CursorPhysics,
     
+    // --- INTERACTION STATE ---
+    pub interaction_mode: InteractionMode,
+    pub current_resize_edge: ResizeEdge, // Track edge hover state for painting
+    pub drag_start_mouse: POINT,
+    pub drag_start_window_rect: RECT,
+    pub has_moved_significantly: bool, // To distinguish click vs drag
+    
     // --- CACHING & THROTTLING ---
     pub font_cache_dirty: bool,
     pub cached_font_size: i32,
@@ -77,13 +104,13 @@ pub struct WindowState {
     // New: Handle pending updates to avoid flooding Paint
     pub pending_text: Option<String>,
     
-    // NEW: Timestamp for throttling text updates (in milliseconds)
+    // Timestamp for throttling text updates (in milliseconds)
     pub last_text_update_time: u32,
     
-    // FIX 1: BACKGROUND CACHING (Avoid redrawing gradient every frame)
+    // BACKGROUND CACHING
      pub bg_bitmap: HBITMAP,
      #[allow(dead_code)]
-     pub bg_bits: *mut core::ffi::c_void, // Raw pointer to pixels
+     pub bg_bits: *mut core::ffi::c_void, 
      pub bg_w: i32,
      pub bg_h: i32,
 }

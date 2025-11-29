@@ -15,7 +15,7 @@ mod state;
 mod paint;
 mod logic;
 
-use state::{WINDOW_STATES, WindowState, CursorPhysics, AnimationMode};
+use state::{WINDOW_STATES, WindowState, CursorPhysics, AnimationMode, InteractionMode, ResizeEdge};
 pub use state::{WindowType, link_windows};
 
 static mut CURRENT_BG_COLOR: u32 = 0x00222222;
@@ -33,15 +33,15 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
             let mut wc = WNDCLASSW::default();
             wc.lpfnWndProc = Some(result_wnd_proc);
             wc.hInstance = instance;
-            wc.hCursor = HCURSOR(0); 
+            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap(); 
             wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW;
+            wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS; // Added CS_DBLCLKS
             wc.hbrBackground = HBRUSH(0);
             let _ = RegisterClassW(&wc);
         });
 
-        let width = (target_rect.right - target_rect.left).abs();
-        let height = (target_rect.bottom - target_rect.top).abs();
+        let width = (target_rect.right - target_rect.left).abs().max(100);
+        let height = (target_rect.bottom - target_rect.top).abs().max(50);
         
         let (x, y, color) = match win_type {
             WindowType::Primary => {
@@ -138,6 +138,11 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 bg_color: color,
                 linked_window: None,
                 physics,
+                interaction_mode: InteractionMode::None,
+                current_resize_edge: ResizeEdge::None, // Initial state
+                drag_start_mouse: POINT { x: 0, y: 0 },
+                drag_start_window_rect: RECT::default(),
+                has_moved_significantly: false,
                 font_cache_dirty: true,
                 cached_font_size: 72,
                 content_bitmap: HBITMAP(0),
@@ -145,7 +150,6 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 last_h: 0,
                 pending_text: None,
                 last_text_update_time: 0,
-                // FIX 1: Initialize background cache fields
                 bg_bitmap: HBITMAP(0),
                 bg_bits: std::ptr::null_mut(),
                 bg_w: 0,
@@ -181,16 +185,10 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
     }
 }
 
-// Helper to calculate button position dynamically
 fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
     let btn_size = 28;
     let margin = 12;
-    
-    // Adaptive Positioning:
-    // If window is too short (less than button + 2*margin), center vertically.
-    // Otherwise, stick to bottom-right.
     let threshold_h = btn_size + (margin * 2);
-    
     let top = if window_h < threshold_h {
         (window_h - btn_size) / 2
     } else {
@@ -205,55 +203,142 @@ fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
     }
 }
 
+fn get_resize_edge(width: i32, height: i32, x: i32, y: i32) -> ResizeEdge {
+    let margin = 8;
+    let left = x < margin;
+    let right = x >= width - margin;
+    let top = y < margin;
+    let bottom = y >= height - margin;
+
+    if top && left { ResizeEdge::TopLeft }
+    else if top && right { ResizeEdge::TopRight }
+    else if bottom && left { ResizeEdge::BottomLeft }
+    else if bottom && right { ResizeEdge::BottomRight }
+    else if left { ResizeEdge::Left }
+    else if right { ResizeEdge::Right }
+    else if top { ResizeEdge::Top }
+    else if bottom { ResizeEdge::Bottom }
+    else { ResizeEdge::None }
+}
+
 unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_ERASEBKGND => LRESULT(1),
         
         WM_SETCURSOR => {
+            let mut cursor_id = PCWSTR(std::ptr::null());
             let mut show_system_cursor = false;
-            {
-                let states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                    if state.on_copy_btn { show_system_cursor = true; }
+            let mut rect = RECT::default();
+            GetClientRect(hwnd, &mut rect);
+            
+            // Get screen coords of cursor to hit-test logic
+            let mut pt = POINT::default();
+            GetCursorPos(&mut pt);
+            ScreenToClient(hwnd, &mut pt);
+            
+            let edge = get_resize_edge(rect.right, rect.bottom, pt.x, pt.y);
+            
+            match edge {
+                ResizeEdge::Top | ResizeEdge::Bottom => cursor_id = IDC_SIZENS,
+                ResizeEdge::Left | ResizeEdge::Right => cursor_id = IDC_SIZEWE,
+                ResizeEdge::TopLeft | ResizeEdge::BottomRight => cursor_id = IDC_SIZENWSE,
+                ResizeEdge::TopRight | ResizeEdge::BottomLeft => cursor_id = IDC_SIZENESW,
+                ResizeEdge::None => {
+                    // Check button
+                     let btn_rect = get_copy_btn_rect(rect.right, rect.bottom);
+                     let on_btn = pt.x >= btn_rect.left && pt.x <= btn_rect.right && 
+                                  pt.y >= btn_rect.top && pt.y <= btn_rect.bottom;
+                    if on_btn {
+                        cursor_id = IDC_HAND;
+                    }
                 }
             }
-            if show_system_cursor {
-                let h_cursor = LoadCursorW(None, IDC_HAND).unwrap_or(HCURSOR(0));
-                SetCursor(h_cursor);
+            
+            if !cursor_id.0.is_null() {
+                 SetCursor(LoadCursorW(None, cursor_id).unwrap());
+                 LRESULT(1)
             } else {
-                SetCursor(HCURSOR(0));
+                 // Hide standard cursor inside to show broom
+                 SetCursor(HCURSOR(0));
+                 LRESULT(1)
             }
-            LRESULT(1)
+        }
+
+        WM_LBUTTONDOWN => {
+            let x = (lparam.0 & 0xFFFF) as i16 as i32;
+            let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+            
+            let mut rect = RECT::default();
+            GetClientRect(hwnd, &mut rect);
+            let width = rect.right;
+            let height = rect.bottom;
+            
+            let edge = get_resize_edge(width, height, x, y);
+            
+            let mut window_rect = RECT::default();
+            GetWindowRect(hwnd, &mut window_rect);
+            
+            let mut screen_pt = POINT::default();
+            GetCursorPos(&mut screen_pt);
+
+            let mut states = WINDOW_STATES.lock().unwrap();
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                state.drag_start_mouse = screen_pt;
+                state.drag_start_window_rect = window_rect;
+                state.has_moved_significantly = false;
+                
+                if edge != ResizeEdge::None {
+                    state.interaction_mode = InteractionMode::Resizing(edge);
+                } else {
+                    state.interaction_mode = InteractionMode::DraggingWindow;
+                }
+            }
+            SetCapture(hwnd);
+            LRESULT(0)
         }
 
         WM_MOUSEMOVE => {
             let x = (lparam.0 & 0xFFFF) as i16 as f32;
             let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32;
-
+            
+            let mut rect = RECT::default();
+            GetClientRect(hwnd, &mut rect);
+            
+            // Recalculate edge for current hover state (to hide broom if needed)
+            let hover_edge = get_resize_edge(rect.right, rect.bottom, x as i32, y as i32);
+            
+            // 1. Logic for Broom Physics (Update regardless of mode)
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                let dx = x - state.physics.x;
-                let impulse = (dx * 1.5).clamp(-20.0, 20.0);
-                state.physics.tilt_velocity -= impulse * 0.2; 
-                state.physics.current_tilt = state.physics.current_tilt.clamp(-22.5, 22.5);
+                // Update current resize edge for Painter
+                state.current_resize_edge = hover_edge;
 
+                // Broom physics update
+                let dx = x - state.physics.x;
+                // Add sway if dragging (simulated momentum)
+                let drag_impulse = if state.interaction_mode == InteractionMode::DraggingWindow {
+                    // If dragging, add a bit of tilt based on mouse delta?
+                    // Actually, let's keep it simple: Broom follows mouse relative to window.
+                    0.0
+                } else {
+                    (dx * 1.5).clamp(-20.0, 20.0)
+                };
+                
+                state.physics.tilt_velocity -= drag_impulse * 0.2; 
+                state.physics.current_tilt = state.physics.current_tilt.clamp(-22.5, 22.5);
+                state.physics.x = x;
+                state.physics.y = y;
+                
+                // Hover state
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
-                let width = rect.right - rect.left;
-                let height = rect.bottom - rect.top;
-                
-                // === UPDATED HITBOX LOGIC WITH ADAPTIVE CENTERING ===
-                let btn_rect = get_copy_btn_rect(width, height);
+                let btn_rect = get_copy_btn_rect(rect.right, rect.bottom);
                 let padding = 4;
-                
                 state.on_copy_btn = 
                     x as i32 >= btn_rect.left - padding && 
                     x as i32 <= btn_rect.right + padding && 
                     y as i32 >= btn_rect.top - padding && 
                     y as i32 <= btn_rect.bottom + padding;
-                
-                state.physics.x = x;
-                state.physics.y = y;
 
                 if !state.is_hovered {
                     state.is_hovered = true;
@@ -264,6 +349,64 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                         dwHoverTime: 0,
                     };
                     TrackMouseEvent(&mut tme);
+                }
+
+                // 2. Logic for Dragging / Resizing
+                match state.interaction_mode {
+                    InteractionMode::DraggingWindow => {
+                        let mut curr_pt = POINT::default();
+                        GetCursorPos(&mut curr_pt);
+                        
+                        let dx = curr_pt.x - state.drag_start_mouse.x;
+                        let dy = curr_pt.y - state.drag_start_mouse.y;
+                        
+                        if dx.abs() > 3 || dy.abs() > 3 {
+                            state.has_moved_significantly = true;
+                        }
+                        
+                        let new_x = state.drag_start_window_rect.left + dx;
+                        let new_y = state.drag_start_window_rect.top + dy;
+                        
+                        SetWindowPos(hwnd, HWND(0), new_x, new_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                    InteractionMode::Resizing(edge) => {
+                        state.has_moved_significantly = true;
+                        
+                        let mut curr_pt = POINT::default();
+                        GetCursorPos(&mut curr_pt);
+                        let dx = curr_pt.x - state.drag_start_mouse.x;
+                        let dy = curr_pt.y - state.drag_start_mouse.y;
+                        
+                        let mut new_rect = state.drag_start_window_rect;
+                        
+                        // Minimum size constraint
+                        let min_w = 120;
+                        let min_h = 60;
+                        
+                        match edge {
+                            ResizeEdge::Right | ResizeEdge::TopRight | ResizeEdge::BottomRight => {
+                                new_rect.right = (state.drag_start_window_rect.right + dx).max(state.drag_start_window_rect.left + min_w);
+                            }
+                            ResizeEdge::Left | ResizeEdge::TopLeft | ResizeEdge::BottomLeft => {
+                                new_rect.left = (state.drag_start_window_rect.left + dx).min(state.drag_start_window_rect.right - min_w);
+                            }
+                            _ => {}
+                        }
+                        match edge {
+                            ResizeEdge::Bottom | ResizeEdge::BottomRight | ResizeEdge::BottomLeft => {
+                                new_rect.bottom = (state.drag_start_window_rect.bottom + dy).max(state.drag_start_window_rect.top + min_h);
+                            }
+                            ResizeEdge::Top | ResizeEdge::TopLeft | ResizeEdge::TopRight => {
+                                new_rect.top = (state.drag_start_window_rect.top + dy).min(state.drag_start_window_rect.bottom - min_h);
+                            }
+                            _ => {}
+                        }
+                        
+                        let w = new_rect.right - new_rect.left;
+                        let h = new_rect.bottom - new_rect.top;
+                        SetWindowPos(hwnd, HWND(0), new_rect.left, new_rect.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+                    }
+                    _ => {}
                 }
                 
                 InvalidateRect(hwnd, None, false);
@@ -276,73 +419,91 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 state.is_hovered = false;
                 state.on_copy_btn = false;
+                state.current_resize_edge = ResizeEdge::None; // Reset edge on leave
                 InvalidateRect(hwnd, None, false);
             }
             LRESULT(0)
         }
 
-        WM_LBUTTONUP | WM_RBUTTONUP => {
-            let x = (lparam.0 & 0xFFFF) as i32;
-            let y = ((lparam.0 >> 16) & 0xFFFF) as i32;
+        WM_LBUTTONUP => {
+            ReleaseCapture();
+            let mut perform_click = false;
+            let mut is_copy_click = false;
             
-            let mut rect = RECT::default();
-            GetClientRect(hwnd, &mut rect);
-            let width = rect.right - rect.left;
-            let height = rect.bottom - rect.top;
-            
-            // === UPDATED HITBOX LOGIC FOR CLICK WITH ADAPTIVE CENTERING ===
-            let btn_rect = get_copy_btn_rect(width, height);
-            let padding = 4;
-            
-            let is_copy_click = 
-                x >= btn_rect.left - padding && 
-                x <= btn_rect.right + padding && 
-                y >= btn_rect.top - padding && 
-                y <= btn_rect.bottom + padding;
-
-            if is_copy_click || msg == WM_RBUTTONUP {
-                 let text_len = GetWindowTextLengthW(hwnd) + 1;
-                let mut buf = vec![0u16; text_len as usize];
-                GetWindowTextW(hwnd, &mut buf);
-                let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
-                crate::overlay::utils::copy_to_clipboard(&text, hwnd);
-                
-                {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                        state.copy_success = true;
-                    }
-                }
-                SetTimer(hwnd, 1, 1500, None);
-                if is_copy_click && msg == WM_LBUTTONUP { return LRESULT(0); }
-            }
-
-            if !is_copy_click {
-                 {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                        state.physics.mode = AnimationMode::Smashing;
-                        state.physics.state_timer = 0.0;
+            // Check interaction end
+            {
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                    state.interaction_mode = InteractionMode::None;
+                    
+                    if !state.has_moved_significantly {
+                        perform_click = true;
+                        is_copy_click = state.on_copy_btn;
                     }
                 }
             }
             
-            let (linked_hwnd, main_alpha) = {
-                let states = WINDOW_STATES.lock().unwrap();
-                let linked = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.linked_window } else { None };
-                let alpha = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.alpha } else { 220 };
-                (linked, alpha)
-            };
-            if let Some(linked) = linked_hwnd {
-                if IsWindow(linked).as_bool() {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(linked.0 as isize)) {
-                        state.physics.mode = AnimationMode::DragOut;
-                        state.physics.state_timer = 0.0;
-                        state.alpha = main_alpha;
+            if perform_click {
+                 if is_copy_click {
+                    let text_len = GetWindowTextLengthW(hwnd) + 1;
+                    let mut buf = vec![0u16; text_len as usize];
+                    GetWindowTextW(hwnd, &mut buf);
+                    let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
+                    crate::overlay::utils::copy_to_clipboard(&text, hwnd);
+                    
+                    {
+                        let mut states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                            state.copy_success = true;
+                        }
                     }
+                    SetTimer(hwnd, 1, 1500, None);
+                 } else {
+                     // Smash Animation
+                     {
+                        let mut states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                            state.physics.mode = AnimationMode::Smashing;
+                            state.physics.state_timer = 0.0;
+                        }
+                    }
+                    
+                    let (linked_hwnd, main_alpha) = {
+                        let states = WINDOW_STATES.lock().unwrap();
+                        let linked = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.linked_window } else { None };
+                        let alpha = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.alpha } else { 220 };
+                        (linked, alpha)
+                    };
+                    if let Some(linked) = linked_hwnd {
+                        if IsWindow(linked).as_bool() {
+                            let mut states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get_mut(&(linked.0 as isize)) {
+                                state.physics.mode = AnimationMode::DragOut;
+                                state.physics.state_timer = 0.0;
+                                state.alpha = main_alpha;
+                            }
+                        }
+                    }
+                 }
+            }
+            LRESULT(0)
+        }
+        
+        WM_RBUTTONUP => {
+            // Right click always copies
+            let text_len = GetWindowTextLengthW(hwnd) + 1;
+            let mut buf = vec![0u16; text_len as usize];
+            GetWindowTextW(hwnd, &mut buf);
+            let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
+            crate::overlay::utils::copy_to_clipboard(&text, hwnd);
+            
+            {
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                    state.copy_success = true;
                 }
             }
+            SetTimer(hwnd, 1, 1500, None);
             LRESULT(0)
         }
 
@@ -357,9 +518,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                     // THROTTLING LOGIC:
-                     // Update if we have text AND (it's been >66ms OR it's the very first update)
-                     // 66ms ~= 15 FPS update rate for text. Physics stays at 60 FPS.
                      if state.pending_text.is_some() && 
                         (state.last_text_update_time == 0 || now.wrapping_sub(state.last_text_update_time) > 66) {
                          
@@ -393,7 +551,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 if state.content_bitmap.0 != 0 {
                     DeleteObject(state.content_bitmap);
                 }
-                // FIX 1: Clean up background cache
                 if state.bg_bitmap.0 != 0 {
                     DeleteObject(state.bg_bitmap);
                 }

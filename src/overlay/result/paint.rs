@@ -4,7 +4,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
-use super::state::{WINDOW_STATES, AnimationMode};
+use super::state::{WINDOW_STATES, AnimationMode, ResizeEdge};
 
 // RAII Wrapper for GDI Objects to ensure cleanup
 struct GdiObj(HGDIOBJ);
@@ -147,7 +147,11 @@ pub fn paint_window(hwnd: HWND) {
                 let particles_vec: Vec<(f32, f32, f32, f32, u32)> = state.physics.particles.iter()
                     .map(|p| (p.x, p.y, p.life, p.size, p.color)).collect();
 
-                let show_broom = (state.is_hovered && !state.on_copy_btn) || state.physics.mode == AnimationMode::Smashing;
+                // HIDE BROOM IF HOVERING RESIZE EDGE
+                let show_broom = state.is_hovered 
+                    && !state.on_copy_btn 
+                    && state.current_resize_edge == ResizeEdge::None 
+                    || state.physics.mode == AnimationMode::Smashing;
                 let broom_info = if show_broom {
                      Some((state.physics.x, state.physics.y, BroomRenderParams {
                             tilt_angle: state.physics.current_tilt,
