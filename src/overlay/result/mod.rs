@@ -686,16 +686,20 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                          (app.config.api_key.clone(), app.config.gemini_api_key.clone())
                      };
 
-                     // Call API using fully qualified path
+                     // FIX 3: Use a local accumulator for streaming text
+                     let mut acc_text = String::new();
+
                      let _ = crate::api::refine_text_streaming(
                           &groq_key, &gemini_key, 
                           context_data, previous_text, user_prompt,
                           &model_id, &provider, streaming,
-                          |chunk| {
+                          move |chunk| {
+                              acc_text.push_str(chunk); // Append chunk
+                              
                               let mut states = WINDOW_STATES.lock().unwrap();
                               if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                                  state.pending_text = Some(chunk.to_string());
-                                  state.full_text = chunk.to_string();
+                                  state.pending_text = Some(acc_text.clone());
+                                  state.full_text = acc_text.clone();
                               }
                           }
                      );
