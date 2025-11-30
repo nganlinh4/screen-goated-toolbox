@@ -104,7 +104,37 @@ impl SettingsApp {
         let args: &[&str] = &[];
         
         let auto = AutoLaunch::new(app_name, app_path.to_str().unwrap(), args);
-        let run_at_startup = auto.is_enabled().unwrap_or(false);
+        
+        // FIX: Manually check registry to persist "Startup" preference across version updates.
+        // The default `auto.is_enabled()` returns false if the path in registry differs from current exe (which happens on update).
+        // We want to detect if the KEY exists, and if so, force update the path to the current exe.
+        let mut run_at_startup = false;
+        
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::enums::*;
+            use winreg::RegKey;
+            
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            // We verify if the key exists under our App Name, ignoring the path value
+            if let Ok(key) = hkcu.open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Run", KEY_READ) {
+                if key.get_value::<String, &str>(app_name).is_ok() {
+                    run_at_startup = true;
+                }
+            }
+        }
+
+        // Fallback or non-windows check
+        if !run_at_startup {
+            run_at_startup = auto.is_enabled().unwrap_or(false);
+        }
+
+        // If enabled (either by detection or legacy), FORCE update the registry to the CURRENT executable path.
+        // This fixes the issue where updating the app breaks the startup link.
+        if run_at_startup {
+            let _ = auto.enable();
+        }
+
         let (tx, rx) = channel();
 
         // Tray thread
