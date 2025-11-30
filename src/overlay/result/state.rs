@@ -99,6 +99,10 @@ pub struct WindowState {
     pub context_data: RefineContext, // Data needed for API call
     pub full_text: String,        // Current full text content
     
+    // NEW: Refinement State
+    pub is_refining: bool,
+    pub animation_offset: f32,
+
     // NEW: Metadata for Refinement (Passed from Preset)
     pub model_id: String,
     pub provider: String,
