@@ -4,6 +4,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::w;
 use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
+use crate::overlay::paint_utils::{sd_rounded_box, hsv_to_rgb};
 use super::state::{WINDOW_STATES, AnimationMode, ResizeEdge};
 
 // Helper for Copy Button Rect
@@ -121,7 +122,9 @@ pub fn paint_window(hwnd: HWND) {
          let (
              bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, broom_data, particles,
              mut cached_text_bm, _cached_font_size, cache_dirty,
-             cached_bg_bm // The background gradient cache
+             cached_bg_bm, // The background gradient cache
+             is_refining,
+             anim_offset
          ) = {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -196,10 +199,12 @@ pub fn paint_window(hwnd: HWND) {
                 (
                     state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
-                    state.bg_bitmap
+                    state.bg_bitmap,
+                    state.is_refining,
+                    state.animation_offset
                 )
             } else {
-                (0, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0))
+                (0, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0)
             }
         };
 
@@ -231,101 +236,174 @@ pub fn paint_window(hwnd: HWND) {
         }
 
         // --- PHASE 3: TEXT CACHE UPDATE (If needed) ---
-        if cache_dirty || cached_text_bm.0 == 0 {
-            if cached_text_bm.0 != 0 { DeleteObject(cached_text_bm); }
+        // Skip text rendering if refining
+        if !is_refining {
+            if cache_dirty || cached_text_bm.0 == 0 {
+                if cached_text_bm.0 != 0 { DeleteObject(cached_text_bm); }
 
-            cached_text_bm = CreateCompatibleBitmap(hdc, width, height);
-            let cache_dc = CreateCompatibleDC(hdc);
-            let old_cache_bm = SelectObject(cache_dc, cached_text_bm);
+                cached_text_bm = CreateCompatibleBitmap(hdc, width, height);
+                let cache_dc = CreateCompatibleDC(hdc);
+                let old_cache_bm = SelectObject(cache_dc, cached_text_bm);
 
-            // Clear with background color
-            let dark_brush = CreateSolidBrush(COLORREF(bg_color_u32));
-            let fill_rect = RECT { left: 0, top: 0, right: width, bottom: height };
-            FillRect(cache_dc, &fill_rect, dark_brush);
-            DeleteObject(dark_brush);
+                // Clear with background color
+                let dark_brush = CreateSolidBrush(COLORREF(bg_color_u32));
+                let fill_rect = RECT { left: 0, top: 0, right: width, bottom: height };
+                FillRect(cache_dc, &fill_rect, dark_brush);
+                DeleteObject(dark_brush);
 
-            SetBkMode(cache_dc, TRANSPARENT);
-            SetTextColor(cache_dc, COLORREF(0x00FFFFFF));
+                SetBkMode(cache_dc, TRANSPARENT);
+                SetTextColor(cache_dc, COLORREF(0x00FFFFFF));
 
-            let text_len = GetWindowTextLengthW(hwnd) + 1;
-            let mut buf = vec![0u16; text_len as usize];
-            GetWindowTextW(hwnd, &mut buf);
+                let text_len = GetWindowTextLengthW(hwnd) + 1;
+                let mut buf = vec![0u16; text_len as usize];
+                GetWindowTextW(hwnd, &mut buf);
 
-            // Font sizing logic
-            // FIX: Reduced padding to 6 to accommodate smaller windows
-            let h_padding = 6; 
-            let available_w = (width - (h_padding * 2)).max(1);
-            let v_safety_margin = 4;
-            let available_h = (height - v_safety_margin).max(1);
-            
-            let mut low = 8;
-            let max_possible = available_h.min(100);
-            let mut high = max_possible;
-            let mut best_fit = 8;
+                // Font sizing logic
+                // FIX: Reduced padding to 6 to accommodate smaller windows
+                let h_padding = 6; 
+                let available_w = (width - (h_padding * 2)).max(1);
+                let v_safety_margin = 4;
+                let available_h = (height - v_safety_margin).max(1);
+                
+                let mut low = 8;
+                let max_possible = available_h.min(100);
+                let mut high = max_possible;
+                let mut best_fit = 8;
 
-            if high < low {
-                best_fit = 8;
-            } else {
-                while low <= high {
-                    let mid = (low + high) / 2;
-                    let (h, w) = measure_text_bounds(cache_dc, &mut buf, mid, available_w);
-                    
-                    if h <= available_h && w <= available_w {
-                        best_fit = mid;
-                        low = mid + 1;
-                    } else {
-                        high = mid - 1;
+                if high < low {
+                    best_fit = 8;
+                } else {
+                    while low <= high {
+                        let mid = (low + high) / 2;
+                        let (h, w) = measure_text_bounds(cache_dc, &mut buf, mid, available_w);
+                        
+                        if h <= available_h && w <= available_w {
+                            best_fit = mid;
+                            low = mid + 1;
+                        } else {
+                            high = mid - 1;
+                        }
                     }
                 }
+                let font_size_val = best_fit;
+
+                let hfont = CreateFontW(font_size_val, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+                let old_font = SelectObject(cache_dc, hfont);
+
+                // Re-measure with selected font for vertical alignment
+                let mut measure_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
+                DrawTextW(cache_dc, &mut buf, &mut measure_rect, DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL);
+                let text_h = measure_rect.bottom;
+                
+                let offset_y = ((height - text_h) / 2).max(0);
+                let mut draw_rect = RECT {
+                    left: h_padding,
+                    top: offset_y,
+                    right: width - h_padding,
+                    bottom: height
+                };
+                
+                // Draw actual text
+                DrawTextW(cache_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL);
+
+                SelectObject(cache_dc, old_font);
+                DeleteObject(hfont);
+                SelectObject(cache_dc, old_cache_bm);
+                DeleteDC(cache_dc);
+
+                // Update State with new text cache
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                    state.content_bitmap = cached_text_bm;
+                    state.cached_font_size = font_size_val;
+                    state.font_cache_dirty = false;
+                }
             }
-            let font_size_val = best_fit;
 
-            let hfont = CreateFontW(font_size_val, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-            let old_font = SelectObject(cache_dc, hfont);
-
-            // Re-measure with selected font for vertical alignment
-            let mut measure_rect = RECT { left: 0, top: 0, right: available_w, bottom: 0 };
-            DrawTextW(cache_dc, &mut buf, &mut measure_rect, DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL);
-            let text_h = measure_rect.bottom;
-            
-            let offset_y = ((height - text_h) / 2).max(0);
-            let mut draw_rect = RECT {
-                left: h_padding,
-                top: offset_y,
-                right: width - h_padding,
-                bottom: height
-            };
-            
-            // Draw actual text
-            DrawTextW(cache_dc, &mut buf, &mut draw_rect as *mut _, DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL);
-
-            SelectObject(cache_dc, old_font);
-            DeleteObject(hfont);
-            SelectObject(cache_dc, old_cache_bm);
-            DeleteDC(cache_dc);
-
-            // Update State with new text cache
-             let mut states = WINDOW_STATES.lock().unwrap();
-             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                 state.content_bitmap = cached_text_bm;
-                 state.cached_font_size = font_size_val;
-                 state.font_cache_dirty = false;
-             }
+            // 3.1 Blit Text Cache -> Scratch
+            if cached_text_bm.0 != 0 {
+                let cache_dc = CreateCompatibleDC(hdc);
+                let old_cbm = SelectObject(cache_dc, cached_text_bm);
+                let _ = BitBlt(mem_dc, 0, 0, width, height, cache_dc, 0, 0, SRCCOPY).ok();
+                SelectObject(cache_dc, old_cbm);
+                DeleteDC(cache_dc);
+            }
         }
 
-        // 3.1 Blit Text Cache -> Scratch
-        if cached_text_bm.0 != 0 {
-            let cache_dc = CreateCompatibleDC(hdc);
-            let old_cbm = SelectObject(cache_dc, cached_text_bm);
-            let _ = BitBlt(mem_dc, 0, 0, width, height, cache_dc, 0, 0, SRCCOPY).ok();
-            SelectObject(cache_dc, old_cbm);
-            DeleteDC(cache_dc);
-        }
-
-        // --- PHASE 4: PIXEL MANIPULATION (Particles & Button) ---
+        // --- PHASE 4: PIXEL MANIPULATION (Particles, Glow & Button) ---
         // We modify the Scratch DIB pixels directly
         if !scratch_bits.is_null() {
             let raw_pixels = std::slice::from_raw_parts_mut(scratch_bits as *mut u32, (width * height) as usize);
+
+            // 4.0 REFINEMENT GLOW (Spinning SDF)
+            if is_refining {
+                let bx = width as f32 / 2.0;
+                let by = height as f32 / 2.0;
+                let center_x = bx;
+                let center_y = by;
+                let time_rad = anim_offset.to_radians();
+
+                for y in 0..height {
+                    for x in 0..width {
+                        let idx = (y * width + x) as usize;
+                        let px = x as f32 - center_x;
+                        let py = y as f32 - center_y;
+
+                        // SDF for inner window bounds
+                        // Radius 12.0 matches the window rounded corners.
+                        let d = sd_rounded_box(px, py, bx, by, 12.0);
+
+                        // We only care about the inside (d <= 0). 
+                        if d <= 0.0 {
+                             let dist = d.abs(); // Distance from edge (positive)
+                             
+                             // Only compute glow near the edge (e.g. 20px) to prevent filling the whole window
+                             if dist < 20.0 {
+                                 let angle = py.atan2(px);
+                                 // "Inner random reach" processing effect
+                                 let noise = (angle * 12.0 - time_rad * 2.0).sin() * 0.5;
+                                 let glow_width = 14.0;
+                                 
+                                 // Calculate intensity based on distance from edge
+                                 // dist 0 -> t 0 -> intensity 1
+                                 // dist glow_width -> t 1 -> intensity 0
+                                 let t = (dist / glow_width).clamp(0.0, 1.0);
+                                 let base_intensity = (1.0 - t).powi(3);
+
+                                 if base_intensity > 0.01 {
+                                     // Modulate intensity with noise
+                                     let noise_mod = (1.0 + noise * 0.3).clamp(0.0, 2.0);
+                                     let final_intensity = (base_intensity * noise_mod).clamp(0.0, 1.0);
+                                     
+                                     if final_intensity > 0.01 {
+                                         // Vibrant Rainbow
+                                         let deg = angle.to_degrees() + (anim_offset * 2.0);
+                                         // Ensure hue is positive
+                                         let hue = (deg % 360.0 + 360.0) % 360.0;
+                                         let rgb = hsv_to_rgb(hue, 0.85, 1.0); 
+                                         
+                                         let bg_px = raw_pixels[idx];
+                                         let bg_b = (bg_px & 0xFF) as f32;
+                                         let bg_g = ((bg_px >> 8) & 0xFF) as f32;
+                                         let bg_r = ((bg_px >> 16) & 0xFF) as f32;
+                                         
+                                         let fg_r = ((rgb >> 16) & 0xFF) as f32;
+                                         let fg_g = ((rgb >> 8) & 0xFF) as f32;
+                                         let fg_b = (rgb & 0xFF) as f32;
+                                         
+                                         // Alpha blend over background
+                                         let out_r = (fg_r * final_intensity + bg_r * (1.0 - final_intensity)) as u32;
+                                         let out_g = (fg_g * final_intensity + bg_g * (1.0 - final_intensity)) as u32;
+                                         let out_b = (fg_b * final_intensity + bg_b * (1.0 - final_intensity)) as u32;
+
+                                         raw_pixels[idx] = (255 << 24) | (out_r << 16) | (out_g << 8) | out_b;
+                                     }
+                                 }
+                             }
+                        }
+                    }
+                }
+            }
 
             // 4.1 Particles
             for (d_x, d_y, life, size, col) in particles {
@@ -377,7 +455,8 @@ pub fn paint_window(hwnd: HWND) {
             }
 
             // 4.2 Buttons (Copy & Edit) (Rounded Rect) & Icons (Antialiased & Thick)
-            if is_hovered {
+            // HIDE buttons if refining
+            if is_hovered && !is_refining {
                 let btn_size = 28;
                 let margin = 12;
                 let threshold_h = btn_size + (margin * 2);

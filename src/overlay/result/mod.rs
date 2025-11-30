@@ -157,6 +157,8 @@ pub fn create_result_window(
                 edit_hwnd: h_edit,
                 context_data: context,
                 full_text: String::new(),
+                is_refining: false,
+                animation_offset: 0.0,
                 model_id,
                 provider,
                 streaming_enabled,
@@ -585,6 +587,14 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                     // NEW: Handle animation updates if refining
+                     if state.is_refining {
+                         // Rapid Clockwise Animation for Processing (similar to recording.rs)
+                         state.animation_offset -= 8.0; 
+                         if state.animation_offset < -3600.0 { state.animation_offset += 3600.0; }
+                         need_repaint = true;
+                     }
+
                      if state.pending_text.is_some() && 
                         (state.last_text_update_time == 0 || now.wrapping_sub(state.last_text_update_time) > 66) {
                          
@@ -593,32 +603,37 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                      }
                      
                      if state.is_editing && GetFocus() == state.edit_hwnd {
-                         // FIX 4: Check for ESCAPE to dismiss edit (exit edit mode)
-                         if (GetKeyState(VK_ESCAPE.0 as i32) as u16 & 0x8000) != 0 {
-                             state.is_editing = false;
-                             SetWindowTextW(state.edit_hwnd, w!("")); // Optional: Clear text on dismiss?
-                             ShowWindow(state.edit_hwnd, SW_HIDE);
-                             SetFocus(hwnd); // Return focus to parent
-                         }
-                         // FIX 3: Check for ENTER. 
-                         // If Shift is NOT pressed, Submit. 
-                         // If Shift IS pressed, do nothing (Edit control handles newline).
-                         else if (GetKeyState(VK_RETURN.0 as i32) as u16 & 0x8000) != 0 {
-                             let shift_pressed = (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
-                             
-                             if !shift_pressed {
-                                 let len = GetWindowTextLengthW(state.edit_hwnd) + 1;
-                                 let mut buf = vec![0u16; len as usize];
-                                 GetWindowTextW(state.edit_hwnd, &mut buf);
-                                 user_prompt = String::from_utf16_lossy(&buf[..len as usize - 1]).to_string();
-                                 
-                                 SetWindowTextW(state.edit_hwnd, w!(""));
-                                 ShowWindow(state.edit_hwnd, SW_HIDE);
-                                 state.is_editing = false;
-                                 trigger_refine = true;
-                             }
-                         }
-                     }
+                          // FIX 4: Check for ESCAPE to dismiss edit (exit edit mode)
+                          if (GetKeyState(VK_ESCAPE.0 as i32) as u16 & 0x8000) != 0 {
+                              state.is_editing = false;
+                              SetWindowTextW(state.edit_hwnd, w!("")); // Optional: Clear text on dismiss?
+                              ShowWindow(state.edit_hwnd, SW_HIDE);
+                              SetFocus(hwnd); // Return focus to parent
+                          }
+                          // FIX 3: Check for ENTER. 
+                          // If Shift is NOT pressed, Submit. 
+                          // If Shift IS pressed, do nothing (Edit control handles newline).
+                          else if (GetKeyState(VK_RETURN.0 as i32) as u16 & 0x8000) != 0 {
+                              let shift_pressed = (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+                              
+                              if !shift_pressed {
+                                  let len = GetWindowTextLengthW(state.edit_hwnd) + 1;
+                                  let mut buf = vec![0u16; len as usize];
+                                  GetWindowTextW(state.edit_hwnd, &mut buf);
+                                  user_prompt = String::from_utf16_lossy(&buf[..len as usize - 1]).to_string();
+                                  
+                                  SetWindowTextW(state.edit_hwnd, w!(""));
+                                  ShowWindow(state.edit_hwnd, SW_HIDE);
+                                  state.is_editing = false;
+                                  trigger_refine = true;
+                                  
+                                  // NEW: Enable refining state immediately to show animation
+                                  state.is_refining = true;
+                                  state.full_text = String::new(); // Clear previous text so animation is visible
+                                  state.pending_text = Some(String::new()); // Force clear update
+                              }
+                          }
+                      }
                 }
             }
 
@@ -635,41 +650,51 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             }
 
             if trigger_refine && !user_prompt.trim().is_empty() {
-                 let (context_data, previous_text, model_id, provider, streaming) = {
-                     let states = WINDOW_STATES.lock().unwrap();
-                     if let Some(s) = states.get(&(hwnd.0 as isize)) {
-                         (s.context_data.clone(), s.full_text.clone(), s.model_id.clone(), s.provider.clone(), s.streaming_enabled)
-                     } else {
-                         (RefineContext::None, String::new(), "scout".to_string(), "groq".to_string(), false)
-                     }
-                 };
-                 
-                 update_window_text(hwnd, "Processing refinement...");
-                 
-                 std::thread::spawn(move || {
-                     let (groq_key, gemini_key) = {
-                         let app = crate::APP.lock().unwrap();
-                         (app.config.api_key.clone(), app.config.gemini_api_key.clone())
-                     };
+                  let (context_data, previous_text, model_id, provider, streaming) = {
+                      let states = WINDOW_STATES.lock().unwrap();
+                      if let Some(s) = states.get(&(hwnd.0 as isize)) {
+                          (s.context_data.clone(), s.full_text.clone(), s.model_id.clone(), s.provider.clone(), s.streaming_enabled)
+                      } else {
+                          (RefineContext::None, String::new(), "scout".to_string(), "groq".to_string(), false)
+                      }
+                  };
+                  
+                  std::thread::spawn(move || {
+                      let (groq_key, gemini_key) = {
+                          let app = crate::APP.lock().unwrap();
+                          (app.config.api_key.clone(), app.config.gemini_api_key.clone())
+                      };
 
-                     let mut acc_text = String::new();
+                      let mut acc_text = String::new();
+                      let mut first_chunk = true;
 
-                     let _ = crate::api::refine_text_streaming(
-                          &groq_key, &gemini_key, 
-                          context_data, previous_text, user_prompt,
-                          &model_id, &provider, streaming,
-                          move |chunk| {
-                              acc_text.push_str(chunk); 
-                              
-                              let mut states = WINDOW_STATES.lock().unwrap();
-                              if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                                  state.pending_text = Some(acc_text.clone());
-                                  state.full_text = acc_text.clone();
-                              }
-                          }
-                     );
-                 });
-             }
+                      let _ = crate::api::refine_text_streaming(
+                           &groq_key, &gemini_key, 
+                           context_data, previous_text, user_prompt,
+                           &model_id, &provider, streaming,
+                           move |chunk| {
+                               let mut states = WINDOW_STATES.lock().unwrap();
+                               if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                   // Stop animation on first chunk
+                                   if first_chunk {
+                                       state.is_refining = false;
+                                       first_chunk = false;
+                                   }
+                                   
+                                   acc_text.push_str(chunk); 
+                                   state.pending_text = Some(acc_text.clone());
+                                   state.full_text = acc_text.clone();
+                               }
+                           }
+                      );
+                      
+                      // Ensure it stops if finished without chunks (e.g. error or empty)
+                      let mut states = WINDOW_STATES.lock().unwrap();
+                      if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                          state.is_refining = false;
+                      }
+                  });
+              }
 
             logic::handle_timer(hwnd, wparam);
             if need_repaint {
