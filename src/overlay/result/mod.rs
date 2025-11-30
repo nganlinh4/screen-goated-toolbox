@@ -806,9 +806,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             LRESULT(0)
         }
         WM_KEYDOWN => {
-            if wparam.0 == VK_ESCAPE.0 as usize { 
-                 PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            // FIX: Removed VK_ESCAPE closing logic. ESC should only dismiss the edit box, not the whole window.
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
