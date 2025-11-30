@@ -38,6 +38,19 @@ fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
     }
 }
 
+// Helper for Undo Button Rect
+fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let edit_rect = get_edit_btn_rect(window_w, window_h);
+    let gap = 8;
+    let width = edit_rect.right - edit_rect.left;
+    RECT {
+        left: edit_rect.left - width - gap,
+        top: edit_rect.top,
+        right: edit_rect.left - gap,
+        bottom: edit_rect.bottom
+    }
+}
+
 // RAII Wrapper for GDI Objects to ensure cleanup
 struct GdiObj(HGDIOBJ);
 impl GdiObj {
@@ -120,11 +133,12 @@ pub fn paint_window(hwnd: HWND) {
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
          // We lock the mutex ONCE to read state and update caches if dirty.
          let (
-             bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, broom_data, particles,
+             bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, on_undo_btn, broom_data, particles,
              mut cached_text_bm, _cached_font_size, cache_dirty,
              cached_bg_bm, // The background gradient cache
              is_refining,
-             anim_offset
+             anim_offset,
+             history_count
          ) = {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -185,6 +199,7 @@ pub fn paint_window(hwnd: HWND) {
                 let show_broom = state.is_hovered 
                     && !state.on_copy_btn 
                     && !state.on_edit_btn
+                    && !state.on_undo_btn
                     && state.current_resize_edge == ResizeEdge::None 
                     || state.physics.mode == AnimationMode::Smashing;
                 let broom_info = if show_broom {
@@ -197,14 +212,15 @@ pub fn paint_window(hwnd: HWND) {
                 } else { None };
 
                 (
-                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, broom_info, particles_vec,
+                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, state.on_undo_btn, broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap,
                     state.is_refining,
-                    state.animation_offset
+                    state.animation_offset,
+                    state.text_history.len()
                 )
             } else {
-                (0, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0)
+                (0, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0)
             }
         };
 
@@ -454,7 +470,7 @@ pub fn paint_window(hwnd: HWND) {
                 }
             }
 
-            // 4.2 Buttons (Copy & Edit) (Rounded Rect) & Icons (Antialiased & Thick)
+            // 4.2 Buttons (Copy & Edit & Undo) (Rounded Rect) & Icons (Antialiased & Thick)
             // HIDE buttons if refining
             if is_hovered && !is_refining {
                 let btn_size = 28;
@@ -466,7 +482,10 @@ pub fn paint_window(hwnd: HWND) {
                     (height - margin - btn_size / 2) as f32
                 };
                 let cx_copy = (width - margin - btn_size / 2) as f32;
-                let cx_edit = cx_copy - (btn_size as f32) - 8.0; // Gap 8
+                let cx_edit = cx_copy - (btn_size as f32) - 8.0;
+                
+                let cx_undo = cx_edit - (btn_size as f32) - 8.0;
+                
                 let radius = 13.0;
 
                 let (tr_c, tg_c, tb_c) = if copy_success {
@@ -482,12 +501,19 @@ pub fn paint_window(hwnd: HWND) {
                 } else {
                     (80.0, 80.0, 80.0)    // Standard Visible Grey
                 };
+                let (tr_u, tg_u, tb_u) = if on_undo_btn {
+                    (128.0, 128.0, 128.0) // Hover Bright
+                } else {
+                    (80.0, 80.0, 80.0)    // Standard Visible Grey
+                };
 
-                // Bounding box covering both buttons to iterate pixels
-                let b_start_x = (cx_edit - radius - 4.0) as i32;
+                // Bounding box covering all possible buttons
+                let b_start_x = (cx_undo - radius - 4.0) as i32;
                 let b_end_x = (cx_copy + radius + 4.0) as i32;
                 let b_start_y = (cy - radius - 4.0) as i32;
                 let b_end_y = (cy + radius + 4.0) as i32;
+
+                let show_undo = history_count > 0;
 
                 for y in b_start_y.max(0)..b_end_y.min(height) {
                     for x in b_start_x.max(0)..b_end_x.min(width) {
@@ -501,8 +527,11 @@ pub fn paint_window(hwnd: HWND) {
                         
                         let dx_e = (fx - cx_edit).abs();
                         let dist_e = (dx_e*dx_e + dy*dy).sqrt();
+                        
+                        let dx_u = (fx - cx_undo).abs();
+                        let dist_u = (dx_u*dx_u + dy*dy).sqrt();
 
-                        // --- RENDER COPY BUTTON ---
+                        // --- COPY BUTTON ---
                         let aa_body_c = (radius + 0.5 - dist_c).clamp(0.0, 1.0);
                         let border_inner_radius = radius - 1.5;
                         let border_alpha_c = ((radius + 0.5 - dist_c).clamp(0.0, 1.0) * ((dist_c - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
@@ -520,7 +549,7 @@ pub fn paint_window(hwnd: HWND) {
                             (front_fill + back_outline * mask_d.clamp(0.0, 1.0)).clamp(0.0, 1.0)
                         };
 
-                        // --- RENDER EDIT BUTTON ---
+                        // --- EDIT BUTTON ---
                         let aa_body_e = (radius + 0.5 - dist_e).clamp(0.0, 1.0);
                         let border_alpha_e = ((radius + 0.5 - dist_e).clamp(0.0, 1.0) * ((dist_e - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
                         
@@ -529,8 +558,30 @@ pub fn paint_window(hwnd: HWND) {
                         let d_body = dist_segment(fx, fy, cx_edit - 3.0, cy + 3.0, cx_edit + 3.0, cy - 3.0);
                         let icon_alpha_e = (1.2 - d_body).clamp(0.0, 1.0);
 
+                        // --- UNDO BUTTON (Conditional) ---
+                        let mut aa_body_u = 0.0;
+                        let mut border_alpha_u = 0.0;
+                        let mut icon_alpha_u = 0.0;
+                        
+                        if show_undo {
+                            aa_body_u = (radius + 0.5 - dist_u).clamp(0.0, 1.0);
+                            border_alpha_u = ((radius + 0.5 - dist_u).clamp(0.0, 1.0) * ((dist_u - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                            
+                            // Left Arrow Icon (Back)
+                            // Main shaft: right to left
+                            let d_shaft = dist_segment(fx, fy, cx_undo + 3.0, cy, cx_undo - 3.0, cy);
+                            // Upper head part
+                            let d_head_top = dist_segment(fx, fy, cx_undo - 3.0, cy, cx_undo, cy - 3.0);
+                            // Lower head part
+                            let d_head_bot = dist_segment(fx, fy, cx_undo - 3.0, cy, cx_undo, cy + 3.0);
+                            
+                            let d_icon = d_shaft.min(d_head_top).min(d_head_bot);
+                            icon_alpha_u = (1.2 - d_icon).clamp(0.0, 1.0);
+                        }
 
-                        if aa_body_c > 0.0 || border_alpha_c > 0.0 || icon_alpha_c > 0.0 || aa_body_e > 0.0 || border_alpha_e > 0.0 || icon_alpha_e > 0.0 {
+                        if aa_body_c > 0.0 || border_alpha_c > 0.0 || icon_alpha_c > 0.0 ||
+                            aa_body_e > 0.0 || border_alpha_e > 0.0 || icon_alpha_e > 0.0 ||
+                           aa_body_u > 0.0 || border_alpha_u > 0.0 || icon_alpha_u > 0.0 {
                             let idx = (y * width + x) as usize;
                             let bg = raw_pixels[idx];
                             let bg_b = (bg & 0xFF) as f32;
@@ -575,6 +626,26 @@ pub fn paint_window(hwnd: HWND) {
                                 final_r = 255.0 * icon_alpha_e + final_r * (1.0 - icon_alpha_e);
                                 final_g = 255.0 * icon_alpha_e + final_g * (1.0 - icon_alpha_e);
                                 final_b = 255.0 * icon_alpha_e + final_b * (1.0 - icon_alpha_e);
+                            }
+
+                            // BLEND UNDO
+                            if show_undo {
+                                if aa_body_u > 0.0 {
+                                    let alpha = 0.9 * aa_body_u;
+                                    final_r = tr_u * alpha + final_r * (1.0 - alpha);
+                                    final_g = tg_u * alpha + final_g * (1.0 - alpha);
+                                    final_b = tb_u * alpha + final_b * (1.0 - alpha);
+                                }
+                                if border_alpha_u > 0.0 {
+                                    final_r += 255.0 * border_alpha_u;
+                                    final_g += 255.0 * border_alpha_u;
+                                    final_b += 255.0 * border_alpha_u;
+                                }
+                                if icon_alpha_u > 0.0 {
+                                    final_r = 255.0 * icon_alpha_u + final_r * (1.0 - icon_alpha_u);
+                                    final_g = 255.0 * icon_alpha_u + final_g * (1.0 - icon_alpha_u);
+                                    final_b = 255.0 * icon_alpha_u + final_b * (1.0 - icon_alpha_u);
+                                }
                             }
 
                             final_r = final_r.min(255.0);

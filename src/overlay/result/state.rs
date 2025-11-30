@@ -92,12 +92,16 @@ pub struct WindowState {
     pub on_copy_btn: bool,
     pub copy_success: bool,
     pub on_edit_btn: bool, // NEW
+    pub on_undo_btn: bool, // NEW: Hover state for Undo
     
     // NEW: Edit Mode
     pub is_editing: bool,         // Is the edit box open?
     pub edit_hwnd: HWND,          // Handle to child EDIT control
     pub context_data: RefineContext, // Data needed for API call
     pub full_text: String,        // Current full text content
+    
+    // NEW: Text History for Undo
+    pub text_history: Vec<String>, // Stack of previous text states
     
     // NEW: Refinement State
     pub is_refining: bool,

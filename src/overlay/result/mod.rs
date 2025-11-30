@@ -153,10 +153,12 @@ pub fn create_result_window(
                 on_copy_btn: false,
                 copy_success: false,
                 on_edit_btn: false,
+                on_undo_btn: false,
                 is_editing: false,
                 edit_hwnd: h_edit,
                 context_data: context,
                 full_text: String::new(),
+                text_history: Vec::new(),
                 is_refining: false,
                 animation_offset: 0.0,
                 model_id,
@@ -243,6 +245,18 @@ fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
     }
 }
 
+fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let edit_rect = get_edit_btn_rect(window_w, window_h);
+    let gap = 8;
+    let width = edit_rect.right - edit_rect.left;
+    RECT {
+        left: edit_rect.left - width - gap,
+        top: edit_rect.top,
+        right: edit_rect.left - gap,
+        bottom: edit_rect.bottom
+    }
+}
+
 fn get_resize_edge(width: i32, height: i32, x: i32, y: i32) -> ResizeEdge {
     let margin = 8;
     let left = x < margin;
@@ -293,9 +307,23 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 ResizeEdge::None => {
                     let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
                     let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
+                    let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
+                    
                     let on_copy = pt.x >= copy_rect.left && pt.x <= copy_rect.right && pt.y >= copy_rect.top && pt.y <= copy_rect.bottom;
                     let on_edit = pt.x >= edit_rect.left && pt.x <= edit_rect.right && pt.y >= edit_rect.top && pt.y <= edit_rect.bottom;
-                    if on_copy || on_edit {
+                    
+                    // Check undo only if it's visible (history > 0)
+                    let mut has_history = false;
+                    {
+                        let states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                            has_history = !state.text_history.is_empty();
+                        }
+                    }
+                    
+                    let on_undo = has_history && pt.x >= undo_rect.left && pt.x <= undo_rect.right && pt.y >= undo_rect.top && pt.y <= undo_rect.bottom;
+                    
+                    if on_copy || on_edit || on_undo {
                         cursor_id = IDC_HAND;
                     }
                 }
@@ -364,6 +392,8 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 
                 let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
                 let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
+                let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
+                
                 let padding = 4;
                 state.on_copy_btn = 
                     x as i32 >= copy_rect.left - padding && 
@@ -375,6 +405,16 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                     x as i32 <= edit_rect.right + padding && 
                     y as i32 >= edit_rect.top - padding && 
                     y as i32 <= edit_rect.bottom + padding;
+                
+                if !state.text_history.is_empty() {
+                    state.on_undo_btn =
+                        x as i32 >= undo_rect.left - padding &&
+                        x as i32 <= undo_rect.right + padding &&
+                        y as i32 >= undo_rect.top - padding &&
+                        y as i32 <= undo_rect.bottom + padding;
+                } else {
+                    state.on_undo_btn = false;
+                }
 
                 if !state.is_hovered {
                     state.is_hovered = true;
@@ -462,6 +502,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 state.is_hovered = false;
                 state.on_copy_btn = false;
+                state.on_undo_btn = false; // Reset undo hover
                 state.current_resize_edge = ResizeEdge::None; 
                 InvalidateRect(hwnd, None, false);
             }
@@ -473,6 +514,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let mut perform_click = false;
             let mut is_copy_click = false;
             let mut is_edit_click = false;
+            let mut is_undo_click = false;
             
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
@@ -483,12 +525,39 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                         perform_click = true;
                         is_copy_click = state.on_copy_btn;
                         is_edit_click = state.on_edit_btn;
+                        is_undo_click = state.on_undo_btn;
                     }
                 }
             }
             
             if perform_click {
-                 if is_edit_click {
+                 if is_undo_click {
+                    let mut prev_text = None;
+                    {
+                        let mut states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                            // Pop history
+                            if let Some(last) = state.text_history.pop() {
+                                prev_text = Some(last.clone());
+                                state.full_text = last;
+                            }
+                            // Hide button immediately if history empty (via hover state logic update in Paint or Timer)
+                        }
+                    }
+                    
+                    if let Some(txt) = prev_text {
+                        let wide_text = to_wstring(&txt);
+                        SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
+                        
+                        // Force redraw
+                        let mut states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                            state.font_cache_dirty = true;
+                        }
+                        InvalidateRect(hwnd, None, false);
+                    }
+                    
+                 } else if is_edit_click {
                     let mut show = false;
                     let mut h_edit = HWND(0);
                     {
@@ -623,9 +692,12 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                                    GetWindowTextW(state.edit_hwnd, &mut buf);
                                    user_prompt = String::from_utf16_lossy(&buf[..len as usize - 1]).to_string();
                                    
-                                   // FIX: Capture text BEFORE clearing it
+                                   // Capture text BEFORE clearing it
                                    text_to_refine = state.full_text.clone();
 
+                                   // PUSH TO HISTORY: Save current state before refining
+                                   state.text_history.push(text_to_refine.clone());
+                                   
                                    SetWindowTextW(state.edit_hwnd, w!(""));
                                    ShowWindow(state.edit_hwnd, SW_HIDE);
                                    state.is_editing = false;
