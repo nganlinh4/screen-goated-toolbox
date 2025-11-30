@@ -53,6 +53,45 @@ lazy_static! {
 }
 
 fn main() -> eframe::Result<()> {
+    // --- APPLY PENDING UPDATE ---
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let staging_path = exe_dir.join("update_pending.exe");
+            let backup_path = exe_path.with_extension("exe.old");
+            
+            // If there's a pending update, apply it
+            if staging_path.exists() {
+                // Backup current exe
+                let _ = std::fs::copy(&exe_path, &backup_path);
+                // Replace with staged exe
+                if std::fs::rename(&staging_path, &exe_path).is_ok() {
+                    // Success - cleanup temp file
+                    let _ = std::fs::remove_file("temp_download");
+                }
+            }
+            
+            // --- CLEANUP OLD EXE FILES ---
+            let current_exe_name = exe_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if let Ok(entries) = std::fs::read_dir(exe_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let file_name = entry.file_name();
+                    let name_str = file_name.to_string_lossy();
+                    
+                    // Delete old ScreenGroundedTranslator_v*.exe files (keep only current)
+                    if (name_str.starts_with("ScreenGroundedTranslator_v") && name_str.ends_with(".exe")) 
+                        && name_str.as_ref() != current_exe_name {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                    
+                    // Delete .old backup files
+                    if name_str.ends_with(".exe.old") {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+    
     // --- CRASH HANDLER START ---
     panic::set_hook(Box::new(|panic_info| {
         // 1. Format the error message

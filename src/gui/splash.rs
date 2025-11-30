@@ -528,7 +528,7 @@ impl SplashScreen {
             painter.text(
                 center + Vec2::new(0.0, 180.0),
                 Align2::CENTER_TOP,
-                "SCREEN GROUNDED TRANSLATOR",
+                &format!("SCREEN GROUNDED TRANSLATOR {}", env!("CARGO_PKG_VERSION")),
                 FontId::proportional(24.0),
                 ui_color
             );

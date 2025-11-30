@@ -777,7 +777,22 @@ impl eframe::App for SettingsApp {
                                     ui.label(text.restart_to_use_new_version);
                                     if ui.button(text.restart_app_btn).clicked() {
                                         if let Ok(exe_path) = std::env::current_exe() {
-                                            let _ = std::process::Command::new(exe_path).spawn();
+                                            if let Some(exe_dir) = exe_path.parent() {
+                                                // Find the newest ScreenGroundedTranslator_v*.exe file
+                                                if let Ok(entries) = std::fs::read_dir(exe_dir) {
+                                                    if let Some(newest_exe) = entries
+                                                        .filter_map(|e| e.ok())
+                                                        .filter(|e| {
+                                                            let name = e.file_name();
+                                                            let name_str = name.to_string_lossy();
+                                                            name_str.starts_with("ScreenGroundedTranslator_v") && name_str.ends_with(".exe")
+                                                        })
+                                                        .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
+                                                    {
+                                                        let _ = std::process::Command::new(newest_exe.path()).spawn();
+                                                    }
+                                                }
+                                            }
                                             std::process::exit(0);
                                         }
                                     }
