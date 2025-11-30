@@ -741,7 +741,7 @@ impl eframe::App for SettingsApp {
                                 },
                                 UpdateStatus::UpToDate(ver) => {
                                     ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(format!("{} (v{})", text.up_to_date, ver)).color(egui::Color32::GREEN));
+                                        ui.label(egui::RichText::new(format!("{} (v{})", text.up_to_date, ver)).color(egui::Color32::from_rgb(34, 139, 34)));
                                         if ui.button(text.check_again_btn).clicked() {
                                             if let Some(u) = &self.updater { u.check_for_updates(); }
                                         }
