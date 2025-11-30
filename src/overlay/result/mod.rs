@@ -15,18 +15,21 @@ mod state;
 mod paint;
 mod logic;
 
-// FIX: Removed RefineContext from here to avoid conflict with the public export below
 use state::{WINDOW_STATES, WindowState, CursorPhysics, AnimationMode, InteractionMode, ResizeEdge};
 
-// FIX: Publicly export RefineContext so api.rs and process.rs can see it
 pub use state::{WindowType, link_windows, RefineContext};
 
 static mut CURRENT_BG_COLOR: u32 = 0x00222222;
 
-// OPTIMIZATION: Thread-safe one-time window class registration
 static REGISTER_RESULT_CLASS: Once = Once::new();
 
-// Updated to accept model/provider metadata
+// Helper to apply rounded corners to the edit control
+unsafe fn set_rounded_edit_region(h_edit: HWND, w: i32, h: i32) {
+    // radius (12, 12) matches the overlay style
+    let rgn = CreateRoundRectRgn(0, 0, w, h, 12, 12);
+    SetWindowRgn(h_edit, rgn, true);
+}
+
 pub fn create_result_window(
     target_rect: RECT,
     win_type: WindowType,
@@ -39,19 +42,17 @@ pub fn create_result_window(
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("TranslationResult");
         
-        // OPTIMIZATION: Register class only once, thread-safely
         REGISTER_RESULT_CLASS.call_once(|| {
             let mut wc = WNDCLASSW::default();
             wc.lpfnWndProc = Some(result_wnd_proc);
             wc.hInstance = instance;
             wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap(); 
             wc.lpszClassName = class_name;
-            wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS; // Added CS_DBLCLKS
+            wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS; 
             wc.hbrBackground = HBRUSH(0);
             let _ = RegisterClassW(&wc);
         });
 
-        // FIX: Removed .max(100) and .max(50) to allow small overlays
         let width = (target_rect.right - target_rect.left).abs();
         let height = (target_rect.bottom - target_rect.top).abs();
         
@@ -61,37 +62,27 @@ pub fn create_result_window(
                 (target_rect.left, target_rect.top, 0x00222222)
             },
             WindowType::SecondaryExplicit => {
-                // Exact positioning + Secondary Color
                 CURRENT_BG_COLOR = 0x002d4a22; 
                 (target_rect.left, target_rect.top, 0x002d4a22)
             },
             WindowType::Secondary => {
                 let padding = 10;
-                
-                // --- INTELLIGENT MONITOR-AWARE POSITIONING ---
-                // 1. Get the monitor that contains the selection
                 let hmonitor = MonitorFromRect(&target_rect, MONITOR_DEFAULTTONEAREST);
-                
-                // 2. Get that monitor's WORK AREA (excludes taskbars)
                 let mut mi = MONITORINFO::default();
                 mi.cbSize = size_of::<MONITORINFO>() as u32;
                 GetMonitorInfoW(hmonitor, &mut mi);
                 let work_rect = mi.rcWork;
 
-                // Potential coordinates
                 let pos_right_x = target_rect.right + padding;
                 let pos_left_x  = target_rect.left - width - padding;
                 let pos_bottom_y = target_rect.bottom + padding;
                 let pos_top_y    = target_rect.top - height - padding;
 
-                // Calculate available space on each side relative to the WORK AREA
                 let space_right  = work_rect.right - pos_right_x;
                 let space_left   = (target_rect.left - padding) - work_rect.left;
                 let space_bottom = work_rect.bottom - pos_bottom_y;
                 let space_top    = (target_rect.top - padding) - work_rect.top;
 
-                // 3. Logic: Find best side
-                // Priority: Right -> Bottom -> Left -> Top
                 let (mut best_x, mut best_y) = if space_right >= width {
                     (pos_right_x, target_rect.top)
                 } else if space_bottom >= height {
@@ -101,25 +92,15 @@ pub fn create_result_window(
                 } else if space_top >= height {
                     (target_rect.left, pos_top_y)
                 } else {
-                    // 4. Fallback: Pick the side with the MOST available space (minimizes overlap)
                     let max_space = space_right.max(space_left).max(space_bottom).max(space_top);
-                    
-                    if max_space == space_right {
-                        (pos_right_x, target_rect.top)
-                    } else if max_space == space_left {
-                        (pos_left_x, target_rect.top)
-                    } else if max_space == space_bottom {
-                        (target_rect.left, pos_bottom_y)
-                    } else {
-                        (target_rect.left, pos_top_y)
-                    }
+                    if max_space == space_right { (pos_right_x, target_rect.top) } 
+                    else if max_space == space_left { (pos_left_x, target_rect.top) } 
+                    else if max_space == space_bottom { (target_rect.left, pos_bottom_y) } 
+                    else { (target_rect.left, pos_top_y) }
                 };
                 
-                // 5. FINAL SAFEGUARD: Hard Clamp to Monitor Work Area
-                // This ensures the window is fully visible even if it has to overlap the selection.
                 let safe_w = width.min(work_rect.right - work_rect.left);
                 let safe_h = height.min(work_rect.bottom - work_rect.top);
-                
                 best_x = best_x.clamp(work_rect.left, work_rect.right - safe_w);
                 best_y = best_y.clamp(work_rect.top, work_rect.bottom - safe_h);
 
@@ -128,17 +109,16 @@ pub fn create_result_window(
             }
         };
 
+        // FIX 1: Add WS_CLIPCHILDREN to prevent parent drawing over child (Fixes Blinking)
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
             class_name,
             w!(""),
-            WS_POPUP,
+            WS_POPUP | WS_CLIPCHILDREN, 
             x, y, width, height,
             None, None, instance, None
         );
 
-        // CREATE HIDDEN EDIT CONTROL
-        // FIX: Cast ES_MULTILINE and ES_AUTOVSCROLL from i32 to u32 and wrap in WINDOW_STYLE
         let edit_style = WINDOW_STYLE(
             WS_CHILD.0 | 
             WS_BORDER.0 | 
@@ -154,12 +134,11 @@ pub fn create_result_window(
             edit_style,
             0, 0, 0, 0, // Sized dynamically
             hwnd,
-            HMENU(101), // ID
+            HMENU(101),
             instance,
             None
         );
         
-        // Set Font for Edit Control
         let hfont = CreateFontW(14, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
         SendMessageW(h_edit, WM_SETFONT, WPARAM(hfont.0 as usize), LPARAM(1));
 
@@ -178,7 +157,6 @@ pub fn create_result_window(
                 edit_hwnd: h_edit,
                 context_data: context,
                 full_text: String::new(),
-                // Store passed metadata
                 model_id,
                 provider,
                 streaming_enabled,
@@ -186,7 +164,7 @@ pub fn create_result_window(
                 linked_window: None,
                 physics,
                 interaction_mode: InteractionMode::None,
-                current_resize_edge: ResizeEdge::None, // Initial state
+                current_resize_edge: ResizeEdge::None,
                 drag_start_mouse: POINT { x: 0, y: 0 },
                 drag_start_window_rect: RECT::default(),
                 has_moved_significantly: false,
@@ -229,7 +207,7 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
     let mut states = WINDOW_STATES.lock().unwrap();
     if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
         state.pending_text = Some(text.to_string());
-        state.full_text = text.to_string(); // Keep sync
+        state.full_text = text.to_string();
     }
 }
 
@@ -251,7 +229,6 @@ fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
     }
 }
 
-// Edit button is left of copy button
 fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
     let copy_rect = get_copy_btn_rect(window_w, window_h);
     let gap = 8;
@@ -287,12 +264,10 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
         WM_ERASEBKGND => LRESULT(1),
         
         WM_CTLCOLOREDIT => {
-            // Style the child edit control to match the overlay
             let hdc = HDC(wparam.0 as isize);
             SetBkMode(hdc, OPAQUE);
-            SetBkColor(hdc, COLORREF(0x00FFFFFF)); // White bg for input
-            SetTextColor(hdc, COLORREF(0x00000000)); // Black text
-            // Return brush for background
+            SetBkColor(hdc, COLORREF(0x00FFFFFF)); 
+            SetTextColor(hdc, COLORREF(0x00000000));
             let hbrush = GetStockObject(WHITE_BRUSH);
             LRESULT(hbrush.0 as isize)
         }
@@ -302,7 +277,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
             
-            // Get screen coords of cursor to hit-test logic
             let mut pt = POINT::default();
             GetCursorPos(&mut pt);
             ScreenToClient(hwnd, &mut pt);
@@ -315,7 +289,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 ResizeEdge::TopLeft | ResizeEdge::BottomRight => cursor_id = IDC_SIZENWSE,
                 ResizeEdge::TopRight | ResizeEdge::BottomLeft => cursor_id = IDC_SIZENESW,
                 ResizeEdge::None => {
-                    // Check buttons
                     let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
                     let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
                     let on_copy = pt.x >= copy_rect.left && pt.x <= copy_rect.right && pt.y >= copy_rect.top && pt.y <= copy_rect.bottom;
@@ -330,7 +303,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                  SetCursor(LoadCursorW(None, cursor_id).unwrap());
                  LRESULT(1)
             } else {
-                 // Hide standard cursor inside to show broom
                  SetCursor(HCURSOR(0));
                  LRESULT(1)
             }
@@ -375,35 +347,19 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
-            
-            // Recalculate edge for current hover state (to hide broom if needed)
             let hover_edge = get_resize_edge(rect.right, rect.bottom, x as i32, y as i32);
             
-            // 1. Logic for Broom Physics (Update regardless of mode)
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                // Update current resize edge for Painter
                 state.current_resize_edge = hover_edge;
 
-                // Broom physics update
                 let dx = x - state.physics.x;
-                // Add sway if dragging (simulated momentum)
-                let drag_impulse = if state.interaction_mode == InteractionMode::DraggingWindow {
-                    // If dragging, add a bit of tilt based on mouse delta?
-                    // Actually, let's keep it simple: Broom follows mouse relative to window.
-                    0.0
-                } else {
-                    (dx * 1.5).clamp(-20.0, 20.0)
-                };
-                
+                let drag_impulse = if state.interaction_mode == InteractionMode::DraggingWindow { 0.0 } else { (dx * 1.5).clamp(-20.0, 20.0) };
                 state.physics.tilt_velocity -= drag_impulse * 0.2; 
                 state.physics.current_tilt = state.physics.current_tilt.clamp(-22.5, 22.5);
                 state.physics.x = x;
                 state.physics.y = y;
                 
-                // Hover state
-                let mut rect = RECT::default();
-                GetClientRect(hwnd, &mut rect);
                 let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
                 let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
                 let padding = 4;
@@ -429,7 +385,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                     TrackMouseEvent(&mut tme);
                 }
 
-                // 2. Logic for Dragging / Resizing
                 match state.interaction_mode {
                     InteractionMode::DraggingWindow => {
                         let mut curr_pt = POINT::default();
@@ -456,9 +411,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                         let dy = curr_pt.y - state.drag_start_mouse.y;
                         
                         let mut new_rect = state.drag_start_window_rect;
-                        
-                        // Minimum size constraint
-                        // FIX: Reduced minimum size to allow smaller resizing
                         let min_w = 20;
                         let min_h = 20;
                         
@@ -484,6 +436,16 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                         let w = new_rect.right - new_rect.left;
                         let h = new_rect.bottom - new_rect.top;
                         SetWindowPos(hwnd, HWND(0), new_rect.left, new_rect.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+
+                        // FIX 5: Dynamic Edit Field Resizing
+                        // If we are resizing the overlay, we must resize the edit control to match new dimensions
+                        if state.is_editing {
+                             let edit_w = w - 20;
+                             let edit_h = 40;
+                             SetWindowPos(state.edit_hwnd, HWND_TOP, 10, 10, edit_w, edit_h, SWP_NOACTIVATE);
+                             // FIX 2: Re-apply rounded region on resize
+                             set_rounded_edit_region(state.edit_hwnd, edit_w, edit_h);
+                        }
                     }
                     _ => {}
                 }
@@ -498,7 +460,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 state.is_hovered = false;
                 state.on_copy_btn = false;
-                state.current_resize_edge = ResizeEdge::None; // Reset edge on leave
+                state.current_resize_edge = ResizeEdge::None; 
                 InvalidateRect(hwnd, None, false);
             }
             LRESULT(0)
@@ -510,7 +472,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             let mut is_copy_click = false;
             let mut is_edit_click = false;
             
-            // Check interaction end
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -526,7 +487,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             
             if perform_click {
                  if is_edit_click {
-                    // TOGGLE EDIT MODE
                     let mut show = false;
                     let mut h_edit = HWND(0);
                     {
@@ -539,12 +499,13 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                     }
                     
                     if show {
-                        // Position the edit control (Top Left, almost full width)
                         let mut rect = RECT::default();
                         GetClientRect(hwnd, &mut rect);
                         let w = rect.right - 20;
-                        let h = 40; // Pill height
+                        let h = 40; 
                         SetWindowPos(h_edit, HWND_TOP, 10, 10, w, h, SWP_SHOWWINDOW);
+                        // FIX 2: Apply rounded corners when showing
+                        set_rounded_edit_region(h_edit, w, h);
                         SetFocus(h_edit);
                     } else {
                         ShowWindow(h_edit, SW_HIDE);
@@ -564,7 +525,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                     }
                     SetTimer(hwnd, 1, 1500, None);
                  } else {
-                      // Smash Animation
                       {
                          let mut states = WINDOW_STATES.lock().unwrap();
                          if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -595,7 +555,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
         }
         
         WM_RBUTTONUP => {
-            // Right click always copies
             let text_len = GetWindowTextLengthW(hwnd) + 1;
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
@@ -620,7 +579,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 .map(|d| d.as_millis() as u32)
                 .unwrap_or(0);
             
-            // Check Refine Submit (Enter Key Polling for Edit Control)
             let mut trigger_refine = false;
             let mut user_prompt = String::new();
             
@@ -634,21 +592,31 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                          state.last_text_update_time = now;
                      }
                      
-                     // Check Enter Key if Editing
                      if state.is_editing && GetFocus() == state.edit_hwnd {
-                         // Check Enter Key
-                         if (GetKeyState(VK_RETURN.0 as i32) as u16 & 0x8000) != 0 {
-                             // Trigger!
-                             let len = GetWindowTextLengthW(state.edit_hwnd) + 1;
-                             let mut buf = vec![0u16; len as usize];
-                             GetWindowTextW(state.edit_hwnd, &mut buf);
-                             user_prompt = String::from_utf16_lossy(&buf[..len as usize - 1]).to_string();
-                             
-                             // Clear and Hide
-                             SetWindowTextW(state.edit_hwnd, w!(""));
-                             ShowWindow(state.edit_hwnd, SW_HIDE);
+                         // FIX 4: Check for ESCAPE to dismiss edit (exit edit mode)
+                         if (GetKeyState(VK_ESCAPE.0 as i32) as u16 & 0x8000) != 0 {
                              state.is_editing = false;
-                             trigger_refine = true;
+                             SetWindowTextW(state.edit_hwnd, w!("")); // Optional: Clear text on dismiss?
+                             ShowWindow(state.edit_hwnd, SW_HIDE);
+                             SetFocus(hwnd); // Return focus to parent
+                         }
+                         // FIX 3: Check for ENTER. 
+                         // If Shift is NOT pressed, Submit. 
+                         // If Shift IS pressed, do nothing (Edit control handles newline).
+                         else if (GetKeyState(VK_RETURN.0 as i32) as u16 & 0x8000) != 0 {
+                             let shift_pressed = (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+                             
+                             if !shift_pressed {
+                                 let len = GetWindowTextLengthW(state.edit_hwnd) + 1;
+                                 let mut buf = vec![0u16; len as usize];
+                                 GetWindowTextW(state.edit_hwnd, &mut buf);
+                                 user_prompt = String::from_utf16_lossy(&buf[..len as usize - 1]).to_string();
+                                 
+                                 SetWindowTextW(state.edit_hwnd, w!(""));
+                                 ShowWindow(state.edit_hwnd, SW_HIDE);
+                                 state.is_editing = false;
+                                 trigger_refine = true;
+                             }
                          }
                      }
                 }
@@ -667,7 +635,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             }
 
             if trigger_refine && !user_prompt.trim().is_empty() {
-                 // SPAWN REFINEMENT THREAD
                  let (context_data, previous_text, model_id, provider, streaming) = {
                      let states = WINDOW_STATES.lock().unwrap();
                      if let Some(s) = states.get(&(hwnd.0 as isize)) {
@@ -677,7 +644,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                      }
                  };
                  
-                 // Set text to "Processing..."
                  update_window_text(hwnd, "Processing refinement...");
                  
                  std::thread::spawn(move || {
@@ -686,7 +652,6 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                          (app.config.api_key.clone(), app.config.gemini_api_key.clone())
                      };
 
-                     // FIX 3: Use a local accumulator for streaming text
                      let mut acc_text = String::new();
 
                      let _ = crate::api::refine_text_streaming(
@@ -694,7 +659,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                           context_data, previous_text, user_prompt,
                           &model_id, &provider, streaming,
                           move |chunk| {
-                              acc_text.push_str(chunk); // Append chunk
+                              acc_text.push_str(chunk); 
                               
                               let mut states = WINDOW_STATES.lock().unwrap();
                               if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
