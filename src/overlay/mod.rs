@@ -1,6 +1,6 @@
 mod utils;
 mod selection;
-mod result;
+pub mod result;
 pub mod recording; 
 pub mod process;
 pub mod broom_assets;

@@ -5,7 +5,7 @@ use image::GenericImageView;
 
 use crate::{AppState, api::{translate_image_streaming, translate_text_streaming}};
 use super::utils::{copy_to_clipboard, get_error_message};
-use super::result::{create_result_window, update_window_text, WindowType, link_windows};
+use super::result::{create_result_window, update_window_text, WindowType, link_windows, RefineContext};
 
 pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HWND, preset_idx: usize) {
     // 1. Snapshot and Configuration Retrieval
@@ -23,8 +23,8 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         )
     };
 
-    let model_id = &preset.model;
-    let model_config = crate::model_config::get_model_by_id(model_id);
+    let model_id = preset.model.clone();
+    let model_config = crate::model_config::get_model_by_id(&model_id);
     let model_config = model_config.expect("Model config not found for preset model");
     let model_name = model_config.full_name.clone();
     let provider = model_config.provider.clone();
@@ -44,6 +44,11 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
 
     if crop_w > 0 && crop_h > 0 {
         let cropped = img.view(crop_x, crop_y, crop_w, crop_h).to_image();
+        
+        // Prepare Refine Context (Clone image bytes as PNG)
+        let mut png_data = Vec::new();
+        let _result = cropped.write_to(&mut std::io::Cursor::new(&mut png_data), image::ImageFormat::Png);
+        let refine_context = RefineContext::Image(png_data);
         
         let groq_api_key = config.api_key.clone();
         let gemini_api_key = config.gemini_api_key.clone();
@@ -73,9 +78,16 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         let hide_overlay = preset.hide_overlay;
         
         // Spawn UI Thread for Results
-        std::thread::spawn(move || {
-            // Create Primary Window (Hidden initially)
-            let primary_hwnd = create_result_window(rect, WindowType::Primary);
+         std::thread::spawn(move || {
+             // Create Primary Window (Pass metadata)
+             let primary_hwnd = create_result_window(
+                 rect,
+                 WindowType::Primary,
+                 refine_context,
+                 model_id.clone(),
+                 provider.clone(),
+                 streaming_enabled
+             );
             
             // Worker thread for API calls
             std::thread::spawn(move || {
@@ -157,27 +169,32 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                              
                              // Spawn Secondary UI Thread
                              std::thread::spawn(move || {
-                                 let secondary_hwnd = create_result_window(rect, WindowType::Secondary);
+                                 // Resolve text model for metadata
+                                 let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
+                                 let (tm_id, tm_name, tm_provider) = match tm_config {
+                                     Some(m) => (m.id, m.full_name, m.provider),
+                                     None => ("fast_text".to_string(), "openai/gpt-oss-20b".to_string(), "groq".to_string())
+                                 };
+                                 
+                                 let secondary_hwnd = create_result_window(
+                                     rect,
+                                     WindowType::Secondary,
+                                     RefineContext::None, // Retranslate has no image context
+                                     tm_id,
+                                     tm_provider.clone(),
+                                     retranslate_streaming_enabled
+                                 );
                                  super::result::link_windows(primary_hwnd, secondary_hwnd);
                                  if !hide_overlay {
                                      unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
                                      update_window_text(secondary_hwnd, "");
                                  }
 
-                                 // API Call for Retranslation (Blocking in this UI thread? No, need another worker or just block since it's simple text?)
-                                 // Better to block here? If we block, the window won't repaint.
-                                 // So spawn a worker for text API too.
+                                 // API Call for Retranslation
                                  
                                  std::thread::spawn(move || {
                                      let acc_text = Arc::new(Mutex::new(String::new()));
                                      let acc_text_clone = acc_text.clone();
-                                     
-                                     // Resolve text model
-                                     let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
-                                     let (tm_name, tm_provider) = match tm_config {
-                                         Some(m) => (m.full_name, m.provider),
-                                         None => ("openai/gpt-oss-20b".to_string(), "groq".to_string())
-                                     };
 
                                      let text_res = translate_text_streaming(
                                          &groq_key_for_retrans,
@@ -256,16 +273,32 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
 }
 
 pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT, retrans_rect: Option<RECT>) {
-    let hide_overlay = preset.hide_overlay;
-    let auto_copy = preset.auto_copy;
-    let retranslate = preset.retranslate && retrans_rect.is_some();
-    let retranslate_to = preset.retranslate_to.clone();
-    let retranslate_model_id = preset.retranslate_model.clone();
-    let retranslate_streaming_enabled = preset.retranslate_streaming_enabled;
-    let retranslate_auto_copy = preset.retranslate_auto_copy;
-    
-    std::thread::spawn(move || {
-        let primary_hwnd = create_result_window(rect, WindowType::Primary);
+     let hide_overlay = preset.hide_overlay;
+     let auto_copy = preset.auto_copy;
+     let retranslate = preset.retranslate && retrans_rect.is_some();
+     let retranslate_to = preset.retranslate_to.clone();
+     let retranslate_model_id = preset.retranslate_model.clone();
+     let retranslate_streaming_enabled = preset.retranslate_streaming_enabled;
+     let retranslate_auto_copy = preset.retranslate_auto_copy;
+     
+     let model_id = preset.model.clone();
+     let model_config = crate::model_config::get_model_by_id(&model_id);
+     let provider = model_config.map(|m| m.provider).unwrap_or("groq".to_string());
+     let streaming = preset.streaming_enabled;
+     
+     std::thread::spawn(move || {
+         // PASS RefineContext::None for Audio Result for now (as per original limitation or explicit Audio bytes if available)
+         // Since we didn't pass audio bytes here, we pass None.
+         
+         // Ideally we should pass Audio bytes.
+         let primary_hwnd = create_result_window(
+             rect,
+             WindowType::Primary,
+             RefineContext::None,
+             model_id,
+             provider,
+             streaming
+         );
         if !hide_overlay {
             unsafe { ShowWindow(primary_hwnd, SW_SHOW); }
             update_window_text(primary_hwnd, &text);
@@ -284,24 +317,32 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
             };
             
             std::thread::spawn(move || {
-                let secondary_hwnd = create_result_window(rect_sec, WindowType::SecondaryExplicit);
-                link_windows(primary_hwnd, secondary_hwnd);
-                
-                if !hide_overlay {
-                    unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
-                    update_window_text(secondary_hwnd, "");
-                }
+            // Resolve retranslate metadata
+            let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
+            let (tm_id, tm_name, tm_provider) = match tm_config {
+            Some(m) => (m.id, m.full_name, m.provider),
+            None => ("fast_text".to_string(), "openai/gpt-oss-20b".to_string(), "groq".to_string())
+            };
+            
+            let secondary_hwnd = create_result_window(
+            rect_sec,
+            WindowType::SecondaryExplicit,
+            RefineContext::None,
+            tm_id,
+            tm_provider.clone(),
+            retranslate_streaming_enabled
+            );
+            link_windows(primary_hwnd, secondary_hwnd);
+            
+            if !hide_overlay {
+            unsafe { ShowWindow(secondary_hwnd, SW_SHOW); }
+            update_window_text(secondary_hwnd, "");
+            }
 
-                // API Call for Retranslation
-                std::thread::spawn(move || {
-                    let acc_text = Arc::new(Mutex::new(String::new()));
-                    let acc_text_clone = acc_text.clone();
-                    
-                    let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
-                    let (tm_name, tm_provider) = match tm_config {
-                        Some(m) => (m.full_name, m.provider),
-                        None => ("openai/gpt-oss-20b".to_string(), "groq".to_string())
-                    };
+            // API Call for Retranslation
+            std::thread::spawn(move || {
+            let acc_text = Arc::new(Mutex::new(String::new()));
+            let acc_text_clone = acc_text.clone();
 
                     let text_res = translate_text_streaming(
                         &groq_key,

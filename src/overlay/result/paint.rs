@@ -6,6 +6,37 @@ use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
 use super::state::{WINDOW_STATES, AnimationMode, ResizeEdge};
 
+// Helper for Copy Button Rect
+fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let btn_size = 28;
+    let margin = 12;
+    let threshold_h = btn_size + (margin * 2);
+    let top = if window_h < threshold_h {
+        (window_h - btn_size) / 2
+    } else {
+        window_h - margin - btn_size
+    };
+    RECT {
+        left: window_w - margin - btn_size,
+        top,
+        right: window_w - margin,
+        bottom: top + btn_size,
+    }
+}
+
+// Helper for Edit Button Rect
+fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let copy_rect = get_copy_btn_rect(window_w, window_h);
+    let gap = 8;
+    let width = copy_rect.right - copy_rect.left;
+    RECT {
+        left: copy_rect.left - width - gap,
+        top: copy_rect.top,
+        right: copy_rect.left - gap,
+        bottom: copy_rect.bottom
+    }
+}
+
 // RAII Wrapper for GDI Objects to ensure cleanup
 struct GdiObj(HGDIOBJ);
 impl GdiObj {
@@ -88,7 +119,7 @@ pub fn paint_window(hwnd: HWND) {
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
          // We lock the mutex ONCE to read state and update caches if dirty.
          let (
-             bg_color_u32, is_hovered, on_copy_btn, copy_success, broom_data, particles,
+             bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, broom_data, particles,
              mut cached_text_bm, _cached_font_size, cache_dirty,
              cached_bg_bm // The background gradient cache
          ) = {
@@ -147,9 +178,10 @@ pub fn paint_window(hwnd: HWND) {
                 let particles_vec: Vec<(f32, f32, f32, f32, u32)> = state.physics.particles.iter()
                     .map(|p| (p.x, p.y, p.life, p.size, p.color)).collect();
 
-                // HIDE BROOM IF HOVERING RESIZE EDGE
+                // HIDE BROOM IF HOVERING RESIZE EDGE OR BUTTONS
                 let show_broom = state.is_hovered 
                     && !state.on_copy_btn 
+                    && !state.on_edit_btn
                     && state.current_resize_edge == ResizeEdge::None 
                     || state.physics.mode == AnimationMode::Smashing;
                 let broom_info = if show_broom {
@@ -162,12 +194,12 @@ pub fn paint_window(hwnd: HWND) {
                 } else { None };
 
                 (
-                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, broom_info, particles_vec,
+                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap
                 )
             } else {
-                (0, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0))
+                (0, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0))
             }
         };
 
@@ -344,7 +376,7 @@ pub fn paint_window(hwnd: HWND) {
                 }
             }
 
-            // 4.2 Copy Button (Rounded Rect) & Icons (Antialiased & Thick)
+            // 4.2 Buttons (Copy & Edit) (Rounded Rect) & Icons (Antialiased & Thick)
             if is_hovered {
                 let btn_size = 28;
                 let margin = 12;
@@ -354,19 +386,27 @@ pub fn paint_window(hwnd: HWND) {
                 } else {
                     (height - margin - btn_size / 2) as f32
                 };
-                let cx = (width - margin - btn_size / 2) as f32;
+                let cx_copy = (width - margin - btn_size / 2) as f32;
+                let cx_edit = cx_copy - (btn_size as f32) - 8.0; // Gap 8
                 let radius = 13.0;
 
-                let (tr, tg, tb) = if copy_success {
+                let (tr_c, tg_c, tb_c) = if copy_success {
                     (30.0, 180.0, 30.0) // Success Green
                 } else if on_copy_btn {
                     (128.0, 128.0, 128.0) // Hover Bright
                 } else {
                     (80.0, 80.0, 80.0)    // Standard Visible Grey
                 };
+                
+                let (tr_e, tg_e, tb_e) = if on_edit_btn {
+                    (128.0, 128.0, 128.0) // Hover Bright
+                } else {
+                    (80.0, 80.0, 80.0)    // Standard Visible Grey
+                };
 
-                let b_start_x = (cx - radius - 4.0) as i32;
-                let b_end_x = (cx + radius + 4.0) as i32;
+                // Bounding box covering both buttons to iterate pixels
+                let b_start_x = (cx_edit - radius - 4.0) as i32;
+                let b_end_x = (cx_copy + radius + 4.0) as i32;
                 let b_start_y = (cy - radius - 4.0) as i32;
                 let b_end_y = (cy + radius + 4.0) as i32;
 
@@ -374,51 +414,44 @@ pub fn paint_window(hwnd: HWND) {
                     for x in b_start_x.max(0)..b_end_x.min(width) {
                         let fx = x as f32;
                         let fy = y as f32;
-                        let dx = (fx - cx).abs();
                         let dy = (fy - cy).abs();
-                        let dist = (dx*dx + dy*dy).sqrt();
                         
-                        // 1. AA for Button Body
-                        let aa_body = (radius + 0.5 - dist).clamp(0.0, 1.0);
+                        // Distance to centers
+                        let dx_c = (fx - cx_copy).abs();
+                        let dist_c = (dx_c*dx_c + dy*dy).sqrt();
+                        
+                        let dx_e = (fx - cx_edit).abs();
+                        let dist_e = (dx_e*dx_e + dy*dy).sqrt();
 
-                        // 2. Smooth Ring Border (Thickness 1.5px)
+                        // --- RENDER COPY BUTTON ---
+                        let aa_body_c = (radius + 0.5 - dist_c).clamp(0.0, 1.0);
                         let border_inner_radius = radius - 1.5;
-                        let border_outer = (radius + 0.5 - dist).clamp(0.0, 1.0);
-                        let border_inner = (dist - (border_inner_radius - 0.5)).clamp(0.0, 1.0);
-                        let border_alpha = border_outer * border_inner * 0.6; // 60% opacity white border
+                        let border_alpha_c = ((radius + 0.5 - dist_c).clamp(0.0, 1.0) * ((dist_c - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
 
-                        // 3. Icon Anti-Aliasing (SDF) with Increased Thickness
-                        // FIX: Initialize with expression to avoid warning
-                        let icon_alpha = if copy_success {
-                            // Checkmark (Tick) - THICKER
-                            // Points: Left(-4,0) -> Mid(-1,3) -> Right(4,-4)
-                            let d1 = dist_segment(fx, fy, cx - 4.0, cy, cx - 1.0, cy + 3.0);
-                            let d2 = dist_segment(fx, fy, cx - 1.0, cy + 3.0, cx + 4.0, cy - 4.0);
-                            let d = d1.min(d2);
-                            // Increased thickness threshold from 1.2 to 1.8
-                            (1.8 - d).clamp(0.0, 1.0)
+                        let icon_alpha_c = if copy_success {
+                            let d1 = dist_segment(fx, fy, cx_copy - 4.0, cy, cx_copy - 1.0, cy + 3.0);
+                            let d2 = dist_segment(fx, fy, cx_copy - 1.0, cy + 3.0, cx_copy + 4.0, cy - 4.0);
+                            (1.8 - d1.min(d2)).clamp(0.0, 1.0)
                         } else {
-                            // Copy Icon (Two rounded rects) - THICKER
-                            
-                            // Back Rect: Centered at (-2, -2) relatively, size 6x8 outline
-                            let back_d = sd_box(fx, fy, cx - 2.0, cy - 2.0, 3.0, 4.0);
-                            // Increased stroke width from 0.75 to 1.25
+                            let back_d = sd_box(fx, fy, cx_copy - 2.0, cy - 2.0, 3.0, 4.0);
                             let back_outline = (1.25 - back_d.abs()).clamp(0.0, 1.0);
-                            
-                            // Front Rect: Centered at (+2, +2) relatively, size 6x8 filled
-                            let front_d = sd_box(fx, fy, cx + 2.0, cy + 2.0, 3.0, 4.0);
-                            // Standard AA edge (0.8 allows a slight softness)
+                            let front_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 3.0, 4.0);
                             let front_fill = (0.8 - front_d).clamp(0.0, 1.0);
-                            
-                            // Masking: Don't draw back rect where front rect (plus margin) is
-                            let mask_d = sd_box(fx, fy, cx + 2.0, cy + 2.0, 4.5, 5.5);
-                            let mask = (mask_d).clamp(0.0, 1.0); 
-                            
-                            // Combine
-                            (front_fill + back_outline * mask).clamp(0.0, 1.0)
+                            let mask_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 4.5, 5.5);
+                            (front_fill + back_outline * mask_d.clamp(0.0, 1.0)).clamp(0.0, 1.0)
                         };
 
-                        if aa_body > 0.0 || border_alpha > 0.0 || icon_alpha > 0.0 {
+                        // --- RENDER EDIT BUTTON ---
+                        let aa_body_e = (radius + 0.5 - dist_e).clamp(0.0, 1.0);
+                        let border_alpha_e = ((radius + 0.5 - dist_e).clamp(0.0, 1.0) * ((dist_e - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                        
+                        // Pencil Icon SDF
+                        // Diagonal line from (-3, 3) to (3, -3)
+                        let d_body = dist_segment(fx, fy, cx_edit - 3.0, cy + 3.0, cx_edit + 3.0, cy - 3.0);
+                        let icon_alpha_e = (1.2 - d_body).clamp(0.0, 1.0);
+
+
+                        if aa_body_c > 0.0 || border_alpha_c > 0.0 || icon_alpha_c > 0.0 || aa_body_e > 0.0 || border_alpha_e > 0.0 || icon_alpha_e > 0.0 {
                             let idx = (y * width + x) as usize;
                             let bg = raw_pixels[idx];
                             let bg_b = (bg & 0xFF) as f32;
@@ -429,30 +462,40 @@ pub fn paint_window(hwnd: HWND) {
                             let mut final_g = bg_g;
                             let mut final_b = bg_b;
 
-                            // Composite: Body -> Border -> Icon
-                            
-                            // A. Body
-                            if aa_body > 0.0 {
-                                let alpha = 0.9 * aa_body;
-                                let inv = 1.0 - alpha;
-                                final_r = tr * alpha + final_r * inv;
-                                final_g = tg * alpha + final_g * inv;
-                                final_b = tb * alpha + final_b * inv;
+                            // BLEND COPY
+                            if aa_body_c > 0.0 {
+                                let alpha = 0.9 * aa_body_c;
+                                final_r = tr_c * alpha + final_r * (1.0 - alpha);
+                                final_g = tg_c * alpha + final_g * (1.0 - alpha);
+                                final_b = tb_c * alpha + final_b * (1.0 - alpha);
+                            }
+                            if border_alpha_c > 0.0 {
+                                final_r += 255.0 * border_alpha_c;
+                                final_g += 255.0 * border_alpha_c;
+                                final_b += 255.0 * border_alpha_c;
+                            }
+                            if icon_alpha_c > 0.0 {
+                                final_r = 255.0 * icon_alpha_c + final_r * (1.0 - icon_alpha_c);
+                                final_g = 255.0 * icon_alpha_c + final_g * (1.0 - icon_alpha_c);
+                                final_b = 255.0 * icon_alpha_c + final_b * (1.0 - icon_alpha_c);
                             }
 
-                            // B. Border (Additive)
-                            if border_alpha > 0.0 {
-                                final_r += 255.0 * border_alpha;
-                                final_g += 255.0 * border_alpha;
-                                final_b += 255.0 * border_alpha;
+                            // BLEND EDIT
+                            if aa_body_e > 0.0 {
+                                let alpha = 0.9 * aa_body_e;
+                                final_r = tr_e * alpha + final_r * (1.0 - alpha);
+                                final_g = tg_e * alpha + final_g * (1.0 - alpha);
+                                final_b = tb_e * alpha + final_b * (1.0 - alpha);
                             }
-
-                            // C. Icon (White, Normal Blend on top of result)
-                            if icon_alpha > 0.0 {
-                                let inv_icon = 1.0 - icon_alpha;
-                                final_r = 255.0 * icon_alpha + final_r * inv_icon;
-                                final_g = 255.0 * icon_alpha + final_g * inv_icon;
-                                final_b = 255.0 * icon_alpha + final_b * inv_icon;
+                            if border_alpha_e > 0.0 {
+                                final_r += 255.0 * border_alpha_e;
+                                final_g += 255.0 * border_alpha_e;
+                                final_b += 255.0 * border_alpha_e;
+                            }
+                            if icon_alpha_e > 0.0 {
+                                final_r = 255.0 * icon_alpha_e + final_r * (1.0 - icon_alpha_e);
+                                final_g = 255.0 * icon_alpha_e + final_g * (1.0 - icon_alpha_e);
+                                final_b = 255.0 * icon_alpha_e + final_b * (1.0 - icon_alpha_e);
                             }
 
                             final_r = final_r.min(255.0);

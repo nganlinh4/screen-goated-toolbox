@@ -15,15 +15,26 @@ mod state;
 mod paint;
 mod logic;
 
+// FIX: Removed RefineContext from here to avoid conflict with the public export below
 use state::{WINDOW_STATES, WindowState, CursorPhysics, AnimationMode, InteractionMode, ResizeEdge};
-pub use state::{WindowType, link_windows};
+
+// FIX: Publicly export RefineContext so api.rs and process.rs can see it
+pub use state::{WindowType, link_windows, RefineContext};
 
 static mut CURRENT_BG_COLOR: u32 = 0x00222222;
 
 // OPTIMIZATION: Thread-safe one-time window class registration
 static REGISTER_RESULT_CLASS: Once = Once::new();
 
-pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
+// Updated to accept model/provider metadata
+pub fn create_result_window(
+    target_rect: RECT,
+    win_type: WindowType,
+    context: RefineContext,
+    model_id: String,
+    provider: String,
+    streaming_enabled: bool
+) -> HWND {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("TranslationResult");
@@ -126,6 +137,32 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
             None, None, instance, None
         );
 
+        // CREATE HIDDEN EDIT CONTROL
+        // FIX: Cast ES_MULTILINE and ES_AUTOVSCROLL from i32 to u32 and wrap in WINDOW_STYLE
+        let edit_style = WINDOW_STYLE(
+            WS_CHILD.0 | 
+            WS_BORDER.0 | 
+            WS_CLIPSIBLINGS.0 |
+            (ES_MULTILINE as u32) |
+            (ES_AUTOVSCROLL as u32)
+        );
+        
+        let h_edit = CreateWindowExW(
+            WINDOW_EX_STYLE::default(),
+            w!("EDIT"),
+            w!(""),
+            edit_style,
+            0, 0, 0, 0, // Sized dynamically
+            hwnd,
+            HMENU(101), // ID
+            instance,
+            None
+        );
+        
+        // Set Font for Edit Control
+        let hfont = CreateFontW(14, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
+        SendMessageW(h_edit, WM_SETFONT, WPARAM(hfont.0 as usize), LPARAM(1));
+
         let mut physics = CursorPhysics::default();
         physics.initialized = true;
 
@@ -136,6 +173,15 @@ pub fn create_result_window(target_rect: RECT, win_type: WindowType) -> HWND {
                 is_hovered: false,
                 on_copy_btn: false,
                 copy_success: false,
+                on_edit_btn: false,
+                is_editing: false,
+                edit_hwnd: h_edit,
+                context_data: context,
+                full_text: String::new(),
+                // Store passed metadata
+                model_id,
+                provider,
+                streaming_enabled,
                 bg_color: color,
                 linked_window: None,
                 physics,
@@ -183,6 +229,7 @@ pub fn update_window_text(hwnd: HWND, text: &str) {
     let mut states = WINDOW_STATES.lock().unwrap();
     if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
         state.pending_text = Some(text.to_string());
+        state.full_text = text.to_string(); // Keep sync
     }
 }
 
@@ -201,6 +248,19 @@ fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
         top,
         right: window_w - margin,
         bottom: top + btn_size,
+    }
+}
+
+// Edit button is left of copy button
+fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let copy_rect = get_copy_btn_rect(window_w, window_h);
+    let gap = 8;
+    let width = copy_rect.right - copy_rect.left;
+    RECT {
+        left: copy_rect.left - width - gap,
+        top: copy_rect.top,
+        right: copy_rect.left - gap,
+        bottom: copy_rect.bottom
     }
 }
 
@@ -226,9 +286,19 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
     match msg {
         WM_ERASEBKGND => LRESULT(1),
         
+        WM_CTLCOLOREDIT => {
+            // Style the child edit control to match the overlay
+            let hdc = HDC(wparam.0 as isize);
+            SetBkMode(hdc, OPAQUE);
+            SetBkColor(hdc, COLORREF(0x00FFFFFF)); // White bg for input
+            SetTextColor(hdc, COLORREF(0x00000000)); // Black text
+            // Return brush for background
+            let hbrush = GetStockObject(WHITE_BRUSH);
+            LRESULT(hbrush.0 as isize)
+        }
+        
         WM_SETCURSOR => {
             let mut cursor_id = PCWSTR(std::ptr::null());
-            let mut show_system_cursor = false;
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
             
@@ -245,11 +315,12 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 ResizeEdge::TopLeft | ResizeEdge::BottomRight => cursor_id = IDC_SIZENWSE,
                 ResizeEdge::TopRight | ResizeEdge::BottomLeft => cursor_id = IDC_SIZENESW,
                 ResizeEdge::None => {
-                    // Check button
-                     let btn_rect = get_copy_btn_rect(rect.right, rect.bottom);
-                     let on_btn = pt.x >= btn_rect.left && pt.x <= btn_rect.right && 
-                                  pt.y >= btn_rect.top && pt.y <= btn_rect.bottom;
-                    if on_btn {
+                    // Check buttons
+                    let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
+                    let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
+                    let on_copy = pt.x >= copy_rect.left && pt.x <= copy_rect.right && pt.y >= copy_rect.top && pt.y <= copy_rect.bottom;
+                    let on_edit = pt.x >= edit_rect.left && pt.x <= edit_rect.right && pt.y >= edit_rect.top && pt.y <= edit_rect.bottom;
+                    if on_copy || on_edit {
                         cursor_id = IDC_HAND;
                     }
                 }
@@ -333,13 +404,19 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 // Hover state
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
-                let btn_rect = get_copy_btn_rect(rect.right, rect.bottom);
+                let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
+                let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
                 let padding = 4;
                 state.on_copy_btn = 
-                    x as i32 >= btn_rect.left - padding && 
-                    x as i32 <= btn_rect.right + padding && 
-                    y as i32 >= btn_rect.top - padding && 
-                    y as i32 <= btn_rect.bottom + padding;
+                    x as i32 >= copy_rect.left - padding && 
+                    x as i32 <= copy_rect.right + padding && 
+                    y as i32 >= copy_rect.top - padding && 
+                    y as i32 <= copy_rect.bottom + padding;
+                state.on_edit_btn = 
+                    x as i32 >= edit_rect.left - padding && 
+                    x as i32 <= edit_rect.right + padding && 
+                    y as i32 >= edit_rect.top - padding && 
+                    y as i32 <= edit_rect.bottom + padding;
 
                 if !state.is_hovered {
                     state.is_hovered = true;
@@ -431,6 +508,7 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             ReleaseCapture();
             let mut perform_click = false;
             let mut is_copy_click = false;
+            let mut is_edit_click = false;
             
             // Check interaction end
             {
@@ -441,12 +519,37 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                     if !state.has_moved_significantly {
                         perform_click = true;
                         is_copy_click = state.on_copy_btn;
+                        is_edit_click = state.on_edit_btn;
                     }
                 }
             }
             
             if perform_click {
-                 if is_copy_click {
+                 if is_edit_click {
+                    // TOGGLE EDIT MODE
+                    let mut show = false;
+                    let mut h_edit = HWND(0);
+                    {
+                        let mut states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                            state.is_editing = !state.is_editing;
+                            show = state.is_editing;
+                            h_edit = state.edit_hwnd;
+                        }
+                    }
+                    
+                    if show {
+                        // Position the edit control (Top Left, almost full width)
+                        let mut rect = RECT::default();
+                        GetClientRect(hwnd, &mut rect);
+                        let w = rect.right - 20;
+                        let h = 40; // Pill height
+                        SetWindowPos(h_edit, HWND_TOP, 10, 10, w, h, SWP_SHOWWINDOW);
+                        SetFocus(h_edit);
+                    } else {
+                        ShowWindow(h_edit, SW_HIDE);
+                    }
+                 } else if is_copy_click {
                     let text_len = GetWindowTextLengthW(hwnd) + 1;
                     let mut buf = vec![0u16; text_len as usize];
                     GetWindowTextW(hwnd, &mut buf);
@@ -461,32 +564,32 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                     }
                     SetTimer(hwnd, 1, 1500, None);
                  } else {
-                     // Smash Animation
-                     {
-                        let mut states = WINDOW_STATES.lock().unwrap();
-                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                            state.physics.mode = AnimationMode::Smashing;
-                            state.physics.state_timer = 0.0;
-                        }
-                    }
-                    
-                    let (linked_hwnd, main_alpha) = {
-                        let states = WINDOW_STATES.lock().unwrap();
-                        let linked = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.linked_window } else { None };
-                        let alpha = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.alpha } else { 220 };
-                        (linked, alpha)
-                    };
-                    if let Some(linked) = linked_hwnd {
-                        if IsWindow(linked).as_bool() {
-                            let mut states = WINDOW_STATES.lock().unwrap();
-                            if let Some(state) = states.get_mut(&(linked.0 as isize)) {
-                                state.physics.mode = AnimationMode::DragOut;
-                                state.physics.state_timer = 0.0;
-                                state.alpha = main_alpha;
-                            }
-                        }
-                    }
-                 }
+                      // Smash Animation
+                      {
+                         let mut states = WINDOW_STATES.lock().unwrap();
+                         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                             state.physics.mode = AnimationMode::Smashing;
+                             state.physics.state_timer = 0.0;
+                         }
+                     }
+                     
+                     let (linked_hwnd, main_alpha) = {
+                         let states = WINDOW_STATES.lock().unwrap();
+                         let linked = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.linked_window } else { None };
+                         let alpha = if let Some(state) = states.get(&(hwnd.0 as isize)) { state.alpha } else { 220 };
+                         (linked, alpha)
+                     };
+                     if let Some(linked) = linked_hwnd {
+                         if IsWindow(linked).as_bool() {
+                             let mut states = WINDOW_STATES.lock().unwrap();
+                             if let Some(state) = states.get_mut(&(linked.0 as isize)) {
+                                 state.physics.mode = AnimationMode::DragOut;
+                                 state.physics.state_timer = 0.0;
+                                 state.alpha = main_alpha;
+                             }
+                         }
+                     }
+                  }
             }
             LRESULT(0)
         }
@@ -517,6 +620,10 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 .map(|d| d.as_millis() as u32)
                 .unwrap_or(0);
             
+            // Check Refine Submit (Enter Key Polling for Edit Control)
+            let mut trigger_refine = false;
+            let mut user_prompt = String::new();
+            
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -525,6 +632,24 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                          
                          pending_update = state.pending_text.take();
                          state.last_text_update_time = now;
+                     }
+                     
+                     // Check Enter Key if Editing
+                     if state.is_editing && GetFocus() == state.edit_hwnd {
+                         // Check Enter Key
+                         if (GetKeyState(VK_RETURN.0 as i32) as u16 & 0x8000) != 0 {
+                             // Trigger!
+                             let len = GetWindowTextLengthW(state.edit_hwnd) + 1;
+                             let mut buf = vec![0u16; len as usize];
+                             GetWindowTextW(state.edit_hwnd, &mut buf);
+                             user_prompt = String::from_utf16_lossy(&buf[..len as usize - 1]).to_string();
+                             
+                             // Clear and Hide
+                             SetWindowTextW(state.edit_hwnd, w!(""));
+                             ShowWindow(state.edit_hwnd, SW_HIDE);
+                             state.is_editing = false;
+                             trigger_refine = true;
+                         }
                      }
                 }
             }
@@ -536,9 +661,46 @@ unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                     state.font_cache_dirty = true;
+                    state.full_text = txt.clone();
                 }
                 need_repaint = true;
             }
+
+            if trigger_refine && !user_prompt.trim().is_empty() {
+                 // SPAWN REFINEMENT THREAD
+                 let (context_data, previous_text, model_id, provider, streaming) = {
+                     let states = WINDOW_STATES.lock().unwrap();
+                     if let Some(s) = states.get(&(hwnd.0 as isize)) {
+                         (s.context_data.clone(), s.full_text.clone(), s.model_id.clone(), s.provider.clone(), s.streaming_enabled)
+                     } else {
+                         (RefineContext::None, String::new(), "scout".to_string(), "groq".to_string(), false)
+                     }
+                 };
+                 
+                 // Set text to "Processing..."
+                 update_window_text(hwnd, "Processing refinement...");
+                 
+                 std::thread::spawn(move || {
+                     let (groq_key, gemini_key) = {
+                         let app = crate::APP.lock().unwrap();
+                         (app.config.api_key.clone(), app.config.gemini_api_key.clone())
+                     };
+
+                     // Call API using fully qualified path
+                     let _ = crate::api::refine_text_streaming(
+                          &groq_key, &gemini_key, 
+                          context_data, previous_text, user_prompt,
+                          &model_id, &provider, streaming,
+                          |chunk| {
+                              let mut states = WINDOW_STATES.lock().unwrap();
+                              if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                  state.pending_text = Some(chunk.to_string());
+                                  state.full_text = chunk.to_string();
+                              }
+                          }
+                     );
+                 });
+             }
 
             logic::handle_timer(hwnd, wparam);
             if need_repaint {

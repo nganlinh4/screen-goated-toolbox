@@ -3,7 +3,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::core::*;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}, Once};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering, AtomicU32}, Once};
 use crate::APP;
 
 static mut RECORDING_HWND: HWND = HWND(0);
@@ -13,11 +13,21 @@ static mut ANIMATION_OFFSET: f32 = 0.0;
 static mut CURRENT_PRESET_IDX: usize = 0;
 static mut CURRENT_ALPHA: i32 = 0; // For fade-in
 
+// Audio Viz
+static mut VISUALIZATION_BUFFER: [f32; 40] = [0.0; 40]; // 40 bars
+static mut VIS_HEAD: usize = 0;
+static CURRENT_RMS: AtomicU32 = AtomicU32::new(0);
+
 // --- UI CONSTANTS ---
 const UI_WIDTH: i32 = 350;   // More compact width
 const UI_HEIGHT: i32 = 80;   // Reduced height
 const BTN_OFFSET: i32 = 40;  // Distance from edge to icon center
 const HIT_RADIUS: i32 = 25;  // Clickable radius around buttons
+
+pub fn update_audio_viz(rms: f32) {
+    let bits = rms.to_bits();
+    CURRENT_RMS.store(bits, Ordering::Relaxed);
+}
 
 // Shared flag for the audio thread
 lazy_static::lazy_static! {
@@ -56,10 +66,14 @@ pub fn show_recording_overlay(preset_idx: usize) {
         ANIMATION_OFFSET = 0.0;
         CURRENT_ALPHA = 0; // Start invisible
         AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
-        AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
-        AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst); // Reset abort signal
+         AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
+         AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst); // Reset abort signal
+         
+         // Reset viz
+         VIS_HEAD = 0;
+         VISUALIZATION_BUFFER.fill(0.0);
 
-        let instance = GetModuleHandleW(None).unwrap();
+         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("RecordingOverlay");
 
         // OPTIMIZATION: Register class only once, thread-safely
@@ -218,9 +232,40 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
             }
         }
 
-        // 2. Draw Icons directly to pixels (Skip if processing for cleaner look?)
-        // Let's keep them but maybe dim them? No, keep standard behavior.
-        if !is_waiting {
+        // 2. Draw Viz Bars (if valid)
+         if !is_waiting && !IS_PAUSED {
+             let viz_w = 220.0;
+             let bar_w = 3.0;
+             let spacing = 2.0;
+             let start_x = (width as f32 - viz_w) / 2.0;
+             let center_y = (height as f32) / 2.0;
+             
+             for i in 0..40 {
+                 let idx = (VIS_HEAD + 40 - i) % 40;
+                 let amp = VISUALIZATION_BUFFER[idx];
+                 let h = (amp * 400.0).clamp(4.0, 40.0); // Height scaling
+                 
+                 let x = start_x + (i as f32 * (bar_w + spacing));
+                 let y_top = center_y - h/2.0;
+                 let y_bot = center_y + h/2.0;
+                 
+                 // Draw bar
+                 for py in y_top as i32..y_bot as i32 {
+                     for px in x as i32..(x + bar_w) as i32 {
+                         let p_idx = (py * width + px) as usize;
+                         if p_idx < (width * height) as usize {
+                             // Use a solid neon color (Cyan)
+                             // Premultiplied alpha: If alpha is 255, values are straight.
+                             pixels[p_idx] = (255 << 24) | (0 << 16) | (200 << 8) | 255;
+                         }
+                     }
+                 }
+             }
+         }
+
+         // 3. Draw Icons directly to pixels (Skip if processing for cleaner look?)
+         // Let's keep them but maybe dim them? No, keep standard behavior.
+         if !is_waiting {
             let white_pixel = 0xFFFFFFFF;
 
             // -- PAUSE / PLAY BUTTON (Left) --
@@ -393,29 +438,37 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             LRESULT(0)
         }
         WM_TIMER => {
-            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
-            
-            if is_processing {
-                // Rapid Clockwise Animation for Processing
-                // Reduced speed from 20.0 to 8.0
-                ANIMATION_OFFSET -= 8.0;
-            } else if !IS_PAUSED {
-                // Standard Counter-Clockwise Animation
-                ANIMATION_OFFSET += 5.0;
-            }
-            
-            // Keep offset bounded to prevent float precision issues over long runs
-            if ANIMATION_OFFSET > 3600.0 { ANIMATION_OFFSET -= 3600.0; }
-            if ANIMATION_OFFSET < -3600.0 { ANIMATION_OFFSET += 3600.0; }
-            
-            if CURRENT_ALPHA < 255 {
-                CURRENT_ALPHA += 15;
-                if CURRENT_ALPHA > 255 { CURRENT_ALPHA = 255; }
-            }
+             let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+             
+             if is_processing {
+                 // Rapid Clockwise Animation for Processing
+                 // Reduced speed from 20.0 to 8.0
+                 ANIMATION_OFFSET -= 8.0;
+             } else if !IS_PAUSED {
+                 // Standard Counter-Clockwise Animation
+                 ANIMATION_OFFSET += 5.0;
+             }
+             
+             // Keep offset bounded to prevent float precision issues over long runs
+             if ANIMATION_OFFSET > 3600.0 { ANIMATION_OFFSET -= 3600.0; }
+             if ANIMATION_OFFSET < -3600.0 { ANIMATION_OFFSET += 3600.0; }
+             
+             if CURRENT_ALPHA < 255 {
+                 CURRENT_ALPHA += 15;
+                 if CURRENT_ALPHA > 255 { CURRENT_ALPHA = 255; }
+             }
 
-            paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
-            LRESULT(0)
-        }
+             // UPDATE VIZ BUFFER
+             let rms_bits = CURRENT_RMS.load(Ordering::Relaxed);
+             let rms = f32::from_bits(rms_bits);
+             unsafe {
+                 VIS_HEAD = (VIS_HEAD + 1) % 40;
+                 VISUALIZATION_BUFFER[VIS_HEAD] = rms;
+             }
+
+             paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
+             LRESULT(0)
+         }
         WM_CLOSE => {
             // FIX: Ensure clean stop even if Alt+F4
             AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);

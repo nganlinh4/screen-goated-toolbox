@@ -19,6 +19,7 @@ pub enum Icon {
     Info,
     Statistics,
     Refresh,
+    Edit, // NEW: Pencil icon
 }
 
 /// Main entry point: Draw a clickable icon button
@@ -368,6 +369,22 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
 
                 painter.add(egui::Shape::line(vec![p1, *tip, p2], refresh_stroke));
             }
+        }
+
+        Icon::Edit => {
+            // Pencil Icon
+            // Tip at bottom-left, Body/Eraser at top-right
+            let tip = center + egui::vec2(-4.0, 4.0) * scale;
+            let top = center + egui::vec2(4.0, -4.0) * scale;
+            
+            // Draw diagonal line (Body)
+            painter.line_segment([tip, top], egui::Stroke::new(3.5 * scale, color));
+            
+            // Draw Eraser (Small circle at top right)
+            painter.circle_filled(top + egui::vec2(1.5, -1.5) * scale, 1.5 * scale, color);
+            
+            // Draw Tip (Small angled lines)
+            painter.line_segment([tip, tip - egui::vec2(2.0, -2.0) * scale], egui::Stroke::new(1.5 * scale, color));
         }
     }
 }

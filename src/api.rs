@@ -10,6 +10,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::config::Preset;
 use crate::model_config::get_model_by_id;
 use crate::APP;
+use crate::overlay::result::RefineContext;
 
 #[derive(Serialize, Deserialize)]
 struct StreamChunk {
@@ -644,8 +645,11 @@ pub fn record_audio_and_transcribe(
             &config.into(),
             move |data: &[f32], _: &_| {
                 if !pause_signal.load(Ordering::Relaxed) {
-                    // Send chunk as f32 vector. If receiver disconnects, just stop sending.
                     let _ = tx.send(data.to_vec());
+                    let mut rms = 0.0;
+                    for &x in data { rms += x * x; }
+                    rms = (rms / data.len() as f32).sqrt();
+                    crate::overlay::recording::update_audio_viz(rms);
                 }
             },
             err_fn,
@@ -655,9 +659,12 @@ pub fn record_audio_and_transcribe(
             &config.into(),
             move |data: &[i16], _: &_| {
                 if !pause_signal.load(Ordering::Relaxed) {
-                    // Convert i16 to f32 immediately to standardize
                     let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                     let _ = tx.send(f32_data);
+                    let mut rms = 0.0;
+                    for &x in data { let f = x as f32 / i16::MAX as f32; rms += f * f; }
+                    rms = (rms / data.len() as f32).sqrt();
+                    crate::overlay::recording::update_audio_viz(rms);
                 }
             },
             err_fn,
@@ -820,6 +827,79 @@ pub fn record_audio_and_transcribe(
         },
         Err(e) => {
             eprintln!("Transcription error: {}", e);
+        }
+    }
+}
+
+// NEW: Refinement API with model-aware and context-aware handling
+pub fn refine_text_streaming<F>(
+    groq_api_key: &str,
+    gemini_api_key: &str,
+    context: RefineContext,
+    previous_text: String,
+    user_prompt: String,
+    original_model_id: &str,
+    original_provider: &str,
+    streaming_enabled: bool,
+    mut on_chunk: F,
+) -> Result<String>
+where
+    F: FnMut(&str),
+{
+    let context_desc = match &context {
+        RefineContext::Image(_) => "from an image",
+        RefineContext::Audio(_) => "from audio",
+        RefineContext::None => "from previous output",
+    };
+
+    let final_prompt = format!(
+        "Previous Output ({}):\n{}\n\nUser Instruction: {}\n\nPlease refine the output based on the user instruction. Return ONLY the updated/refined text.",
+        context_desc, previous_text, user_prompt
+    );
+
+    // Resolve actual model ID to use
+    let mut model_to_use = original_model_id.to_string();
+    let mut provider_to_use = original_provider.to_string();
+
+    // Handle Whisper Edge Case: If original was Whisper (audio-only), we must fallback to a text model
+    if model_to_use.starts_with("whisper") && provider_to_use == "groq" {
+        // Switch to a capable text model on Groq (e.g., Llama3 or Mixtral)
+        // Using "llama3-70b-8192" as a safe, high-quality default for Groq text ops
+        model_to_use = "llama3-70b-8192".to_string();
+    }
+
+    // Resolve full model name if it's an ID
+    if let Some(conf) = get_model_by_id(&model_to_use) {
+        model_to_use = conf.full_name;
+    }
+
+    match context {
+        RefineContext::Image(img_bytes) => {
+            if provider_to_use == "google" {
+                if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_GEMINI_KEY")); }
+                let img = image::load_from_memory(&img_bytes)?.to_rgba8();
+                translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, model_to_use, provider_to_use, img, streaming_enabled, false, on_chunk)
+            } else {
+                // Groq/Llama Vision
+                if groq_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY")); }
+                let img = image::load_from_memory(&img_bytes)?.to_rgba8();
+                translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, model_to_use, provider_to_use, img, streaming_enabled, false, on_chunk)
+            }
+        },
+        RefineContext::Audio(wav_bytes) => {
+            if provider_to_use == "google" {
+                if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_GEMINI_KEY")); }
+                transcribe_audio_gemini(gemini_api_key, final_prompt, model_to_use, wav_bytes, on_chunk)
+            } else {
+                // Groq Audio (Whisper) - Fallback to TEXT refinement because Whisper API is not chat
+                // This case should be handled by the model override above, forcing it to text flow
+                // But if we reached here with Audio context on Groq, we treat it as text-only refinement
+                translate_text_streaming(groq_api_key, gemini_api_key, previous_text, "Refined".to_string(), model_to_use, provider_to_use, streaming_enabled, false, on_chunk)
+            }
+        },
+        RefineContext::None => {
+            // Text Only
+            translate_text_streaming(groq_api_key, gemini_api_key, previous_text, "Refined".to_string(), model_to_use, provider_to_use, streaming_enabled, false, on_chunk)
         }
     }
 }
