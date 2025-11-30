@@ -70,8 +70,27 @@ impl Updater {
         thread::spawn(move || {
             let _ = tx.send(UpdateStatus::Downloading);
 
-            // Get the latest release and download the first .exe or .zip we find
-            match self_update::backends::github::Update::configure()
+            // Get current exe directory
+            let exe_dir = match std::env::current_exe() {
+                Ok(exe_path) => match exe_path.parent() {
+                    Some(dir) => dir.to_path_buf(),
+                    None => {
+                        let _ = tx.send(UpdateStatus::Error("Could not find exe directory".to_string()));
+                        return;
+                    }
+                },
+                Err(_) => {
+                    let _ = tx.send(UpdateStatus::Error("Could not get exe path".to_string()));
+                    return;
+                }
+            };
+
+            let temp_path = exe_dir.join("temp_download");
+            // We'll set this after getting the asset
+            let mut staging_path = exe_dir.join("update_pending.exe");
+
+            // Get the latest release
+            let updater = match self_update::backends::github::Update::configure()
                 .repo_owner("nganlinh4")
                 .repo_name("screen-grounded-translator")
                 .bin_name("screen-grounded-translator")
@@ -79,88 +98,150 @@ impl Updater {
                 .current_version(env!("CARGO_PKG_VERSION"))
                 .build()
             {
-                Ok(updater) => {
-                    match updater.get_latest_release() {
-                        Ok(release) => {
-                            // Find first .exe or .zip asset
-                            let asset = release.assets.iter()
-                                .find(|a| a.name.ends_with(".exe") || a.name.ends_with(".zip"));
-                            
-                            match asset {
-                                Some(asset) => {
-                                    // Download the asset
-                                    match std::fs::File::create("temp_download") {
-                                        Ok(mut file) => {
-                                            match ureq::get(&asset.download_url)
-                                                .call()
-                                            {
-                                                Ok(response) => {
-                                                    if let Err(e) = std::io::copy(&mut response.into_reader(), &mut file) {
-                                                        let _ = tx.send(UpdateStatus::Error(format!("Download failed: {}", e)));
-                                                        return;
-                                                    }
+                Ok(u) => u,
+                Err(e) => {
+                    let _ = tx.send(UpdateStatus::Error(format!("Builder error: {}", e)));
+                    return;
+                }
+            };
 
-                                                    // Get current exe path
-                                                    if let Ok(exe_path) = std::env::current_exe() {
-                                                        // Backup current exe
-                                                        let backup_path = exe_path.with_extension("exe.old");
-                                                        let _ = std::fs::copy(&exe_path, &backup_path);
-                                                        
-                                                        // If .zip, extract it
-                                                        if asset.name.ends_with(".zip") {
-                                                            match zip::ZipArchive::new(&mut std::fs::File::open("temp_download").unwrap()) {
-                                                                Ok(mut archive) => {
-                                                                    if let Ok(mut file) = archive.by_index(0) {
-                                                                        if let Ok(mut exe_file) = std::fs::File::create(&exe_path) {
-                                                                            let _ = std::io::copy(&mut file, &mut exe_file);
-                                                                            let _ = std::fs::remove_file("temp_download");
-                                                                            let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired);
-                                                                        } else {
-                                                                            let _ = tx.send(UpdateStatus::Error("Failed to write new exe".to_string()));
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(e) => {
-                                                                    let _ = tx.send(UpdateStatus::Error(format!("Failed to extract zip: {}", e)));
-                                                                }
-                                                            }
-                                                        } else {
-                                                            // Direct .exe - just move it
-                                                            match std::fs::rename("temp_download", &exe_path) {
-                                                                Ok(_) => {
-                                                                    let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired);
-                                                                }
-                                                                Err(e) => {
-                                                                    let _ = tx.send(UpdateStatus::Error(format!("Failed to replace exe: {}", e)));
-                                                                }
-                                                            }
-                                                        }
-                                                    } else {
-                                                        let _ = tx.send(UpdateStatus::Error("Could not get exe path".to_string()));
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    let _ = tx.send(UpdateStatus::Error(format!("Download failed: {}", e)));
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(UpdateStatus::Error(format!("Failed to create temp file: {}", e)));
-                                        }
-                                    }
-                                }
-                                None => {
-                                    let _ = tx.send(UpdateStatus::Error("No .exe or .zip found in release".to_string()));
-                                }
-                            }
-                        }
+            // Use a custom HTTP request to get the latest release (the one marked as "Latest" on GitHub)
+            let release_json = match ureq::get("https://api.github.com/repos/nganlinh4/screen-grounded-translator/releases?per_page=1&prerelease=false")
+                .set("User-Agent", "screen-grounded-translator-updater")
+                .call()
+            {
+                Ok(response) => {
+                    match response.into_string() {
+                        Ok(s) => s,
                         Err(e) => {
-                            let _ = tx.send(UpdateStatus::Error(format!("Failed to fetch release: {}", e)));
+                            let _ = tx.send(UpdateStatus::Error(format!("Failed to parse response: {}", e)));
+                            return;
                         }
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(UpdateStatus::Error(format!("Builder error: {}", e)));
+                    let _ = tx.send(UpdateStatus::Error(format!("Failed to fetch release list: {}", e)));
+                    return;
+                }
+            };
+
+            // Parse the JSON to get the first release
+            let release_data: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&release_json);
+            let release = match release_data {
+                Ok(mut releases) if !releases.is_empty() => {
+                    let rel = releases.remove(0);
+                    self_update::update::Release {
+                        name: rel.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        version: rel.get("tag_name").and_then(|v| v.as_str()).unwrap_or("").trim_start_matches('v').to_string(),
+                        date: rel.get("published_at").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        body: rel.get("body").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        assets: rel.get("assets")
+                            .and_then(|a| a.as_array())
+                            .unwrap_or(&vec![])
+                            .iter()
+                            .filter_map(|asset| {
+                                let name = asset.get("name")?.as_str()?.to_string();
+                                let download_url = asset.get("browser_download_url")?.as_str()?.to_string();
+                                Some(self_update::update::ReleaseAsset {
+                                    name,
+                                    download_url,
+                                })
+                            })
+                            .collect(),
+                    }
+                }
+                _ => {
+                    let _ = tx.send(UpdateStatus::Error("No releases found".to_string()));
+                    return;
+                }
+            };
+
+            // Find first .exe or .zip asset
+            let asset = match release.assets.iter()
+                .find(|a| a.name.ends_with(".exe") || a.name.ends_with(".zip"))
+            {
+                Some(a) => a,
+                None => {
+                    let _ = tx.send(UpdateStatus::Error("No .exe or .zip found in release".to_string()));
+                    return;
+                }
+            };
+
+            // Set staging path to the asset name (for display) or update_pending.exe (for extraction)
+            if asset.name.ends_with(".exe") {
+                staging_path = exe_dir.join(&asset.name);
+            }
+
+            // Download the asset
+            let mut file = match std::fs::File::create(&temp_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    let _ = tx.send(UpdateStatus::Error(format!("Failed to create temp file: {}", e)));
+                    return;
+                }
+            };
+
+            match ureq::get(&asset.download_url).call() {
+                Ok(response) => {
+                    if let Err(e) = std::io::copy(&mut response.into_reader(), &mut file) {
+                        let _ = tx.send(UpdateStatus::Error(format!("Download failed: {}", e)));
+                        let _ = std::fs::remove_file(&temp_path);
+                        return;
+                    }
+                    drop(file); // Close file before processing
+
+                    // Process the downloaded file
+                    if asset.name.ends_with(".zip") {
+                        // Extract zip
+                        match std::fs::File::open(&temp_path) {
+                            Ok(zip_file) => {
+                                match zip::ZipArchive::new(zip_file) {
+                                    Ok(mut archive) => {
+                                        match archive.by_index(0) {
+                                            Ok(mut zipped_file) => {
+                                                match std::fs::File::create(&staging_path) {
+                                                    Ok(mut exe_file) => {
+                                                        if std::io::copy(&mut zipped_file, &mut exe_file).is_ok() {
+                                                            let _ = std::fs::remove_file(&temp_path);
+                                                            let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired);
+                                                        } else {
+                                                            let _ = tx.send(UpdateStatus::Error("Failed to extract zip".to_string()));
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        let _ = tx.send(UpdateStatus::Error(format!("Failed to create staging file: {}", e)));
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(UpdateStatus::Error(format!("Failed to read zip entry: {}", e)));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(UpdateStatus::Error(format!("Failed to open zip: {}", e)));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx.send(UpdateStatus::Error(format!("Failed to open temp file: {}", e)));
+                            }
+                        }
+                    } else {
+                        // Direct exe - move to staging
+                        match std::fs::rename(&temp_path, &staging_path) {
+                            Ok(_) => {
+                                let _ = tx.send(UpdateStatus::UpdatedAndRestartRequired);
+                            }
+                            Err(e) => {
+                                let _ = tx.send(UpdateStatus::Error(format!("Failed to stage exe: {}", e)));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(UpdateStatus::Error(format!("Download failed: {}", e)));
+                    let _ = std::fs::remove_file(&temp_path);
                 }
             }
         });
