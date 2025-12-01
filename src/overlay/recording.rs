@@ -263,44 +263,46 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
              }
          }
 
-         // 3. Draw Icons directly to pixels (Skip if processing for cleaner look?)
-         // Let's keep them but maybe dim them? No, keep standard behavior.
-         if !is_waiting {
-            let white_pixel = 0xFFFFFFFF;
+         // 3. Draw Icons directly to pixels
+         let white_pixel = 0xFFFFFFFF;
 
-            // -- PAUSE / PLAY BUTTON (Left) --
+         // -- PAUSE / PLAY BUTTON (Left) --
+         // Only show pause/play if NOT processing
+         if !is_waiting {
             let p_cx = BTN_OFFSET; 
             let p_cy = height / 2;
 
             if IS_PAUSED {
-            // Draw Play Triangle
-            for y in (p_cy - 12)..(p_cy + 12) {
-                for x in (p_cx - 8)..(p_cx + 12) {
-                    if x >= 0 && x < width && y >= 0 && y < height {
-                        let dx = x - p_cx;
-                        let dy = y - p_cy;
-                        if dx >= -6 && dx <= 10 {
-                            let max_y = (10.0 - dx as f32) * 0.625;
-                            if (dy as f32).abs() <= max_y + 0.8 {
-                                pixels[(y * width + x) as usize] = white_pixel;
+                // Draw Play Triangle
+                for y in (p_cy - 12)..(p_cy + 12) {
+                    for x in (p_cx - 8)..(p_cx + 12) {
+                        if x >= 0 && x < width && y >= 0 && y < height {
+                            let dx = x - p_cx;
+                            let dy = y - p_cy;
+                            if dx >= -6 && dx <= 10 {
+                                let max_y = (10.0 - dx as f32) * 0.625;
+                                if (dy as f32).abs() <= max_y + 0.8 {
+                                    pixels[(y * width + x) as usize] = white_pixel;
+                                }
                             }
                         }
                     }
                 }
-            }
-        } else {
-            // Draw Pause Bars (||)
-            for y in (p_cy - 10)..=(p_cy + 10) {
-                for x in (p_cx - 8)..=(p_cx + 8) {
-                    if x > p_cx - 2 && x < p_cx + 2 { continue; } // Gap
-                    if x >= 0 && x < width && y >= 0 && y < height {
-                        pixels[(y * width + x) as usize] = white_pixel;
+            } else {
+                // Draw Pause Bars (||)
+                for y in (p_cy - 10)..=(p_cy + 10) {
+                    for x in (p_cx - 8)..=(p_cx + 8) {
+                        if x > p_cx - 2 && x < p_cx + 2 { continue; } // Gap
+                        if x >= 0 && x < width && y >= 0 && y < height {
+                            pixels[(y * width + x) as usize] = white_pixel;
+                        }
                     }
                 }
             }
-        }
+         }
 
-        // -- CLOSE BUTTON (X) (Right) --
+         // -- CLOSE BUTTON (X) (Right) --
+         // ALWAYS show close button
          let c_cx = width - BTN_OFFSET;
          let c_cy = height / 2;
          let thickness = 2.0;
@@ -318,7 +320,6 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
                  }
              }
          }
-        }
         }
 
     SetBkMode(mem_dc, TRANSPARENT);
@@ -404,14 +405,18 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             let center_left = BTN_OFFSET;
             let center_right = UI_WIDTH - BTN_OFFSET;
             
-            // Only allow button clicks if not processing
-            if !AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
-                if (local_x - center_left).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
-                if (local_x - center_right).abs() < HIT_RADIUS { return LRESULT(HTCLIENT as isize); }
-            } else {
-                // During processing, return HTCLIENT for the whole window
-                // This consumes clicks in LBUTTONDOWN (where we ignore them), preventing dragging (HTCAPTION) and button actions.
+            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+            
+            // ALWAYS allow Close button to be hit, even during processing
+            if (local_x - center_right).abs() < HIT_RADIUS {
                 return LRESULT(HTCLIENT as isize);
+            }
+            
+            // Only allow Pause button if not processing
+            if !is_processing {
+                if (local_x - center_left).abs() < HIT_RADIUS { 
+                    return LRESULT(HTCLIENT as isize); 
+                }
             }
 
             LRESULT(HTCAPTION as isize)
@@ -422,17 +427,21 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             
             let center_left = BTN_OFFSET;
             let center_right = UI_WIDTH - BTN_OFFSET;
+            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
             
-            if !AUDIO_STOP_SIGNAL.load(Ordering::SeqCst) {
+            // Always check Close Button first
+            if (x - center_right).abs() < HIT_RADIUS {
+                // FIX: Clicked "X" button -> ABORT, NOT SUBMIT
+                AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst); 
+                AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst); // Stop loop
+                PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+            } 
+            // Only allow Pause button if not processing
+            else if !is_processing {
                 if (x - center_left).abs() < HIT_RADIUS {
                     IS_PAUSED = !IS_PAUSED;
                     AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
                     paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
-                } else if (x - center_right).abs() < HIT_RADIUS {
-                    // FIX: Clicked "X" button -> ABORT, NOT SUBMIT
-                    AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst); 
-                    AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst); // Stop loop
-                    PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
             }
             LRESULT(0)

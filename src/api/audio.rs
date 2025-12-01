@@ -246,7 +246,11 @@ pub fn record_audio_and_transcribe(
     }
     let stream = stream_res.unwrap();
 
-    stream.play().expect("Failed to start audio stream");
+    if let Err(e) = stream.play() {
+        eprintln!("Failed to play stream: {}", e);
+        unsafe { PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+        return;
+    }
 
     let mut collected_samples: Vec<f32> = Vec::new();
 
@@ -339,6 +343,11 @@ pub fn record_audio_and_transcribe(
         if IsWindow(overlay_hwnd).as_bool() {
              PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
         }
+    }
+
+    // Check if user aborted during the API call
+    if abort_signal.load(Ordering::SeqCst) {
+        return;
     }
 
     match transcription_result {

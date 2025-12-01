@@ -173,6 +173,7 @@ pub fn create_result_window(
                 bg_bits: std::ptr::null_mut(),
                 bg_w: 0,
                 bg_h: 0,
+                edit_font: hfont,
             });
         }
 

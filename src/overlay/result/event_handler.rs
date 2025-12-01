@@ -528,6 +528,9 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 if state.bg_bitmap.0 != 0 {
                     DeleteObject(state.bg_bitmap);
                 }
+                if state.edit_font.0 != 0 {
+                    DeleteObject(state.edit_font);
+                }
             }
             LRESULT(0)
         }

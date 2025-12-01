@@ -9,25 +9,36 @@ pub fn to_wstring(s: &str) -> Vec<u16> {
 // --- CLIPBOARD SUPPORT ---
 pub fn copy_to_clipboard(text: &str, hwnd: HWND) {
     unsafe {
-        if OpenClipboard(hwnd).as_bool() {
-            EmptyClipboard();
-            
-            // Convert text to UTF-16
-            let wide_text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-            let mem_size = wide_text.len() * 2;
-            
-            // Allocate global memory
-            if let Ok(h_mem) = GlobalAlloc(GMEM_MOVEABLE, mem_size) {
-                let ptr = GlobalLock(h_mem) as *mut u16;
-                std::ptr::copy_nonoverlapping(wide_text.as_ptr(), ptr, wide_text.len());
-                GlobalUnlock(h_mem);
+        // Retry loop to handle temporary clipboard locks
+        for attempt in 0..5 {
+            if OpenClipboard(hwnd).as_bool() {
+                EmptyClipboard();
                 
-                // Set clipboard data (CF_UNICODETEXT = 13)
-                let h_mem_handle = HANDLE(h_mem.0);
-                let _ = SetClipboardData(13u32, h_mem_handle);
+                // Convert text to UTF-16
+                let wide_text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+                let mem_size = wide_text.len() * 2;
+                
+                // Allocate global memory
+                if let Ok(h_mem) = GlobalAlloc(GMEM_MOVEABLE, mem_size) {
+                    let ptr = GlobalLock(h_mem) as *mut u16;
+                    std::ptr::copy_nonoverlapping(wide_text.as_ptr(), ptr, wide_text.len());
+                    GlobalUnlock(h_mem);
+                    
+                    // Set clipboard data (CF_UNICODETEXT = 13)
+                    let h_mem_handle = HANDLE(h_mem.0);
+                    let _ = SetClipboardData(13u32, h_mem_handle);
+                }
+                
+                CloseClipboard();
+                return; // Success
             }
             
-            CloseClipboard();
+            // If failed and not last attempt, wait before retrying
+            if attempt < 4 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            } else {
+                eprintln!("Failed to copy to clipboard after 5 attempts");
+            }
         }
     }
 }

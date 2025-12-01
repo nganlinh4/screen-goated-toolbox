@@ -1,7 +1,7 @@
 use windows::Win32::Foundation::*;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use windows::Win32::Graphics::Gdi::HBITMAP;
+use windows::Win32::Graphics::Gdi::{HBITMAP, HFONT};
 
 // --- DYNAMIC PARTICLES ---
 pub struct DustParticle {
@@ -137,12 +137,15 @@ pub struct WindowState {
     pub last_text_update_time: u32,
     
     // BACKGROUND CACHING
-     pub bg_bitmap: HBITMAP,
-     #[allow(dead_code)]
-     pub bg_bits: *mut core::ffi::c_void, 
-     pub bg_w: i32,
-     pub bg_h: i32,
-}
+      pub bg_bitmap: HBITMAP,
+      #[allow(dead_code)]
+      pub bg_bits: *mut core::ffi::c_void, 
+      pub bg_w: i32,
+      pub bg_h: i32,
+    
+    // EDIT FONT HANDLE (must be deleted to avoid GDI leak)
+    pub edit_font: HFONT,
+    }
 
 // SAFETY: Raw pointers are not Send/Sync, but we only use them within the main thread
 // This is safe because all access is synchronized via WINDOW_STATES mutex
