@@ -1,5 +1,7 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use eframe::egui;
-use crate::config::{Config, save_config, get_all_languages, Preset, Hotkey};
+use crate::config::{Config, save_config, Hotkey};
 use std::sync::{Arc, Mutex};
 use tray_icon::{TrayIcon, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
 use auto_launch::AutoLaunch;
@@ -8,42 +10,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::System::Threading::*;
-use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, BOOL, LPARAM, RECT, POINT};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR, GetMonitorInfoW, MONITORINFOEXW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, POINT};
+use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST, GetMonitorInfoW};
 use windows::core::*;
 
 use crate::gui::locale::LocaleText;
 use crate::gui::key_mapping::egui_key_to_vk;
-use crate::gui::icons::{Icon, icon_button, draw_icon_static};
-use crate::model_config::{get_all_models, ModelType, get_model_by_id};
 use crate::updater::{Updater, UpdateStatus};
+use crate::gui::settings_ui::{ViewMode, render_sidebar, render_global_settings, render_preset_editor, render_footer};
+use crate::gui::utils::get_monitor_names;
 
-// --- Monitor Enumeration Helper ---
-struct MonitorEnumContext {
-    monitors: Vec<String>,
-}
 
-unsafe extern "system" fn monitor_enum_proc(_hmonitor: HMONITOR, _hdc: HDC, _lprc: *mut RECT, dwdata: LPARAM) -> BOOL {
-    let context = &mut *(dwdata.0 as *mut MonitorEnumContext);
-    let mut mi = MONITORINFOEXW::default();
-    mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
-    
-    if GetMonitorInfoW(_hmonitor, &mut mi as *mut _ as *mut _).as_bool() {
-        let device_name = String::from_utf16_lossy(&mi.szDevice);
-        let trimmed_name = device_name.trim_matches(char::from(0)).to_string();
-        context.monitors.push(trimmed_name);
-    }
-    BOOL(1)
-}
 
-fn get_monitor_names() -> Vec<String> {
-    let mut ctx = MonitorEnumContext { monitors: Vec::new() };
-    unsafe {
-        EnumDisplayMonitors(HDC(0), None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
-    }
-    ctx.monitors
+lazy_static::lazy_static! {
+    static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
-// ----------------------------------
 
 const MOD_ALT: u32 = 0x0001;
 const MOD_CONTROL: u32 = 0x0002;
@@ -55,20 +36,10 @@ enum UserEvent {
     Menu(MenuEvent),
 }
 
-lazy_static::lazy_static! {
-    static ref RESTORE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-}
-
-#[derive(PartialEq, Clone, Copy)]
-enum ViewMode {
-    Global,
-    Preset(usize),
-}
-
 pub struct SettingsApp {
     config: Config,
     app_state_ref: Arc<Mutex<crate::AppState>>,
-    search_query: String, // Shared search for languages
+    search_query: String, 
     tray_icon: Option<TrayIcon>,
     _tray_menu: Menu,
     event_rx: Receiver<UserEvent>,
@@ -78,7 +49,6 @@ pub struct SettingsApp {
     show_api_key: bool,
     show_gemini_api_key: bool,
     
-    // New State
     view_mode: ViewMode,
     recording_hotkey_for_preset: Option<usize>,
     hotkey_conflict_msg: Option<String>,
@@ -88,10 +58,8 @@ pub struct SettingsApp {
     // 0 = Init/Offscreen, 1 = Move Sent, 2 = Visible Sent
     startup_stage: u8, 
     
-    // Cache monitors
     cached_monitors: Vec<String>,
     
-    // Updater State
     updater: Option<Updater>,
     update_rx: Receiver<UpdateStatus>,
     update_status: UpdateStatus,
@@ -105,34 +73,24 @@ impl SettingsApp {
         
         let auto = AutoLaunch::new(app_name, app_path.to_str().unwrap(), args);
         
-        // FIX: Manually check registry to persist "Startup" preference across version updates.
-        // The default `auto.is_enabled()` returns false if the path in registry differs from current exe (which happens on update).
-        // We want to detect if the KEY exists, and if so, force update the path to the current exe.
+        // Registry check for startup
         let mut run_at_startup = false;
-        
         #[cfg(target_os = "windows")]
         {
             use winreg::enums::*;
             use winreg::RegKey;
-            
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            // We verify if the key exists under our App Name, ignoring the path value
             if let Ok(key) = hkcu.open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Run", KEY_READ) {
                 if key.get_value::<String, &str>(app_name).is_ok() {
                     run_at_startup = true;
                 }
             }
         }
-
-        // Fallback or non-windows check
         if !run_at_startup {
             run_at_startup = auto.is_enabled().unwrap_or(false);
         }
-
-        // If enabled (either by detection or legacy), FORCE update the registry to the CURRENT executable path.
-        // This fixes the issue where updating the app breaks the startup link.
         if run_at_startup {
-            let _ = auto.enable();
+            let _ = auto.enable(); // Update path
         }
 
         let (tx, rx) = channel();
@@ -188,16 +146,13 @@ impl SettingsApp {
                 match event.id.0.as_str() {
                     "1001" => std::process::exit(0),
                     "1002" => {
-                        // Try to find and restore window directly
                         unsafe {
                             let class_name = w!("eframe");
                             let hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), None);
                             let hwnd = if hwnd.0 == 0 {
                                 let title = w!("Screen Grounded Translator (SGT by nganlinh4)");
                                 FindWindowW(None, PCWSTR(title.as_ptr()))
-                            } else {
-                                hwnd
-                            };
+                            } else { hwnd };
                             if hwnd.0 != 0 {
                                 ShowWindow(hwnd, SW_RESTORE);
                                 ShowWindow(hwnd, SW_SHOW);
@@ -214,7 +169,6 @@ impl SettingsApp {
             }
         });
 
-        // Determine initial view mode
         let view_mode = if config.presets.is_empty() {
              ViewMode::Global 
         } else {
@@ -250,22 +204,16 @@ impl SettingsApp {
     }
 
     fn save_and_sync(&mut self) {
-        // Update active preset index in config for persistence
         if let ViewMode::Preset(idx) = self.view_mode {
             self.config.active_preset_idx = idx;
         }
 
         let mut state = self.app_state_ref.lock().unwrap();
-        
-        // Check if hotkeys changed
-        // Simplification: Always signal update on save. Overhead is low.
         state.hotkeys_updated = true;
         state.config = self.config.clone();
-        
         drop(state);
         save_config(&self.config);
         
-        // FIX 7: Post message to hotkey listener to reload hotkeys instead of waiting for timer
         unsafe {
             let class = w!("HotkeyListenerClass");
             let title = w!("Listener");
@@ -299,31 +247,18 @@ impl SettingsApp {
 }
 
 impl eframe::App for SettingsApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 0.0]
-    }
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] { [0.0, 0.0, 0.0, 0.0] }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Process updater status messages
-        while let Ok(status) = self.update_rx.try_recv() {
-            self.update_status = status;
-        }
+        // Updater
+        while let Ok(status) = self.update_rx.try_recv() { self.update_status = status; }
 
-        // --- 3-Stage Startup Logic (Anti-Flash & Centering) ---
-        // Stage 0: Calculate center, move window (Invisible).
-        // Stage 1: Render one frame of dark splash content (Invisible).
-        // Stage 2: Reveal window.
-        
+        // --- 3-Stage Startup Logic ---
         if self.startup_stage == 0 {
             unsafe {
-                // 1. Get Cursor Position to find the target monitor (where user launched app)
                 let mut cursor_pos = POINT::default();
                 GetCursorPos(&mut cursor_pos);
-                
-                // 2. Get Monitor from Cursor
                 let h_monitor = MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST);
-                
-                // 3. Get Monitor Work Area (Physical Pixels, accounts for Taskbar & Position)
                 let mut mi = MONITORINFO::default();
                 mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
                 GetMonitorInfoW(h_monitor, &mut mi);
@@ -333,29 +268,17 @@ impl eframe::App for SettingsApp {
                 let work_left = mi.rcWork.left as f32;
                 let work_top = mi.rcWork.top as f32;
                 
-                // 4. Get Scale Factor (DPI)
                 let pixels_per_point = ctx.pixels_per_point();
+                let win_w_physical = 635.0 * pixels_per_point;
+                let win_h_physical = 500.0 * pixels_per_point;
                 
-                // 5. Calculate Window Size in Physical Pixels
-                let win_w_logical = 635.0;
-                let win_h_logical = 500.0;
-                let win_w_physical = win_w_logical * pixels_per_point;
-                let win_h_physical = win_h_logical * pixels_per_point;
-                
-                // 6. Calculate Center in Physical Pixels
                 let center_x_physical = work_left + (work_w - win_w_physical) / 2.0;
                 let center_y_physical = work_top + (work_h - win_h_physical) / 2.0;
                 
-                // 7. Convert back to Logical Points for eframe
                 let x_logical = center_x_physical / pixels_per_point;
                 let y_logical = center_y_physical / pixels_per_point;
                 
-                // Move invisible window to calculated center
                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x_logical, y_logical)));
-                
-                // FIX: Force the InnerSize explicitly here. 
-                // This forces eframe to recalculate the client area on the specific monitor 
-                // BEFORE the window becomes visible, fixing the hitbox offset.
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(635.0, 500.0)));
                 
                 self.startup_stage = 1;
@@ -363,46 +286,27 @@ impl eframe::App for SettingsApp {
                 return;
             }
         } else if self.startup_stage == 1 {
-            // WARM-UP FRAME:
-            // We fall through to the Splash rendering code below.
-            // This paints the dark pixels into the buffer while the window is still invisible.
             self.startup_stage = 2;
             ctx.request_repaint(); 
-            // Fall through...
         } else if self.startup_stage == 2 {
-            // REVEAL:
-            // 1. Reset splash timer so the fade-in animation starts NOW.
-            if let Some(splash) = &mut self.splash {
-                splash.reset_timer(ctx);
-            }
-            
-            // FIX: Send the size command ONE MORE TIME just before visibility.
-            // This acts like the "Maximize/Unmaximize" trick programmatically.
+            if let Some(splash) = &mut self.splash { splash.reset_timer(ctx); }
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(635.0, 500.0)));
-            
-            // 2. Show the window (buffer is already dark from previous frame)
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             self.startup_stage = 3;
         }
 
-        // Check Splash
+        // Splash Update
         if let Some(splash) = &mut self.splash {
-            // Render Splash
-            // We want the splash to cover everything, so we assume full window
             match splash.update(ctx) {
-                crate::gui::splash::SplashStatus::Ongoing => {
-                    return; // Don't draw the rest of the UI yet
-                }
+                crate::gui::splash::SplashStatus::Ongoing => { return; }
                 crate::gui::splash::SplashStatus::Finished => {
-                    self.splash = None; // Drop splash, proceed to normal UI
-                    self.fade_in_start = Some(ctx.input(|i| i.time)); // Start fade in
+                    self.splash = None;
+                    self.fade_in_start = Some(ctx.input(|i| i.time));
                 }
             }
         }
 
-        if RESTORE_SIGNAL.swap(false, Ordering::SeqCst) {
-            self.restore_window(ctx);
-        }
+        if RESTORE_SIGNAL.swap(false, Ordering::SeqCst) { self.restore_window(ctx); }
 
         // --- Hotkey Recording Logic ---
         if let Some(preset_idx) = self.recording_hotkey_for_preset {
@@ -436,11 +340,9 @@ impl eframe::App for SettingsApp {
                 self.recording_hotkey_for_preset = None;
                 self.hotkey_conflict_msg = None;
             } else if let Some((vk, mods, key_name)) = key_recorded {
-                // Conflict Check
                 if let Some(msg) = self.check_hotkey_conflict(vk, mods, preset_idx) {
                     self.hotkey_conflict_msg = Some(msg);
                 } else {
-                    // No conflict
                     let mut name_parts = Vec::new();
                     if (mods & MOD_CONTROL) != 0 { name_parts.push("Ctrl".to_string()); }
                     if (mods & MOD_ALT) != 0 { name_parts.push("Alt".to_string()); }
@@ -466,7 +368,6 @@ impl eframe::App for SettingsApp {
             }
         }
 
-
         // --- Event Handling ---
         while let Ok(event) = self.event_rx.try_recv() {
             match event {
@@ -490,30 +391,18 @@ impl eframe::App for SettingsApp {
             }
         }
 
-        if self.config.dark_mode {
-            ctx.set_visuals(egui::Visuals::dark());
-        } else {
-            ctx.set_visuals(egui::Visuals::light());
-        }
+        if self.config.dark_mode { ctx.set_visuals(egui::Visuals::dark()); } else { ctx.set_visuals(egui::Visuals::light()); }
 
         let text = LocaleText::get(&self.config.ui_language);
 
-        // --- FADE IN OVERLAY (Dark Hyperspace Reveal) ---
+        // Fade In Overlay
         if let Some(start_time) = self.fade_in_start {
-            let now = ctx.input(|i| i.time);
-            let elapsed = now - start_time;
-            let fade_duration = 0.6; // Faster fade, match warp duration
-            
-            if elapsed < fade_duration {
-                let opacity = 1.0 - (elapsed / fade_duration) as f32;
-                // Create a black overlay on top of everything
+            let elapsed = ctx.input(|i| i.time) - start_time;
+            if elapsed < 0.6 {
+                let opacity = 1.0 - (elapsed / 0.6) as f32;
                 let rect = ctx.input(|i| i.screen_rect());
                 let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("fade_overlay")));
-                
-                // Black -> Transparent (Dark Hyperspace Jump effect)
-                let color = eframe::egui::Color32::from_black_alpha((opacity * 255.0) as u8);
-                painter.rect_filled(rect, 0.0, color);
-                
+                painter.rect_filled(rect, 0.0, eframe::egui::Color32::from_black_alpha((opacity * 255.0) as u8));
                 ctx.request_repaint();
             } else {
                 self.fade_in_start = None;
@@ -521,788 +410,74 @@ impl eframe::App for SettingsApp {
         }
 
         // --- UI LAYOUT ---
-
-        // 1. Footer (Bottom Panel)
         let visuals = ctx.style().visuals.clone();
-        let footer_bg = if visuals.dark_mode {
-            // Dark theme: slightly lighter background
-            egui::Color32::from_gray(20)
-        } else {
-            // Light theme: slightly darker background
-            egui::Color32::from_gray(240)
-        };
+        let footer_bg = if visuals.dark_mode { egui::Color32::from_gray(20) } else { egui::Color32::from_gray(240) };
+        
         egui::TopBottomPanel::bottom("footer_panel")
             .resizable(false)
             .show_separator_line(false)
-            .frame(
-                egui::Frame::default()
-                    .inner_margin(egui::Margin::symmetric(10.0, 4.0))
-                    .fill(footer_bg)
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(text.footer_admin_text).size(11.0).color(ui.visuals().weak_text_color()));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let version_text = format!("{} v{}", text.footer_version, env!("CARGO_PKG_VERSION"));
-                        ui.label(egui::RichText::new(version_text).size(11.0).color(ui.visuals().weak_text_color()));
-                    });
-                });
-            });
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(10.0, 4.0)).fill(footer_bg))
+            .show(ctx, |ui| render_footer(ui, &text));
 
-        // 2. Main Content
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Main Split (3.5 : 6.5 ratio)
             let available_width = ui.available_width();
             let left_width = available_width * 0.35;
-            let right_width = available_width * 0.65; // Remaining width
+            let right_width = available_width * 0.65;
 
             ui.horizontal(|ui| {
-                // --- LEFT: SIDEBAR (Presets + Global) ---
+                // Left Sidebar
                 ui.allocate_ui_with_layout(egui::vec2(left_width, ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
-                    // Theme & Language Controls (Moved from Header)
-                    ui.horizontal(|ui| {
-                        let theme_icon = if self.config.dark_mode { Icon::Moon } else { Icon::Sun };
-                        if icon_button(ui, theme_icon).on_hover_text("Toggle Theme").clicked() {
-                            self.config.dark_mode = !self.config.dark_mode;
-                            self.save_and_sync();
-                        }
-                        
-                        let original_lang = self.config.ui_language.clone();
-                        let lang_display = match self.config.ui_language.as_str() {
-                            "vi" => "VI",
-                            "ko" => "KO",
-                            _ => "EN",
-                        };
-                        egui::ComboBox::from_id_source("header_lang_switch")
-                            .width(60.0)
-                            .selected_text(lang_display)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.config.ui_language, "en".to_string(), "English");
-                                ui.selectable_value(&mut self.config.ui_language, "vi".to_string(), "Vietnamese");
-                                ui.selectable_value(&mut self.config.ui_language, "ko".to_string(), "Korean");
-                            });
-                        if original_lang != self.config.ui_language {
-                            self.save_and_sync();
-                        }
-                    });
-                    ui.add_space(5.0);
-
-                    // Global Settings Button
-                    let is_global = matches!(self.view_mode, ViewMode::Global);
-                    ui.horizontal(|ui| {
-                        draw_icon_static(ui, Icon::Settings, None);
-                        if ui.selectable_label(is_global, text.global_settings).clicked() {
-                            self.view_mode = ViewMode::Global;
-                        }
-                    });
-                    
-                    ui.add_space(10.0);
-                    ui.label(egui::RichText::new(text.presets_section).strong());
-                    
-                    let mut preset_idx_to_delete = None;
-
-                    // Removed ScrollArea wrapper as requested
-                     for (idx, preset) in self.config.presets.iter().enumerate() {
-                         ui.horizontal(|ui| {
-                             let is_selected = matches!(self.view_mode, ViewMode::Preset(i) if i == idx);
-                             
-                             // OPTIMIZATION: Use programmatic icons instead of emoji
-                             let icon_type = if preset.preset_type == "audio" { Icon::Microphone }
-                             else if preset.preset_type == "video" { Icon::Video }
-                             else { Icon::Image };
-                             
-                             if preset.is_upcoming {
-                                 ui.add_enabled_ui(false, |ui| {
-                                     ui.horizontal(|ui| {
-                                         draw_icon_static(ui, icon_type, None);
-                                         let _ = ui.selectable_label(is_selected, &preset.name);
-                                     });
-                                 });
-                             } else {
-                                 ui.horizontal(|ui| {
-                                     draw_icon_static(ui, icon_type, None);
-                                     if ui.selectable_label(is_selected, &preset.name).clicked() {
-                                         self.view_mode = ViewMode::Preset(idx);
-                                     }
-                                 });
-                                 // Delete button (X icon)
-                                 if self.config.presets.len() > 1 {
-                                     if icon_button(ui, Icon::Delete).clicked() {
-                                         preset_idx_to_delete = Some(idx);
-                                     }
-                                 }
-                             }
-                         });
-                     }
-                    
-                    ui.add_space(5.0);
-                    if ui.button(text.add_preset_btn).clicked() {
-                        let mut new_preset = Preset::default();
-                        new_preset.name = format!("Preset {}", self.config.presets.len() + 1);
-                        self.config.presets.push(new_preset);
-                        self.view_mode = ViewMode::Preset(self.config.presets.len() - 1);
-                        self.save_and_sync();
-                    }
-
-                    if let Some(idx) = preset_idx_to_delete {
-                        self.config.presets.remove(idx);
-                        if let ViewMode::Preset(curr) = self.view_mode {
-                            if curr >= idx && curr > 0 {
-                                self.view_mode = ViewMode::Preset(curr - 1);
-                            } else if self.config.presets.is_empty() {
-                                self.view_mode = ViewMode::Global;
-                            } else {
-                                self.view_mode = ViewMode::Preset(0);
-                            }
-                        }
+                    if render_sidebar(ui, &mut self.config, &mut self.view_mode, &text) {
                         self.save_and_sync();
                     }
                 });
 
-                ui.add_space(10.0); // Spacing between columns
+                ui.add_space(10.0);
 
-                // --- RIGHT: DETAIL VIEW ---
+                // Right Detail View
                 ui.allocate_ui_with_layout(egui::vec2(right_width - 20.0, ui.available_height()), egui::Layout::top_down(egui::Align::Min), |ui| {
                     match self.view_mode {
                         ViewMode::Global => {
-                            // Removed Heading
-                            ui.add_space(10.0);
-                            
-                            // API Keys
-                            ui.group(|ui| {
-                                ui.label(egui::RichText::new(text.api_section).strong());
-                                ui.horizontal(|ui| {
-                                    ui.label(text.api_key_label);
-                                    if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
-                                });
-                                ui.horizontal(|ui| {
-                                    if ui.add(egui::TextEdit::singleline(&mut self.config.api_key).password(!self.show_api_key).desired_width(320.0)).changed() {
-                                        self.save_and_sync();
-                                    }
-                                    let eye_icon = if self.show_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
-                                    if icon_button(ui, eye_icon).clicked() { self.show_api_key = !self.show_api_key; }
-                                });
-                                
-                                ui.add_space(5.0);
-                                ui.horizontal(|ui| {
-                                    ui.label(text.gemini_api_key_label);
-                                    if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
-                                });
-                                ui.horizontal(|ui| {
-                                    if ui.add(egui::TextEdit::singleline(&mut self.config.gemini_api_key).password(!self.show_gemini_api_key).desired_width(320.0)).changed() {
-                                        self.save_and_sync();
-                                    }
-                                    let eye_icon = if self.show_gemini_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
-                                    if icon_button(ui, eye_icon).clicked() { self.show_gemini_api_key = !self.show_gemini_api_key; }
-                                });
-                            });
-
-                            ui.add_space(10.0);
-                            
-                            // --- NEW: USAGE STATISTICS ---
-                            ui.group(|ui| {
-                                ui.horizontal(|ui| {
-                                    draw_icon_static(ui, Icon::Statistics, None);
-                                    ui.label(egui::RichText::new(text.usage_statistics_title).strong());
-                                    icon_button(ui, Icon::Info).on_hover_text(text.usage_statistics_tooltip);
-                                });
-                                
-                                let usage_stats = {
-                                    let app = self.app_state_ref.lock().unwrap();
-                                    app.model_usage_stats.clone()
-                                };
-
-                                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                                    egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
-                                        ui.label(egui::RichText::new(text.usage_model_column).strong());
-                                        ui.label(egui::RichText::new(text.usage_remaining_column).strong());
-                                        ui.end_row();
-
-                                        // Track shown models to avoid duplicates (by full_name)
-                                        let mut shown_models = std::collections::HashSet::new();
-                                        
-                                        for model in get_all_models() {
-                                            if !model.enabled { continue; }
-                                            
-                                            // Skip duplicates (same full_name)
-                                            if shown_models.contains(&model.full_name) {
-                                                continue;
-                                            }
-                                            shown_models.insert(model.full_name.clone());
-                                            
-                                            // Display model name without speed labels
-                                            ui.label(model.full_name.clone());
-                                            
-                                            // 2. Real-time Status
-                                            if model.provider == "groq" {
-                                                // Look up by FULL NAME
-                                                let status = usage_stats.get(&model.full_name).cloned().unwrap_or_else(|| {
-                                                    "??? / ?".to_string()
-                                                });
-                                                ui.label(status);
-                                            } else if model.provider == "google" {
-                                                // Link for Gemini
-                                                ui.hyperlink_to(text.usage_check_link, "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
-                                            }
-                                            ui.end_row();
-                                        }
-                                    });
-                                });
-                            });
-                            // -----------------------------
-
-                            ui.add_space(10.0);
-
-                            // --- Software Update Section ---
-                            match &self.update_status {
-                                UpdateStatus::Idle => {
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("{} v{}", text.current_version_label, env!("CARGO_PKG_VERSION")));
-                                        if ui.button(text.check_for_updates_btn).clicked() {
-                                            if let Some(u) = &self.updater { u.check_for_updates(); }
-                                        }
-                                    });
-                                },
-                                UpdateStatus::Checking => {
-                                    ui.horizontal(|ui| {
-                                        ui.spinner();
-                                        ui.label(text.checking_github);
-                                    });
-                                },
-                                UpdateStatus::UpToDate(ver) => {
-                                    ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(format!("{} (v{})", text.up_to_date, ver)).color(egui::Color32::from_rgb(34, 139, 34)));
-                                        if ui.button(text.check_again_btn).clicked() {
-                                            if let Some(u) = &self.updater { u.check_for_updates(); }
-                                        }
-                                    });
-                                },
-                                UpdateStatus::UpdateAvailable { version, body } => {
-                                    ui.colored_label(egui::Color32::YELLOW, format!("{} {}", text.new_version_available, version));
-                                    
-                                    ui.collapsing(text.release_notes_label, |ui| {
-                                        ui.label(body);
-                                    });
-                                    
-                                    ui.add_space(5.0);
-                                    if ui.button(egui::RichText::new(text.download_update_btn).strong()).clicked() {
-                                        if let Some(u) = &self.updater { u.perform_update(); }
-                                    }
-                                },
-                                UpdateStatus::Downloading => {
-                                    ui.horizontal(|ui| {
-                                        ui.spinner();
-                                        ui.label(text.downloading_update);
-                                    });
-                                },
-                                UpdateStatus::Error(e) => {
-                                    ui.colored_label(egui::Color32::RED, format!("{} {}", text.update_failed, e));
-                                    ui.label(egui::RichText::new(text.app_folder_writable_hint).size(11.0));
-                                    if ui.button(text.retry_btn).clicked() {
-                                        if let Some(u) = &self.updater { u.check_for_updates(); }
-                                    }
-                                },
-                                UpdateStatus::UpdatedAndRestartRequired => {
-                                    ui.label(egui::RichText::new(text.update_success).color(egui::Color32::GREEN).heading());
-                                    ui.label(text.restart_to_use_new_version);
-                                    if ui.button(text.restart_app_btn).clicked() {
-                                        if let Ok(exe_path) = std::env::current_exe() {
-                                            if let Some(exe_dir) = exe_path.parent() {
-                                                // Find the newest ScreenGroundedTranslator_v*.exe file
-                                                if let Ok(entries) = std::fs::read_dir(exe_dir) {
-                                                    if let Some(newest_exe) = entries
-                                                        .filter_map(|e| e.ok())
-                                                        .filter(|e| {
-                                                            let name = e.file_name();
-                                                            let name_str = name.to_string_lossy();
-                                                            name_str.starts_with("ScreenGroundedTranslator_v") && name_str.ends_with(".exe")
-                                                        })
-                                                        .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
-                                                    {
-                                                        let _ = std::process::Command::new(newest_exe.path()).spawn();
-                                                    }
-                                                }
-                                            }
-                                            std::process::exit(0);
-                                        }
-                                    }
-                                }
+                            let usage_stats = {
+                                let app = self.app_state_ref.lock().unwrap();
+                                app.model_usage_stats.clone()
+                            };
+                            if render_global_settings(
+                                ui, 
+                                &mut self.config, 
+                                &mut self.show_api_key, 
+                                &mut self.show_gemini_api_key, 
+                                &usage_stats, 
+                                &self.updater, 
+                                &self.update_status, 
+                                &mut self.run_at_startup, 
+                                &self.auto_launcher, 
+                                &text
+                            ) {
+                                self.save_and_sync();
                             }
-
-                            ui.add_space(10.0);
-
-                            ui.horizontal(|ui| {
-                                if let Some(launcher) = &self.auto_launcher {
-                                    if ui.checkbox(&mut self.run_at_startup, text.startup_label).clicked() {
-                                        if self.run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
-                                    }
-                                }
-                                if ui.button(text.reset_defaults_btn).clicked() {
-                                    // Save API keys before resetting
-                                    let saved_groq_key = self.config.api_key.clone();
-                                    let saved_gemini_key = self.config.gemini_api_key.clone();
-                                    
-                                    // Reset to defaults
-                                    self.config = Config::default();
-                                    
-                                    // Restore API keys
-                                    self.config.api_key = saved_groq_key;
-                                    self.config.gemini_api_key = saved_gemini_key;
-                                    
-                                    self.save_and_sync();
-                                }
-                            });
-                        }
-                        
+                        },
                         ViewMode::Preset(idx) => {
-                            // Ensure index is valid (could be invalid if just deleted)
-                            if idx >= self.config.presets.len() {
-                                self.view_mode = ViewMode::Global; 
-                                return;
-                            }
-
-                            let mut preset = self.config.presets[idx].clone();
-                            let mut preset_changed = false;
-                            let _is_vietnamese = self.config.ui_language == "vi";
-
-                            // Removed Heading
-                            ui.add_space(5.0);
-
-                            // 1. Name (Bigger)
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(text.preset_name_label).heading());
-                                if ui.add(egui::TextEdit::singleline(&mut preset.name).font(egui::TextStyle::Heading)).changed() {
-                                    preset_changed = true;
-                                }
-                            });
-                            
-                            // Type Dropdown
-                             ui.horizontal(|ui| {
-                                 ui.label(text.preset_type_label);
-                                 let image_label = text.preset_type_image;
-                                 let audio_label = text.preset_type_audio;
-                                 let video_label = text.preset_type_video;
-                                 
-                                 let selected_text = match preset.preset_type.as_str() {
-                                     "audio" => audio_label,
-                                     "video" => video_label,
-                                     _ => image_label,
-                                 };
-                                 
-                                 egui::ComboBox::from_id_source("preset_type_combo")
-                                     .selected_text(selected_text)
-                                     .show_ui(ui, |ui| {
-                                         if ui.selectable_value(&mut preset.preset_type, "image".to_string(), image_label).clicked() {
-                                             preset.model = "scout".to_string(); 
-                                             preset_changed = true;
-                                         }
-                                         if ui.selectable_value(&mut preset.preset_type, "audio".to_string(), audio_label).clicked() {
-                                             preset.model = "whisper-fast".to_string(); 
-                                             preset_changed = true;
-                                         }
-                                         // Grayed out Video Option
-                                         ui.add_enabled_ui(false, |ui| {
-                                             let _ = ui.selectable_value(&mut preset.preset_type, "video".to_string(), video_label);
-                                         });
-                                     });
-                             });
-
-                             let is_audio = preset.preset_type == "audio";
-                             let is_video = preset.preset_type == "video";
-
-                             // --- VIDEO PLACEHOLDER UI ---
-                             if is_video {
-                                 ui.group(|ui| {
-                                     ui.label(egui::RichText::new(text.capture_method_label).strong());
-                                     
-                                     // FIX 2: Monitor List Refresh Button
-                                     ui.horizontal(|ui| {
-                                         if icon_button(ui, Icon::Refresh).on_hover_text("Refresh Monitors").clicked() {
-                                             self.cached_monitors = get_monitor_names();
-                                         }
-
-                                         egui::ComboBox::from_id_source("video_cap_method")
-                                             .selected_text(if preset.video_capture_method == "region" {
-                                                 text.region_capture.to_string()
-                                             } else {
-                                                 preset.video_capture_method.strip_prefix("monitor:").unwrap_or("Unknown").to_string()
-                                             })
-                                             .show_ui(ui, |ui| {
-                                                 if ui.selectable_value(&mut preset.video_capture_method, "region".to_string(), text.region_capture).clicked() {
-                                                     preset_changed = true;
-                                                 }
-                                                 for monitor in &self.cached_monitors {
-                                                     let val = format!("monitor:{}", monitor);
-                                                     let label = format!("Full screen ({})", monitor);
-                                                     if ui.selectable_value(&mut preset.video_capture_method, val, label).clicked() {
-                                                         preset_changed = true;
-                                                     }
-                                                 }
-                                             });
-                                     });
-                                 });
-                                 // Hide everything else for video placeholder
-                             } else {
-                                 // STANDARD UI (Image/Audio)
-                                 
-                                 // Show prompt controls if it's an image preset OR a Gemini audio model (which can use a prompt for translation/analysis)
-                                 let show_prompt_controls = !is_audio || (is_audio && preset.model.contains("gemini"));
-
-                                 // 2. Main Configuration (Different for Image vs Audio)
-                                 if show_prompt_controls {
-                                // --- IMAGE PROMPT SETTINGS / GEMINI AUDIO PROMPT SETTINGS ---
-                                ui.group(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new(text.prompt_label).strong());
-                                        if ui.button(text.insert_lang_btn).clicked() {
-                                            // ... (existing insert lang logic) ...
-                                            let mut max_num = 0;
-                                            for i in 1..=10 {
-                                                if preset.prompt.contains(&format!("{{language{}}}", i)) {
-                                                    max_num = i;
-                                                }
-                                            }
-                                            let next_num = max_num + 1;
-                                            preset.prompt.push_str(&format!(" {{language{}}} ", next_num));
-                                            let key = format!("language{}", next_num);
-                                            if !preset.language_vars.contains_key(&key) {
-                                                preset.language_vars.insert(key, "Vietnamese".to_string());
-                                            }
-                                            preset_changed = true;
-                                        }
-                                    });
-                                    
-                                    if ui.add(egui::TextEdit::multiline(&mut preset.prompt).desired_rows(3).desired_width(f32::INFINITY)).changed() {
-                                        preset_changed = true;
-                                    }
-                                    
-                                    // FIX 4: Empty Prompt Warning
-                                    if preset.prompt.trim().is_empty() {
-                                        ui.colored_label(egui::Color32::RED, text.empty_prompt_warning);
-                                    }
-                                    
-                                    // ... (existing language tag selectors logic) ...
-                                    let mut detected_langs = Vec::new();
-                                    for i in 1..=10 {
-                                        let pattern = format!("{{language{}}}", i);
-                                        if preset.prompt.contains(&pattern) {
-                                            detected_langs.push(i);
-                                        }
-                                    }
-                                    
-                                    for num in detected_langs {
-                                        let key = format!("language{}", num);
-                                        if !preset.language_vars.contains_key(&key) {
-                                            preset.language_vars.insert(key.clone(), "Vietnamese".to_string());
-                                        }
-                                        let label = match self.config.ui_language.as_str() {
-                                            "vi" => format!("Ngôn ngữ cho thẻ {{language{}}}:", num),
-                                            "ko" => format!("{{language{}}} 태그 언어:", num),
-                                            _ => format!("Language for {{language{}}} tag:", num),
-                                        };
-                                        ui.horizontal(|ui| {
-                                            ui.label(label);
-                                            let current_lang = preset.language_vars.get(&key).cloned().unwrap_or_else(|| "Vietnamese".to_string());
-                                            ui.menu_button(current_lang.clone(), |ui| {
-                                                ui.style_mut().wrap = Some(false);
-                                                ui.set_min_width(150.0);
-                                                ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
-                                                let q = self.search_query.to_lowercase();
-                                                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                                                    for lang in get_all_languages().iter() {
-                                                        if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                            if ui.button(lang).clicked() {
-                                                                preset.language_vars.insert(key.clone(), lang.clone());
-                                                                preset_changed = true;
-                                                                ui.close_menu();
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                            });
-                                        });
-                                    }
-                                });
-                            }
-
-                            if is_audio {
-                                // --- AUDIO SOURCE SETTINGS ---
-                                ui.group(|ui| {
-                                    ui.label(egui::RichText::new(text.audio_source_label).strong());
-                                    
-                                    ui.horizontal(|ui| {
-                                        if ui.radio_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() {
-                                            preset_changed = true;
-                                        }
-                                        if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() {
-                                            preset_changed = true;
-                                        }
-                                        if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() {
-                                            preset_changed = true;
-                                        }
-                                    });
-                                });
-                            }
-
-                            // 3. Model & Settings (Shared structure, filtered by type)
-                            ui.group(|ui| {
-                                ui.label(egui::RichText::new(text.model_section).strong());
-                                
-                                // Model selector + Streaming on same line
-                                ui.horizontal(|ui| {
-                                    let selected_model = get_model_by_id(&preset.model);
-                                    // Display only the speed name (Nhanh, Rất Nhanh, etc.)
-                                    let display_label = selected_model.as_ref()
-                                        .map(|m| match self.config.ui_language.as_str() {
-                                            "vi" => &m.name_vi,
-                                            "ko" => &m.name_ko,
-                                            _ => &m.name_en,
-                                        })
-                                        .map(|s| s.as_str())
-                                        .unwrap_or(&preset.model);
-
-                                    egui::ComboBox::from_id_source("model_selector")
-                                        .selected_text(display_label)
-                                        .show_ui(ui, |ui| {
-                                            let target_type = if is_audio { ModelType::Audio } else { ModelType::Vision };
-                                            for model in get_all_models() {
-                                                if model.enabled && model.model_type == target_type {
-                                                    // Show full details in dropdown: "Nhanh (meta-llama/...) - 1000 lượt/ngày"
-                                                    let dropdown_label = format!("{} ({}) - {}", 
-                                                        match self.config.ui_language.as_str() {
-                                                            "vi" => &model.name_vi,
-                                                            "ko" => &model.name_ko,
-                                                            _ => &model.name_en,
-                                                        },
-                                                        model.full_name,
-                                                        model.quota_limit
-                                                    );
-                                                    if ui.selectable_value(&mut preset.model, model.id.clone(), dropdown_label).clicked() {
-                                                                         preset_changed = true;
-                                                                         
-                                                                         // START: NEW LOGIC FOR GEMINI AUDIO PROMPT PRE-FILL
-                                                                         if is_audio && preset.model.contains("gemini") && preset.prompt.trim().is_empty() {
-                                                                             preset.prompt = "Transcribe the audio accurately.".to_string();
-                                                                         } else if is_audio && !preset.model.contains("gemini") && preset.prompt == "Transcribe the audio accurately." {
-                                                                             // Reset prompt when switching away from Gemini Audio if it's the default
-                                                                             preset.prompt = "".to_string();
-                                                                         }
-                                                                         // END: NEW LOGIC
-                                                                     }
-                                                                 }
-                                                             }
-                                                         });
-
-                                                     // Hide Streaming control when "Hide Overlay" is active
-                                                     if !preset.hide_overlay {
-                                                         ui.label(text.streaming_label);
-                                                         egui::ComboBox::from_id_source("stream_combo")
-                                                             .selected_text(if preset.streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                                                             .show_ui(ui, |ui| {
-                                                                 if ui.selectable_value(&mut preset.streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
-                                                                 if ui.selectable_value(&mut preset.streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
-                                                             });
-                                                     }
-                                                    });
-
-                                // Auto copy + Hide overlay on same line
-                                ui.horizontal(|ui| {
-                                    if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
-                                        preset_changed = true;
-                                        if preset.auto_copy { preset.retranslate_auto_copy = false; }
-                                    }
-                                    if preset.auto_copy {
-                                        if ui.checkbox(&mut preset.hide_overlay, text.hide_overlay_label).clicked() {
-                                            preset_changed = true;
-                                        }
-                                    }
-                                });
-                            });
-
-                            // 4. Retranslate (Shared)
-                            // Audio usually needs retranslation? Yes, Transcribe -> Translate.
-                            if !preset.hide_overlay {
-                                ui.group(|ui| {
-                                    ui.label(egui::RichText::new(text.retranslate_section).strong());
-                                    
-                                    // Enable retranslate + Target Language on same line
-                                    ui.horizontal(|ui| {
-                                        if ui.checkbox(&mut preset.retranslate, text.retranslate_checkbox).clicked() {
-                                            preset_changed = true;
-                                        }
-                                        
-                                        if preset.retranslate {
-                                            ui.label(text.retranslate_to_label);
-                                            let retrans_label = preset.retranslate_to.clone();
-                                            ui.menu_button(retrans_label, |ui| {
-                                                ui.style_mut().wrap = Some(false);
-                                                ui.set_min_width(150.0);
-                                                ui.add(egui::TextEdit::singleline(&mut self.search_query).hint_text(text.search_placeholder));
-                                                let q = self.search_query.to_lowercase();
-                                                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                                                    for lang in get_all_languages().iter() {
-                                                        if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                            if ui.button(lang).clicked() {
-                                                                preset.retranslate_to = lang.clone();
-                                                                preset_changed = true;
-                                                                ui.close_menu();
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                            });
-                                        }
-                                    });
-
-                                    if preset.retranslate {
-                                        // Text Model Selector + Auto Copy on same line
-                                        ui.horizontal(|ui| {
-                                            ui.label(text.retranslate_model_label);
-                                            let text_model = get_model_by_id(&preset.retranslate_model);
-                                            // Display only the speed name
-                                            let text_display_label = text_model.as_ref()
-                                                .map(|m| match self.config.ui_language.as_str() {
-                                                    "vi" => &m.name_vi,
-                                                    "ko" => &m.name_ko,
-                                                    _ => &m.name_en,
-                                                })
-                                                .map(|s| s.as_str())
-                                                .unwrap_or(&preset.retranslate_model);
-                                            
-                                            egui::ComboBox::from_id_source("text_model_selector")
-                                                .selected_text(text_display_label)
-                                                .show_ui(ui, |ui| {
-                                                    for model in get_all_models() {
-                                                        if model.enabled && model.model_type == ModelType::Text {
-                                                            // Show full details in dropdown: "Nhanh (meta-llama/...) - 1000 lượt/ngày"
-                                                            let dropdown_label = format!("{} ({}) - {}", 
-                                                                match self.config.ui_language.as_str() {
-                                                                    "vi" => &model.name_vi,
-                                                                    "ko" => &model.name_ko,
-                                                                    _ => &model.name_en,
-                                                                },
-                                                                model.full_name,
-                                                                model.quota_limit
-                                                            );
-                                                            if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), dropdown_label).clicked() {
-                                                                preset_changed = true;
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                            
-                                            if ui.checkbox(&mut preset.retranslate_auto_copy, text.auto_copy_label).clicked() {
-                                                 preset_changed = true;
-                                                 if preset.retranslate_auto_copy { preset.auto_copy = false; }
-                                             }
-                                            });
-
-                                            // Retranslate Settings - Hide Streaming control when "Hide Overlay" is active
-                                            if !preset.hide_overlay {
-                                             ui.horizontal(|ui| {
-                                                 ui.label(text.streaming_label);
-                                                 egui::ComboBox::from_id_source("retrans_stream_combo")
-                                                     .selected_text(if preset.retranslate_streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })
-                                                     .show_ui(ui, |ui| {
-                                                         if ui.selectable_value(&mut preset.retranslate_streaming_enabled, false, text.streaming_option_wait).clicked() { preset_changed = true; }
-                                                         if ui.selectable_value(&mut preset.retranslate_streaming_enabled, true, text.streaming_option_stream).clicked() { preset_changed = true; }
-                                                     });
-                                             });
-                                            }
-                                            }
-                                            });
-                            }
+                             if render_preset_editor(
+                                 ui, 
+                                 &mut self.config, 
+                                 idx, 
+                                 &mut self.search_query, 
+                                 &mut self.cached_monitors, 
+                                 &mut self.recording_hotkey_for_preset, 
+                                 &self.hotkey_conflict_msg, 
+                                 &text
+                             ) {
+                                 self.save_and_sync();
                              }
-
-                            // 5. Hotkeys (hidden for video placeholder presets)
-                            if !is_video {
-                               ui.group(|ui| {
-                                   ui.label(egui::RichText::new(text.hotkeys_section).strong());
-                                   
-                                   let mut hotkey_to_remove = None;
-                                   for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
-                                       ui.horizontal(|ui| {
-                                           ui.label(&hotkey.name);
-                                           if ui.small_button("x").clicked() {
-                                               hotkey_to_remove = Some(h_idx);
-                                           }
-                                       });
-                                   }
-                                   if let Some(h_idx) = hotkey_to_remove {
-                                       preset.hotkeys.remove(h_idx);
-                                       preset_changed = true;
-                                   }
-
-                                   if self.recording_hotkey_for_preset == Some(idx) {
-                                       ui.horizontal(|ui| {
-                                           ui.colored_label(egui::Color32::YELLOW, text.press_keys);
-                                           if ui.button(text.cancel_label).clicked() {
-                                               self.recording_hotkey_for_preset = None;
-                                               self.hotkey_conflict_msg = None;
-                                           }
-                                       });
-                                       if let Some(msg) = &self.hotkey_conflict_msg {
-                                           ui.colored_label(egui::Color32::RED, msg);
-                                       }
-                                   } else {
-                                       if ui.button(text.add_hotkey_button).clicked() {
-                                           self.recording_hotkey_for_preset = Some(idx);
-                                       }
-                                   }
-                               });
-                            }
-
-                            // Update the preset in the config
-                            if idx < self.config.presets.len() {
-                                self.config.presets[idx] = preset;
-                                // Save if anything changed
-                                if preset_changed {
-                                    self.save_and_sync();
-                                }
-                            }
                         }
                     }
                 });
-            }); // End of Main Split
-        }); // End of CentralPanel
+            });
+        });
     }
     
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.tray_icon = None;
     }
-}
-
-pub fn configure_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    let viet_font_name = "segoe_ui";
-    
-    // FIX 8: Dynamic Windows font path instead of hardcoded
-    let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
-    let font_dir = std::path::Path::new(&windir).join("Fonts");
-    
-    let viet_font_path = font_dir.join("segoeui.ttf");
-    let viet_fallback_path = font_dir.join("arial.ttf");
-    let viet_data = std::fs::read(&viet_font_path).or_else(|_| std::fs::read(&viet_fallback_path));
-
-    let korean_font_name = "malgun_gothic";
-    let korean_font_path = font_dir.join("malgun.ttf");
-    let korean_data = std::fs::read(&korean_font_path);
-
-    if let Ok(data) = viet_data {
-        fonts.font_data.insert(viet_font_name.to_owned(), egui::FontData::from_owned(data));
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { vec.insert(0, viet_font_name.to_owned()); }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { vec.insert(0, viet_font_name.to_owned()); }
-    }
-    if let Ok(data) = korean_data {
-        fonts.font_data.insert(korean_font_name.to_owned(), egui::FontData::from_owned(data));
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { 
-            let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
-            vec.insert(idx, korean_font_name.to_owned()); 
-        }
-        if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { 
-             let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
-             vec.insert(idx, korean_font_name.to_owned()); 
-        }
-    }
-    ctx.set_fonts(fonts);
 }

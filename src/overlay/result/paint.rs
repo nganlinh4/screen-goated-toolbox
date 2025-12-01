@@ -6,50 +6,7 @@ use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
 use crate::overlay::paint_utils::{sd_rounded_box, hsv_to_rgb};
 use super::state::{WINDOW_STATES, AnimationMode, ResizeEdge};
-
-// Helper for Copy Button Rect
-fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
-    let btn_size = 28;
-    let margin = 12;
-    let threshold_h = btn_size + (margin * 2);
-    let top = if window_h < threshold_h {
-        (window_h - btn_size) / 2
-    } else {
-        window_h - margin - btn_size
-    };
-    RECT {
-        left: window_w - margin - btn_size,
-        top,
-        right: window_w - margin,
-        bottom: top + btn_size,
-    }
-}
-
-// Helper for Edit Button Rect
-fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
-    let copy_rect = get_copy_btn_rect(window_w, window_h);
-    let gap = 8;
-    let width = copy_rect.right - copy_rect.left;
-    RECT {
-        left: copy_rect.left - width - gap,
-        top: copy_rect.top,
-        right: copy_rect.left - gap,
-        bottom: copy_rect.bottom
-    }
-}
-
-// Helper for Undo Button Rect
-fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
-    let edit_rect = get_edit_btn_rect(window_w, window_h);
-    let gap = 8;
-    let width = edit_rect.right - edit_rect.left;
-    RECT {
-        left: edit_rect.left - width - gap,
-        top: edit_rect.top,
-        right: edit_rect.left - gap,
-        bottom: edit_rect.bottom
-    }
-}
+use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect};
 
 // RAII Wrapper for GDI Objects to ensure cleanup
 struct GdiObj(HGDIOBJ);
