@@ -35,7 +35,7 @@ if (-not (Test-Path $upxPath)) {
 
 if (Test-Path $exePath) {
     Write-Host "Compressing with UPX..." -ForegroundColor Green
-    & $upxPath --best --lzma $exePath
+    & $upxPath --ultra-brute --lzma $exePath
     
     # Rename exe to include version
     if (Test-Path $outputPath) {
