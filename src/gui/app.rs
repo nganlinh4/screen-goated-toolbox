@@ -17,7 +17,7 @@ use windows::core::*;
 use crate::gui::locale::LocaleText;
 use crate::gui::key_mapping::egui_key_to_vk;
 use crate::updater::{Updater, UpdateStatus};
-use crate::gui::settings_ui::{ViewMode, render_sidebar, render_global_settings, render_preset_editor, render_footer};
+use crate::gui::settings_ui::{ViewMode, render_sidebar, render_global_settings, render_preset_editor, render_footer, render_history_panel};
 use crate::gui::utils::get_monitor_names;
 
 
@@ -456,6 +456,21 @@ impl eframe::App for SettingsApp {
                             ) {
                                 self.save_and_sync();
                             }
+                        },
+                        ViewMode::History => {
+                             let history_manager = {
+                                 let app = self.app_state_ref.lock().unwrap();
+                                 app.history.clone()
+                             };
+                             if render_history_panel(
+                                 ui,
+                                 &mut self.config,
+                                 &history_manager,
+                                 &mut self.search_query,
+                                 &text
+                             ) {
+                                 self.save_and_sync();
+                             }
                         },
                         ViewMode::Preset(idx) => {
                              if render_preset_editor(

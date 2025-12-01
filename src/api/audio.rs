@@ -323,6 +323,9 @@ pub fn record_audio_and_transcribe(
     
     final_prompt = final_prompt.replace("{language}", &preset.selected_language);
     
+    // Clone wav_data for history saving
+    let wav_data_for_history = wav_data.clone();
+    
     let transcription_result = if provider == "groq" {
         if groq_api_key.trim().is_empty() {
             Err(anyhow::anyhow!("NO_API_KEY"))
@@ -352,6 +355,12 @@ pub fn record_audio_and_transcribe(
 
     match transcription_result {
         Ok(transcription_text) => {
+            // SAVE HISTORY
+            {
+                let app = crate::APP.lock().unwrap();
+                app.history.save_audio(wav_data_for_history, transcription_text.clone());
+            }
+            
             let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
             let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
             

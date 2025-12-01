@@ -83,7 +83,11 @@ pub struct Config {
     pub active_preset_idx: usize, // For UI selection
     pub dark_mode: bool,
     pub ui_language: String,
+    #[serde(default = "default_history_limit")]
+    pub max_history_items: usize, // NEW
 }
+
+fn default_history_limit() -> usize { 100 }
 
     impl Default for Config {
     fn default() -> Self {
@@ -379,6 +383,7 @@ pub struct Config {
             active_preset_idx: 0,
             dark_mode: true,
             ui_language: "vi".to_string(),
+            max_history_items: 100,
         }
     }
 }

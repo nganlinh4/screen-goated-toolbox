@@ -77,6 +77,9 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
         let use_json_format = preset.id == "preset_translate";
         let hide_overlay = preset.hide_overlay;
         
+        // Clone for history saving
+        let cropped_for_history = cropped.clone();
+        
         // Spawn UI Thread for Results
          std::thread::spawn(move || {
              // Create Primary Window (Pass metadata)
@@ -129,14 +132,20 @@ pub fn process_and_close(app: Arc<Mutex<AppState>>, rect: RECT, overlay_hwnd: HW
                         // Ensure window is shown if it wasn't already (non-streaming or fast response)
                         if !first_chunk_received {
                              unsafe {
-                                PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-                                if !hide_overlay {
-                                    ShowWindow(primary_hwnd, SW_SHOW);
-                                }
-                            }
-                            if !hide_overlay {
-                                update_window_text(primary_hwnd, &vision_text);
-                            }
+                                 PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                                 if !hide_overlay {
+                                     ShowWindow(primary_hwnd, SW_SHOW);
+                                 }
+                             }
+                             if !hide_overlay {
+                                 update_window_text(primary_hwnd, &vision_text);
+                             }
+                         }
+
+                        // SAVE HISTORY
+                        {
+                            let app = app.lock().unwrap();
+                            app.history.save_image(cropped_for_history, vision_text.clone());
                         }
 
                         // --- STEP 1.5: MAIN AUTO COPY ---

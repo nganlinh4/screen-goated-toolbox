@@ -20,6 +20,10 @@ zip = "0.6"
 # Image Processing (Only PNG feature to save space)
 image = { version = "0.24", default-features = false, features = ["png"] }
 
+# Database & Time
+rusqlite = { version = "0.31", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+
 # System
 dirs = "5.0"
 lazy_static = "1.4"

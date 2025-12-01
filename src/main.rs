@@ -7,6 +7,7 @@ mod overlay;
 mod icon_gen;
 mod model_config;
 mod updater;
+mod history;
 
 use std::sync::{Arc, Mutex};
 use std::panic;
@@ -22,6 +23,7 @@ use image::ImageBuffer;
 use config::{Config, load_config};
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem}};
 use std::collections::HashMap;
+use history::HistoryManager;
 
 // Global event for inter-process restore signaling (manual-reset event)
 lazy_static! {
@@ -36,18 +38,21 @@ pub struct AppState {
     pub hotkeys_updated: bool,
     pub registered_hotkey_ids: Vec<i32>, // Track IDs of currently registered hotkeys
     // New: Track API usage limits (Key: Model Full Name, Value: "Remaining / Total")
-    pub model_usage_stats: HashMap<String, String>, 
+    pub model_usage_stats: HashMap<String, String>,
+    pub history: Arc<HistoryManager>, // NEW
 }
 
 lazy_static! {
     pub static ref APP: Arc<Mutex<AppState>> = Arc::new(Mutex::new({
         let config = load_config();
+        let history = Arc::new(HistoryManager::new(config.max_history_items));
         AppState {
             config,
             original_screenshot: None,
             hotkeys_updated: false,
             registered_hotkey_ids: Vec::new(),
             model_usage_stats: HashMap::new(),
+            history,
         }
     }));
 }

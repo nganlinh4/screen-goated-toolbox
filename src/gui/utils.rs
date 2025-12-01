@@ -1,4 +1,4 @@
-use windows::Win32::Foundation::{BOOL, LPARAM, RECT};
+use windows::Win32::Foundation::{BOOL, LPARAM, RECT, HWND};
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR, GetMonitorInfoW, MONITORINFOEXW};
 use eframe::egui;
 
@@ -27,6 +27,11 @@ pub fn get_monitor_names() -> Vec<String> {
         EnumDisplayMonitors(HDC(0), None, Some(monitor_enum_proc), LPARAM(&mut ctx as *mut _ as isize));
     }
     ctx.monitors
+}
+
+// --- Clipboard Helper ---
+pub fn copy_to_clipboard_text(text: &str) {
+    crate::overlay::utils::copy_to_clipboard(text, HWND(0));
 }
 
 // --- Font Configuration ---

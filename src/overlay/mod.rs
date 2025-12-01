@@ -1,4 +1,4 @@
-mod utils;
+pub mod utils;
 mod selection;
 pub mod result;
 pub mod recording; 

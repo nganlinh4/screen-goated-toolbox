@@ -1,5 +1,12 @@
 // --- Localization ---
 pub struct LocaleText {
+     pub history_btn: &'static str,
+     pub history_title: &'static str,
+     pub max_items_label: &'static str,
+     pub history_empty: &'static str,
+     pub clear_all_history_btn: &'static str,
+     pub view_image_btn: &'static str, // NEW
+     pub listen_audio_btn: &'static str, // NEW
      pub api_section: &'static str,
      pub api_key_label: &'static str,
      pub get_key_link: &'static str,
@@ -70,6 +77,13 @@ impl LocaleText {
     pub fn get(lang_code: &str) -> Self {
         match lang_code {
             "vi" => Self {
+                 history_btn: "Lịch sử",
+                 history_title: "Thư viện kết quả",
+                 max_items_label: "Giới hạn lưu:",
+                 history_empty: "Chưa có lịch sử nào.",
+                 clear_all_history_btn: "Dọn tất cả", 
+                 view_image_btn: "Xem ảnh",
+                 listen_audio_btn: "Nghe audio",
                  api_section: "Cài Đặt Chung",
                  api_key_label: "Mã API Groq:",
                  get_key_link: "Lấy tại console.groq.com",
@@ -86,7 +100,7 @@ impl LocaleText {
                 retranslate_model_label: "Mô hình dịch lại:",
                 hotkey_bag_label: "Phím tắt kích hoạt:",
                 add_preset_btn: "+ Thêm Cấu Hình",
-                search_placeholder: "Tìm ngôn ngữ...",
+                search_placeholder: "Tìm...",
                 model_section: "Mô hình xử lý",
                 streaming_label: "Cách xuất chữ:",
                 streaming_option_stream: "Nhận gì hiện nấy",
@@ -135,6 +149,13 @@ impl LocaleText {
                 restart_app_btn: "Khởi Động Lại Ứng Dụng",
                 },
             "ko" => Self {
+                history_btn: "히스토리",
+                history_title: "결과 라이브러리",
+                max_items_label: "저장 한도:",
+                history_empty: "기록이 없습니다.",
+                clear_all_history_btn: "모두 삭제",
+                view_image_btn: "이미지 보기",
+                listen_audio_btn: "오디오 듣기",
                 api_section: "전역 설정",
                 api_key_label: "Groq API 키:",
                 get_key_link: "console.groq.com에서 API 키 받기",
@@ -151,7 +172,7 @@ impl LocaleText {
                 retranslate_model_label: "재번역 모델:",
                 hotkey_bag_label: "활성화 단축키:",
                 add_preset_btn: "+ 프리셋 추가",
-                search_placeholder: "언어 검색...",
+                search_placeholder: "검색...",
                 model_section: "처리 모델",
                 streaming_label: "텍스트 출력:",
                 streaming_option_stream: "수신 즉시 스트리밍",
@@ -200,6 +221,13 @@ impl LocaleText {
                 restart_app_btn: "앱 다시 시작",
                 },
             _ => Self {
+                history_btn: "History",
+                history_title: "Result Library",
+                max_items_label: "Max Items:",
+                history_empty: "No history yet.",
+                clear_all_history_btn: "Clear All",
+                view_image_btn: "View Image",
+                listen_audio_btn: "Listen Audio",
                 api_section: "Global Settings",
                 api_key_label: "Groq API Key:",
                 get_key_link: "Get API Key at console.groq.com",
@@ -216,7 +244,7 @@ impl LocaleText {
                 retranslate_model_label: "Retranslation Model:",
                 hotkey_bag_label: "Activation Hotkeys:",
                 add_preset_btn: "+ Add Preset",
-                search_placeholder: "Search language...",
+                search_placeholder: "Search...",
                 model_section: "Processing Model",
                 streaming_label: "Text Output:",
                 streaming_option_stream: "Stream as received",
@@ -266,4 +294,4 @@ impl LocaleText {
                 },
                 }
                 }
-                }
+}
