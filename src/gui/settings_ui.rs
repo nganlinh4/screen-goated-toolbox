@@ -214,7 +214,7 @@ fn render_usage_statistics(
             icon_button(ui, Icon::Info).on_hover_text(text.usage_statistics_tooltip);
         });
         
-        egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(110.0).show(ui, |ui| {
             egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
                 ui.label(egui::RichText::new(text.usage_model_column).strong());
                 ui.label(egui::RichText::new(text.usage_remaining_column).strong());
