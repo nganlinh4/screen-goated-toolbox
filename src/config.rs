@@ -2,6 +2,18 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::collections::HashMap;
 
+fn get_system_ui_language() -> String {
+    let sys_locale = sys_locale::get_locale().unwrap_or_default();
+    let lang_code = sys_locale.split('-').next().unwrap_or("en").to_lowercase();
+    
+    match lang_code.as_str() {
+        "vi" => "vi".to_string(),
+        "ko" => "ko".to_string(),
+        "en" => "en".to_string(),
+        _ => "en".to_string(), // Default to English for unsupported languages
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Hotkey {
     pub code: u32,
@@ -91,19 +103,24 @@ fn default_history_limit() -> usize { 100 }
 
     impl Default for Config {
     fn default() -> Self {
-        let default_lang = "Vietnamese".to_string(); 
+        let system_ui_lang = get_system_ui_language();
+        let default_lang = match system_ui_lang.as_str() {
+            "vi" => "Vietnamese".to_string(),
+            "ko" => "Korean".to_string(),
+            _ => "English".to_string(),
+        }; 
         
         // 1. Translation Preset
         let mut trans_lang_vars = HashMap::new();
-        trans_lang_vars.insert("language1".to_string(), default_lang.clone());
+        trans_lang_vars.insert("language1".to_string(), "Vietnamese".to_string());
         
         let trans_preset = Preset {
             id: "preset_translate".to_string(),
             name: "Translate".to_string(),
             prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
-            selected_language: default_lang.clone(),
+            selected_language: "Vietnamese".to_string(),
             language_vars: trans_lang_vars.clone(),
-            model: "scout".to_string(),
+            model: "maverick".to_string(),
             streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 }], // Tilde
@@ -136,7 +153,7 @@ fn default_history_limit() -> usize { 100 }
             hotkeys: vec![],
             retranslate: true,
             retranslate_to: "Vietnamese".to_string(),
-            retranslate_model: "fast_text".to_string(),
+            retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
             hide_overlay: false,
@@ -178,13 +195,13 @@ fn default_history_limit() -> usize { 100 }
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
             selected_language: "English".to_string(),
             language_vars: HashMap::new(),
-            model: "scout".to_string(),
+            model: "maverick".to_string(),
             streaming_enabled: false,
             auto_copy: true,
             hotkeys: vec![],
             retranslate: true,
             retranslate_to: default_lang.clone(),
-            retranslate_model: "fast_text".to_string(),
+            retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
             hide_overlay: false,
@@ -256,7 +273,7 @@ fn default_history_limit() -> usize { 100 }
             prompt: "".to_string(),
             selected_language: default_lang.clone(),
             language_vars: HashMap::new(),
-            model: "whisper-fast".to_string(),
+            model: "whisper-accurate".to_string(),
             streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
@@ -280,13 +297,13 @@ fn default_history_limit() -> usize { 100 }
             prompt: "".to_string(),
             selected_language: default_lang.clone(),
             language_vars: HashMap::new(),
-            model: "whisper-fast".to_string(),
+            model: "whisper-accurate".to_string(),
             streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
             retranslate: true,
             retranslate_to: default_lang.clone(),
-            retranslate_model: "fast_text".to_string(),
+            retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
             hide_overlay: false,
@@ -304,13 +321,13 @@ fn default_history_limit() -> usize { 100 }
             prompt: "".to_string(),
             selected_language: "Korean".to_string(),
             language_vars: HashMap::new(),
-            model: "whisper-fast".to_string(),
+            model: "whisper-accurate".to_string(),
             streaming_enabled: false,
             auto_copy: false,
             hotkeys: vec![],
             retranslate: true,
             retranslate_to: "Korean".to_string(),
-            retranslate_model: "fast_text".to_string(),
+            retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: true,
             hide_overlay: false,
@@ -382,7 +399,7 @@ fn default_history_limit() -> usize { 100 }
             ],
             active_preset_idx: 0,
             dark_mode: true,
-            ui_language: "vi".to_string(),
+            ui_language: get_system_ui_language(),
             max_history_items: 100,
         }
     }
