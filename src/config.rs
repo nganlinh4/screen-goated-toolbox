@@ -287,7 +287,7 @@ fn default_history_limit() -> usize { 100 }
             prompt_mode: "dynamic".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: ask_lang_vars,
-            model: "maverick".to_string(),
+            model: "gemini-flash-lite".to_string(),
             streaming_enabled: true,
             auto_copy: false,
             hotkeys: vec![],
