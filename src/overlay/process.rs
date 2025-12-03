@@ -49,20 +49,55 @@ pub fn start_processing_pipeline(
 ) {
     let hide_overlay = preset.hide_overlay;
 
-    // 1. Create the Processing Overlay Window (The glowing rainbow box)
-    let processing_hwnd = unsafe { create_processing_window(screen_rect) };
-
-    // 2. Prepare Data for API Thread
+    // Data for Result Window
     let model_id = preset.model.clone();
     let model_config = crate::model_config::get_model_by_id(&model_id);
     let model_config = model_config.expect("Model config not found for preset model");
-    let model_name = model_config.full_name.clone();
     let provider = model_config.provider.clone();
 
-    // Prepare Refine Context
+    // Prepare Refine Context (Image)
     let mut png_data = Vec::new();
     let _ = cropped_img.write_to(&mut std::io::Cursor::new(&mut png_data), image::ImageFormat::Png);
     let refine_context = RefineContext::Image(png_data);
+
+    // NEW LOGIC: Dynamic Prompt Mode
+    if preset.prompt_mode == "dynamic" {
+        // Skip processing overlay, skip API thread. Open Result Window directly in Edit Mode.
+        std::thread::spawn(move || {
+            let hwnd = create_result_window(
+                screen_rect,
+                WindowType::Primary,
+                refine_context,
+                model_id,
+                provider,
+                preset.streaming_enabled,
+                true // start_editing = true
+            );
+            
+            unsafe { ShowWindow(hwnd, SW_SHOW); }
+            
+            // Run message loop
+            unsafe {
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).into() {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                    if !IsWindow(hwnd).as_bool() { break; }
+                }
+            }
+        });
+        return;
+    }
+
+    // --- STANDARD PROCESSING (Fixed Prompt) ---
+
+    // 1. Create the Processing Overlay Window (The glowing rainbow box)
+    let processing_hwnd = unsafe { create_processing_window(screen_rect) };
+
+    // 2. Prepare Data for API Thread (model_id, provider, refine_context already prepared above)
+    let model_config = crate::model_config::get_model_by_id(&model_id);
+    let model_config = model_config.expect("Model config not found for preset model");
+    let model_name = model_config.full_name.clone();
     
     // API Config
     let groq_api_key = config.api_key.clone();
@@ -131,7 +166,8 @@ pub fn start_processing_pipeline(
                             refine_ctx_copy,
                             mid_copy,
                             prov_copy,
-                            stream_copy
+                            stream_copy,
+                            false
                         );
                         
                         // Only show the text result if NOT hidden
@@ -170,7 +206,7 @@ pub fn start_processing_pipeline(
 
             std::thread::spawn(move || {
                 let hwnd = create_result_window(
-                    rect_copy, WindowType::Primary, refine_ctx_copy, mid_copy, prov_copy, stream_copy
+                    rect_copy, WindowType::Primary, refine_ctx_copy, mid_copy, prov_copy, stream_copy, false
                 );
                 if !hide_copy { unsafe { ShowWindow(hwnd, SW_SHOW); } }
                 let _ = tx_hwnd_clone.send(hwnd);
@@ -221,7 +257,8 @@ pub fn start_processing_pipeline(
                                  RefineContext::None,
                                  tm_id,
                                  tm_provider.clone(),
-                                 retranslate_streaming_enabled
+                                 retranslate_streaming_enabled,
+                                 false
                              );
                              link_windows(r_hwnd, sec_hwnd);
                              if !hide_overlay {
@@ -451,7 +488,8 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
              RefineContext::None,
              model_id,
              provider,
-             streaming
+             streaming,
+             false
          );
         if !hide_overlay {
             unsafe { ShowWindow(primary_hwnd, SW_SHOW); }
@@ -483,7 +521,8 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
                 RefineContext::None,
                 tm_id,
                 tm_provider.clone(),
-                retranslate_streaming_enabled
+                retranslate_streaming_enabled,
+                false
                 );
                 link_windows(primary_hwnd, secondary_hwnd);
                 

@@ -3,6 +3,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Graphics::Dwm::*;
 use windows::Win32::System::LibraryLoader::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::core::*;
 use std::mem::size_of;
 use std::sync::Once;
@@ -26,7 +27,8 @@ pub fn create_result_window(
     context: RefineContext,
     model_id: String,
     provider: String,
-    streaming_enabled: bool
+    streaming_enabled: bool,
+    start_editing: bool
 ) -> HWND {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
@@ -144,7 +146,7 @@ pub fn create_result_window(
                 copy_success: false,
                 on_edit_btn: false,
                 on_undo_btn: false,
-                is_editing: false,
+                is_editing: start_editing,
                 edit_hwnd: h_edit,
                 context_data: context,
                 full_text: String::new(),
@@ -186,6 +188,17 @@ pub fn create_result_window(
             &corner_preference as *const _ as *const _,
             size_of::<u32>() as u32
         );
+
+        // NEW: If starting in edit mode, show the edit control and focus it immediately
+        if start_editing {
+            let width = (target_rect.right - target_rect.left).abs();
+            // Initial positioning for the edit box
+            let edit_w = width - 20;
+            let edit_h = 40;
+            SetWindowPos(h_edit, HWND_TOP, 10, 10, edit_w, edit_h, SWP_SHOWWINDOW);
+            set_rounded_edit_region(h_edit, edit_w, edit_h);
+            SetFocus(h_edit);
+        }
         
         SetTimer(hwnd, 3, 16, None);
         

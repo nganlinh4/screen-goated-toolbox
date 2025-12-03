@@ -26,6 +26,8 @@ pub struct Preset {
     pub id: String,
     pub name: String,
     pub prompt: String,
+    #[serde(default = "default_prompt_mode")]
+    pub prompt_mode: String, // "fixed" or "dynamic"
     pub selected_language: String, 
     #[serde(default)]
     pub language_vars: HashMap<String, String>,
@@ -59,6 +61,7 @@ pub struct Preset {
 
 fn default_preset_type() -> String { "image".to_string() }
 fn default_audio_source() -> String { "mic".to_string() }
+fn default_prompt_mode() -> String { "fixed".to_string() }
 
 impl Default for Preset {
     fn default() -> Self {
@@ -66,6 +69,7 @@ impl Default for Preset {
             id: format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
             name: "New Preset".to_string(),
             prompt: "Extract text from this image.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             model: "scout".to_string(),
@@ -118,6 +122,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_translate".to_string(),
             name: "Translate".to_string(),
             prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: trans_lang_vars.clone(),
             model: "maverick".to_string(),
@@ -145,6 +150,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_translate_retranslate".to_string(),
             name: "Translate+Retranslate".to_string(),
             prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Korean".to_string(),
             language_vars: trans_retrans_lang_vars,
             model: "gemini-flash-lite".to_string(),
@@ -169,6 +175,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_ocr".to_string(),
             name: "Extract text (OCR)".to_string(),
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "English".to_string(),
             language_vars: HashMap::new(), // No language tags
             model: "scout".to_string(),
@@ -193,6 +200,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_extract_retranslate".to_string(),
             name: "Extract text+Retranslate".to_string(),
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "English".to_string(),
             language_vars: HashMap::new(),
             model: "maverick".to_string(),
@@ -220,6 +228,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_summarize".to_string(),
             name: "Summarize content".to_string(),
             prompt: "Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: sum_lang_vars,
             model: "scout".to_string(),
@@ -247,10 +256,39 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_desc".to_string(),
             name: "Image description".to_string(),
             prompt: "Describe this image in {language1}.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: desc_lang_vars,
             model: "scout".to_string(),
             streaming_enabled: false,
+            auto_copy: false,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            hide_overlay: false,
+            preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
+            is_upcoming: false,
+        };
+
+        // 4.5. Ask about image (Dynamic Prompt Mode)
+        let mut ask_lang_vars = HashMap::new();
+        ask_lang_vars.insert("language1".to_string(), "Vietnamese".to_string());
+
+        let ask_preset = Preset {
+            id: "preset_ask_image".to_string(),
+            name: "Ask about image".to_string(),
+            prompt: "".to_string(),
+            prompt_mode: "dynamic".to_string(),
+            selected_language: "Vietnamese".to_string(),
+            language_vars: ask_lang_vars,
+            model: "maverick".to_string(),
+            streaming_enabled: true,
             auto_copy: false,
             hotkeys: vec![],
             retranslate: false,
@@ -271,6 +309,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_transcribe".to_string(),
             name: "Transcribe speech".to_string(),
             prompt: "".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             model: "whisper-accurate".to_string(),
@@ -295,6 +334,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_study_language".to_string(),
             name: "Study language".to_string(),
             prompt: "".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             model: "whisper-accurate".to_string(),
@@ -319,6 +359,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_transcribe_retranslate".to_string(),
             name: "Quick foreigner reply".to_string(),
             prompt: "".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Korean".to_string(),
             language_vars: HashMap::new(),
             model: "whisper-accurate".to_string(),
@@ -346,6 +387,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_quicker_foreigner_reply".to_string(),
             name: "Quicker foreigner reply".to_string(),
             prompt: "Translate the audio to {language1}. Only output the translated text.".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Korean".to_string(),
             language_vars: quicker_reply_lang_vars,
             model: "gemini-audio".to_string(),
@@ -370,6 +412,7 @@ fn default_history_limit() -> usize { 100 }
             id: "preset_video_summary_placeholder".to_string(),
             name: "Summarize video (upcoming)".to_string(),
             prompt: "".to_string(),
+            prompt_mode: "fixed".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             model: "".to_string(),
@@ -394,7 +437,7 @@ fn default_history_limit() -> usize { 100 }
             gemini_api_key: "".to_string(),
             presets: vec![
                 trans_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, 
-                sum_preset, desc_preset, audio_preset, study_lang_preset, 
+                sum_preset, desc_preset, ask_preset, audio_preset, study_lang_preset, 
                 transcribe_retrans_preset, quicker_reply_preset, video_placeholder_preset
             ],
             active_preset_idx: 0,

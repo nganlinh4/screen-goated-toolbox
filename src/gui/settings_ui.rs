@@ -196,11 +196,13 @@ pub fn render_global_settings(
         if ui.button(text.reset_defaults_btn).clicked() {
             let saved_groq_key = config.api_key.clone();
             let saved_gemini_key = config.gemini_api_key.clone();
+            let saved_language = config.ui_language.clone();
             
             *config = Config::default();
             
             config.api_key = saved_groq_key;
             config.gemini_api_key = saved_gemini_key;
+            config.ui_language = saved_language;
             changed = true;
         }
     });
@@ -454,7 +456,11 @@ pub fn render_preset_editor(
         }
     });
     
-    // Type Dropdown
+    let is_audio = preset.preset_type == "audio";
+    let is_video = preset.preset_type == "video";
+    let is_image = preset.preset_type == "image";
+
+    // Type Dropdown + Prompt Mode Dropdown (on same line if image)
     ui.horizontal(|ui| {
          ui.label(text.preset_type_label);
          let image_label = text.preset_type_image;
@@ -482,10 +488,22 @@ pub fn render_preset_editor(
                      let _ = ui.selectable_value(&mut preset.preset_type, "video".to_string(), video_label);
                  });
              });
-    });
 
-    let is_audio = preset.preset_type == "audio";
-    let is_video = preset.preset_type == "video";
+         // Prompt Mode Dropdown (only for Image)
+         if is_image {
+             ui.label(text.prompt_mode_label);
+             egui::ComboBox::from_id_source("prompt_mode_combo")
+                 .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
+                 .show_ui(ui, |ui| {
+                     if ui.selectable_value(&mut preset.prompt_mode, "fixed".to_string(), text.prompt_mode_fixed).clicked() {
+                         changed = true;
+                     }
+                     if ui.selectable_value(&mut preset.prompt_mode, "dynamic".to_string(), text.prompt_mode_dynamic).clicked() {
+                         changed = true;
+                     }
+                 });
+         }
+     });
 
     if is_video {
         // Video Placeholder UI
@@ -518,7 +536,15 @@ pub fn render_preset_editor(
         });
     } else {
         // Standard UI
-        let show_prompt_controls = !is_audio || (is_audio && preset.model.contains("gemini"));
+
+        // Logic to show prompt controls:
+        // 1. If Audio: show unless using non-Gemini
+        // 2. If Image: show ONLY if prompt_mode is "fixed"
+        let show_prompt_controls = if is_audio {
+            preset.model.contains("gemini")
+        } else {
+            preset.prompt_mode != "dynamic"
+        };
 
         if show_prompt_controls {
             ui.group(|ui| {
