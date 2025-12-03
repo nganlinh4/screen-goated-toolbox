@@ -16,6 +16,8 @@ static REGISTER_PROC_CLASS: Once = Once::new();
 
 struct ProcessingState {
     animation_offset: f32,
+    is_fading_out: bool,
+    alpha: u8,
 }
 
 static mut PROC_STATES: Option<std::collections::HashMap<isize, ProcessingState>> = None;
@@ -25,7 +27,11 @@ unsafe fn get_proc_state(hwnd: HWND) -> &'static mut ProcessingState {
         PROC_STATES = Some(std::collections::HashMap::new());
     }
     let map = PROC_STATES.as_mut().unwrap();
-    map.entry(hwnd.0 as isize).or_insert(ProcessingState { animation_offset: 0.0 })
+    map.entry(hwnd.0 as isize).or_insert(ProcessingState { 
+        animation_offset: 0.0,
+        is_fading_out: false,
+        alpha: 255
+    })
 }
 
 unsafe fn remove_proc_state(hwnd: HWND) {
@@ -44,11 +50,7 @@ pub fn start_processing_pipeline(
     let hide_overlay = preset.hide_overlay;
 
     // 1. Create the Processing Overlay Window (The glowing rainbow box)
-    let processing_hwnd = if !hide_overlay {
-        unsafe { create_processing_window(screen_rect) }
-    } else {
-        HWND(0)
-    };
+    let processing_hwnd = unsafe { create_processing_window(screen_rect) };
 
     // 2. Prepare Data for API Thread
     let model_id = preset.model.clone();
@@ -108,7 +110,7 @@ pub fn start_processing_pipeline(
                 if !first_chunk_received {
                     first_chunk_received = true;
                     
-                    // Close Processing Overlay
+                    // Signal Processing Overlay to Fade Out
                     if processing_hwnd.0 != 0 {
                         unsafe { PostMessageW(processing_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
                     }
@@ -131,6 +133,8 @@ pub fn start_processing_pipeline(
                             prov_copy,
                             stream_copy
                         );
+                        
+                        // Only show the text result if NOT hidden
                         if !hide_copy {
                             unsafe { ShowWindow(hwnd, SW_SHOW); }
                         }
@@ -274,11 +278,14 @@ pub fn start_processing_pipeline(
             while GetMessageW(&mut msg, None, 0, 0).into() {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
+                // Standard loop exit conditions
+                if msg.message == WM_QUIT { break; }
                 if !IsWindow(processing_hwnd).as_bool() { break; }
             }
         }
     }
 }
+
 
 // --- PROCESSING OVERLAY WINDOW IMPLEMENTATION ---
 
@@ -319,8 +326,29 @@ unsafe fn create_processing_window(rect: RECT) -> HWND {
 
 unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
+        WM_CLOSE => {
+            // When closed (via worker thread), start fade out instead of destroying immediately
+            let state = get_proc_state(hwnd);
+            if !state.is_fading_out {
+                state.is_fading_out = true;
+            }
+            LRESULT(0)
+        }
         WM_TIMER => {
             let state = get_proc_state(hwnd);
+            
+            // Handle Fade Out
+            if state.is_fading_out {
+                if state.alpha > 30 {
+                    state.alpha -= 30;
+                } else {
+                    state.alpha = 0;
+                    DestroyWindow(hwnd);
+                    PostQuitMessage(0);
+                    return LRESULT(0);
+                }
+            }
+
             state.animation_offset += 5.0;
             if state.animation_offset > 360.0 { state.animation_offset -= 360.0; }
             
@@ -365,7 +393,7 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 let size = SIZE { cx: w, cy: h };
                 let mut blend = BLENDFUNCTION::default();
                 blend.BlendOp = AC_SRC_OVER as u8;
-                blend.SourceConstantAlpha = 255;
+                blend.SourceConstantAlpha = state.alpha; // Use dynamic alpha
                 blend.AlphaFormat = AC_SRC_ALPHA as u8;
 
                 UpdateLayeredWindow(
