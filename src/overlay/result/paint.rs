@@ -6,7 +6,6 @@ use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
 use crate::overlay::paint_utils::{sd_rounded_box, hsv_to_rgb};
 use super::state::{WINDOW_STATES, AnimationMode, ResizeEdge};
-use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect};
 
 // RAII Wrapper for GDI Objects to ensure cleanup
 struct GdiObj(HGDIOBJ);

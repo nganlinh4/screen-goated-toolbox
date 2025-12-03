@@ -90,7 +90,7 @@ impl Updater {
             let mut staging_path = exe_dir.join("update_pending.exe");
 
             // Get the latest release
-            let updater = match self_update::backends::github::Update::configure()
+            let _updater = match self_update::backends::github::Update::configure()
                 .repo_owner("nganlinh4")
                 .repo_name("screen-grounded-translator")
                 .bin_name("screen-grounded-translator")

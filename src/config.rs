@@ -104,7 +104,7 @@ fn default_history_limit() -> usize { 100 }
     impl Default for Config {
     fn default() -> Self {
         let system_ui_lang = get_system_ui_language();
-        let default_lang = match system_ui_lang.as_str() {
+        let _default_lang = match system_ui_lang.as_str() {
             "vi" => "Vietnamese".to_string(),
             "ko" => "Korean".to_string(),
             _ => "English".to_string(),
