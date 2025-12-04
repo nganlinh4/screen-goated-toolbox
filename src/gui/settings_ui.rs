@@ -289,7 +289,7 @@ pub fn render_global_settings(
                     ui.label(
                         egui::RichText::new(text.admin_startup_success)
                             .size(11.0)
-                            .color(egui::Color32::GREEN)
+                            .color(egui::Color32::from_rgb(34, 139, 34))
                     );
                 }
             });
@@ -354,6 +354,12 @@ pub fn render_history_panel(
             }
         }
         
+        if icon_button(ui, Icon::Folder).on_hover_text("Open Media Folder").clicked() {
+            let config_dir = dirs::config_dir().unwrap_or_default().join("screen-grounded-translator").join("history_media");
+            let _ = std::fs::create_dir_all(&config_dir);
+            let _ = open::that(config_dir);
+        }
+
         // NEW: "Clear All" button (Text instead of Icon)
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
              if ui.button(text.clear_all_history_btn).clicked() {
