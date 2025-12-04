@@ -1,6 +1,7 @@
 use windows::Win32::Foundation::{BOOL, LPARAM, RECT, HWND};
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR, GetMonitorInfoW, MONITORINFOEXW};
 use eframe::egui;
+use std::process::Command;
 
 // --- Monitor Enumeration ---
 
@@ -32,6 +33,47 @@ pub fn get_monitor_names() -> Vec<String> {
 // --- Clipboard Helper ---
 pub fn copy_to_clipboard_text(text: &str) {
     crate::overlay::utils::copy_to_clipboard(text, HWND(0));
+}
+
+// --- Admin Check ---
+
+#[cfg(target_os = "windows")]
+pub fn is_running_as_admin() -> bool {
+    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION};
+    use windows::Win32::System::Threading::GetCurrentProcess;
+    use windows::Win32::Foundation::HANDLE;
+    
+    unsafe {
+        let mut h_token = HANDLE::default();
+        
+        // Use raw windows API - ctypes compatible
+        extern "system" {
+            fn OpenProcessToken(
+                ProcessHandle: HANDLE,
+                DesiredAccess: u32,
+                TokenHandle: *mut HANDLE,
+            ) -> windows::Win32::Foundation::BOOL;
+        }
+        
+        const TOKEN_READ: u32 = 0x20008;
+        
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_READ, &mut h_token).as_bool() {
+            let mut elevation: TOKEN_ELEVATION = std::mem::zeroed();
+            let mut return_length: u32 = 0;
+            let size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
+
+            if GetTokenInformation(
+                h_token,
+                TokenElevation,
+                Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
+                size,
+                &mut return_length
+            ).as_bool() {
+                 return elevation.TokenIsElevated != 0;
+            }
+        }
+        false
+    }
 }
 
 // --- Font Configuration ---
@@ -69,4 +111,71 @@ pub fn configure_fonts(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
+}
+
+// --- Task Scheduler / Admin Startup ---
+
+const TASK_NAME: &str = "ScreenGroundedTranslator_AutoStart";
+
+/// Create or delete a Windows Scheduled Task for Admin auto-startup
+pub fn set_admin_startup(enable: bool) -> bool {
+    if enable {
+        // Get current executable path
+        let exe_path = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(_) => return false,
+        };
+        
+        let exe_str = match exe_path.to_str() {
+            Some(s) => s,
+            None => return false,
+        };
+        
+        if exe_str.is_empty() { return false; }
+
+        // Create Scheduled Task via schtasks
+        // /SC ONLOGON : Trigger at user login
+        // /RL HIGHEST : Run with highest privileges (Admin)
+        // /F          : Force overwrite if exists
+        // /TN         : Task Name
+        // /TR         : Task Run (path to executable)
+        let output = Command::new("schtasks")
+            .args(&[
+                "/create",
+                "/tn", TASK_NAME,
+                "/tr", &format!("\"{}\"", exe_str),
+                "/sc", "onlogon",
+                "/rl", "highest",
+                "/f"
+            ])
+            .output();
+
+        match output {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
+    } else {
+        // Delete the scheduled task
+        let output = Command::new("schtasks")
+            .args(&["/delete", "/tn", TASK_NAME, "/f"])
+            .output();
+            
+        match output {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
+    }
+}
+
+/// Check if the admin auto-startup task exists
+#[allow(dead_code)]
+pub fn is_admin_startup_enabled() -> bool {
+    let output = Command::new("schtasks")
+        .args(&["/query", "/tn", TASK_NAME])
+        .output();
+        
+    match output {
+        Ok(o) => o.status.success(),
+        Err(_) => false,
+    }
 }

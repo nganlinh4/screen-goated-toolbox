@@ -3,7 +3,7 @@
 use eframe::egui;
 use crate::config::{Config, save_config, Hotkey};
 use std::sync::{Arc, Mutex};
-use tray_icon::{TrayIcon, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
+use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
 use auto_launch::AutoLaunch;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -42,6 +42,8 @@ pub struct SettingsApp {
     search_query: String, 
     tray_icon: Option<TrayIcon>,
     _tray_menu: Menu,
+    tray_menu: Menu, // Store menu for lazy icon creation
+    tray_retry_timer: f64, // Timer for lazy tray icon creation
     event_rx: Receiver<UserEvent>,
     is_quitting: bool,
     run_at_startup: bool,
@@ -63,17 +65,21 @@ pub struct SettingsApp {
     updater: Option<Updater>,
     update_rx: Receiver<UpdateStatus>,
     update_status: UpdateStatus,
+    
+    // --- NEW FIELDS ---
+    current_admin_state: bool, // Track runtime admin status
+    // ------------------
 }
 
 impl SettingsApp {
-    pub fn new(config: Config, app_state: Arc<Mutex<crate::AppState>>, tray_icon: TrayIcon, tray_menu: Menu, ctx: egui::Context) -> Self {
+    pub fn new(mut config: Config, app_state: Arc<Mutex<crate::AppState>>, tray_menu: Menu, ctx: egui::Context) -> Self {
         let app_name = "ScreenGroundedTranslator";
         let app_path = std::env::current_exe().unwrap();
         let args: &[&str] = &[];
         
         let auto = AutoLaunch::new(app_name, app_path.to_str().unwrap(), args);
         
-        // Registry check for startup
+        // 1. Check Registry for standard startup
         let mut run_at_startup = false;
         #[cfg(target_os = "windows")]
         {
@@ -89,8 +95,22 @@ impl SettingsApp {
         if !run_at_startup {
             run_at_startup = auto.is_enabled().unwrap_or(false);
         }
-        if run_at_startup {
-            let _ = auto.enable(); // Update path
+
+        // 2. Check Task Scheduler for Admin startup (FIX for persistence)
+        // If the Task exists, we consider startup enabled AND admin mode enabled.
+        if crate::gui::utils::is_admin_startup_enabled() {
+            run_at_startup = true;
+            config.run_as_admin_on_startup = true;
+            // Don't enable registry when Task Scheduler is active
+        } else if config.run_as_admin_on_startup {
+            // Config thinks admin is on, but Task is missing? 
+            // Trust the system state -> Task is missing, so it's off.
+            config.run_as_admin_on_startup = false;
+        }
+
+        if run_at_startup && !config.run_as_admin_on_startup {
+            // Ensure path is current in case exe moved
+            let _ = auto.enable();
         }
 
         let (tx, rx) = channel();
@@ -110,7 +130,7 @@ impl SettingsApp {
         std::thread::spawn(move || {
             loop {
                 unsafe {
-                    match OpenEventW(EVENT_ALL_ACCESS, false, w!("ScreenGroundedTranslatorRestoreEvent")) {
+                    match OpenEventW(EVENT_ALL_ACCESS, false, w!("Global\\ScreenGroundedTranslatorRestoreEvent")) {
                         Ok(event_handle) => {
                             let result = WaitForSingleObject(event_handle, INFINITE);
                             if result == WAIT_OBJECT_0 {
@@ -177,13 +197,20 @@ impl SettingsApp {
         
         let cached_monitors = get_monitor_names();
         let (up_tx, up_rx) = channel();
+        
+        // Check for current admin state
+        let current_admin_state = if cfg!(target_os = "windows") {
+            crate::gui::utils::is_running_as_admin()
+        } else { false };
 
         Self {
             config,
             app_state_ref: app_state,
             search_query: String::new(),
-            tray_icon: Some(tray_icon),
-            _tray_menu: tray_menu,
+            tray_icon: None, // INITIALIZE AS NONE - will be created lazily in update()
+            _tray_menu: tray_menu.clone(),
+            tray_menu, // Store for lazy initialization
+            tray_retry_timer: -5.0, // Negative to force immediate retry if needed
             event_rx: rx,
             is_quitting: false,
             run_at_startup,
@@ -200,6 +227,10 @@ impl SettingsApp {
             updater: Some(Updater::new(up_tx)),
             update_rx: up_rx,
             update_status: UpdateStatus::Idle,
+            
+            // --- NEW FIELD INIT ---
+            current_admin_state,
+            // ----------------------
         }
     }
 
@@ -253,6 +284,32 @@ impl eframe::App for SettingsApp {
         // Updater
         while let Ok(status) = self.update_rx.try_recv() { self.update_status = status; }
 
+        // --- LAZY TRAY ICON CREATION ---
+        // Try to create the tray icon if it doesn't exist yet.
+        // This waits for the Windows Shell to fully initialize, avoiding crashes and duplicates.
+        if self.tray_icon.is_none() {
+            let now = ctx.input(|i| i.time);
+            
+            // FALLBACK: If icon is missing after 30s, ensure window is visible
+            if now > 30.0 {
+                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            }
+
+            if now - self.tray_retry_timer > 1.0 { 
+                self.tray_retry_timer = now;
+                let icon = crate::icon_gen::generate_icon();
+                if let Ok(tray) = TrayIconBuilder::new()
+                    .with_menu(Box::new(self.tray_menu.clone()))
+                    .with_tooltip("Screen Grounded Translator (nganlinh4)")
+                    .with_icon(icon)
+                    .build() 
+                {
+                    self.tray_icon = Some(tray);
+                }
+            }
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
+
         // --- 3-Stage Startup Logic ---
         if self.startup_stage == 0 {
             unsafe {
@@ -291,7 +348,12 @@ impl eframe::App for SettingsApp {
         } else if self.startup_stage == 2 {
             if let Some(splash) = &mut self.splash { splash.reset_timer(ctx); }
             ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(635.0, 500.0)));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            
+            // CRITICAL FIX: Only allow hiding if tray icon EXISTS.
+            // Otherwise, stay visible so the update loop continues and creates the icon.
+            let should_be_visible = !self.config.start_in_tray || self.tray_icon.is_none();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(should_be_visible));
+            
             self.startup_stage = 3;
         }
 
@@ -452,6 +514,7 @@ impl eframe::App for SettingsApp {
                                 &self.update_status, 
                                 &mut self.run_at_startup, 
                                 &self.auto_launcher, 
+                                self.current_admin_state, // <-- Pass current admin state
                                 &text
                             ) {
                                 self.save_and_sync();
