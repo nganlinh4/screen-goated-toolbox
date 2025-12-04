@@ -6,14 +6,22 @@ use std::cmp::Ordering;
 // --- CONFIGURATION ---
 const ANIMATION_DURATION: f32 = 8.5;
 const START_TRANSITION: f32 = 3.0; 
-const EXIT_DURATION: f32 = 0.6; // Faster, punchier warp
+const EXIT_DURATION: f32 = 0.6; 
 
 // --- PALETTE ---
-const C_VOID: Color32 = Color32::from_rgb(10, 12, 18);
+const C_VOID: Color32 = Color32::from_rgb(5, 5, 10);
 const C_CYAN: Color32 = Color32::from_rgb(0, 255, 240);
-const C_MAGENTA: Color32 = Color32::from_rgb(255, 0, 110);
+const C_MAGENTA: Color32 = Color32::from_rgb(255, 0, 110); // Reverted to original Pink
 const C_WHITE: Color32 = Color32::from_rgb(240, 245, 255);
 const C_SHADOW: Color32 = Color32::from_rgb(20, 20, 30);
+
+// Moon Palette
+const C_MOON_BASE: Color32 = Color32::from_rgb(230, 60, 120); // Hot Pink Base
+const C_MOON_SHADOW: Color32 = Color32::from_rgb(160, 30, 80); // Darker patches
+const C_MOON_HIGHLIGHT: Color32 = Color32::from_rgb(255, 150, 200); // Crater rims
+
+// Dark Cloud Palette
+const C_CLOUD: Color32 = Color32::from_rgb(15, 12, 22); // Dark moody clouds
 
 // --- MATH UTILS ---
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -64,7 +72,32 @@ impl Vec3 {
     }
 }
 
-// --- GEOMETRY ENGINE ---
+// --- ATMOSPHERE ENTITIES ---
+
+struct Cloud {
+    pos: Vec2,
+    velocity: f32,
+    scale: f32,
+    opacity: f32,
+    puffs: Vec<(Vec2, f32)>, // (Offset from center, Radius multiplier)
+}
+
+struct Star {
+    pos: Vec2, // 0.0-1.0 normalized screen coords
+    phase: f32,
+    brightness: f32,
+    size: f32,
+}
+
+// --- MOON ENTITIES ---
+struct MoonFeature {
+    pos: Vec2, // Normalized on moon disk (-1.0 to 1.0)
+    radius: f32,
+    color: Color32,
+    is_crater: bool, // if true, draws a ring; if false, draws a filled patch (Mare)
+}
+
+// --- VOXEL ENTITIES ---
 struct Voxel {
     helix_radius: f32,
     helix_angle_offset: f32,
@@ -82,6 +115,9 @@ struct Voxel {
 pub struct SplashScreen {
     start_time: f64,
     voxels: Vec<Voxel>,
+    clouds: Vec<Cloud>,
+    stars: Vec<Star>,
+    moon_features: Vec<MoonFeature>,
     init_done: bool,
     mouse_influence: Vec2,
     mouse_world_pos: Vec3,
@@ -99,6 +135,9 @@ impl SplashScreen {
         Self {
             start_time: ctx.input(|i| i.time),
             voxels: Vec::with_capacity(500),
+            clouds: Vec::new(),
+            stars: Vec::new(),
+            moon_features: Vec::new(),
             init_done: false,
             mouse_influence: Vec2::ZERO,
             mouse_world_pos: Vec3::ZERO,
@@ -107,18 +146,18 @@ impl SplashScreen {
         }
     }
 
-    // NEW: Method to reset timer when window becomes visible
     pub fn reset_timer(&mut self, ctx: &egui::Context) {
         self.start_time = ctx.input(|i| i.time);
     }
 
     fn init_scene(&mut self) {
-        let mut rng_state = 12345u64;
+        let mut rng_state = 987654321u64;
         let mut rng = || {
             rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
             (rng_state >> 32) as f32 / 4294967295.0
         };
 
+        // --- 1. Init Text Voxels ---
         let s_map = [ " ####", "##   ", " ### ", "   ##", "#### " ];
         let g_map = [ " ####", "##   ", "## ##", "##  #", " ####" ];
         let t_map = [ "#####", "  #  ", "  #  ", "  #  ", "  #  " ];
@@ -159,19 +198,15 @@ impl SplashScreen {
             }
         };
 
-        // ADJUSTMENT: Shift all letters left by 10 units to mathematically center the "SGT" text
-        // Previous: -110, -25, 60 (Midpoint +10)
-        // New:      -120, -35, 50 (Midpoint 0)
         spawn_letter(&s_map, -120.0, C_CYAN);
         spawn_letter(&g_map, -35.0, C_MAGENTA);
         spawn_letter(&t_map, 50.0, C_CYAN);
 
+        // Debris
         for _ in 0..60 {
             let h_y = (rng() * 300.0) - 150.0;
-            // FIX: Revert to tight initial radius (was 80.0) so it looks closed at start
             let h_radius = 80.0 + rng() * 60.0;
             let h_angle = rng() * PI * 2.0;
-            // Target is far out (800.0) so they eventually orbit wide
             let target = Vec3::new(h_angle.cos(), 0.0, h_angle.sin()).mul(800.0);
 
             self.voxels.push(Voxel {
@@ -188,6 +223,66 @@ impl SplashScreen {
                 is_debris: true,
             });
         }
+
+        // --- 2. Init Stars ---
+        for _ in 0..150 {
+            self.stars.push(Star {
+                pos: Vec2::new(rng(), rng() * 0.85), // Keep mostly top/middle
+                phase: rng() * PI * 2.0,
+                brightness: 0.3 + rng() * 0.7,
+                size: if rng() > 0.95 { 1.5 + rng() } else { 0.8 + rng() * 0.5 },
+            });
+        }
+
+        // --- 3. Init Dark Clouds ---
+        for _ in 0..20 {
+            let mut puffs = Vec::new();
+            let num_puffs = 3 + (rng() * 4.0) as usize;
+            for _ in 0..num_puffs {
+                puffs.push((
+                    Vec2::new((rng() - 0.5) * 60.0, (rng() - 0.5) * 30.0),
+                    0.5 + rng() * 0.8
+                ));
+            }
+            
+            self.clouds.push(Cloud {
+                pos: Vec2::new(rng() * 1200.0 - 600.0, rng() * 400.0 - 200.0),
+                velocity: 5.0 + rng() * 15.0, // Drifting right
+                scale: 0.8 + rng() * 1.5,
+                opacity: 0.3 + rng() * 0.4, // Dark clouds visibility
+                puffs,
+            });
+        }
+
+        // --- 4. Init Moon Features ---
+        // Maria (Dark Patches)
+        for _ in 0..80 {
+            let angle = rng() * PI * 2.0;
+            let dist = rng().sqrt(); // Bias towards edge
+            let pos = Vec2::new(angle.cos() * dist, angle.sin() * dist);
+            
+            self.moon_features.push(MoonFeature {
+                pos,
+                radius: 0.1 + rng() * 0.25,
+                color: C_MOON_SHADOW,
+                is_crater: false,
+            });
+        }
+
+        // Craters (Bright Rings)
+        for _ in 0..40 {
+            let angle = rng() * PI * 2.0;
+            let dist = rng().powf(0.5); 
+            let pos = Vec2::new(angle.cos() * dist, angle.sin() * dist);
+            
+            self.moon_features.push(MoonFeature {
+                pos,
+                radius: 0.03 + rng() * 0.08,
+                color: C_MOON_HIGHLIGHT,
+                is_crater: true,
+            });
+        }
+
         self.init_done = true;
     }
 
@@ -195,6 +290,7 @@ impl SplashScreen {
         if !self.init_done { self.init_scene(); }
 
         let now = ctx.input(|i| i.time);
+        let dt = ctx.input(|i| i.stable_dt);
         
         if self.exit_start_time.is_none() {
             let t = (now - self.start_time) as f32;
@@ -215,14 +311,22 @@ impl SplashScreen {
             if dt > EXIT_DURATION {
                 return SplashStatus::Finished;
             }
-            // Quintic easing for massive acceleration "punch"
             warp_progress = (dt / EXIT_DURATION).powi(5); 
         }
 
         ctx.request_repaint();
 
+        // --- UPDATE CLOUDS ---
+        let rect = ctx.input(|i| i.screen_rect());
+        for cloud in &mut self.clouds {
+            cloud.pos.x += cloud.velocity * dt;
+            // Wrap around
+            if cloud.pos.x > rect.width() / 2.0 + 300.0 {
+                cloud.pos.x = -rect.width() / 2.0 - 300.0;
+            }
+        }
+
         if let Some(pointer) = ctx.input(|i| i.pointer.hover_pos()) {
-            let rect = ctx.input(|i| i.screen_rect());
             let center = rect.center();
             let tx = (pointer.x - center.x) / center.x;
             let ty = (pointer.y - center.y) / center.y;
@@ -247,7 +351,7 @@ impl SplashScreen {
             self.loading_text = "READY TO ROCK!".to_string();
         }
 
-        // --- PHYSICS UPDATE ---
+        // --- PHYSICS UPDATE (Voxels) ---
         let helix_spin = physics_t * 2.0 + (physics_t * physics_t * 0.2); 
         
         for v in &mut self.voxels {
@@ -258,14 +362,9 @@ impl SplashScreen {
             if progress <= 0.0 {
                 let current_h_y = v.helix_y + (physics_t * 2.0 + v.noise_factor * 10.0).sin() * 5.0;
                 let current_angle = v.helix_angle_offset + helix_spin;
-                
-                // FIX: Dynamic expansion for debris
-                // Normal scaling for everyone
                 let mut current_radius = v.helix_radius * (1.0 + physics_t * 0.1);
                 
-                // Extra "Flare Out" for debris in the last few seconds
                 if v.is_debris && physics_t > 3.5 {
-                    // Exponential growth to push them far away
                     let flare = (physics_t - 3.5).powi(2) * 15.0; 
                     current_radius += flare;
                 }
@@ -285,15 +384,11 @@ impl SplashScreen {
                 }
 
                 let helix_pos = Vec3::new(current_angle.cos() * current_radius, current_h_y, current_angle.sin() * current_radius);
-
                 let mut target_base = v.target_pos;
                 
-                // WARP EFFECT: Explode voxels
                 if warp_progress > 0.0 {
                     let radial = Vec3::new(v.pos.x, v.pos.y, 0.0).normalize();
-                    // Expand outwards massively
                     target_base = target_base.add(radial.mul(warp_progress * 500.0));
-                    // Slight twist
                     target_base = target_base.rotate_z(warp_progress * 0.5);
                 }
 
@@ -342,65 +437,190 @@ impl SplashScreen {
         let rect = ui.max_rect();
         let painter = ui.painter().with_clip_rect(rect);
         let center = rect.center();
+        let center_vec = Vec2::new(center.x, center.y);
         
         let alpha = if t < 1.0 { t } else { 1.0 };
         let master_alpha = alpha.clamp(0.0, 1.0);
 
-        // 1. Background - Keep it DARK but respect entrance Fade-In
+        // 1. Background
         let mut bg_color = C_VOID;
         if t < 1.0 {
-            // Smooth easing for background appearance
             let bg_alpha = (t * t).clamp(0.0, 1.0); 
             bg_color = bg_color.linear_multiply(bg_alpha);
         }
         painter.rect_filled(rect, 0.0, bg_color);
 
-        // 2. Grid
-        if master_alpha > 0.05 {
-            let render_t = t.min(ANIMATION_DURATION + 5.0);
-            // Move grid super fast during warp
-            let cam_y = 150.0 + (render_t * 30.0) + (warp_prog * 10000.0);
-            let horizon = center.y + 100.0;
-            let corner_radius = 32.0;
+        if master_alpha <= 0.05 { return; }
+
+        // --- LAYER 0: STARS ---
+        // Parallax stars
+        let star_offset = self.mouse_influence * -10.0;
+        let star_time = t * 2.0;
+
+        for star in &self.stars {
+            let sx = rect.left() + (star.pos.x * rect.width()) + star_offset.x;
+            let sy = rect.top() + (star.pos.y * rect.height()) + star_offset.y;
             
-            // Fade grid out during warp so we are left with only streaks
-            let grid_fade = 1.0 - warp_prog;
-
-            if grid_fade > 0.0 {
-                for i in 0..12 {
-                    let z_dist = 1.0 + (i as f32 * 0.5) - ((cam_y * 0.05) % 0.5);
-                    let perspective = 200.0 / (z_dist - warp_prog * 0.8).max(0.1);
-                    let y = horizon + perspective * 0.8;
-                    
-                    if y > rect.bottom() || y < horizon { continue; }
-
-                    let w = rect.width() * (2.0 / z_dist);
-                    
-                    let mut x_min = rect.left();
-                    let mut x_max = rect.right();
-                    
-                    if y > rect.bottom() - corner_radius {
-                        let dy = y - (rect.bottom() - corner_radius);
-                        let dx = (corner_radius.powi(2) - dy.powi(2)).max(0.0).sqrt();
-                        x_min = rect.left() + corner_radius - dx;
-                        x_max = rect.right() - corner_radius + dx;
-                    }
-
-                    let x1 = (center.x - w).clamp(x_min, x_max);
-                    let x2 = (center.x + w).clamp(x_min, x_max);
-
-                    let alpha_grid = (1.0 - (y - horizon) / (rect.bottom() - horizon)) * master_alpha * 0.4 * grid_fade;
-                    if alpha_grid > 0.0 && x1 < x2 {
-                        painter.line_segment(
-                            [Pos2::new(x1, y), Pos2::new(x2, y)], 
-                            Stroke::new(2.0, C_MAGENTA.linear_multiply(alpha_grid))
-                        );
-                    }
+            // Twinkle
+            let twinkle = (star.phase + star_time).sin() * 0.3 + 0.7;
+            let star_alpha = (star.brightness * twinkle * master_alpha * (1.0 - warp_prog)).clamp(0.0, 1.0);
+            
+            if star_alpha > 0.1 {
+                let size = star.size * (1.0 - warp_prog);
+                // Simple star
+                painter.circle_filled(
+                    Pos2::new(sx, sy), 
+                    size, 
+                    C_WHITE.linear_multiply(star_alpha)
+                );
+                // Glare for big stars
+                if size > 1.2 {
+                    painter.circle_filled(
+                        Pos2::new(sx, sy), 
+                        size * 2.5, 
+                        C_WHITE.linear_multiply(star_alpha * 0.3)
+                    );
                 }
             }
         }
 
-        // 3. 3D RENDERER
+        // --- LAYER 2: THE PINK MOON ---
+        let moon_parallax = self.mouse_influence * -30.0;
+        let moon_base_pos = center + Vec2::new(0.0, -40.0) + moon_parallax;
+        let moon_rad = 140.0;
+        let moon_alpha = master_alpha * (1.0 - warp_prog);
+
+        if moon_alpha > 0.01 {
+            let moon_bob = (t * 0.5).sin() * 5.0;
+            let final_moon_pos = moon_base_pos + Vec2::new(0.0, moon_bob);
+
+            // 2a. Moon Glow (Atmosphere)
+            painter.circle_filled(
+                final_moon_pos,
+                moon_rad * 1.8,
+                C_MAGENTA.linear_multiply(0.05 * moon_alpha),
+            );
+            painter.circle_filled(
+                final_moon_pos,
+                moon_rad * 1.3,
+                C_MOON_BASE.linear_multiply(0.1 * moon_alpha),
+            );
+            
+            // 2b. Moon Body
+            painter.circle_filled(
+                final_moon_pos,
+                moon_rad,
+                C_MOON_BASE.linear_multiply(moon_alpha),
+            );
+
+            // 2c. Surface Features (Procedural Texture)
+            let feature_rot = t * 0.05; 
+            
+            for feat in &self.moon_features {
+                let fx = feat.pos.x;
+                let fy = feat.pos.y;
+                
+                // Simple 2D rotation
+                let rot_cos = feature_rot.cos();
+                let rot_sin = feature_rot.sin();
+                let _r_x = fx * rot_cos - fy * rot_sin;
+                let _r_y = fx * rot_sin + fy * rot_cos;
+                
+                let f_pos = final_moon_pos + Vec2::new(feat.pos.x * moon_rad, feat.pos.y * moon_rad);
+                
+                // Spherical projection scaling
+                let dist_from_center = feat.pos.length();
+                let perspective_scale = (1.0 - dist_from_center.powi(2)).sqrt().max(0.2); 
+                
+                let f_radius = feat.radius * moon_rad * perspective_scale;
+                let f_alpha = 0.6 * moon_alpha * perspective_scale;
+
+                if feat.is_crater {
+                    painter.circle_stroke(
+                        f_pos,
+                        f_radius,
+                        Stroke::new(1.5 * perspective_scale, feat.color.linear_multiply(f_alpha))
+                    );
+                    painter.circle_filled(
+                        f_pos + Vec2::new(1.0, 1.0),
+                        f_radius * 0.8,
+                        C_MOON_SHADOW.linear_multiply(f_alpha * 0.5)
+                    );
+                } else {
+                    painter.circle_filled(
+                        f_pos,
+                        f_radius,
+                        feat.color.linear_multiply(f_alpha * 0.4) 
+                    );
+                }
+            }
+            
+            // 2d. Rim Light
+            painter.circle_stroke(
+                final_moon_pos,
+                moon_rad,
+                Stroke::new(2.0, C_MAGENTA.linear_multiply(0.8 * moon_alpha))
+            );
+        }
+
+        // --- LAYER 3: CLOUDS ---
+        // Render in front of moon to obscure it
+        let cloud_parallax = self.mouse_influence * -15.0;
+
+        for cloud in &self.clouds {
+            let c_x = center.x + cloud.pos.x + cloud_parallax.x;
+            let c_y = center.y + cloud.pos.y + cloud_parallax.y;
+            
+            let cloud_alpha = cloud.opacity * master_alpha * (1.0 - warp_prog);
+            
+            if cloud_alpha > 0.01 {
+                for (offset, puff_r_mult) in &cloud.puffs {
+                    let p_pos = Pos2::new(c_x, c_y) + (*offset * cloud.scale);
+                    let radius = 30.0 * cloud.scale * puff_r_mult;
+                    
+                    painter.circle_filled(
+                        p_pos,
+                        radius,
+                        C_CLOUD.linear_multiply(cloud_alpha)
+                    );
+                }
+            }
+        }
+
+        // --- LAYER 4: RETRO GRID ---
+        let render_t = t.min(ANIMATION_DURATION + 5.0);
+        let cam_y = 150.0 + (render_t * 30.0) + (warp_prog * 10000.0);
+        let horizon = center.y + 120.0;
+        let corner_radius = 32.0;
+        let grid_fade = 1.0 - warp_prog;
+
+        if grid_fade > 0.0 {
+            // Horizontal lines
+            for i in 0..16 {
+                let z_dist = 1.0 + (i as f32 * 0.5) - ((cam_y * 0.05) % 0.5);
+                let perspective = 250.0 / (z_dist - warp_prog * 0.8).max(0.1);
+                let y = horizon + perspective * 0.6;
+                
+                if y > rect.bottom() || y < horizon { continue; }
+
+                let w = rect.width() * (2.5 / z_dist);
+                let x1 = center.x - w;
+                let x2 = center.x + w;
+                
+                let alpha_grid = (1.0 - (y - horizon) / (rect.bottom() - horizon)).powf(0.5) * master_alpha * 0.5 * grid_fade;
+                
+                painter.line_segment(
+                    [Pos2::new(x1, y), Pos2::new(x2, y)], 
+                    Stroke::new(1.5, C_MAGENTA.linear_multiply(alpha_grid))
+                );
+            }
+            
+            // Removed Vertical lines (Teal)
+        }
+
+        // --- REMOVED LAYER 4.5: TEXT BACKDROP ---
+
+        // --- LAYER 5: 3D VOXELS ---
         let physics_t = t.min(ANIMATION_DURATION);
         let fov = 800.0;
         let cam_fly_dist = warp_prog * 2000.0; 
@@ -417,7 +637,6 @@ impl SplashScreen {
         let mut draw_list: Vec<(f32, Vec<Pos2>, Color32, bool)> = Vec::with_capacity(self.voxels.len() * 6);
 
         let cube_size = 6.0;
-        // STRETCH: Massive Z stretch during warp for "Light Speed" effect
         let z_stretch = 1.0 + (warp_prog * 150.0); 
         let verts = [
             Vec3::new(-1.0, -1.0, -1.0 * z_stretch), Vec3::new( 1.0, -1.0, -1.0 * z_stretch), Vec3::new( 1.0,  1.0, -1.0 * z_stretch), Vec3::new(-1.0,  1.0, -1.0 * z_stretch),
@@ -433,23 +652,17 @@ impl SplashScreen {
         ];
 
         for v in &self.voxels {
-            // FIX: Organic, staggered fade for debris
             let mut local_debris_alpha = 1.0;
             if v.is_debris {
-                // Stagger fade start between 4.0s and 7.0s based on random noise
                 let fade_start = 4.0 + (v.noise_factor * 3.0); 
-                // Long fade duration (2.5s) for smoothness
                 let fade_end = fade_start + 2.5;
                 local_debris_alpha = 1.0 - smoothstep(fade_start, fade_end, physics_t);
-                
-                // Performance cull
                 if local_debris_alpha <= 0.01 { continue; }
             }
 
             let mut v_center = v.pos;
             v_center = v_center.rotate_x(global_rot.x).rotate_y(global_rot.y).rotate_z(global_rot.z);
             
-            // Don't clip during warp, let them fly behind
             if warp_prog == 0.0 && v_center.z > cam_dist - 10.0 { continue; }
 
             for (indices, normal) in &faces {
@@ -457,7 +670,6 @@ impl SplashScreen {
                     .rotate_x(v.rot.x).rotate_y(v.rot.y).rotate_z(v.rot.z)
                     .rotate_x(global_rot.x).rotate_y(global_rot.y).rotate_z(global_rot.z);
 
-                // Only cull backfaces if not warping (during warp, geometry is weird)
                 if warp_prog == 0.0 && rot_normal.z > 0.0 { continue; }
 
                 let diffuse = rot_normal.dot(light_dir).max(0.0);
@@ -466,12 +678,9 @@ impl SplashScreen {
                 let mut alpha_local = master_alpha;
                 if v.is_debris { alpha_local *= local_debris_alpha; }
                 
-                // COLOR SHIFT: During warp, turn everything into Cyan/Magenta streaks
                 let mut base_col = v.color;
                 if warp_prog > 0.0 {
-                    // Fade alpha out at the very end of warp to reveal UI
                     alpha_local *= 1.0 - warp_prog; 
-                    // Shift color to Cyan
                     base_col = C_CYAN; 
                 }
 
@@ -492,7 +701,6 @@ impl SplashScreen {
                     let z_depth = cam_dist - final_v.z;
                     avg_z += z_depth;
                     
-                    // Warp projection safe-guard
                     if z_depth > 0.1 {
                         let scale = fov / z_depth;
                         let x = center.x + final_v.x * scale;
@@ -514,13 +722,20 @@ impl SplashScreen {
             painter.add(Shape::convex_polygon(verts.clone(), col, Stroke::NONE));
             
             if master_alpha > 0.8 && warp_prog < 0.5 {
-                let stroke_col = if is_glowing { C_CYAN.linear_multiply(0.3) } else { Color32::from_black_alpha(40) };
+                // FIXED: Reverted to thin, sleek lines.
+                // White rim for glowing, subtle black for definition.
+                let stroke_col = if is_glowing { 
+                    C_WHITE.linear_multiply(0.6) 
+                } else { 
+                    Color32::from_black_alpha(50) 
+                };
                 painter.add(Shape::closed_line(verts, Stroke::new(1.0, stroke_col)));
             }
         }
 
+        // --- LAYER 6: UI TEXT ---
         if master_alpha > 0.1 && warp_prog < 0.1 {
-            let ui_alpha = 1.0 - (warp_prog * 10.0).clamp(0.0, 1.0); // Fade UI instantly on warp
+            let ui_alpha = 1.0 - (warp_prog * 10.0).clamp(0.0, 1.0);
             let ui_color = C_WHITE.linear_multiply(master_alpha * ui_alpha);
             let cyan_color = C_CYAN.linear_multiply(master_alpha * ui_alpha);
             let magenta_color = C_MAGENTA.linear_multiply(master_alpha * ui_alpha);
@@ -550,7 +765,6 @@ impl SplashScreen {
             if t > ANIMATION_DURATION - 1.0 {
                 let pulse = (t * 5.0).sin().abs() * 0.7 + 0.3; 
                 painter.text(
-                    // Moved to TOP (negative Y) so it is visible and not hidden by taskbar
                     center - Vec2::new(0.0, 220.0), 
                     Align2::CENTER_TOP,
                     "Click anywhere to continue",
