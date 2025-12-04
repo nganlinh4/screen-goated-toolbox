@@ -1,7 +1,7 @@
 use eframe::egui;
 use crate::config::{Config, Preset, get_all_languages};
 use crate::gui::locale::LocaleText;
-use crate::gui::icons::{Icon, icon_button, icon_button_sized, draw_icon_static};
+use crate::gui::icons::{Icon, icon_button, draw_icon_static};
 use crate::model_config::{get_all_models, ModelType, get_model_by_id};
 use crate::updater::{Updater, UpdateStatus};
 use std::collections::HashMap;
@@ -140,6 +140,7 @@ pub fn render_global_settings(
     update_status: &UpdateStatus,
     run_at_startup: &mut bool,
     auto_launcher: &Option<AutoLaunch>,
+    current_admin_state: bool, // <-- New argument
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
@@ -187,25 +188,133 @@ pub fn render_global_settings(
 
     ui.add_space(10.0);
 
-    ui.horizontal(|ui| {
-        if let Some(launcher) = auto_launcher {
-            if ui.checkbox(run_at_startup, text.startup_label).clicked() {
-                if *run_at_startup { let _ = launcher.enable(); } else { let _ = launcher.disable(); }
+    // --- NEW LOGIC: Startup and Start in Tray with Admin Support ---
+    ui.vertical(|ui| {
+        // Main startup toggle (Normal Registry-based or Admin Task Scheduler)
+        ui.horizontal(|ui| {
+            if let Some(launcher) = auto_launcher {
+                let mut startup_toggle = *run_at_startup;
+                if ui.checkbox(&mut startup_toggle, text.startup_label).clicked() {
+                    if startup_toggle && !(*run_at_startup) {
+                        // Enabling startup
+                        if config.run_as_admin_on_startup && current_admin_state {
+                            // Try to enable Admin startup via Task Scheduler
+                            if crate::gui::utils::set_admin_startup(true) {
+                                // Success: Task created, disable registry to avoid double run
+                                let _ = launcher.disable();
+                                *run_at_startup = true;
+                                changed = true;
+                            }
+                        } else {
+                            // Enable normal registry-based startup
+                            // OPTIMIZATION: Run cleanup in background thread to prevent UI lag
+                            std::thread::spawn(|| {
+                                crate::gui::utils::set_admin_startup(false);
+                            });
+                            
+                            let _ = launcher.enable();
+                            *run_at_startup = true;
+                            changed = true;
+                        }
+                    } else if !startup_toggle && *run_at_startup {
+                        // Disabling startup
+                        // OPTIMIZATION: Run cleanup in background thread to prevent UI lag
+                        std::thread::spawn(|| {
+                            crate::gui::utils::set_admin_startup(false);
+                        });
+                        
+                        let _ = launcher.disable();
+                        config.run_as_admin_on_startup = false;
+                        config.start_in_tray = false;
+                        *run_at_startup = false;
+                        changed = true;
+                    }
+                }
+            }
+        });
+
+        // Admin Mode Sub-option (nested, only if startup is enabled)
+        if *run_at_startup {
+            ui.indent("admin_indent", |ui| {
+                let mut is_admin_mode = config.run_as_admin_on_startup;
+                let checkbox_label = text.admin_startup_on;
+                
+                if current_admin_state {
+                    // User IS Admin: Allow toggle
+                    if ui.checkbox(&mut is_admin_mode, checkbox_label).clicked() {
+                        if is_admin_mode && !config.run_as_admin_on_startup {
+                            // User trying to enable Admin Mode
+                            if crate::gui::utils::set_admin_startup(true) {
+                                config.run_as_admin_on_startup = true;
+                                // Disable registry-based run to avoid double startup
+                                if let Some(launcher) = auto_launcher {
+                                    let _ = launcher.disable();
+                                }
+                                changed = true;
+                            } else {
+                                // Failed to create task, revert the checkbox
+                                is_admin_mode = false;
+                            }
+                        } else if !is_admin_mode && config.run_as_admin_on_startup {
+                            // User disabling Admin Mode (revert to normal startup)
+                            // OPTIMIZATION: Run cleanup in background thread to prevent UI lag
+                            std::thread::spawn(|| {
+                                crate::gui::utils::set_admin_startup(false);
+                            });
+                            
+                            config.run_as_admin_on_startup = false;
+                            // Re-enable registry-based startup
+                            if let Some(launcher) = auto_launcher {
+                                let _ = launcher.enable();
+                            }
+                            changed = true;
+                        }
+                    }
+                } else {
+                    // User is NOT Admin: Disable checkbox and warn
+                    let mut _is_admin_mode_disabled = config.run_as_admin_on_startup;
+                    ui.add_enabled_ui(false, |ui| {
+                        ui.checkbox(&mut _is_admin_mode_disabled, checkbox_label);
+                    });
+                    ui.label(
+                        egui::RichText::new(text.admin_startup_fail)
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(200, 100, 50))
+                    );
+                }
+
+                // Status message below the checkbox (Success only)
+                // FIX: Only show success message if running as Admin to avoid conflict with the error message above
+                if config.run_as_admin_on_startup && current_admin_state {
+                    ui.label(
+                        egui::RichText::new(text.admin_startup_success)
+                            .size(11.0)
+                            .color(egui::Color32::GREEN)
+                    );
+                }
+            });
+
+            // Start in Tray checkbox (always shown if startup is enabled)
+            if ui.checkbox(&mut config.start_in_tray, text.start_in_tray_label).clicked() {
+                changed = true;
             }
         }
-        if ui.button(text.reset_defaults_btn).clicked() {
-            let saved_groq_key = config.api_key.clone();
-            let saved_gemini_key = config.gemini_api_key.clone();
-            let saved_language = config.ui_language.clone();
-            
-            *config = Config::default();
-            
-            config.api_key = saved_groq_key;
-            config.gemini_api_key = saved_gemini_key;
-            config.ui_language = saved_language;
-            changed = true;
-        }
     });
+
+    ui.add_space(5.0);
+
+    if ui.button(text.reset_defaults_btn).clicked() {
+        let saved_groq_key = config.api_key.clone();
+        let saved_gemini_key = config.gemini_api_key.clone();
+        let saved_language = config.ui_language.clone();
+        
+        *config = Config::default();
+        
+        config.api_key = saved_groq_key;
+        config.gemini_api_key = saved_gemini_key;
+        config.ui_language = saved_language;
+        changed = true;
+    }
 
     changed
 }
@@ -833,7 +942,20 @@ pub fn render_preset_editor(
 // --- Footer ---
 pub fn render_footer(ui: &mut egui::Ui, text: &LocaleText) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.footer_admin_text).size(11.0).color(ui.visuals().weak_text_color()));
+        // --- NEW LOGIC: Admin Status ---
+        let is_admin = cfg!(target_os = "windows") && crate::gui::utils::is_running_as_admin();
+        let footer_text = if is_admin {
+            egui::RichText::new(text.footer_admin_running)
+                 .size(11.0)
+                 .color(egui::Color32::from_rgb(34, 139, 34)) // Same green as UpdateStatus::UpToDate
+        } else {
+            egui::RichText::new(text.footer_admin_text)
+                 .size(11.0)
+                 .color(ui.visuals().weak_text_color())
+        };
+        ui.label(footer_text);
+        // -------------------------------
+        
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let version_text = format!("{} v{}", text.footer_version, env!("CARGO_PKG_VERSION"));
             ui.label(egui::RichText::new(version_text).size(11.0).color(ui.visuals().weak_text_color()));

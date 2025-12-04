@@ -17,18 +17,19 @@ use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Threading::*;
+use windows::Win32::System::Com::CoInitialize;
 use windows::core::*;
 use lazy_static::lazy_static;
 use image::ImageBuffer;
 use config::{Config, load_config};
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem}};
+use tray_icon::menu::{Menu, MenuItem};
 use std::collections::HashMap;
 use history::HistoryManager;
 
 // Global event for inter-process restore signaling (manual-reset event)
 lazy_static! {
     pub static ref RESTORE_EVENT: Option<windows::Win32::Foundation::HANDLE> = unsafe {
-        CreateEventW(None, true, false, w!("ScreenGroundedTranslatorRestoreEvent")).ok()
+        CreateEventW(None, true, false, w!("Global\\ScreenGroundedTranslatorRestoreEvent")).ok()
     };
 }
 
@@ -58,6 +59,12 @@ lazy_static! {
 }
 
 fn main() -> eframe::Result<()> {
+    // --- INIT COM ---
+    // Essential for Tray Icon and Shell interactions, especially in Admin/Task Scheduler context.
+    unsafe {
+        let _ = CoInitialize(None);
+    }
+
     // --- APPLY PENDING UPDATE ---
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
@@ -136,13 +143,14 @@ fn main() -> eframe::Result<()> {
     
     // Keep the handle alive for the duration of the program
     let _single_instance_mutex = unsafe {
-        let instance = CreateMutexW(None, true, w!("ScreenGroundedTranslatorSingleInstanceMutex"));
+        let instance = CreateMutexW(None, true, w!("Global\\ScreenGroundedTranslatorSingleInstanceMutex"));
         if let Ok(handle) = instance {
             if GetLastError() == ERROR_ALREADY_EXISTS {
                 // Another instance is running - signal it to restore
                 if let Some(event) = RESTORE_EVENT.as_ref() {
                     let _ = SetEvent(*event);
                 }
+                let _ = CloseHandle(handle);
                 return Ok(());
             }
             Some(handle)
@@ -155,20 +163,14 @@ fn main() -> eframe::Result<()> {
         run_hotkey_listener();
     });
 
+    // --- TRAY MENU SETUP ---
     let tray_menu = Menu::new();
     let settings_i = MenuItem::with_id("1002", "Settings", true, None);
     let quit_i = MenuItem::with_id("1001", "Quit", true, None);
     let _ = tray_menu.append(&settings_i);
     let _ = tray_menu.append(&quit_i);
 
-    let icon = icon_gen::generate_icon();
-    let tray_icon = TrayIconBuilder::new()
-        .with_menu(Box::new(tray_menu.clone()))
-        .with_tooltip("Screen Grounded Translator (nganlinh4)")
-        .with_icon(icon)
-        .build()
-        .unwrap();
-
+    // --- WINDOW SETUP ---
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size([635.0, 500.0]) 
         .with_resizable(true)
@@ -200,7 +202,8 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             gui::configure_fonts(&cc.egui_ctx);
-            Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_icon, tray_menu, cc.egui_ctx.clone()))
+            // Pass ONLY the menu, let App create the icon lazily
+            Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_menu, cc.egui_ctx.clone()))
         }),
     )
 }

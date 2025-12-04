@@ -50,6 +50,15 @@ pub struct LocaleText {
      pub audio_src_device: &'static str,
      pub hide_recording_ui_label: &'static str,
      pub hotkeys_section: &'static str,
+     // --- NEW FIELDS ---
+     pub start_in_tray_label: &'static str,
+     pub footer_admin_running: &'static str,
+     pub admin_startup_on: &'static str,
+     #[allow(dead_code)]
+     pub admin_startup_off: &'static str,
+     pub admin_startup_success: &'static str,
+     pub admin_startup_fail: &'static str,
+     // ------------------
      pub usage_statistics_title: &'static str,
      pub usage_statistics_tooltip: &'static str,
      pub usage_model_column: &'static str,
@@ -129,6 +138,14 @@ impl LocaleText {
                 audio_src_device: "Âm thanh máy tính",
                 hide_recording_ui_label: "Ẩn giao diện ghi âm",
                 hotkeys_section: "Phím tắt",
+                // --- NEW FIELDS VIETNAMESE ---
+                start_in_tray_label: "Khởi động trong tray",
+                footer_admin_running: "đang chạy bằng admin",
+                admin_startup_on: "Chạy làm Admin khi khởi động",
+                admin_startup_off: "Ứng dụng sẽ khởi động ở chế độ thường.",
+                admin_startup_success: "Đã bật: Sẽ chạy Admin khi khởi động (Task Scheduler).",
+                admin_startup_fail: "Lỗi: Cần chạy App bằng Admin để cài đặt tính năng này.",
+                // -----------------------------
                 usage_statistics_title: "Thống kê sử dụng",
                 usage_statistics_tooltip: "Dùng mô hình ít nhất một lần để hiện chính xác",
                 usage_model_column: "Mô hình",
@@ -204,6 +221,14 @@ impl LocaleText {
                 audio_src_device: "컴퓨터 오디오",
                 hide_recording_ui_label: "녹음 UI 숨기기",
                 hotkeys_section: "단축키",
+                // --- NEW FIELDS KOREAN ---
+                start_in_tray_label: "트레이로 시작",
+                footer_admin_running: "관리자 권한으로 실행 중",
+                admin_startup_on: "시작 시 관리자로 실행",
+                admin_startup_off: "앱이 일반 모드로 시작됩니다.",
+                admin_startup_success: "활성화됨: 시작 시 관리자 권한으로 실행됩니다 (작업 스케줄러).",
+                admin_startup_fail: "오류: 이 설정은 관리자 권한으로 실행해야 변경 가능합니다.",
+                // -----------------------------
                 usage_statistics_title: "사용 통계",
                 usage_statistics_tooltip: "정확한 데이터를 보려면 모델을 최소 한 번 사용하세요",
                 usage_model_column: "모델",
@@ -279,6 +304,14 @@ impl LocaleText {
                 audio_src_device: "Device Audio",
                 hide_recording_ui_label: "Hide Recording UI",
                 hotkeys_section: "Hotkeys",
+                // --- NEW FIELDS ENGLISH ---
+                start_in_tray_label: "Start in tray",
+                footer_admin_running: "running as admin",
+                admin_startup_on: "Run as Administrator on startup",
+                admin_startup_off: "App will start in normal mode.",
+                admin_startup_success: "Enabled: Will run as Admin on startup (Task Scheduler).",
+                admin_startup_fail: "Error: Must run App as Admin to set this.",
+                // --------------------------
                 usage_statistics_title: "Usage Statistics",
                 usage_statistics_tooltip: "Use a model at least once for accurate data",
                 usage_model_column: "Model",

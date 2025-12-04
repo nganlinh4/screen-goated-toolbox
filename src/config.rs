@@ -101,6 +101,13 @@ pub struct Config {
     pub ui_language: String,
     #[serde(default = "default_history_limit")]
     pub max_history_items: usize, // NEW
+    
+    // --- NEW FIELDS ---
+    #[serde(default)]
+    pub start_in_tray: bool,
+    #[serde(default)]
+    pub run_as_admin_on_startup: bool, 
+    // ------------------
 }
 
 fn default_history_limit() -> usize { 100 }
@@ -444,6 +451,11 @@ fn default_history_limit() -> usize { 100 }
             dark_mode: true,
             ui_language: get_system_ui_language(),
             max_history_items: 100,
+            
+            // --- NEW DEFAULTS ---
+            start_in_tray: false,
+            run_as_admin_on_startup: false,
+            // --------------------
         }
     }
 }
