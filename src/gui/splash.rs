@@ -11,17 +11,19 @@ const EXIT_DURATION: f32 = 0.6;
 // --- PALETTE ---
 const C_VOID: Color32 = Color32::from_rgb(5, 5, 10);
 const C_CYAN: Color32 = Color32::from_rgb(0, 255, 240);
-const C_MAGENTA: Color32 = Color32::from_rgb(255, 0, 110); // Reverted to original Pink
+const C_MAGENTA: Color32 = Color32::from_rgb(255, 0, 110); 
 const C_WHITE: Color32 = Color32::from_rgb(240, 245, 255);
 const C_SHADOW: Color32 = Color32::from_rgb(20, 20, 30);
 
-// Moon Palette
-const C_MOON_BASE: Color32 = Color32::from_rgb(230, 60, 120); // Hot Pink Base
-const C_MOON_SHADOW: Color32 = Color32::from_rgb(160, 30, 80); // Darker patches
-const C_MOON_HIGHLIGHT: Color32 = Color32::from_rgb(255, 150, 200); // Crater rims
+// Moon Palette (Textured Pink Moon)
+const C_MOON_BASE: Color32 = Color32::from_rgb(230, 60, 120); 
+const C_MOON_SHADOW: Color32 = Color32::from_rgb(130, 20, 60); // Deep crater shadows
+const C_MOON_HIGHLIGHT: Color32 = Color32::from_rgb(255, 180, 220); // Crater rims
+const C_MOON_GLOW: Color32 = Color32::from_rgb(255, 0, 100);
 
-// Dark Cloud Palette
-const C_CLOUD: Color32 = Color32::from_rgb(15, 12, 22); // Dark moody clouds
+// Dark Cloud Palette - REVERTED TO BLACK AESTHETIC
+const C_CLOUD_CORE: Color32 = Color32::from_rgb(2, 2, 5); // Almost pure black void
+const C_CLOUD_EDGE: Color32 = Color32::from_rgb(15, 12, 22); // Very dark, matches old aesthetic
 
 // --- MATH UTILS ---
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -93,8 +95,7 @@ struct Star {
 struct MoonFeature {
     pos: Vec2, // Normalized on moon disk (-1.0 to 1.0)
     radius: f32,
-    color: Color32,
-    is_crater: bool, // if true, draws a ring; if false, draws a filled patch (Mare)
+    is_crater: bool, // if true, draws a depth ring; if false, draws a filled patch (Mare)
 }
 
 // --- VOXEL ENTITIES ---
@@ -234,51 +235,55 @@ impl SplashScreen {
             });
         }
 
-        // --- 3. Init Dark Clouds ---
-        for _ in 0..20 {
+        // --- 3. Init Dark Clouds (Volumetric Puffs) ---
+        for _ in 0..15 { // Fewer total clouds, but more complex
             let mut puffs = Vec::new();
-            let num_puffs = 3 + (rng() * 4.0) as usize;
+            // Core main puff
+            puffs.push((Vec2::ZERO, 1.0));
+            // Satellites
+            let num_puffs = 5 + (rng() * 4.0) as usize;
             for _ in 0..num_puffs {
+                let angle = rng() * PI * 2.0;
+                let dist = 15.0 + rng() * 25.0;
+                let r_mult = 0.4 + rng() * 0.5;
                 puffs.push((
-                    Vec2::new((rng() - 0.5) * 60.0, (rng() - 0.5) * 30.0),
-                    0.5 + rng() * 0.8
+                    Vec2::new(angle.cos() * dist, angle.sin() * dist * 0.6), // Squashed vertically
+                    r_mult
                 ));
             }
             
             self.clouds.push(Cloud {
                 pos: Vec2::new(rng() * 1200.0 - 600.0, rng() * 400.0 - 200.0),
                 velocity: 5.0 + rng() * 15.0, // Drifting right
-                scale: 0.8 + rng() * 1.5,
-                opacity: 0.3 + rng() * 0.4, // Dark clouds visibility
+                scale: 1.2 + rng() * 1.5,
+                opacity: 0.4 + rng() * 0.4, 
                 puffs,
             });
         }
 
         // --- 4. Init Moon Features ---
-        // Maria (Dark Patches)
-        for _ in 0..80 {
+        // Maria (Dark Patches - large, irregular)
+        for _ in 0..20 {
             let angle = rng() * PI * 2.0;
-            let dist = rng().sqrt(); // Bias towards edge
+            let dist = rng().sqrt() * 0.7; // Bias towards center/middle
             let pos = Vec2::new(angle.cos() * dist, angle.sin() * dist);
             
             self.moon_features.push(MoonFeature {
                 pos,
-                radius: 0.1 + rng() * 0.25,
-                color: C_MOON_SHADOW,
+                radius: 0.15 + rng() * 0.25,
                 is_crater: false,
             });
         }
 
-        // Craters (Bright Rings)
-        for _ in 0..40 {
+        // Craters (Small, sharp)
+        for _ in 0..50 {
             let angle = rng() * PI * 2.0;
-            let dist = rng().powf(0.5); 
+            let dist = rng().powf(0.8); 
             let pos = Vec2::new(angle.cos() * dist, angle.sin() * dist);
             
             self.moon_features.push(MoonFeature {
                 pos,
-                radius: 0.03 + rng() * 0.08,
-                color: C_MOON_HIGHLIGHT,
+                radius: 0.02 + rng() * 0.06,
                 is_crater: true,
             });
         }
@@ -467,24 +472,15 @@ impl SplashScreen {
             
             if star_alpha > 0.1 {
                 let size = star.size * (1.0 - warp_prog);
-                // Simple star
                 painter.circle_filled(
                     Pos2::new(sx, sy), 
                     size, 
                     C_WHITE.linear_multiply(star_alpha)
                 );
-                // Glare for big stars
-                if size > 1.2 {
-                    painter.circle_filled(
-                        Pos2::new(sx, sy), 
-                        size * 2.5, 
-                        C_WHITE.linear_multiply(star_alpha * 0.3)
-                    );
-                }
             }
         }
 
-        // --- LAYER 2: THE PINK MOON ---
+        // --- LAYER 2: THE REALISTIC PINK MOON ---
         let moon_parallax = self.mouse_influence * -30.0;
         let moon_base_pos = center + Vec2::new(0.0, -40.0) + moon_parallax;
         let moon_rad = 140.0;
@@ -494,77 +490,84 @@ impl SplashScreen {
             let moon_bob = (t * 0.5).sin() * 5.0;
             let final_moon_pos = moon_base_pos + Vec2::new(0.0, moon_bob);
 
-            // 2a. Moon Glow (Atmosphere)
+            // 2a. Atmospheric Glow (Softer, layered)
+            painter.circle_filled(final_moon_pos, moon_rad * 1.6, C_MOON_GLOW.linear_multiply(0.03 * moon_alpha));
+            painter.circle_filled(final_moon_pos, moon_rad * 1.2, C_MOON_GLOW.linear_multiply(0.08 * moon_alpha));
+
+            // 2b. Spherical Shading (Gradient Approximation)
+            // Main body
+            painter.circle_filled(final_moon_pos, moon_rad, C_MOON_BASE.linear_multiply(moon_alpha));
+            // Shadow side (Bottom Right)
             painter.circle_filled(
-                final_moon_pos,
-                moon_rad * 1.8,
-                C_MAGENTA.linear_multiply(0.05 * moon_alpha),
+                final_moon_pos + Vec2::new(10.0, 10.0), 
+                moon_rad * 0.9, 
+                Color32::from_black_alpha((50.0 * moon_alpha) as u8)
             );
+            // Highlight side (Top Left)
             painter.circle_filled(
-                final_moon_pos,
-                moon_rad * 1.3,
-                C_MOON_BASE.linear_multiply(0.1 * moon_alpha),
-            );
-            
-            // 2b. Moon Body
-            painter.circle_filled(
-                final_moon_pos,
-                moon_rad,
-                C_MOON_BASE.linear_multiply(moon_alpha),
+                final_moon_pos - Vec2::new(10.0, 10.0), 
+                moon_rad * 0.85, 
+                Color32::from_white_alpha((20.0 * moon_alpha) as u8)
             );
 
-            // 2c. Surface Features (Procedural Texture)
+            // 2c. Surface Features
             let feature_rot = t * 0.05; 
             
             for feat in &self.moon_features {
                 let fx = feat.pos.x;
                 let fy = feat.pos.y;
                 
-                // Simple 2D rotation
+                // Rotation
                 let rot_cos = feature_rot.cos();
                 let rot_sin = feature_rot.sin();
-                let _r_x = fx * rot_cos - fy * rot_sin;
-                let _r_y = fx * rot_sin + fy * rot_cos;
+                let r_x = fx * rot_cos - fy * rot_sin;
+                let r_y = fx * rot_sin + fy * rot_cos;
                 
-                let f_pos = final_moon_pos + Vec2::new(feat.pos.x * moon_rad, feat.pos.y * moon_rad);
+                // Sphere Projection (Fake Z)
+                let dist_sq = r_x*r_x + r_y*r_y;
+                if dist_sq > 0.95 { continue; } // Clip edge features
+
+                let f_pos = final_moon_pos + Vec2::new(r_x * moon_rad, r_y * moon_rad);
                 
-                // Spherical projection scaling
-                let dist_from_center = feat.pos.length();
-                let perspective_scale = (1.0 - dist_from_center.powi(2)).sqrt().max(0.2); 
-                
-                let f_radius = feat.radius * moon_rad * perspective_scale;
-                let f_alpha = 0.6 * moon_alpha * perspective_scale;
+                // Perspective distortion
+                let z_depth = (1.0 - dist_sq).sqrt(); // 1.0 at center, 0.0 at edge
+                let f_radius = feat.radius * moon_rad * (0.5 + 0.5 * z_depth); 
+                let f_alpha = moon_alpha * z_depth; // Fade near edges
 
                 if feat.is_crater {
-                    painter.circle_stroke(
-                        f_pos,
+                    // Crater: Recessed shadowing
+                    // Shadow (Top Left inner)
+                    painter.circle_filled(
+                        f_pos + Vec2::new(-1.0, -1.0),
                         f_radius,
-                        Stroke::new(1.5 * perspective_scale, feat.color.linear_multiply(f_alpha))
+                        C_MOON_SHADOW.linear_multiply(f_alpha * 0.8)
                     );
+                    // Highlight (Bottom Right inner)
                     painter.circle_filled(
                         f_pos + Vec2::new(1.0, 1.0),
-                        f_radius * 0.8,
-                        C_MOON_SHADOW.linear_multiply(f_alpha * 0.5)
+                        f_radius * 0.9,
+                        C_MOON_HIGHLIGHT.linear_multiply(f_alpha * 0.4)
                     );
                 } else {
+                    // Maria: Flat dark patches
                     painter.circle_filled(
                         f_pos,
                         f_radius,
-                        feat.color.linear_multiply(f_alpha * 0.4) 
+                        C_MOON_SHADOW.linear_multiply(f_alpha * 0.3) 
                     );
                 }
             }
             
-            // 2d. Rim Light
+            // 2d. Rim Light (Top Left)
+            // Simulate light hitting the edge of the sphere
             painter.circle_stroke(
-                final_moon_pos,
-                moon_rad,
-                Stroke::new(2.0, C_MAGENTA.linear_multiply(0.8 * moon_alpha))
+                final_moon_pos - Vec2::new(2.0, 2.0),
+                moon_rad - 1.0,
+                Stroke::new(2.0, C_MOON_HIGHLIGHT.linear_multiply(0.4 * moon_alpha))
             );
         }
 
-        // --- LAYER 3: CLOUDS ---
-        // Render in front of moon to obscure it
+        // --- LAYER 3: VOLUMETRIC DARK CLOUDS (BLACK SILHOUETTE) ---
         let cloud_parallax = self.mouse_influence * -15.0;
 
         for cloud in &self.clouds {
@@ -574,14 +577,28 @@ impl SplashScreen {
             let cloud_alpha = cloud.opacity * master_alpha * (1.0 - warp_prog);
             
             if cloud_alpha > 0.01 {
+                // Pass 1: Dark Core (Deep black shadow)
                 for (offset, puff_r_mult) in &cloud.puffs {
                     let p_pos = Pos2::new(c_x, c_y) + (*offset * cloud.scale);
                     let radius = 30.0 * cloud.scale * puff_r_mult;
                     
                     painter.circle_filled(
-                        p_pos,
+                        p_pos + Vec2::new(2.0, 5.0), // Shadow offset down-right
                         radius,
-                        C_CLOUD.linear_multiply(cloud_alpha)
+                        C_CLOUD_CORE.linear_multiply(cloud_alpha * 0.95)
+                    );
+                }
+
+                // Pass 2: Main Body (Slightly lighter black/purple)
+                for (offset, puff_r_mult) in &cloud.puffs {
+                    let p_pos = Pos2::new(c_x, c_y) + (*offset * cloud.scale);
+                    let radius = 30.0 * cloud.scale * puff_r_mult;
+
+                    // Subtle highlight on top-left edge
+                    painter.circle_filled(
+                        p_pos - Vec2::new(3.0, 3.0), 
+                        radius * 0.9,
+                        C_CLOUD_EDGE.linear_multiply(cloud_alpha * 0.3)
                     );
                 }
             }
@@ -591,7 +608,6 @@ impl SplashScreen {
         let render_t = t.min(ANIMATION_DURATION + 5.0);
         let cam_y = 150.0 + (render_t * 30.0) + (warp_prog * 10000.0);
         let horizon = center.y + 120.0;
-        let corner_radius = 32.0;
         let grid_fade = 1.0 - warp_prog;
 
         if grid_fade > 0.0 {
@@ -614,11 +630,7 @@ impl SplashScreen {
                     Stroke::new(1.5, C_MAGENTA.linear_multiply(alpha_grid))
                 );
             }
-            
-            // Removed Vertical lines (Teal)
         }
-
-        // --- REMOVED LAYER 4.5: TEXT BACKDROP ---
 
         // --- LAYER 5: 3D VOXELS ---
         let physics_t = t.min(ANIMATION_DURATION);
@@ -722,8 +734,6 @@ impl SplashScreen {
             painter.add(Shape::convex_polygon(verts.clone(), col, Stroke::NONE));
             
             if master_alpha > 0.8 && warp_prog < 0.5 {
-                // FIXED: Reverted to thin, sleek lines.
-                // White rim for glowing, subtle black for definition.
                 let stroke_col = if is_glowing { 
                     C_WHITE.linear_multiply(0.6) 
                 } else { 
