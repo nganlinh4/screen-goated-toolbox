@@ -362,6 +362,28 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
         SelectObject(mem_dc, old_font);
         DeleteObject(hfont_sub);
     }
+    
+    // --- TEXT ALPHA FIX ---
+    // GDI DrawText doesn't properly handle alpha for layered windows (it writes RGB but ignores Dest Alpha).
+    // This causes white text on semi-transparent backgrounds to have RGB > Alpha, which looks "bloomed" or "washed out".
+    // We iterate the buffer and force Alpha to be at least the max of R,G,B (Premultiplied constraint).
+    if !p_bits.is_null() {
+        GdiFlush(); // Ensure GDI drawing is committed to bits
+        let pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (width * height) as usize);
+        for px in pixels.iter_mut() {
+            let val = *px;
+            let a = (val >> 24) & 0xFF;
+            let r = (val >> 16) & 0xFF;
+            let g = (val >> 8) & 0xFF;
+            let b = val & 0xFF;
+            
+            let max_c = r.max(g).max(b);
+            if max_c > a {
+                // Fix alpha to support valid premultiplied rendering for the text
+                *px = (max_c << 24) | (r << 16) | (g << 8) | b;
+            }
+        }
+    }
 
     let pt_src = POINT { x: 0, y: 0 };
     let size = SIZE { cx: width, cy: height };
