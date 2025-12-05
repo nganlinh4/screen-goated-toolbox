@@ -7,18 +7,6 @@ use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, B
 use crate::overlay::paint_utils::{sd_rounded_box, hsv_to_rgb};
 use super::state::{WINDOW_STATES, AnimationMode, ResizeEdge};
 
-// RAII Wrapper for GDI Objects to ensure cleanup
-struct GdiObj(HGDIOBJ);
-impl GdiObj {
-    fn from_hpen(pen: HPEN) -> Self { GdiObj(HGDIOBJ(pen.0)) }
-    fn from_hbrush(brush: HBRUSH) -> Self { GdiObj(HGDIOBJ(brush.0)) }
-}
-impl Drop for GdiObj {
-    fn drop(&mut self) {
-        if self.0.0 != 0 { unsafe { let _ = DeleteObject(self.0); } }
-    }
-}
-
 // Helper: Measure text dimensions (Height AND Width)
 unsafe fn measure_text_bounds(hdc: windows::Win32::Graphics::Gdi::CreatedHDC, text: &mut [u16], font_size: i32, max_width: i32) -> (i32, i32) {
     let hfont = CreateFontW(font_size, 0, 0, 0, FW_MEDIUM.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));

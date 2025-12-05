@@ -10,6 +10,7 @@ pub enum Icon {
     Settings,
     Moon,
     Sun,
+    SystemTheme, // NEW: Computer Monitor for System/Auto theme
     EyeOpen,
     EyeClosed,
     Microphone,
@@ -20,7 +21,6 @@ pub enum Icon {
     Info,
     Statistics,
     Refresh,
-    Edit, // Pencil
     Folder, // NEW: For "Open Media"
     Copy,   // NEW: For "Copy Text"
     Close,  // NEW: "X" for clearing search
@@ -120,6 +120,34 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
                 let end = center + dir * 9.0 * scale;
                 painter.line_segment([start, end], stroke);
             }
+        }
+
+        Icon::SystemTheme => {
+            // Computer Monitor Icon
+            let screen_w = 14.0 * scale;
+            let screen_h = 10.0 * scale;
+            let screen_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, 2.0 * scale), egui::vec2(screen_w, screen_h));
+            
+            // Screen Frame
+            painter.rect_stroke(screen_rect, 2.0 * scale, stroke);
+            
+            // Stand
+            let stand_top = egui::pos2(screen_rect.center().x, screen_rect.bottom());
+            let stand_bot = stand_top + egui::vec2(0.0, 3.0 * scale);
+            painter.line_segment([stand_top, stand_bot], stroke);
+            
+            // Base
+            let base_w = 8.0 * scale;
+            painter.line_segment(
+                [stand_bot - egui::vec2(base_w/2.0, 0.0), stand_bot + egui::vec2(base_w/2.0, 0.0)], 
+                stroke
+            );
+            
+            // "Auto" glare inside screen (diagonal line)
+            painter.line_segment(
+                [screen_rect.left_bottom() + egui::vec2(3.0*scale, -3.0*scale), screen_rect.right_top() + egui::vec2(-3.0*scale, 3.0*scale)], 
+                egui::Stroke::new(1.0 * scale, stroke.color.linear_multiply(0.5))
+            );
         }
 
         Icon::EyeOpen => {
@@ -311,14 +339,6 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
                 let p2 = *tip + egui::vec2(back_angle2.cos() * arrow_len, back_angle2.sin() * arrow_len);
                 painter.add(egui::Shape::line(vec![p1, *tip, p2], refresh_stroke));
             }
-        }
-
-        Icon::Edit => {
-            let tip = center + egui::vec2(-4.0, 4.0) * scale;
-            let top = center + egui::vec2(4.0, -4.0) * scale;
-            painter.line_segment([tip, top], egui::Stroke::new(3.5 * scale, color));
-            painter.circle_filled(top + egui::vec2(1.5, -1.5) * scale, 1.5 * scale, color);
-            painter.line_segment([tip, tip - egui::vec2(2.0, -2.0) * scale], egui::Stroke::new(1.5 * scale, color));
         }
 
         Icon::Folder => {

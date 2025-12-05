@@ -442,7 +442,7 @@ impl SplashScreen {
         let rect = ui.max_rect();
         let painter = ui.painter().with_clip_rect(rect);
         let center = rect.center();
-        let center_vec = Vec2::new(center.x, center.y);
+        let _center_vec = Vec2::new(center.x, center.y);
         
         let alpha = if t < 1.0 { t } else { 1.0 };
         let master_alpha = alpha.clamp(0.0, 1.0);

@@ -21,7 +21,7 @@ use windows::Win32::System::Com::CoInitialize;
 use windows::core::*;
 use lazy_static::lazy_static;
 use image::ImageBuffer;
-use config::{Config, load_config};
+use config::{Config, load_config, ThemeMode};
 use tray_icon::menu::{Menu, MenuItem};
 use std::collections::HashMap;
 use history::HistoryManager;
@@ -178,11 +178,21 @@ fn main() -> eframe::Result<()> {
         .with_transparent(false) 
         .with_decorations(true); // FIX: Start WITH decorations, opaque window
     
-    // Detect System Theme for initial launch
+    // 1. Load config early to get theme setting
+    let initial_config = APP.lock().unwrap().config.clone();
+    
+    // 2. Detect System Theme
     let system_dark = gui::utils::is_system_in_dark_mode();
+    
+    // 3. Resolve Initial Theme
+    let effective_dark = match initial_config.theme_mode {
+        ThemeMode::Dark => true,
+        ThemeMode::Light => false,
+        ThemeMode::System => system_dark,
+    };
 
-    // FIX: Load correct icon based on System Theme
-    let icon_data = crate::icon_gen::get_window_icon(system_dark);
+    // 4. Use Effective Theme for initial icon
+    let icon_data = crate::icon_gen::get_window_icon(effective_dark);
     viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon_data));
     
     let options = eframe::NativeOptions {
@@ -190,17 +200,21 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     
-    let initial_config = APP.lock().unwrap().config.clone();
-    
     eframe::run_native(
         "Screen Goated Toolbox (SGT by nganlinh4)",
         options,
         Box::new(move |cc| {
             gui::configure_fonts(&cc.egui_ctx);
             
-            // NEW: Enforce native icon immediately on startup to ensure high-quality
-            // title bar and correct taskbar icon.
-            gui::utils::update_window_icon_native(system_dark);
+            // 5. Set Initial Visuals Explicitly
+            if effective_dark {
+                cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
+            } else {
+                cc.egui_ctx.set_visuals(eframe::egui::Visuals::light());
+            }
+
+            // 6. Set Native Icon
+            gui::utils::update_window_icon_native(effective_dark);
 
             Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_menu, cc.egui_ctx.clone()))
         }),

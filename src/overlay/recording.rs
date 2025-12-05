@@ -3,7 +3,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::core::*;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering, AtomicU32}, Once};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering, AtomicU32}, Once, Mutex};
 use crate::APP;
 
 static mut RECORDING_HWND: HWND = HWND(0);
@@ -14,7 +14,9 @@ static mut CURRENT_PRESET_IDX: usize = 0;
 static mut CURRENT_ALPHA: i32 = 0; // For fade-in
 
 // Audio Viz
-static mut VISUALIZATION_BUFFER: [f32; 40] = [0.0; 40]; // 40 bars
+lazy_static::lazy_static! {
+    static ref VISUALIZATION_BUFFER: Mutex<[f32; 40]> = Mutex::new([0.0; 40]);
+}
 static mut VIS_HEAD: usize = 0;
 static CURRENT_RMS: AtomicU32 = AtomicU32::new(0);
 
@@ -68,10 +70,12 @@ pub fn show_recording_overlay(preset_idx: usize) {
         AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
          AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
          AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst); // Reset abort signal
-         
-         // Reset viz
-         VIS_HEAD = 0;
-         VISUALIZATION_BUFFER.fill(0.0);
+          
+          // Reset viz
+          VIS_HEAD = 0;
+          if let Ok(mut buffer) = VISUALIZATION_BUFFER.lock() {
+              buffer.fill(0.0);
+          }
 
          let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("RecordingOverlay");
@@ -242,7 +246,10 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
              
              for i in 0..40 {
                  let idx = (VIS_HEAD + 40 - i) % 40;
-                 let amp = VISUALIZATION_BUFFER[idx];
+                 let amp = {
+                     let buffer = VISUALIZATION_BUFFER.lock().unwrap();
+                     buffer[idx]
+                 };
                  let h = (amp * 400.0).clamp(4.0, 40.0); // Height scaling
                  
                  let x = start_x + (i as f32 * (bar_w + spacing));
@@ -494,7 +501,9 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
              let rms = f32::from_bits(rms_bits);
              unsafe {
                  VIS_HEAD = (VIS_HEAD + 1) % 40;
-                 VISUALIZATION_BUFFER[VIS_HEAD] = rms;
+             }
+             if let Ok(mut buffer) = VISUALIZATION_BUFFER.lock() {
+                 buffer[VIS_HEAD] = rms;
              }
 
              paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);

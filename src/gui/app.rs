@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use eframe::egui;
-use crate::config::{Config, save_config, Hotkey};
+use crate::config::{Config, save_config, Hotkey, ThemeMode};
 use std::sync::{Arc, Mutex};
 use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
 use auto_launch::AutoLaunch;
@@ -69,6 +69,7 @@ pub struct SettingsApp {
     
     // --- NEW FIELDS ---
     current_admin_state: bool, // Track runtime admin status
+    last_effective_theme_dark: bool, // Effective dark mode (considering System/Dark/Light)
     last_system_theme_dark: bool, // Track Windows system theme for icon switching
     theme_check_timer: f64, // Timer for polling system theme
     // ------------------
@@ -208,6 +209,13 @@ impl SettingsApp {
 
         // Detect initial system theme
         let system_dark = crate::gui::utils::is_system_in_dark_mode();
+        
+        // Determine effective initial theme
+        let effective_dark = match config.theme_mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => system_dark,
+        };
 
         let start_in_tray = config.start_in_tray;
 
@@ -238,6 +246,7 @@ impl SettingsApp {
             
             // --- NEW FIELD INIT ---
             current_admin_state,
+            last_effective_theme_dark: effective_dark,
             last_system_theme_dark: system_dark,
             theme_check_timer: 0.0,
             // ----------------------
@@ -294,26 +303,43 @@ impl eframe::App for SettingsApp {
         // Updater
         while let Ok(status) = self.update_rx.try_recv() { self.update_status = status; }
 
-        // --- SYSTEM THEME MONITORING ---
+        // --- THEME MONITORING ---
         let now = ctx.input(|i| i.time);
-        if now - self.theme_check_timer > 1.0 { // Check every 1 second
+        
+        // 1. Check if we need to poll system theme (only if in System mode)
+        let mut current_system_dark = self.last_system_theme_dark;
+        
+        if now - self.theme_check_timer > 1.0 { 
             self.theme_check_timer = now;
-            
-            let current_system_dark = crate::gui::utils::is_system_in_dark_mode();
-            
-            if current_system_dark != self.last_system_theme_dark {
-                self.last_system_theme_dark = current_system_dark;
-                
-                // 1. Update Tray Icon
-                if let Some(tray) = &mut self.tray_icon {
-                    let new_icon = icon_gen::get_tray_icon(current_system_dark);
-                    let _ = tray.set_icon(Some(new_icon));
-                }
+            // Always update system state tracker, even if not currently used
+            current_system_dark = crate::gui::utils::is_system_in_dark_mode();
+            self.last_system_theme_dark = current_system_dark;
+        }
 
-                // 2. Update Window Icon (NATIVE FIX)
-                // This replaces ctx.send_viewport_cmd(...) to fix aliasing and taskbar issues
-                crate::gui::utils::update_window_icon_native(current_system_dark);
+        // 2. Calculate Effective Theme
+        let effective_dark = match self.config.theme_mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => current_system_dark,
+        };
+
+        // 3. Apply Changes if Effective Theme Changed
+        if effective_dark != self.last_effective_theme_dark {
+            self.last_effective_theme_dark = effective_dark;
+            
+            // A. Update Visuals (egui)
+            if effective_dark {
+                ctx.set_visuals(egui::Visuals::dark());
+            } else {
+                ctx.set_visuals(egui::Visuals::light());
             }
+
+            // B. Update Native Icons (Tray & Window) based on Effective Theme
+            if let Some(tray) = &mut self.tray_icon {
+                let new_icon = icon_gen::get_tray_icon(effective_dark);
+                let _ = tray.set_icon(Some(new_icon));
+            }
+            crate::gui::utils::update_window_icon_native(effective_dark);
         }
 
         // --- LAZY TRAY ICON CREATION ---
@@ -328,8 +354,8 @@ impl eframe::App for SettingsApp {
             if now - self.tray_retry_timer > 1.0 { 
                 self.tray_retry_timer = now;
                 
-                // Use the Helper with current system theme
-                let icon = icon_gen::get_tray_icon(self.last_system_theme_dark);
+                // Use the Helper with effective theme
+                let icon = icon_gen::get_tray_icon(self.last_effective_theme_dark);
                 
                 if let Ok(tray) = TrayIconBuilder::new()
                     .with_menu(Box::new(self.tray_menu.clone()))
@@ -485,8 +511,6 @@ impl eframe::App for SettingsApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             }
         }
-
-        if self.config.dark_mode { ctx.set_visuals(egui::Visuals::dark()); } else { ctx.set_visuals(egui::Visuals::light()); }
 
         let text = LocaleText::get(&self.config.ui_language);
 

@@ -183,7 +183,6 @@ pub fn set_admin_startup(enable: bool) -> bool {
     }
 }
 
-#[allow(dead_code)]
 pub fn is_admin_startup_enabled() -> bool {
     let output = Command::new("schtasks")
         .args(&["/query", "/tn", TASK_NAME])

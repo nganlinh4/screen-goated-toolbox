@@ -128,9 +128,6 @@ pub fn render_global_settings(
                                     let _ = launcher.disable();
                                 }
                                 changed = true;
-                            } else {
-                                // Failed to create task, revert the checkbox
-                                is_admin_mode = false;
                             }
                         } else if !is_admin_mode && config.run_as_admin_on_startup {
                             // User disabling Admin Mode (revert to normal startup)

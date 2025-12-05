@@ -5,7 +5,6 @@ use crate::overlay::result::RefineContext;
 use super::client::UREQ_AGENT;
 use super::types::{StreamChunk, ChatCompletionResponse};
 use super::vision::translate_image_streaming;
-use super::audio::transcribe_audio_gemini;
 
 pub fn translate_text_streaming<F>(
     groq_api_key: &str,
@@ -374,16 +373,6 @@ where
                 if groq_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY")); }
                 let img = image::load_from_memory(&img_bytes)?.to_rgba8();
                 translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, target_id_or_name, target_provider, img, streaming_enabled, false, on_chunk)
-            }
-        },
-        RefineContext::Audio(wav_bytes) => {
-            if target_provider == "google" {
-                if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_GEMINI_KEY")); }
-                transcribe_audio_gemini(gemini_api_key, final_prompt, target_id_or_name, wav_bytes, on_chunk)
-            } else {
-                // Groq Audio (Whisper) - Fallback to TEXT refinement using the helper
-                // because Whisper cannot do chat refinement on audio.
-                exec_text_only(target_id_or_name, target_provider)
             }
         },
         RefineContext::None => {
