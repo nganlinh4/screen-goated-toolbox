@@ -108,10 +108,14 @@ pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glo
                     };
                     
                     if d > 0.0 {
-                        // White Border
-                        let aa = (1.5 - d).clamp(0.0, 1.0);
+                        // White Border with Smooth AA
+                        // Extended range to 2.0px and used smoothstep for buttery edge
+                        let t = (d / 2.0).clamp(0.0, 1.0);
+                        let aa = 1.0 - t * t * (3.0 - 2.0 * t); // Smoothstep curve
+                        
                         if aa > 0.0 {
                              let a = (aa * 255.0) as u32;
+                             // Premultiplied White
                              pixels[(y * buf_w + x) as usize] = (a << 24) | (a << 16) | (a << 8) | a;
                         } else {
                              pixels[(y * buf_w + x) as usize] = 0;
@@ -133,7 +137,9 @@ pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glo
                             if final_alpha > 0.005 {
                                  let deg = angle.to_degrees() + 180.0;
                                  let hue = (deg + time_offset) % 360.0;
-                                 let rgb = if dist_in < 2.0 { 0x00FFFFFF } else { hsv_to_rgb(hue, 0.8, 1.0) };
+                                 
+                                 // Force white core to match border continuity
+                                 let rgb = if dist_in < 2.5 { 0x00FFFFFF } else { hsv_to_rgb(hue, 0.8, 1.0) };
                                  
                                  let a = (final_alpha * 255.0) as u32;
                                  let r = ((rgb >> 16) & 0xFF) * a / 255;
@@ -177,12 +183,15 @@ pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glo
 
                     if d > 0.0 {
                         if is_glowing {
-                            let aa = (1.5 - d).clamp(0.0, 1.0);
+                            // Improved AA: Smoothstep over 2.0px
+                            let t = (d / 2.0).clamp(0.0, 1.0);
+                            let aa = 1.0 - t * t * (3.0 - 2.0 * t);
                             if aa > 0.0 {
                                 final_alpha = aa;
                                 final_col = 0x00FFFFFF;
                             }
                         } else {
+                            // Standard Selection Box (Non-glowing)
                             let t_out = (d - 1.5).max(0.0);
                             let fade = (1.0 - t_out).clamp(0.0, 1.0);
                             if fade > 0.0 {
@@ -211,7 +220,7 @@ pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glo
                                 let deg = angle.to_degrees() + 180.0;
                                 let hue = (deg + time_offset) % 360.0;
                                 let rgb = hsv_to_rgb(hue, 0.8, 1.0);
-                                if dist_in < 2.0 { final_col = 0x00FFFFFF; } else { final_col = rgb; }
+                                if dist_in < 2.5 { final_col = 0x00FFFFFF; } else { final_col = rgb; }
                             }
                         } else {
                             final_alpha = 0.85;
