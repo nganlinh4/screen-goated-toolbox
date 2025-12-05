@@ -178,17 +178,12 @@ fn main() -> eframe::Result<()> {
         .with_transparent(false) 
         .with_decorations(true); // FIX: Start WITH decorations, opaque window
     
-    let app_icon_bytes = include_bytes!("../assets/app-icon-small.png");
-    if let Ok(img) = image::load_from_memory(app_icon_bytes) {
-        let img_rgba = img.to_rgba8();
-        let (width, height) = img_rgba.dimensions();
-        let icon_data = eframe::egui::IconData {
-            rgba: img_rgba.to_vec(),
-            width,
-            height,
-        };
-        viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon_data));
-    }
+    // Detect System Theme for initial launch
+    let system_dark = gui::utils::is_system_in_dark_mode();
+
+    // FIX: Load correct icon based on System Theme
+    let icon_data = crate::icon_gen::get_window_icon(system_dark);
+    viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon_data));
     
     let options = eframe::NativeOptions {
         viewport: viewport_builder,
@@ -202,7 +197,11 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             gui::configure_fonts(&cc.egui_ctx);
-            // Pass ONLY the menu, let App create the icon lazily
+            
+            // NEW: Enforce native icon immediately on startup to ensure high-quality
+            // title bar and correct taskbar icon.
+            gui::utils::update_window_icon_native(system_dark);
+
             Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_menu, cc.egui_ctx.clone()))
         }),
     )

@@ -19,6 +19,7 @@ use crate::gui::key_mapping::egui_key_to_vk;
 use crate::updater::{Updater, UpdateStatus};
 use crate::gui::settings_ui::{ViewMode, render_sidebar, render_global_settings, render_preset_editor, render_footer, render_history_panel};
 use crate::gui::utils::get_monitor_names;
+use crate::icon_gen;
 
 
 
@@ -68,6 +69,8 @@ pub struct SettingsApp {
     
     // --- NEW FIELDS ---
     current_admin_state: bool, // Track runtime admin status
+    last_system_theme_dark: bool, // Track Windows system theme for icon switching
+    theme_check_timer: f64, // Timer for polling system theme
     // ------------------
 }
 
@@ -203,6 +206,9 @@ impl SettingsApp {
             crate::gui::utils::is_running_as_admin()
         } else { false };
 
+        // Detect initial system theme
+        let system_dark = crate::gui::utils::is_system_in_dark_mode();
+
         let start_in_tray = config.start_in_tray;
 
         Self {
@@ -232,6 +238,8 @@ impl SettingsApp {
             
             // --- NEW FIELD INIT ---
             current_admin_state,
+            last_system_theme_dark: system_dark,
+            theme_check_timer: 0.0,
             // ----------------------
         }
     }
@@ -286,12 +294,32 @@ impl eframe::App for SettingsApp {
         // Updater
         while let Ok(status) = self.update_rx.try_recv() { self.update_status = status; }
 
+        // --- SYSTEM THEME MONITORING ---
+        let now = ctx.input(|i| i.time);
+        if now - self.theme_check_timer > 1.0 { // Check every 1 second
+            self.theme_check_timer = now;
+            
+            let current_system_dark = crate::gui::utils::is_system_in_dark_mode();
+            
+            if current_system_dark != self.last_system_theme_dark {
+                self.last_system_theme_dark = current_system_dark;
+                
+                // 1. Update Tray Icon
+                if let Some(tray) = &mut self.tray_icon {
+                    let new_icon = icon_gen::get_tray_icon(current_system_dark);
+                    let _ = tray.set_icon(Some(new_icon));
+                }
+
+                // 2. Update Window Icon (NATIVE FIX)
+                // This replaces ctx.send_viewport_cmd(...) to fix aliasing and taskbar issues
+                crate::gui::utils::update_window_icon_native(current_system_dark);
+            }
+        }
+
         // --- LAZY TRAY ICON CREATION ---
         // Try to create the tray icon if it doesn't exist yet.
         // This waits for the Windows Shell to fully initialize, avoiding crashes and duplicates.
         if self.tray_icon.is_none() {
-            let now = ctx.input(|i| i.time);
-            
             // FALLBACK: If icon is missing after 30s, ensure window is visible
             if now > 30.0 {
                  ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -299,7 +327,10 @@ impl eframe::App for SettingsApp {
 
             if now - self.tray_retry_timer > 1.0 { 
                 self.tray_retry_timer = now;
-                let icon = crate::icon_gen::generate_icon();
+                
+                // Use the Helper with current system theme
+                let icon = icon_gen::get_tray_icon(self.last_system_theme_dark);
+                
                 if let Ok(tray) = TrayIconBuilder::new()
                     .with_menu(Box::new(self.tray_menu.clone()))
                     .with_tooltip("Screen Goated Toolbox (nganlinh4)")

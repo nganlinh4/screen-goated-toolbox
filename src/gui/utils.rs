@@ -1,9 +1,14 @@
-use windows::Win32::Foundation::{BOOL, LPARAM, RECT, HWND};
+use windows::Win32::Foundation::{BOOL, LPARAM, WPARAM, RECT, HWND, HANDLE};
 use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR, GetMonitorInfoW, MONITORINFOEXW};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetSystemMetrics, SM_CXSMICON, SM_CYSMICON, SM_CXICON, SM_CYICON,
+    SendMessageW, WM_SETICON, ICON_SMALL, ICON_BIG, CreateIcon, FindWindowW,
+};
+use windows::core::{w, PCWSTR}; // Fixed: PCWSTR is in windows::core
 use eframe::egui;
 use std::process::Command;
 
-// --- Monitor Enumeration ---
+// --- Monitor Enumeration (Existing Code) ---
 
 struct MonitorEnumContext {
     monitors: Vec<String>,
@@ -30,18 +35,17 @@ pub fn get_monitor_names() -> Vec<String> {
     ctx.monitors
 }
 
-// --- Clipboard Helper ---
+// --- Clipboard Helper (Existing Code) ---
 pub fn copy_to_clipboard_text(text: &str) {
     crate::overlay::utils::copy_to_clipboard(text, HWND(0));
 }
 
-// --- Admin Check ---
+// --- Admin Check (Existing Code) ---
 
 #[cfg(target_os = "windows")]
 pub fn is_running_as_admin() -> bool {
     use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION};
     use windows::Win32::System::Threading::GetCurrentProcess;
-    use windows::Win32::Foundation::HANDLE;
     
     unsafe {
         let mut h_token = HANDLE::default();
@@ -76,13 +80,34 @@ pub fn is_running_as_admin() -> bool {
     }
 }
 
-// --- Font Configuration ---
+// --- System Theme Detection ---
+pub fn is_system_in_dark_mode() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        // We check "SystemUsesLightTheme". 
+        // 0 = Dark Mode (Standard), 1 = Light Mode.
+        if let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize") {
+            if let Ok(val) = key.get_value::<u32, &str>("SystemUsesLightTheme") {
+                return val == 0;
+            }
+        }
+        true 
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        true 
+    }
+}
+
+// --- Font Configuration (Existing Code) ---
 
 pub fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let viet_font_name = "segoe_ui";
     
-    // Dynamic Windows font path
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
     let font_dir = std::path::Path::new(&windir).join("Fonts");
     
@@ -113,14 +138,12 @@ pub fn configure_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-// --- Task Scheduler / Admin Startup ---
+// --- Task Scheduler / Admin Startup (Existing Code) ---
 
 const TASK_NAME: &str = "ScreenGoatedToolbox_AutoStart";
 
-/// Create or delete a Windows Scheduled Task for Admin auto-startup
 pub fn set_admin_startup(enable: bool) -> bool {
     if enable {
-        // Get current executable path
         let exe_path = match std::env::current_exe() {
             Ok(path) => path,
             Err(_) => return false,
@@ -133,12 +156,6 @@ pub fn set_admin_startup(enable: bool) -> bool {
         
         if exe_str.is_empty() { return false; }
 
-        // Create Scheduled Task via schtasks
-        // /SC ONLOGON : Trigger at user login
-        // /RL HIGHEST : Run with highest privileges (Admin)
-        // /F          : Force overwrite if exists
-        // /TN         : Task Name
-        // /TR         : Task Run (path to executable)
         let output = Command::new("schtasks")
             .args(&[
                 "/create",
@@ -155,7 +172,6 @@ pub fn set_admin_startup(enable: bool) -> bool {
             Err(_) => false,
         }
     } else {
-        // Delete the scheduled task
         let output = Command::new("schtasks")
             .args(&["/delete", "/tn", TASK_NAME, "/f"])
             .output();
@@ -167,7 +183,6 @@ pub fn set_admin_startup(enable: bool) -> bool {
     }
 }
 
-/// Check if the admin auto-startup task exists
 #[allow(dead_code)]
 pub fn is_admin_startup_enabled() -> bool {
     let output = Command::new("schtasks")
@@ -177,5 +192,86 @@ pub fn is_admin_startup_enabled() -> bool {
     match output {
         Ok(o) => o.status.success(),
         Err(_) => false,
+    }
+}
+
+// --- NATIVE ICON UPDATER (FIXED) ---
+
+fn rgba_to_bgra(data: &[u8]) -> Vec<u8> {
+    let mut bgra = data.to_vec();
+    for chunk in bgra.chunks_exact_mut(4) {
+        chunk.swap(0, 2); // Swap R and B
+    }
+    bgra
+}
+
+unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) -> Option<HANDLE> {
+    let img = image::load_from_memory(bytes).ok()?;
+    
+    // High-quality resize to fix aliasing
+    let resized = img.resize_exact(
+        target_w as u32, 
+        target_h as u32, 
+        image::imageops::FilterType::Lanczos3
+    );
+    let rgba = resized.to_rgba8();
+    let bgra_data = rgba_to_bgra(rgba.as_raw());
+    
+    let mask_len = ((target_w * target_h) / 8) as usize; 
+    let mask_bits = vec![0u8; mask_len]; 
+
+    // Fixed: CreateIcon returns a Result<HICON> in windows 0.48+
+    let hicon_result = CreateIcon(
+        None,
+        target_w,
+        target_h,
+        1,
+        32,
+        mask_bits.as_ptr(),
+        bgra_data.as_ptr()
+    );
+    
+    match hicon_result {
+        Ok(hicon) => {
+             // Fixed: Unwrap HICON and cast to HANDLE
+             if hicon.is_invalid() { None } else { Some(HANDLE(hicon.0)) }
+        },
+        Err(_) => None
+    }
+}
+
+pub fn update_window_icon_native(is_dark_mode: bool) {
+    // Fixed: Explicit type annotation &[u8] to handle different array sizes from include_bytes!
+    let icon_bytes: &[u8] = if is_dark_mode {
+        include_bytes!("../../assets/app-icon-small.png")
+    } else {
+        include_bytes!("../../assets/app-icon-small-light.png")
+    };
+
+    unsafe {
+        let class_name = w!("eframe");
+        let title_name = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+        
+        let mut hwnd = FindWindowW(PCWSTR(class_name.as_ptr()), PCWSTR(title_name.as_ptr()));
+        
+        if hwnd.0 == 0 {
+             hwnd = FindWindowW(None, PCWSTR(title_name.as_ptr()));
+        }
+
+        if hwnd.0 != 0 {
+            let small_w = GetSystemMetrics(SM_CXSMICON);
+            let small_h = GetSystemMetrics(SM_CYSMICON);
+            
+            let big_w = GetSystemMetrics(SM_CXICON);
+            let big_h = GetSystemMetrics(SM_CYICON);
+
+            if let Some(hicon_small) = create_hicon_from_bytes(icon_bytes, small_w, small_h) {
+                SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_SMALL as usize), LPARAM(hicon_small.0));
+            }
+
+            if let Some(hicon_big) = create_hicon_from_bytes(icon_bytes, big_w, big_h) {
+                SendMessageW(hwnd, WM_SETICON, WPARAM(ICON_BIG as usize), LPARAM(hicon_big.0));
+            }
+        }
     }
 }
