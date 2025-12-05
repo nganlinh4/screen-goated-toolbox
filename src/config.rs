@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::collections::HashMap;
 
+// --- THEME MODE ENUM ---
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub enum ThemeMode {
+    System,
+    Dark,
+    Light,
+}
+
 fn get_system_ui_language() -> String {
     let sys_locale = sys_locale::get_locale().unwrap_or_default();
     let lang_code = sys_locale.split('-').next().unwrap_or("en").to_lowercase();
@@ -62,6 +70,7 @@ pub struct Preset {
 fn default_preset_type() -> String { "image".to_string() }
 fn default_audio_source() -> String { "mic".to_string() }
 fn default_prompt_mode() -> String { "fixed".to_string() }
+fn default_theme_mode() -> ThemeMode { ThemeMode::System }
 
 impl Default for Preset {
     fn default() -> Self {
@@ -97,7 +106,8 @@ pub struct Config {
     pub gemini_api_key: String,
     pub presets: Vec<Preset>,
     pub active_preset_idx: usize, // For UI selection
-    pub dark_mode: bool,
+    #[serde(default = "default_theme_mode")]
+    pub theme_mode: ThemeMode,
     pub ui_language: String,
     #[serde(default = "default_history_limit")]
     pub max_history_items: usize, // NEW
@@ -448,7 +458,7 @@ fn default_history_limit() -> usize { 100 }
                 transcribe_retrans_preset, quicker_reply_preset, video_placeholder_preset
             ],
             active_preset_idx: 0,
-            dark_mode: true,
+            theme_mode: ThemeMode::System,
             ui_language: get_system_ui_language(),
             max_history_items: 100,
             

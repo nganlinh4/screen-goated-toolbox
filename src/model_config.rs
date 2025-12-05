@@ -44,26 +44,7 @@ impl ModelConfig {
              quota_limit: quota_limit.to_string(),
          }
      }
-
-     #[allow(dead_code)]
-     pub fn get_label(&self, ui_language: &str) -> String {
-         let name = match ui_language {
-             "vi" => &self.name_vi,
-             "ko" => &self.name_ko,
-             _ => &self.name_en,
-         };
-         format!("{} ({})", name, self.full_name)
-     }
-
-     #[allow(dead_code)]
-     pub fn get_name_only(&self, ui_language: &str) -> String {
-         match ui_language {
-             "vi" => self.name_vi.clone(),
-             "ko" => self.name_ko.clone(),
-             _ => self.name_en.clone(),
-         }
-     }
- }
+}
 
 lazy_static::lazy_static! {
     static ref ALL_MODELS: Vec<ModelConfig> = vec![

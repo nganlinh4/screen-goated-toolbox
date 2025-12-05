@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::config::{Config, Preset};
+use crate::config::{Config, Preset, ThemeMode};
 use crate::gui::locale::LocaleText;
 use crate::gui::icons::{Icon, icon_button, draw_icon_static};
 use super::ViewMode;
@@ -14,9 +14,20 @@ pub fn render_sidebar(
 
     // Theme & Language Controls
     ui.horizontal(|ui| {
-        let theme_icon = if config.dark_mode { Icon::Moon } else { Icon::Sun };
-        if icon_button(ui, theme_icon).on_hover_text("Toggle Theme").clicked() {
-            config.dark_mode = !config.dark_mode;
+        // --- THEME SWITCHER LOGIC ---
+        let (theme_icon, tooltip) = match config.theme_mode {
+            ThemeMode::Dark => (Icon::Moon, "Theme: Dark"),
+            ThemeMode::Light => (Icon::Sun, "Theme: Light"),
+            ThemeMode::System => (Icon::SystemTheme, "Theme: System (Auto)"),
+        };
+
+        if icon_button(ui, theme_icon).on_hover_text(tooltip).clicked() {
+            // Cycle: System -> Dark -> Light -> System
+            config.theme_mode = match config.theme_mode {
+                ThemeMode::System => ThemeMode::Dark,
+                ThemeMode::Dark => ThemeMode::Light,
+                ThemeMode::Light => ThemeMode::System,
+            };
             changed = true;
         }
         

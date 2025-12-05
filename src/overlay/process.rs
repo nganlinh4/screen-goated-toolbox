@@ -4,6 +4,7 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::core::*;
 use std::sync::{Arc, Mutex, Once};
+use std::collections::HashMap;
 use image::{ImageBuffer, Rgba};
 
 use crate::api::{translate_image_streaming, translate_text_streaming};
@@ -20,24 +21,8 @@ struct ProcessingState {
     alpha: u8,
 }
 
-static mut PROC_STATES: Option<std::collections::HashMap<isize, ProcessingState>> = None;
-
-unsafe fn get_proc_state(hwnd: HWND) -> &'static mut ProcessingState {
-    if PROC_STATES.is_none() {
-        PROC_STATES = Some(std::collections::HashMap::new());
-    }
-    let map = PROC_STATES.as_mut().unwrap();
-    map.entry(hwnd.0 as isize).or_insert(ProcessingState { 
-        animation_offset: 0.0,
-        is_fading_out: false,
-        alpha: 255
-    })
-}
-
-unsafe fn remove_proc_state(hwnd: HWND) {
-    if let Some(map) = PROC_STATES.as_mut() {
-        map.remove(&(hwnd.0 as isize));
-    }
+lazy_static::lazy_static! {
+    static ref PROC_STATES: Mutex<HashMap<isize, ProcessingState>> = Mutex::new(HashMap::new());
 }
 
 // --- MAIN ENTRY POINT FOR PROCESSING ---
@@ -353,7 +338,13 @@ unsafe fn create_processing_window(rect: RECT) -> HWND {
         None, None, instance, None
     );
 
-    get_proc_state(hwnd);
+    let mut states = PROC_STATES.lock().unwrap();
+    states.insert(hwnd.0 as isize, ProcessingState {
+        animation_offset: 0.0,
+        is_fading_out: false,
+        alpha: 255
+    });
+    drop(states);
     
     SetTimer(hwnd, 1, 16, None);
     ShowWindow(hwnd, SW_SHOW);
@@ -365,29 +356,48 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
     match msg {
         WM_CLOSE => {
             // When closed (via worker thread), start fade out instead of destroying immediately
-            let state = get_proc_state(hwnd);
+            let mut states = PROC_STATES.lock().unwrap();
+            let state = states.entry(hwnd.0 as isize).or_insert(ProcessingState { 
+                animation_offset: 0.0,
+                is_fading_out: false,
+                alpha: 255
+            });
             if !state.is_fading_out {
                 state.is_fading_out = true;
             }
             LRESULT(0)
         }
         WM_TIMER => {
-            let state = get_proc_state(hwnd);
-            
-            // Handle Fade Out
-            if state.is_fading_out {
-                if state.alpha > 30 {
-                    state.alpha -= 30;
-                } else {
-                    state.alpha = 0;
-                    DestroyWindow(hwnd);
-                    PostQuitMessage(0);
-                    return LRESULT(0);
+            let (should_destroy, anim_offset, alpha) = {
+                let mut states = PROC_STATES.lock().unwrap();
+                let state = states.entry(hwnd.0 as isize).or_insert(ProcessingState { 
+                    animation_offset: 0.0,
+                    is_fading_out: false,
+                    alpha: 255
+                });
+                
+                // Handle Fade Out
+                let mut destroy_flag = false;
+                if state.is_fading_out {
+                    if state.alpha > 30 {
+                        state.alpha -= 30;
+                    } else {
+                        state.alpha = 0;
+                        destroy_flag = true;
+                    }
                 }
-            }
 
-            state.animation_offset += 5.0;
-            if state.animation_offset > 360.0 { state.animation_offset -= 360.0; }
+                state.animation_offset += 5.0;
+                if state.animation_offset > 360.0 { state.animation_offset -= 360.0; }
+                
+                (destroy_flag, state.animation_offset, state.alpha)
+            };
+            
+            if should_destroy {
+                DestroyWindow(hwnd);
+                PostQuitMessage(0);
+                return LRESULT(0);
+            }
             
             let mut rect = RECT::default();
             GetWindowRect(hwnd, &mut rect);
@@ -423,14 +433,14 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     w,
                     h,
                     true, 
-                    state.animation_offset
+                    anim_offset
                 );
 
                 let pt_src = POINT { x: 0, y: 0 };
                 let size = SIZE { cx: w, cy: h };
                 let mut blend = BLENDFUNCTION::default();
                 blend.BlendOp = AC_SRC_OVER as u8;
-                blend.SourceConstantAlpha = state.alpha; // Use dynamic alpha
+                blend.SourceConstantAlpha = alpha; // Use dynamic alpha
                 blend.AlphaFormat = AC_SRC_ALPHA as u8;
 
                 UpdateLayeredWindow(
@@ -459,7 +469,8 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             LRESULT(0)
         }
         WM_DESTROY => {
-            remove_proc_state(hwnd);
+            let mut states = PROC_STATES.lock().unwrap();
+            states.remove(&(hwnd.0 as isize));
             PostQuitMessage(0);
             LRESULT(0)
         }

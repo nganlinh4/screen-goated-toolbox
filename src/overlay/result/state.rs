@@ -83,7 +83,6 @@ impl Default for CursorPhysics {
 pub enum RefineContext {
     None,
     Image(Vec<u8>), // PNG Bytes
-    Audio(Vec<u8>), // WAV Bytes
 }
 
 pub struct WindowState {
@@ -138,8 +137,6 @@ pub struct WindowState {
     
     // BACKGROUND CACHING
       pub bg_bitmap: HBITMAP,
-      #[allow(dead_code)]
-      pub bg_bits: *mut core::ffi::c_void, 
       pub bg_w: i32,
       pub bg_h: i32,
     

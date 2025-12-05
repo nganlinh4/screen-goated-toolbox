@@ -172,7 +172,6 @@ pub fn create_result_window(
                 pending_text: None,
                 last_text_update_time: 0,
                 bg_bitmap: HBITMAP(0),
-                bg_bits: std::ptr::null_mut(),
                 bg_w: 0,
                 bg_h: 0,
                 edit_font: hfont,
