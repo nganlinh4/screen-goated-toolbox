@@ -17,7 +17,9 @@ pub struct ModelConfig {
     pub full_name: String,
     pub model_type: ModelType,
     pub enabled: bool,
-    pub quota_limit: String, 
+    pub quota_limit_vi: String,
+    pub quota_limit_ko: String,
+    pub quota_limit_en: String,
 }
 
 impl ModelConfig {
@@ -30,7 +32,9 @@ impl ModelConfig {
          full_name: &str,
          model_type: ModelType,
          enabled: bool,
-         quota_limit: &str,
+         quota_limit_vi: &str,
+         quota_limit_ko: &str,
+         quota_limit_en: &str,
      ) -> Self {
          Self {
              id: id.to_string(),
@@ -41,7 +45,9 @@ impl ModelConfig {
              full_name: full_name.to_string(),
              model_type,
              enabled,
-             quota_limit: quota_limit.to_string(),
+             quota_limit_vi: quota_limit_vi.to_string(),
+             quota_limit_ko: quota_limit_ko.to_string(),
+             quota_limit_en: quota_limit_en.to_string(),
          }
      }
 }
@@ -57,7 +63,9 @@ lazy_static::lazy_static! {
             "meta-llama/llama-4-scout-17b-16e-instruct",
             ModelType::Vision,
             true,
-            "1000 lượt/ngày"
+            "1000 lượt/ngày",
+            "1000 요청/일",
+            "1000 requests/day"
         ),
         ModelConfig::new(
             "maverick",
@@ -68,7 +76,9 @@ lazy_static::lazy_static! {
             "meta-llama/llama-4-maverick-17b-128e-instruct",
             ModelType::Vision,
             true,
-            "1000 lượt/ngày"
+            "1000 lượt/ngày",
+            "1000 요청/일",
+            "1000 requests/day"
         ),
         ModelConfig::new(
             "gemini-flash-lite",
@@ -79,7 +89,9 @@ lazy_static::lazy_static! {
             "gemini-flash-lite-latest",
             ModelType::Vision,
             true,
-            "1000 lượt/ngày"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "gemini-flash",
@@ -90,7 +102,9 @@ lazy_static::lazy_static! {
             "gemini-flash-latest",
             ModelType::Vision,
             true,
-            "250 lượt/ngày"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "gemini-pro",
@@ -98,10 +112,12 @@ lazy_static::lazy_static! {
             "Siêu chính xác, chậm",
             "초정밀, 느림",
             "Super Accurate, Slow",
-            "gemini-2.5-pro",
+            "gemini-robotics-er-1.5-preview",
             ModelType::Vision,
             true,
-            "50 lượt/ngày"
+            "250 lượt/ngày",
+            "250 요청/일",
+            "250 requests/day"
         ),
         ModelConfig::new(
             "fast_text",
@@ -112,7 +128,9 @@ lazy_static::lazy_static! {
             "openai/gpt-oss-20b",
             ModelType::Text,
             true,
-            "1000 lượt/ngày"
+            "1000 lượt/ngày",
+            "1000 요청/일",
+            "1000 requests/day"
         ),
         ModelConfig::new(
             "text_fast_120b",
@@ -123,7 +141,9 @@ lazy_static::lazy_static! {
             "openai/gpt-oss-120b",
             ModelType::Text,
             true,
-            "1000 lượt/ngày"
+            "1000 lượt/ngày",
+            "1000 요청/일",
+            "1000 requests/day"
         ),
         ModelConfig::new(
             "text_accurate_kimi",
@@ -134,7 +154,9 @@ lazy_static::lazy_static! {
             "moonshotai/kimi-k2-instruct-0905",
             ModelType::Text,
             true,
-            "1000 lượt/ngày"
+            "1000 lượt/ngày",
+            "1000 요청/일",
+            "1000 requests/day"
         ),
         ModelConfig::new(
             "text_gemini_flash_lite",
@@ -145,7 +167,9 @@ lazy_static::lazy_static! {
             "gemini-flash-lite-latest",
             ModelType::Text,
             true,
-            "1000 lượt/ngày"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "text_gemini_flash",
@@ -156,7 +180,9 @@ lazy_static::lazy_static! {
             "gemini-flash-latest",
             ModelType::Text,
             true,
-            "250 lượt/ngày"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "text_gemini_pro",
@@ -164,10 +190,12 @@ lazy_static::lazy_static! {
             "Siêu chính xác, chậm",
             "초정밀, 느림",
             "Super Accurate, Slow",
-            "gemini-2.5-pro",
+            "gemini-robotics-er-1.5-preview",
             ModelType::Text,
             true,
-            "50 lượt/ngày"
+            "250 lượt/ngày",
+            "250 요청/일",
+            "250 requests/day"
         ),
         ModelConfig::new(
             "whisper-fast",
@@ -178,7 +206,9 @@ lazy_static::lazy_static! {
             "whisper-large-v3-turbo",
             ModelType::Audio,
             true,
-            "8h audio/ngày"
+            "8 giờ audio/ngày",
+            "8시간 오디오/일",
+            "8 hours audio/day"
         ),
         ModelConfig::new(
             "whisper-accurate",
@@ -189,7 +219,9 @@ lazy_static::lazy_static! {
             "whisper-large-v3",
             ModelType::Audio,
             true,
-            "8h audio/ngày"
+            "8 giờ audio/ngày",
+            "8시간 오디오/일",
+            "8 hours audio/day"
         ),
         ModelConfig::new(
             "gemini-audio",
@@ -200,7 +232,9 @@ lazy_static::lazy_static! {
             "gemini-flash-lite-latest",
             ModelType::Audio,
             true,
-            "1000 lượt/ngày"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "gemini-audio-flash",
@@ -211,7 +245,9 @@ lazy_static::lazy_static! {
             "gemini-flash-latest",
             ModelType::Audio,
             true,
-            "250 lượt/ngày"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "gemini-audio-pro",
@@ -219,10 +255,12 @@ lazy_static::lazy_static! {
             "Siêu chính xác, chậm",
             "초정밀, 느림",
             "Super Accurate, Slow",
-            "gemini-2.5-pro",
+            "gemini-robotics-er-1.5-preview",
             ModelType::Audio,
             true,
-            "50 lượt/ngày"
+            "250 lượt/ngày",
+            "250 요청/일",
+            "250 requests/day"
         ),
     ];
 }

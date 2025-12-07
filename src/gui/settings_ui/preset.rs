@@ -237,7 +237,11 @@ pub fn render_preset_editor(
                                         _ => &model.name_en,
                                     },
                                     model.full_name,
-                                    model.quota_limit
+                                    match config.ui_language.as_str() {
+                                        "vi" => &model.quota_limit_vi,
+                                        "ko" => &model.quota_limit_ko,
+                                        _ => &model.quota_limit_en,
+                                    }
                                 );
                                 if ui.selectable_value(&mut preset.model, model.id.clone(), dropdown_label).clicked() {
                                      changed = true;
@@ -332,7 +336,11 @@ pub fn render_preset_editor(
                                                 _ => &model.name_en,
                                             },
                                             model.full_name,
-                                            model.quota_limit
+                                            match config.ui_language.as_str() {
+                                                "vi" => &model.quota_limit_vi,
+                                                "ko" => &model.quota_limit_ko,
+                                                _ => &model.quota_limit_en,
+                                            }
                                         );
                                         if ui.selectable_value(&mut preset.retranslate_model, model.id.clone(), dropdown_label).clicked() {
                                             changed = true;
