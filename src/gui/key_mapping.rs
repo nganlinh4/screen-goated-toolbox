@@ -57,3 +57,14 @@ pub fn egui_key_to_vk(key: &egui::Key) -> Option<u32> {
         _ => None,
     }
 }
+
+// Map egui Pointer (Mouse) Buttons to Windows VK Codes
+// Explicitly ignores Primary (Left) and Secondary (Right) to prevent locking clicks
+pub fn egui_pointer_to_vk(btn: &egui::PointerButton) -> Option<u32> {
+    match btn {
+        egui::PointerButton::Middle => Some(0x04), // VK_MBUTTON
+        egui::PointerButton::Extra1 => Some(0x05), // VK_XBUTTON1 (Back)
+        egui::PointerButton::Extra2 => Some(0x06), // VK_XBUTTON2 (Forward)
+        _ => None, // Primary/Secondary excluded
+    }
+}

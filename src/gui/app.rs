@@ -16,7 +16,7 @@ use windows::Win32::Graphics::Gdi::{MonitorFromPoint, MONITORINFO, MONITOR_DEFAU
 use windows::core::*;
 
 use crate::gui::locale::LocaleText;
-use crate::gui::key_mapping::egui_key_to_vk;
+use crate::gui::key_mapping::{egui_key_to_vk, egui_pointer_to_vk};
 use crate::updater::{Updater, UpdateStatus};
 use crate::gui::settings_ui::{ViewMode, render_sidebar, render_global_settings, render_preset_editor, render_footer, render_history_panel};
 use crate::gui::utils::get_monitor_names;
@@ -445,12 +445,37 @@ impl eframe::App for SettingsApp {
                     if i.modifiers.shift { modifiers_bitmap |= MOD_SHIFT; }
                     if i.modifiers.command { modifiers_bitmap |= MOD_WIN; }
 
+                    // Check Keyboard Events
                     for event in &i.events {
                         if let egui::Event::Key { key, pressed: true, .. } = event {
                             if let Some(vk) = egui_key_to_vk(key) {
                                 if !matches!(vk, 16 | 17 | 18 | 91 | 92) {
                                     let key_name = format!("{:?}", key).trim_start_matches("Key").to_string();
                                     key_recorded = Some((vk, modifiers_bitmap, key_name));
+                                }
+                            }
+                        }
+                    }
+
+                    // Check Mouse Events (Middle, Extra1, Extra2)
+                    if key_recorded.is_none() {
+                        let mouse_buttons = [
+                            egui::PointerButton::Middle, 
+                            egui::PointerButton::Extra1, 
+                            egui::PointerButton::Extra2
+                        ];
+                        
+                        for btn in mouse_buttons {
+                            if i.pointer.button_pressed(btn) {
+                                if let Some(vk) = egui_pointer_to_vk(&btn) {
+                                    let name = match btn {
+                                        egui::PointerButton::Middle => "Middle Click",
+                                        egui::PointerButton::Extra1 => "Mouse Back",
+                                        egui::PointerButton::Extra2 => "Mouse Forward",
+                                        _ => "Mouse",
+                                    }.to_string();
+                                    key_recorded = Some((vk, modifiers_bitmap, name));
+                                    break;
                                 }
                             }
                         }
