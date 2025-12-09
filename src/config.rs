@@ -381,7 +381,7 @@ fn default_history_limit() -> usize { 100 }
             model: "whisper-accurate".to_string(),
             streaming_enabled: false,
             auto_copy: true,
-            auto_paste: false,
+            auto_paste: true,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: "Vietnamese".to_string(),
