@@ -159,6 +159,31 @@ fn default_history_limit() -> usize { 100 }
             is_upcoming: false,
         };
 
+        // 1.2. Translate (Auto paste) Preset
+        let trans_auto_paste_preset = Preset {
+            id: "preset_translate_auto_paste".to_string(),
+            name: "Translate (Auto paste)".to_string(),
+            prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+            prompt_mode: "fixed".to_string(),
+            selected_language: "Vietnamese".to_string(),
+            language_vars: trans_lang_vars.clone(),
+            model: "maverick".to_string(),
+            streaming_enabled: false,
+            auto_copy: true,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            hide_overlay: true,
+            preset_type: "image".to_string(),
+            audio_source: "mic".to_string(),
+            hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
+            is_upcoming: false,
+        };
+
         // 1.5. Translate+Retranslate Preset
         let mut trans_retrans_lang_vars = HashMap::new();
         trans_retrans_lang_vars.insert("language1".to_string(), "Korean".to_string());
@@ -190,7 +215,7 @@ fn default_history_limit() -> usize { 100 }
         // 2. OCR Preset
         let ocr_preset = Preset {
             id: "preset_ocr".to_string(),
-            name: "Extract text (OCR)".to_string(),
+            name: "Extract text".to_string(),
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
             prompt_mode: "fixed".to_string(),
             selected_language: "English".to_string(),
@@ -331,14 +356,14 @@ fn default_history_limit() -> usize { 100 }
             language_vars: HashMap::new(),
             model: "whisper-accurate".to_string(),
             streaming_enabled: false,
-            auto_copy: false,
+            auto_copy: true,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: "Vietnamese".to_string(),
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
-            hide_overlay: false,
+            hide_overlay: true,
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
@@ -453,7 +478,7 @@ fn default_history_limit() -> usize { 100 }
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
             presets: vec![
-                trans_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, 
+                trans_preset, trans_auto_paste_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, 
                 sum_preset, desc_preset, ask_preset, audio_preset, study_lang_preset, 
                 transcribe_retrans_preset, quicker_reply_preset, video_placeholder_preset
             ],

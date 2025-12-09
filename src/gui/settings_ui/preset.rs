@@ -267,7 +267,15 @@ pub fn render_preset_editor(
             });
 
             ui.horizontal(|ui| {
-                if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
+                // DYNAMIC LABEL LOGIC
+                // Label shows "(paste)" only if feature is Active AND configured to paste.
+                let copy_label = if preset.auto_copy && preset.hide_overlay {
+                    text.auto_copy_paste_label
+                } else {
+                    text.auto_copy_label
+                };
+
+                if ui.checkbox(&mut preset.auto_copy, copy_label).clicked() {
                     changed = true;
                     if preset.auto_copy { preset.retranslate_auto_copy = false; }
                 }

@@ -2,6 +2,7 @@
 
 use eframe::egui;
 use crate::config::{Config, save_config, Hotkey, ThemeMode};
+use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use std::sync::{Arc, Mutex};
 use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
 use auto_launch::AutoLaunch;
@@ -385,8 +386,8 @@ impl eframe::App for SettingsApp {
                 let work_top = mi.rcWork.top as f32;
                 
                 let pixels_per_point = ctx.pixels_per_point();
-                let win_w_physical = 635.0 * pixels_per_point;
-                let win_h_physical = 500.0 * pixels_per_point;
+                let win_w_physical = WINDOW_WIDTH * pixels_per_point;
+                let win_h_physical = WINDOW_HEIGHT * pixels_per_point;
                 
                 let center_x_physical = work_left + (work_w - win_w_physical) / 2.0;
                 let center_y_physical = work_top + (work_h - win_h_physical) / 2.0;
@@ -395,7 +396,7 @@ impl eframe::App for SettingsApp {
                 let y_logical = center_y_physical / pixels_per_point;
                 
                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x_logical, y_logical)));
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(635.0, 500.0)));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(WINDOW_WIDTH, WINDOW_HEIGHT)));
                 
                 self.startup_stage = 1;
                 ctx.request_repaint();
@@ -406,7 +407,7 @@ impl eframe::App for SettingsApp {
             ctx.request_repaint(); 
         } else if self.startup_stage == 2 {
             if let Some(splash) = &mut self.splash { splash.reset_timer(ctx); }
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(635.0, 500.0)));
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(WINDOW_WIDTH, WINDOW_HEIGHT)));
             
             // CRITICAL FIX: Only allow hiding if tray icon EXISTS.
             // Otherwise, stay visible so the update loop continues and creates the icon.

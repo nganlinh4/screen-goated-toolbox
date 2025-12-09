@@ -26,6 +26,10 @@ use tray_icon::menu::{Menu, MenuItem};
 use std::collections::HashMap;
 use history::HistoryManager;
 
+// Window dimensions
+pub const WINDOW_WIDTH: f32 = 650.0;
+pub const WINDOW_HEIGHT: f32 = 550.0;
+
 // Global event for inter-process restore signaling (manual-reset event)
 lazy_static! {
     pub static ref RESTORE_EVENT: Option<windows::Win32::Foundation::HANDLE> = unsafe {
@@ -174,7 +178,7 @@ fn main() -> eframe::Result<()> {
 
     // --- WINDOW SETUP ---
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
-        .with_inner_size([635.0, 500.0]) 
+        .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT]) 
         .with_resizable(true)
         .with_visible(false) // Start invisible
         .with_transparent(false) 
@@ -314,8 +318,6 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         WM_HOTKEY => {
             let id = wparam.0 as i32;
             if id > 0 {
-                // println!("[DEBUG] Hotkey triggered. ID: {}", id);
-
                 let preset_idx = ((id - 1) / 1000) as usize;
                 
                 // Determine context to decide if we should capture the window
@@ -336,13 +338,10 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 // We want to keep the handle captured when recording started.
                 if !is_audio_stopping {
                     let target_window = crate::overlay::utils::get_target_window_for_paste();
-                    // println!("[DEBUG] Main: Captured Target Window: {:?}", target_window);
 
                     if let Ok(mut app) = APP.lock() {
                         app.last_active_window = target_window;
                     }
-                } else {
-                    // println!("[DEBUG] Main: Stopping audio, preserving previous target window.");
                 }
 
                 if preset_type == "audio" {

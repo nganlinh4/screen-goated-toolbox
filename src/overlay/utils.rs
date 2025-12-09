@@ -52,8 +52,6 @@ pub fn copy_to_clipboard(text: &str, hwnd: HWND) {
 pub fn get_target_window_for_paste() -> Option<HWND> {
     unsafe {
         let hwnd_foreground = GetForegroundWindow();
-        // println!("[DEBUG] get_target_window_for_paste: Foreground HWND = {:?}", hwnd_foreground);
-
         if hwnd_foreground.0 == 0 { return None; }
         
         let thread_id = GetWindowThreadProcessId(hwnd_foreground, None);
@@ -69,8 +67,6 @@ pub fn get_target_window_for_paste() -> Option<HWND> {
             
             // Check keyboard focus (Fix for Chrome/Electron/WPF)
             let has_focus = gui_info.hwndFocus.0 != 0;
-            
-            // println!("[DEBUG] GUITHREADINFO for Thread {}: hwndFocus={:?}, hwndCaret={:?}, blinking={}", thread_id, gui_info.hwndFocus, gui_info.hwndCaret, blinking);
 
             if has_caret || blinking || has_focus {
                 return Some(hwnd_foreground);
@@ -83,8 +79,6 @@ pub fn get_target_window_for_paste() -> Option<HWND> {
 
 pub fn force_focus_and_paste(hwnd_target: HWND) {
     unsafe {
-        // println!("[DEBUG] force_focus_and_paste: Target HWND = {:?}", hwnd_target);
-
         // 1. Force focus back to the target window
         if IsWindow(hwnd_target).as_bool() {
             let cur_thread = GetCurrentThreadId();
