@@ -99,6 +99,7 @@ pub fn start_processing_pipeline(
     let streaming_enabled = preset.streaming_enabled;
     let use_json_format = preset.id == "preset_translate";
     let auto_copy = preset.auto_copy;
+    let auto_paste = preset.auto_paste; // Capture new field
     let auto_paste_newline = preset.auto_paste_newline;
     let do_retranslate = preset.retranslate;
     let retranslate_to = preset.retranslate_to.clone();
@@ -233,19 +234,17 @@ pub fn start_processing_pipeline(
                              txt_to_copy.push_str("\r\n");
                          }
 
-                         // NEW: Check logic - only paste if overlay is hidden and we have a target
-                         let should_paste = hide_overlay && target_window_for_paste.is_some();
+                         // CHECK: Only paste if explicit Auto Paste + Hide Overlay + Target Window exists
+                         let should_paste = auto_paste && hide_overlay && target_window_for_paste.is_some();
                          let target_hwnd = target_window_for_paste;
                          
                          std::thread::spawn(move || {
                              std::thread::sleep(std::time::Duration::from_millis(200));
                              
-                             // Copy the modified text (with newline included)
                              copy_to_clipboard(&txt_to_copy, HWND(0));
                              
                              if should_paste {
                                  if let Some(hwnd) = target_hwnd {
-                                     // Just trigger paste, the newline is in the clipboard content
                                      crate::overlay::utils::force_focus_and_paste(hwnd);
                                  }
                              }
@@ -549,12 +548,12 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
                  txt_for_copy.push_str("\r\n");
              }
              
-             // Logic: Only paste if Hide Overlay is ON and we have a target window
-             let should_paste = hide_overlay && target_window.is_some();
+             // Logic: Explicit Auto Paste + Hide Overlay + Target Window
+             let should_paste = preset.auto_paste && hide_overlay && target_window.is_some();
 
              std::thread::spawn(move || {
                  std::thread::sleep(std::time::Duration::from_millis(200));
-                 copy_to_clipboard(&txt_for_copy, HWND(0));
+                 crate::overlay::utils::copy_to_clipboard(&txt_for_copy, HWND(0));
                  
                  if should_paste {
                      if let Some(hwnd) = target_window {

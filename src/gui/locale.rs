@@ -31,7 +31,7 @@ pub struct LocaleText {
      pub streaming_option_stream: &'static str,
      pub streaming_option_wait: &'static str,
      pub auto_copy_label: &'static str,
-     pub auto_copy_paste_label: &'static str,
+     pub auto_paste_label: &'static str, // NEW: Replaced auto_copy_paste_label
      pub auto_paste_newline_label: &'static str,
      pub startup_label: &'static str,
      pub add_hotkey_button: &'static str,
@@ -117,7 +117,7 @@ impl LocaleText {
                 streaming_option_stream: "Nhận gì hiện nấy",
                 streaming_option_wait: "Nhận hết mới hiện",
                 auto_copy_label: "Tự động copy",
-                auto_copy_paste_label: "Tự động copy (dán)",
+                auto_paste_label: "Tự động dán", // NEW
                 auto_paste_newline_label: "Tự xuống dòng sau khi dán",
                 startup_label: "Khởi động cùng Windows",
                 add_hotkey_button: "+ Thêm Phím",
@@ -199,7 +199,7 @@ impl LocaleText {
                 streaming_option_stream: "수신 즉시 스트리밍",
                 streaming_option_wait: "완료 대기",
                 auto_copy_label: "자동 복사",
-                auto_copy_paste_label: "자동 복사 (붙여넣기)",
+                auto_paste_label: "자동 붙여넣기", // NEW
                 auto_paste_newline_label: "붙여넣기 후 자동 줄바꿈",
                 startup_label: "Windows 시작 시 실행",
                 add_hotkey_button: "+ 키 추가",
@@ -281,7 +281,7 @@ impl LocaleText {
                 streaming_option_stream: "Stream as received",
                 streaming_option_wait: "Wait for completion",
                 auto_copy_label: "Auto copy result",
-                auto_copy_paste_label: "Auto copy (paste) result",
+                auto_paste_label: "Auto-paste", // NEW
                 auto_paste_newline_label: "Auto new line after paste",
                 startup_label: "Run at Windows Startup",
                 add_hotkey_button: "+ Add Key",

@@ -267,32 +267,43 @@ pub fn render_preset_editor(
             });
 
             ui.horizontal(|ui| {
-                // DYNAMIC LABEL LOGIC
-                // Label shows "(paste)" only if feature is Active AND configured to paste.
-                let copy_label = if preset.auto_copy && preset.hide_overlay {
-                    text.auto_copy_paste_label
-                } else {
-                    text.auto_copy_label
-                };
+                 // 1. Auto Copy Checkbox
+                 if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
+                     changed = true;
+                     // Disable sub-features if copy is off
+                     if !preset.auto_copy { 
+                         preset.retranslate_auto_copy = false; 
+                         preset.auto_paste = false; // Disable paste if copy is off
+                     }
+                 }
 
-                if ui.checkbox(&mut preset.auto_copy, copy_label).clicked() {
-                    changed = true;
-                    if preset.auto_copy { preset.retranslate_auto_copy = false; }
-                }
-                if preset.auto_copy {
-                    if ui.checkbox(&mut preset.hide_overlay, text.hide_overlay_label).clicked() {
-                        changed = true;
-                    }
-                }
-            });
+                 // Show sub-options only if Auto Copy is enabled
+                 if preset.auto_copy {
+                     // 2. Hide Overlay Checkbox
+                     if ui.checkbox(&mut preset.hide_overlay, text.hide_overlay_label).clicked() {
+                         changed = true;
+                         // If overlay is shown, auto-paste generally shouldn't happen because focus is lost
+                         if !preset.hide_overlay {
+                             preset.auto_paste = false; 
+                         }
+                     }
 
-            // NEW: Auto Paste Newline Checkbox
-            // Only show if Auto Copy AND Hide Overlay are enabled (implies paste mode)
-            if preset.auto_copy && preset.hide_overlay {
-                if ui.checkbox(&mut preset.auto_paste_newline, text.auto_paste_newline_label).clicked() {
-                    changed = true;
-                }
-            }
+                     // 3. Auto Paste Checkbox (Only if Hide Overlay is ON)
+                     if preset.hide_overlay {
+                          if ui.checkbox(&mut preset.auto_paste, text.auto_paste_label).clicked() {
+                              changed = true;
+                          }
+                     }
+                 }
+             });
+
+             // 4. Auto Paste Newline Checkbox
+             // Only show if Auto Paste is enabled
+             if preset.auto_copy && preset.hide_overlay && preset.auto_paste {
+                 if ui.checkbox(&mut preset.auto_paste_newline, text.auto_paste_newline_label).clicked() {
+                     changed = true;
+                 }
+             }
         });
 
         if !preset.hide_overlay {
