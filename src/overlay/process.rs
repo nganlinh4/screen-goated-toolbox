@@ -99,6 +99,7 @@ pub fn start_processing_pipeline(
     let streaming_enabled = preset.streaming_enabled;
     let use_json_format = preset.id == "preset_translate";
     let auto_copy = preset.auto_copy;
+    let auto_paste_newline = preset.auto_paste_newline;
     let do_retranslate = preset.retranslate;
     let retranslate_to = preset.retranslate_to.clone();
     let retranslate_model_id = preset.retranslate_model.clone();
@@ -236,8 +237,8 @@ pub fn start_processing_pipeline(
                              
                              if should_paste {
                                  if let Some(hwnd) = target_hwnd {
-                                     // Ensure we paste into the correct window
-                                     crate::overlay::utils::force_focus_and_paste(hwnd);
+                                     // Pass the newline setting
+                                     crate::overlay::utils::force_focus_and_paste(hwnd, auto_paste_newline);
                                  }
                              }
                          });
@@ -500,6 +501,7 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
 pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT, retrans_rect: Option<RECT>) {
      let hide_overlay = preset.hide_overlay;
      let auto_copy = preset.auto_copy;
+     let auto_paste_newline = preset.auto_paste_newline;
      let retranslate = preset.retranslate && retrans_rect.is_some();
      let retranslate_to = preset.retranslate_to.clone();
      let retranslate_model_id = preset.retranslate_model.clone();
@@ -540,12 +542,13 @@ pub fn show_audio_result(preset: crate::config::Preset, text: String, rect: RECT
                  // Logic: Only paste if Hide Overlay is ON and we have a target window
                  if hide_overlay && target_window.is_some() {
                      if let Some(hwnd) = target_window {
-                         crate::overlay::utils::force_focus_and_paste(hwnd);
+                         // Pass the newline setting
+                         crate::overlay::utils::force_focus_and_paste(hwnd, auto_paste_newline);
                      }
                  }
              });
          }
-        // ----------------------------------
+         // ----------------------------------
 
         if retranslate && !text.trim().is_empty() {
             let rect_sec = retrans_rect.unwrap();
