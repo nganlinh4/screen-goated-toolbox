@@ -285,6 +285,14 @@ pub fn render_preset_editor(
                     }
                 }
             });
+
+            // NEW: Auto Paste Newline Checkbox
+            // Only show if Auto Copy AND Hide Overlay are enabled (implies paste mode)
+            if preset.auto_copy && preset.hide_overlay {
+                if ui.checkbox(&mut preset.auto_paste_newline, text.auto_paste_newline_label).clicked() {
+                    changed = true;
+                }
+            }
         });
 
         if !preset.hide_overlay {

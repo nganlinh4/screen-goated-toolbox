@@ -49,6 +49,8 @@ pub struct Preset {
     pub retranslate_streaming_enabled: bool,
     #[serde(default)]
     pub retranslate_auto_copy: bool,
+    #[serde(default = "default_auto_paste_newline")]
+    pub auto_paste_newline: bool,
     pub hide_overlay: bool,
     #[serde(default = "default_preset_type")]
     pub preset_type: String, // "image", "audio", "video"
@@ -71,6 +73,7 @@ fn default_preset_type() -> String { "image".to_string() }
 fn default_audio_source() -> String { "mic".to_string() }
 fn default_prompt_mode() -> String { "fixed".to_string() }
 fn default_theme_mode() -> ThemeMode { ThemeMode::System }
+fn default_auto_paste_newline() -> bool { true }
 
 impl Default for Preset {
     fn default() -> Self {
@@ -90,6 +93,7 @@ impl Default for Preset {
             retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -151,6 +155,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -176,6 +181,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: true,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -204,6 +210,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -229,6 +236,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: true, 
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -254,6 +262,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -282,6 +291,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -310,6 +320,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -338,6 +349,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -363,6 +375,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: false,
             hide_overlay: true,
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
@@ -388,6 +401,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "audio".to_string(),
             audio_source: "device".to_string(),
@@ -413,6 +427,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "text_accurate_kimi".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: true,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
@@ -441,6 +456,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "fast_text".to_string(),
             retranslate_streaming_enabled: true,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: true,
             preset_type: "audio".to_string(),
             audio_source: "mic".to_string(),
@@ -466,6 +482,7 @@ fn default_history_limit() -> usize { 100 }
             retranslate_model: "".to_string(),
             retranslate_streaming_enabled: false,
             retranslate_auto_copy: false,
+            auto_paste_newline: true,
             hide_overlay: false,
             preset_type: "video".to_string(),
             audio_source: "".to_string(),
