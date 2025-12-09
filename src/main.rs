@@ -30,11 +30,21 @@ use history::HistoryManager;
 pub const WINDOW_WIDTH: f32 = 650.0;
 pub const WINDOW_HEIGHT: f32 = 550.0;
 
+// Modifier Constants for Hook
+const MOD_ALT: u32 = 0x0001;
+const MOD_CONTROL: u32 = 0x0002;
+const MOD_SHIFT: u32 = 0x0004;
+const MOD_WIN: u32 = 0x0008;
+
 // Global event for inter-process restore signaling (manual-reset event)
 lazy_static! {
     pub static ref RESTORE_EVENT: Option<windows::Win32::Foundation::HANDLE> = unsafe {
         CreateEventW(None, true, false, w!("Global\\ScreenGoatedToolboxRestoreEvent")).ok()
     };
+    // Global handle for the listener window (for the mouse hook to post messages to)
+    static ref LISTENER_HWND: Mutex<HWND> = Mutex::new(HWND(0));
+    // Global handle for the mouse hook
+    static ref MOUSE_HOOK: Mutex<HHOOK> = Mutex::new(HHOOK(0));
 }
 
 pub struct AppState {
@@ -235,6 +245,12 @@ fn register_all_hotkeys(hwnd: HWND) {
     for (p_idx, preset) in presets.iter().enumerate() {
         for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
             // ID encoding: 1000 * preset_idx + hotkey_idx + 1
+            
+            // Skip Mouse Buttons for RegisterHotKey (handled via hook)
+            if [0x04, 0x05, 0x06].contains(&hotkey.code) {
+                continue; 
+            }
+
             let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
             unsafe {
                 RegisterHotKey(hwnd, id, HOT_KEY_MODIFIERS(hotkey.modifiers), hotkey.code);
@@ -250,6 +266,59 @@ fn unregister_all_hotkeys(hwnd: HWND) {
     for &id in &app.registered_hotkey_ids {
         unsafe { UnregisterHotKey(hwnd, id); }
     }
+}
+
+// Low-Level Mouse Hook Procedure
+unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        let msg = wparam.0 as u32;
+        let vk_code = match msg {
+            WM_MBUTTONDOWN => Some(0x04), // VK_MBUTTON
+            WM_XBUTTONDOWN => {
+                let info = *(lparam.0 as *const MSLLHOOKSTRUCT);
+                let xbutton = (info.mouseData >> 16) & 0xFFFF;
+                if xbutton == 1 { Some(0x05) } // VK_XBUTTON1
+                else if xbutton == 2 { Some(0x06) } // VK_XBUTTON2
+                else { None }
+            },
+            _ => None
+        };
+
+        if let Some(vk) = vk_code {
+            // Check modifiers using GetAsyncKeyState for real-time state
+            let mut mods = 0;
+            if (GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0 { mods |= MOD_ALT; }
+            if (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 { mods |= MOD_CONTROL; }
+            if (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0 { mods |= MOD_SHIFT; }
+            if (GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0 { mods |= MOD_WIN; }
+
+            // Check config for a match
+            let mut found_id = None;
+            if let Ok(app) = APP.lock() {
+                for (p_idx, preset) in app.config.presets.iter().enumerate() {
+                    for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
+                        if hotkey.code == vk && hotkey.modifiers == mods {
+                            // Synthesize ID same as register_all_hotkeys
+                            found_id = Some((p_idx as i32 * 1000) + (h_idx as i32) + 1);
+                            break;
+                        }
+                    }
+                    if found_id.is_some() { break; }
+                }
+            }
+
+            if let Some(id) = found_id {
+                if let Ok(hwnd_target) = LISTENER_HWND.lock() {
+                    if hwnd_target.0 != 0 {
+                        // Post WM_HOTKEY to the listener window logic
+                        PostMessageW(*hwnd_target, WM_HOTKEY, WPARAM(id as usize), LPARAM(0));
+                        return LRESULT(1); // Consume/Block input
+                    }
+                }
+            }
+        }
+    }
+    CallNextHookEx(HHOOK(0), code, wparam, lparam)
 }
 
 const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
@@ -290,6 +359,20 @@ fn run_hotkey_listener() {
         if hwnd.0 == 0 {
             eprintln!("Error: Failed to create hotkey listener window");
             return;
+        }
+
+        // Store HWND for the hook
+        if let Ok(mut guard) = LISTENER_HWND.lock() {
+            *guard = hwnd;
+        }
+
+        // Install Mouse Hook
+        if let Ok(hhook) = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), instance, 0) {
+            if let Ok(mut hook_guard) = MOUSE_HOOK.lock() {
+                *hook_guard = hhook;
+            }
+        } else {
+            eprintln!("Warning: Failed to install low-level mouse hook");
         }
 
         register_all_hotkeys(hwnd);
