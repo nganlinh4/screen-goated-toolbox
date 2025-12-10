@@ -166,6 +166,10 @@ pub fn start_processing_pipeline(
         let acc_vis_clone = accumulated_vision.clone();
         let mut first_chunk_received = false;
         
+        // NEW: Shared Handle to allow streaming updates from callback
+        let streaming_hwnd = Arc::new(Mutex::new(None));
+        let streaming_hwnd_cb = streaming_hwnd.clone();
+
         let (tx_hwnd, rx_hwnd) = std::sync::mpsc::channel();
 
         // Use the original cropped_img for the API call (it was moved into this closure)
@@ -198,6 +202,7 @@ pub fn start_processing_pipeline(
                     let stream_copy = streaming_enabled;
                     let hide_copy = hide_overlay;
                     let tx_hwnd_clone = tx_hwnd.clone();
+                    let streaming_hwnd_inner = streaming_hwnd.clone();
                     
                     std::thread::spawn(move || {
                         let hwnd = create_result_window(
@@ -214,6 +219,12 @@ pub fn start_processing_pipeline(
                         if !hide_copy {
                             unsafe { ShowWindow(hwnd, SW_SHOW); }
                         }
+                        
+                        // Store HWND for callback access
+                        if let Ok(mut guard) = streaming_hwnd_inner.lock() {
+                            *guard = Some(hwnd);
+                        }
+
                         let _ = tx_hwnd_clone.send(hwnd);
                         
                         unsafe {
@@ -225,6 +236,15 @@ pub fn start_processing_pipeline(
                             }
                         }
                     });
+                }
+
+                // LIVE UPDATE: Update window if it exists
+                if !hide_overlay {
+                    if let Ok(guard) = streaming_hwnd_cb.lock() {
+                        if let Some(hwnd) = *guard {
+                            update_window_text(hwnd, &text);
+                        }
+                    }
                 }
             }
         );
@@ -515,7 +535,7 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 // PERFORMANCE FIX: Zero-Cost Fade Out
                 // If fading out, DO NOT update the pixels. Just let the alpha blending happen.
                 // This saves massive CPU time during the exit animation, fixing the lag.
-                if !is_fading {
+                if !is_fading && !state.cache_bits.is_null() {
                     crate::overlay::paint_utils::draw_direct_sdf_glow(
                         state.cache_bits as *mut u32,
                         w,
