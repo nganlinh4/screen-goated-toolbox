@@ -536,14 +536,22 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 // If fading out, DO NOT update the pixels. Just let the alpha blending happen.
                 // This saves massive CPU time during the exit animation, fixing the lag.
                 if !is_fading && !state.cache_bits.is_null() {
-                    crate::overlay::paint_utils::draw_direct_sdf_glow(
-                        state.cache_bits as *mut u32,
-                        w,
-                        h,
-                        anim_offset,
-                        1.0, // Always draw opaque, let UpdateLayeredWindow handle the alpha
-                        true
-                    );
+                    // FIX: CRITICAL CRASH PREVENTION
+                    // We must use the CACHED dimensions (state.cache_w/h) for the drawing loop bounds,
+                    // NOT the current window dimensions (w/h). If w/h from GetWindowRect drifts even by 1 pixel
+                    // (e.g. during state changes or DPI updates) while the buffer is smaller, 
+                    // the drawing loop will write out of bounds (Buffer Overflow).
+                    // We also only draw if dimensions match to ensure visual consistency.
+                    if state.cache_w == w && state.cache_h == h {
+                        crate::overlay::paint_utils::draw_direct_sdf_glow(
+                            state.cache_bits as *mut u32,
+                            state.cache_w, // Use SAFE allocated width
+                            state.cache_h, // Use SAFE allocated height
+                            anim_offset,
+                            1.0, // Always draw opaque, let UpdateLayeredWindow handle the alpha
+                            true
+                        );
+                    }
                 }
 
                 let screen_dc = GetDC(None);
