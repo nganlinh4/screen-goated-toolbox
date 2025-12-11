@@ -23,6 +23,12 @@ static mut SELECTION_OVERLAY_ACTIVE: bool = false;
 static mut SELECTION_OVERLAY_HWND: HWND = HWND(0);
 static mut CURRENT_PRESET_IDX: usize = 0;
 
+// Cached back buffer to avoid per-frame allocations
+// Only cache the bitmap (the heavy allocation ~33MB for 4K), DC creation is cheap
+static mut CACHED_BITMAP: HBITMAP = HBITMAP(0);
+static mut CACHED_W: i32 = 0;
+static mut CACHED_H: i32 = 0;
+
 // Helper to extract bytes from the HBITMAP only for the selected area
 unsafe fn extract_crop_from_hbitmap(
     capture: &GdiCapture, 
@@ -261,20 +267,28 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             let mut ps = PAINTSTRUCT::default();
             let hdc = BeginPaint(hwnd, &mut ps);
             
-            // OPTIMIZATION: Use GDI Double Buffering but minimal allocations
             let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
             let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
             
+            // OPTIMIZATION: Cache the full-screen bitmap (heavy allocation ~33MB for 4K)
+            // The DC is lightweight and created per-frame, bitmap is reused
+            if CACHED_BITMAP.0 == 0 || CACHED_W != width || CACHED_H != height {
+                if CACHED_BITMAP.0 != 0 {
+                    DeleteObject(CACHED_BITMAP);
+                }
+                CACHED_BITMAP = CreateCompatibleBitmap(hdc, width, height);
+                CACHED_W = width;
+                CACHED_H = height;
+            }
+            
+            // Create lightweight DC per-frame (no expensive allocation)
             let mem_dc = CreateCompatibleDC(hdc);
-            let mem_bitmap = CreateCompatibleBitmap(hdc, width, height);
-            let old_bmp = SelectObject(mem_dc, mem_bitmap);
+            let old_bmp = SelectObject(mem_dc, CACHED_BITMAP);
 
-            // 1. Clear background (Transparent)
-            // Note: Since we are Layered/Transparent, filling with Black(0,0,0) makes it transparent.
-            let brush = CreateSolidBrush(COLORREF(0x00000000));
+            // 1. Clear background using stock black brush (no allocation)
+            let black_brush = GetStockObject(BLACK_BRUSH);
             let full_rect = RECT { left: 0, top: 0, right: width, bottom: height };
-            FillRect(mem_dc, &full_rect, brush);
-            DeleteObject(brush);
+            FillRect(mem_dc, &full_rect, HBRUSH(black_brush.0));
 
             if IS_DRAGGING {
                 let rect_abs = RECT {
@@ -322,9 +336,8 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
             // Blit to screen
             let _ = BitBlt(hdc, 0, 0, width, height, mem_dc, 0, 0, SRCCOPY).ok();
             
-            // Cleanup GDI
+            // Cleanup DC (but keep cached bitmap)
             SelectObject(mem_dc, old_bmp);
-            DeleteObject(mem_bitmap);
             DeleteDC(mem_dc);
             
             EndPaint(hwnd, &mut ps);
@@ -337,6 +350,16 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                 SetTimer(hwnd, FADE_TIMER_ID, 16, None);
             }
             LRESULT(0)
+        }
+        WM_DESTROY => {
+            // Cleanup cached back buffer resources
+            if CACHED_BITMAP.0 != 0 {
+                DeleteObject(CACHED_BITMAP);
+                CACHED_BITMAP = HBITMAP(0);
+            }
+            CACHED_W = 0;
+            CACHED_H = 0;
+            DefWindowProcW(hwnd, msg, wparam, lparam)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
