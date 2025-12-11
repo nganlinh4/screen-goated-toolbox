@@ -41,6 +41,30 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             GetCursorPos(&mut pt);
             ScreenToClient(hwnd, &mut pt);
             
+            // Check if we're in editing mode and over the edit control area
+            let mut is_over_edit = false;
+            {
+                let states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                    if state.is_editing {
+                        // Edit control is at (10, 10) with size (width-20, 40)
+                        let edit_left = 10;
+                        let edit_top = 10;
+                        let edit_right = rect.right - 10;
+                        let edit_bottom = 10 + 40;
+                        
+                        is_over_edit = pt.x >= edit_left && pt.x <= edit_right 
+                                    && pt.y >= edit_top && pt.y <= edit_bottom;
+                    }
+                }
+            }
+            
+            // If over edit control, show I-beam cursor for text editing
+            if is_over_edit {
+                SetCursor(LoadCursorW(None, IDC_IBEAM).unwrap());
+                return LRESULT(1);
+            }
+            
             let edge = get_resize_edge(rect.right, rect.bottom, pt.x, pt.y);
             
             match edge {
@@ -77,6 +101,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                  SetCursor(LoadCursorW(None, cursor_id).unwrap());
                  LRESULT(1)
             } else {
+                 // Hide system cursor - broom cursor is drawn separately
                  SetCursor(HCURSOR(0));
                  LRESULT(1)
             }
@@ -426,6 +451,13 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                                SetWindowTextW(state.edit_hwnd, w!("")); 
                                ShowWindow(state.edit_hwnd, SW_HIDE);
                                SetFocus(hwnd); 
+                           }
+                           // Ctrl+A to Select All (Win32 EDIT control doesn't support this by default)
+                           else if (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 
+                               && (GetKeyState(0x41) as u16 & 0x8000) != 0 { // 0x41 = 'A' key
+                               // EM_SETSEL with (0, -1) selects all text
+                               const EM_SETSEL: u32 = 0x00B1;
+                               SendMessageW(state.edit_hwnd, EM_SETSEL, WPARAM(0), LPARAM(-1));
                            }
                            // ENTER to submit (unless Shift is held)
                            else if (GetKeyState(VK_RETURN.0 as i32) as u16 & 0x8000) != 0 {

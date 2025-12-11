@@ -84,7 +84,45 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                         p.needs_cleanup_repaint = false; // Consume the flag
                     }
                     if !skip_repaint {
-                        InvalidateRect(hwnd, None, false);
+                        // CARET FIX: When editing, only invalidate areas OUTSIDE the edit control
+                        // This prevents the constant timer from killing the caret blink
+                        if state.is_editing {
+                            let mut client_rect = RECT::default();
+                            GetClientRect(hwnd, &mut client_rect);
+                            
+                            // Edit control is at (10, 10) with width = client_w - 20, height = 40
+                            // Invalidate: bottom region (below edit), left margin, right margin
+                            let edit_bottom = 10 + 40 + 5; // Edit Y + Height + padding
+                            
+                            // Bottom region (main content area)
+                            let bottom_region = RECT {
+                                left: 0,
+                                top: edit_bottom,
+                                right: client_rect.right,
+                                bottom: client_rect.bottom,
+                            };
+                            InvalidateRect(hwnd, Some(&bottom_region), false);
+                            
+                            // Left margin
+                            let left_margin = RECT {
+                                left: 0,
+                                top: 0,
+                                right: 10,
+                                bottom: edit_bottom,
+                            };
+                            InvalidateRect(hwnd, Some(&left_margin), false);
+                            
+                            // Right margin  
+                            let right_margin = RECT {
+                                left: client_rect.right - 10,
+                                top: 0,
+                                right: client_rect.right,
+                                bottom: edit_bottom,
+                            };
+                            InvalidateRect(hwnd, Some(&right_margin), false);
+                        } else {
+                            InvalidateRect(hwnd, None, false);
+                        }
                     }
                 }
             }
