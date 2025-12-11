@@ -64,32 +64,6 @@ pub fn render_global_settings(
     render_update_section(ui, updater, update_status, text);
 
     ui.add_space(10.0);
-    
-    // === GRAPHICS MODE (For weak computers) ===
-    ui.horizontal(|ui| {
-        ui.label(text.graphics_mode_label);
-        
-        let current_label = if config.graphics_mode == "minimal" {
-            text.graphics_mode_minimal
-        } else {
-            text.graphics_mode_standard
-        };
-        
-        egui::ComboBox::from_id_source("graphics_mode_combo")
-            .selected_text(current_label)
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(config.graphics_mode == "standard", text.graphics_mode_standard).clicked() {
-                    config.graphics_mode = "standard".to_string();
-                    changed = true;
-                }
-                if ui.selectable_label(config.graphics_mode == "minimal", text.graphics_mode_minimal).clicked() {
-                    config.graphics_mode = "minimal".to_string();
-                    changed = true;
-                }
-            });
-    });
-
-    ui.add_space(10.0);
     ui.vertical(|ui| {
         // Main startup toggle (Normal Registry-based or Admin Task Scheduler)
         ui.horizontal(|ui| {
@@ -199,20 +173,47 @@ pub fn render_global_settings(
         }
     });
 
-    ui.add_space(5.0);
-
-    if ui.button(text.reset_defaults_btn).clicked() {
-        let saved_groq_key = config.api_key.clone();
-        let saved_gemini_key = config.gemini_api_key.clone();
-        let saved_language = config.ui_language.clone();
+    ui.add_space(10.0);
+    
+    // === GRAPHICS MODE (For weak computers) & RESET BUTTON ===
+    ui.horizontal(|ui| {
+        ui.label(text.graphics_mode_label);
         
-        *config = Config::default();
+        // Display short version in the dropdown button
+        let current_label = match config.ui_language.as_str() {
+            "vi" => if config.graphics_mode == "minimal" { "Tối giản" } else { "Tiêu chuẩn" },
+            "ko" => if config.graphics_mode == "minimal" { "최소" } else { "표준" },
+            _ => if config.graphics_mode == "minimal" { "Minimal" } else { "Standard" },
+        };
         
-        config.api_key = saved_groq_key;
-        config.gemini_api_key = saved_gemini_key;
-        config.ui_language = saved_language;
-        changed = true;
-    }
+        egui::ComboBox::from_id_source("graphics_mode_combo")
+            .selected_text(current_label)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(config.graphics_mode == "standard", text.graphics_mode_standard).clicked() {
+                    config.graphics_mode = "standard".to_string();
+                    changed = true;
+                }
+                if ui.selectable_label(config.graphics_mode == "minimal", text.graphics_mode_minimal).clicked() {
+                    config.graphics_mode = "minimal".to_string();
+                    changed = true;
+                }
+            });
+        
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button(text.reset_defaults_btn).clicked() {
+                let saved_groq_key = config.api_key.clone();
+                let saved_gemini_key = config.gemini_api_key.clone();
+                let saved_language = config.ui_language.clone();
+                
+                *config = Config::default();
+                
+                config.api_key = saved_groq_key;
+                config.gemini_api_key = saved_gemini_key;
+                config.ui_language = saved_language;
+                changed = true;
+            }
+        });
+    });
 
     changed
 }
@@ -230,7 +231,7 @@ fn render_usage_statistics(
             icon_button(ui, Icon::Info).on_hover_text(text.usage_statistics_tooltip);
         });
         
-        egui::ScrollArea::vertical().max_height(110.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(70.0).show(ui, |ui| {
             egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
                 ui.label(egui::RichText::new(text.usage_model_column).strong());
                 ui.label(egui::RichText::new(text.usage_remaining_column).strong());
