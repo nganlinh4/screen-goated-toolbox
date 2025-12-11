@@ -26,7 +26,6 @@ pub fn render_global_settings(
     
     // API Keys
     ui.group(|ui| {
-        ui.label(egui::RichText::new(text.api_section).strong());
         ui.horizontal(|ui| {
             ui.label(text.api_key_label);
             if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
@@ -225,15 +224,12 @@ fn render_usage_statistics(
     _lang_code: &str
 ) {
     ui.group(|ui| {
-        ui.horizontal(|ui| {
-            draw_icon_static(ui, Icon::Statistics, None);
-            ui.label(egui::RichText::new(text.usage_statistics_title).strong());
-            icon_button(ui, Icon::Info).on_hover_text(text.usage_statistics_tooltip);
-        });
-        
-        egui::ScrollArea::vertical().max_height(70.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().max_height(77.0).show(ui, |ui| {
             egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
-                ui.label(egui::RichText::new(text.usage_model_column).strong());
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(format!("{} {}", text.usage_statistics_title, text.usage_model_column)).strong());
+                    icon_button(ui, Icon::Info).on_hover_text(text.usage_statistics_tooltip);
+                });
                 ui.label(egui::RichText::new(text.usage_remaining_column).strong());
                 ui.end_row();
 
