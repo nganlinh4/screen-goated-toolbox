@@ -135,12 +135,19 @@ pub fn paint_window(hwnd: HWND) {
                 let particles_vec: Vec<(f32, f32, f32, f32, u32)> = state.physics.particles.iter()
                     .map(|p| (p.x, p.y, p.life, p.size, p.color)).collect();
 
-                let show_broom = state.is_hovered 
-                    && !state.on_copy_btn 
-                    && !state.on_edit_btn
-                    && !state.on_undo_btn
-                    && state.current_resize_edge == ResizeEdge::None 
-                    || state.physics.mode == AnimationMode::Smashing;
+                // PERFORMANCE FIX: Don't render broom during fade-out (DragOut mode)
+                // The broom rendering is expensive (procedural generation + bitmap creation every frame)
+                // During fade, we only need alpha blending which is handled by SetLayeredWindowAttributes
+                let is_fading_out = matches!(state.physics.mode, AnimationMode::DragOut);
+                
+                let show_broom = !is_fading_out && (
+                    (state.is_hovered 
+                        && !state.on_copy_btn 
+                        && !state.on_edit_btn
+                        && !state.on_undo_btn
+                        && state.current_resize_edge == ResizeEdge::None)
+                    || state.physics.mode == AnimationMode::Smashing
+                );
                 
                 let broom_info = if show_broom {
                      Some((state.physics.x, state.physics.y, BroomRenderParams {

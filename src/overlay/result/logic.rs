@@ -108,9 +108,10 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                     }
                     p.particles = keep;
 
-                    // Skip full repaint during fade-out - alpha is handled by SetLayeredWindowAttributes
-                    // Only repaint if particles are active (need visual update) or not fading out
-                    let skip_repaint = matches!(p.mode, AnimationMode::DragOut) && p.particles.is_empty();
+                    // PERFORMANCE FIX: Skip ALL repaints during DragOut (fade-out)
+                    // Alpha fade is handled by SetLayeredWindowAttributes (cheap OS-level operation)
+                    // We don't need expensive WM_PAINT calls - broom and particles are not visible anyway
+                    let skip_repaint = matches!(p.mode, AnimationMode::DragOut);
                     if !skip_repaint {
                         InvalidateRect(hwnd, None, false);
                     }
@@ -118,12 +119,19 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
             }
 
             if should_close {
-                 let linked_hwnd = {
+                // CRITICAL: Set alpha to 0 BEFORE closing to prevent last frame freeze
+                SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
+                
+                let linked_hwnd = {
                     let states = WINDOW_STATES.lock().unwrap();
                     if let Some(state) = states.get(&(hwnd.0 as isize)) { state.linked_window } else { None }
                 };
                 if let Some(linked) = linked_hwnd {
-                    if IsWindow(linked).as_bool() { PostMessageW(linked, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+                    if IsWindow(linked).as_bool() { 
+                        // Also set linked window to invisible
+                        SetLayeredWindowAttributes(linked, COLORREF(0), 0, LWA_ALPHA);
+                        PostMessageW(linked, WM_CLOSE, WPARAM(0), LPARAM(0)); 
+                    }
                 }
                 PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
             }
