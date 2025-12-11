@@ -5,8 +5,8 @@ pub struct LocaleText {
      pub max_items_label: &'static str,
      pub history_empty: &'static str,
      pub clear_all_history_btn: &'static str,
-     pub view_image_btn: &'static str, // NEW
-     pub listen_audio_btn: &'static str, // NEW
+     pub view_image_btn: &'static str, 
+     pub listen_audio_btn: &'static str, 
      pub prompt_mode_label: &'static str,
      pub prompt_mode_fixed: &'static str,
      pub prompt_mode_dynamic: &'static str,
@@ -31,7 +31,7 @@ pub struct LocaleText {
      pub streaming_option_stream: &'static str,
      pub streaming_option_wait: &'static str,
      pub auto_copy_label: &'static str,
-     pub auto_paste_label: &'static str, // NEW: Replaced auto_copy_paste_label
+     pub auto_paste_label: &'static str, 
      pub auto_paste_newline_label: &'static str,
      pub startup_label: &'static str,
      pub add_hotkey_button: &'static str,
@@ -43,6 +43,7 @@ pub struct LocaleText {
      pub preset_type_image: &'static str,
      pub preset_type_audio: &'static str,
      pub preset_type_video: &'static str,
+     pub preset_type_text: &'static str, // NEW
      pub capture_method_label: &'static str,
      pub region_capture: &'static str,
      pub audio_source_label: &'static str,
@@ -50,17 +51,14 @@ pub struct LocaleText {
      pub audio_src_device: &'static str,
      pub hide_recording_ui_label: &'static str,
      pub hotkeys_section: &'static str,
-     // --- NEW FIELDS ---
      pub start_in_tray_label: &'static str,
      pub footer_admin_running: &'static str,
      pub admin_startup_on: &'static str,
      pub admin_startup_success: &'static str,
      pub admin_startup_fail: &'static str,
-     // Graphics Mode for weak computers
      pub graphics_mode_label: &'static str,
      pub graphics_mode_standard: &'static str,
      pub graphics_mode_minimal: &'static str,
-     // ------------------
      pub usage_statistics_title: &'static str,
      pub usage_statistics_tooltip: &'static str,
      pub usage_model_column: &'static str,
@@ -84,6 +82,10 @@ pub struct LocaleText {
      pub update_success: &'static str,
      pub restart_to_use_new_version: &'static str,
      pub restart_app_btn: &'static str,
+     // --- NEW TEXT INPUT FIELDS ---
+     pub text_input_mode_label: &'static str,
+     pub text_mode_select: &'static str,
+     pub text_mode_type: &'static str,
      }
 
 impl LocaleText {
@@ -121,7 +123,7 @@ impl LocaleText {
                 streaming_option_stream: "Nhận gì hiện nấy",
                 streaming_option_wait: "Nhận hết mới hiện",
                 auto_copy_label: "Tự động copy",
-                auto_paste_label: "Tự động dán", // NEW
+                auto_paste_label: "Tự động dán",
                 auto_paste_newline_label: "Tự xuống dòng sau khi dán",
                 startup_label: "Khởi động cùng Windows",
                 add_hotkey_button: "+ Thêm Phím",
@@ -133,6 +135,7 @@ impl LocaleText {
                 preset_type_image: "Hiểu hình ảnh",
                 preset_type_audio: "Hiểu âm thanh",
                 preset_type_video: "Hiểu video (upcoming)",
+                preset_type_text: "Hiểu văn bản", // NEW
                 capture_method_label: "Phương pháp quay:",
                 region_capture: "Chọn vùng màn hình",
                 audio_source_label: "Nguồn âm thanh:",
@@ -140,7 +143,6 @@ impl LocaleText {
                 audio_src_device: "Âm thanh máy tính",
                 hide_recording_ui_label: "Ẩn giao diện ghi âm",
                 hotkeys_section: "Phím tắt",
-                // --- NEW FIELDS VIETNAMESE ---
                 start_in_tray_label: "Khởi động trong tray",
                 footer_admin_running: "đang chạy bằng admin",
                 admin_startup_on: "Chạy làm Admin khi khởi động",
@@ -149,7 +151,6 @@ impl LocaleText {
                 graphics_mode_label: "Đồ hoạ:",
                 graphics_mode_standard: "Tiêu chuẩn (Hiệu ứng gradient glow)",
                 graphics_mode_minimal: "Tối giản cho máy yếu (Hiệu ứng quét laser)",
-                // -----------------------------
                 usage_statistics_title: "Thống kê sử dụng",
                 usage_statistics_tooltip: "Dùng mô hình ít nhất một lần để hiện chính xác",
                 usage_model_column: "Mô hình",
@@ -173,6 +174,10 @@ impl LocaleText {
                 update_success: "Cập Nhật Thành Công!",
                 restart_to_use_new_version: "Khởi động lại để sử dụng phiên bản mới.",
                 restart_app_btn: "Khởi Động Lại Ứng Dụng",
+                // --- NEW TEXT INPUT FIELDS VI ---
+                text_input_mode_label: "Cách hoạt động:",
+                text_mode_select: "Hotkey rồi bôi text",
+                text_mode_type: "Hotkey rồi gõ",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -206,7 +211,7 @@ impl LocaleText {
                 streaming_option_stream: "수신 즉시 스트리밍",
                 streaming_option_wait: "완료 대기",
                 auto_copy_label: "자동 복사",
-                auto_paste_label: "자동 붙여넣기", // NEW
+                auto_paste_label: "자동 붙여넣기", 
                 auto_paste_newline_label: "붙여넣기 후 자동 줄바꿈",
                 startup_label: "Windows 시작 시 실행",
                 add_hotkey_button: "+ 키 추가",
@@ -218,6 +223,7 @@ impl LocaleText {
                 preset_type_image: "이미지 이해",
                 preset_type_audio: "오디오 이해",
                 preset_type_video: "비디오 이해 (upcoming)",
+                preset_type_text: "텍스트 이해", // NEW
                 capture_method_label: "캡처 방법:",
                 region_capture: "영역 캡처",
                 audio_source_label: "오디오 소스:",
@@ -225,7 +231,6 @@ impl LocaleText {
                 audio_src_device: "컴퓨터 오디오",
                 hide_recording_ui_label: "녹음 UI 숨기기",
                 hotkeys_section: "단축키",
-                // --- NEW FIELDS KOREAN ---
                 start_in_tray_label: "트레이로 시작",
                 footer_admin_running: "관리자 권한으로 실행 중",
                 admin_startup_on: "시작 시 관리자로 실행",
@@ -234,7 +239,6 @@ impl LocaleText {
                 graphics_mode_label: "그래픽:",
                 graphics_mode_standard: "표준 (그래디언트 글로우 효과)",
                 graphics_mode_minimal: "최소 (약한 컴퓨터용, 레이저 스캔 효과)",
-                // -----------------------------
                 usage_statistics_title: "사용 통계",
                 usage_statistics_tooltip: "정확한 데이터를 보려면 모델을 최소 한 번 사용하세요",
                 usage_model_column: "모델",
@@ -258,6 +262,10 @@ impl LocaleText {
                 update_success: "업데이트 성공!",
                 restart_to_use_new_version: "새 버전을 사용하려면 다시 시작하세요.",
                 restart_app_btn: "앱 다시 시작",
+                // --- NEW TEXT INPUT FIELDS KO ---
+                text_input_mode_label: "작동 방식:",
+                text_mode_select: "단축키 후 텍스트 선택",
+                text_mode_type: "단축키 후 입력",
                 },
             _ => Self {
                  history_btn: "History",
@@ -291,7 +299,7 @@ impl LocaleText {
                 streaming_option_stream: "Stream as received",
                 streaming_option_wait: "Wait for completion",
                 auto_copy_label: "Auto copy result",
-                auto_paste_label: "Auto-paste", // NEW
+                auto_paste_label: "Auto-paste", 
                 auto_paste_newline_label: "Auto new line after paste",
                 startup_label: "Run at Windows Startup",
                 add_hotkey_button: "+ Add Key",
@@ -303,6 +311,7 @@ impl LocaleText {
                 preset_type_image: "Image Understanding",
                 preset_type_audio: "Audio Understanding",
                 preset_type_video: "Video Understanding (upcoming)",
+                preset_type_text: "Text Understanding", // NEW
                 capture_method_label: "Capture Method:",
                 region_capture: "Region Capture",
                 audio_source_label: "Audio Source:",
@@ -310,7 +319,6 @@ impl LocaleText {
                 audio_src_device: "Device Audio",
                 hide_recording_ui_label: "Hide Recording UI",
                 hotkeys_section: "Hotkeys",
-                // --- NEW FIELDS ENGLISH ---
                 start_in_tray_label: "Start in tray",
                 footer_admin_running: "running as admin",
                 admin_startup_on: "Run as Administrator on startup",
@@ -319,7 +327,6 @@ impl LocaleText {
                 graphics_mode_label: "Graphics:",
                 graphics_mode_standard: "Standard (Gradient glow effect)",
                 graphics_mode_minimal: "Minimal for weak PC (Laser scan effect)",
-                // --------------------------
                 usage_statistics_title: "Usage Statistics",
                 usage_statistics_tooltip: "Use a model at least once for accurate data",
                 usage_model_column: "Model",
@@ -343,6 +350,10 @@ impl LocaleText {
                 update_success: "Update Success!",
                 restart_to_use_new_version: "Restart to use the new version.",
                 restart_app_btn: "Restart App",
+                // --- NEW TEXT INPUT FIELDS EN ---
+                text_input_mode_label: "Operation Mode:",
+                text_mode_select: "Hotkey then Select Text",
+                text_mode_type: "Hotkey then Type",
                 },
                 }
                 }

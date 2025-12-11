@@ -1,7 +1,7 @@
 use eframe::egui;
 use crate::config::Config;
 use crate::gui::locale::LocaleText;
-use crate::gui::icons::{Icon, icon_button, draw_icon_static};
+use crate::gui::icons::{Icon, icon_button};
 use crate::model_config::get_all_models;
 use crate::updater::{Updater, UpdateStatus};
 use std::collections::HashMap;

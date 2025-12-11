@@ -42,7 +42,6 @@ pub struct Preset {
     pub model: String,
     pub streaming_enabled: bool,
     pub auto_copy: bool,
-    // NEW FIELD: Explicit Auto Paste toggle
     #[serde(default)]
     pub auto_paste: bool,
     pub hotkeys: Vec<Hotkey>,
@@ -56,7 +55,7 @@ pub struct Preset {
     pub auto_paste_newline: bool,
     pub hide_overlay: bool,
     #[serde(default = "default_preset_type")]
-    pub preset_type: String, // "image", "audio", "video"
+    pub preset_type: String, // "image", "audio", "video", "text"
     
     // --- Audio Fields ---
     #[serde(default = "default_audio_source")]
@@ -68,6 +67,10 @@ pub struct Preset {
     #[serde(default)]
     pub video_capture_method: String, // "region" or "monitor:DeviceName"
 
+    // --- Text Fields (NEW) ---
+    #[serde(default = "default_text_input_mode")]
+    pub text_input_mode: String, // "select" or "type"
+
     #[serde(default)]
     pub is_upcoming: bool,
 }
@@ -75,6 +78,7 @@ pub struct Preset {
 fn default_preset_type() -> String { "image".to_string() }
 fn default_audio_source() -> String { "mic".to_string() }
 fn default_prompt_mode() -> String { "fixed".to_string() }
+fn default_text_input_mode() -> String { "select".to_string() }
 fn default_theme_mode() -> ThemeMode { ThemeMode::System }
 fn default_auto_paste_newline() -> bool { true }
 
@@ -90,7 +94,7 @@ impl Default for Preset {
             model: "maverick".to_string(),
             streaming_enabled: false,
             auto_copy: false,
-            auto_paste: false, // Default OFF
+            auto_paste: false,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: "Vietnamese".to_string(),
@@ -103,6 +107,7 @@ impl Default for Preset {
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         }
     }
@@ -113,38 +118,26 @@ pub struct Config {
     pub api_key: String,
     pub gemini_api_key: String,
     pub presets: Vec<Preset>,
-    pub active_preset_idx: usize, // For UI selection
+    pub active_preset_idx: usize,
     #[serde(default = "default_theme_mode")]
     pub theme_mode: ThemeMode,
     pub ui_language: String,
     #[serde(default = "default_history_limit")]
-    pub max_history_items: usize, // NEW
-    
-    // --- Graphics Mode ---
-    // "standard" = beautiful rainbow glow, fancy animations
-    // "minimal" = simple white border + green scan line (for weak computers)
+    pub max_history_items: usize,
     #[serde(default = "default_graphics_mode")]
     pub graphics_mode: String,
-    
-    // --- NEW FIELDS ---
     #[serde(default)]
     pub start_in_tray: bool,
     #[serde(default)]
     pub run_as_admin_on_startup: bool, 
-    // ------------------
 }
 
 fn default_history_limit() -> usize { 100 }
 fn default_graphics_mode() -> String { "standard".to_string() }
 
-    impl Default for Config {
+impl Default for Config {
     fn default() -> Self {
-        let system_ui_lang = get_system_ui_language();
-        let _default_lang = match system_ui_lang.as_str() {
-            "vi" => "Vietnamese".to_string(),
-            "ko" => "Korean".to_string(),
-            _ => "English".to_string(),
-        }; 
+        let _system_ui_lang = get_system_ui_language();
         
         // 1. Translation Preset
         let mut trans_lang_vars = HashMap::new();
@@ -161,7 +154,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             streaming_enabled: false,
             auto_copy: false,
             auto_paste: false,
-            hotkeys: vec![Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 }], // Tilde
+            hotkeys: vec![Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 }],
             retranslate: false,
             retranslate_to: "Vietnamese".to_string(),
             retranslate_model: "fast_text".to_string(),
@@ -173,6 +166,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -187,7 +181,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             model: "maverick".to_string(),
             streaming_enabled: false,
             auto_copy: true,
-            auto_paste: true, // Enabled here
+            auto_paste: true,
             hotkeys: vec![],
             retranslate: false,
             retranslate_to: "Vietnamese".to_string(),
@@ -200,6 +194,35 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
+            is_upcoming: false,
+        };
+
+        // NEW: Translate (Select text)
+        let trans_select_preset = Preset {
+            id: "preset_translate_select".to_string(),
+            name: "Translate (Select text)".to_string(),
+            prompt: "Translate the following text to {language1}. Output ONLY the translation.".to_string(),
+            prompt_mode: "fixed".to_string(),
+            selected_language: "Vietnamese".to_string(),
+            language_vars: trans_lang_vars.clone(),
+            model: "text_accurate_kimi".to_string(), // Kimi Text Model
+            streaming_enabled: false,
+            auto_copy: true,
+            auto_paste: false,
+            hotkeys: vec![],
+            retranslate: false,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "fast_text".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            auto_paste_newline: true,
+            hide_overlay: false,
+            preset_type: "text".to_string(),
+            audio_source: "".to_string(),
+            hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -213,7 +236,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
             prompt_mode: "fixed".to_string(),
             selected_language: "Korean".to_string(),
-            language_vars: trans_retrans_lang_vars,
+            language_vars: trans_retrans_lang_vars.clone(),
             model: "maverick".to_string(),
             streaming_enabled: false,
             auto_copy: true,
@@ -230,6 +253,35 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
+            is_upcoming: false,
+        };
+
+        // NEW: Trans+Retrans (Typing)
+        let trans_retrans_typing_preset = Preset {
+            id: "preset_trans_retrans_typing".to_string(),
+            name: "Trans+Retrans (Typing)".to_string(),
+            prompt: "Translate the following text to {language1}. Output ONLY the translation.".to_string(),
+            prompt_mode: "fixed".to_string(),
+            selected_language: "Korean".to_string(),
+            language_vars: trans_retrans_lang_vars.clone(),
+            model: "text_accurate_kimi".to_string(), // Text model
+            streaming_enabled: false,
+            auto_copy: true,
+            auto_paste: false,
+            hotkeys: vec![],
+            retranslate: true,
+            retranslate_to: "Vietnamese".to_string(),
+            retranslate_model: "text_accurate_kimi".to_string(),
+            retranslate_streaming_enabled: true,
+            retranslate_auto_copy: false,
+            auto_paste_newline: true,
+            hide_overlay: false,
+            preset_type: "text".to_string(),
+            audio_source: "".to_string(),
+            hide_recording_ui: false,
+            video_capture_method: "region".to_string(),
+            text_input_mode: "type".to_string(),
             is_upcoming: false,
         };
 
@@ -240,7 +292,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
             prompt_mode: "fixed".to_string(),
             selected_language: "English".to_string(),
-            language_vars: HashMap::new(), // No language tags
+            language_vars: HashMap::new(),
             model: "scout".to_string(),
             streaming_enabled: false,
             auto_copy: true,
@@ -257,6 +309,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -284,6 +337,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -314,6 +368,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -344,10 +399,11 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
-        // 4.5. Ask about image (Dynamic Prompt Mode)
+        // 4.5. Ask about image
         let mut ask_lang_vars = HashMap::new();
         ask_lang_vars.insert("language1".to_string(), "Vietnamese".to_string());
 
@@ -374,6 +430,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -401,6 +458,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -428,6 +486,7 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "device".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
@@ -455,10 +514,11 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
-        // 8. Quicker foreigner reply Preset (new 4th audio preset with gemini-audio)
+        // 8. Quicker foreigner reply Preset
         let mut quicker_reply_lang_vars = HashMap::new();
         quicker_reply_lang_vars.insert("language1".to_string(), "Korean".to_string());
 
@@ -485,10 +545,11 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
+            text_input_mode: "select".to_string(),
             is_upcoming: false,
         };
 
-        // 9. Video Summarize Placeholder (NEW)
+        // 9. Video Summarize Placeholder
         let video_placeholder_preset = Preset {
             id: "preset_video_summary_placeholder".to_string(),
             name: "Summarize video (upcoming)".to_string(),
@@ -512,27 +573,28 @@ fn default_graphics_mode() -> String { "standard".to_string() }
             audio_source: "".to_string(),
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
-            is_upcoming: true, // Mark as upcoming to gray out in sidebar
+            text_input_mode: "select".to_string(),
+            is_upcoming: true,
         };
 
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
             presets: vec![
-                trans_preset, trans_auto_paste_preset, trans_retrans_preset, ocr_preset, extract_retrans_preset, 
-                sum_preset, desc_preset, ask_preset, audio_preset, study_lang_preset, 
-                transcribe_retrans_preset, quicker_reply_preset, video_placeholder_preset
+                trans_preset, trans_auto_paste_preset, trans_select_preset, // New Select
+                trans_retrans_preset, trans_retrans_typing_preset, // New Typing
+                ocr_preset, extract_retrans_preset, 
+                sum_preset, desc_preset, ask_preset, 
+                audio_preset, study_lang_preset, transcribe_retrans_preset, quicker_reply_preset, 
+                video_placeholder_preset
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
             ui_language: get_system_ui_language(),
             max_history_items: 100,
             graphics_mode: "standard".to_string(),
-            
-            // --- NEW DEFAULTS ---
             start_in_tray: false,
             run_as_admin_on_startup: false,
-            // --------------------
         }
     }
 }
@@ -542,7 +604,7 @@ pub fn get_config_path() -> PathBuf {
         .unwrap_or_default()
         .join("screen-goated-toolbox");
     let _ = std::fs::create_dir_all(&config_dir);
-    config_dir.join("config_v2.json") // Changed filename to avoid conflict/migration issues for now
+    config_dir.join("config_v2.json")
 }
 
 pub fn load_config() -> Config {
@@ -575,8 +637,6 @@ lazy_static::lazy_static! {
     };
 }
 
-/// Get all available languages as a vector of language name strings
 pub fn get_all_languages() -> &'static Vec<String> {
     &ALL_LANGUAGES
 }
-

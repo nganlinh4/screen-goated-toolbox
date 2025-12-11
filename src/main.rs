@@ -424,21 +424,21 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 let preset_idx = ((id - 1) / 1000) as usize;
                 
                 // Determine context to decide if we should capture the window
-                let (preset_type, is_audio_stopping) = {
+                let (preset_type, text_mode, is_audio_stopping) = {
                     if let Ok(app) = APP.lock() {
                         if preset_idx < app.config.presets.len() {
-                            let p_type = app.config.presets[preset_idx].preset_type.clone();
+                            let p = &app.config.presets[preset_idx];
+                            let p_type = p.preset_type.clone();
+                            let t_mode = p.text_input_mode.clone();
                             let stopping = p_type == "audio" && overlay::is_recording_overlay_active();
-                            (p_type, stopping)
-                        } else { ("image".to_string(), false) }
+                            (p_type, t_mode, stopping)
+                        } else { ("image".to_string(), "select".to_string(), false) }
                     } else {
-                        ("image".to_string(), false)
+                        ("image".to_string(), "select".to_string(), false)
                     }
                 };
 
                 // FIX: Only capture target window if we are NOT stopping an audio recording.
-                // If stopping, the current foreground is our own overlay, which is wrong.
-                // We want to keep the handle captured when recording started.
                 if !is_audio_stopping {
                     let target_window = crate::overlay::utils::get_target_window_for_paste();
 
@@ -455,7 +455,33 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                             overlay::show_recording_overlay(preset_idx);
                         });
                     }
+                } else if preset_type == "text" {
+                    // NEW TEXT LOGIC
+                    if text_mode == "select" {
+                        std::thread::spawn(move || {
+                            overlay::show_text_selection_tag(preset_idx);
+                        });
+                    } else {
+                        // Type Mode - Launch pipeline immediately
+                        if let Ok(app) = APP.lock() {
+                            let config = app.config.clone();
+                            let preset = config.presets[preset_idx].clone();
+                            let screen_w = GetSystemMetrics(SM_CXSCREEN);
+                            let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                            let center_rect = RECT {
+                                left: (screen_w - 700) / 2,
+                                top: (screen_h - 300) / 2,
+                                right: (screen_w + 700) / 2,
+                                bottom: (screen_h + 300) / 2,
+                            };
+                            
+                            std::thread::spawn(move || {
+                                overlay::process::start_text_processing(String::new(), center_rect, config, preset);
+                            });
+                        }
+                    }
                 } else {
+                    // Image Mode
                     if overlay::is_selection_overlay_active_and_dismiss() {
                         return LRESULT(0);
                     }

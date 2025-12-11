@@ -33,17 +33,20 @@ pub fn render_preset_editor(
     let is_audio = preset.preset_type == "audio";
     let is_video = preset.preset_type == "video";
     let is_image = preset.preset_type == "image";
+    let is_text = preset.preset_type == "text";
 
-    // Type Dropdown + Prompt Mode Dropdown (on same line if image)
+    // Type Dropdown + Prompt Mode Dropdown (on same line if image or text)
     ui.horizontal(|ui| {
          ui.label(text.preset_type_label);
          let image_label = text.preset_type_image;
          let audio_label = text.preset_type_audio;
          let video_label = text.preset_type_video;
+         let text_label = text.preset_type_text;
          
          let selected_text = match preset.preset_type.as_str() {
              "audio" => audio_label,
              "video" => video_label,
+             "text" => text_label,
              _ => image_label,
          };
          
@@ -52,6 +55,10 @@ pub fn render_preset_editor(
              .show_ui(ui, |ui| {
                  if ui.selectable_value(&mut preset.preset_type, "image".to_string(), image_label).clicked() {
                      preset.model = "scout".to_string(); 
+                     changed = true;
+                 }
+                 if ui.selectable_value(&mut preset.preset_type, "text".to_string(), text_label).clicked() {
+                     preset.model = "text_accurate_kimi".to_string(); 
                      changed = true;
                  }
                  if ui.selectable_value(&mut preset.preset_type, "audio".to_string(), audio_label).clicked() {
@@ -73,6 +80,21 @@ pub fn render_preset_editor(
                          changed = true;
                      }
                      if ui.selectable_value(&mut preset.prompt_mode, "dynamic".to_string(), text.prompt_mode_dynamic).clicked() {
+                         changed = true;
+                     }
+                 });
+         }
+
+         // Text Input Mode Dropdown (only for Text)
+         if is_text {
+             ui.label(text.text_input_mode_label);
+             egui::ComboBox::from_id_source("text_input_mode_combo")
+                 .selected_text(if preset.text_input_mode == "type" { text.text_mode_type } else { text.text_mode_select })
+                 .show_ui(ui, |ui| {
+                     if ui.selectable_value(&mut preset.text_input_mode, "select".to_string(), text.text_mode_select).clicked() {
+                         changed = true;
+                     }
+                     if ui.selectable_value(&mut preset.text_input_mode, "type".to_string(), text.text_mode_type).clicked() {
                          changed = true;
                      }
                  });
@@ -114,10 +136,13 @@ pub fn render_preset_editor(
         // Logic to show prompt controls:
         // 1. If Audio: show unless using non-Gemini
         // 2. If Image: show ONLY if prompt_mode is "fixed"
+        // 3. If Text: always show (since text is either selected or typed, prompt instructs model what to do with it)
         let show_prompt_controls = if is_audio {
             preset.model.contains("gemini")
-        } else {
+        } else if is_image {
             preset.prompt_mode != "dynamic"
+        } else {
+            true // Text preset always uses prompt instructions
         };
 
         if show_prompt_controls {
@@ -227,7 +252,9 @@ pub fn render_preset_editor(
                 egui::ComboBox::from_id_source("model_selector")
                     .selected_text(display_label)
                     .show_ui(ui, |ui| {
-                        let target_type = if is_audio { ModelType::Audio } else { ModelType::Vision };
+                        let target_type = if is_audio { ModelType::Audio } 
+                                          else if is_text { ModelType::Text } // Show text models for Text preset
+                                          else { ModelType::Vision };
                         for model in get_all_models() {
                             if model.enabled && model.model_type == target_type {
                                 let dropdown_label = format!("{} ({}) - {}", 

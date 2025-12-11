@@ -6,7 +6,6 @@ use windows::core::*;
 use std::sync::{Arc, Mutex, Once};
 use std::collections::HashMap;
 use image::{ImageBuffer, Rgba};
-use std::mem::size_of;
 
 use crate::api::{translate_image_streaming, translate_text_streaming};
 use crate::config::{Config, Preset};
@@ -75,7 +74,305 @@ lazy_static::lazy_static! {
     static ref PROC_STATES: Mutex<HashMap<isize, ProcessingState>> = Mutex::new(HashMap::new());
 }
 
-// --- MAIN ENTRY POINT FOR PROCESSING ---
+// --- NEW FUNCTION: Text Processing Entry Point ---
+pub fn start_text_processing(
+    text_content: String,
+    screen_rect: RECT,
+    config: Config,
+    preset: Preset
+) {
+    let hide_overlay = preset.hide_overlay;
+    let model_id = preset.model.clone();
+    let model_config = crate::model_config::get_model_by_id(&model_id);
+    let provider = model_config.map(|m| m.provider).unwrap_or("groq".to_string());
+    
+    // If input mode is "type", we open result window immediately in EDIT mode
+    if preset.text_input_mode == "type" {
+        std::thread::spawn(move || {
+            let hwnd = create_result_window(
+                screen_rect,
+                WindowType::Primary,
+                RefineContext::None,
+                model_id,
+                provider,
+                preset.streaming_enabled,
+                true // start_editing = true for typing mode
+            );
+            
+            unsafe { ShowWindow(hwnd, SW_SHOW); }
+            
+            // Note: Retranslation logic for "Type" mode is handled by the result window's internal logic 
+            // when user submits the edit (it triggers refinement).
+            // However, the preset defines a "Retranslate" behavior. 
+            // If the user types and sends, the Result Window will call `refine_text_streaming`.
+            // `refine_text_streaming` handles basic text generation.
+            // If we want the *Preset's* retranslation logic (split screen) to work for typing mode,
+            // we'd need to adapt the result window to support spawning a secondary window on submit.
+            // For now, based on instructions "identical to image preset except first model is text model",
+            // we simply open the editor. The user types, hits Enter, and the model processes it.
+            // The result replaces the editor content.
+            
+            unsafe {
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).into() {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                    if !IsWindow(hwnd).as_bool() { break; }
+                }
+            }
+        });
+        return;
+    }
+
+    // --- STANDARD PROCESSING (Selection Mode) ---
+    // If we have text from selection (clipboard), we proceed with the standard pipeline
+    // but skip the image encoding/vision API part.
+
+    // 1. Show Processing Overlay
+    let graphics_mode = config.graphics_mode.clone();
+    let processing_hwnd = unsafe { create_processing_window(screen_rect, graphics_mode) };
+
+    // 2. Prepare Data
+    let model_name = crate::model_config::get_model_by_id(&model_id)
+        .map(|m| m.full_name).unwrap_or(model_id.clone());
+    
+    let groq_api_key = config.api_key.clone();
+    let gemini_api_key = config.gemini_api_key.clone();
+    
+    // Prepare Prompt (similar to image but applied to text)
+    let mut final_prompt = preset.prompt.clone();
+    for (key, value) in &preset.language_vars {
+        final_prompt = final_prompt.replace(&format!("{{{}}}", key), value);
+    }
+    let _final_prompt = final_prompt.replace("{language}", &preset.selected_language);
+    
+    let streaming_enabled = preset.streaming_enabled;
+    let auto_copy = preset.auto_copy;
+    let auto_paste = preset.auto_paste;
+    let auto_paste_newline = preset.auto_paste_newline;
+    let do_retranslate = preset.retranslate;
+    let retranslate_to = preset.retranslate_to.clone();
+    let retranslate_model_id = preset.retranslate_model.clone();
+    let retranslate_streaming_enabled = preset.retranslate_streaming_enabled;
+    let retranslate_auto_copy = preset.retranslate_auto_copy;
+
+    let target_window_for_paste = if let Ok(app) = crate::APP.lock() {
+        app.last_active_window
+    } else { None };
+
+    // 3. Spawn Thread
+    std::thread::spawn(move || {
+        let accumulated_text = Arc::new(Mutex::new(String::new()));
+        let acc_text_clone = accumulated_text.clone();
+        let mut first_chunk_received = false;
+        
+        let (tx_hwnd, rx_hwnd) = std::sync::mpsc::channel();
+        let streaming_hwnd = Arc::new(Mutex::new(None));
+        let streaming_hwnd_cb = streaming_hwnd.clone();
+
+        // Call Text API (Translate/Process the selected text)
+        let api_res = translate_text_streaming(
+            &groq_api_key,
+            &gemini_api_key,
+            text_content,
+            preset.selected_language.clone(), // Target lang for initial prompt construction
+            model_name,
+            provider.clone(),
+            streaming_enabled,
+            false,
+            |chunk| {
+                let mut t = acc_text_clone.lock().unwrap();
+                t.push_str(chunk);
+                
+                if !first_chunk_received {
+                    first_chunk_received = true;
+                    if processing_hwnd.0 != 0 {
+                        unsafe { PostMessageW(processing_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+                    }
+                    
+                    let rect_copy = screen_rect;
+                    let mid_copy = model_id.clone();
+                    let prov_copy = provider.clone();
+                    let tx_clone = tx_hwnd.clone();
+                    let st_hwnd = streaming_hwnd.clone();
+                    
+                    std::thread::spawn(move || {
+                        // For text mode, refine context is None
+                        let hwnd = create_result_window(
+                            rect_copy, WindowType::Primary, RefineContext::None,
+                            mid_copy, prov_copy, streaming_enabled, false
+                        );
+                        if !hide_overlay { unsafe { ShowWindow(hwnd, SW_SHOW); } }
+                        
+                        if let Ok(mut g) = st_hwnd.lock() { *g = Some(hwnd); }
+                        let _ = tx_clone.send(hwnd);
+                        
+                        unsafe {
+                            let mut msg = MSG::default();
+                            while GetMessageW(&mut msg, None, 0, 0).into() {
+                                TranslateMessage(&msg);
+                                DispatchMessageW(&msg);
+                                if !IsWindow(hwnd).as_bool() { break; }
+                            }
+                        }
+                    });
+                }
+                
+                if !hide_overlay {
+                    if let Ok(g) = streaming_hwnd_cb.lock() {
+                        if let Some(hwnd) = *g {
+                            update_window_text(hwnd, &t);
+                        }
+                    }
+                }
+            }
+        );
+
+        let result_hwnd = if first_chunk_received {
+            rx_hwnd.recv().ok()
+        } else {
+            // If failed immediately or very fast non-stream
+            if processing_hwnd.0 != 0 {
+                unsafe { PostMessageW(processing_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+            }
+            let rect_copy = screen_rect;
+            let mid_copy = model_id.clone();
+            let prov_copy = provider.clone();
+            let tx_clone = tx_hwnd.clone();
+            
+            std::thread::spawn(move || {
+                let hwnd = create_result_window(
+                    rect_copy, WindowType::Primary, RefineContext::None,
+                    mid_copy, prov_copy, streaming_enabled, false
+                );
+                if !hide_overlay { unsafe { ShowWindow(hwnd, SW_SHOW); } }
+                let _ = tx_clone.send(hwnd);
+                unsafe {
+                    let mut msg = MSG::default();
+                    while GetMessageW(&mut msg, None, 0, 0).into() {
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                        if !IsWindow(hwnd).as_bool() { break; }
+                    }
+                }
+            });
+            rx_hwnd.recv().ok()
+        };
+
+        if let Some(r_hwnd) = result_hwnd {
+            match api_res {
+                Ok(full_text) => {
+                    if !hide_overlay { update_window_text(r_hwnd, &full_text); }
+                    
+                    // Auto Copy/Paste Logic
+                    if auto_copy && !full_text.trim().is_empty() {
+                        let mut txt_to_copy = full_text.clone();
+                        if auto_paste_newline { txt_to_copy.push_str("\r\n"); }
+                        
+                        let should_paste = auto_paste && hide_overlay && target_window_for_paste.is_some();
+                        let target_hwnd = target_window_for_paste;
+                        
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                            copy_to_clipboard(&txt_to_copy, HWND(0));
+                            if should_paste {
+                                if let Some(hwnd) = target_hwnd {
+                                    crate::overlay::utils::force_focus_and_paste(hwnd);
+                                }
+                            }
+                        });
+                    }
+
+                    // Retranslation Logic
+                    if do_retranslate && !full_text.trim().is_empty() {
+                        let text_to_retrans = full_text.clone();
+                        let g_key = groq_api_key.clone();
+                        let gm_key = gemini_api_key.clone();
+                        
+                        std::thread::spawn(move || {
+                            // Calculate split screen rects (Center-Left and Center-Right)
+                            // We need to move r_hwnd to left and create sec_hwnd at right
+                            let gap = 20;
+                            let w = (screen_rect.right - screen_rect.left).abs();
+                            let _h = (screen_rect.bottom - screen_rect.top).abs();
+                            let total_w = w * 2 + gap;
+                            let screen_w_sys = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+                            let start_x = (screen_w_sys - total_w) / 2;
+                            
+                            unsafe {
+                                SetWindowPos(r_hwnd, HWND_TOP, start_x, screen_rect.top, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+                            }
+                            
+                            let sec_rect = RECT {
+                                left: start_x + w + gap,
+                                top: screen_rect.top,
+                                right: start_x + w + gap + w,
+                                bottom: screen_rect.bottom
+                            };
+
+                            let tm_config = crate::model_config::get_model_by_id(&retranslate_model_id);
+                            let (tm_id, tm_name, tm_provider) = match tm_config {
+                                Some(m) => (m.id, m.full_name, m.provider),
+                                None => ("fast_text".to_string(), "openai/gpt-oss-20b".to_string(), "groq".to_string())
+                            };
+
+                            let sec_hwnd = create_result_window(
+                                sec_rect,
+                                WindowType::SecondaryExplicit,
+                                RefineContext::None,
+                                tm_id,
+                                tm_provider.clone(),
+                                retranslate_streaming_enabled,
+                                false
+                            );
+                            link_windows(r_hwnd, sec_hwnd);
+                            if !hide_overlay {
+                                unsafe { ShowWindow(sec_hwnd, SW_SHOW); }
+                                update_window_text(sec_hwnd, "");
+                            }
+                            
+                            std::thread::spawn(move || {
+                                let acc = Arc::new(Mutex::new(String::new()));
+                                let acc_c = acc.clone();
+                                let res = translate_text_streaming(
+                                    &g_key, &gm_key, text_to_retrans, retranslate_to, tm_name, tm_provider, retranslate_streaming_enabled, false,
+                                    |chunk| {
+                                        let mut t = acc_c.lock().unwrap();
+                                        t.push_str(chunk);
+                                        if !hide_overlay { update_window_text(sec_hwnd, &t); }
+                                    }
+                                );
+                                if let Ok(fin) = res {
+                                    if !hide_overlay { update_window_text(sec_hwnd, &fin); }
+                                    if retranslate_auto_copy {
+                                        std::thread::spawn(move || {
+                                            std::thread::sleep(std::time::Duration::from_millis(100));
+                                            copy_to_clipboard(&fin, HWND(0));
+                                        });
+                                    }
+                                }
+                            });
+
+                            unsafe {
+                                let mut msg = MSG::default();
+                                while GetMessageW(&mut msg, None, 0, 0).into() {
+                                    TranslateMessage(&msg);
+                                    DispatchMessageW(&msg);
+                                    if !IsWindow(sec_hwnd).as_bool() { break; }
+                                }
+                            }
+                        });
+                    }
+                },
+                Err(e) => {
+                    update_window_text(r_hwnd, &format!("Error: {}", e));
+                }
+            }
+        }
+    });
+}
+
+// --- MAIN ENTRY POINT FOR IMAGE PROCESSING ---
 pub fn start_processing_pipeline(
     cropped_img: ImageBuffer<Rgba<u8>, Vec<u8>>, 
     screen_rect: RECT, 

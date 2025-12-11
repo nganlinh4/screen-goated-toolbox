@@ -7,7 +7,7 @@ use std::mem::size_of;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::overlay::utils::to_wstring;
-use super::state::{WINDOW_STATES, AnimationMode, InteractionMode, ResizeEdge, RefineContext};
+use super::state::{WINDOW_STATES, InteractionMode, ResizeEdge, RefineContext};
 use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_resize_edge};
 use super::logic;
 use super::paint;
