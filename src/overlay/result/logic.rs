@@ -86,9 +86,9 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                             p.state_timer += 1.0;
                             p.squish_factor = p.squish_factor * 0.8 + 1.2 * 0.2; // Stretch up
                             
-                            // Fade out logic
+                            // Fade out logic - smooth 10 alpha per frame at 60 FPS = ~425ms fade
                             if state.alpha > 10 {
-                                state.alpha = state.alpha.saturating_sub(15);
+                                state.alpha = state.alpha.saturating_sub(10);
                                 SetLayeredWindowAttributes(hwnd, COLORREF(0), state.alpha, LWA_ALPHA);
                             } else {
                                 should_close = true;
@@ -108,7 +108,12 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                     }
                     p.particles = keep;
 
-                    InvalidateRect(hwnd, None, false);
+                    // Skip full repaint during fade-out - alpha is handled by SetLayeredWindowAttributes
+                    // Only repaint if particles are active (need visual update) or not fading out
+                    let skip_repaint = matches!(p.mode, AnimationMode::DragOut) && p.particles.is_empty();
+                    if !skip_repaint {
+                        InvalidateRect(hwnd, None, false);
+                    }
                 }
             }
 
