@@ -120,6 +120,12 @@ pub struct Config {
     #[serde(default = "default_history_limit")]
     pub max_history_items: usize, // NEW
     
+    // --- Graphics Mode ---
+    // "standard" = beautiful rainbow glow, fancy animations
+    // "minimal" = simple white border + green scan line (for weak computers)
+    #[serde(default = "default_graphics_mode")]
+    pub graphics_mode: String,
+    
     // --- NEW FIELDS ---
     #[serde(default)]
     pub start_in_tray: bool,
@@ -129,6 +135,7 @@ pub struct Config {
 }
 
 fn default_history_limit() -> usize { 100 }
+fn default_graphics_mode() -> String { "standard".to_string() }
 
     impl Default for Config {
     fn default() -> Self {
@@ -520,6 +527,7 @@ fn default_history_limit() -> usize { 100 }
             theme_mode: ThemeMode::System,
             ui_language: get_system_ui_language(),
             max_history_items: 100,
+            graphics_mode: "standard".to_string(),
             
             // --- NEW DEFAULTS ---
             start_in_tray: false,

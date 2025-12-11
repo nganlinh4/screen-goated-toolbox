@@ -64,8 +64,32 @@ pub fn render_global_settings(
     render_update_section(ui, updater, update_status, text);
 
     ui.add_space(10.0);
+    
+    // === GRAPHICS MODE (For weak computers) ===
+    ui.horizontal(|ui| {
+        ui.label(text.graphics_mode_label);
+        
+        let current_label = if config.graphics_mode == "minimal" {
+            text.graphics_mode_minimal
+        } else {
+            text.graphics_mode_standard
+        };
+        
+        egui::ComboBox::from_id_source("graphics_mode_combo")
+            .selected_text(current_label)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(config.graphics_mode == "standard", text.graphics_mode_standard).clicked() {
+                    config.graphics_mode = "standard".to_string();
+                    changed = true;
+                }
+                if ui.selectable_label(config.graphics_mode == "minimal", text.graphics_mode_minimal).clicked() {
+                    config.graphics_mode = "minimal".to_string();
+                    changed = true;
+                }
+            });
+    });
 
-    // --- NEW LOGIC: Startup and Start in Tray with Admin Support ---
+    ui.add_space(10.0);
     ui.vertical(|ui| {
         // Main startup toggle (Normal Registry-based or Admin Task Scheduler)
         ui.horizontal(|ui| {

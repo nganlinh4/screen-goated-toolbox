@@ -163,7 +163,7 @@ pub unsafe fn draw_direct_sdf_glow(
 }
 
 // Deprecated but kept for compatibility if needed elsewhere
-pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glowing: bool, time_offset: f32) {
+pub unsafe fn render_box_sdf(hdc_dest: HDC, _bounds: RECT, w: i32, h: i32, is_glowing: bool, time_offset: f32) {
     let pad = 60; 
     let buf_w = w + (pad * 2);
     let buf_h = h + (pad * 2);
@@ -185,4 +185,66 @@ pub unsafe fn render_box_sdf(hdc_dest: HDC, bounds: RECT, w: i32, h: i32, is_glo
     if CreateDIBSection(hdc_dest, &bmi, DIB_RGB_COLORS, &mut p_bits, None, 0).is_err() { return; }
     
     draw_direct_sdf_glow(p_bits as *mut u32, buf_w, buf_h, time_offset, 1.0, is_glowing);
+}
+
+// === MINIMAL GRAPHICS MODE ===
+// Super lightweight rendering for weak computers.
+// Only draws: white border + bouncing green scan line.
+// NO per-pixel SDF calculations, NO trigonometry, NO expensive math.
+// This is inspired by the old working version that never crashed.
+pub unsafe fn draw_minimal_glow(
+    pixels_ptr: *mut u32, 
+    w: i32, 
+    h: i32, 
+    time_offset: f32,
+    _alpha_mult: f32,
+    is_glowing: bool
+) {
+    if pixels_ptr.is_null() { return; }
+    
+    let pixels = std::slice::from_raw_parts_mut(pixels_ptr, (w * h) as usize);
+    
+    // Clear all pixels first (transparent)
+    for pixel in pixels.iter_mut() {
+        *pixel = 0;
+    }
+    
+    // Draw white border (1 pixel thick)
+    let white: u32 = 0xFFFFFFFF; // ARGB: fully opaque white
+    
+    // Top and bottom edges
+    for x in 0..w {
+        pixels[x as usize] = white; // Top row
+        pixels[((h - 1) * w + x) as usize] = white; // Bottom row
+    }
+    // Left and right edges
+    for y in 0..h {
+        pixels[(y * w) as usize] = white; // Left column
+        pixels[(y * w + w - 1) as usize] = white; // Right column
+    }
+    
+    // Draw bouncing green scan line if glowing (processing)
+    if is_glowing {
+        // Use time_offset to calculate scan line position
+        // The scan line bounces up and down between 2px from edges
+        let cycle = (time_offset % 360.0) / 180.0; // 0.0 to 2.0
+        let t = if cycle <= 1.0 { cycle } else { 2.0 - cycle }; // 0.0 to 1.0 (bounce)
+        
+        let margin = 3;
+        let scan_range = h - (margin * 2);
+        if scan_range > 0 {
+            let scan_y = margin + ((t * scan_range as f32) as i32).clamp(0, scan_range - 1);
+            
+            // Draw 2px thick green line
+            let green: u32 = 0xFF00FF00; // ARGB: fully opaque green
+            for line_offset in 0..2 {
+                let y = scan_y + line_offset;
+                if y > 0 && y < h - 1 {
+                    for x in margin..(w - margin) {
+                        pixels[(y * w + x) as usize] = green;
+                    }
+                }
+            }
+        }
+    }
 }

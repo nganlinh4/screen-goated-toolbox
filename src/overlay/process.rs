@@ -36,6 +36,8 @@ struct ProcessingState {
     scaled_h: i32,
     // Flag to stop animation immediately on fade (critical for weak PCs)
     timer_killed: bool,
+    // Graphics mode: "standard" = fancy rainbow, "minimal" = simple border + scan line
+    graphics_mode: String,
 }
 
 // Safety: Raw pointers are not Send by default, but we only access them 
@@ -44,7 +46,7 @@ struct ProcessingState {
 unsafe impl Send for ProcessingState {}
 
 impl ProcessingState {
-    fn new() -> Self {
+    fn new(graphics_mode: String) -> Self {
         Self {
             animation_offset: 0.0,
             is_fading_out: false,
@@ -56,6 +58,7 @@ impl ProcessingState {
             scaled_w: 0,
             scaled_h: 0,
             timer_killed: false,
+            graphics_mode,
         }
     }
     
@@ -127,7 +130,8 @@ pub fn start_processing_pipeline(
 
     // 1. Create the Processing Overlay Window (The glowing rainbow box) IMMEDIATELY
     // This ensures visual feedback appears instantly, before any heavy encoding.
-    let processing_hwnd = unsafe { create_processing_window(screen_rect) };
+    let graphics_mode = config.graphics_mode.clone();
+    let processing_hwnd = unsafe { create_processing_window(screen_rect, graphics_mode) };
 
     // 2. Prepare Data for API Thread
     let model_config = crate::model_config::get_model_by_id(&model_id);
@@ -417,7 +421,7 @@ pub fn start_processing_pipeline(
 
 // --- PROCESSING OVERLAY WINDOW IMPLEMENTATION ---
 
-unsafe fn create_processing_window(rect: RECT) -> HWND {
+unsafe fn create_processing_window(rect: RECT, graphics_mode: String) -> HWND {
     let instance = GetModuleHandleW(None).unwrap();
     let class_name = w!("SGTProcessingOverlay");
 
@@ -456,7 +460,7 @@ unsafe fn create_processing_window(rect: RECT) -> HWND {
     );
 
     let mut states = PROC_STATES.lock().unwrap();
-    states.insert(hwnd.0 as isize, ProcessingState::new());
+    states.insert(hwnd.0 as isize, ProcessingState::new(graphics_mode));
     drop(states);
     
     SetTimer(hwnd, 1, timer_interval, None);
@@ -469,7 +473,7 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
     match msg {
         WM_CLOSE => {
             let mut states = PROC_STATES.lock().unwrap();
-            let state = states.entry(hwnd.0 as isize).or_insert(ProcessingState::new());
+            let state = states.entry(hwnd.0 as isize).or_insert(ProcessingState::new("standard".to_string()));
             if !state.is_fading_out {
                 state.is_fading_out = true;
                 // CRITICAL FIX: Kill timer IMMEDIATELY to stop all rendering.
@@ -490,7 +494,7 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         WM_TIMER => {
             let (should_destroy, anim_offset, alpha, is_fading) = {
                 let mut states = PROC_STATES.lock().unwrap();
-                let state = states.entry(hwnd.0 as isize).or_insert(ProcessingState::new());
+                let state = states.entry(hwnd.0 as isize).or_insert(ProcessingState::new("standard".to_string()));
                 
                 let mut destroy_flag = false;
                 if state.is_fading_out {
@@ -581,17 +585,29 @@ unsafe extern "system" fn processing_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 // If fading out, DO NOT update the pixels. Just let the alpha blending happen.
                 // This saves massive CPU time during the exit animation, fixing the lag.
                 if !is_fading && !state.cache_bits.is_null() {
-                    // FIX: CRITICAL CRASH PREVENTION
-                    // Use the SCALED buffer dimensions for the drawing loop.
-                    // The buffer may be smaller than the window for large selections.
-                    crate::overlay::paint_utils::draw_direct_sdf_glow(
-                        state.cache_bits as *mut u32,
-                        state.scaled_w, // Use SAFE scaled buffer width
-                        state.scaled_h, // Use SAFE scaled buffer height
-                        anim_offset,
-                        1.0, // Always draw opaque, let UpdateLayeredWindow handle the alpha
-                        true
-                    );
+                    // Choose rendering based on graphics mode
+                    if state.graphics_mode == "minimal" {
+                        // MINIMAL MODE: Super lightweight - white border + green scan line
+                        // No per-pixel SDF, no trigonometry, no expensive math
+                        crate::overlay::paint_utils::draw_minimal_glow(
+                            state.cache_bits as *mut u32,
+                            state.scaled_w,
+                            state.scaled_h,
+                            anim_offset,
+                            1.0,
+                            true
+                        );
+                    } else {
+                        // STANDARD MODE: Beautiful rainbow gradient glow
+                        crate::overlay::paint_utils::draw_direct_sdf_glow(
+                            state.cache_bits as *mut u32,
+                            state.scaled_w,
+                            state.scaled_h,
+                            anim_offset,
+                            1.0,
+                            true
+                        );
+                    }
                 }
 
                 let screen_dc = GetDC(None);

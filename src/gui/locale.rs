@@ -56,6 +56,10 @@ pub struct LocaleText {
      pub admin_startup_on: &'static str,
      pub admin_startup_success: &'static str,
      pub admin_startup_fail: &'static str,
+     // Graphics Mode for weak computers
+     pub graphics_mode_label: &'static str,
+     pub graphics_mode_standard: &'static str,
+     pub graphics_mode_minimal: &'static str,
      // ------------------
      pub usage_statistics_title: &'static str,
      pub usage_statistics_tooltip: &'static str,
@@ -142,6 +146,9 @@ impl LocaleText {
                 admin_startup_on: "Chạy làm Admin khi khởi động",
                 admin_startup_success: "Đã bật: Sẽ chạy Admin khi khởi động (Task Scheduler).",
                 admin_startup_fail: "Lỗi: Cần chạy App bằng Admin để cài đặt tính năng này.",
+                graphics_mode_label: "Đồ hoạ:",
+                graphics_mode_standard: "Tiêu chuẩn",
+                graphics_mode_minimal: "Tối giản",
                 // -----------------------------
                 usage_statistics_title: "Thống kê sử dụng",
                 usage_statistics_tooltip: "Dùng mô hình ít nhất một lần để hiện chính xác",
@@ -224,6 +231,9 @@ impl LocaleText {
                 admin_startup_on: "시작 시 관리자로 실행",
                 admin_startup_success: "활성화됨: 시작 시 관리자 권한으로 실행됩니다 (작업 스케줄러).",
                 admin_startup_fail: "오류: 이 설정은 관리자 권한으로 실행해야 변경 가능합니다.",
+                graphics_mode_label: "그래픽:",
+                graphics_mode_standard: "표준",
+                graphics_mode_minimal: "최소",
                 // -----------------------------
                 usage_statistics_title: "사용 통계",
                 usage_statistics_tooltip: "정확한 데이터를 보려면 모델을 최소 한 번 사용하세요",
@@ -306,6 +316,9 @@ impl LocaleText {
                 admin_startup_on: "Run as Administrator on startup",
                 admin_startup_success: "Enabled: Will run as Admin on startup (Task Scheduler).",
                 admin_startup_fail: "Error: Must run App as Admin to set this.",
+                graphics_mode_label: "Graphics:",
+                graphics_mode_standard: "Standard",
+                graphics_mode_minimal: "Minimal",
                 // --------------------------
                 usage_statistics_title: "Usage Statistics",
                 usage_statistics_tooltip: "Use a model at least once for accurate data",
