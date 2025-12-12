@@ -16,6 +16,7 @@ pub enum Icon {
     Microphone,
     Image,
     Video,
+    Text, // NEW: 'T' icon for text presets
     Delete, // Renders as Trash Can (used for presets)
     DeleteLarge, // NEW: Centered, larger Trash Can (used for history items)
     Info,
@@ -230,6 +231,19 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             painter.add(egui::Shape::closed_line(lens_pts, stroke));
             painter.circle_stroke(body_rect.left_top() + egui::vec2(3.0, 0.0)*scale, 1.5*scale, stroke);
             painter.circle_stroke(body_rect.right_top() + egui::vec2(-3.0, 0.0)*scale, 1.5*scale, stroke);
+        }
+
+        Icon::Text => {
+            // 'T' Icon
+            let top_y = center.y - 6.0 * scale;
+            let bot_y = center.y + 6.0 * scale;
+            let left_x = center.x - 4.5 * scale;
+            let right_x = center.x + 4.5 * scale;
+            
+            // Top horizontal bar
+            painter.line_segment([egui::pos2(left_x, top_y), egui::pos2(right_x, top_y)], stroke);
+            // Vertical stem
+            painter.line_segment([egui::pos2(center.x, top_y), egui::pos2(center.x, bot_y)], stroke);
         }
 
         Icon::Delete => {
