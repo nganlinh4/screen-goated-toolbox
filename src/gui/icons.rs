@@ -186,21 +186,27 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
         }
 
         Icon::Microphone => {
-            let w = 5.0 * scale;
-            let h = 10.0 * scale;
-            let caps_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, 2.0*scale), egui::vec2(w, h));
+            // Larger Microphone icon
+            let w = 6.5 * scale;
+            let h = 12.0 * scale;
+            let caps_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, 1.5*scale), egui::vec2(w, h));
             painter.rect_stroke(caps_rect, w/2.0, stroke);
-            let y_start = caps_rect.top() + 3.0 * scale;
-            painter.line_segment([egui::pos2(center.x - 1.5*scale, y_start), egui::pos2(center.x + 1.5*scale, y_start)], stroke);
-            painter.line_segment([egui::pos2(center.x - 1.5*scale, y_start + 2.5*scale), egui::pos2(center.x + 1.5*scale, y_start + 2.5*scale)], stroke);
+            
+            // Horizontal lines on mic head
+            let y_start = caps_rect.top() + 3.5 * scale;
+            painter.line_segment([egui::pos2(center.x - 2.0*scale, y_start), egui::pos2(center.x + 2.0*scale, y_start)], stroke);
+            painter.line_segment([egui::pos2(center.x - 2.0*scale, y_start + 3.0*scale), egui::pos2(center.x + 2.0*scale, y_start + 3.0*scale)], stroke);
 
-            let u_left = egui::pos2(center.x - 4.5*scale, center.y - 1.0*scale);
-            let u_right = egui::pos2(center.x + 4.5*scale, center.y - 1.0*scale);
-            let u_bot = egui::pos2(center.x, center.y + 6.0*scale);
+            // U-shaped holder
+            let u_left = egui::pos2(center.x - 5.5*scale, center.y);
+            let u_right = egui::pos2(center.x + 5.5*scale, center.y);
+            let u_bot = egui::pos2(center.x, center.y + 7.0*scale);
             let u_path = bezier_points(u_left, u_bot, u_right, 10);
             painter.add(egui::Shape::line(u_path, stroke));
-            painter.line_segment([egui::pos2(center.x, center.y + 3.5*scale), egui::pos2(center.x, center.y + 8.0*scale)], stroke);
-            painter.line_segment([egui::pos2(center.x - 3.0*scale, center.y + 8.0*scale), egui::pos2(center.x + 3.0*scale, center.y + 8.0*scale)], stroke);
+            
+            // Stand
+            painter.line_segment([egui::pos2(center.x, center.y + 4.5*scale), egui::pos2(center.x, center.y + 9.0*scale)], stroke);
+            painter.line_segment([egui::pos2(center.x - 4.0*scale, center.y + 9.0*scale), egui::pos2(center.x + 4.0*scale, center.y + 9.0*scale)], stroke);
         }
 
         Icon::Image => {
@@ -216,39 +222,58 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
         }
 
         Icon::Video => {
-            let body_w = 12.0 * scale;
-            let body_h = 8.0 * scale;
-            let body_rect = egui::Rect::from_center_size(center - egui::vec2(1.0*scale, 0.0), egui::vec2(body_w, body_h));
+            // Larger Video camera icon
+            let body_w = 14.0 * scale;
+            let body_h = 10.0 * scale;
+            let body_rect = egui::Rect::from_center_size(center - egui::vec2(1.5*scale, 0.0), egui::vec2(body_w, body_h));
             painter.rect_stroke(body_rect, 2.0 * scale, stroke);
+            
+            // Lens (triangle on right side)
             let l_x = body_rect.right();
             let l_y = center.y;
             let lens_pts = vec![
-                egui::pos2(l_x, l_y - 2.0*scale),
-                egui::pos2(l_x + 3.5*scale, l_y - 3.5*scale),
-                egui::pos2(l_x + 3.5*scale, l_y + 3.5*scale),
-                egui::pos2(l_x, l_y + 2.0*scale),
+                egui::pos2(l_x, l_y - 3.0*scale),
+                egui::pos2(l_x + 5.0*scale, l_y - 4.5*scale),
+                egui::pos2(l_x + 5.0*scale, l_y + 4.5*scale),
+                egui::pos2(l_x, l_y + 3.0*scale),
             ];
             painter.add(egui::Shape::closed_line(lens_pts, stroke));
-            painter.circle_stroke(body_rect.left_top() + egui::vec2(3.0, 0.0)*scale, 1.5*scale, stroke);
-            painter.circle_stroke(body_rect.right_top() + egui::vec2(-3.0, 0.0)*scale, 1.5*scale, stroke);
+            
+            // Film reels on top
+            painter.circle_stroke(body_rect.left_top() + egui::vec2(3.5, 0.0)*scale, 2.0*scale, stroke);
+            painter.circle_stroke(body_rect.right_top() + egui::vec2(-3.5, 0.0)*scale, 2.0*scale, stroke);
         }
 
         Icon::Text => {
-            // 'T' Icon
-            let top_y = center.y - 6.0 * scale;
-            let bot_y = center.y + 6.0 * scale;
-            let left_x = center.x - 4.5 * scale;
-            let right_x = center.x + 4.5 * scale;
+            // Larger Elegant Serif 'T' Icon
+            let top_y = center.y - 8.0 * scale;
+            let bot_y = center.y + 8.0 * scale;
+            let left_x = center.x - 7.0 * scale;
+            let right_x = center.x + 7.0 * scale;
+            let serif_h = 2.0 * scale; // Height of serifs
+            let stem_w = 2.5 * scale;  // Half-width of stem base serif
             
-            // Top horizontal bar
-            painter.line_segment([egui::pos2(left_x, top_y), egui::pos2(right_x, top_y)], stroke);
-            // Vertical stem
-            painter.line_segment([egui::pos2(center.x, top_y), egui::pos2(center.x, bot_y)], stroke);
+            // Top horizontal bar (thicker)
+            let bar_stroke = egui::Stroke::new(2.5 * scale, color);
+            painter.line_segment([egui::pos2(left_x, top_y), egui::pos2(right_x, top_y)], bar_stroke);
+            
+            // Left serif (small vertical line at top-left)
+            painter.line_segment([egui::pos2(left_x, top_y), egui::pos2(left_x, top_y + serif_h)], stroke);
+            
+            // Right serif (small vertical line at top-right)
+            painter.line_segment([egui::pos2(right_x, top_y), egui::pos2(right_x, top_y + serif_h)], stroke);
+            
+            // Vertical stem (thicker)
+            let stem_stroke = egui::Stroke::new(2.0 * scale, color);
+            painter.line_segment([egui::pos2(center.x, top_y), egui::pos2(center.x, bot_y)], stem_stroke);
+            
+            // Bottom serif (horizontal line at base of stem)
+            painter.line_segment([egui::pos2(center.x - stem_w, bot_y), egui::pos2(center.x + stem_w, bot_y)], stroke);
         }
 
         Icon::Delete => {
-            // Trash Can (original, for presets)
-            let c = center - egui::vec2(0.0, 2.0 * scale);
+            // Trash Can (original, for presets) - centered in hitbox
+            let c = center;
             let lid_y = c.y - 3.2 * scale;
             let w_lid = 8.0 * scale; 
             let w_can_top = 6.0 * scale;

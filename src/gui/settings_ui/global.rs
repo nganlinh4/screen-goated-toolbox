@@ -24,8 +24,8 @@ pub fn render_global_settings(
 
     ui.add_space(10.0);
     
-    // API Keys
-    ui.group(|ui| {
+    // API Keys (no border)
+    ui.vertical(|ui| {
         ui.horizontal(|ui| {
             ui.label(text.api_key_label);
             if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }

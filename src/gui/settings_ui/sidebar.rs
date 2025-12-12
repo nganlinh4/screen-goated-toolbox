@@ -11,75 +11,11 @@ pub fn render_sidebar(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
-
-    // Header Grid Layout (matching presets section)
-    egui::Grid::new("header_grid")
-        .striped(false)
-        .spacing(egui::vec2(10.0, 6.0))
-        .show(ui, |ui| {
-            // Column 1: Theme + Language + History (all in one horizontal row)
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                
-                // --- THEME SWITCHER LOGIC ---
-                let (theme_icon, tooltip) = match config.theme_mode {
-                    ThemeMode::Dark => (Icon::Moon, "Theme: Dark"),
-                    ThemeMode::Light => (Icon::Sun, "Theme: Light"),
-                    ThemeMode::System => (Icon::SystemTheme, "Theme: System (Auto)"),
-                };
-
-                if icon_button(ui, theme_icon).on_hover_text(tooltip).clicked() {
-                    // Cycle: System -> Dark -> Light -> System
-                    config.theme_mode = match config.theme_mode {
-                        ThemeMode::System => ThemeMode::Dark,
-                        ThemeMode::Dark => ThemeMode::Light,
-                        ThemeMode::Light => ThemeMode::System,
-                    };
-                    changed = true;
-                }
-                
-                let original_lang = config.ui_language.clone();
-                let lang_display = match config.ui_language.as_str() {
-                    "vi" => "VI",
-                    "ko" => "KO",
-                    _ => "EN",
-                };
-                egui::ComboBox::from_id_source("header_lang_switch")
-                    .width(60.0)
-                    .selected_text(lang_display)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut config.ui_language, "en".to_string(), "English");
-                        ui.selectable_value(&mut config.ui_language, "vi".to_string(), "Vietnamese");
-                        ui.selectable_value(&mut config.ui_language, "ko".to_string(), "Korean");
-                    });
-                if original_lang != config.ui_language {
-                    changed = true;
-                }
-                
-                // History Button
-                if ui.button(text.history_btn).clicked() {
-                    *view_mode = ViewMode::History;
-                }
-            });
-
-            // Column 2: Global Settings (Right Aligned in Column)
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.style_mut().spacing.item_spacing.x = 4.0;
-                let is_global = matches!(view_mode, ViewMode::Global);
-                if ui.selectable_label(is_global, text.global_settings).clicked() {
-                    *view_mode = ViewMode::Global;
-                }
-                draw_icon_static(ui, Icon::Settings, None);
-            });
-            ui.end_row();
-        });
-    
-    ui.add_space(10.0);
-    
     let mut preset_idx_to_delete = None;
     let mut preset_to_add_type = None;
+    let mut preset_idx_to_select: Option<usize> = None;
 
-    // Split indices
+    // Split indices for presets
     let mut img_indices = Vec::new();
     let mut other_indices = Vec::new();
 
@@ -101,56 +37,79 @@ pub fn render_sidebar(
         }
     });
 
-    // Helper closure to render a preset row content
-    let mut render_item = |ui: &mut egui::Ui, idx: usize| {
-        let preset = &config.presets[idx];
-        
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            
-            let is_selected = matches!(view_mode, ViewMode::Preset(i) if *i == idx);
-            
-            let icon_type = match preset.preset_type.as_str() {
-                "audio" => Icon::Microphone,
-                "video" => Icon::Video,
-                "text" => Icon::Text,
-                _ => Icon::Image,
-            };
-            
-            if preset.is_upcoming {
-                ui.add_enabled_ui(false, |ui| {
-                    draw_icon_static(ui, icon_type, Some(14.0));
-                    let _ = ui.selectable_label(is_selected, &preset.name);
-                });
-            } else {
-                draw_icon_static(ui, icon_type, Some(14.0));
-                // Use the full name directly without truncation
-                if ui.selectable_label(is_selected, &preset.name).clicked() {
-                    *view_mode = ViewMode::Preset(idx);
-                }
-                // Delete button (Small X icon)
-                if config.presets.len() > 1 {
-                    if icon_button_sized(ui, Icon::Delete, 14.0).clicked() {
-                        preset_idx_to_delete = Some(idx);
-                    }
-                }
-            }
-        });
-    };
+    // Capture current view_mode for comparison (avoids borrow issues)
+    let current_view_mode = view_mode.clone();
+    let mut should_set_global = false;
+    let mut should_set_history = false;
 
-    // Dynamic Grid Layout
-    egui::Grid::new("presets_grid")
+    // === UNIFIED GRID: Header + Presets in ONE grid for perfect alignment ===
+    egui::Grid::new("sidebar_unified_grid")
         .striped(false)
-        .spacing(egui::vec2(10.0, 6.0)) // Horizontal spacing allows visual separation
+        .spacing(egui::vec2(10.0, 6.0))
+        .min_row_height(24.0) // Ensure consistent row heights
         .show(ui, |ui| {
-            // --- HEADER ROW (Integrated into Grid) ---
-            // Column 1: Title
+            // === ROW 1: Theme/Lang/History | Global Settings ===
+            // Column 1: Use explicit center alignment
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                
+                // Theme Switcher
+                let (theme_icon, tooltip) = match config.theme_mode {
+                    ThemeMode::Dark => (Icon::Moon, "Theme: Dark"),
+                    ThemeMode::Light => (Icon::Sun, "Theme: Light"),
+                    ThemeMode::System => (Icon::SystemTheme, "Theme: System (Auto)"),
+                };
+                if icon_button(ui, theme_icon).on_hover_text(tooltip).clicked() {
+                    config.theme_mode = match config.theme_mode {
+                        ThemeMode::System => ThemeMode::Dark,
+                        ThemeMode::Dark => ThemeMode::Light,
+                        ThemeMode::Light => ThemeMode::System,
+                    };
+                    changed = true;
+                }
+                
+                // Language Switcher
+                let original_lang = config.ui_language.clone();
+                let lang_display = match config.ui_language.as_str() {
+                    "vi" => "VI",
+                    "ko" => "KO",
+                    _ => "EN",
+                };
+                egui::ComboBox::from_id_source("header_lang_switch")
+                    .width(60.0)
+                    .selected_text(lang_display)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut config.ui_language, "en".to_string(), "English");
+                        ui.selectable_value(&mut config.ui_language, "vi".to_string(), "Vietnamese");
+                        ui.selectable_value(&mut config.ui_language, "ko".to_string(), "Korean");
+                    });
+                if original_lang != config.ui_language {
+                    changed = true;
+                }
+                
+                // History Button
+                if ui.button(text.history_btn).clicked() {
+                    should_set_history = true;
+                }
+            });
+
+            // Column 2: Global Settings (Right Aligned with Center vertical alignment)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let is_global = matches!(current_view_mode, ViewMode::Global);
+                if ui.selectable_label(is_global, text.global_settings).clicked() {
+                    should_set_global = true;
+                }
+                draw_icon_static(ui, Icon::Settings, None);
+            });
+            ui.end_row();
+
+            // === ROW 3: Presets Title | Add Buttons ===
             ui.label(egui::RichText::new(text.presets_section).strong());
 
-            // Column 2: Buttons (Right Aligned in Column)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.style_mut().spacing.item_spacing.x = 4.0;
-                // Add buttons in reverse order because of right_to_left layout
+                // Buttons in reverse order for right_to_left
                 if ui.button(text.add_audio_preset_btn).clicked() {
                     preset_to_add_type = Some("audio");
                 }
@@ -163,20 +122,20 @@ pub fn render_sidebar(
             });
             ui.end_row();
 
-            // --- DATA ROWS ---
+            // === ROW 4+: Preset Items ===
             let max_len = std::cmp::max(img_indices.len(), other_indices.len());
 
             for i in 0..max_len {
                 // Column 1: Image Presets
                 if let Some(&idx) = img_indices.get(i) {
-                    render_item(ui, idx);
+                    render_preset_item(ui, &config.presets, idx, &current_view_mode, &mut preset_idx_to_select, &mut preset_idx_to_delete);
                 } else {
-                    ui.label(""); // Empty placeholder to maintain grid structure
+                    ui.label("");
                 }
 
                 // Column 2: Text/Audio/Other Presets
                 if let Some(&idx) = other_indices.get(i) {
-                    render_item(ui, idx);
+                    render_preset_item(ui, &config.presets, idx, &current_view_mode, &mut preset_idx_to_select, &mut preset_idx_to_delete);
                 } else {
                     ui.label(""); 
                 }
@@ -184,6 +143,17 @@ pub fn render_sidebar(
                 ui.end_row();
             }
         });
+
+    // Apply view_mode changes after the grid
+    if should_set_global {
+        *view_mode = ViewMode::Global;
+    }
+    if should_set_history {
+        *view_mode = ViewMode::History;
+    }
+    if let Some(idx) = preset_idx_to_select {
+        *view_mode = ViewMode::Preset(idx);
+    }
 
     // Handle Add
     if let Some(type_str) = preset_to_add_type {
@@ -202,7 +172,6 @@ pub fn render_sidebar(
             new_preset.audio_source = "mic".to_string();
         } else {
             new_preset.name = format!("Image {}", config.presets.len() + 1);
-            // Default preset is already Image type
         }
         
         config.presets.push(new_preset);
@@ -226,4 +195,47 @@ pub fn render_sidebar(
     }
 
     changed
+}
+
+// Helper function to render a single preset item (avoids closure borrow issues)
+fn render_preset_item(
+    ui: &mut egui::Ui,
+    presets: &[Preset],
+    idx: usize,
+    current_view_mode: &ViewMode,
+    preset_idx_to_select: &mut Option<usize>,
+    preset_idx_to_delete: &mut Option<usize>,
+) {
+    let preset = &presets[idx];
+    
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        
+        let is_selected = matches!(current_view_mode, ViewMode::Preset(i) if *i == idx);
+        
+        let icon_type = match preset.preset_type.as_str() {
+            "audio" => Icon::Microphone,
+            "video" => Icon::Video,
+            "text" => Icon::Text,
+            _ => Icon::Image,
+        };
+        
+        if preset.is_upcoming {
+            ui.add_enabled_ui(false, |ui| {
+                draw_icon_static(ui, icon_type, Some(14.0));
+                let _ = ui.selectable_label(is_selected, &preset.name);
+            });
+        } else {
+            draw_icon_static(ui, icon_type, Some(14.0));
+            if ui.selectable_label(is_selected, &preset.name).clicked() {
+                *preset_idx_to_select = Some(idx);
+            }
+            // Delete button (Small X icon)
+            if presets.len() > 1 {
+                if icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
+                    *preset_idx_to_delete = Some(idx);
+                }
+            }
+        }
+    });
 }
