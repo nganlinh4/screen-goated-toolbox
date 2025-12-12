@@ -458,26 +458,35 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 } else if preset_type == "text" {
                     // NEW TEXT LOGIC
                     if text_mode == "select" {
-                        std::thread::spawn(move || {
-                            overlay::show_text_selection_tag(preset_idx);
-                        });
-                    } else {
-                        // Type Mode - Launch pipeline immediately
-                        if let Ok(app) = APP.lock() {
-                            let config = app.config.clone();
-                            let preset = config.presets[preset_idx].clone();
-                            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-                            let screen_h = GetSystemMetrics(SM_CYSCREEN);
-                            let center_rect = RECT {
-                                left: (screen_w - 700) / 2,
-                                top: (screen_h - 300) / 2,
-                                right: (screen_w + 700) / 2,
-                                bottom: (screen_h + 300) / 2,
-                            };
-                            
+                        // Toggle Logic for Selection
+                        if overlay::text_selection::is_active() {
+                            overlay::text_selection::cancel_selection();
+                        } else {
                             std::thread::spawn(move || {
-                                overlay::process::start_text_processing(String::new(), center_rect, config, preset);
+                                overlay::show_text_selection_tag(preset_idx);
                             });
+                        }
+                    } else {
+                        // Type Mode - Toggle Logic for Input Window
+                        if overlay::text_input::is_active() {
+                            overlay::text_input::cancel_input();
+                        } else {
+                            if let Ok(app) = APP.lock() {
+                                let config = app.config.clone();
+                                let preset = config.presets[preset_idx].clone();
+                                let screen_w = GetSystemMetrics(SM_CXSCREEN);
+                                let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                                let center_rect = RECT {
+                                    left: (screen_w - 700) / 2,
+                                    top: (screen_h - 300) / 2,
+                                    right: (screen_w + 700) / 2,
+                                    bottom: (screen_h + 300) / 2,
+                                };
+                                
+                                std::thread::spawn(move || {
+                                    overlay::process::start_text_processing(String::new(), center_rect, config, preset);
+                                });
+                            }
                         }
                     }
                 } else {
