@@ -21,8 +21,23 @@ lazy_static::lazy_static! {
     pub static ref TAG_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
+pub fn is_active() -> bool {
+    unsafe { TAG_HWND.0 != 0 }
+}
+
+pub fn cancel_selection() {
+    TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+    unsafe {
+        if TAG_HWND.0 != 0 {
+            PostMessageW(TAG_HWND, WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
 pub fn show_text_selection_tag(preset_idx: usize) {
     unsafe {
+        if TAG_HWND.0 != 0 { return; } // Prevent double open
+
         CURRENT_PRESET_IDX = preset_idx;
         IS_SELECTING = false;
         ANIMATION_OFFSET = 0.0;
@@ -60,6 +75,9 @@ unsafe extern "system" fn tag_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                 KillTimer(hwnd, 1);
                 let preset_idx = CURRENT_PRESET_IDX;
                 std::thread::spawn(move || {
+                    // Check abort before heavy lifting
+                    if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) { return; }
+                    
                     std::thread::sleep(std::time::Duration::from_millis(150));
                     
                     if OpenClipboard(HWND(0)).as_bool() { EmptyClipboard(); CloseClipboard(); }
@@ -79,6 +97,7 @@ unsafe extern "system" fn tag_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                     
                     let mut clipboard_text = String::new();
                     for _ in 0..15 {
+                        if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) { return; }
                         std::thread::sleep(std::time::Duration::from_millis(100));
                         if OpenClipboard(HWND(0)).as_bool() {
                             if let Ok(h_data) = GetClipboardData(13u32) {
@@ -96,8 +115,7 @@ unsafe extern "system" fn tag_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                         if !clipboard_text.is_empty() { break; }
                     }
 
-                    if !clipboard_text.trim().is_empty() {
-                        // DEADLOCK FIX: Scope the lock so it drops BEFORE calling start_text_processing
+                    if !clipboard_text.trim().is_empty() && !TAG_ABORT_SIGNAL.load(Ordering::Relaxed) {
                         let (config, preset, screen_w, screen_h) = {
                             let app = APP.lock().unwrap(); 
                             (
