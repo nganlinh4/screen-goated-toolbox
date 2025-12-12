@@ -8,7 +8,7 @@ use windows::core::*;
 use std::mem::size_of;
 use std::sync::Once;
 
-use super::state::{WINDOW_STATES, WindowState, CursorPhysics, InteractionMode, ResizeEdge, RefineContext, WindowType};
+use super::state::{WINDOW_STATES, WindowState, CursorPhysics, InteractionMode, ResizeEdge, RefineContext, WindowType, RetranslationConfig};
 use super::event_handler::result_wnd_proc;
 
 static mut CURRENT_BG_COLOR: u32 = 0x00222222;
@@ -28,7 +28,10 @@ pub fn create_result_window(
     model_id: String,
     provider: String,
     streaming_enabled: bool,
-    start_editing: bool
+    start_editing: bool,
+    // NEW Params
+    preset_prompt: String,
+    retrans_config: Option<RetranslationConfig>
 ) -> HWND {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
@@ -175,6 +178,8 @@ pub fn create_result_window(
                 bg_w: 0,
                 bg_h: 0,
                 edit_font: hfont,
+                preset_prompt, // Store for Type Mode logic
+                retrans_config, // Store for Retranslation triggering
             });
         }
 
@@ -188,7 +193,6 @@ pub fn create_result_window(
             size_of::<u32>() as u32
         );
 
-        // NEW: If starting in edit mode, show the edit control and focus it immediately
         if start_editing {
             let width = (target_rect.right - target_rect.left).abs();
             // Initial positioning for the edit box

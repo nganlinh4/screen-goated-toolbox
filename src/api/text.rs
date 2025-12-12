@@ -4,7 +4,7 @@ use crate::APP;
 use crate::overlay::result::RefineContext;
 use super::client::UREQ_AGENT;
 use super::types::{StreamChunk, ChatCompletionResponse};
-use super::vision::translate_image_streaming;
+use super::vision::translate_image_streaming as vision_translate_image_streaming;
 
 pub fn translate_text_streaming<F>(
     groq_api_key: &str,
@@ -207,7 +207,6 @@ where
     Ok(full_content)
 }
 
-// NEW: Refinement API with model-aware and context-aware handling
 pub fn refine_text_streaming<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
@@ -222,39 +221,35 @@ pub fn refine_text_streaming<F>(
 where
     F: FnMut(&str),
 {
-    // 1. CONSTRUCT SIMPLE PROMPT
     let final_prompt = format!(
         "Content:\n{}\n\nInstruction:\n{}\n\nOutput ONLY the result.",
         previous_text, user_prompt
     );
 
-    // 2. Determine the Base Model ID/Name and Provider we WANT to use
     let (mut target_id_or_name, mut target_provider) = match context {
         RefineContext::Image(_) => {
-            // For images, we try to stick to the original vision model.
             (original_model_id.to_string(), original_provider.to_string())
         },
         _ => {
-            // RefineContext::None (Retranslate) or RefineContext::Audio (Transcript Refinement)
-            // Force smart text model: prioritize Google if key present, else Groq
-            if !gemini_api_key.trim().is_empty() {
-                 ("gemini-flash-lite".to_string(), "google".to_string()) 
-            } else if !groq_api_key.trim().is_empty() {
-                 ("text_accurate_kimi".to_string(), "groq".to_string()) 
-            } else {
+            if !original_model_id.trim().is_empty() && original_model_id != "scout" {
                  (original_model_id.to_string(), original_provider.to_string())
+            } else {
+                if !gemini_api_key.trim().is_empty() {
+                     ("gemini-flash-lite".to_string(), "google".to_string()) 
+                } else if !groq_api_key.trim().is_empty() {
+                     ("text_accurate_kimi".to_string(), "groq".to_string()) 
+                } else {
+                     (original_model_id.to_string(), original_provider.to_string())
+                }
             }
         }
     };
 
-    // 3. Resolve to Full Name (API-ready)
-    // This converts IDs like "gemini-flash-lite" -> "gemini-flash-lite-latest"
     if let Some(conf) = crate::model_config::get_model_by_id(&target_id_or_name) {
         target_id_or_name = conf.full_name;
-        target_provider = conf.provider; // Also ensure provider matches config
+        target_provider = conf.provider;
     }
     
-    // Helper closure to execute Text-Only generation using final_prompt
     let mut exec_text_only = |p_model: String, p_provider: String| -> Result<String> {
         let mut full_content = String::new();
 
@@ -312,7 +307,6 @@ where
                  }
              }
         } else {
-            // Groq
             if groq_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY")); }
             
             let payload = serde_json::json!({
@@ -326,7 +320,6 @@ where
                 .send_json(payload)
                 .map_err(|e| anyhow::anyhow!("Groq Refine Error: {}", e))?;
 
-            // Capture Rate Limits
             if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
                  let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
                  let usage_str = format!("{} / {}", remaining, limit);
@@ -367,16 +360,14 @@ where
             if target_provider == "google" {
                 if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_GEMINI_KEY")); }
                 let img = image::load_from_memory(&img_bytes)?.to_rgba8();
-                translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, target_id_or_name, target_provider, img, streaming_enabled, false, on_chunk)
+                vision_translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, target_id_or_name, target_provider, img, streaming_enabled, false, on_chunk)
             } else {
-                // Groq/Llama Vision
                 if groq_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY")); }
                 let img = image::load_from_memory(&img_bytes)?.to_rgba8();
-                translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, target_id_or_name, target_provider, img, streaming_enabled, false, on_chunk)
+                vision_translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, target_id_or_name, target_provider, img, streaming_enabled, false, on_chunk)
             }
         },
         RefineContext::None => {
-            // Text Only - Use the helper to execute with final_prompt
             exec_text_only(target_id_or_name, target_provider)
         }
     }
