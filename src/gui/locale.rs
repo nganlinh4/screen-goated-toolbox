@@ -90,6 +90,9 @@ pub struct LocaleText {
      pub text_input_footer_submit: &'static str,
      pub text_input_footer_newline: &'static str,
      pub text_input_footer_cancel: &'static str,
+     pub add_text_preset_btn: &'static str,
+     pub add_image_preset_btn: &'static str,
+     pub add_audio_preset_btn: &'static str,
      }
 
 impl LocaleText {
@@ -186,6 +189,9 @@ impl LocaleText {
                 text_input_footer_submit: "Enter để Gửi",
                 text_input_footer_newline: "Shift+Enter xuống dòng",
                 text_input_footer_cancel: "để Hủy",
+                add_text_preset_btn: "+ Text",
+                add_image_preset_btn: "+ Ảnh",
+                add_audio_preset_btn: "+ Âm thanh",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -278,8 +284,11 @@ impl LocaleText {
                 text_input_footer_submit: "Enter: 제출",
                 text_input_footer_newline: "Shift+Enter: 줄바꿈",
                 text_input_footer_cancel: "취소",
+                add_text_preset_btn: "+ 텍스트",
+                add_image_preset_btn: "+ 이미지",
+                add_audio_preset_btn: "+ 오디오",
                 },
-            _ => Self {
+                _ => Self {
                  history_btn: "History",
                  history_title: "Result Library",
                  max_items_label: "Max Items:",
@@ -370,7 +379,10 @@ impl LocaleText {
                 text_input_footer_submit: "Enter to Submit",
                 text_input_footer_newline: "Shift+Enter for New Line",
                 text_input_footer_cancel: "to Cancel",
+                add_text_preset_btn: "+ Text",
+                add_image_preset_btn: "+ Image",
+                add_audio_preset_btn: "+ Audio",
                 },
                 }
                 }
-}
+                }

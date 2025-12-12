@@ -36,7 +36,7 @@ pub fn render_preset_editor(
     let is_text = preset.preset_type == "text";
 
     // Type Dropdown + Prompt Mode Dropdown (on same line if image or text)
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
          ui.label(text.preset_type_label);
          let image_label = text.preset_type_image;
          let audio_label = text.preset_type_audio;
@@ -166,7 +166,7 @@ pub fn render_preset_editor(
                     }
                 });
                 
-                if ui.add(egui::TextEdit::multiline(&mut preset.prompt).desired_rows(3).desired_width(f32::INFINITY)).changed() {
+                if ui.add(egui::TextEdit::multiline(&mut preset.prompt).desired_rows(3).desired_width(384.0)).changed() {
                     changed = true;
                 }
                 
@@ -238,7 +238,7 @@ pub fn render_preset_editor(
         ui.group(|ui| {
             ui.label(egui::RichText::new(text.model_section).strong());
             
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let selected_model = get_model_by_id(&preset.model);
                 let display_label = selected_model.as_ref()
                     .map(|m| match config.ui_language.as_str() {
@@ -293,7 +293,7 @@ pub fn render_preset_editor(
                  }
             });
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                  // 1. Auto Copy Checkbox
                  if ui.checkbox(&mut preset.auto_copy, text.auto_copy_label).clicked() {
                      changed = true;
@@ -337,7 +337,7 @@ pub fn render_preset_editor(
             ui.group(|ui| {
                 ui.label(egui::RichText::new(text.retranslate_section).strong());
                 
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     if ui.checkbox(&mut preset.retranslate, text.retranslate_checkbox).clicked() {
                         changed = true;
                     }
@@ -366,7 +366,7 @@ pub fn render_preset_editor(
                 });
 
                 if preset.retranslate {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.label(text.retranslate_model_label);
                         let text_model = get_model_by_id(&preset.retranslate_model);
                         let text_display_label = text_model.as_ref()
@@ -410,7 +410,7 @@ pub fn render_preset_editor(
                     });
 
                     if !preset.hide_overlay {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             ui.label(text.streaming_label);
                             egui::ComboBox::from_id_source("retrans_stream_combo")
                                 .selected_text(if preset.retranslate_streaming_enabled { text.streaming_option_stream } else { text.streaming_option_wait })

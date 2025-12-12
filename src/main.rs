@@ -25,9 +25,9 @@ use tray_icon::menu::{Menu, MenuItem};
 use std::collections::HashMap;
 use history::HistoryManager;
 
-// Window dimensions
-pub const WINDOW_WIDTH: f32 = 650.0;
-pub const WINDOW_HEIGHT: f32 = 550.0;
+// Window dimensions - Increased to accommodate two-column sidebar and longer text labels
+pub const WINDOW_WIDTH: f32 = 810.0;
+pub const WINDOW_HEIGHT: f32 = 500.0;
 
 // Modifier Constants for Hook
 const MOD_ALT: u32 = 0x0001;

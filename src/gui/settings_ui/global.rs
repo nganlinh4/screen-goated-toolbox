@@ -198,20 +198,21 @@ pub fn render_global_settings(
                 }
             });
         
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(text.reset_defaults_btn).clicked() {
-                let saved_groq_key = config.api_key.clone();
-                let saved_gemini_key = config.gemini_api_key.clone();
-                let saved_language = config.ui_language.clone();
-                
-                *config = Config::default();
-                
-                config.api_key = saved_groq_key;
-                config.gemini_api_key = saved_gemini_key;
-                config.ui_language = saved_language;
-                changed = true;
-            }
-        });
+        // Add large gap and then reset button on the same row
+        ui.add_space(100.0);
+        
+        if ui.button(text.reset_defaults_btn).clicked() {
+            let saved_groq_key = config.api_key.clone();
+            let saved_gemini_key = config.gemini_api_key.clone();
+            let saved_language = config.ui_language.clone();
+            
+            *config = Config::default();
+            
+            config.api_key = saved_groq_key;
+            config.gemini_api_key = saved_gemini_key;
+            config.ui_language = saved_language;
+            changed = true;
+        }
     });
 
     changed
