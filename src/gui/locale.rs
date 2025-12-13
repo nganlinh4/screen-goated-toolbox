@@ -243,8 +243,9 @@ impl LocaleText {
                    "Dù Tự động dán có được bật, nó cần nó nơi dán text được (con trỏ text nhấp nháy) thì mới dán được.",
                    "Điều khiển Tự thêm xuống dòng sau khi copy chỉ xuất hiện khi Tự động copy bật (tại 1 bước nào đó).",
                    "Điều khiển Nhận gì hiện nấy (stream) chỉ xuất hiện khi overlay của bước đó được bật hiện (icon mắt).",
-                ],
-                restore_preset_btn: "Khôi phục",
+                   "Những tên Cấu hình có nền xanh lá nghĩa là nó đã được gán phím tắt để sẵn sàng sử dụng.",
+                   ],
+                   restore_preset_btn: "Khôi phục",
                 restore_preset_tooltip: "Đặt lại cài đặt về mặc định",
                 },
             "ko" => Self {
@@ -372,10 +373,11 @@ impl LocaleText {
                    "자동 붙여넣기가 활성화되어 있어도 텍스트 입력 위치(깜박이는 커서)가 있어야만 작동합니다.",
                    "자동 줄바꿈 추가 컨트롤은 자동 복사가 활성화되어 있을 때(한 단계 이상에서)만 나타납니다.",
                    "실시간 표시(스트리밍) 컨트롤은 해당 단계의 오버레이가 활성화되어 있을 때(눈 아이콘)만 나타납니다.",
-                ],
-                restore_preset_btn: "복원",
-                restore_preset_tooltip: "기본 설정으로 초기화",
-                },
+                   "녹색 배경의 프리셋 이름은 단축키가 이미 할당되어 사용할 준비가 된 것을 의미합니다.",
+                   ],
+                   restore_preset_btn: "복원",
+                   restore_preset_tooltip: "기본 설정으로 초기화",
+                   },
                 _ => Self {
                  history_btn: "History",
                  history_title: "Result Library",
@@ -501,10 +503,11 @@ impl LocaleText {
                    "Even if Auto-paste is enabled, it requires a text cursor (blinking) at the paste location to work.",
                    "The Auto add newline control only appears when Auto copy is enabled (on at least one step).",
                    "The Live output (stream) control only appears when that step's overlay is enabled (eye icon).",
-                ],
-                restore_preset_btn: "Restore",
-                restore_preset_tooltip: "Reset preset to default settings",
-                },
+                   "Preset names with a green/lime background indicate they have a hotkey assigned and are ready to use.",
+                   ],
+                   restore_preset_btn: "Restore",
+                   restore_preset_tooltip: "Reset preset to default settings",
+                   },
                 }
                 }
                 }
