@@ -3,68 +3,7 @@ use crate::config::{Config, get_all_languages, ProcessingBlock};
 use crate::gui::locale::LocaleText;
 use crate::gui::icons::{Icon, icon_button};
 use crate::model_config::{get_all_models, ModelType, get_model_by_id};
-
-/// Get localized preset name for default presets
-fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
-    match (preset_id, lang) {
-        // Vietnamese
-        ("preset_translate", "vi") => "Dịch vùng".to_string(),
-        ("preset_extract_retranslate", "vi") => "Dịch vùng (CHUẨN)".to_string(),
-        ("preset_translate_auto_paste", "vi") => "Dịch vùng (Tự dán)".to_string(),
-        ("preset_translate_retranslate", "vi") => "Dịch vùng+Dịch lại".to_string(),
-        ("preset_extract_retrans_retrans", "vi") => "D.vùng (CHUẨN)+D.lại".to_string(),
-        ("preset_ocr", "vi") => "Lấy text từ ảnh".to_string(),
-        ("preset_summarize", "vi") => "Tóm tắt ảnh".to_string(),
-        ("preset_desc", "vi") => "Mô tả ảnh".to_string(),
-        ("preset_ask_image", "vi") => "Hỏi về ảnh".to_string(),
-        ("preset_translate_select", "vi") => "Dịch (Bôi đen)".to_string(),
-        ("preset_trans_retrans_typing", "vi") => "Dịch+Dịch lại (Tự gõ)".to_string(),
-        ("preset_transcribe", "vi") => "Lời nói thành văn".to_string(),
-        ("preset_study_language", "vi") => "Học ngoại ngữ".to_string(),
-        ("preset_transcribe_retranslate", "vi") => "Trả lời ng.nc.ngoài 1".to_string(),
-        ("preset_quicker_foreigner_reply", "vi") => "Trả lời ng.nc.ngoài 2".to_string(),
-        ("preset_video_summary_placeholder", "vi") => "Tóm tắt video (sắp có)".to_string(),
-        
-        // Korean
-        ("preset_translate", "ko") => "영역 번역".to_string(),
-        ("preset_extract_retranslate", "ko") => "영역 번역 (정확)".to_string(),
-        ("preset_translate_auto_paste", "ko") => "영역 번역 (자동 붙.)".to_string(),
-        ("preset_translate_retranslate", "ko") => "영역 번역+재번역".to_string(),
-        ("preset_extract_retrans_retrans", "ko") => "영.번역 (정확)+재번역".to_string(),
-        ("preset_ocr", "ko") => "텍스트 추출".to_string(),
-        ("preset_summarize", "ko") => "이미지 요약".to_string(),
-        ("preset_desc", "ko") => "이미지 설명".to_string(),
-        ("preset_ask_image", "ko") => "이미지 질문".to_string(),
-        ("preset_translate_select", "ko") => "번역 (선택 텍스트)".to_string(),
-        ("preset_trans_retrans_typing", "ko") => "번역+재번역 (입력)".to_string(),
-        ("preset_transcribe", "ko") => "음성 받아쓰기".to_string(),
-        ("preset_study_language", "ko") => "언어 학습".to_string(),
-        ("preset_transcribe_retranslate", "ko") => "빠른 외국인 답변 1".to_string(),
-        ("preset_quicker_foreigner_reply", "ko") => "빠른 외국인 답변 2".to_string(),
-        ("preset_video_summary_placeholder", "ko") => "비디오 요약 (예정)".to_string(),
-        
-        // English (default)
-        ("preset_translate", _) => "Translate region".to_string(),
-        ("preset_extract_retranslate", _) => "Trans reg (ACCURATE)".to_string(),
-        ("preset_translate_auto_paste", _) => "Trans reg (Auto paste)".to_string(),
-        ("preset_translate_retranslate", _) => "Trans reg+Retrans".to_string(),
-        ("preset_extract_retrans_retrans", _) => "Trans (ACC)+Retrans".to_string(),
-        ("preset_ocr", _) => "Extract text".to_string(),
-        ("preset_summarize", _) => "Summarize image".to_string(),
-        ("preset_desc", _) => "Describe image".to_string(),
-        ("preset_ask_image", _) => "Ask about image".to_string(),
-        ("preset_translate_select", _) => "Trans (Select text)".to_string(),
-        ("preset_trans_retrans_typing", _) => "Trans+Retrans (Typing)".to_string(),
-        ("preset_transcribe", _) => "Transcribe speech".to_string(),
-        ("preset_study_language", _) => "Study language".to_string(),
-        ("preset_transcribe_retranslate", _) => "Quick 4NR reply 1".to_string(),
-        ("preset_quicker_foreigner_reply", _) => "Quick 4NR reply 2".to_string(),
-        ("preset_video_summary_placeholder", _) => "Summarize video (soon)".to_string(),
-        
-        // Fallback: return original ID without "preset_" prefix
-        _ => preset_id.strip_prefix("preset_").unwrap_or(preset_id).replace('_', " "),
-    }
-}
+use super::get_localized_preset_name; // Use the shared function from sidebar
 
 
 pub fn render_preset_editor(

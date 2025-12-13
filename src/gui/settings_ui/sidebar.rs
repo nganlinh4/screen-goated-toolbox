@@ -320,17 +320,36 @@ fn render_preset_item(
         preset.name.clone()
     };
     
-    ui.horizontal(|ui| {
+    let is_selected = matches!(current_view_mode, ViewMode::Preset(i) if *i == idx);
+    let has_hotkey = !preset.hotkeys.is_empty();
+    
+    let icon_type = match preset.preset_type.as_str() {
+        "audio" => Icon::Microphone,
+        "video" => Icon::Video,
+        "text" => Icon::Text,
+        _ => Icon::Image,
+    };
+    
+    // Use horizontal_centered for proper vertical alignment
+    ui.horizontal_centered(|ui| {
         ui.spacing_mut().item_spacing.x = 1.0;
         
-        let is_selected = matches!(current_view_mode, ViewMode::Preset(i) if *i == idx);
-        
-        let icon_type = match preset.preset_type.as_str() {
-            "audio" => Icon::Microphone,
-            "video" => Icon::Video,
-            "text" => Icon::Text,
-            _ => Icon::Image,
-        };
+        // Draw background if has hotkey
+        if has_hotkey && !preset.is_upcoming {
+            let rect = ui.available_rect_before_wrap();
+            let is_dark = ui.visuals().dark_mode;
+            
+            if is_dark {
+                // Dark Mode: Softer, muted teal/green (tint)
+                let bg_color = egui::Color32::from_rgba_unmultiplied(40, 150, 130, 20);
+                ui.painter().rect_filled(rect, 4.0, bg_color);
+            } else {
+                // Light Mode: Stronger pastel green (Mint) - needs to be visible against white
+                // RGB(210, 245, 230) is a visible mint green
+                let bg_color = egui::Color32::from_rgb(200, 235, 220); 
+                ui.painter().rect_filled(rect, 4.0, bg_color);
+            }
+        }
         
         if preset.is_upcoming {
             ui.add_enabled_ui(false, |ui| {
