@@ -506,23 +506,59 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         }
 
         WM_DESTROY => {
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.remove(&(hwnd.0 as isize)) {
-                // Signal cancellation to stop any ongoing chain processing
-                if let Some(ref token) = state.cancellation_token {
-                    token.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
-                
-                if state.content_bitmap.0 != 0 {
-                    DeleteObject(state.content_bitmap);
-                }
-                if state.bg_bitmap.0 != 0 {
-                    DeleteObject(state.bg_bitmap);
-                }
-                if state.edit_font.0 != 0 {
-                    DeleteObject(state.edit_font);
+            // Collect windows to close (those sharing the same cancellation token)
+            let windows_to_close: Vec<HWND>;
+            let token_to_signal: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>;
+            
+            {
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.remove(&(hwnd.0 as isize)) {
+                    // Get the cancellation token from this window
+                    token_to_signal = state.cancellation_token.clone();
+                    
+                    // Find all other windows with the same cancellation token
+                    if let Some(ref token) = token_to_signal {
+                        // Signal cancellation first
+                        token.store(true, std::sync::atomic::Ordering::Relaxed);
+                        
+                        // Collect windows to close (can't close while iterating with lock held)
+                        windows_to_close = states.iter()
+                            .filter(|(_, s)| {
+                                if let Some(ref other_token) = s.cancellation_token {
+                                    std::sync::Arc::ptr_eq(token, other_token)
+                                } else {
+                                    false
+                                }
+                            })
+                            .map(|(k, _)| HWND(*k as isize))
+                            .collect();
+                    } else {
+                        windows_to_close = Vec::new();
+                    }
+                    
+                    // Cleanup this window's resources
+                    if state.content_bitmap.0 != 0 {
+                        DeleteObject(state.content_bitmap);
+                    }
+                    if state.bg_bitmap.0 != 0 {
+                        DeleteObject(state.bg_bitmap);
+                    }
+                    if state.edit_font.0 != 0 {
+                        DeleteObject(state.edit_font);
+                    }
+                } else {
+                    windows_to_close = Vec::new();
+                    token_to_signal = None;
                 }
             }
+            
+            // Close all other windows in the same chain (after dropping the lock)
+            for other_hwnd in windows_to_close {
+                if other_hwnd != hwnd {
+                    PostMessageW(other_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+            }
+            
             LRESULT(0)
         }
 
