@@ -87,7 +87,7 @@ pub fn render_history_panel(
                             let icon = match item.item_type {
                                 HistoryType::Image => Icon::Image,
                                 HistoryType::Audio => Icon::Microphone,
-                                HistoryType::Text => Icon::Copy, // Text icon for text-only entries
+                                HistoryType::Text => Icon::Text, // Text icon for text-only entries
                             };
                             draw_icon_static(ui, icon, Some(14.0));
                             ui.label(egui::RichText::new(&item.timestamp).size(10.0).weak());
