@@ -244,6 +244,27 @@ impl Default for Config {
             }
         ];
 
+        // 3c. Fix Grammar (Sửa ngữ pháp)
+        let mut p3c = Preset::default();
+        p3c.id = "preset_fix_grammar".to_string();
+        p3c.name = "Fix Grammar".to_string();
+        p3c.preset_type = "text".to_string();
+        p3c.text_input_mode = "select".to_string();
+        p3c.auto_paste = true; // Replace original text
+        p3c.auto_paste_newline = true;
+        p3c.blocks = vec![
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Fix grammar, spelling, and punctuation errors in the following text. Preserve the original meaning and tone. Output ONLY the corrected text.".to_string(),
+                selected_language: "Vietnamese".to_string(), // Not used but required
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: true,
+                ..Default::default()
+            }
+        ];
+
         // 4. Chain: OCR -> Translate
         let mut p4 = Preset::default();
         p4.id = "preset_translate_retranslate".to_string();
@@ -550,7 +571,7 @@ impl Default for Config {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
             presets: vec![
-                p1, p7, p2, p3, p3b, p4, p4b, p5, p6, p8, p9, p10, p11, p12, p13, p14, p15
+                p1, p7, p2, p3, p3b, p3c, p4, p4b, p5, p6, p8, p9, p10, p11, p12, p13, p14, p15
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
