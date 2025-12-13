@@ -184,7 +184,6 @@ impl Default for Config {
                 ..Default::default()
             }
         ];
-        p1.hotkeys.push(Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 });
 
         // 2. Translate (Auto paste) Preset
         let mut p2 = Preset::default();
@@ -364,6 +363,7 @@ impl Default for Config {
                 ..Default::default()
             }
         ];
+        p7.hotkeys.push(Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 });
 
         // 8. Summarize Preset
         let mut p8 = Preset::default();
