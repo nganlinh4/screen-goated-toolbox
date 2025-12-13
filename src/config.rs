@@ -134,7 +134,7 @@ impl Default for Preset {
             ],
             prompt_mode: "fixed".to_string(),
             auto_paste: false,
-            auto_paste_newline: true,
+            auto_paste_newline: false,
             hotkeys: vec![],
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
@@ -205,10 +205,10 @@ impl Default for Config {
             }
         ];
 
-        // 3. Translate (Select text)
+        // 3. Trans (Select text)
         let mut p3 = Preset::default();
         p3.id = "preset_translate_select".to_string();
-        p3.name = "Translate (Select text)".to_string();
+        p3.name = "Trans (Select text)".to_string();
         p3.preset_type = "text".to_string();
         p3.text_input_mode = "select".to_string();
         p3.blocks = vec![
@@ -431,10 +431,10 @@ impl Default for Config {
             }
         ];
 
-        // 13. Quick foreigner reply
+        // 13. Quick 4NR reply
         let mut p13 = Preset::default();
         p13.id = "preset_transcribe_retranslate".to_string();
-        p13.name = "Quick foreigner reply".to_string();
+        p13.name = "Quick 4NR reply".to_string();
         p13.preset_type = "audio".to_string();
         p13.audio_source = "mic".to_string();
         p13.blocks = vec![

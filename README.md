@@ -6,7 +6,7 @@ A powerful Windows utility that captures any region of your screen **or records 
 
 - **Multi-Modal Support:** Utilize **Groq** (Llama 4, Whisper, GPT-OSS) or **Google Gemini** (Flash, Pro) for Vision, Text, and Audio processing.
 - **Audio Intelligence:** Record and transcribe/translate audio from your **Microphone** or **System Sound** (Device Audio/Loopback).
-- **Preset System:** Create unlimited custom profiles (e.g., "Translate Image", "Transcribe Meeting", "Quick Foreigner Reply").
+- **Preset System:** Create unlimited custom profiles (e.g., "Translate Image", "Transcribe Meeting", "Quick 4NR reply").
 - **Advanced Hotkeys:** Assign custom key combinations (e.g., `Ctrl+Alt+T`, `Win+Shift+S`) to specific presets.
 - **Retranslation Pipeline:** Chain models (e.g., Vision/Audio -> Text Model) for higher accuracy.
 - **Smart Overlay:**
