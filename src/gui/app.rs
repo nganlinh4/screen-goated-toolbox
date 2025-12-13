@@ -1,5 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// Simple Linear Congruential Generator for randomness without external crate
+fn simple_rand(seed: u32) -> u32 {
+    seed.wrapping_mul(1103515245).wrapping_add(12345)
+}
+
 use eframe::egui;
 use crate::config::{Config, save_config, Hotkey, ThemeMode};
 use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
@@ -74,6 +79,15 @@ pub struct SettingsApp {
     last_system_theme_dark: bool, // Track Windows system theme for icon switching
     theme_check_timer: f64, // Timer for polling system theme
     // ------------------
+    
+    // --- TIP UI STATE ---
+    current_tip_idx: usize,
+    tip_timer: f64,        // Time when the current tip started showing
+    tip_fade_state: f32,   // 0.0 (Invisible) -> 1.0 (Visible)
+    tip_is_fading_in: bool,
+    show_tips_modal: bool,
+    rng_seed: u32,
+    // --------------------
 }
 
 impl SettingsApp {
@@ -219,6 +233,7 @@ impl SettingsApp {
         };
 
         let start_in_tray = config.start_in_tray;
+        let rng_seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u32;
 
         Self {
             config,
@@ -251,6 +266,15 @@ impl SettingsApp {
             last_system_theme_dark: system_dark,
             theme_check_timer: 0.0,
             // ----------------------
+            
+            // --- TIP INIT ---
+            current_tip_idx: 0,
+            tip_timer: 0.0,
+            tip_fade_state: 0.0,
+            tip_is_fading_in: true,
+            show_tips_modal: false,
+            rng_seed,
+            // ---------------
         }
     }
 
@@ -540,6 +564,59 @@ impl eframe::App for SettingsApp {
 
         let text = LocaleText::get(&self.config.ui_language);
 
+        // [TIP ANIMATION LOGIC]
+        let now = ctx.input(|i| i.time);
+        
+        // Initialize timer on first run
+        if self.tip_timer == 0.0 {
+            self.tip_timer = now;
+        }
+
+        // Calculate duration based on text length (reading speed ~ 15 chars/sec + 2s base)
+        let current_tip = text.tips_list.get(self.current_tip_idx).unwrap_or(&"").to_string();
+        let display_duration = 2.0 + (current_tip.len() as f64 * 0.06);
+        let fade_duration = 0.5;
+
+        if self.tip_is_fading_in {
+            // Fading In
+            if self.tip_fade_state < 1.0 {
+                self.tip_fade_state += ctx.input(|i| i.stable_dt) as f32 / fade_duration as f32;
+                if self.tip_fade_state >= 1.0 {
+                    self.tip_fade_state = 1.0;
+                }
+                ctx.request_repaint();
+            } else {
+                // Fully visible, wait for duration
+                if now - self.tip_timer > display_duration {
+                    self.tip_is_fading_in = false; // Start fading out
+                }
+            }
+        } else {
+            // Fading Out
+            if self.tip_fade_state > 0.0 {
+                self.tip_fade_state -= ctx.input(|i| i.stable_dt) as f32 / fade_duration as f32;
+                if self.tip_fade_state <= 0.0 {
+                    self.tip_fade_state = 0.0;
+                    
+                    // Switch to next random tip
+                    self.rng_seed = simple_rand(self.rng_seed);
+                    if !text.tips_list.is_empty() {
+                        let next = (self.rng_seed as usize) % text.tips_list.len();
+                        // Avoid repeating same tip if possible
+                        if next == self.current_tip_idx && text.tips_list.len() > 1 {
+                            self.current_tip_idx = (next + 1) % text.tips_list.len();
+                        } else {
+                            self.current_tip_idx = next;
+                        }
+                    }
+                    
+                    self.tip_timer = now; // Reset timer
+                    self.tip_is_fading_in = true; // Start fading in
+                }
+                ctx.request_repaint();
+            }
+        }
+
         // Fade In Overlay
         if let Some(start_time) = self.fade_in_start {
             let elapsed = ctx.input(|i| i.time) - start_time;
@@ -562,7 +639,45 @@ impl eframe::App for SettingsApp {
             .resizable(false)
             .show_separator_line(false)
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(10.0, 4.0)).fill(footer_bg))
-            .show(ctx, |ui| render_footer(ui, &text));
+            .show(ctx, |ui| {
+                render_footer(
+                    ui, 
+                    &text, 
+                    current_tip.clone(), 
+                    self.tip_fade_state, 
+                    &mut self.show_tips_modal
+                );
+            });
+
+        // [MODAL WINDOW RENDER]
+        if self.show_tips_modal {
+            let tips_list_copy = text.tips_list.clone();
+            let close_pressed = {
+                let close_flag = false;
+                egui::Window::new(text.tips_title)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                    .open(&mut self.show_tips_modal)
+                    .show(ctx, |ui| {
+                        ui.set_max_width(400.0);
+                        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                            for (i, tip) in tips_list_copy.iter().enumerate() {
+                                ui.label(egui::RichText::new(*tip).size(13.0).line_height(Some(18.0)));
+                                if i < tips_list_copy.len() - 1 {
+                                    ui.add_space(8.0);
+                                    ui.separator();
+                                    ui.add_space(8.0);
+                                }
+                            }
+                        });
+                    });
+                close_flag
+            };
+            if close_pressed {
+                self.show_tips_modal = false;
+            }
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let available_width = ui.available_width();

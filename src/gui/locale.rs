@@ -108,6 +108,9 @@ pub struct LocaleText {
      pub add_step_btn: &'static str,
      pub insert_lang_tag_btn: &'static str,
      pub insert_lang_tag_tooltip: &'static str,
+     pub tips_title: &'static str,
+     pub tips_list: Vec<&'static str>,
+     pub tips_click_hint: &'static str,
      }
 
 impl LocaleText {
@@ -222,6 +225,18 @@ impl LocaleText {
                 add_step_btn: "+ Hành động",
                 insert_lang_tag_btn: "+ Thẻ Ngôn ngữ",
                 insert_lang_tag_tooltip: "Chèn thẻ {languageN} vào prompt",
+                tips_title: "Mẹo sử dụng",
+                tips_click_hint: "Click vào dòng chữ này để xem danh sách mẹo",
+                tips_list: vec![
+                   "Nhấp chuột giữa một overlay bất kỳ giúp xoá tất cả overlay trên màn hình!",
+                   "Chuột trái lên một overlay giúp copy nhanh nội dung của overlay đó!",
+                   "Khi đang vẽ hộp trên màn hình tối (chưa thả chuột), có thể bấm ESC hoặc Phím tắt một lần nữa để hủy.",
+                   "Nếu thích ứng dụng SGT hãy bấm Star cho Github và chia sẻ cho mọi người biết nha!",
+                   "Bạn có biết? phím tắt có thể gán cho chuột giữa, chuột 4, chuột 5 nữa nha, không chỉ cho bàn phím.",
+                   "Nếu bị crash trong lúc hiện overlay thì bạn hãy thử đổi Đồ hoạ sang Tối giản thử xem!",
+                   "Bạn không thể đổi tên các Cấu hình có sẵn nhưng tạo Cấu hình mới thì đổi được bình thường nha!",
+                   "Thư viện lịch sử kết quả có cơ chế tự dọn kết quả cũ khi vượt Giới hạn lưu nên bạn khỏi lo nha!",
+                ],
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -332,6 +347,18 @@ impl LocaleText {
                 add_step_btn: "+ 액션",
                 insert_lang_tag_btn: "+ 언어 태그",
                 insert_lang_tag_tooltip: "프롬프트에 {languageN} 태그 삽입",
+                tips_title: "사용 팁",
+                tips_click_hint: "이 텍스트를 클릭하여 팁 목록 보기",
+                tips_list: vec![
+                   "오버레이를 마우스 가운데 버튼(휠)으로 클릭하면 모든 오버레이가 닫힙니다!",
+                   "오버레이를 마우스 왼쪽 버튼으로 클릭하면 내용이 빠르게 복사됩니다!",
+                   "화면이 어두워진 상태(캡처 중)에서 ESC나 단축키를 다시 누르면 취소됩니다.",
+                   "SGT 앱이 마음에 드신다면 Github에서 Star를 눌러주시고 공유해주세요!",
+                   "알고 계셨나요? 단축키는 키보드뿐만 아니라 마우스 휠, 버튼 4, 5에도 지정 가능합니다!",
+                   "오버레이 표시 중 렉이 걸린다면 그래픽 설정을 '최소'로 변경해보세요!",
+                   "기본 프리셋 이름은 변경할 수 없지만, 새로 만든 프리셋은 변경 가능합니다!",
+                   "히스토리는 저장 한도를 초과하면 오래된 항목부터 자동으로 삭제됩니다.",
+                ],
                 },
                 _ => Self {
                  history_btn: "History",
@@ -442,6 +469,18 @@ impl LocaleText {
                 add_step_btn: "+ Action",
                 insert_lang_tag_btn: "+ Lang Tag",
                 insert_lang_tag_tooltip: "Insert {languageN} tag into prompt",
+                tips_title: "Usage Tips",
+                tips_click_hint: "Click text to view tip list",
+                tips_list: vec![
+                   "Middle-click any overlay window to instantly close ALL overlays!",
+                   "Left-click an overlay to quickly copy its text content!",
+                   "While drawing the box (dimmed screen), press ESC or Hotkey again to cancel.",
+                   "If you like SGT, please give us a Star on Github and share it!",
+                   "Did you know? Hotkeys can be assigned to Middle Mouse, Button 4, and 5!",
+                   "If the overlay crashes/lags, try switching Graphics Mode to 'Minimal'!",
+                   "You cannot rename default presets, but custom presets can be renamed freely!",
+                   "The History library automatically cleans up old items when the limit is reached.",
+                ],
                 },
                 }
                 }
