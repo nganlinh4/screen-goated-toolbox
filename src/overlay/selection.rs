@@ -133,7 +133,7 @@ pub fn show_selection_overlay(preset_idx: usize) {
         let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
         
         let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
             w!("Snipping"),
             WS_POPUP,
@@ -144,7 +144,7 @@ pub fn show_selection_overlay(preset_idx: usize) {
         SELECTION_OVERLAY_HWND = hwnd;
 
         SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
-        ShowWindow(hwnd, SW_SHOW);
+        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         
         SetTimer(hwnd, FADE_TIMER_ID, 16, None);
 

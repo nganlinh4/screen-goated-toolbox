@@ -602,12 +602,15 @@ unsafe fn create_processing_window(rect: RECT, graphics_mode: String) -> HWND {
     let pixels = (w as i64) * (h as i64);
     let timer_interval = if pixels > 5_000_000 { 50 } else if pixels > 2_000_000 { 32 } else { 16 };
 
-    let hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT, class_name, w!("Processing"), WS_POPUP, rect.left, rect.top, w, h, None, None, instance, None);
+    let hwnd = CreateWindowExW(
+        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE, 
+        class_name, w!("Processing"), WS_POPUP, rect.left, rect.top, w, h, None, None, instance, None
+    );
     let mut states = PROC_STATES.lock().unwrap();
     states.insert(hwnd.0 as isize, ProcessingState::new(graphics_mode));
     drop(states);
     SetTimer(hwnd, 1, timer_interval, None);
-    ShowWindow(hwnd, SW_SHOW);
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     hwnd
 }
 

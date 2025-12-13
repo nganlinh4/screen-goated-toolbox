@@ -97,7 +97,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
         let y = (screen_y - UI_HEIGHT) / 2;
 
         let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
             w!("SGT Recording"),
             WS_POPUP,
@@ -112,7 +112,7 @@ pub fn show_recording_overlay(preset_idx: usize) {
         if !preset.hide_recording_ui {
             // Initially 0 alpha, will fade in via timer
             paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, 0);
-            ShowWindow(hwnd, SW_SHOW);
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         }
 
         std::thread::spawn(move || {
