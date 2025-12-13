@@ -78,8 +78,9 @@ pub fn create_result_window(
         let (x, y) = (target_rect.left, target_rect.top);
 
         // WS_CLIPCHILDREN prevents parent from drawing over child (Fixes Blinking)
+        // WS_EX_NOACTIVATE prevents stealing focus when window appears
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
             w!(""),
             WS_POPUP | WS_CLIPCHILDREN, 
