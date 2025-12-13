@@ -392,10 +392,31 @@ fn run_chain_step(
         let txt_c = result_text.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(100));
-            copy_to_clipboard(&txt_c, HWND(0));
-            let app = crate::APP.lock().unwrap();
-            if app.config.presets.iter().any(|p| p.auto_paste) { 
-                 if let Some(target) = app.last_active_window {
+            
+            // Get auto_paste_newline setting from active preset
+            let (should_add_newline, should_paste, target_window) = {
+                let app = crate::APP.lock().unwrap();
+                let active_idx = app.config.active_preset_idx;
+                let add_nl = if active_idx < app.config.presets.len() {
+                    app.config.presets[active_idx].auto_paste_newline
+                } else {
+                    false
+                };
+                let paste = app.config.presets.iter().any(|p| p.auto_paste);
+                (add_nl, paste, app.last_active_window)
+            };
+            
+            // Append newline if setting is enabled
+            let final_text = if should_add_newline {
+                format!("{}\n", txt_c)
+            } else {
+                txt_c
+            };
+            
+            copy_to_clipboard(&final_text, HWND(0));
+            
+            if should_paste {
+                 if let Some(target) = target_window {
                      crate::overlay::utils::force_focus_and_paste(target);
                  }
             }
