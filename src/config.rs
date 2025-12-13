@@ -105,32 +105,6 @@ pub struct Preset {
 
     #[serde(default)]
     pub is_upcoming: bool,
-    
-    // --- LEGACY FIELDS (for migration from old config format) ---
-    #[serde(default)]
-    pub prompt: String,
-    #[serde(default)]
-    pub selected_language: String,
-    #[serde(default)]
-    pub language_vars: HashMap<String, String>,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default)]
-    pub streaming_enabled: bool,
-    #[serde(default)]
-    pub auto_copy: bool,
-    #[serde(default)]
-    pub hide_overlay: bool,
-    #[serde(default)]
-    pub retranslate: bool,
-    #[serde(default)]
-    pub retranslate_to: String,
-    #[serde(default)]
-    pub retranslate_model: String,
-    #[serde(default)]
-    pub retranslate_streaming_enabled: bool,
-    #[serde(default)]
-    pub retranslate_auto_copy: bool,
 }
 
 fn default_preset_type() -> String { "image".to_string() }
@@ -142,45 +116,6 @@ fn default_auto_paste_newline() -> bool { true }
 fn default_history_limit() -> usize { 100 }
 fn default_graphics_mode() -> String { "standard".to_string() }
 
-impl Preset {
-    /// Migrate old flat preset to new block-based chain format
-    pub fn migrate_to_blocks(&mut self) {
-        if !self.blocks.is_empty() {
-            // Already migrated
-            return;
-        }
-
-        // Create first block from main preset fields
-        let first_block = ProcessingBlock {
-            block_type: self.preset_type.clone(),
-            model: self.model.clone(),
-            prompt: self.prompt.clone(),
-            selected_language: self.selected_language.clone(),
-            language_vars: self.language_vars.clone(),
-            streaming_enabled: self.streaming_enabled,
-            show_overlay: !self.hide_overlay,
-            auto_copy: self.auto_copy,
-            ..Default::default()
-        };
-        self.blocks.push(first_block);
-
-        // Create retranslate block if enabled
-        if self.retranslate {
-            let retrans_block = ProcessingBlock {
-                block_type: "text".to_string(),
-                model: self.retranslate_model.clone(),
-                prompt: format!("Translate to {}.", self.retranslate_to),
-                selected_language: self.retranslate_to.clone(),
-                language_vars: HashMap::new(),
-                streaming_enabled: self.retranslate_streaming_enabled,
-                show_overlay: true,
-                auto_copy: self.retranslate_auto_copy,
-                ..Default::default()
-            };
-            self.blocks.push(retrans_block);
-        }
-    }
-}
 
 impl Default for Preset {
     fn default() -> Self {
@@ -207,20 +142,6 @@ impl Default for Preset {
             video_capture_method: "region".to_string(),
             text_input_mode: "select".to_string(),
             is_upcoming: false,
-            
-            // Legacy fields (empty)
-            prompt: String::new(),
-            selected_language: String::new(),
-            language_vars: HashMap::new(),
-            model: String::new(),
-            streaming_enabled: false,
-            auto_copy: false,
-            hide_overlay: false,
-            retranslate: false,
-            retranslate_to: String::new(),
-            retranslate_model: String::new(),
-            retranslate_streaming_enabled: false,
-            retranslate_auto_copy: false,
         }
     }
 }
@@ -599,10 +520,7 @@ pub fn load_config() -> Config {
         
         // Safety check: Ensure every preset has at least one block matching its type
         for preset in &mut config.presets {
-            if preset.blocks.is_empty() {
-                preset.migrate_to_blocks();
-            }
-            // If still empty (old preset without legacy fields), add default block
+            // If empty, add default block based on preset type
             if preset.blocks.is_empty() {
                 preset.blocks.push(ProcessingBlock {
                     block_type: preset.preset_type.clone(),
