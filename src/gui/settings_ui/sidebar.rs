@@ -161,17 +161,26 @@ pub fn render_sidebar(
         if type_str == "text" {
             new_preset.preset_type = "text".to_string();
             new_preset.name = format!("Text {}", config.presets.len() + 1);
-            new_preset.model = "text_accurate_kimi".to_string();
             new_preset.text_input_mode = "select".to_string();
-            new_preset.prompt = "Translate this text.".to_string();
-            new_preset.audio_source = "".to_string();
+            // Update block 0 instead of legacy fields
+            if let Some(block) = new_preset.blocks.first_mut() {
+                block.block_type = "text".to_string();
+                block.model = "text_accurate_kimi".to_string();
+                block.prompt = "Translate this text.".to_string();
+            }
         } else if type_str == "audio" {
             new_preset.preset_type = "audio".to_string();
             new_preset.name = format!("Audio {}", config.presets.len() + 1);
-            new_preset.model = "whisper-fast".to_string();
             new_preset.audio_source = "mic".to_string();
+            // Update block 0 instead of legacy fields
+            if let Some(block) = new_preset.blocks.first_mut() {
+                block.block_type = "audio".to_string();
+                block.model = "whisper-fast".to_string();
+                block.prompt = "".to_string();
+            }
         } else {
             new_preset.name = format!("Image {}", config.presets.len() + 1);
+            // Default preset already has image block, no changes needed
         }
         
         config.presets.push(new_preset);

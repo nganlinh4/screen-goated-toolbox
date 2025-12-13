@@ -304,8 +304,25 @@ pub fn record_audio_and_transcribe(
     }
     let wav_data = wav_cursor.into_inner();
     
-    let model_config = get_model_by_id(&preset.model);
-    let model_config = model_config.expect("Model config not found for preset model");
+    // Get audio block (Block 0) - use new block-based structure
+    let audio_block = match preset.blocks.first() {
+        Some(b) => b.clone(),
+        None => {
+            eprintln!("Error: Audio preset has no blocks configured");
+            unsafe { PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+            return;
+        }
+    };
+    
+    let model_config = get_model_by_id(&audio_block.model);
+    let model_config = match model_config {
+        Some(c) => c,
+        None => {
+            eprintln!("Error: Model config not found for audio model: {}", audio_block.model);
+            unsafe { PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+            return;
+        }
+    };
     let model_name = model_config.full_name.clone();
     let provider = model_config.provider.clone();
     
@@ -314,14 +331,15 @@ pub fn record_audio_and_transcribe(
         (app.config.api_key.clone(), app.config.gemini_api_key.clone())
     };
 
-    let mut final_prompt = preset.prompt.clone();
+    // Use block's prompt and language settings
+    let mut final_prompt = audio_block.prompt.clone();
     
-    for (key, value) in &preset.language_vars {
+    for (key, value) in &audio_block.language_vars {
         let pattern = format!("{{{}}}", key);
         final_prompt = final_prompt.replace(&pattern, value);
     }
     
-    final_prompt = final_prompt.replace("{language}", &preset.selected_language);
+    final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
     
     // Clone wav_data for history saving
     let wav_data_for_history = wav_data.clone();
@@ -365,7 +383,9 @@ pub fn record_audio_and_transcribe(
             let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
             let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
             
-            let (rect, retranslate_rect) = if preset.retranslate {
+            // Use block count to determine layout - multiple blocks means multi-window layout
+            let has_multiple_blocks = preset.blocks.len() > 1;
+            let (rect, retranslate_rect) = if has_multiple_blocks {
                 let w = 600;
                 let h = 300;
                 let gap = 20;

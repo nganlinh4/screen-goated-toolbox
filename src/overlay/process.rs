@@ -73,7 +73,9 @@ pub fn start_text_processing(
     hotkey_name: String
 ) {
     if preset.text_input_mode == "type" {
-        let guide_text = if preset.prompt.is_empty() { 
+        // Use blocks[0].prompt instead of legacy preset.prompt
+        let first_block_prompt = preset.blocks.first().map(|b| b.prompt.as_str()).unwrap_or("");
+        let guide_text = if first_block_prompt.is_empty() { 
             String::new()
         } else { 
             format!("{}...", preset.name) 
@@ -105,19 +107,19 @@ pub fn show_audio_result(
         app.config.clone()
     };
     
-    // Audio processing enters the chain effectively at Block 0's completion or Block 1's start
-    // We treat the result display as executing Block 0, then moving to Block 1
-    
+    // Audio processing already completed Block 0 (audio recording/transcription).
+    // Start at block 0 with skip_execution=true so it can display its overlay (if configured),
+    // then the chain naturally continues to block 1, 2, etc.
     run_chain_step(
         0, 
-        transcription_text, // Input is the result of audio
+        transcription_text,
         rect, 
         preset.blocks.clone(), 
         config, 
-        Arc::new(Mutex::new(None)), // No parent window yet
+        Arc::new(Mutex::new(None)),
         RefineContext::None,
-        true, // skip_execution: We already have the result, just show/pass it
-        None // No processing overlay needed for the final display phase of audio
+        true, // skip_execution: audio already done, just display and chain forward
+        None
     );
 }
 
@@ -325,7 +327,8 @@ fn run_chain_step(
     } else {
         let groq_key = config.api_key.clone();
         let gemini_key = config.gemini_api_key.clone();
-        let use_json = block_idx == 0 && blocks.len() == 1 && blocks[0].block_type == "image" && blocks[0].model == "maverick"; 
+        // Use JSON format for single-block image extraction (helps with structured output)
+        let use_json = block_idx == 0 && blocks.len() == 1 && blocks[0].block_type == "image"; 
         
         let accumulated = Arc::new(Mutex::new(String::new()));
         let acc_clone = accumulated.clone();
