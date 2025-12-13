@@ -339,6 +339,11 @@ pub fn record_audio_and_transcribe(
         final_prompt = final_prompt.replace(&pattern, value);
     }
     
+    // Fallback: if {language1} is still in prompt but not in language_vars, use selected_language
+    if final_prompt.contains("{language1}") && !audio_block.language_vars.contains_key("language1") {
+        final_prompt = final_prompt.replace("{language1}", &audio_block.selected_language);
+    }
+    
     final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
     
     // Clone wav_data for history saving
