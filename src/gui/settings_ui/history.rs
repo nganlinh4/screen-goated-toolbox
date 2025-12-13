@@ -87,6 +87,7 @@ pub fn render_history_panel(
                             let icon = match item.item_type {
                                 HistoryType::Image => Icon::Image,
                                 HistoryType::Audio => Icon::Microphone,
+                                HistoryType::Text => Icon::Copy, // Text icon for text-only entries
                             };
                             draw_icon_static(ui, icon, Some(14.0));
                             ui.label(egui::RichText::new(&item.timestamp).size(10.0).weak());
@@ -102,15 +103,18 @@ pub fn render_history_panel(
                                     crate::gui::utils::copy_to_clipboard_text(&item.text);
                                 }
 
-                                // View Media Button - Text Button
-                                let btn_text = match item.item_type {
-                                    HistoryType::Image => text.view_image_btn,
-                                    HistoryType::Audio => text.listen_audio_btn,
-                                };
-                                if ui.button(btn_text).clicked() {
-                                    let config_dir = dirs::config_dir().unwrap().join("screen-goated-toolbox").join("history_media");
-                                    let path = config_dir.join(&item.media_path);
-                                    let _ = open::that(path);
+                                // View Media Button - Only show for Image/Audio types (not Text)
+                                if item.item_type != HistoryType::Text {
+                                    let btn_text = match item.item_type {
+                                        HistoryType::Image => text.view_image_btn,
+                                        HistoryType::Audio => text.listen_audio_btn,
+                                        HistoryType::Text => "", // Never shown
+                                    };
+                                    if ui.button(btn_text).clicked() {
+                                        let config_dir = dirs::config_dir().unwrap().join("screen-goated-toolbox").join("history_media");
+                                        let path = config_dir.join(&item.media_path);
+                                        let _ = open::that(path);
+                                    }
                                 }
                             });
                         });

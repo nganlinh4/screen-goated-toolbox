@@ -525,6 +525,16 @@ fn run_chain_step(
         });
     }
 
+    // NEW: Save to history for text blocks (only if result is not empty and this is a visible step)
+    if block.block_type == "text" && block.show_overlay && !result_text.trim().is_empty() {
+        let text_for_history = result_text.clone();
+        std::thread::spawn(move || {
+            if let Ok(app) = crate::APP.lock() {
+                app.history.save_text(text_for_history);
+            }
+        });
+    }
+
     // 6. Chain Next Step
     // Check cancellation before continuing
     if cancel_token.load(Ordering::Relaxed) {

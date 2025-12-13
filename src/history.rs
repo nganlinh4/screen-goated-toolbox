@@ -11,6 +11,7 @@ use serde::{Serialize, Deserialize};
 pub enum HistoryType {
     Image,
     Audio,
+    Text, // NEW: Text-only history entries (no media file)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,12 +20,13 @@ pub struct HistoryItem {
     pub timestamp: String,
     pub item_type: HistoryType,
     pub text: String,
-    pub media_path: String,
+    pub media_path: String, // Empty for Text type
 }
 
 pub enum HistoryAction {
     SaveImage { img: ImageBuffer<Rgba<u8>, Vec<u8>>, text: String },
     SaveAudio { wav_data: Vec<u8>, text: String },
+    SaveText { text: String }, // NEW: Save text-only entry
     Delete(i64),
     ClearAll,
     Prune(usize),
@@ -65,6 +67,13 @@ impl HistoryManager {
 
     pub fn save_audio(&self, wav_data: Vec<u8>, text: String) {
         let _ = self.tx.send(HistoryAction::SaveAudio { wav_data, text });
+    }
+
+    /// Save text-only history entry (no media file)
+    pub fn save_text(&self, text: String) {
+        if !text.trim().is_empty() {
+            let _ = self.tx.send(HistoryAction::SaveText { text });
+        }
     }
 
     pub fn delete(&self, id: i64) {
@@ -148,6 +157,20 @@ fn process_queue(
                     });
                     should_save = true;
                 }
+            },
+            HistoryAction::SaveText { text } => {
+                let now = Local::now();
+                let timestamp = now.format("%Y-%m-%d %H:%M:%S").to_string();
+                let id = now.timestamp_nanos_opt().unwrap_or(0);
+                
+                items.insert(0, HistoryItem {
+                    id,
+                    timestamp,
+                    item_type: HistoryType::Text,
+                    text,
+                    media_path: String::new(), // No media for text entries
+                });
+                should_save = true;
             },
             HistoryAction::Delete(id) => {
                 if let Some(pos) = items.iter().position(|x| x.id == id) {
