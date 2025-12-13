@@ -574,47 +574,45 @@ impl eframe::App for SettingsApp {
 
         // Calculate duration based on text length (reading speed ~ 15 chars/sec + 2s base)
         let current_tip = text.tips_list.get(self.current_tip_idx).unwrap_or(&"").to_string();
-        let display_duration = 2.0 + (current_tip.len() as f64 * 0.06);
-        let fade_duration = 0.5;
+        let display_duration = (2.0 + (current_tip.len() as f64 * 0.06)) as f32;
+        let fade_duration = 0.5f32;
 
+        let elapsed = (now - self.tip_timer) as f32;
+        
         if self.tip_is_fading_in {
             // Fading In
-            if self.tip_fade_state < 1.0 {
-                self.tip_fade_state += ctx.input(|i| i.stable_dt) as f32 / fade_duration as f32;
-                if self.tip_fade_state >= 1.0 {
-                    self.tip_fade_state = 1.0;
-                }
-                ctx.request_repaint();
-            } else {
+            self.tip_fade_state = (elapsed / fade_duration as f32).min(1.0);
+            if elapsed >= fade_duration {
+                self.tip_fade_state = 1.0;
                 // Fully visible, wait for duration
-                if now - self.tip_timer > display_duration {
+                if elapsed >= fade_duration + display_duration {
                     self.tip_is_fading_in = false; // Start fading out
+                    self.tip_timer = now; // Reset timer for fade-out
                 }
             }
+            ctx.request_repaint();
         } else {
             // Fading Out
-            if self.tip_fade_state > 0.0 {
-                self.tip_fade_state -= ctx.input(|i| i.stable_dt) as f32 / fade_duration as f32;
-                if self.tip_fade_state <= 0.0 {
-                    self.tip_fade_state = 0.0;
-                    
-                    // Switch to next random tip
-                    self.rng_seed = simple_rand(self.rng_seed);
-                    if !text.tips_list.is_empty() {
-                        let next = (self.rng_seed as usize) % text.tips_list.len();
-                        // Avoid repeating same tip if possible
-                        if next == self.current_tip_idx && text.tips_list.len() > 1 {
-                            self.current_tip_idx = (next + 1) % text.tips_list.len();
-                        } else {
-                            self.current_tip_idx = next;
-                        }
+            self.tip_fade_state = (1.0 - (elapsed / fade_duration as f32)).max(0.0);
+            if elapsed >= fade_duration {
+                self.tip_fade_state = 0.0;
+                
+                // Switch to next random tip
+                self.rng_seed = simple_rand(self.rng_seed);
+                if !text.tips_list.is_empty() {
+                    let next = (self.rng_seed as usize) % text.tips_list.len();
+                    // Avoid repeating same tip if possible
+                    if next == self.current_tip_idx && text.tips_list.len() > 1 {
+                        self.current_tip_idx = (next + 1) % text.tips_list.len();
+                    } else {
+                        self.current_tip_idx = next;
                     }
-                    
-                    self.tip_timer = now; // Reset timer
-                    self.tip_is_fading_in = true; // Start fading in
                 }
-                ctx.request_repaint();
+                
+                self.tip_timer = now; // Reset timer
+                self.tip_is_fading_in = true; // Start fading in
             }
+            ctx.request_repaint();
         }
 
         // Fade In Overlay
@@ -660,8 +658,8 @@ impl eframe::App for SettingsApp {
                     .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                     .open(&mut self.show_tips_modal)
                     .show(ctx, |ui| {
-                        ui.set_max_width(400.0);
-                        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                        ui.set_max_width(750.0);
+                        egui::ScrollArea::vertical().max_height(450.0).auto_shrink([false; 2]).show(ui, |ui| {
                             for (i, tip) in tips_list_copy.iter().enumerate() {
                                 ui.label(egui::RichText::new(*tip).size(13.0).line_height(Some(18.0)));
                                 if i < tips_list_copy.len() - 1 {
