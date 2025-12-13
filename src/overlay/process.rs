@@ -239,6 +239,10 @@ fn run_chain_step(
     for (key, value) in &block.language_vars {
         final_prompt = final_prompt.replace(&format!("{{{}}}", key), value);
     }
+    // Fallback: if {language1} is still in prompt but not in language_vars, use selected_language
+    if final_prompt.contains("{language1}") && !block.language_vars.contains_key("language1") {
+        final_prompt = final_prompt.replace("{language1}", &block.selected_language);
+    }
     final_prompt = final_prompt.replace("{language}", &block.selected_language);
 
     // 2. Determine Visibility & Position
