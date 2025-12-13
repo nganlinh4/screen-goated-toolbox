@@ -9,10 +9,10 @@ fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
     match (preset_id, lang) {
         // Vietnamese
         ("preset_translate", "vi") => "Dịch vùng".to_string(),
-        ("preset_extract_retranslate", "vi") => "Dịch vùng (Chuẩn)".to_string(),
+        ("preset_extract_retranslate", "vi") => "Dịch vùng (CHUẨN)".to_string(),
         ("preset_translate_auto_paste", "vi") => "Dịch vùng (Tự dán)".to_string(),
         ("preset_translate_retranslate", "vi") => "Dịch vùng+Dịch lại".to_string(),
-        ("preset_extract_retrans_retrans", "vi") => "D.vùng (Chuẩn)+D.lại".to_string(),
+        ("preset_extract_retrans_retrans", "vi") => "D.vùng (CHUẨN)+D.lại".to_string(),
         ("preset_ocr", "vi") => "Lấy text từ ảnh".to_string(),
         ("preset_summarize", "vi") => "Tóm tắt ảnh".to_string(),
         ("preset_desc", "vi") => "Mô tả ảnh".to_string(),
@@ -45,10 +45,10 @@ fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
         
         // English (default)
         ("preset_translate", _) => "Translate region".to_string(),
-        ("preset_extract_retranslate", _) => "Trans reg (Accurate)".to_string(),
+        ("preset_extract_retranslate", _) => "Trans reg (ACCURATE)".to_string(),
         ("preset_translate_auto_paste", _) => "Trans reg (Auto paste)".to_string(),
         ("preset_translate_retranslate", _) => "Trans reg+Retrans".to_string(),
-        ("preset_extract_retrans_retrans", _) => "Trans (Acc)+Retrans".to_string(),
+        ("preset_extract_retrans_retrans", _) => "Trans (ACC)+Retrans".to_string(),
         ("preset_ocr", _) => "Extract text".to_string(),
         ("preset_summarize", _) => "Summarize image".to_string(),
         ("preset_desc", _) => "Describe image".to_string(),
