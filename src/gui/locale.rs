@@ -163,7 +163,7 @@ impl LocaleText {
                 preset_type_text: "Hiểu văn bản", // NEW
                 capture_method_label: "Phương pháp quay:",
                 region_capture: "Chọn vùng màn hình",
-                audio_source_label: "Nguồn âm thanh:",
+                audio_source_label: "Nguồn:",
                 audio_src_mic: "Microphone",
                 audio_src_device: "Âm thanh máy tính",
                 hide_recording_ui_label: "Ẩn giao diện ghi âm",
