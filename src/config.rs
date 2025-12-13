@@ -252,6 +252,44 @@ impl Default for Config {
             }
         ];
 
+        // 4b. Chain: OCR (Accurate) -> Translate Korean -> Translate Vietnamese
+        let mut p4b = Preset::default();
+        p4b.id = "preset_extract_retrans_retrans".to_string();
+        p4b.name = "Translate (Accurate)+Retranslate".to_string();
+        p4b.preset_type = "image".to_string();
+        p4b.blocks = vec![
+            ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "maverick".to_string(),
+                prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+                selected_language: "English".to_string(),
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: false,
+                ..Default::default()
+            },
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Translate to {language1}.".to_string(),
+                selected_language: "Korean".to_string(),
+                streaming_enabled: true,
+                show_overlay: true,
+                auto_copy: true,
+                ..Default::default()
+            },
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Translate to {language1}.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: true,
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            }
+        ];
+
         // 5. Trans+Retrans (Typing)
         let mut p5 = Preset::default();
         p5.id = "preset_trans_retrans_typing".to_string();
@@ -491,7 +529,7 @@ impl Default for Config {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
             presets: vec![
-                p1, p7, p2, p3, p4, p5, p6, p8, p9, p10, p11, p12, p13, p14, p15
+                p1, p7, p2, p3, p4, p4b, p5, p6, p8, p9, p10, p11, p12, p13, p14, p15
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
