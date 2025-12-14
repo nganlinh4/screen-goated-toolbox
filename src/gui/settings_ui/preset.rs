@@ -22,7 +22,7 @@ pub fn render_preset_editor(
     let mut changed = false;
 
     // Constrain entire preset editor to a consistent width (matching history UI)
-    ui.set_max_width(400.0);
+    ui.set_max_width(450.0);
 
     // Check if this is a default preset (ID starts with "preset_")
     let is_default_preset = preset.id.starts_with("preset_");
@@ -210,7 +210,7 @@ pub fn render_preset_editor(
     // --- PROCESSING CHAIN UI ---
     ui.push_id("node_graph_area", |ui| {
         egui::Frame::none().fill(ui.visuals().extreme_bg_color).inner_margin(4.0).show(ui, |ui| {
-            ui.set_min_height(250.0); // Allocate space for the graph
+            ui.set_min_height(325.0); // Allocate space for the graph
             if render_node_graph(ui, snarl, &config.ui_language) {
                 changed = true;
             }
