@@ -103,6 +103,7 @@ pub fn show_audio_result(
     transcription_text: String,
     rect: RECT,
     _unused_rect: Option<RECT>,
+    recording_hwnd: HWND, // Recording overlay window - keep alive until first visible block
 ) {
     let config = {
         let app = crate::APP.lock().unwrap();
@@ -112,6 +113,15 @@ pub fn show_audio_result(
     // Audio processing already completed Block 0 (audio recording/transcription).
     // Start at block 0 with skip_execution=true so it can display its overlay (if configured),
     // then the chain naturally continues to block 1, 2, etc.
+    // 
+    // Pass the recording_hwnd as processing_indicator_hwnd - it will keep animating
+    // until the first visible block appears (same behavior as image pipeline).
+    let processing_hwnd = if unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(recording_hwnd).as_bool() } {
+        Some(recording_hwnd)
+    } else {
+        None
+    };
+    
     run_chain_step(
         0, 
         transcription_text,
@@ -121,7 +131,7 @@ pub fn show_audio_result(
         Arc::new(Mutex::new(None)),
         RefineContext::None,
         true, // skip_execution: audio already done, just display and chain forward
-        None,
+        processing_hwnd, // Pass recording overlay - will close when first visible block appears
         Arc::new(AtomicBool::new(false)) // New chains start with cancellation = false
     );
 }

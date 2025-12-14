@@ -365,14 +365,16 @@ pub fn record_audio_and_transcribe(
         Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
     };
     
-    unsafe {
-        if IsWindow(overlay_hwnd).as_bool() {
-             PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-    }
+    // DON'T close overlay here - pass it to chain processing instead
+    // The chain will keep the recording animation until the first visible block appears
 
     // Check if user aborted during the API call
     if abort_signal.load(Ordering::SeqCst) {
+        unsafe {
+            if IsWindow(overlay_hwnd).as_bool() {
+                 PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
         return;
     }
 
@@ -410,10 +412,17 @@ pub fn record_audio_and_transcribe(
                 (RECT { left: x, top: y, right: x + w, bottom: y + h }, None)
             };
 
-            crate::overlay::process::show_audio_result(preset, transcription_text, rect, retranslate_rect);
+            // Pass overlay_hwnd to chain processing - it will be kept alive until first visible block
+            crate::overlay::process::show_audio_result(preset, transcription_text, rect, retranslate_rect, overlay_hwnd);
         },
         Err(e) => {
             eprintln!("Transcription error: {}", e);
+            // Close overlay on error
+            unsafe {
+                if IsWindow(overlay_hwnd).as_bool() {
+                     PostMessageW(overlay_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+            }
         }
     }
 }
