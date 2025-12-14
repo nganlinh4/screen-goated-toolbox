@@ -164,16 +164,12 @@ pub fn render_preset_editor(
     ui.separator();
 
     // Determine visibility conditions
-    let all_overlays_hidden = preset.blocks.iter().all(|b| !b.show_overlay);
     let has_any_auto_copy = preset.blocks.iter().any(|b| b.auto_copy);
     
-    // Only show controls if any block has auto_copy
+    // Show auto-paste control whenever any block has auto_copy enabled
     if has_any_auto_copy {
         ui.horizontal(|ui| {
-            // Auto Paste: only visible when ALL overlays are hidden AND has auto_copy
-            if all_overlays_hidden {
-                if ui.checkbox(&mut preset.auto_paste, text.auto_paste_label).clicked() { changed = true; }
-            }
+            if ui.checkbox(&mut preset.auto_paste, text.auto_paste_label).clicked() { changed = true; }
             
             // Auto Newline: visible when any block has auto_copy
             if ui.checkbox(&mut preset.auto_paste_newline, text.auto_paste_newline_label).clicked() { changed = true; }
