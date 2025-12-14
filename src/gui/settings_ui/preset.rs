@@ -463,7 +463,7 @@ pub fn render_preset_editor(
         preset.blocks.push(ProcessingBlock {
             block_type: "text".to_string(),
             model: "text_accurate_kimi".to_string(),
-            prompt: "Translate to {language1}.".to_string(),
+            prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
             selected_language: "Vietnamese".to_string(),
             streaming_enabled: true,
             show_overlay: true,
