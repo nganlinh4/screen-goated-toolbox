@@ -37,7 +37,13 @@ lazy_static::lazy_static! {
     pub static ref AUDIO_PAUSE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // FIX: New signal to explicitly abort/discard recording
     pub static ref AUDIO_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    // NEW: Signal set by audio thread when first data arrives (mic is ready)
+    pub static ref AUDIO_WARMUP_COMPLETE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
+
+// Warmup frames counter - how many frames to wait before showing waveform (~25 frames @ 16ms = 400ms)
+const WARMUP_FRAMES: i32 = 25;
+static mut WARMUP_COUNTER: i32 = 0;
 
 // OPTIMIZATION: Thread-safe one-time window class registration
 static REGISTER_RECORDING_CLASS: Once = Once::new();
@@ -67,9 +73,11 @@ pub fn show_recording_overlay(preset_idx: usize) {
         CURRENT_PRESET_IDX = preset_idx;
         ANIMATION_OFFSET = 0.0;
         CURRENT_ALPHA = 0; // Start invisible
+        WARMUP_COUNTER = 0; // Reset warmup counter
         AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
          AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
          AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst); // Reset abort signal
+         AUDIO_WARMUP_COMPLETE.store(false, Ordering::SeqCst); // Reset warmup signal
           
           // Reset viz
           VIS_HEAD = 0;
@@ -160,7 +168,15 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
     let mem_dc = CreateCompatibleDC(screen_dc);
     let old_bitmap = SelectObject(mem_dc, bitmap);
 
-    let is_waiting = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+    let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst); // API processing after stop
+    let warmup_complete = AUDIO_WARMUP_COMPLETE.load(Ordering::SeqCst);
+    
+    // Warming up = counter hasn't reached threshold yet OR audio hasn't signaled ready
+    // Once WARMUP_COUNTER hits WARMUP_FRAMES, we're done warming up regardless of signal
+    let is_warming_up = WARMUP_COUNTER < WARMUP_FRAMES && !warmup_complete;
+    
+    // "is_waiting" used for the spinning/pulsing glow effect (either warming up OR processing)
+    let is_waiting = is_processing || is_warming_up;
     let should_animate = !IS_PAUSED || is_waiting;
     
     if !p_bits.is_null() {
@@ -423,8 +439,10 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
     let hfont_main = CreateFontW(19, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
     let old_font = SelectObject(mem_dc, hfont_main);
 
-    let src_text = if is_waiting {
+    let src_text = if is_processing {
         "Đang xử lý..."
+    } else if is_warming_up {
+        "Chuẩn bị mic..."
     } else {
         if CURRENT_PRESET_IDX < APP.lock().unwrap().config.presets.len() {
              let p = &APP.lock().unwrap().config.presets[CURRENT_PRESET_IDX];
@@ -563,11 +581,19 @@ unsafe extern "system" fn recording_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
         }
         WM_TIMER => {
              let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+             let warmup_complete = AUDIO_WARMUP_COMPLETE.load(Ordering::SeqCst);
+             let is_warming_up = WARMUP_COUNTER < WARMUP_FRAMES && !warmup_complete && !is_processing;
              
-             if is_processing {
-                 // Rapid Clockwise Animation for Processing
-                 // Reduced speed from 20.0 to 8.0
-                 ANIMATION_OFFSET -= 8.0;
+             // Increment warmup counter each frame
+             if is_warming_up {
+                 WARMUP_COUNTER += 1;
+             }
+             
+             if is_processing || is_warming_up {
+                 // Rapid Clockwise Animation for Processing/Warmup
+                 // Warmup uses slightly faster spin to show activity
+                 let speed = if is_warming_up { 12.0 } else { 8.0 };
+                 ANIMATION_OFFSET -= speed;
              } else if !IS_PAUSED {
                  // Standard Counter-Clockwise Animation
                  ANIMATION_OFFSET += 5.0;
