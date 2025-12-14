@@ -363,7 +363,7 @@ fn render_preset_item(
             
             if is_dark {
                 // Dark Mode: Softer, muted teal/green (tint)
-                let bg_color = egui::Color32::from_rgba_unmultiplied(40, 150, 130, 20);
+                let bg_color = egui::Color32::from_rgba_unmultiplied(40, 150, 130, 70);
                 ui.painter().rect_filled(rect, 4.0, bg_color);
             } else {
                 // Light Mode: Stronger pastel green (Mint) - needs to be visible against white
