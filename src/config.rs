@@ -410,10 +410,10 @@ impl Default for Config {
             }
         ];
 
-        // 5. Trans+Retrans (Typing)
+        // 5. Trans+Retrans (Type)
         let mut p5 = Preset::default();
         p5.id = "preset_trans_retrans_typing".to_string();
-        p5.name = "Trans+Retrans (Typing)".to_string();
+        p5.name = "Trans+Retrans (Type)".to_string();
         p5.preset_type = "text".to_string();
         p5.text_input_mode = "type".to_string();
         p5.blocks = vec![
