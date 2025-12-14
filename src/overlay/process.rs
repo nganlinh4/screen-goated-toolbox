@@ -458,7 +458,7 @@ fn run_chain_step(
         } else {
             // Text Block
             translate_text_streaming(
-                &groq_key, &gemini_key, input_text, block.selected_language.clone(), 
+                &groq_key, &gemini_key, input_text, final_prompt, // CHANGED: Pass final_prompt instead of selected_language
                 model_full_name, provider, block.streaming_enabled, false,
                 |chunk| {
                     let mut t = acc_clone.lock().unwrap(); t.push_str(chunk);

@@ -10,7 +10,7 @@ pub fn translate_text_streaming<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
     text: String,
-    target_lang: String,
+    instruction: String, // CHANGED: Renamed from target_lang to instruction
     model: String,
     provider: String,
     streaming_enabled: bool,
@@ -21,15 +21,13 @@ where
     F: FnMut(&str),
 {
     let mut full_content = String::new();
-    let prompt = format!(
-        "Translate the following text to {}. Output ONLY the translation. Text:\n\n{}",
-        target_lang, text
-    );
+    // CHANGED: Use the instruction directly instead of hardcoded template
+    let prompt = format!("{}\n\n{}", instruction, text);
 
     if provider == "google" {
         // --- GEMINI TEXT API ---
         if gemini_api_key.trim().is_empty() {
-            return Err(anyhow::anyhow!("NO_API_KEY:google"));
+            return Err(anyhow::anyhow!("NO_API_KEY:[REDACTED:api-key]"));
         }
 
         let method = if streaming_enabled { "streamGenerateContent" } else { "generateContent" };
@@ -254,7 +252,7 @@ where
         let mut full_content = String::new();
 
         if p_provider == "google" {
-             if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:google")); }
+             if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:[REDACTED:api-key]")); }
              
              let method = if streaming_enabled { "streamGenerateContent" } else { "generateContent" };
              let url = if streaming_enabled {
@@ -358,7 +356,7 @@ where
     match context {
         RefineContext::Image(img_bytes) => {
             if target_provider == "google" {
-                if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:google")); }
+                if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:[REDACTED:api-key]")); }
                 let img = image::load_from_memory(&img_bytes)?.to_rgba8();
                 vision_translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, target_id_or_name, target_provider, img, streaming_enabled, false, on_chunk)
             } else {
