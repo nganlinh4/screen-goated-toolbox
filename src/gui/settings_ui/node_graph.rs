@@ -152,14 +152,16 @@ pub struct ChainViewer {
     pub ui_language: String,
     pub changed: bool,
     pub language_search: String,
+    pub prompt_mode: String,
 }
 
 impl ChainViewer {
-    pub fn new(ui_language: &str) -> Self {
+    pub fn new(ui_language: &str, prompt_mode: &str) -> Self {
         Self {
             ui_language: ui_language.to_string(),
             changed: false,
             language_search: String::new(),
+            prompt_mode: prompt_mode.to_string(),
         }
     }
 }
@@ -347,9 +349,11 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                 });
                         });
 
-                        // Prompt Section (hidden for Whisper)
+                        // Prompt Section (hidden for Whisper AND Dynamic Image Mode)
                         let is_whisper = block_type == "audio" && model.starts_with("whisper");
-                        if !is_whisper {
+                        let is_dynamic_image = block_type == "image" && self.prompt_mode == "dynamic";
+
+                        if !is_whisper && !is_dynamic_image {
                             // Row 2: Prompt Label + Add Tag Button
                             ui.horizontal(|ui| {
                                 let prompt_label = match self.ui_language.as_str() { "vi" => "Lệnh:", "ko" => "프롬프트:", _ => "Prompt:" };
@@ -800,8 +804,9 @@ pub fn render_node_graph(
     ui: &mut egui::Ui,
     snarl: &mut Snarl<ChainNode>,
     ui_language: &str,
+    prompt_mode: &str,
 ) -> bool {
-    let mut viewer = ChainViewer::new(ui_language);
+    let mut viewer = ChainViewer::new(ui_language, prompt_mode);
     let style = SnarlStyle::default();
     
     snarl.show(&mut viewer, &style, egui::Id::new("chain_graph"), ui);
