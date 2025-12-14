@@ -211,7 +211,7 @@ pub fn render_preset_editor(
     ui.push_id("node_graph_area", |ui| {
         egui::Frame::none().fill(ui.visuals().extreme_bg_color).inner_margin(4.0).show(ui, |ui| {
             ui.set_min_height(325.0); // Allocate space for the graph
-            if render_node_graph(ui, snarl, &config.ui_language) {
+            if render_node_graph(ui, snarl, &config.ui_language, &preset.prompt_mode) {
                 changed = true;
             }
         });
