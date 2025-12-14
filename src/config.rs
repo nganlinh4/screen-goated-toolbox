@@ -56,7 +56,7 @@ impl Default for ProcessingBlock {
             id: format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
             block_type: "text".to_string(),
             model: "text_accurate_kimi".to_string(),
-            prompt: "Translate to {language1}.".to_string(),
+            prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             streaming_enabled: true,
@@ -363,7 +363,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate to {language1}.".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 show_overlay: true,
@@ -391,7 +391,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate to {language1}.".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Korean".to_string(),
                 streaming_enabled: true,
                 show_overlay: true,
@@ -401,7 +401,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate to {language1}.".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 show_overlay: true,
@@ -430,7 +430,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate to {language1}.".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 show_overlay: true,
@@ -476,7 +476,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate to {language1}.".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: false,
                 show_overlay: true,
@@ -581,7 +581,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate to {language1}.".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 show_overlay: true,
@@ -596,6 +596,7 @@ impl Default for Config {
         p13.name = "Quick 4NR reply".to_string();
         p13.preset_type = "audio".to_string();
         p13.audio_source = "mic".to_string();
+        p13.auto_paste = true;
         p13.blocks = vec![
             ProcessingBlock {
                 block_type: "audio".to_string(),
@@ -603,17 +604,17 @@ impl Default for Config {
                 prompt: "".to_string(),
                 selected_language: "Korean".to_string(),
                 streaming_enabled: false,
-                show_overlay: true,
+                show_overlay: false,
                 auto_copy: false,
                 ..Default::default()
             },
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate to {language1}.".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Korean".to_string(),
                 streaming_enabled: true,
-                show_overlay: true,
+                show_overlay: false,
                 auto_copy: true,
                 ..Default::default()
             }
@@ -625,6 +626,7 @@ impl Default for Config {
         p14.name = "Quicker foreigner reply".to_string();
         p14.preset_type = "audio".to_string();
         p14.audio_source = "mic".to_string();
+        p14.auto_paste = true;
         p14.blocks = vec![
             ProcessingBlock {
                 block_type: "audio".to_string(),
