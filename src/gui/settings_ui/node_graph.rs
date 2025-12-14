@@ -6,6 +6,7 @@ use egui_snarl::{Snarl, InPin, InPinId, OutPin, OutPinId, NodeId};
 use egui_snarl::ui::{SnarlStyle, PinInfo, SnarlViewer};
 use crate::config::{ProcessingBlock, get_all_languages};
 use crate::model_config::{get_all_models, ModelType, get_model_by_id};
+use crate::gui::icons::{Icon, icon_button};
 use std::collections::HashMap;
 
 /// Node type for the processing chain
@@ -372,8 +373,11 @@ impl SnarlViewer<ChainNode> for ChainViewer {
 
                         // Bottom Row: Settings
                         ui.horizontal(|ui| {
-                            let overlay_label = match self.ui_language.as_str() { "vi" => "Hiện", "ko" => "표시", _ => "Show" };
-                            if ui.checkbox(show_overlay, overlay_label).changed() { self.changed = true; }
+                            let icon = if *show_overlay { Icon::EyeOpen } else { Icon::EyeClosed };
+                            if icon_button(ui, icon).clicked() { 
+                                *show_overlay = !*show_overlay;
+                                self.changed = true;
+                            }
                             
                             if *show_overlay {
                                 let stream_label = match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" };
@@ -445,8 +449,11 @@ impl SnarlViewer<ChainNode> for ChainViewer {
 
                         // Bottom Row: Settings
                         ui.horizontal(|ui| {
-                            let overlay_label = match self.ui_language.as_str() { "vi" => "Hiện", "ko" => "표시", _ => "Show" };
-                            if ui.checkbox(show_overlay, overlay_label).changed() { self.changed = true; }
+                            let icon = if *show_overlay { Icon::EyeOpen } else { Icon::EyeClosed };
+                            if icon_button(ui, icon).clicked() { 
+                                *show_overlay = !*show_overlay;
+                                self.changed = true;
+                            }
                             
                             if *show_overlay {
                                 let stream_label = match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" };
