@@ -636,7 +636,7 @@ impl eframe::App for SettingsApp {
         egui::TopBottomPanel::bottom("footer_panel")
             .resizable(false)
             .show_separator_line(false)
-            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(10.0, 4.0)).fill(footer_bg))
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(10, 4)).fill(footer_bg))
             .show(ctx, |ui| {
                 render_footer(
                     ui, 

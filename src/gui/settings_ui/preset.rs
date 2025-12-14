@@ -123,7 +123,7 @@ pub fn render_preset_editor(
         } else if preset.preset_type == "audio" {
             // Audio: Cách hoạt động dropdown (same line as preset type)
             let mode_label = match config.ui_language.as_str() {
-                "vi" => "Cách hoạt động:",
+                "vi" => "Phương thức:",
                 "ko" => "작동 방식:",
                 _ => "Mode:",
             };

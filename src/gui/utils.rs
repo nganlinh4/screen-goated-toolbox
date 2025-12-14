@@ -120,12 +120,12 @@ pub fn configure_fonts(ctx: &egui::Context) {
     let korean_data = std::fs::read(&korean_font_path);
 
     if let Ok(data) = viet_data {
-        fonts.font_data.insert(viet_font_name.to_owned(), egui::FontData::from_owned(data));
+        fonts.font_data.insert(viet_font_name.to_owned(), std::sync::Arc::new(egui::FontData::from_owned(data)));
         if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { vec.insert(0, viet_font_name.to_owned()); }
         if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Monospace) { vec.insert(0, viet_font_name.to_owned()); }
     }
     if let Ok(data) = korean_data {
-        fonts.font_data.insert(korean_font_name.to_owned(), egui::FontData::from_owned(data));
+        fonts.font_data.insert(korean_font_name.to_owned(), std::sync::Arc::new(egui::FontData::from_owned(data)));
         if let Some(vec) = fonts.families.get_mut(&egui::FontFamily::Proportional) { 
             let idx = if vec.contains(&viet_font_name.to_string()) { 1 } else { 0 };
             vec.insert(idx, korean_font_name.to_owned()); 

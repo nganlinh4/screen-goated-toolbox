@@ -252,7 +252,7 @@ fn main() -> eframe::Result<()> {
             // 6. Set Native Icon
             gui::utils::update_window_icon_native(effective_dark);
 
-            Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_menu, cc.egui_ctx.clone()))
+            Ok(Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_menu, cc.egui_ctx.clone())))
         }),
     )
 }

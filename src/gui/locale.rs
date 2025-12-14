@@ -126,7 +126,7 @@ impl LocaleText {
                  clear_all_history_btn: "Dọn tất cả", 
                  view_image_btn: "Xem ảnh",
                  listen_audio_btn: "Nghe audio",
-                 prompt_mode_label: "Cách hoạt động:",
+                 prompt_mode_label: "Phương thức:",
                  prompt_mode_fixed: "Làm theo lệnh sẵn",
                  prompt_mode_dynamic: "Viết lệnh tại chỗ",
                  api_section: "Cài Đặt Chung",
@@ -202,7 +202,7 @@ impl LocaleText {
                 restart_to_use_new_version: "Khởi động lại để sử dụng phiên bản mới.",
                 restart_app_btn: "Khởi Động Lại Ứng Dụng",
                 // --- NEW TEXT INPUT FIELDS VI ---
-                text_input_mode_label: "Cách hoạt động:",
+                text_input_mode_label: "Phương thức:",
                 text_mode_select: "Hotkey rồi bôi text",
                 text_mode_type: "Hotkey rồi gõ",
                 text_input_title_default: "Nhập văn bản cần xử lý:",

@@ -133,7 +133,7 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             let screen_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, 2.0 * scale), egui::vec2(screen_w, screen_h));
             
             // Screen Frame
-            painter.rect_stroke(screen_rect, 2.0 * scale, stroke);
+            painter.rect_stroke(screen_rect, 2.0 * scale, stroke, egui::StrokeKind::Middle);
             
             // Stand
             let stand_top = egui::pos2(screen_rect.center().x, screen_rect.bottom());
@@ -193,7 +193,7 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             let w = 6.5 * scale;
             let h = 12.0 * scale;
             let caps_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, 1.5*scale), egui::vec2(w, h));
-            painter.rect_stroke(caps_rect, w/2.0, stroke);
+            painter.rect_stroke(caps_rect, w/2.0, stroke, egui::StrokeKind::Middle);
             
             // Horizontal lines on mic head
             let y_start = caps_rect.top() + 3.5 * scale;
@@ -214,7 +214,7 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
 
         Icon::Image => {
             let img_rect = rect.shrink(3.0 * scale);
-            painter.rect_stroke(img_rect, 2.0 * scale, stroke);
+            painter.rect_stroke(img_rect, 2.0 * scale, stroke, egui::StrokeKind::Middle);
             let p1 = img_rect.left_bottom() - egui::vec2(-1.0, 2.0)*scale;
             let p2 = img_rect.left_bottom() + egui::vec2(3.0, -6.0)*scale; 
             let p3 = img_rect.left_bottom() + egui::vec2(6.0, -3.0)*scale; 
@@ -229,7 +229,7 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             let body_w = 14.0 * scale;
             let body_h = 10.0 * scale;
             let body_rect = egui::Rect::from_center_size(center - egui::vec2(1.5*scale, 0.0), egui::vec2(body_w, body_h));
-            painter.rect_stroke(body_rect, 2.0 * scale, stroke);
+            painter.rect_stroke(body_rect, 2.0 * scale, stroke, egui::StrokeKind::Middle);
             
             // Lens (triangle on right side)
             let l_x = body_rect.right();
@@ -414,12 +414,12 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
 
             // Back rect (Top Left)
             let back_rect = egui::Rect::from_center_size(center - egui::vec2(offset/2.0, offset/2.0), egui::vec2(w, h));
-            painter.rect_stroke(back_rect, 1.0 * scale, stroke);
+            painter.rect_stroke(back_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
 
             // Front rect (Bottom Right) - Filled to cover back lines
             let front_rect = egui::Rect::from_center_size(center + egui::vec2(offset, offset), egui::vec2(w, h));
             painter.rect_filled(front_rect, 1.0 * scale, painter.ctx().style().visuals.panel_fill); // Mask
-            painter.rect_stroke(front_rect, 1.0 * scale, stroke);
+            painter.rect_stroke(front_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
         }
 
         Icon::CopySmall => {
@@ -430,12 +430,12 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
 
             // Back rect (Top Left)
             let back_rect = egui::Rect::from_center_size(center - egui::vec2(offset/2.0, offset/2.0), egui::vec2(w, h));
-            painter.rect_stroke(back_rect, 0.8 * scale, stroke);
+            painter.rect_stroke(back_rect, 0.8 * scale, stroke, egui::StrokeKind::Middle);
 
             // Front rect (Bottom Right) - Filled to cover back lines
             let front_rect = egui::Rect::from_center_size(center + egui::vec2(offset, offset), egui::vec2(w, h));
             painter.rect_filled(front_rect, 0.8 * scale, painter.ctx().style().visuals.panel_fill); // Mask
-            painter.rect_stroke(front_rect, 0.8 * scale, stroke);
+            painter.rect_stroke(front_rect, 0.8 * scale, stroke, egui::StrokeKind::Middle);
         }
 
         Icon::Close => {
