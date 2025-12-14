@@ -386,7 +386,7 @@ impl LocaleText {
                  clear_all_history_btn: "Clear All",
                  view_image_btn: "View Image",
                  listen_audio_btn: "Listen Audio",
-                 prompt_mode_label: "Prompt Mode:",
+                 prompt_mode_label: "Mode:",
                  prompt_mode_fixed: "Predefined Prompt",
                  prompt_mode_dynamic: "Write on the spot",
                  api_section: "Global Settings",
@@ -462,7 +462,7 @@ impl LocaleText {
                 restart_to_use_new_version: "Restart to use the new version.",
                 restart_app_btn: "Restart App",
                 // --- NEW TEXT INPUT FIELDS EN ---
-                text_input_mode_label: "Operation Mode:",
+                text_input_mode_label: "Mode:",
                 text_mode_select: "Hotkey then Select Text",
                 text_mode_type: "Hotkey then Type",
                 text_input_title_default: "Enter text to process:",

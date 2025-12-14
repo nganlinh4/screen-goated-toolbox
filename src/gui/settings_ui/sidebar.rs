@@ -74,7 +74,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
         ("preset_make_formal", _) => "Make Formal".to_string(),
         ("preset_explain_code", _) => "Explain Code".to_string(),
         ("preset_extract_table", _) => "Extract Table".to_string(),
-        ("preset_trans_retrans_typing", _) => "Trans+Retrans (Typing)".to_string(),
+        ("preset_trans_retrans_typing", _) => "Trans+Retrans (Type)".to_string(),
         ("preset_transcribe", _) => "Transcribe speech".to_string(),
         ("preset_study_language", _) => "Study language".to_string(),
         ("preset_transcribe_retranslate", _) => "Quick 4NR reply 1".to_string(),

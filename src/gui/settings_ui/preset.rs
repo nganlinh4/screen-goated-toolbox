@@ -125,7 +125,7 @@ pub fn render_preset_editor(
             let mode_label = match config.ui_language.as_str() {
                 "vi" => "Cách hoạt động:",
                 "ko" => "작동 방식:",
-                _ => "Operation Mode:",
+                _ => "Mode:",
             };
             ui.label(mode_label);
             
