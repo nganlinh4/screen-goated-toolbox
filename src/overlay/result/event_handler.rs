@@ -131,83 +131,180 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             LRESULT(0)
         }
 
+        WM_RBUTTONDOWN => {
+            let mut screen_pt = POINT::default();
+            GetCursorPos(&mut screen_pt);
+            
+            let mut group_snapshot = Vec::new();
+            let mut token_to_match = None;
+            
+            {
+                let states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                     token_to_match = state.cancellation_token.clone();
+                }
+                
+                // Strategy 1: Cancellation Token (Group Identity)
+                if let Some(token) = token_to_match {
+                    for (&h_val, s) in states.iter() {
+                         if let Some(ref t) = s.cancellation_token {
+                             if Arc::ptr_eq(&token, t) {
+                                 let h = HWND(h_val as isize);
+                                 let mut r = RECT::default();
+                                 GetWindowRect(h, &mut r);
+                                 group_snapshot.push((h, r));
+                             }
+                         }
+                    }
+                }
+
+                // Strategy 2: Linked Window Chain (Fallback/Augment if Token logic was insufficient)
+                // If we found 0 or 1 windows, it might just be an un-tokenized chain.
+                if group_snapshot.len() <= 1 {
+                     group_snapshot.clear(); // Restart to build full chain
+                     
+                     let mut visited = std::collections::HashSet::new();
+                     let mut queue = std::collections::VecDeque::new();
+                     
+                     queue.push_back(hwnd);
+                     visited.insert(hwnd.0);
+                     
+                     while let Some(current) = queue.pop_front() {
+                         let mut r = RECT::default();
+                         GetWindowRect(current, &mut r);
+                         group_snapshot.push((current, r));
+                         
+                         // Find neighbor in state map
+                         if let Some(s) = states.get(&(current.0 as isize)) {
+                             if let Some(linked) = s.linked_window {
+                                 // Basic validation that window is still managed
+                                 if states.contains_key(&(linked.0 as isize)) {
+                                     if !visited.contains(&linked.0) {
+                                         visited.insert(linked.0);
+                                         queue.push_back(linked);
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                }
+            }
+            
+            {
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                    state.drag_start_mouse = screen_pt;
+                    state.has_moved_significantly = false;
+                    state.interaction_mode = InteractionMode::DraggingGroup(group_snapshot);
+                }
+            }
+
+            SetCapture(hwnd);
+            LRESULT(0)
+        }
+
         WM_MOUSEMOVE => {
             let x = (lparam.0 & 0xFFFF) as i16 as f32;
             let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as f32;
             let mut rect = RECT::default();
             GetClientRect(hwnd, &mut rect);
             let hover_edge = get_resize_edge(rect.right, rect.bottom, x as i32, y as i32);
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                state.current_resize_edge = hover_edge;
-                let dx = x - state.physics.x;
-                let drag_impulse = if state.interaction_mode == InteractionMode::DraggingWindow { 0.0 } else { (dx * 1.5).clamp(-20.0, 20.0) };
-                state.physics.tilt_velocity -= drag_impulse * 0.2; 
-                state.physics.current_tilt = state.physics.current_tilt.clamp(-22.5, 22.5);
-                state.physics.x = x;
-                state.physics.y = y;
-                
-                let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
-                let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
-                let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
-                let padding = 4;
-                state.on_copy_btn = x as i32 >= copy_rect.left - padding && x as i32 <= copy_rect.right + padding && y as i32 >= copy_rect.top - padding && y as i32 <= copy_rect.bottom + padding;
-                state.on_edit_btn = x as i32 >= edit_rect.left - padding && x as i32 <= edit_rect.right + padding && y as i32 >= edit_rect.top - padding && y as i32 <= edit_rect.bottom + padding;
-                if !state.text_history.is_empty() {
-                    state.on_undo_btn = x as i32 >= undo_rect.left - padding && x as i32 <= undo_rect.right + padding && y as i32 >= undo_rect.top - padding && y as i32 <= undo_rect.bottom + padding;
-                } else {
-                    state.on_undo_btn = false;
-                }
+            
+            // Defer group moves to avoid deadlocks (holding lock while calling SetWindowPos on other windows)
+            let mut group_moves = Vec::new();
 
-                if !state.is_hovered {
-                    state.is_hovered = true;
-                    let mut tme = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
-                    TrackMouseEvent(&mut tme);
-                }
+            {
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                    state.current_resize_edge = hover_edge;
+                    let dx = x - state.physics.x;
+                    let drag_impulse = if matches!(&state.interaction_mode, InteractionMode::DraggingWindow | InteractionMode::DraggingGroup(_)) { 0.0 } else { (dx * 1.5).clamp(-20.0, 20.0) };
+                    state.physics.tilt_velocity -= drag_impulse * 0.2; 
+                    state.physics.current_tilt = state.physics.current_tilt.clamp(-22.5, 22.5);
+                    state.physics.x = x;
+                    state.physics.y = y;
+                    
+                    let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
+                    let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
+                    let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
+                    let padding = 4;
+                    state.on_copy_btn = x as i32 >= copy_rect.left - padding && x as i32 <= copy_rect.right + padding && y as i32 >= copy_rect.top - padding && y as i32 <= copy_rect.bottom + padding;
+                    state.on_edit_btn = x as i32 >= edit_rect.left - padding && x as i32 <= edit_rect.right + padding && y as i32 >= edit_rect.top - padding && y as i32 <= edit_rect.bottom + padding;
+                    if !state.text_history.is_empty() {
+                        state.on_undo_btn = x as i32 >= undo_rect.left - padding && x as i32 <= undo_rect.right + padding && y as i32 >= undo_rect.top - padding && y as i32 <= undo_rect.bottom + padding;
+                    } else {
+                        state.on_undo_btn = false;
+                    }
 
-                match state.interaction_mode {
-                    InteractionMode::DraggingWindow => {
-                        let mut curr_pt = POINT::default();
-                        GetCursorPos(&mut curr_pt);
-                        let dx = curr_pt.x - state.drag_start_mouse.x;
-                        let dy = curr_pt.y - state.drag_start_mouse.y;
-                        if dx.abs() > 3 || dy.abs() > 3 { state.has_moved_significantly = true; }
-                        let new_x = state.drag_start_window_rect.left + dx;
-                        let new_y = state.drag_start_window_rect.top + dy;
-                        SetWindowPos(hwnd, HWND(0), new_x, new_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    if !state.is_hovered {
+                        state.is_hovered = true;
+                        let mut tme = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+                        TrackMouseEvent(&mut tme);
                     }
-                    InteractionMode::Resizing(edge) => {
-                        state.has_moved_significantly = true;
-                        let mut curr_pt = POINT::default();
-                        GetCursorPos(&mut curr_pt);
-                        let dx = curr_pt.x - state.drag_start_mouse.x;
-                        let dy = curr_pt.y - state.drag_start_mouse.y;
-                        let mut new_rect = state.drag_start_window_rect;
-                        let min_w = 20; let min_h = 20;
-                        match edge {
-                            ResizeEdge::Right | ResizeEdge::TopRight | ResizeEdge::BottomRight => { new_rect.right = (state.drag_start_window_rect.right + dx).max(state.drag_start_window_rect.left + min_w); }
-                            ResizeEdge::Left | ResizeEdge::TopLeft | ResizeEdge::BottomLeft => { new_rect.left = (state.drag_start_window_rect.left + dx).min(state.drag_start_window_rect.right - min_w); }
-                            _ => {}
+
+                    match &state.interaction_mode {
+                        InteractionMode::DraggingWindow => {
+                            let mut curr_pt = POINT::default();
+                            GetCursorPos(&mut curr_pt);
+                            let dx = curr_pt.x - state.drag_start_mouse.x;
+                            let dy = curr_pt.y - state.drag_start_mouse.y;
+                            if dx.abs() > 3 || dy.abs() > 3 { state.has_moved_significantly = true; }
+                            let new_x = state.drag_start_window_rect.left + dx;
+                            let new_y = state.drag_start_window_rect.top + dy;
+                            SetWindowPos(hwnd, HWND(0), new_x, new_y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                         }
-                        match edge {
-                            ResizeEdge::Bottom | ResizeEdge::BottomRight | ResizeEdge::BottomLeft => { new_rect.bottom = (state.drag_start_window_rect.bottom + dy).max(state.drag_start_window_rect.top + min_h); }
-                            ResizeEdge::Top | ResizeEdge::TopLeft | ResizeEdge::TopRight => { new_rect.top = (state.drag_start_window_rect.top + dy).min(state.drag_start_window_rect.bottom - min_h); }
-                            _ => {}
+                        InteractionMode::DraggingGroup(snapshot) => {
+                            let mut curr_pt = POINT::default();
+                            GetCursorPos(&mut curr_pt);
+                            let dx = curr_pt.x - state.drag_start_mouse.x;
+                            let dy = curr_pt.y - state.drag_start_mouse.y;
+                            if dx.abs() > 3 || dy.abs() > 3 { state.has_moved_significantly = true; }
+                            
+                            for (h, start_rect) in snapshot {
+                                let new_x = start_rect.left + dx;
+                                let new_y = start_rect.top + dy;
+                                group_moves.push((*h, new_x, new_y));
+                            }
                         }
-                        let w = new_rect.right - new_rect.left;
-                        let h = new_rect.bottom - new_rect.top;
-                        SetWindowPos(hwnd, HWND(0), new_rect.left, new_rect.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
-                        if state.is_editing {
-                             let edit_w = w - 20;
-                             let edit_h = 40;
-                             SetWindowPos(state.edit_hwnd, HWND_TOP, 10, 10, edit_w, edit_h, SWP_NOACTIVATE);
-                             set_rounded_edit_region(state.edit_hwnd, edit_w, edit_h);
+                        InteractionMode::Resizing(edge) => {
+                            state.has_moved_significantly = true;
+                            let mut curr_pt = POINT::default();
+                            GetCursorPos(&mut curr_pt);
+                            let dx = curr_pt.x - state.drag_start_mouse.x;
+                            let dy = curr_pt.y - state.drag_start_mouse.y;
+                            let mut new_rect = state.drag_start_window_rect;
+                            let min_w = 20; let min_h = 20;
+                            match edge {
+                                ResizeEdge::Right | ResizeEdge::TopRight | ResizeEdge::BottomRight => { new_rect.right = (state.drag_start_window_rect.right + dx).max(state.drag_start_window_rect.left + min_w); }
+                                ResizeEdge::Left | ResizeEdge::TopLeft | ResizeEdge::BottomLeft => { new_rect.left = (state.drag_start_window_rect.left + dx).min(state.drag_start_window_rect.right - min_w); }
+                                _ => {}
+                            }
+                            match edge {
+                                ResizeEdge::Bottom | ResizeEdge::BottomRight | ResizeEdge::BottomLeft => { new_rect.bottom = (state.drag_start_window_rect.bottom + dy).max(state.drag_start_window_rect.top + min_h); }
+                                ResizeEdge::Top | ResizeEdge::TopLeft | ResizeEdge::TopRight => { new_rect.top = (state.drag_start_window_rect.top + dy).min(state.drag_start_window_rect.bottom - min_h); }
+                                _ => {}
+                            }
+                            let w = new_rect.right - new_rect.left;
+                            let h = new_rect.bottom - new_rect.top;
+                            SetWindowPos(hwnd, HWND(0), new_rect.left, new_rect.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+                            if state.is_editing {
+                                 let edit_w = w - 20;
+                                 let edit_h = 40;
+                                 SetWindowPos(state.edit_hwnd, HWND_TOP, 10, 10, edit_w, edit_h, SWP_NOACTIVATE);
+                                 set_rounded_edit_region(state.edit_hwnd, edit_w, edit_h);
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
+                    InvalidateRect(hwnd, None, false);
                 }
-                InvalidateRect(hwnd, None, false);
+            } // Lock released (WINDOW_STATES)
+
+            // Execute deferred group moves
+            for (h, x, y) in group_moves {
+                SetWindowPos(h, HWND(0), x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
+
             LRESULT(0)
         }
 
@@ -315,18 +412,40 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         }
         
         WM_RBUTTONUP => {
-            let text_len = GetWindowTextLengthW(hwnd) + 1;
-            let mut buf = vec![0u16; text_len as usize];
-            GetWindowTextW(hwnd, &mut buf);
-            let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
-            crate::overlay::utils::copy_to_clipboard(&text, hwnd);
+            ReleaseCapture();
+            let mut perform_action = false;
+            
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                    state.copy_success = true;
+                     match &state.interaction_mode {
+                         InteractionMode::DraggingGroup(_) => {
+                             if !state.has_moved_significantly {
+                                 perform_action = true;
+                             }
+                         }
+                         _ => {
+                             perform_action = true; 
+                         }
+                     }
+                     state.interaction_mode = InteractionMode::None;
                 }
             }
-            SetTimer(hwnd, 1, 1500, None);
+            
+            if perform_action {
+                let text_len = GetWindowTextLengthW(hwnd) + 1;
+                let mut buf = vec![0u16; text_len as usize];
+                GetWindowTextW(hwnd, &mut buf);
+                let text = String::from_utf16_lossy(&buf[..text_len as usize - 1]).to_string();
+                crate::overlay::utils::copy_to_clipboard(&text, hwnd);
+                {
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                        state.copy_success = true;
+                    }
+                }
+                SetTimer(hwnd, 1, 1500, None);
+            }
             LRESULT(0)
         }
 

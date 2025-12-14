@@ -34,11 +34,12 @@ pub enum ResizeEdge {
     BottomRight,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum InteractionMode {
     None,
     Resizing(ResizeEdge),
     DraggingWindow,
+    DraggingGroup(Vec<(HWND, RECT)>),
 }
 
 pub struct CursorPhysics {
