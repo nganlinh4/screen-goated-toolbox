@@ -62,7 +62,44 @@ impl ProcessingState {
 
 lazy_static::lazy_static! {
     static ref PROC_STATES: Mutex<HashMap<isize, ProcessingState>> = Mutex::new(HashMap::new());
+    
+    // Global sequential window position queue - ensures snake pattern even with parallel processing
+    // Stores Option<RECT> where None means reset to initial position
+    static ref LAST_WINDOW_RECT: Mutex<Option<RECT>> = Mutex::new(None);
 }
+
+/// Reset the window position queue (call at start of new processing chain)
+pub fn reset_window_position_queue() {
+    let mut last = LAST_WINDOW_RECT.lock().unwrap();
+    *last = None;
+}
+
+/// Get the next window position using snake algorithm (first-come-first-serve)
+/// This is mutex-protected so parallel branches get sequential positions
+pub fn get_next_window_position(initial_rect: RECT) -> RECT {
+    let mut last = LAST_WINDOW_RECT.lock().unwrap();
+    
+    let s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    
+    let next_rect = match *last {
+        None => {
+            // First window: use initial rect
+            initial_rect
+        }
+        Some(prev) => {
+            // Subsequent windows: use snake algorithm from last position
+            calculate_next_window_rect(prev, s_w, s_h)
+        }
+    };
+    
+    // Update last position for next caller
+    *last = Some(next_rect);
+    
+    next_rect
+}
+
+
 
 // --- ENTRY POINTS ---
 
@@ -122,11 +159,15 @@ pub fn show_audio_result(
         None
     };
     
+    // Reset position queue for new chain
+    reset_window_position_queue();
+    
     run_chain_step(
         0, 
         transcription_text,
         rect, 
-        preset.blocks.clone(), 
+        preset.blocks.clone(),
+        preset.block_connections.clone(), // Graph connections
         config, 
         Arc::new(Mutex::new(None)),
         RefineContext::None,
@@ -183,6 +224,7 @@ pub fn start_processing_pipeline(
     // 2. Spawn background thread to encode PNG and start chain execution
     let conf_clone = config.clone();
     let blocks = preset.blocks.clone();
+    let connections = preset.block_connections.clone();
     
     std::thread::spawn(move || {
         // Heavy work: PNG encoding happens here, while animation plays
@@ -190,12 +232,16 @@ pub fn start_processing_pipeline(
         let _ = cropped_img.write_to(&mut std::io::Cursor::new(&mut png_data), image::ImageFormat::Png);
         let context = RefineContext::Image(png_data);
         
+        // Reset position queue for new chain
+        reset_window_position_queue();
+        
         // Start chain execution with the pre-created processing window
         run_chain_step(
             0, 
             String::new(), 
             screen_rect, 
-            blocks, 
+            blocks,
+            connections, // Graph connections
             conf_clone, 
             Arc::new(Mutex::new(None)), 
             context, 
@@ -235,13 +281,18 @@ fn execute_chain_pipeline(
     // We pass the processing_hwnd so the background thread can close it when appropriate
     let conf_clone = config.clone();
     let blocks = preset.blocks.clone();
+    let connections = preset.block_connections.clone();
     
     std::thread::spawn(move || {
+        // Reset position queue for new chain
+        reset_window_position_queue();
+        
         run_chain_step(
             0, 
             initial_input, 
             rect, 
-            blocks, 
+            blocks,
+            connections, // Graph connections
             conf_clone, 
             Arc::new(Mutex::new(None)), 
             context, 
@@ -262,12 +313,13 @@ fn execute_chain_pipeline(
     }
 }
 
-/// Recursive step to run a block in the chain
+/// Recursive step to run a block in the chain (now supports graph with connections)
 fn run_chain_step(
     block_idx: usize,
     input_text: String,
     current_rect: RECT,
     blocks: Vec<ProcessingBlock>,
+    connections: Vec<(usize, usize)>, // Graph edges: (from_idx, to_idx)
     config: Config,
     parent_hwnd: Arc<Mutex<Option<HWND>>>,
     context: RefineContext, // Passed to Block 0 (Image context)
@@ -313,12 +365,11 @@ fn run_chain_step(
     let visible_count_before = blocks.iter().take(block_idx).filter(|b| b.show_overlay).count();
     let bg_color = get_chain_color(visible_count_before);
     
-    let my_rect = if visible_count_before == 0 {
-        current_rect
+    // For visible windows: use global queue for sequential snake positioning (first-come-first-serve)
+    let my_rect = if block.show_overlay {
+        get_next_window_position(current_rect)
     } else {
-        let s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-        calculate_next_window_rect(current_rect, s_w, s_h)
+        current_rect // Hidden blocks don't consume a position
     };
 
     let mut my_hwnd: Option<HWND> = None;
@@ -547,7 +598,7 @@ fn run_chain_step(
         });
     }
 
-    // 6. Chain Next Step
+    // 6. Chain Next Steps (Graph-based: find all downstream blocks)
     // Check cancellation before continuing
     if cancel_token.load(Ordering::Relaxed) {
         if let Some(h) = processing_indicator_hwnd {
@@ -557,24 +608,88 @@ fn run_chain_step(
     }
     
     if !result_text.trim().is_empty() {
+        // Find all downstream blocks from connections
+        let downstream_indices: Vec<usize> = connections.iter()
+            .filter(|(from, _)| *from == block_idx)
+            .map(|(_, to)| *to)
+            .collect();
+        
+        // Determine next blocks:
+        // - If connections vec is completely empty (legacy linear chain), use block_idx + 1 fallback
+        // - If connections vec has entries (graph mode), use ONLY explicit connections
+        let next_blocks: Vec<usize> = if connections.is_empty() {
+            // Legacy mode: no graph connections defined, use linear chain
+            if block_idx + 1 < blocks.len() {
+                vec![block_idx + 1]
+            } else {
+                vec![]
+            }
+        } else {
+            // Graph mode: use only explicit connections (no fallback)
+            downstream_indices
+        };
+        
+        if next_blocks.is_empty() {
+            // End of chain
+            if let Some(h) = processing_indicator_hwnd {
+                unsafe { PostMessageW(h, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+            }
+            return;
+        }
+        
         let next_parent = if my_hwnd.is_some() {
             Arc::new(Mutex::new(my_hwnd))
         } else {
             parent_hwnd 
         };
         
-        // If current window was hidden, next window should probably try to take the same rect
-        // unless calculate_next_window_rect handles "previous rect was hidden" logic?
-        // Actually, if visible_count_before is used, the layout logic handles position based on VISIBLE windows.
-        // So we can pass current_rect or my_rect, layout module decides based on visibility count.
+        let base_rect = if my_hwnd.is_some() { my_rect } else { current_rect };
         
-        let next_rect = if my_hwnd.is_some() { my_rect } else { current_rect };
+        // For the first downstream block, pass the processing indicator (if any)
+        // For additional parallel branches, spawn new threads without the indicator
+        let first_next = next_blocks[0];
+        let parallel_branches: Vec<usize> = next_blocks.into_iter().skip(1).collect();
         
+        // Spawn parallel threads for additional branches FIRST
+        let s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        
+        for next_idx in parallel_branches {
+            let result_clone = result_text.clone();
+            let blocks_clone = blocks.clone();
+            let conns_clone = connections.clone();
+            let config_clone = config.clone();
+            let cancel_clone = cancel_token.clone();
+            let parent_clone = next_parent.clone();
+            
+            // Position will be determined individually by get_next_window_position inside run_chain_step
+            // We just pass the base_rect as a reference point
+            let branch_rect = base_rect;
+            
+            std::thread::spawn(move || {
+                run_chain_step(
+                    next_idx,
+                    result_clone,
+                    branch_rect,
+                    blocks_clone,
+                    conns_clone,
+                    config_clone,
+                    parent_clone,
+                    RefineContext::None,
+                    false,
+                    None, // No processing indicator for parallel branches
+                    cancel_clone
+                );
+            });
+        }
+        
+        // Continue with the first downstream block on current thread
         run_chain_step(
-            block_idx + 1, 
+            first_next, 
             result_text, 
-            next_rect, 
+            base_rect, 
             blocks, 
+            connections,
             config, 
             next_parent, 
             RefineContext::None,

@@ -24,6 +24,8 @@ use crate::gui::locale::LocaleText;
 use crate::gui::key_mapping::{egui_key_to_vk, egui_pointer_to_vk};
 use crate::updater::{Updater, UpdateStatus};
 use crate::gui::settings_ui::{ViewMode, render_sidebar, render_global_settings, render_preset_editor, render_footer, render_history_panel};
+use crate::gui::settings_ui::node_graph::{ChainNode, blocks_to_snarl, snarl_to_graph};
+use egui_snarl::Snarl;
 use crate::gui::utils::get_monitor_names;
 use crate::icon_gen;
 
@@ -87,6 +89,11 @@ pub struct SettingsApp {
     tip_is_fading_in: bool,
     show_tips_modal: bool,
     rng_seed: u32,
+    
+    // --- NODE GRAPH STATE ---
+    snarl: Option<Snarl<ChainNode>>,
+    last_edited_preset_idx: Option<usize>,
+    // ------------------------
     // --------------------
 }
 
@@ -256,6 +263,8 @@ impl SettingsApp {
             fade_in_start: None,
             startup_stage: 0,
             cached_monitors,
+            snarl: None,
+            last_edited_preset_idx: None,
             updater: Some(Updater::new(up_tx)),
             update_rx: up_rx,
             update_status: UpdateStatus::Idle,
@@ -732,17 +741,37 @@ impl eframe::App for SettingsApp {
                              }
                         },
                         ViewMode::Preset(idx) => {
-                             if render_preset_editor(
-                                 ui, 
-                                 &mut self.config, 
-                                 idx, 
-                                 &mut self.search_query, 
-                                 &mut self.cached_monitors, 
-                                 &mut self.recording_hotkey_for_preset, 
-                                 &self.hotkey_conflict_msg, 
-                                 &text
-                             ) {
-                                 self.save_and_sync();
+                             // Sync snarl state if switching presets or first load
+                             if self.last_edited_preset_idx != Some(idx) {
+                                if idx < self.config.presets.len() {
+                                     self.snarl = Some(blocks_to_snarl(
+                                         &self.config.presets[idx].blocks,
+                                         &self.config.presets[idx].block_connections
+                                     ));
+                                     self.last_edited_preset_idx = Some(idx);
+                                }
+                             }
+
+                             if let Some(snarl) = &mut self.snarl {
+                                  if render_preset_editor(
+                                      ui, 
+                                      &mut self.config, 
+                                      idx, 
+                                      &mut self.search_query, 
+                                      &mut self.cached_monitors, 
+                                      &mut self.recording_hotkey_for_preset, 
+                                      &self.hotkey_conflict_msg, 
+                                      &text,
+                                      snarl
+                                  ) {
+                                      // Sync back to blocks and connections
+                                      if idx < self.config.presets.len() {
+                                          let (blocks, connections) = snarl_to_graph(snarl);
+                                          self.config.presets[idx].blocks = blocks;
+                                          self.config.presets[idx].block_connections = connections;
+                                      }
+                                      self.save_and_sync();
+                                  }
                              }
                         }
                     }

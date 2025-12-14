@@ -32,6 +32,7 @@ pub struct Hotkey {
 // --- NEW: PROCESSING BLOCK ---
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ProcessingBlock {
+    #[serde(default = "generate_id")]
     pub id: String,
     pub block_type: String, // "image", "audio", "text"
     pub model: String,
@@ -49,11 +50,12 @@ pub struct ProcessingBlock {
 }
 
 fn default_true() -> bool { true }
+fn generate_id() -> String { format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()) }
 
 impl Default for ProcessingBlock {
     fn default() -> Self {
         Self {
-            id: format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
+            id: generate_id(),
             block_type: "text".to_string(),
             model: "text_accurate_kimi".to_string(),
             prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
@@ -74,6 +76,11 @@ pub struct Preset {
     // Chain of processing steps
     #[serde(default)]
     pub blocks: Vec<ProcessingBlock>,
+    
+    // Graph connections: (from_block_idx, to_block_idx)
+    // Allows branching: one block can connect to multiple downstream blocks
+    #[serde(default)]
+    pub block_connections: Vec<(usize, usize)>,
 
     // Legacy/Global Preset Settings
     #[serde(default = "default_prompt_mode")]
@@ -132,6 +139,7 @@ impl Default for Preset {
                     ..Default::default()
                 }
             ],
+            block_connections: vec![], // Will be populated from snarl graph
             prompt_mode: "fixed".to_string(),
             auto_paste: false,
             auto_paste_newline: false,

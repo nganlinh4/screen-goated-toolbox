@@ -11,3 +11,6 @@ build_cursor.exe
 cursor_data.txt
 broom.cur
 screen-goated-toolbox-*.exe
+
+# Patched dependencies (cloned by scripts/setup-egui-snarl.ps1)
+libs/egui-snarl/

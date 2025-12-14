@@ -45,6 +45,10 @@ Ensure [Rust](https://www.rust-lang.org/tools/install) is installed.
 ```bash
 git clone https://github.com/nganlinh4/screen-goated-toolbox
 cd screen-goated-toolbox
+
+# Setup patched egui-snarl (required before building)
+powershell -ExecutionPolicy Bypass -File scripts/setup-egui-snarl.ps1
+
 # The build script will handle icon resource embedding automatically
 cargo build --release
 ```

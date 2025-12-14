@@ -3,6 +3,7 @@ mod global;
 mod history;
 mod preset;
 mod footer;
+pub mod node_graph;
 
 pub use sidebar::render_sidebar;
 pub use sidebar::get_localized_preset_name;

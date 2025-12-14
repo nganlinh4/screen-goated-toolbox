@@ -1,10 +1,9 @@
 use eframe::egui;
-use crate::config::{Config, get_all_languages, ProcessingBlock};
+use crate::config::Config;
 use crate::gui::locale::LocaleText;
-use crate::gui::icons::{Icon, icon_button};
-use crate::model_config::{get_all_models, ModelType, get_model_by_id};
-use super::get_localized_preset_name; // Use the shared function from sidebar
-
+use super::get_localized_preset_name;
+use egui_snarl::Snarl;
+use super::node_graph::{ChainNode, render_node_graph, blocks_to_snarl};
 
 pub fn render_preset_editor(
     ui: &mut egui::Ui,
@@ -15,6 +14,7 @@ pub fn render_preset_editor(
     recording_hotkey_for_preset: &mut Option<usize>,
     hotkey_conflict_msg: &Option<String>,
     text: &LocaleText,
+    snarl: &mut Snarl<ChainNode>,
 ) -> bool {
     if preset_idx >= config.presets.len() { return false; }
 
@@ -50,6 +50,7 @@ pub fn render_preset_editor(
                      if let Some(default_p) = default_config.presets.iter().find(|p| p.id == preset.id) {
                          // Restore to default (reset content to factory state)
                          preset = default_p.clone();
+                         *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
                          changed = true;
                      }
                 }
@@ -206,281 +207,20 @@ pub fn render_preset_editor(
         }
     }
 
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(5.0);
-
     // --- PROCESSING CHAIN UI ---
-    // Header with title, chain visualization, and Add button
-    let mut add_new_block = false;
-    
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.processing_chain_title).heading());
-        ui.add_space(10.0);
-        
-        // Draw chain visualization: icon -> icon -> icon ...
-        for (i, block) in preset.blocks.iter().enumerate() {
-            let type_icon = match block.block_type.as_str() {
-                "image" => Icon::Image,
-                "audio" => Icon::Microphone,
-                _ => Icon::Text,
-            };
-            crate::gui::icons::draw_icon_static(ui, type_icon, Some(14.0));
-            
-            if i < preset.blocks.len() - 1 {
-                crate::gui::icons::draw_icon_static(ui, Icon::ChainArrow, Some(14.0));
+    ui.push_id("node_graph_area", |ui| {
+        egui::Frame::none().fill(ui.visuals().extreme_bg_color).inner_margin(4.0).show(ui, |ui| {
+            ui.set_min_height(250.0); // Allocate space for the graph
+            if render_node_graph(ui, snarl, &config.ui_language) {
+                changed = true;
             }
-        }
-        
-        ui.add_space(5.0);
-        
-        // "+ Action" button inline with header
-        if ui.small_button(text.add_step_btn).clicked() {
-            add_new_block = true;
-        }
-    });
-    
-    let mut block_to_remove = None;
-    let mut block_auto_copy_idx = None;
-
-    // Find which block has auto_copy enabled (for radio button logic)
-    for (i, block) in preset.blocks.iter().enumerate() {
-        if block.auto_copy { block_auto_copy_idx = Some(i); }
-    }
-
-    let block_count = preset.blocks.len();
-    
-    // Use Frame pattern from history UI for proper fixed height
-    egui::Frame::none().show(ui, |ui| {
-        ui.set_height(280.0);
-        
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (i, block) in preset.blocks.iter_mut().enumerate() {
-                let is_first = i == 0;
-            
-            ui.push_id(format!("block_{}", i), |ui| {
-                ui.group(|ui| {
-                    // BLOCK HEADER: Type | Model | Visibility | Delete
-                    ui.horizontal(|ui| {
-                        // 1. Type icon and Label
-                        let type_icon = match block.block_type.as_str() {
-                            "image" => Icon::Image,
-                            "audio" => Icon::Microphone,
-                            _ => Icon::Text,
-                        };
-                        crate::gui::icons::draw_icon_static(ui, type_icon, None);
-                        let title = if is_first {
-                            // Localize block type name
-                            let localized_type = match (block.block_type.as_str(), config.ui_language.as_str()) {
-                                ("image", "vi") => "Ảnh",
-                                ("text", "vi") => "Văn bản",
-                                ("audio", "vi") => "Âm thanh",
-                                ("image", "ko") => "이미지",
-                                ("text", "ko") => "텍스트",
-                                ("audio", "ko") => "오디오",
-                                ("image", _) => "Image",
-                                ("text", _) => "Text",
-                                ("audio", _) => "Audio",
-                                _ => &block.block_type,
-                            };
-                            format!("{} ({})", text.step_input_label, localized_type)
-                        } else {
-                            format!("{} {}", text.step_process_label, i + 1)
-                        };
-                        ui.label(egui::RichText::new(title).strong());
-                        
-                        ui.add_space(5.0);
-                        
-                        // 2. Model Selector (compact, adapt to content)
-                        ui.label(text.model_label);
-                        let model_def = get_model_by_id(&block.model);
-                        let name = model_def.as_ref()
-                            .map(|m| match config.ui_language.as_str() {
-                                "vi" => &m.name_vi,
-                                "ko" => &m.name_ko,
-                                _ => &m.name_en,
-                            })
-                            .map(|s| s.as_str())
-                            .unwrap_or(&block.model);
-                        
-                        egui::ComboBox::from_id_source(format!("model_{}", i))
-                            .selected_text(name)
-                            .show_ui(ui, |ui| {
-                                let filter_type = match block.block_type.as_str() {
-                                    "image" => ModelType::Vision,
-                                    "audio" => ModelType::Audio,
-                                    _ => ModelType::Text,
-                                };
-                                
-                                for m in get_all_models() {
-                                    if m.enabled && m.model_type == filter_type {
-                                        let dropdown_label = match config.ui_language.as_str() {
-                                            "vi" => format!("{} ({})", &m.name_vi, &m.full_name),
-                                            "ko" => format!("{} ({})", &m.name_ko, &m.full_name),
-                                            _ => format!("{} ({})", &m.name_en, &m.full_name),
-                                        };
-                                        if ui.selectable_value(&mut block.model, m.id.clone(), dropdown_label).clicked() {
-                                            changed = true;
-                                        }
-                                    }
-                                }
-                            });
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !is_first {
-                                if icon_button(ui, Icon::Close).on_hover_text(text.remove_step_tooltip).clicked() {
-                                    block_to_remove = Some(i);
-                                }
-                            }
-                            
-                            // 3. Visibility Toggle
-                            let vis_icon = if block.show_overlay { Icon::EyeOpen } else { Icon::EyeClosed };
-                            let hover_text = if block.show_overlay { text.overlay_visible_tooltip } else { text.overlay_hidden_tooltip };
-                            if icon_button(ui, vis_icon).on_hover_text(hover_text).clicked() {
-                                block.show_overlay = !block.show_overlay;
-                                changed = true;
-                            }
-                        });
-                    });
-                    
-                    ui.add_space(4.0);
-
-                    // Prompt Editor - hidden for:
-                    // 1. Whisper audio models (they just transcribe, no prompt needed)
-                    // 2. Dynamic prompt mode for image presets (user types prompt at runtime)
-                    let is_whisper_audio = block.block_type == "audio" && block.model.starts_with("whisper");
-                    let is_dynamic_image = is_first && preset.preset_type == "image" && preset.prompt_mode == "dynamic";
-                    
-                    if !is_whisper_audio && !is_dynamic_image {
-                        ui.horizontal(|ui| {
-                            ui.label(text.prompt_label);
-                            // Helper for indexed language tags
-                            if ui.button(text.insert_lang_tag_btn).on_hover_text(text.insert_lang_tag_tooltip).clicked() {
-                                let mut max_num = 0;
-                                for k in 1..=10 {
-                                    if block.prompt.contains(&format!("{{language{}}}", k)) {
-                                        max_num = k;
-                                    }
-                                }
-                                let next_num = max_num + 1;
-                                block.prompt.push_str(&format!(" {{language{}}} ", next_num));
-                                let key = format!("language{}", next_num);
-                                if !block.language_vars.contains_key(&key) {
-                                    block.language_vars.insert(key, block.selected_language.clone());
-                                }
-                                changed = true;
-                            }
-                        });
-                        if ui.add(egui::TextEdit::multiline(&mut block.prompt).desired_rows(2).desired_width(f32::INFINITY)).changed() {
-                            changed = true;
-                        }
-
-                        // Dynamic Dropdowns for {languageN} tags
-                        let mut detected_vars = Vec::new();
-                        for k in 1..=10 {
-                            let tag = format!("{{language{}}}", k);
-                            if block.prompt.contains(&tag) {
-                                detected_vars.push(k);
-                            }
-                        }
-
-                        for num in detected_vars {
-                            let key = format!("language{}", num);
-                            if !block.language_vars.contains_key(&key) {
-                                block.language_vars.insert(key.clone(), block.selected_language.clone());
-                            }
-                            
-                            let label_text = match config.ui_language.as_str() {
-                                "vi" => format!("Ngôn ngữ {{language{}}}:", num),
-                                "ko" => format!("{{language{}}} 언어:", num),
-                                _ => format!("Language for {{language{}}}:", num),
-                            };
-
-                            ui.horizontal(|ui| {
-                                 ui.label(label_text);
-                                 let current_val = block.language_vars.get(&key).cloned().unwrap_or_default();
-                                 ui.menu_button(current_val, |ui| {
-                                     ui.style_mut().wrap = Some(false);
-                                     ui.set_min_width(150.0);
-                                     ui.add(egui::TextEdit::singleline(search_query).hint_text("Search..."));
-                                     let q = search_query.to_lowercase();
-                                     egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                                         for lang in get_all_languages().iter() {
-                                             if q.is_empty() || lang.to_lowercase().contains(&q) {
-                                                 if ui.button(lang).clicked() {
-                                                     block.language_vars.insert(key.clone(), lang.clone());
-                                                     changed = true;
-                                                     ui.close_menu();
-                                                 }
-                                             }
-                                         }
-                                     });
-                                 });
-                            });
-                        }
-                    }
-
-                    // Bottom Row: Stream | Auto Copy (removed redundant Target Lang - use {languageN} tags instead)
-                    ui.horizontal(|ui| {
-                        // Streaming Toggle - only visible if overlay is shown
-                        if block.show_overlay {
-                            if ui.checkbox(&mut block.streaming_enabled, text.stream_checkbox).on_hover_text(text.stream_tooltip).clicked() {
-                                changed = true;
-                            }
-                            ui.separator();
-                        }
-
-                        // Auto Copy (Radio behavior managed manually)
-                        let mut is_copy = Some(i) == block_auto_copy_idx;
-                        if ui.checkbox(&mut is_copy, text.auto_copy_label).on_hover_text(text.auto_copy_tooltip).clicked() {
-                            if is_copy {
-                                block_auto_copy_idx = Some(i);
-                            } else if block_auto_copy_idx == Some(i) {
-                                block_auto_copy_idx = None;
-                            }
-                            changed = true;
-                        }
-                    });
-                });
-            });
-            
-            // Visual Arrow to next step (using hand-drawn icon)
-            if i < block_count - 1 {
-                ui.vertical_centered(|ui| {
-                    crate::gui::icons::draw_icon_static(ui, Icon::ChainArrowDown, Some(16.0));
-                });
-            }
-        }
         });
     });
 
-    // Handle add new block
-    if add_new_block {
-        preset.blocks.push(ProcessingBlock {
-            block_type: "text".to_string(),
-            model: "text_accurate_kimi".to_string(),
-            prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
-            selected_language: "Vietnamese".to_string(),
-            streaming_enabled: true,
-            show_overlay: true,
-            auto_copy: false,
-            ..Default::default()
-        });
-        changed = true;
-    }
-
-    // Handle block deletion (must be outside 'if changed' to work)
-    if let Some(idx) = block_to_remove {
-        preset.blocks.remove(idx);
-        changed = true;
-    }
 
     // Apply Logic Updates (Radio Button Sync & Auto Paste)
     if changed {
-        // Enforce Auto Copy exclusivity
-        for (i, block) in preset.blocks.iter_mut().enumerate() {
-            block.auto_copy = Some(i) == block_auto_copy_idx;
-        }
+
 
         config.presets[preset_idx] = preset;
     }
