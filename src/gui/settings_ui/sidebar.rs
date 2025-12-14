@@ -80,7 +80,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
         ("preset_transcribe_retranslate", _) => "Quick 4NR reply 1".to_string(),
         ("preset_quicker_foreigner_reply", _) => "Quick 4NR reply 2".to_string(),
         ("preset_video_summary_placeholder", _) => "Summarize video (soon)".to_string(),
-        ("preset_realtime_audio_translate", _) => "Realtime Audio Translate (soon)".to_string(),
+        ("preset_realtime_audio_translate", _) => "Realtime Audio Trans (soon)".to_string(),
         
         // Fallback: return original ID without "preset_" prefix
         _ => preset_id.strip_prefix("preset_").unwrap_or(preset_id).replace('_', " "),
