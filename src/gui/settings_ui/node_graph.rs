@@ -21,6 +21,7 @@ pub enum ChainNode {
         language_vars: HashMap<String, String>,
         show_overlay: bool,
         streaming_enabled: bool,
+        render_mode: String,
         auto_copy: bool,
     },
     /// Processing node (transforms text)
@@ -31,6 +32,7 @@ pub enum ChainNode {
         language_vars: HashMap<String, String>,
         show_overlay: bool,
         streaming_enabled: bool,
+        render_mode: String,
         auto_copy: bool,
     },
 }
@@ -44,6 +46,7 @@ impl Default for ChainNode {
             language_vars: HashMap::new(),
             show_overlay: true,
             streaming_enabled: true,
+            render_mode: "stream".to_string(),
             auto_copy: false,
         }
     }
@@ -64,6 +67,7 @@ impl ChainNode {
             language_vars: HashMap::new(),
             show_overlay: true,
             streaming_enabled: true,
+            render_mode: "stream".to_string(),
             auto_copy: false,
         }
     }
@@ -75,7 +79,7 @@ impl ChainNode {
     /// Convert to ProcessingBlock for execution
     pub fn to_block(&self) -> ProcessingBlock {
         match self {
-            ChainNode::Input { id, block_type, model, prompt, language_vars, show_overlay, streaming_enabled, auto_copy } => {
+            ChainNode::Input { id, block_type, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy } => {
                 ProcessingBlock {
                     id: id.clone(),
                     block_type: block_type.clone(),
@@ -85,10 +89,11 @@ impl ChainNode {
                     language_vars: language_vars.clone(),
                     show_overlay: *show_overlay,
                     streaming_enabled: *streaming_enabled,
+                    render_mode: render_mode.clone(),
                     auto_copy: *auto_copy,
                 }
             }
-            ChainNode::Process { id, model, prompt, language_vars, show_overlay, streaming_enabled, auto_copy } => {
+            ChainNode::Process { id, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy } => {
                 ProcessingBlock {
                     id: id.clone(),
                     block_type: "text".to_string(),
@@ -98,6 +103,7 @@ impl ChainNode {
                     language_vars: language_vars.clone(),
                     show_overlay: *show_overlay,
                     streaming_enabled: *streaming_enabled,
+                    render_mode: render_mode.clone(),
                     auto_copy: *auto_copy,
                 }
             }
@@ -115,6 +121,7 @@ impl ChainNode {
                 language_vars: block.language_vars.clone(),
                 show_overlay: block.show_overlay,
                 streaming_enabled: block.streaming_enabled,
+                render_mode: block.render_mode.clone(),
                 auto_copy: block.auto_copy,
             }
         } else {
@@ -125,6 +132,7 @@ impl ChainNode {
                 language_vars: block.language_vars.clone(),
                 show_overlay: block.show_overlay,
                 streaming_enabled: block.streaming_enabled,
+                render_mode: block.render_mode.clone(),
                 auto_copy: block.auto_copy,
             }
         }
@@ -307,7 +315,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                 ui.set_max_width(250.0);
                 
                 match node {
-                    ChainNode::Input { block_type, model, prompt, language_vars, show_overlay, streaming_enabled, auto_copy, .. } => {
+                    ChainNode::Input { block_type, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, .. } => {
                         // Row 1: Model
                         let model_label = match self.ui_language.as_str() { "vi" => "Mô hình:", "ko" => "모델:", _ => "Model:" };
                         ui.horizontal(|ui| {
@@ -384,8 +392,44 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             }
                             
                             if *show_overlay {
-                                let stream_label = match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" };
-                                if ui.checkbox(streaming_enabled, stream_label).changed() { self.changed = true; }
+                                // Render Mode Dropdown (Normal, Stream, Markdown, Markdown Stream)
+                                let current_mode_label = match (render_mode.as_str(), *streaming_enabled) {
+                                    ("markdown", true) => match self.ui_language.as_str() { "vi" => "Đẹp (Stream)", "ko" => "MarkD (Strm)", _ => "MarkD (Strm)" },
+                                    ("markdown", false) => match self.ui_language.as_str() { "vi" => "Đẹp", "ko" => "마크다운", _ => "Markdown" },
+                                    (_, true) => match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" },
+                                    (_, false) => match self.ui_language.as_str() { "vi" => "Thường", "ko" => "일반", _ => "Normal" },
+                                };
+
+                                egui::ComboBox::from_id_salt(format!("render_mode_{:?}", node_id))
+                                    .selected_text(current_mode_label)
+                                    .show_ui(ui, |ui| {
+                                        let (lbl_norm, lbl_stm, lbl_md, lbl_mds) = match self.ui_language.as_str() {
+                                            "vi" => ("Thường", "Stream", "Đẹp", "Đẹp (Stream)"),
+                                            "ko" => ("일반", "스트림", "마크다운", "MarkD (Strm)"), 
+                                            _ => ("Normal", "Stream", "Markdown", "MarkD (Strm)"),
+                                        };
+
+                                        if ui.selectable_label(render_mode == "plain" && !*streaming_enabled, lbl_norm).clicked() {
+                                            *render_mode = "plain".to_string();
+                                            *streaming_enabled = false;
+                                            self.changed = true;
+                                        }
+                                        if ui.selectable_label((render_mode == "stream" || render_mode == "plain") && *streaming_enabled, lbl_stm).clicked() {
+                                            *render_mode = "stream".to_string();
+                                            *streaming_enabled = true;
+                                            self.changed = true;
+                                        }
+                                        if ui.selectable_label(render_mode == "markdown" && !*streaming_enabled, lbl_md).clicked() {
+                                            *render_mode = "markdown".to_string();
+                                            *streaming_enabled = false;
+                                            self.changed = true;
+                                        }
+                                        if ui.selectable_label(render_mode == "markdown" && *streaming_enabled, lbl_mds).clicked() {
+                                            *render_mode = "markdown".to_string();
+                                            *streaming_enabled = true;
+                                            self.changed = true;
+                                        }
+                                    });
                             }
                             
                             let copy_label = match self.ui_language.as_str() { "vi" => "Copy", "ko" => "복사", _ => "Copy" };
@@ -395,7 +439,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             }
                         });
                     }
-                    ChainNode::Process { model, prompt, language_vars, show_overlay, streaming_enabled, auto_copy, .. } => {
+                    ChainNode::Process { model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, .. } => {
                         // Row 1: Model
                         let model_label = match self.ui_language.as_str() { "vi" => "Mô hình:", "ko" => "모델:", _ => "Model:" };
                         ui.horizontal(|ui| {
@@ -460,8 +504,44 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             }
                             
                             if *show_overlay {
-                                let stream_label = match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" };
-                                if ui.checkbox(streaming_enabled, stream_label).changed() { self.changed = true; }
+                                // Render Mode Dropdown (Normal, Stream, Markdown, Markdown Stream)
+                                let current_mode_label = match (render_mode.as_str(), *streaming_enabled) {
+                                    ("markdown", true) => match self.ui_language.as_str() { "vi" => "Đẹp (Stream)", "ko" => "MarkD (Strm)", _ => "MarkD (Strm)" },
+                                    ("markdown", false) => match self.ui_language.as_str() { "vi" => "Đẹp", "ko" => "마크다운", _ => "Markdown" },
+                                    (_, true) => match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" },
+                                    (_, false) => match self.ui_language.as_str() { "vi" => "Thường", "ko" => "일반", _ => "Normal" },
+                                };
+
+                                egui::ComboBox::from_id_salt(format!("render_mode_{:?}", node_id))
+                                    .selected_text(current_mode_label)
+                                    .show_ui(ui, |ui| {
+                                        let (lbl_norm, lbl_stm, lbl_md, lbl_mds) = match self.ui_language.as_str() {
+                                            "vi" => ("Thường", "Stream", "Đẹp", "Đẹp (Stream)"),
+                                            "ko" => ("일반", "스트림", "마크다운", "MarkD (Strm)"), 
+                                            _ => ("Normal", "Stream", "Markdown", "MarkD (Strm)"),
+                                        };
+
+                                        if ui.selectable_label(render_mode == "plain" && !*streaming_enabled, lbl_norm).clicked() {
+                                            *render_mode = "plain".to_string();
+                                            *streaming_enabled = false;
+                                            self.changed = true;
+                                        }
+                                        if ui.selectable_label((render_mode == "stream" || render_mode == "plain") && *streaming_enabled, lbl_stm).clicked() {
+                                            *render_mode = "stream".to_string();
+                                            *streaming_enabled = true;
+                                            self.changed = true;
+                                        }
+                                        if ui.selectable_label(render_mode == "markdown" && !*streaming_enabled, lbl_md).clicked() {
+                                            *render_mode = "markdown".to_string();
+                                            *streaming_enabled = false;
+                                            self.changed = true;
+                                        }
+                                        if ui.selectable_label(render_mode == "markdown" && *streaming_enabled, lbl_mds).clicked() {
+                                            *render_mode = "markdown".to_string();
+                                            *streaming_enabled = true;
+                                            self.changed = true;
+                                        }
+                                    });
                             }
                             
                             let copy_label = match self.ui_language.as_str() { "vi" => "Copy", "ko" => "복사", _ => "Copy" };

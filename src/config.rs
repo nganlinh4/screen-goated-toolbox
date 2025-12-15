@@ -41,6 +41,8 @@ pub struct ProcessingBlock {
     #[serde(default)]
     pub language_vars: HashMap<String, String>, // Context vars {language1}, etc.
     pub streaming_enabled: bool,
+    #[serde(default = "default_render_mode")]
+    pub render_mode: String, // "stream", "plain", "markdown"
     
     // UI Behavior
     #[serde(default = "default_true")]
@@ -50,6 +52,7 @@ pub struct ProcessingBlock {
 }
 
 fn default_true() -> bool { true }
+fn default_render_mode() -> String { "stream".to_string() }
 fn generate_id() -> String { format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()) }
 
 impl Default for ProcessingBlock {
@@ -62,6 +65,7 @@ impl Default for ProcessingBlock {
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             streaming_enabled: true,
+            render_mode: "stream".to_string(),
             show_overlay: true,
             auto_copy: false,
         }

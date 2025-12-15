@@ -139,7 +139,7 @@ pub fn markdown_to_html(markdown: &str) -> String {
 
 /// Create a WebView child window for markdown rendering
 /// Must be called from the main thread!
-pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str) -> bool {
+pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovered: bool) -> bool {
     let hwnd_key = parent_hwnd.0 as isize;
     
     // Check if we already have a webview
@@ -159,9 +159,9 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str) -> bool {
     let wrapper = HwndWrapper(parent_hwnd);
     
     // Small margin on edges for resize handle accessibility (2px)
-    // 52px at bottom for buttons (btn_size 28 + margin 12 * 2)
+    // 52px at bottom for buttons (btn_size 28 + margin 12 * 2) if hovered
     let edge_margin = 2.0;
-    let button_area_height = 52.0;
+    let button_area_height = if is_hovered { 52.0 } else { 0.0 };
     let content_width = ((rect.right - rect.left) as f64 - edge_margin * 2.0).max(50.0);
     let content_height = ((rect.bottom - rect.top) as f64 - edge_margin - button_area_height).max(50.0);
     

@@ -456,7 +456,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         if toggle_on {
                             // Create/show markdown webview
                             if !markdown_view::has_markdown_webview(hwnd) {
-                                markdown_view::create_markdown_webview(hwnd, &full_text);
+                                markdown_view::create_markdown_webview(hwnd, &full_text, true);
                             } else {
                                 markdown_view::update_markdown_content(hwnd, &full_text);
                                 markdown_view::show_markdown_webview(hwnd);
@@ -675,10 +675,24 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 let wide_text = to_wstring(&txt);
                 SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
                 
-                let mut states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                    state.font_cache_dirty = true;
-                    state.full_text = txt.clone();
+                let (maybe_markdown_update, is_hovered) = {
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                        state.font_cache_dirty = true;
+                        state.full_text = txt.clone();
+                        
+                        if state.is_markdown_mode {
+                            (Some(state.full_text.clone()), state.is_hovered)
+                        } else {
+                            (None, false)
+                        }
+                    } else {
+                        (None, false)
+                    }
+                };
+
+                if let Some(md_text) = maybe_markdown_update {
+                    markdown_view::create_markdown_webview(hwnd, &md_text, is_hovered);
                 }
                 need_repaint = true;
             }

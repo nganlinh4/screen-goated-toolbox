@@ -55,6 +55,7 @@ pub fn create_result_window(
     preset_prompt: String,
     _unused_retrans: Option<RetranslationConfig>,
     custom_bg_color: u32,
+    render_mode: &str,
 ) -> HWND {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
@@ -167,7 +168,7 @@ pub fn create_result_window(
                 compound_search_text: String::new(),
                 compound_final_text: String::new(),
                 // Markdown mode state
-                is_markdown_mode: false,
+                is_markdown_mode: render_mode == "markdown",
                 on_markdown_btn: false,
             });
         }
@@ -197,6 +198,9 @@ pub fn create_result_window(
         }
         
         SetTimer(hwnd, 3, 16, None);
+        if render_mode == "markdown" {
+            SetTimer(hwnd, 2, 30, None);
+        }
         
         InvalidateRect(hwnd, None, false);
         UpdateWindow(hwnd);
