@@ -159,6 +159,32 @@ lazy_static::lazy_static! {
             "1000 requests/day"
         ),
         ModelConfig::new(
+            "compound_mini",
+            "groq",
+            "Search nhanh",
+            "빠른 검색",
+            "Quick Search",
+            "groq/compound-mini",
+            ModelType::Text,
+            true,
+            "250 lượt/ngày",
+            "250 요청/일",
+            "250 requests/day"
+        ),
+        ModelConfig::new(
+            "compound",
+            "groq",
+            "Search kỹ",
+            "상세 검색",
+            "Deep Search",
+            "groq/compound",
+            ModelType::Text,
+            true,
+            "250 lượt/ngày",
+            "250 요청/일",
+            "250 requests/day"
+        ),
+        ModelConfig::new(
             "text_gemini_flash_lite",
             "google",
             "Chính xác hơn",

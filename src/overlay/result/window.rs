@@ -162,6 +162,10 @@ pub fn create_result_window(
                 retrans_config: None, // Deprecated in favor of chain logic
                 graphics_mode,
                 cancellation_token: None,
+                // Compound model state
+                is_compound_searching: false,
+                compound_search_text: String::new(),
+                compound_final_text: String::new(),
             });
         }
 

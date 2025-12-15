@@ -101,6 +101,8 @@ For higher quality results, SGT can chain models:
 * `Fast Text` (GPT-OSS 20B) - Super fast.
 * `Fast 120B` (GPT-OSS 120B) - Balanced speed/quality.
 * `Accurate` (Kimi k2-instruct) - High quality Chinese/English handling.
+* `Quick Search` (Groq Compound Mini) - **NEW!** Search the web quickly for answers.
+* `Deep Search` (Groq Compound) - **NEW!** Comprehensive web search with detailed sources.
 * `Gemini Text` (Flash Lite / Flash / 2.5 Pro) - Google's text capabilities.
 
 ## Troubleshooting
