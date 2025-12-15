@@ -588,14 +588,32 @@ fn run_chain_step(
         });
     }
 
-    // NEW: Save to history for text blocks (only if result is not empty and this is a visible step)
-    if block.block_type == "text" && block.show_overlay && !result_text.trim().is_empty() {
+    // SAVE TO HISTORY: Handle both Text and Image blocks
+    if block.show_overlay && !result_text.trim().is_empty() {
         let text_for_history = result_text.clone();
-        std::thread::spawn(move || {
-            if let Ok(app) = crate::APP.lock() {
-                app.history.save_text(text_for_history);
+        
+        if block.block_type == "text" {
+            std::thread::spawn(move || {
+                if let Ok(app) = crate::APP.lock() {
+                    app.history.save_text(text_for_history);
+                }
+            });
+        } else if block.block_type == "image" {
+            // For image blocks, we need to grab the image data from the context
+            // context is RefineContext::Image(Vec<u8>) for the first block
+            if let RefineContext::Image(img_bytes) = context.clone() {
+                std::thread::spawn(move || {
+                    // Decode PNG bytes back to ImageBuffer for the history saver
+                    // (HistoryManager::save_image expects ImageBuffer<Rgba<u8>, ...>)
+                    if let Ok(img_dynamic) = image::load_from_memory(&img_bytes) {
+                        let img_buffer = img_dynamic.to_rgba8();
+                        if let Ok(app) = crate::APP.lock() {
+                            app.history.save_image(img_buffer, text_for_history);
+                        }
+                    }
+                });
             }
-        });
+        }
     }
 
     // 6. Chain Next Steps (Graph-based: find all downstream blocks)
