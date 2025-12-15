@@ -112,8 +112,27 @@ const MARKDOWN_CSS: &str = r#"
     ::-webkit-scrollbar-thumb:hover { background: #555; }
 "#;
 
-/// Convert markdown text to styled HTML
+/// Check if content is already HTML (rather than Markdown)
+fn is_html_content(content: &str) -> bool {
+    let trimmed = content.trim();
+    // Check for HTML doctype or opening html tag
+    trimmed.starts_with("<!DOCTYPE") || 
+    trimmed.starts_with("<!doctype") ||
+    trimmed.starts_with("<html") ||
+    trimmed.starts_with("<HTML") ||
+    // Check for common HTML structure patterns
+    (trimmed.contains("<html") && trimmed.contains("</html>")) ||
+    (trimmed.contains("<head") && trimmed.contains("</head>"))
+}
+
+/// Convert markdown text to styled HTML, or pass through raw HTML
 pub fn markdown_to_html(markdown: &str) -> String {
+    // If input is already HTML, return it as-is
+    if is_html_content(markdown) {
+        return markdown.to_string();
+    }
+    
+    // Otherwise, parse as Markdown
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
