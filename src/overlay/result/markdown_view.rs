@@ -1,5 +1,6 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::Win32::UI::HiDpi::*;
 use std::sync::Mutex;
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
@@ -166,12 +167,13 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
     let content_height = ((rect.bottom - rect.top) as f64 - edge_margin - button_area_height).max(50.0);
     
     // Create WebView with small margins so resize handles remain accessible
+    // Use Physical coordinates since GetClientRect returns physical pixels
     let result = WebViewBuilder::new()
         .with_bounds(Rect {
-            position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(edge_margin, edge_margin)),
-            size: wry::dpi::Size::Logical(wry::dpi::LogicalSize::new(
-                content_width,
-                content_height
+            position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(edge_margin as i32, edge_margin as i32)),
+            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                content_width as u32,
+                content_height as u32
             )),
         })
         .with_html(&html_content)
@@ -237,11 +239,12 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
         
         WEBVIEWS.with(|webviews| {
             if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+                // Use Physical coordinates since GetClientRect returns physical pixels
                 let _ = webview.set_bounds(Rect {
-                    position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(edge_margin, edge_margin)),
-                    size: wry::dpi::Size::Logical(wry::dpi::LogicalSize::new(
-                        content_width,
-                        content_height
+                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(edge_margin as i32, edge_margin as i32)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        content_width as u32,
+                        content_height as u32
                     )),
                 });
             }
