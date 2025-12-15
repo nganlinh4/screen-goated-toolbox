@@ -76,7 +76,7 @@ pub fn paint_window(hwnd: HWND) {
 
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
         let (
-             bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, on_undo_btn, broom_data, particles,
+             bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, on_undo_btn, on_markdown_btn, is_markdown_mode, broom_data, particles,
              mut cached_text_bm, _cached_font_size, cache_dirty,
              cached_bg_bm,
              is_refining,
@@ -146,6 +146,7 @@ pub fn paint_window(hwnd: HWND) {
                         && !state.on_copy_btn 
                         && !state.on_edit_btn
                         && !state.on_undo_btn
+                        && !state.on_markdown_btn
                         && state.current_resize_edge == ResizeEdge::None
                 );
                 
@@ -159,7 +160,7 @@ pub fn paint_window(hwnd: HWND) {
                 } else { None };
 
                 (
-                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, state.on_undo_btn, broom_info, particles_vec,
+                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, state.on_undo_btn, state.on_markdown_btn, state.is_markdown_mode, broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap,
                     state.is_refining,
@@ -168,7 +169,7 @@ pub fn paint_window(hwnd: HWND) {
                     state.graphics_mode.clone()
                 )
             } else {
-                (0, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0, "standard".to_string())
+                (0, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0, "standard".to_string())
             }
         };
 
@@ -195,7 +196,8 @@ pub fn paint_window(hwnd: HWND) {
         }
 
         // --- PHASE 3: TEXT CACHE UPDATE ---
-        if !is_refining {
+        // Skip text rendering when in markdown mode (WebView handles it) or refining
+        if !is_refining && !is_markdown_mode {
             if cache_dirty || cached_text_bm.0 == 0 {
                 if cached_text_bm.0 != 0 { DeleteObject(cached_text_bm); }
 
@@ -437,7 +439,8 @@ pub fn paint_window(hwnd: HWND) {
                 };
                 let cx_copy = (width - margin - btn_size / 2) as f32;
                 let cx_edit = cx_copy - (btn_size as f32) - 8.0;
-                let cx_undo = cx_edit - (btn_size as f32) - 8.0;
+                let cx_md = cx_edit - (btn_size as f32) - 8.0;     // MD is between Edit and Undo
+                let cx_undo = cx_md - (btn_size as f32) - 8.0;
                 
                 let radius = 13.0;
 
@@ -459,8 +462,16 @@ pub fn paint_window(hwnd: HWND) {
                 } else {
                     (80.0, 80.0, 80.0)
                 };
+                // Markdown button - cyan when active, blue when hovered
+                let (tr_m, tg_m, tb_m) = if is_markdown_mode {
+                    (60.0, 180.0, 200.0)  // Cyan when in markdown mode
+                } else if on_markdown_btn {
+                    (100.0, 140.0, 180.0) // Light blue on hover
+                } else {
+                    (80.0, 80.0, 80.0)
+                };
 
-                let b_start_x = (cx_undo - radius - 4.0) as i32;
+                let b_start_x = (cx_undo - radius - 4.0) as i32;   // Undo is now leftmost
                 let b_end_x = (cx_copy + radius + 4.0) as i32;
                 let b_start_y = (cy - radius - 4.0) as i32;
                 let b_end_y = (cy + radius + 4.0) as i32;
@@ -544,9 +555,27 @@ pub fn paint_window(hwnd: HWND) {
                             icon_alpha_u = (1.3 - d_arrow).clamp(0.0, 1.0);
                         }
 
+                        // --- MARKDOWN BUTTON (Document with M icon) ---
+                        let dx_m = (fx - cx_md).abs();
+                        let dist_m = (dx_m*dx_m + dy*dy).sqrt();
+                        let aa_body_m = (radius + 0.5 - dist_m).clamp(0.0, 1.0);
+                        let border_alpha_m = ((radius + 0.5 - dist_m).clamp(0.0, 1.0) * ((dist_m - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                        
+                        // Draw "M" letter for Markdown
+                        let fx_rel = fx - cx_md;
+                        let fy_rel = fy - cy;
+                        // Simple M shape using line segments
+                        let d_m1 = dist_segment(fx, fy, cx_md - 4.0, cy + 4.0, cx_md - 4.0, cy - 4.0); // left vertical
+                        let d_m2 = dist_segment(fx, fy, cx_md - 4.0, cy - 4.0, cx_md, cy + 1.0);       // left diagonal
+                        let d_m3 = dist_segment(fx, fy, cx_md, cy + 1.0, cx_md + 4.0, cy - 4.0);      // right diagonal
+                        let d_m4 = dist_segment(fx, fy, cx_md + 4.0, cy - 4.0, cx_md + 4.0, cy + 4.0); // right vertical
+                        let d_m = d_m1.min(d_m2).min(d_m3).min(d_m4);
+                        let icon_alpha_m = (1.5 - d_m).clamp(0.0, 1.0);
+
                         if aa_body_c > 0.0 || border_alpha_c > 0.0 || icon_alpha_c > 0.0 ||
                            aa_body_e > 0.0 || border_alpha_e > 0.0 || icon_alpha_e > 0.0 ||
-                           aa_body_u > 0.0 || border_alpha_u > 0.0 || icon_alpha_u > 0.0 {
+                           aa_body_u > 0.0 || border_alpha_u > 0.0 || icon_alpha_u > 0.0 ||
+                           aa_body_m > 0.0 || border_alpha_m > 0.0 || icon_alpha_m > 0.0 {
                             let idx = (y * width + x) as usize;
                             let bg = raw_pixels[idx];
                             let bg_b = (bg & 0xFF) as f32;
@@ -611,6 +640,24 @@ pub fn paint_window(hwnd: HWND) {
                                     final_g = 255.0 * icon_alpha_u + final_g * (1.0 - icon_alpha_u);
                                     final_b = 255.0 * icon_alpha_u + final_b * (1.0 - icon_alpha_u);
                                 }
+                            }
+
+                            // BLEND MARKDOWN
+                            if aa_body_m > 0.0 {
+                                let alpha = 0.9 * aa_body_m;
+                                final_r = tr_m * alpha + final_r * (1.0 - alpha);
+                                final_g = tg_m * alpha + final_g * (1.0 - alpha);
+                                final_b = tb_m * alpha + final_b * (1.0 - alpha);
+                            }
+                            if border_alpha_m > 0.0 {
+                                final_r += 255.0 * border_alpha_m;
+                                final_g += 255.0 * border_alpha_m;
+                                final_b += 255.0 * border_alpha_m;
+                            }
+                            if icon_alpha_m > 0.0 {
+                                final_r = 255.0 * icon_alpha_m + final_r * (1.0 - icon_alpha_m);
+                                final_g = 255.0 * icon_alpha_m + final_g * (1.0 - icon_alpha_m);
+                                final_b = 255.0 * icon_alpha_m + final_b * (1.0 - icon_alpha_m);
                             }
 
                             final_r = final_r.min(255.0);

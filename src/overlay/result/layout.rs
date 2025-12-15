@@ -87,7 +87,8 @@ pub fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
     }
 }
 
-pub fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
+// Markdown button is between Edit and Copy buttons
+pub fn get_markdown_btn_rect(window_w: i32, window_h: i32) -> RECT {
     let edit_rect = get_edit_btn_rect(window_w, window_h);
     let gap = 8;
     let width = edit_rect.right - edit_rect.left;
@@ -96,6 +97,18 @@ pub fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
         top: edit_rect.top,
         right: edit_rect.left - gap,
         bottom: edit_rect.bottom
+    }
+}
+
+pub fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let md_rect = get_markdown_btn_rect(window_w, window_h);
+    let gap = 8;
+    let width = md_rect.right - md_rect.left;
+    RECT {
+        left: md_rect.left - width - gap,
+        top: md_rect.top,
+        right: md_rect.left - gap,
+        bottom: md_rect.bottom
     }
 }
 

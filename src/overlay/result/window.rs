@@ -166,6 +166,9 @@ pub fn create_result_window(
                 is_compound_searching: false,
                 compound_search_text: String::new(),
                 compound_final_text: String::new(),
+                // Markdown mode state
+                is_markdown_mode: false,
+                on_markdown_btn: false,
             });
         }
 
