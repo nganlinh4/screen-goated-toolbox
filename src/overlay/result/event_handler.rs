@@ -9,10 +9,11 @@ use std::sync::{Arc, Mutex};
 
 use crate::overlay::utils::to_wstring;
 use super::state::{WINDOW_STATES, InteractionMode, ResizeEdge, RefineContext, link_windows, WindowType};
-use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_resize_edge};
+use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_markdown_btn_rect, get_resize_edge};
 use super::logic;
 use super::paint;
-use super::window::{create_result_window, update_window_text}; 
+use super::window::{create_result_window, update_window_text};
+use super::markdown_view; 
 
 // Helper to apply rounded corners (duplicate needed since it's private in window.rs)
 unsafe fn set_rounded_edit_region(h_edit: HWND, w: i32, h: i32) {
@@ -88,7 +89,10 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     
                     let on_undo = has_history && pt.x >= undo_rect.left && pt.x <= undo_rect.right && pt.y >= undo_rect.top && pt.y <= undo_rect.bottom;
                     
-                    if on_copy || on_edit || on_undo {
+                    let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
+                    let on_md = pt.x >= md_rect.left && pt.x <= md_rect.right && pt.y >= md_rect.top && pt.y <= md_rect.bottom;
+                    
+                    if on_copy || on_edit || on_undo || on_md {
                         cursor_id = IDC_HAND;
                     }
                 }
@@ -235,11 +239,18 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     } else {
                         state.on_undo_btn = false;
                     }
+                    
+                    let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
+                    state.on_markdown_btn = x as i32 >= md_rect.left - padding && x as i32 <= md_rect.right + padding && y as i32 >= md_rect.top - padding && y as i32 <= md_rect.bottom + padding;
 
-                    if !state.is_hovered {
+                    // In markdown mode, let the Timer handle is_hovered state to ensure it syncs with WebView resize
+                    let handle_hover_in_mousemove = !state.is_markdown_mode;
+
+                    if handle_hover_in_mousemove && !state.is_hovered {
                         state.is_hovered = true;
                         let mut tme = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
                         TrackMouseEvent(&mut tme);
+                        // Note: WebView resize is now handled by Timer 2 to avoid race conditions
                     }
 
                     match &state.interaction_mode {
@@ -293,6 +304,10 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                                  SetWindowPos(state.edit_hwnd, HWND_TOP, 10, 10, edit_w, edit_h, SWP_NOACTIVATE);
                                  set_rounded_edit_region(state.edit_hwnd, edit_w, edit_h);
                             }
+                            // Resize markdown webview if in markdown mode
+                            if state.is_markdown_mode {
+                                markdown_view::resize_markdown_webview(hwnd, state.is_hovered);
+                            }
                         }
                         _ => {}
                     }
@@ -309,11 +324,13 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         }
 
         0x02A3 => { // WM_MOUSELEAVE
+            // Check if cursor is actually outside the window (not just moved to a child window like WebView)
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                state.is_hovered = false;
+                // Just clear button states (timer handles main hover/resize logic)
                 state.on_copy_btn = false;
-                state.on_undo_btn = false; 
+                state.on_undo_btn = false;
+                state.on_markdown_btn = false;
                 state.current_resize_edge = ResizeEdge::None; 
                 InvalidateRect(hwnd, None, false);
             }
@@ -326,6 +343,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             let mut is_copy_click = false;
             let mut is_edit_click = false;
             let mut is_undo_click = false;
+            let mut is_markdown_click = false;
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -335,6 +353,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         is_copy_click = state.on_copy_btn;
                         is_edit_click = state.on_edit_btn;
                         is_undo_click = state.on_undo_btn;
+                        is_markdown_click = state.on_markdown_btn;
                     }
                 }
             }
@@ -363,14 +382,27 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                  } else if is_edit_click {
                     let mut show = false;
                     let mut h_edit = HWND(0);
+                    let mut was_markdown_mode = false;
                     {
                         let mut states = WINDOW_STATES.lock().unwrap();
                         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                             state.is_editing = !state.is_editing;
                             show = state.is_editing;
                             h_edit = state.edit_hwnd;
+                            
+                            // Auto-disable markdown mode when entering edit mode
+                            if show && state.is_markdown_mode {
+                                was_markdown_mode = true;
+                                state.is_markdown_mode = false;
+                            }
                         }
                     }
+                    
+                    // Hide markdown webview if it was on
+                    if was_markdown_mode {
+                        markdown_view::hide_markdown_webview(hwnd);
+                    }
+                    
                     if show {
                         let mut rect = RECT::default();
                         GetClientRect(hwnd, &mut rect);
@@ -398,6 +430,47 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         }
                     }
                     SetTimer(hwnd, 1, 1500, None);
+                 } else if is_markdown_click {
+                    // Only allow markdown toggle when NOT refining
+                    let can_toggle = {
+                        let states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                            !state.is_refining
+                        } else {
+                            false
+                        }
+                    };
+                    
+                    if can_toggle {
+                        // Toggle markdown mode
+                        let (toggle_on, full_text) = {
+                            let mut states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                state.is_markdown_mode = !state.is_markdown_mode;
+                                (state.is_markdown_mode, state.full_text.clone())
+                            } else {
+                                (false, String::new())
+                            }
+                        };
+                        
+                        if toggle_on {
+                            // Create/show markdown webview
+                            if !markdown_view::has_markdown_webview(hwnd) {
+                                markdown_view::create_markdown_webview(hwnd, &full_text);
+                            } else {
+                                markdown_view::update_markdown_content(hwnd, &full_text);
+                                markdown_view::show_markdown_webview(hwnd);
+                            }
+                            // Start hover polling timer (ID 2, 30ms interval)
+                            SetTimer(hwnd, 2, 30, None);
+                        } else {
+                            // Hide markdown webview, show plain text
+                            markdown_view::hide_markdown_webview(hwnd);
+                            // Stop hover polling timer
+                            KillTimer(hwnd, 2);
+                        }
+                        InvalidateRect(hwnd, None, false);
+                    }
                  } else {
                       let linked_hwnd = {
                           let states = WINDOW_STATES.lock().unwrap();
@@ -471,6 +544,60 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         }
 
         WM_TIMER => {
+            let timer_id = wparam.0;
+            
+            // Timer ID 2: Markdown hover polling (The Authority on WebView Sizing)
+            if timer_id == 2 {
+                let mut cursor_pos = POINT::default();
+                GetCursorPos(&mut cursor_pos);
+                let mut window_rect = RECT::default();
+                GetWindowRect(hwnd, &mut window_rect);
+                
+                // Check if cursor is geometrically inside the window rect
+                let cursor_inside = cursor_pos.x >= window_rect.left && cursor_pos.x < window_rect.right
+                                 && cursor_pos.y >= window_rect.top && cursor_pos.y < window_rect.bottom;
+                
+                let (is_markdown_mode, current_hover_state) = {
+                    let states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                        (state.is_markdown_mode, state.is_hovered)
+                    } else {
+                        (false, false)
+                    }
+                };
+                
+                if is_markdown_mode {
+                    // State change detection
+                    if cursor_inside && !current_hover_state {
+                        // Enter: Mark hovered -> Shrink WebView -> Buttons visible
+                        {
+                            let mut states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                state.is_hovered = true;
+                            }
+                        }
+                        markdown_view::resize_markdown_webview(hwnd, true);
+                        InvalidateRect(hwnd, None, false);
+                    } else if !cursor_inside && current_hover_state {
+                        // Leave: Mark unhovered -> Expand WebView -> Clean look
+                        {
+                            let mut states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                state.is_hovered = false;
+                                state.on_copy_btn = false;
+                                state.on_undo_btn = false;
+                                state.on_markdown_btn = false;
+                            }
+                        }
+                        markdown_view::resize_markdown_webview(hwnd, false);
+                        InvalidateRect(hwnd, None, false);
+                    }
+                }
+                
+                return LRESULT(0);
+            }
+            
+            // Timer ID 1 and other timers: existing logic
             let mut need_repaint = false;
             let mut pending_update: Option<String> = None;
             let now = SystemTime::now()
@@ -668,6 +795,10 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     if state.edit_font.0 != 0 {
                         DeleteObject(state.edit_font);
                     }
+                    
+                    // Cleanup markdown webview and timer
+                    KillTimer(hwnd, 2);
+                    markdown_view::destroy_markdown_webview(hwnd);
                 } else {
                     windows_to_close = Vec::new();
                     token_to_signal = None;

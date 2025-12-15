@@ -42,6 +42,11 @@ tray-icon = "0.19.1"
 cpal = "0.15"
 hound = "3.5"
 
+# Markdown Rendering
+pulldown-cmark = "0.10"
+wry = "0.47"
+raw-window-handle = "0.6"
+
 [dependencies.windows]
 version = "0.48"
 features = [

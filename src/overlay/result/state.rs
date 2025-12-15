@@ -172,6 +172,10 @@ pub struct WindowState {
     pub is_compound_searching: bool,       // True while showing reasoning/search process
     pub compound_search_text: String,      // Temporary text during search phase
     pub compound_final_text: String,       // Final answer text
+    
+    // Markdown mode state
+    pub is_markdown_mode: bool,            // True when showing markdown view
+    pub on_markdown_btn: bool,             // Hover state for markdown button
 }
 
 /// Check if a cancellation token is set (chain should stop)
