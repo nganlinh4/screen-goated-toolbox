@@ -205,7 +205,8 @@ pub fn start_processing_pipeline(
                 true, // start_editing
                 block0.prompt.clone(), 
                 None, 
-                get_chain_color(0)
+                get_chain_color(0),
+                &block0.render_mode
             );
             unsafe { ShowWindow(hwnd, SW_SHOW); }
             unsafe { let mut m = MSG::default(); while GetMessageW(&mut m, None, 0, 0).into() { TranslateMessage(&m); DispatchMessageW(&m); if !IsWindow(hwnd).as_bool() { break; } } }
@@ -381,6 +382,7 @@ fn run_chain_step(
         let prov = provider.clone();
         let prompt_c = final_prompt.clone();
         let stream_en = block.streaming_enabled;
+        let render_md = block.render_mode.clone();
         
         let parent_clone = parent_hwnd.clone();
         let (tx_hwnd, rx_hwnd) = std::sync::mpsc::channel();
@@ -399,7 +401,8 @@ fn run_chain_step(
                 false, 
                 prompt_c, 
                 None, 
-                bg_color
+                bg_color,
+                &render_md
             );
             
             if let Ok(p_guard) = parent_clone.lock() {
