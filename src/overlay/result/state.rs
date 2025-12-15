@@ -167,6 +167,11 @@ pub struct WindowState {
     
     // Cancellation token - set to true when window is destroyed to stop ongoing chains
     pub cancellation_token: Option<Arc<AtomicBool>>,
+    
+    // Compound model multi-stage display state
+    pub is_compound_searching: bool,       // True while showing reasoning/search process
+    pub compound_search_text: String,      // Temporary text during search phase
+    pub compound_final_text: String,       // Final answer text
 }
 
 /// Check if a cancellation token is set (chain should stop)

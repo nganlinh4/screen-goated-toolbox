@@ -108,96 +108,265 @@ where
             return Err(anyhow::anyhow!("NO_API_KEY:groq"));
         }
 
-        let payload = if streaming_enabled {
-            serde_json::json!({
+        // Check if this is a compound model (agentic with web search)
+        let is_compound = model.starts_with("groq/compound");
+        
+        if is_compound {
+            // --- COMPOUND MODEL API ---
+            // Compound models are non-streaming agentic models that do web search
+            let payload = serde_json::json!({
                 "model": model,
                 "messages": [
+                    { 
+                        "role": "system", 
+                        "content": "IMPORTANT: Limit yourself to a maximum of 3 tool calls total. Make 1-2 focused searches, then answer. Do not visit websites unless absolutely necessary. Be efficient." 
+                    },
                     { "role": "user", "content": prompt }
                 ],
-                "stream": true
-            })
-        } else {
-            let mut payload_obj = serde_json::json!({
-                "model": model,
-                "messages": [
-                    { "role": "user", "content": prompt }
-                ],
-                "stream": false
-            });
-            
-            if use_json_format {
-                payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
-            }
-            
-            payload_obj
-        };
-
-        let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
-            .set("Authorization", &format!("Bearer {}", groq_api_key))
-            .send_json(payload)
-            .map_err(|e| {
-                let err_str = e.to_string();
-                if err_str.contains("401") {
-                    anyhow::anyhow!("INVALID_API_KEY")
-                } else {
-                    anyhow::anyhow!("{}", err_str)
+                "temperature": 1,
+                "max_completion_tokens": 2048,
+                "stream": false,
+                "compound_custom": {
+                    "tools": {
+                        "enabled_tools": ["web_search", "visit_website"]
+                    }
                 }
-            })?;
+            });
 
-        // --- CAPTURE RATE LIMITS ---
-        if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-             let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
-             let usage_str = format!("{} / {}", remaining, limit);
-             
-             if let Ok(mut app) = APP.lock() {
-                 app.model_usage_stats.insert(model.clone(), usage_str);
-             }
-        }
-        // ---------------------------
-
-        if streaming_enabled {
-            let reader = BufReader::new(resp.into_reader());
+            // Show initial searching state
+            on_chunk("🔍 Đang tìm kiếm...");
             
-            for line in reader.lines() {
-                let line = line?;
-                if line.starts_with("data: ") {
-                    let data = &line[6..];
-                    if data == "[DONE]" { break; }
-                    
-                    match serde_json::from_str::<StreamChunk>(data) {
-                        Ok(chunk) => {
-                            if let Some(content) = chunk.choices.get(0)
-                                .and_then(|c| c.delta.content.as_ref()) {
-                                full_content.push_str(content);
-                                on_chunk(content);
+            let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
+                .set("Authorization", &format!("Bearer {}", groq_api_key))
+                .timeout(std::time::Duration::from_secs(60)) // Compound can take longer
+                .send_json(payload)
+                .map_err(|e| {
+                    let err_str = e.to_string();
+                    if err_str.contains("401") {
+                        anyhow::anyhow!("INVALID_API_KEY")
+                    } else {
+                        anyhow::anyhow!("{}", err_str)
+                    }
+                })?;
+
+            // --- CAPTURE RATE LIMITS ---
+            if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                 let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                 let usage_str = format!("{} / {}", remaining, limit);
+                 
+                 if let Ok(mut app) = APP.lock() {
+                     app.model_usage_stats.insert(model.clone(), usage_str);
+                 }
+            }
+
+            // Parse the compound response
+            let json: serde_json::Value = resp.into_json()
+                .map_err(|e| anyhow::anyhow!("Failed to parse compound response: {}", e))?;
+
+            // Show search phase: Display search queries and sources
+            if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
+                if let Some(first_choice) = choices.first() {
+                    if let Some(message) = first_choice.get("message") {
+                        
+                        // PHASE 1: Extract and show search queries from executed_tools arguments
+                        if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
+                            let mut search_queries = Vec::new();
+                            for tool in executed_tools {
+                                if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str()) {
+                                    if tool_type == "search" {
+                                        if let Some(args) = tool.get("arguments").and_then(|a| a.as_str()) {
+                                            // Parse JSON arguments to get query
+                                            if let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args) {
+                                                if let Some(query) = args_json.get("query").and_then(|q| q.as_str()) {
+                                                    search_queries.push(query.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if !search_queries.is_empty() {
+                                let mut phase1 = String::from("🔍 ĐANG TÌM KIẾM...\n\n");
+                                phase1.push_str("📝 Truy vấn tìm kiếm:\n");
+                                for (i, query) in search_queries.iter().enumerate() {
+                                    phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, query));
+                                }
+                                on_chunk(&phase1);
+                                std::thread::sleep(std::time::Duration::from_millis(800));
+                            }
+                            
+                            // PHASE 2: Show sources found with details
+                            let mut all_sources = Vec::new();
+                            for tool in executed_tools {
+                                if let Some(search_results) = tool.get("search_results")
+                                    .and_then(|s| s.get("results"))
+                                    .and_then(|r| r.as_array()) 
+                                {
+                                    for result in search_results {
+                                        let title = result.get("title").and_then(|t| t.as_str()).unwrap_or("(Không có tiêu đề)");
+                                        let url = result.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                                        let score = result.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                                        let content = result.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                                        
+                                        all_sources.push((title.to_string(), url.to_string(), score, content.to_string()));
+                                    }
+                                }
+                            }
+                            
+                            if !all_sources.is_empty() {
+                                // Sort by score descending
+                                all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                                
+                                let mut phase2 = format!("📚 ĐÃ TÌM THẤY {} NGUỒN\n\n", all_sources.len());
+                                phase2.push_str("🌐 Nguồn tham khảo (theo độ liên quan):\n\n");
+                                
+                                for (i, (title, url, score, content)) in all_sources.iter().take(6).enumerate() {
+                                    // Truncate title if too long (character-aware for UTF-8)
+                                    let title_display = if title.chars().count() > 60 {
+                                        format!("{}...", title.chars().take(57).collect::<String>())
+                                    } else {
+                                        title.clone()
+                                    };
+                                    
+                                    // Extract domain from URL
+                                    let domain = url.split('/').nth(2).unwrap_or(url);
+                                    
+                                    // Show score as percentage
+                                    let score_pct = (score * 100.0) as i32;
+                                    
+                                    phase2.push_str(&format!("{}. {} [{}%]\n", i + 1, title_display, score_pct));
+                                    phase2.push_str(&format!("   🔗 {}\n", domain));
+                                    
+                                    // Show content preview (first 100 chars)
+                                    if !content.is_empty() {
+                                        let preview = if content.len() > 100 {
+                                            format!("{}...", content.chars().take(100).collect::<String>().replace('\n', " "))
+                                        } else {
+                                            content.replace('\n', " ")
+                                        };
+                                        phase2.push_str(&format!("   📄 {}\n", preview));
+                                    }
+                                    phase2.push('\n');
+                                }
+                                
+                                on_chunk(&phase2);
+                                std::thread::sleep(std::time::Duration::from_millis(1200));
+                                
+                                // PHASE 3: Synthesizing message
+                                let phase3 = format!(
+                                    "⚡ ĐANG TỔNG HỢP THÔNG TIN...\n\n\
+                                    � Đã phân tích {} nguồn\n\
+                                    🧠 Đang xử lý và tóm tắt kết quả...\n",
+                                    all_sources.len().min(6)
+                                );
+                                on_chunk(&phase3);
+                                std::thread::sleep(std::time::Duration::from_millis(600));
                             }
                         }
-                        Err(_) => continue,
+                        
+                        // FINAL PHASE: Show the actual content (final answer)
+                        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                            full_content = content.to_string();
+                            on_chunk(&full_content);
+                        }
                     }
                 }
             }
+            
         } else {
-            let chat_resp: ChatCompletionResponse = resp.into_json()
-                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
-
-            if let Some(choice) = chat_resp.choices.first() {
-                let content_str = &choice.message.content;
+            // --- STANDARD GROQ API ---
+            let payload = if streaming_enabled {
+                serde_json::json!({
+                    "model": model,
+                    "messages": [
+                        { "role": "user", "content": prompt }
+                    ],
+                    "stream": true
+                })
+            } else {
+                let mut payload_obj = serde_json::json!({
+                    "model": model,
+                    "messages": [
+                        { "role": "user", "content": prompt }
+                    ],
+                    "stream": false
+                });
                 
                 if use_json_format {
-                    if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
-                        if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
-                            full_content = translation.to_string();
+                    payload_obj["response_format"] = serde_json::json!({ "type": "json_object" });
+                }
+                
+                payload_obj
+            };
+
+            let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
+                .set("Authorization", &format!("Bearer {}", groq_api_key))
+                .send_json(payload)
+                .map_err(|e| {
+                    let err_str = e.to_string();
+                    if err_str.contains("401") {
+                        anyhow::anyhow!("INVALID_API_KEY")
+                    } else {
+                        anyhow::anyhow!("{}", err_str)
+                    }
+                })?;
+
+            // --- CAPTURE RATE LIMITS ---
+            if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                 let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                 let usage_str = format!("{} / {}", remaining, limit);
+                 
+                 if let Ok(mut app) = APP.lock() {
+                     app.model_usage_stats.insert(model.clone(), usage_str);
+                 }
+            }
+            // ---------------------------
+
+            if streaming_enabled {
+                let reader = BufReader::new(resp.into_reader());
+                
+                for line in reader.lines() {
+                    let line = line?;
+                    if line.starts_with("data: ") {
+                        let data = &line[6..];
+                        if data == "[DONE]" { break; }
+                        
+                        match serde_json::from_str::<StreamChunk>(data) {
+                            Ok(chunk) => {
+                                if let Some(content) = chunk.choices.get(0)
+                                    .and_then(|c| c.delta.content.as_ref()) {
+                                    full_content.push_str(content);
+                                    on_chunk(content);
+                                }
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                }
+            } else {
+                let chat_resp: ChatCompletionResponse = resp.into_json()
+                    .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+
+                if let Some(choice) = chat_resp.choices.first() {
+                    let content_str = &choice.message.content;
+                    
+                    if use_json_format {
+                        if let Ok(json_obj) = serde_json::from_str::<serde_json::Value>(content_str) {
+                            if let Some(translation) = json_obj.get("translation").and_then(|v| v.as_str()) {
+                                full_content = translation.to_string();
+                            } else {
+                                full_content = content_str.clone();
+                            }
                         } else {
                             full_content = content_str.clone();
                         }
                     } else {
                         full_content = content_str.clone();
                     }
-                } else {
-                    full_content = content_str.clone();
+                    
+                    on_chunk(&full_content);
                 }
-                
-                on_chunk(&full_content);
             }
         }
     }
@@ -307,46 +476,153 @@ where
         } else {
             if groq_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:groq")); }
             
-            let payload = serde_json::json!({
-                "model": p_model,
-                "messages": [{ "role": "user", "content": final_prompt }],
-                "stream": streaming_enabled
-            });
+            // Check if this is a compound model
+            let is_compound = p_model.starts_with("groq/compound");
             
-            let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
-                .set("Authorization", &format!("Bearer {}", groq_api_key))
-                .send_json(payload)
-                .map_err(|e| anyhow::anyhow!("Groq Refine Error: {}", e))?;
-
-            if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                 let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
-                 let usage_str = format!("{} / {}", remaining, limit);
-                 if let Ok(mut app) = APP.lock() {
-                     app.model_usage_stats.insert(p_model.clone(), usage_str);
-                 }
-            }
-
-            if streaming_enabled {
-                let reader = BufReader::new(resp.into_reader());
-                for line in reader.lines() {
-                    let line = line?;
-                    if line.starts_with("data: ") {
-                         let data = &line[6..];
-                         if data == "[DONE]" { break; }
-                         if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data) {
-                             if let Some(content) = chunk.choices.get(0).and_then(|c| c.delta.content.as_ref()) {
-                                 full_content.push_str(content);
-                                 on_chunk(content);
-                             }
-                         }
+            if is_compound {
+                // Compound model handling
+                let payload = serde_json::json!({
+                    "model": p_model,
+                    "messages": [
+                        { 
+                            "role": "system", 
+                            "content": "IMPORTANT: Limit yourself to a maximum of 3 tool calls total. Make 1-2 focused searches, then answer. Do not visit websites unless absolutely necessary. Be efficient." 
+                        },
+                        { "role": "user", "content": final_prompt }
+                    ],
+                    "temperature": 1,
+                    "max_completion_tokens": 2048,
+                    "stream": false,
+                    "compound_custom": {
+                        "tools": {
+                            "enabled_tools": ["web_search", "visit_website"]
+                        }
+                    }
+                });
+                
+                on_chunk("🔍 Đang tìm kiếm...");
+                
+                let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
+                    .set("Authorization", &format!("Bearer {}", groq_api_key))
+                    .timeout(std::time::Duration::from_secs(60))
+                    .send_json(payload)
+                    .map_err(|e| anyhow::anyhow!("Groq Compound Refine Error: {}", e))?;
+                
+                if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                    let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                    let usage_str = format!("{} / {}", remaining, limit);
+                    if let Ok(mut app) = APP.lock() {
+                        app.model_usage_stats.insert(p_model.clone(), usage_str);
+                    }
+                }
+                
+                let json: serde_json::Value = resp.into_json()?;
+                
+                if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
+                    if let Some(first_choice) = choices.first() {
+                        if let Some(message) = first_choice.get("message") {
+                            // Show sources if available
+                            if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
+                                // Extract search queries
+                                let mut search_queries = Vec::new();
+                                for tool in executed_tools {
+                                    if tool.get("type").and_then(|t| t.as_str()) == Some("search") {
+                                        if let Some(args) = tool.get("arguments").and_then(|a| a.as_str()) {
+                                            if let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args) {
+                                                if let Some(query) = args_json.get("query").and_then(|q| q.as_str()) {
+                                                    search_queries.push(query.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                if !search_queries.is_empty() {
+                                    let mut phase1 = String::from("� ĐANG TÌM KIẾM...\n\n📝 Truy vấn:\n");
+                                    for (i, q) in search_queries.iter().enumerate() {
+                                        phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, q));
+                                    }
+                                    on_chunk(&phase1);
+                                    std::thread::sleep(std::time::Duration::from_millis(600));
+                                }
+                                
+                                // Collect sources
+                                let mut all_sources = Vec::new();
+                                for tool in executed_tools {
+                                    if let Some(results) = tool.get("search_results").and_then(|s| s.get("results")).and_then(|r| r.as_array()) {
+                                        for r in results {
+                                            let title = r.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                                            let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                                            let score = r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                                            all_sources.push((title.to_string(), url.to_string(), score));
+                                        }
+                                    }
+                                }
+                                
+                                if !all_sources.is_empty() {
+                                    all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                                    let mut phase2 = format!("📚 ĐÃ TÌM {} NGUỒN\n\n", all_sources.len());
+                                    for (i, (title, url, score)) in all_sources.iter().take(5).enumerate() {
+                                        let t = if title.chars().count() > 50 { format!("{}...", title.chars().take(47).collect::<String>()) } else { title.clone() };
+                                        let domain = url.split('/').nth(2).unwrap_or("");
+                                        phase2.push_str(&format!("{}. {} [{}%]\n   � {}\n", i + 1, t, (score * 100.0) as i32, domain));
+                                    }
+                                    phase2.push_str("\n⚡ Đang tổng hợp...");
+                                    on_chunk(&phase2);
+                                    std::thread::sleep(std::time::Duration::from_millis(800));
+                                }
+                            }
+                            
+                            if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                                full_content = content.to_string();
+                                on_chunk(&full_content);
+                            }
+                        }
                     }
                 }
             } else {
-                 let json: ChatCompletionResponse = resp.into_json()?;
-                 if let Some(choice) = json.choices.first() {
-                     full_content = choice.message.content.clone();
-                     on_chunk(&full_content);
-                 }
+                // Standard Groq model
+                let payload = serde_json::json!({
+                    "model": p_model,
+                    "messages": [{ "role": "user", "content": final_prompt }],
+                    "stream": streaming_enabled
+                });
+                
+                let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
+                    .set("Authorization", &format!("Bearer {}", groq_api_key))
+                    .send_json(payload)
+                    .map_err(|e| anyhow::anyhow!("Groq Refine Error: {}", e))?;
+
+                if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                     let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                     let usage_str = format!("{} / {}", remaining, limit);
+                     if let Ok(mut app) = APP.lock() {
+                         app.model_usage_stats.insert(p_model.clone(), usage_str);
+                     }
+                }
+
+                if streaming_enabled {
+                    let reader = BufReader::new(resp.into_reader());
+                    for line in reader.lines() {
+                        let line = line?;
+                        if line.starts_with("data: ") {
+                             let data = &line[6..];
+                             if data == "[DONE]" { break; }
+                             if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data) {
+                                 if let Some(content) = chunk.choices.get(0).and_then(|c| c.delta.content.as_ref()) {
+                                     full_content.push_str(content);
+                                     on_chunk(content);
+                                 }
+                             }
+                        }
+                    }
+                } else {
+                     let json: ChatCompletionResponse = resp.into_json()?;
+                     if let Some(choice) = json.choices.first() {
+                         full_content = choice.message.content.clone();
+                         on_chunk(&full_content);
+                     }
+                }
             }
         }
         

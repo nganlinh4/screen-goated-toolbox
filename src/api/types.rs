@@ -28,4 +28,43 @@ pub struct ChatChoice {
 #[derive(Serialize, Deserialize)]
 pub struct ChatMessage {
     pub content: String,
+    // Compound model fields (optional)
+    #[serde(default)]
+    pub reasoning: Option<String>,
+    #[serde(default)]
+    pub executed_tools: Option<Vec<ExecutedTool>>,
+}
+
+// --- COMPOUND MODEL TYPES ---
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ExecutedTool {
+    #[serde(default)]
+    pub index: i32,
+    #[serde(rename = "type", default)]
+    pub tool_type: String,
+    #[serde(default)]
+    pub arguments: Option<String>,
+    #[serde(default)]
+    pub output: Option<String>,
+    #[serde(default)]
+    pub search_results: Option<SearchResults>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SearchResults {
+    #[serde(default)]
+    pub results: Vec<SearchResult>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SearchResult {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub score: f64,
 }
