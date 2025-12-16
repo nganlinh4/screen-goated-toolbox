@@ -462,7 +462,7 @@ impl Default for Config {
         p5b.blocks = vec![
             ProcessingBlock {
                 block_type: "text".to_string(),
-                model: "compound-mini".to_string(),
+                model: "compound_mini".to_string(),
                 prompt: "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
@@ -676,6 +676,35 @@ impl Default for Config {
             }
         ];
 
+        // 14b. Kiểm chứng thông tin (Fact Check) - IMAGE preset with chain
+        let mut p14b = Preset::default();
+        p14b.id = "preset_fact_check".to_string();
+        p14b.name = "Kiểm chứng thông tin".to_string();
+        p14b.preset_type = "image".to_string();
+        p14b.blocks = vec![
+            ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "maverick".to_string(),
+                prompt: "Extract and describe all text, claims, statements, and information visible in this image. Include any context that might be relevant for fact-checking. Output the content clearly.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: false,
+                ..Default::default()
+            },
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "compound_mini".to_string(),
+                prompt: "Fact-check the following claims/information. Search the internet to verify accuracy. Provide a clear verdict (TRUE/FALSE/PARTIALLY TRUE/UNVERIFIABLE) for each claim with evidence and sources. Respond in {language1}. Format as markdown. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: true,
+                render_mode: "markdown".to_string(),
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            }
+        ];
+
         // 15. Video Summarize Placeholder
         let mut p15 = Preset::default();
         p15.id = "preset_video_summary_placeholder".to_string();
@@ -696,7 +725,7 @@ impl Default for Config {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
             presets: vec![
-                p1, p7, p2, p3, p3b, p3c, p3d, p3e, p3f, p3g, p4, p4b, p5, p5b, p6, p8, p9, p10, p11, p12, p13, p14, p15, p16
+                p1, p7, p2, p3, p3b, p3c, p3d, p3e, p3f, p3g, p4, p4b, p5, p5b, p6, p8, p9, p10, p11, p12, p13, p14, p14b, p15, p16
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
