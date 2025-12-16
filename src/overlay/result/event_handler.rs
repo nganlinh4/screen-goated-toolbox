@@ -80,19 +80,39 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     let on_edit = pt.x >= edit_rect.left && pt.x <= edit_rect.right && pt.y >= edit_rect.top && pt.y <= edit_rect.bottom;
                     
                     let mut has_history = false;
+                    let mut is_browsing = false;
                     {
                         let states = WINDOW_STATES.lock().unwrap();
                         if let Some(state) = states.get(&(hwnd.0 as isize)) {
                             has_history = !state.text_history.is_empty();
+                            is_browsing = state.is_browsing;
                         }
                     }
+                    
+                    // Manual calc for Back button rect
+                    let btn_size = 28;
+                    let margin = 12;
+                    let threshold_h = btn_size + (margin * 2);
+                    let cy = if rect.bottom < threshold_h {
+                        (rect.bottom as f32) / 2.0
+                    } else {
+                        (rect.bottom - margin - btn_size / 2) as f32
+                    };
+                    let cx_back = (margin + btn_size / 2) as i32;
+                    let cy_back = cy as i32;
+                    let back_rect = RECT { 
+                        left: cx_back - 14, top: cy_back - 14, 
+                        right: cx_back + 14, bottom: cy_back + 14 
+                    };
+                    
+                    let on_back = is_browsing && pt.x >= back_rect.left && pt.x <= back_rect.right && pt.y >= back_rect.top && pt.y <= back_rect.bottom;
                     
                     let on_undo = has_history && pt.x >= undo_rect.left && pt.x <= undo_rect.right && pt.y >= undo_rect.top && pt.y <= undo_rect.bottom;
                     
                     let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
                     let on_md = pt.x >= md_rect.left && pt.x <= md_rect.right && pt.y >= md_rect.top && pt.y <= md_rect.bottom;
                     
-                    if on_copy || on_edit || on_undo || on_md {
+                    if on_copy || on_edit || on_undo || on_md || on_back {
                         cursor_id = IDC_HAND;
                     }
                 }
@@ -240,6 +260,30 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         state.on_undo_btn = false;
                     }
                     
+                    // Calc Back Button state
+                    if state.is_browsing {
+                         let btn_size = 28;
+                         let margin = 12;
+                         let threshold_h = btn_size + (margin * 2);
+                         let cy = if rect.bottom < threshold_h {
+                            (rect.bottom as f32) / 2.0
+                        } else {
+                            (rect.bottom - margin - btn_size / 2) as f32
+                        };
+                        let cx_back = (margin + btn_size / 2) as i32;
+                        let cy_back = cy as i32;
+                        
+                        // use padding like other buttons
+                        let l = cx_back - 14 - padding;
+                        let r = cx_back + 14 + padding;
+                        let t = cy_back - 14 - padding;
+                        let b = cy_back + 14 + padding;
+                        
+                        state.on_back_btn = x as i32 >= l && x as i32 <= r && y as i32 >= t && y as i32 <= b;
+                    } else {
+                        state.on_back_btn = false;
+                    }
+                    
                     let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
                     state.on_markdown_btn = x as i32 >= md_rect.left - padding && x as i32 <= md_rect.right + padding && y as i32 >= md_rect.top - padding && y as i32 <= md_rect.bottom + padding;
 
@@ -352,6 +396,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             let mut is_edit_click = false;
             let mut is_undo_click = false;
             let mut is_markdown_click = false;
+            let mut is_back_click = false;
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -362,12 +407,15 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         is_edit_click = state.on_edit_btn;
                         is_undo_click = state.on_undo_btn;
                         is_markdown_click = state.on_markdown_btn;
+                        is_back_click = state.on_back_btn;
                     }
                 }
             }
             
             if perform_click {
-                 if is_undo_click {
+                 if is_back_click {
+                     markdown_view::go_back(hwnd);
+                 } else if is_undo_click {
                     let mut prev_text = None;
                     {
                         let mut states = WINDOW_STATES.lock().unwrap();

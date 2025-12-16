@@ -44,7 +44,8 @@ const MARKDOWN_CSS: &str = r#"
         font-family: 'Segoe UI', -apple-system, sans-serif;
         font-size: 14px;
         line-height: 1.6;
-        background: linear-gradient(180deg, #1e1e1e 0%, #151515 100%);
+        background: #1a1a1a;
+        min-height: 100vh;
         color: #e0e0e0;
         padding: 8px;
         margin: 0;
@@ -187,6 +188,7 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
     
     // Create WebView with small margins so resize handles remain accessible
     // Use Physical coordinates since GetClientRect returns physical pixels
+    let hwnd_copy = parent_hwnd;
     let result = WebViewBuilder::new()
         .with_bounds(Rect {
             position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(edge_margin as i32, edge_margin as i32)),
@@ -197,6 +199,49 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
         })
         .with_html(&html_content)
         .with_transparent(false)
+        .with_navigation_handler(move |url| {
+            // Check if this is an external navigation
+            // wry usually serves content on http://wry.localhost or custom scheme. 
+            // External links will be https:// or http:// (and not localhost potentially, or just assume distinct)
+            // Ideally we just check if it's NOT the initial load. 
+            // But initial load is via with_html, so the URL might be "wry://localhost" or "data:".
+            
+            // Simple heuristic: if it starts with http/https and is not a local wry url
+            if url.starts_with("http") && !url.contains("wry.localhost") {
+                use crate::overlay::result::state::WINDOW_STATES;
+                use windows::Win32::Graphics::Gdi::InvalidateRect;
+                
+                let mut states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&(hwnd_copy.0 as isize)) {
+                    if !state.is_browsing {
+                        state.is_browsing = true;
+                        unsafe { InvalidateRect(hwnd_copy, None, false); }
+                    }
+                }
+            } else {
+                use crate::overlay::result::state::WINDOW_STATES;
+                use windows::Win32::Graphics::Gdi::InvalidateRect;
+                
+                let mut content_to_restore = None;
+                {
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(hwnd_copy.0 as isize)) {
+                        if state.is_browsing {
+                            state.is_browsing = false;
+                            unsafe { InvalidateRect(hwnd_copy, None, false); }
+                            content_to_restore = Some(state.full_text.clone());
+                        }
+                    }
+                }
+                
+                if let Some(text) = content_to_restore {
+                    // Restore the markdown view content which was lost during navigation
+                    // Use crate path to ensure we can call the function from within the closure
+                    crate::overlay::result::markdown_view::update_markdown_content(hwnd_copy, &text);
+                }
+            }
+            true // Allow navigation
+        })
         .build_as_child(&wrapper);
     
     match result {
@@ -214,6 +259,31 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
             false
         }
     }
+}
+
+/// Navigate back in history
+pub fn go_back(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+    
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            // Evaluate JS to go back
+            // We also need to check if we are back at the start
+            // But for now, just go back. Ideally we'd hook into on_page_load
+            // to reset is_browsing if we are back at local content.
+            // For now, let's assume one level deep or just stay in "browsing" mode
+            // until the user manually resets or closes?
+            // Actually, if we inject a script to check location.href after back...
+            let _ = webview.evaluate_script(r#"
+                history.back();
+                setTimeout(() => {
+                    // Notify host if we are back at start? 
+                    // This is complex without IPC setup.
+                    // For now, we trust the user.
+                }, 100);
+            "#);
+        }
+    });
 }
 
 /// Update the markdown content in an existing WebView

@@ -176,6 +176,10 @@ pub struct WindowState {
     // Markdown mode state
     pub is_markdown_mode: bool,            // True when showing markdown view
     pub on_markdown_btn: bool,             // Hover state for markdown button
+    
+    // Web Browsing State
+    pub is_browsing: bool,                 // True when user has navigated away from initial content
+    pub on_back_btn: bool,                 // Hover state for back button
 }
 
 /// Check if a cancellation token is set (chain should stop)
