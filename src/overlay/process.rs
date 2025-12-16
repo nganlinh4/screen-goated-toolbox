@@ -108,8 +108,10 @@ pub fn start_text_processing(
     screen_rect: RECT,
     config: Config,
     preset: Preset,
-    localized_preset_name: String  // Already localized by caller
+    localized_preset_name: String,  // Already localized by caller
+    cancel_hotkey_name: String,     // The actual hotkey name like "Ctrl+Shift+D"
 ) {
+
     if preset.text_input_mode == "type" {
         // Use blocks[0].prompt instead of legacy preset.prompt
         let first_block_prompt = preset.blocks.first().map(|b| b.prompt.as_str()).unwrap_or("");
@@ -124,7 +126,8 @@ pub fn start_text_processing(
         let preset_shared = Arc::new(preset.clone());
         let ui_lang = config.ui_language.clone();
         
-        text_input::show(guide_text, ui_lang, localized_preset_name, move |user_text, input_hwnd| {
+        text_input::show(guide_text, ui_lang, cancel_hotkey_name, move |user_text, input_hwnd| {
+
             unsafe { PostMessageW(input_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
             
             // For Text Preset, Block 0 is the text input processing block

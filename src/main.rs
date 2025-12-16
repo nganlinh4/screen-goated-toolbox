@@ -498,9 +498,11 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                                     &config.ui_language
                                 );
                                 
+                                let hotkey_name_clone = hotkey_name.clone();
                                 std::thread::spawn(move || {
-                                   overlay::process::start_text_processing(String::new(), center_rect, config, preset, localized_name);
+                                   overlay::process::start_text_processing(String::new(), center_rect, config, preset, localized_name, hotkey_name_clone);
                                 });
+
                                 }
                                 }
                                 }
