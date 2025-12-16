@@ -112,13 +112,19 @@ impl ChainNode {
 
     /// Create from ProcessingBlock
     pub fn from_block(block: &ProcessingBlock, is_first: bool) -> Self {
+        // Populate language_vars from selected_language if missing (legacy support)
+        let mut language_vars = block.language_vars.clone();
+        if !language_vars.contains_key("language1") && !block.selected_language.is_empty() {
+             language_vars.insert("language1".to_string(), block.selected_language.clone());
+        }
+
         if is_first {
             ChainNode::Input {
                 id: block.id.clone(),
                 block_type: block.block_type.clone(),
                 model: block.model.clone(),
                 prompt: block.prompt.clone(),
-                language_vars: block.language_vars.clone(),
+                language_vars,
                 show_overlay: block.show_overlay,
                 streaming_enabled: block.streaming_enabled,
                 render_mode: block.render_mode.clone(),
@@ -129,7 +135,7 @@ impl ChainNode {
                 id: block.id.clone(),
                 model: block.model.clone(),
                 prompt: block.prompt.clone(),
-                language_vars: block.language_vars.clone(),
+                language_vars,
                 show_overlay: block.show_overlay,
                 streaming_enabled: block.streaming_enabled,
                 render_mode: block.render_mode.clone(),
