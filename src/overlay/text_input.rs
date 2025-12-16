@@ -36,7 +36,12 @@ const COL_DARK_BG: u32 = 0x202020; // RGB(32, 32, 32)
 lazy_static::lazy_static! {
     static ref SUBMITTED_TEXT: Mutex<Option<String>> = Mutex::new(None);
     static ref SHOULD_CLOSE: Mutex<bool> = Mutex::new(false);
+    // For continuous mode: signal to clear text instead of close
+    static ref SHOULD_CLEAR_ONLY: Mutex<bool> = Mutex::new(false);
 }
+
+// Static flag for continuous input mode
+static mut CONTINUOUS_MODE: bool = false;
 
 // Thread-local storage for WebView (not Send)
 thread_local! {
@@ -227,10 +232,34 @@ pub fn set_editor_text(text: &str) {
     });
 }
 
+/// Clear the webview editor content and refocus (for continuous input mode)
+pub fn clear_editor_text() {
+    TEXT_INPUT_WEBVIEW.with(|webview| {
+        if let Some(wv) = webview.borrow().as_ref() {
+            let script = r#"document.getElementById('editor').value = ''; document.getElementById('editor').focus();"#;
+            let _ = wv.evaluate_script(script);
+        }
+    });
+}
+
+/// Get the current window rect of the text input window (if active)
+pub fn get_window_rect() -> Option<RECT> {
+    unsafe {
+        if INPUT_HWND.0 != 0 {
+            let mut rect = RECT::default();
+            if GetWindowRect(INPUT_HWND, &mut rect).as_bool() {
+                return Some(rect);
+            }
+        }
+    }
+    None
+}
+
 pub fn show(
     prompt_guide: String,
     ui_language: String,
     cancel_hotkey_name: String,
+    continuous_mode: bool, // If true, window stays open after submit, clears text, and allows re-submission
     on_submit: impl Fn(String, HWND) + Send + 'static
 ) {
     unsafe {
@@ -240,6 +269,7 @@ pub fn show(
         }
 
         ON_SUBMIT = Some(Box::new(on_submit));
+        CONTINUOUS_MODE = continuous_mode;
         
         // Store strings
         CURRENT_TITLE_OVERRIDE = prompt_guide;
@@ -251,6 +281,7 @@ pub fn show(
         // Reset global state
         *SUBMITTED_TEXT.lock().unwrap() = None;
         *SHOULD_CLOSE.lock().unwrap() = false;
+        *SHOULD_CLEAR_ONLY.lock().unwrap() = false;
 
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SGT_TextInputWry");
@@ -409,11 +440,24 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                 if should_close {
                     let submitted = SUBMITTED_TEXT.lock().unwrap().take();
                     if let Some(text) = submitted {
-                        if let Some(cb) = ON_SUBMIT.as_ref() {
-                            DestroyWindow(hwnd);
-                            cb(text, hwnd);
+                        if CONTINUOUS_MODE {
+                            // Continuous mode: call callback, clear text, keep window open
+                            if let Some(cb) = ON_SUBMIT.as_ref() {
+                                // Call the callback (this spawns the processing in background)
+                                cb(text, hwnd);
+                            }
+                            // Clear the editor for next input
+                            clear_editor_text();
+                            // Don't close the window
+                        } else {
+                            // Normal mode: close window then call callback
+                            if let Some(cb) = ON_SUBMIT.as_ref() {
+                                DestroyWindow(hwnd);
+                                cb(text, hwnd);
+                            }
                         }
                     } else {
+                        // Cancel (no text submitted) - always close
                         DestroyWindow(hwnd);
                     }
                     *SHOULD_CLOSE.lock().unwrap() = false;

@@ -121,6 +121,11 @@ pub fn render_preset_editor(
                     if ui.selectable_value(&mut preset.text_input_mode, "select".to_string(), text.text_mode_select).clicked() { changed = true; }
                     if ui.selectable_value(&mut preset.text_input_mode, "type".to_string(), text.text_mode_type).clicked() { changed = true; }
                 });
+            
+            // Show "Continuous Input" checkbox only when typing mode is selected
+            if preset.text_input_mode == "type" {
+                if ui.checkbox(&mut preset.continuous_input, text.continuous_input_label).clicked() { changed = true; }
+            }
         } else if preset.preset_type == "audio" {
             // Audio: Cách hoạt động dropdown (same line as preset type)
             let mode_label = match config.ui_language.as_str() {

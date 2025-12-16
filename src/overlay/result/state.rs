@@ -212,3 +212,34 @@ pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
         s2.linked_window = Some(hwnd1);
     }
 }
+
+use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE, IsWindow};
+
+/// Close all windows that share the same cancellation token
+/// Used in continuous input mode to destroy previous result overlays before spawning new ones
+pub fn close_windows_with_token(token: &Arc<AtomicBool>) {
+    // Signal the token to stop any ongoing processing
+    token.store(true, Ordering::SeqCst);
+    
+    // Collect HWNDs that share this token
+    let mut to_close = Vec::new();
+    {
+        let states = WINDOW_STATES.lock().unwrap();
+        for (&h_val, state) in states.iter() {
+            if let Some(ref t) = state.cancellation_token {
+                if Arc::ptr_eq(token, t) {
+                    to_close.push(HWND(h_val as isize));
+                }
+            }
+        }
+    }
+    
+    // Close them
+    for hwnd in to_close {
+        unsafe {
+            if IsWindow(hwnd).as_bool() {
+                let _ = PostMessageW(hwnd, WM_CLOSE, windows::Win32::Foundation::WPARAM(0), windows::Win32::Foundation::LPARAM(0));
+            }
+        }
+    }
+}
