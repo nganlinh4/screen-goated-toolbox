@@ -170,8 +170,10 @@ pub fn start_text_processing(
                     // Refocus the text input window and editor after wheel closes
                     text_input::refocus_editor();
                     
-                    // Get the selected preset from config
-                    let app = crate::APP.lock().unwrap();
+                    // Get the selected preset from config AND update active_preset_idx
+                    let mut app = crate::APP.lock().unwrap();
+                    // CRITICAL: Update active_preset_idx so auto_paste logic works!
+                    app.config.active_preset_idx = idx;
                     let p = app.config.presets[idx].clone();
                     let c = app.config.clone();
                     let continuous = p.continuous_input;

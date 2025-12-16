@@ -170,7 +170,10 @@ unsafe extern "system" fn tag_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                         
                         // Process with the selected preset
                         let (config, mut preset, screen_w, screen_h) = {
-                            let app = APP.lock().unwrap(); 
+                            let mut app = APP.lock().unwrap(); 
+                            // CRITICAL: Update active_preset_idx so auto_paste logic works!
+                            // The auto_paste code in process.rs reads from active_preset_idx
+                            app.config.active_preset_idx = final_preset_idx;
                             (
                                 app.config.clone(),
                                 app.config.presets[final_preset_idx].clone(),

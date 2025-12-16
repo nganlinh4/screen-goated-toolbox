@@ -238,7 +238,11 @@ unsafe extern "system" fn selection_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARA
                     if let Some(preset_idx) = final_preset_idx {
                         // 1. EXTRACT CROP (New Logic)
                         let (cropped_img, config, preset) = {
-                            let guard = APP.lock().unwrap();
+                            let mut guard = APP.lock().unwrap();
+                            
+                            // CRITICAL: Update active_preset_idx so auto_paste logic works!
+                            guard.config.active_preset_idx = preset_idx;
+                            
                             // Access the handle
                             let capture = guard.screenshot_handle.as_ref().expect("Screenshot handle missing");
                             let config_clone = guard.config.clone();

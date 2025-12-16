@@ -316,8 +316,10 @@ pub fn record_audio_and_transcribe(
         let selected = crate::overlay::preset_wheel::show_preset_wheel("audio", audio_mode, cursor_pos);
         
         if let Some(idx) = selected {
-            // Get the selected preset from config
-            let app = crate::APP.lock().unwrap();
+            // Get the selected preset from config AND update active_preset_idx
+            let mut app = crate::APP.lock().unwrap();
+            // CRITICAL: Update active_preset_idx so auto_paste logic works!
+            app.config.active_preset_idx = idx;
             app.config.presets[idx].clone()
         } else {
             // User dismissed wheel - close overlay and cancel

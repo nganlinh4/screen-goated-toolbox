@@ -1,6 +1,7 @@
 // Preset Wheel Overlay - Shows a wheel of preset options for MASTER presets
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::{SetCapture, ReleaseCapture};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::core::*;
@@ -249,6 +250,9 @@ pub fn show_preset_wheel(
         
         ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         
+        // CRITICAL: Capture mouse to prevent click-through to windows underneath
+        SetCapture(hwnd);
+        
         // Message loop
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
@@ -296,7 +300,15 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             LRESULT(0)
         }
         
+        // Handle mouse button DOWN - just track that we're clicking
         WM_LBUTTONDOWN => {
+            // Consume the down event so it doesn't pass through
+            LRESULT(0)
+        }
+        
+        // Handle mouse button UP - this is where we process the selection
+        // Using UP ensures the full click cycle happens on this window
+        WM_LBUTTONUP => {
             let x = (lparam.0 & 0xFFFF) as i16 as i32;
             let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
             let pt = POINT { x, y };
@@ -310,6 +322,8 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                         SELECTED_PRESET_IDX = Some(btn.preset_idx);
                         WHEEL_RESULT.store(btn.preset_idx as i32, Ordering::SeqCst);
                     }
+                    // Release capture before destroying to prevent click-through
+                    ReleaseCapture();
                     DestroyWindow(hwnd);
                     // NOTE: Do NOT call PostQuitMessage! This wheel may run nested
                     // inside another message loop (e.g., text_input). WM_QUIT would
@@ -325,8 +339,8 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             if wparam.0 as u32 == 0x1B { // VK_ESCAPE
                 SELECTED_PRESET_IDX = None;
                 WHEEL_RESULT.store(-2, Ordering::SeqCst);
+                ReleaseCapture();
                 DestroyWindow(hwnd);
-                // No PostQuitMessage - see WM_LBUTTONDOWN comment
             }
             LRESULT(0)
         }
@@ -335,8 +349,8 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             if WHEEL_RESULT.load(Ordering::SeqCst) == -1 {
                 WHEEL_RESULT.store(-2, Ordering::SeqCst);
             }
+            ReleaseCapture();
             DestroyWindow(hwnd);
-            // No PostQuitMessage - see WM_LBUTTONDOWN comment
             LRESULT(0)
         }
         
