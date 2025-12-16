@@ -114,6 +114,16 @@ pub struct LocaleText {
      pub tips_click_hint: &'static str,
      pub restore_preset_btn: &'static str,
      pub restore_preset_tooltip: &'static str,
+     // --- COMPOUND SEARCH UI ---
+     pub search_doing: &'static str,           // "Doing" / "Đang"
+     pub search_searching: &'static str,       // "searching" / "tìm kiếm"  
+     pub search_query_label: &'static str,     // "Search queries:" / "Truy vấn tìm kiếm:"
+     pub search_found_sources: &'static str,   // "FOUND {} SOURCES" / "ĐÃ TÌM THẤY {} NGUỒN"
+     pub search_sources_label: &'static str,   // "Reference sources (by relevance):" / "Nguồn tham khảo (theo độ liên quan):"
+     pub search_no_title: &'static str,        // "(No title)" / "(Không có tiêu đề)"
+     pub search_synthesizing: &'static str,    // "SYNTHESIZING INFO..." / "ĐANG TỔNG HỢP THÔNG TIN..."
+     pub search_analyzed_sources: &'static str, // "Analyzed {} sources" / "Đã phân tích {} nguồn"
+     pub search_processing: &'static str,      // "Processing and summarizing results..." / "Đang xử lý và tóm tắt kết quả..."
      }
 
 impl LocaleText {
@@ -250,6 +260,16 @@ impl LocaleText {
                    ],
                    restore_preset_btn: "Khôi phục",
                 restore_preset_tooltip: "Đặt lại cài đặt về mặc định",
+                // --- COMPOUND SEARCH UI VI ---
+                search_doing: "Đang",
+                search_searching: "tìm kiếm",
+                search_query_label: "📝 Truy vấn tìm kiếm:",
+                search_found_sources: "📚 ĐÃ TÌM THẤY {} NGUỒN",
+                search_sources_label: "🌐 Nguồn tham khảo (theo độ liên quan):",
+                search_no_title: "(Không có tiêu đề)",
+                search_synthesizing: "⚡ ĐANG TỔNG HỢP THÔNG TIN...",
+                search_analyzed_sources: "📊 Đã phân tích {} nguồn",
+                search_processing: "🧠 Đang xử lý và tóm tắt kết quả...",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -382,6 +402,16 @@ impl LocaleText {
                    ],
                    restore_preset_btn: "복원",
                    restore_preset_tooltip: "기본 설정으로 초기화",
+                   // --- COMPOUND SEARCH UI KO ---
+                   search_doing: "진행 중:",
+                   search_searching: "검색",
+                   search_query_label: "📝 검색 쿼리:",
+                   search_found_sources: "📚 {} 소스 발견",
+                   search_sources_label: "🌐 참고 소스 (관련도순):",
+                   search_no_title: "(제목 없음)",
+                   search_synthesizing: "⚡ 정보 종합 중...",
+                   search_analyzed_sources: "📊 {} 소스 분석 완료",
+                   search_processing: "🧠 결과 처리 및 요약 중...",
                    },
                 _ => Self {
                  history_btn: "History",
@@ -514,6 +544,16 @@ impl LocaleText {
                    ],
                    restore_preset_btn: "Restore",
                    restore_preset_tooltip: "Reset preset to default settings",
+                   // --- COMPOUND SEARCH UI EN ---
+                   search_doing: "Running",
+                   search_searching: "searching",
+                   search_query_label: "📝 Search queries:",
+                   search_found_sources: "📚 FOUND {} SOURCES",
+                   search_sources_label: "🌐 Reference sources (by relevance):",
+                   search_no_title: "(No title)",
+                   search_synthesizing: "⚡ SYNTHESIZING INFO...",
+                   search_analyzed_sources: "📊 Analyzed {} sources",
+                   search_processing: "🧠 Processing and summarizing results...",
                    },
                 }
                 }

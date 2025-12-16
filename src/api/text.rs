@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::io::{BufRead, BufReader};
 use crate::APP;
 use crate::overlay::result::RefineContext;
+use crate::gui::locale::LocaleText;
 use super::client::UREQ_AGENT;
 use super::types::{StreamChunk, ChatCompletionResponse};
 use super::vision::translate_image_streaming as vision_translate_image_streaming;
@@ -15,6 +16,8 @@ pub fn translate_text_streaming<F>(
     provider: String,
     streaming_enabled: bool,
     use_json_format: bool,
+    search_label: Option<String>, // Localized preset name for compound model search UI
+    ui_language: &str, // Language code for localized search UI strings
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -133,8 +136,13 @@ where
                 }
             });
 
-            // Show initial searching state
-            on_chunk("🔍 Đang tìm kiếm...");
+            // Show initial searching state with localized preset name
+            let locale = LocaleText::get(ui_language);
+            let search_msg = match &search_label {
+                Some(label) => format!("🔍 {} {}...", locale.search_doing, label),
+                None => format!("🔍 {} {}...", locale.search_doing, locale.search_searching),
+            };
+            on_chunk(&search_msg);
             
             let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
                 .set("Authorization", &format!("Bearer {}", groq_api_key))
@@ -187,8 +195,12 @@ where
                             }
                             
                             if !search_queries.is_empty() {
-                                let mut phase1 = String::from("🔍 ĐANG TÌM KIẾM...\n\n");
-                                phase1.push_str("📝 Truy vấn tìm kiếm:\n");
+                                let phase1_header = match &search_label {
+                                    Some(label) => format!("🔍 {} {}...\n\n", locale.search_doing.to_uppercase(), label.to_uppercase()),
+                                    None => format!("🔍 {} {}...\n\n", locale.search_doing.to_uppercase(), locale.search_searching.to_uppercase()),
+                                };
+                                let mut phase1 = phase1_header;
+                                phase1.push_str(&format!("{}\n", locale.search_query_label));
                                 for (i, query) in search_queries.iter().enumerate() {
                                     phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, query));
                                 }
@@ -204,7 +216,7 @@ where
                                     .and_then(|r| r.as_array()) 
                                 {
                                     for result in search_results {
-                                        let title = result.get("title").and_then(|t| t.as_str()).unwrap_or("(Không có tiêu đề)");
+                                        let title = result.get("title").and_then(|t| t.as_str()).unwrap_or(locale.search_no_title);
                                         let url = result.get("url").and_then(|u| u.as_str()).unwrap_or("");
                                         let score = result.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
                                         let content = result.get("content").and_then(|c| c.as_str()).unwrap_or("");
@@ -218,8 +230,8 @@ where
                                 // Sort by score descending
                                 all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
                                 
-                                let mut phase2 = format!("📚 ĐÃ TÌM THẤY {} NGUỒN\n\n", all_sources.len());
-                                phase2.push_str("🌐 Nguồn tham khảo (theo độ liên quan):\n\n");
+                                let mut phase2 = format!("{}\n\n", locale.search_found_sources.replace("{}", &all_sources.len().to_string()));
+                                phase2.push_str(&format!("{}\n\n", locale.search_sources_label));
                                 
                                 for (i, (title, url, score, content)) in all_sources.iter().take(6).enumerate() {
                                     // Truncate title if too long (character-aware for UTF-8)
@@ -255,10 +267,10 @@ where
                                 
                                 // PHASE 3: Synthesizing message
                                 let phase3 = format!(
-                                    "⚡ ĐANG TỔNG HỢP THÔNG TIN...\n\n\
-                                    � Đã phân tích {} nguồn\n\
-                                    🧠 Đang xử lý và tóm tắt kết quả...\n",
-                                    all_sources.len().min(6)
+                                    "{}\n\n{}\n{}\n",
+                                    locale.search_synthesizing,
+                                    locale.search_analyzed_sources.replace("{}", &all_sources.len().min(6).to_string()),
+                                    locale.search_processing
                                 );
                                 on_chunk(&phase3);
                                 std::thread::sleep(std::time::Duration::from_millis(600));
@@ -383,6 +395,7 @@ pub fn refine_text_streaming<F>(
     original_model_id: &str,
     original_provider: &str,
     streaming_enabled: bool,
+    ui_language: &str, // Language code for localized search UI strings
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -500,7 +513,8 @@ where
                     }
                 });
                 
-                on_chunk("🔍 Đang tìm kiếm...");
+                let locale = LocaleText::get(ui_language);
+                on_chunk(&format!("🔍 {} {}...", locale.search_doing, locale.search_searching));
                 
                 let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
                     .set("Authorization", &format!("Bearer {}", groq_api_key))
@@ -538,7 +552,10 @@ where
                                 }
                                 
                                 if !search_queries.is_empty() {
-                                    let mut phase1 = String::from("� ĐANG TÌM KIẾM...\n\n📝 Truy vấn:\n");
+                                    let mut phase1 = format!("🔍 {} {}...\n\n{}\n", 
+                                        locale.search_doing.to_uppercase(), 
+                                        locale.search_searching.to_uppercase(),
+                                        locale.search_query_label);
                                     for (i, q) in search_queries.iter().enumerate() {
                                         phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, q));
                                     }
@@ -551,7 +568,7 @@ where
                                 for tool in executed_tools {
                                     if let Some(results) = tool.get("search_results").and_then(|s| s.get("results")).and_then(|r| r.as_array()) {
                                         for r in results {
-                                            let title = r.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                                            let title = r.get("title").and_then(|t| t.as_str()).unwrap_or(locale.search_no_title);
                                             let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
                                             let score = r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
                                             all_sources.push((title.to_string(), url.to_string(), score));
@@ -561,13 +578,13 @@ where
                                 
                                 if !all_sources.is_empty() {
                                     all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-                                    let mut phase2 = format!("📚 ĐÃ TÌM {} NGUỒN\n\n", all_sources.len());
+                                    let mut phase2 = format!("{}\n\n", locale.search_found_sources.replace("{}", &all_sources.len().to_string()));
                                     for (i, (title, url, score)) in all_sources.iter().take(5).enumerate() {
                                         let t = if title.chars().count() > 50 { format!("{}...", title.chars().take(47).collect::<String>()) } else { title.clone() };
                                         let domain = url.split('/').nth(2).unwrap_or("");
-                                        phase2.push_str(&format!("{}. {} [{}%]\n   � {}\n", i + 1, t, (score * 100.0) as i32, domain));
+                                        phase2.push_str(&format!("{}. {} [{}%]\n   🔗 {}\n", i + 1, t, (score * 100.0) as i32, domain));
                                     }
-                                    phase2.push_str("\n⚡ Đang tổng hợp...");
+                                    phase2.push_str(&format!("\n{}", locale.search_synthesizing));
                                     on_chunk(&phase2);
                                     std::thread::sleep(std::time::Duration::from_millis(800));
                                 }

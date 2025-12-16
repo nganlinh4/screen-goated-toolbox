@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use image::{ImageBuffer, Rgba};
 
 use crate::api::{translate_image_streaming, translate_text_streaming};
+use crate::gui::settings_ui::get_localized_preset_name;
 use crate::config::{Config, Preset, ProcessingBlock};
 use super::utils::copy_to_clipboard;
 use super::result::{create_result_window, update_window_text, WindowType, link_windows, RefineContext, WINDOW_STATES, get_chain_color, layout::calculate_next_window_rect};
@@ -538,9 +539,19 @@ fn run_chain_step(
             }
         } else {
             // Text Block
+            // Compute search label for compound models
+            let search_label = {
+                let active_idx = config.active_preset_idx;
+                if active_idx < config.presets.len() {
+                    let preset_id = &config.presets[active_idx].id;
+                    Some(get_localized_preset_name(preset_id, &config.ui_language))
+                } else {
+                    None
+                }
+            };
             translate_text_streaming(
                 &groq_key, &gemini_key, input_text, final_prompt, // CHANGED: Pass final_prompt instead of selected_language
-                model_full_name, provider, actual_streaming_enabled, false,
+                model_full_name, provider, actual_streaming_enabled, false, search_label, &config.ui_language,
                 |chunk| {
                     let mut t = acc_clone.lock().unwrap(); t.push_str(chunk);
                     if let Some(h) = my_hwnd { 

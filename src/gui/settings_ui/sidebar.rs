@@ -30,6 +30,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
         ("preset_study_language", "vi") => "Học ngoại ngữ".to_string(),
         ("preset_transcribe_retranslate", "vi") => "Trả lời ng.nc.ngoài 1".to_string(),
         ("preset_quicker_foreigner_reply", "vi") => "Trả lời ng.nc.ngoài 2".to_string(),
+        ("preset_fact_check", "vi") => "Kiểm chứng thông tin".to_string(),
         ("preset_video_summary_placeholder", "vi") => "Tóm tắt video (sắp có)".to_string(),
         ("preset_realtime_audio_translate", "vi") => "Dịch cabin (sắp có)".to_string(),
         
@@ -56,6 +57,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
         ("preset_study_language", "ko") => "언어 학습".to_string(),
         ("preset_transcribe_retranslate", "ko") => "빠른 외국인 답변 1".to_string(),
         ("preset_quicker_foreigner_reply", "ko") => "빠른 외국인 답변 2".to_string(),
+        ("preset_fact_check", "ko") => "정보 확인".to_string(),
         ("preset_video_summary_placeholder", "ko") => "비디오 요약 (예정)".to_string(),
         ("preset_realtime_audio_translate", "ko") => "실시간 음성 번역 (예정)".to_string(),
         
@@ -82,6 +84,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang: &str) -> String {
         ("preset_study_language", _) => "Study language".to_string(),
         ("preset_transcribe_retranslate", _) => "Quick 4NR reply 1".to_string(),
         ("preset_quicker_foreigner_reply", _) => "Quick 4NR reply 2".to_string(),
+        ("preset_fact_check", _) => "Fact Check".to_string(),
         ("preset_video_summary_placeholder", _) => "Summarize video (soon)".to_string(),
         ("preset_realtime_audio_translate", _) => "Realtime Audio Trans (soon)".to_string(),
         

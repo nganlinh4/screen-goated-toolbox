@@ -746,6 +746,10 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                            &groq_key, &gemini_key, 
                            context_data, final_prev_text, final_user_prompt,
                            &model_id, &provider, streaming,
+                           {
+                               let app = crate::APP.lock().unwrap();
+                               &app.config.ui_language.clone()
+                           },
                            move |chunk| {
                                let mut states = WINDOW_STATES.lock().unwrap();
                                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
