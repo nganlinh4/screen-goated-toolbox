@@ -126,13 +126,72 @@ pub fn start_text_processing(
         let config_shared = Arc::new(config.clone());
         let preset_shared = Arc::new(preset.clone());
         let ui_lang = config.ui_language.clone();
+        let continuous_mode = preset.continuous_input;
         
-        text_input::show(guide_text, ui_lang, cancel_hotkey_name, move |user_text, input_hwnd| {
-
-            unsafe { PostMessageW(input_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+        // For continuous mode: store the previous chain's cancellation token so we can close old windows
+        let last_cancel_token: Arc<Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>> = 
+            Arc::new(Mutex::new(None));
+        let last_cancel_token_clone = last_cancel_token.clone();
+        
+        text_input::show(guide_text, ui_lang, cancel_hotkey_name, continuous_mode, move |user_text, input_hwnd| {
+            let is_continuous = (*preset_shared).continuous_input;
             
-            // For Text Preset, Block 0 is the text input processing block
-            execute_chain_pipeline(user_text, screen_rect, (*config_shared).clone(), (*preset_shared).clone(), RefineContext::None);
+            if !is_continuous {
+                // Normal mode: close input window
+                unsafe { PostMessageW(input_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+            } else {
+                // Continuous mode: close previous result overlays before spawning new ones
+                if let Ok(mut token_guard) = last_cancel_token_clone.lock() {
+                    if let Some(ref old_token) = *token_guard {
+                        // Close windows from previous submission
+                        super::result::close_windows_with_token(old_token);
+                    }
+                }
+            }
+            
+            // Calculate overlay position:
+            // - Normal mode: use screen_rect (center of screen or original location)
+            // - Continuous mode: spawn below the input window
+            let overlay_rect = if is_continuous {
+                if let Some(input_rect) = text_input::get_window_rect() {
+                    // Position below the input window with a small gap
+                    RECT {
+                        left: input_rect.left,
+                        top: input_rect.bottom + 10, // 10px gap below input window
+                        right: input_rect.right,
+                        bottom: input_rect.bottom + 10 + (screen_rect.bottom - screen_rect.top),
+                    }
+                } else {
+                    screen_rect
+                }
+            } else {
+                screen_rect
+            };
+            
+            // Start processing and track the new cancellation token for continuous mode
+            let config_clone = (*config_shared).clone();
+            let preset_clone = (*preset_shared).clone();
+            let last_token_update = last_cancel_token_clone.clone();
+            
+            std::thread::spawn(move || {
+                // Create a new cancellation token for this chain
+                let new_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                
+                // Store it for later cleanup (in continuous mode)
+                if let Ok(mut token_guard) = last_token_update.lock() {
+                    *token_guard = Some(new_token.clone());
+                }
+                
+                // Execute the chain
+                execute_chain_pipeline_with_token(
+                    user_text, 
+                    overlay_rect, 
+                    config_clone, 
+                    preset_clone, 
+                    RefineContext::None,
+                    new_token
+                );
+            });
         });
     } else {
         execute_chain_pipeline(initial_text_content, screen_rect, config, preset, RefineContext::None);
@@ -316,6 +375,42 @@ fn execute_chain_pipeline(
             if !IsWindow(processing_hwnd).as_bool() { break; }
         }
     }
+}
+
+/// Execute chain pipeline with a pre-created cancellation token
+/// Used for continuous input mode to track and close previous chain windows
+/// NOTE: For text presets, we don't create a processing window (gradient glow).
+/// Instead, we rely on the refining animation baked into the result window.
+fn execute_chain_pipeline_with_token(
+    initial_input: String,
+    rect: RECT,
+    config: Config,
+    preset: Preset,
+    context: RefineContext,
+    cancel_token: Arc<AtomicBool>,
+) {
+    // For text presets: NO processing window (gradient glow).
+    // The result window itself shows the refining animation.
+    
+    let blocks = preset.blocks.clone();
+    let connections = preset.block_connections.clone();
+    
+    // Reset position queue for new chain
+    reset_window_position_queue();
+    
+    run_chain_step(
+        0, 
+        initial_input, 
+        rect, 
+        blocks,
+        connections,
+        config, 
+        Arc::new(Mutex::new(None)), 
+        context, 
+        false,
+        None, // No processing window for text presets
+        cancel_token
+    );
 }
 
 /// Recursive step to run a block in the chain (now supports graph with connections)

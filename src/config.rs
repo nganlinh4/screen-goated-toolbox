@@ -113,6 +113,11 @@ pub struct Preset {
     // --- Text Fields ---
     #[serde(default = "default_text_input_mode")]
     pub text_input_mode: String,
+    
+    // Continuous input mode: if true, input window stays open after submit
+    // and result overlays spawn below the input window
+    #[serde(default)]
+    pub continuous_input: bool,
 
     #[serde(default)]
     pub is_upcoming: bool,
@@ -153,6 +158,7 @@ impl Default for Preset {
             hide_recording_ui: false,
             video_capture_method: "region".to_string(),
             text_input_mode: "select".to_string(),
+            continuous_input: false,
             is_upcoming: false,
         }
     }
@@ -430,6 +436,7 @@ impl Default for Config {
         p5.name = "Trans+Retrans (Type)".to_string();
         p5.preset_type = "text".to_string();
         p5.text_input_mode = "type".to_string();
+        p5.continuous_input = true; // Keep input window open for repeated translations
         p5.blocks = vec![
             ProcessingBlock {
                 block_type: "text".to_string(),
