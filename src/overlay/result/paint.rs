@@ -76,7 +76,9 @@ pub fn paint_window(hwnd: HWND) {
 
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
         let (
-             bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, on_undo_btn, on_markdown_btn, is_markdown_mode, broom_data, particles,
+             bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, on_undo_btn, on_markdown_btn, is_markdown_mode, 
+             is_browsing, on_back_btn,
+             broom_data, particles,
              mut cached_text_bm, _cached_font_size, cache_dirty,
              cached_bg_bm,
              is_refining,
@@ -147,6 +149,7 @@ pub fn paint_window(hwnd: HWND) {
                         && !state.on_edit_btn
                         && !state.on_undo_btn
                         && !state.on_markdown_btn
+                        && !state.on_back_btn
                         && state.current_resize_edge == ResizeEdge::None
                 );
                 
@@ -160,7 +163,9 @@ pub fn paint_window(hwnd: HWND) {
                 } else { None };
 
                 (
-                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, state.on_undo_btn, state.on_markdown_btn, state.is_markdown_mode, broom_info, particles_vec,
+                    state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, state.on_undo_btn, state.on_markdown_btn, state.is_markdown_mode, 
+                    state.is_browsing, state.on_back_btn,
+                    broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap,
                     state.is_refining,
@@ -169,7 +174,7 @@ pub fn paint_window(hwnd: HWND) {
                     state.graphics_mode.clone()
                 )
             } else {
-                (0, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0, "standard".to_string())
+                (0, false, false, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0, "standard".to_string())
             }
         };
 
@@ -437,234 +442,170 @@ pub fn paint_window(hwnd: HWND) {
                 } else {
                     (height - margin - btn_size / 2) as f32
                 };
+                
                 let cx_copy = (width - margin - btn_size / 2) as f32;
                 let cx_edit = cx_copy - (btn_size as f32) - 8.0;
                 let cx_md = cx_edit - (btn_size as f32) - 8.0;     // MD is between Edit and Undo
                 let cx_undo = cx_md - (btn_size as f32) - 8.0;
+                let cx_back = (margin + btn_size / 2) as f32;
                 
                 let radius = 13.0;
 
-                let (tr_c, tg_c, tb_c) = if copy_success {
-                    (30.0, 180.0, 30.0) 
-                } else if on_copy_btn {
-                    (128.0, 128.0, 128.0)
-                } else {
-                    (80.0, 80.0, 80.0)
-                };
-                
-                let (tr_e, tg_e, tb_e) = if on_edit_btn {
-                    (128.0, 128.0, 128.0)
-                } else {
-                    (80.0, 80.0, 80.0)
-                };
-                let (tr_u, tg_u, tb_u) = if on_undo_btn {
-                    (128.0, 128.0, 128.0)
-                } else {
-                    (80.0, 80.0, 80.0)
-                };
-                // Markdown button - cyan when active, blue when hovered
-                let (tr_m, tg_m, tb_m) = if is_markdown_mode {
-                    (60.0, 180.0, 200.0)  // Cyan when in markdown mode
-                } else if on_markdown_btn {
-                    (100.0, 140.0, 180.0) // Light blue on hover
-                } else {
-                    (80.0, 80.0, 80.0)
-                };
+                // Color configuration
+                let (tr_c, tg_c, tb_c) = if copy_success { (30.0, 180.0, 30.0) } else if on_copy_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
+                let (tr_e, tg_e, tb_e) = if on_edit_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
+                let (tr_u, tg_u, tb_u) = if on_undo_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
+                let (tr_m, tg_m, tb_m) = if is_markdown_mode { (60.0, 180.0, 200.0) } else if on_markdown_btn { (100.0, 140.0, 180.0) } else { (80.0, 80.0, 80.0) };
+                let (tr_b, tg_b, tb_b) = if on_back_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
 
-                let b_start_x = (cx_undo - radius - 4.0) as i32;   // Undo is now leftmost
-                let b_end_x = (cx_copy + radius + 4.0) as i32;
                 let b_start_y = (cy - radius - 4.0) as i32;
                 let b_end_y = (cy + radius + 4.0) as i32;
-
                 let show_undo = history_count > 0;
+                let show_back = is_browsing;
+                let border_inner_radius = radius - 1.5;
 
                 for y in b_start_y.max(0)..b_end_y.min(height) {
-                    for x in b_start_x.max(0)..b_end_x.min(width) {
+                    for x in 0..width {
                         let fx = x as f32;
                         let fy = y as f32;
                         let dy = (fy - cy).abs();
                         
-                        let dx_c = (fx - cx_copy).abs();
-                        let dist_c = (dx_c*dx_c + dy*dy).sqrt();
+                        let mut hit = false;
+                        let mut t_r = 0.0; let mut t_g = 0.0; let mut t_b = 0.0;
+                        let mut alpha = 0.0;
+                        let mut border_alpha = 0.0;
+                        let mut icon_alpha = 0.0;
                         
-                        let dx_e = (fx - cx_edit).abs();
-                        let dist_e = (dx_e*dx_e + dy*dy).sqrt();
-                        
-                        let dx_u = (fx - cx_undo).abs();
-                        let dist_u = (dx_u*dx_u + dy*dy).sqrt();
+                        // Check Left (Back)
+                        if show_back && x < width / 2 {
+                             let dx = (fx - cx_back).abs();
+                             let dist = (dx*dx + dy*dy).sqrt();
+                             let aa = (radius + 0.5 - dist).clamp(0.0, 1.0);
+                             if aa > 0.0 {
+                                 hit = true;
+                                 alpha = aa;
+                                 t_r = tr_b; t_g = tg_b; t_b = tb_b;
+                                 border_alpha = ((radius + 0.5 - dist).clamp(0.0, 1.0) * ((dist - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                 
+                                 // Back Arrow (Left Arrow)
+                                 let tip_x = cx_back - 3.5;
+                                 let tail_x = cx_back + 3.5;
+                                 let d_shaft = dist_segment(fx, fy, tip_x, cy, tail_x, cy);
+                                 let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy - 3.0);
+                                 let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy + 3.0);
+                                 let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
+                                 icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
+                             }
+                        } else if x > width / 2 {
+                             // Check Right Buttons
+                             
+                             // COPY
+                             let dx_c = (fx - cx_copy).abs();
+                             let dist_c = (dx_c*dx_c + dy*dy).sqrt();
+                             let aa_c = (radius + 0.5 - dist_c).clamp(0.0, 1.0);
+                             if aa_c > 0.0 {
+                                 hit = true; alpha = aa_c; t_r = tr_c; t_g = tg_c; t_b = tb_c;
+                                 border_alpha = ((radius + 0.5 - dist_c).clamp(0.0, 1.0) * ((dist_c - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                 if copy_success {
+                                     let d1 = dist_segment(fx, fy, cx_copy - 4.0, cy, cx_copy - 1.0, cy + 3.0);
+                                     let d2 = dist_segment(fx, fy, cx_copy - 1.0, cy + 3.0, cx_copy + 4.0, cy - 4.0);
+                                     icon_alpha = (1.8 - d1.min(d2)).clamp(0.0, 1.0);
+                                 } else {
+                                     let back_d = sd_box(fx, fy, cx_copy - 2.0, cy - 2.0, 3.0, 4.0);
+                                     let back_outline = (1.25 - back_d.abs()).clamp(0.0, 1.0);
+                                     let front_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 3.0, 4.0);
+                                     let front_fill = (0.8 - front_d).clamp(0.0, 1.0);
+                                     let mask_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 4.5, 5.5);
+                                     icon_alpha = (front_fill + back_outline * mask_d.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+                                 }
+                             }
+                             
+                             // EDIT
+                             if !hit {
+                                 let dx_e = (fx - cx_edit).abs();
+                                 let dist_e = (dx_e*dx_e + dy*dy).sqrt();
+                                 let aa_e = (radius + 0.5 - dist_e).clamp(0.0, 1.0);
+                                 if aa_e > 0.0 {
+                                     hit = true; alpha = aa_e; t_r = tr_e; t_g = tg_e; t_b = tb_e;
+                                     border_alpha = ((radius + 0.5 - dist_e).clamp(0.0, 1.0) * ((dist_e - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                     let sx = (fx - cx_edit).abs();
+                                     let sy = (fy - cy).abs();
+                                     let star_dist = (sx.powf(0.6) + sy.powf(0.6)).powf(1.0/0.6) - 4.5;
+                                     let mut ia = (1.2 - star_dist).clamp(0.0, 1.0);
+                                     let sx2 = (fx - (cx_edit + 4.5)).abs();
+                                     let sy2 = (fy - (cy - 3.5)).abs();
+                                     let star2_dist = (sx2.powf(0.6) + sy2.powf(0.6)).powf(1.0/0.6) - 2.2;
+                                     ia = ia.max((1.2 - star2_dist).clamp(0.0, 1.0));
+                                     icon_alpha = ia;
+                                 }
+                             }
+                             
+                             // MARKDOWN
+                             if !hit {
+                                 let dx_m = (fx - cx_md).abs();
+                                 let dist_m = (dx_m*dx_m + dy*dy).sqrt();
+                                 let aa_m = (radius + 0.5 - dist_m).clamp(0.0, 1.0);
+                                 if aa_m > 0.0 {
+                                     hit = true; alpha = aa_m; t_r = tr_m; t_g = tg_m; t_b = tb_m;
+                                     border_alpha = ((radius + 0.5 - dist_m).clamp(0.0, 1.0) * ((dist_m - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                     let d_m1 = dist_segment(fx, fy, cx_md - 4.0, cy + 4.0, cx_md - 4.0, cy - 4.0); 
+                                     let d_m2 = dist_segment(fx, fy, cx_md - 4.0, cy - 4.0, cx_md, cy + 1.0);       
+                                     let d_m3 = dist_segment(fx, fy, cx_md, cy + 1.0, cx_md + 4.0, cy - 4.0);      
+                                     let d_m4 = dist_segment(fx, fy, cx_md + 4.0, cy - 4.0, cx_md + 4.0, cy + 4.0); 
+                                     let d_m = d_m1.min(d_m2).min(d_m3).min(d_m4);
+                                     icon_alpha = (1.5 - d_m).clamp(0.0, 1.0);
+                                 }
+                             }
 
-                        // --- COPY BUTTON ---
-                        let aa_body_c = (radius + 0.5 - dist_c).clamp(0.0, 1.0);
-                        let border_inner_radius = radius - 1.5;
-                        let border_alpha_c = ((radius + 0.5 - dist_c).clamp(0.0, 1.0) * ((dist_c - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-
-                        let icon_alpha_c = if copy_success {
-                            let d1 = dist_segment(fx, fy, cx_copy - 4.0, cy, cx_copy - 1.0, cy + 3.0);
-                            let d2 = dist_segment(fx, fy, cx_copy - 1.0, cy + 3.0, cx_copy + 4.0, cy - 4.0);
-                            (1.8 - d1.min(d2)).clamp(0.0, 1.0)
-                        } else {
-                            let back_d = sd_box(fx, fy, cx_copy - 2.0, cy - 2.0, 3.0, 4.0);
-                            let back_outline = (1.25 - back_d.abs()).clamp(0.0, 1.0);
-                            let front_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 3.0, 4.0);
-                            let front_fill = (0.8 - front_d).clamp(0.0, 1.0);
-                            let mask_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 4.5, 5.5);
-                            (front_fill + back_outline * mask_d.clamp(0.0, 1.0)).clamp(0.0, 1.0)
-                        };
-
-                        // --- EDIT BUTTON (AI SPARKLE) ---
-                        let aa_body_e = (radius + 0.5 - dist_e).clamp(0.0, 1.0);
-                        let border_alpha_e = ((radius + 0.5 - dist_e).clamp(0.0, 1.0) * ((dist_e - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                        
-                        // Main Star
-                        let sx = (fx - cx_edit).abs();
-                        let sy = (fy - cy).abs();
-                        // Concave Star Shape: (x^0.5 + y^0.5)^2 approximation
-                        let star_dist = (sx.powf(0.6) + sy.powf(0.6)).powf(1.0/0.6) - 4.5;
-                        let mut icon_alpha_e = (1.2 - star_dist).clamp(0.0, 1.0);
-                        
-                        // Small Star (Offset)
-                        let sx2 = (fx - (cx_edit + 4.5)).abs();
-                        let sy2 = (fy - (cy - 3.5)).abs();
-                        let star2_dist = (sx2.powf(0.6) + sy2.powf(0.6)).powf(1.0/0.6) - 2.2;
-                        icon_alpha_e = icon_alpha_e.max((1.2 - star2_dist).clamp(0.0, 1.0));
-
-
-                        // --- UNDO BUTTON (Simple Back Arrow) ---
-                        let mut aa_body_u = 0.0;
-                        let mut border_alpha_u = 0.0;
-                        let mut icon_alpha_u = 0.0;
-                        
-                        if show_undo {
-                            aa_body_u = (radius + 0.5 - dist_u).clamp(0.0, 1.0);
-                            border_alpha_u = ((radius + 0.5 - dist_u).clamp(0.0, 1.0) * ((dist_u - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                            
-                            // Simple Straight Arrow <-
-                            // Shaft: Right to Left
-                            let tip_x = cx_undo - 3.5;
-                            let tail_x = cx_undo + 3.5;
-                            let d_shaft = dist_segment(fx, fy, tip_x, cy, tail_x, cy);
-                            
-                            // Wings: Tip to Right-Up/Right-Down
-                            // Wing length approx 3.5, angle 45 deg
-                            let wing_dx = 3.0; 
-                            let wing_dy = 3.0;
-                            let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x + wing_dx, cy - wing_dy);
-                            let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x + wing_dx, cy + wing_dy);
-                            
-                            let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
-                            icon_alpha_u = (1.3 - d_arrow).clamp(0.0, 1.0);
+                             // UNDO
+                             if !hit && show_undo {
+                                 let dx_u = (fx - cx_undo).abs();
+                                 let dist_u = (dx_u*dx_u + dy*dy).sqrt();
+                                 let aa_u = (radius + 0.5 - dist_u).clamp(0.0, 1.0);
+                                 if aa_u > 0.0 {
+                                     hit = true; alpha = aa_u; t_r = tr_u; t_g = tg_u; t_b = tb_u;
+                                     border_alpha = ((radius + 0.5 - dist_u).clamp(0.0, 1.0) * ((dist_u - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                     let tip_x = cx_undo - 3.5;
+                                     let tail_x = cx_undo + 3.5;
+                                     // Undo is Left Arrow too (Back in history logic for undoing edits)
+                                     let d_shaft = dist_segment(fx, fy, tip_x, cy, tail_x, cy);
+                                     let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy - 3.0);
+                                     let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy + 3.0);
+                                     let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
+                                     icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
+                                 }
+                             }
                         }
 
-                        // --- MARKDOWN BUTTON (Document with M icon) ---
-                        let dx_m = (fx - cx_md).abs();
-                        let dist_m = (dx_m*dx_m + dy*dy).sqrt();
-                        let aa_body_m = (radius + 0.5 - dist_m).clamp(0.0, 1.0);
-                        let border_alpha_m = ((radius + 0.5 - dist_m).clamp(0.0, 1.0) * ((dist_m - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                        
-                        // Draw "M" letter for Markdown
-                        let fx_rel = fx - cx_md;
-                        let fy_rel = fy - cy;
-                        // Simple M shape using line segments
-                        let d_m1 = dist_segment(fx, fy, cx_md - 4.0, cy + 4.0, cx_md - 4.0, cy - 4.0); // left vertical
-                        let d_m2 = dist_segment(fx, fy, cx_md - 4.0, cy - 4.0, cx_md, cy + 1.0);       // left diagonal
-                        let d_m3 = dist_segment(fx, fy, cx_md, cy + 1.0, cx_md + 4.0, cy - 4.0);      // right diagonal
-                        let d_m4 = dist_segment(fx, fy, cx_md + 4.0, cy - 4.0, cx_md + 4.0, cy + 4.0); // right vertical
-                        let d_m = d_m1.min(d_m2).min(d_m3).min(d_m4);
-                        let icon_alpha_m = (1.5 - d_m).clamp(0.0, 1.0);
-
-                        if aa_body_c > 0.0 || border_alpha_c > 0.0 || icon_alpha_c > 0.0 ||
-                           aa_body_e > 0.0 || border_alpha_e > 0.0 || icon_alpha_e > 0.0 ||
-                           aa_body_u > 0.0 || border_alpha_u > 0.0 || icon_alpha_u > 0.0 ||
-                           aa_body_m > 0.0 || border_alpha_m > 0.0 || icon_alpha_m > 0.0 {
-                            let idx = (y * width + x) as usize;
-                            let bg = raw_pixels[idx];
-                            let bg_b = (bg & 0xFF) as f32;
-                            let bg_g = ((bg >> 8) & 0xFF) as f32;
-                            let bg_r = ((bg >> 16) & 0xFF) as f32;
-                            
-                            let mut final_r = bg_r;
-                            let mut final_g = bg_g;
-                            let mut final_b = bg_b;
-
-                            // BLEND COPY
-                            if aa_body_c > 0.0 {
-                                let alpha = 0.9 * aa_body_c;
-                                final_r = tr_c * alpha + final_r * (1.0 - alpha);
-                                final_g = tg_c * alpha + final_g * (1.0 - alpha);
-                                final_b = tb_c * alpha + final_b * (1.0 - alpha);
-                            }
-                            if border_alpha_c > 0.0 {
-                                final_r += 255.0 * border_alpha_c;
-                                final_g += 255.0 * border_alpha_c;
-                                final_b += 255.0 * border_alpha_c;
-                            }
-                            if icon_alpha_c > 0.0 {
-                                final_r = 255.0 * icon_alpha_c + final_r * (1.0 - icon_alpha_c);
-                                final_g = 255.0 * icon_alpha_c + final_g * (1.0 - icon_alpha_c);
-                                final_b = 255.0 * icon_alpha_c + final_b * (1.0 - icon_alpha_c);
-                            }
-
-                            // BLEND EDIT (Sparkle)
-                            if aa_body_e > 0.0 {
-                                let alpha = 0.9 * aa_body_e;
-                                final_r = tr_e * alpha + final_r * (1.0 - alpha);
-                                final_g = tg_e * alpha + final_g * (1.0 - alpha);
-                                final_b = tb_e * alpha + final_b * (1.0 - alpha);
-                            }
-                            if border_alpha_e > 0.0 {
-                                final_r += 255.0 * border_alpha_e;
-                                final_g += 255.0 * border_alpha_e;
-                                final_b += 255.0 * border_alpha_e;
-                            }
-                            if icon_alpha_e > 0.0 {
-                                final_r = 255.0 * icon_alpha_e + final_r * (1.0 - icon_alpha_e);
-                                final_g = 255.0 * icon_alpha_e + final_g * (1.0 - icon_alpha_e);
-                                final_b = 255.0 * icon_alpha_e + final_b * (1.0 - icon_alpha_e);
-                            }
-
-                            // BLEND UNDO
-                            if show_undo {
-                                if aa_body_u > 0.0 {
-                                    let alpha = 0.9 * aa_body_u;
-                                    final_r = tr_u * alpha + final_r * (1.0 - alpha);
-                                    final_g = tg_u * alpha + final_g * (1.0 - alpha);
-                                    final_b = tb_u * alpha + final_b * (1.0 - alpha);
-                                }
-                                if border_alpha_u > 0.0 {
-                                    final_r += 255.0 * border_alpha_u;
-                                    final_g += 255.0 * border_alpha_u;
-                                    final_b += 255.0 * border_alpha_u;
-                                }
-                                if icon_alpha_u > 0.0 {
-                                    final_r = 255.0 * icon_alpha_u + final_r * (1.0 - icon_alpha_u);
-                                    final_g = 255.0 * icon_alpha_u + final_g * (1.0 - icon_alpha_u);
-                                    final_b = 255.0 * icon_alpha_u + final_b * (1.0 - icon_alpha_u);
-                                }
-                            }
-
-                            // BLEND MARKDOWN
-                            if aa_body_m > 0.0 {
-                                let alpha = 0.9 * aa_body_m;
-                                final_r = tr_m * alpha + final_r * (1.0 - alpha);
-                                final_g = tg_m * alpha + final_g * (1.0 - alpha);
-                                final_b = tb_m * alpha + final_b * (1.0 - alpha);
-                            }
-                            if border_alpha_m > 0.0 {
-                                final_r += 255.0 * border_alpha_m;
-                                final_g += 255.0 * border_alpha_m;
-                                final_b += 255.0 * border_alpha_m;
-                            }
-                            if icon_alpha_m > 0.0 {
-                                final_r = 255.0 * icon_alpha_m + final_r * (1.0 - icon_alpha_m);
-                                final_g = 255.0 * icon_alpha_m + final_g * (1.0 - icon_alpha_m);
-                                final_b = 255.0 * icon_alpha_m + final_b * (1.0 - icon_alpha_m);
-                            }
-
-                            final_r = final_r.min(255.0);
-                            final_g = final_g.min(255.0);
-                            final_b = final_b.min(255.0);
-                            
-                            raw_pixels[idx] = (255 << 24) | ((final_r as u32) << 16) | ((final_g as u32) << 8) | (final_b as u32);
+                        if hit {
+                             let idx = (y * width + x) as usize;
+                             let bg = raw_pixels[idx];
+                             let bg_b = (bg & 0xFF) as f32;
+                             let bg_g = ((bg >> 8) & 0xFF) as f32;
+                             let bg_r = ((bg >> 16) & 0xFF) as f32;
+                             
+                             let mut final_r = bg_r;
+                             let mut final_g = bg_g;
+                             let mut final_b = bg_b;
+                             
+                             if alpha > 0.0 {
+                                 let a = 0.9 * alpha;
+                                 final_r = t_r * a + final_r * (1.0 - a);
+                                 final_g = t_g * a + final_g * (1.0 - a);
+                                 final_b = t_b * a + final_b * (1.0 - a);
+                             }
+                             if border_alpha > 0.0 {
+                                 final_r += 255.0 * border_alpha;
+                                 final_g += 255.0 * border_alpha;
+                                 final_b += 255.0 * border_alpha;
+                             }
+                             if icon_alpha > 0.0 {
+                                 final_r = 255.0 * icon_alpha + final_r * (1.0 - icon_alpha);
+                                 final_g = 255.0 * icon_alpha + final_g * (1.0 - icon_alpha);
+                                 final_b = 255.0 * icon_alpha + final_b * (1.0 - icon_alpha);
+                             }
+                             
+                             raw_pixels[idx] = (255 << 24) | ((final_r.min(255.0) as u32) << 16) | ((final_g.min(255.0) as u32) << 8) | (final_b.min(255.0) as u32);
                         }
                     }
                 }

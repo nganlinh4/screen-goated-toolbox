@@ -170,6 +170,8 @@ pub fn create_result_window(
                 // Markdown mode state
                 is_markdown_mode: render_mode == "markdown",
                 on_markdown_btn: false,
+                is_browsing: false,
+                on_back_btn: false,
             });
         }
 
