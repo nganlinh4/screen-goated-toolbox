@@ -84,8 +84,8 @@ $patchedCode = @"
             }
         }
         
-        // Handle drag for panning (left mouse button or middle mouse button)
-        if snarl_resp.dragged_by(PointerButton::Primary) || snarl_resp.dragged_by(PointerButton::Middle) {
+        // Handle drag for panning (left mouse button, middle mouse button, or right mouse button)
+        if snarl_resp.dragged_by(PointerButton::Primary) || snarl_resp.dragged_by(PointerButton::Middle) || snarl_resp.dragged_by(PointerButton::Secondary) {
             to_global.translation += snarl_resp.drag_delta();
             snarl_resp.mark_changed();
         }
