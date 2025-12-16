@@ -712,6 +712,81 @@ impl Default for Config {
             }
         ];
 
+        // 14c. Thần Trí tuệ (Omniscient God)
+        let mut p14c = Preset::default();
+        p14c.id = "preset_omniscient_god".to_string();
+        p14c.name = "Thần Trí tuệ (Omniscient God)".to_string();
+        p14c.preset_type = "image".to_string();
+        p14c.blocks = vec![
+            // Node 1 (0): 
+            ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "maverick".to_string(),
+                prompt: "Extract all text from this image exactly as it appears, if there is no text, try to guess and describe the image. Output ONLY the text.".to_string(),
+                selected_language: "English".to_string(),
+                streaming_enabled: false,
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            },
+            // Node 4 (3 -> 1): Make a learning HTML (1->4)
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Output ONLY the raw HTML code, no file indicator or triple backticks.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: true,
+                render_mode: "markdown".to_string(),
+                show_overlay: true,
+                auto_copy: false, // Don't auto copy
+                ..Default::default()
+            },
+            // Node 3 (2): Summarize into markdown (2->3)
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "compound_mini".to_string(),
+                prompt: "Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: true,
+                render_mode: "markdown".to_string(),
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            },
+            // Node 2 (1 -> 3): Translate (1->2)
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Translate the following text to {language1}. Output ONLY the translation.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: true,
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            },
+             // Node 5 (4): Summarize into several words (2->5)
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Summarize the essence of this text into 3-5 keywords or a short phrase in {language1}.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: true,
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            }
+        ];
+        // Swapped indices: 1 <-> 3
+        // Old Logic:
+        // 0 -> 1 (OCR -> Trans) -> Now: 0 -> 3
+        // 1 -> 2 (Trans -> Summ) -> Now: 3 -> 2
+        // 0 -> 3 (OCR -> HTML) -> Now: 0 -> 1
+        // 1 -> 4 (Trans -> Keys) -> Now: 3 -> 4
+        // To fix visual layout:
+        // Left (Middle): Translate (3) Top, HTML (1) Bottom.
+        // Right: Keywords (4) Top, Search (2) Bottom.
+        p14c.block_connections = vec![(0, 3), (0, 1), (3, 4), (3, 2)];
+
         // 15. Video Summarize Placeholder
         let mut p15 = Preset::default();
         p15.id = "preset_video_summary_placeholder".to_string();
@@ -732,7 +807,7 @@ impl Default for Config {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
             presets: vec![
-                p1, p7, p2, p3, p3b, p3c, p3d, p3e, p3f, p3g, p4, p4b, p5, p5b, p6, p8, p9, p10, p11, p12, p13, p14, p14b, p15, p16
+                p1, p7, p2, p3, p3b, p3c, p3d, p3e, p3f, p3g, p4, p4b, p5, p5b, p6, p8, p9, p10, p11, p12, p13, p14, p14b, p14c, p15, p16
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
