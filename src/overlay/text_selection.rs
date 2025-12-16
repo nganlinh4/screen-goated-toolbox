@@ -154,7 +154,8 @@ unsafe extern "system" fn tag_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                         }; 
 
                         let center_rect = RECT { left: (screen_w - 700) / 2, top: (screen_h - 300) / 2, right: (screen_w + 700) / 2, bottom: (screen_h + 300) / 2 };
-                        super::process::start_text_processing(clipboard_text, center_rect, config, preset, String::new());
+                        super::process::start_text_processing(clipboard_text, center_rect, config, preset, String::new(), String::new());
+
                         
                         // Now destroy the window
                         PostMessageW(hwnd_copy, WM_CLOSE, WPARAM(0), LPARAM(0));

@@ -4,15 +4,15 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::core::*;
-use std::sync::Once;
+use std::sync::{Once, Mutex};
+use std::num::NonZeroIsize;
+use std::cell::RefCell;
 use crate::gui::locale::LocaleText;
-
-const EM_SETSEL: u32 = 0x00B1;
-const EM_GETSEL: u32 = 0x00B0;
+use wry::{WebViewBuilder, Rect};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32WindowHandle, HandleError};
 
 static REGISTER_INPUT_CLASS: Once = Once::new();
 static mut INPUT_HWND: HWND = HWND(0);
-static mut ORIGINAL_EDIT_PROC: Option<WNDPROC> = None;
 
 // Static storage for i18n and display state
 static mut CURRENT_UI_LANG: String = String::new();
@@ -31,7 +31,161 @@ static mut ON_SUBMIT: Option<SubmitCallback> = None;
 
 // Colors
 const COL_DARK_BG: u32 = 0x202020; // RGB(32, 32, 32)
-const COL_OFF_WHITE: u32 = 0xF2F2F2; // RGB(242, 242, 242)
+
+// Global storage for submitted text (from webview IPC)
+lazy_static::lazy_static! {
+    static ref SUBMITTED_TEXT: Mutex<Option<String>> = Mutex::new(None);
+    static ref SHOULD_CLOSE: Mutex<bool> = Mutex::new(false);
+}
+
+// Thread-local storage for WebView (not Send)
+thread_local! {
+    static TEXT_INPUT_WEBVIEW: RefCell<Option<wry::WebView>> = RefCell::new(None);
+}
+
+/// Wrapper for HWND to implement HasWindowHandle
+struct HwndWrapper(HWND);
+
+impl HasWindowHandle for HwndWrapper {
+    fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
+        let hwnd = self.0.0 as isize;
+        if let Some(non_zero) = NonZeroIsize::new(hwnd) {
+            let mut handle = Win32WindowHandle::new(non_zero);
+            handle.hinstance = None;
+            let raw = RawWindowHandle::Win32(handle);
+            Ok(unsafe { WindowHandle::borrow_raw(raw) })
+        } else {
+            Err(HandleError::Unavailable)
+        }
+    }
+}
+
+/// CSS for the modern text input editor
+fn get_editor_css() -> &'static str {
+    r#"
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #F0F0F0;
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    .editor-container {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: linear-gradient(180deg, #FAFAFA 0%, #F0F0F0 100%);
+    }
+
+
+    
+    #editor {
+        flex: 1;
+        width: 100%;
+        padding: 12px 14px;
+        border: none;
+        outline: none;
+        resize: none;
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-size: 15px;
+        line-height: 1.55;
+        color: #1a1a1a;
+        background: transparent;
+        overflow-y: auto;
+    }
+    
+    #editor::placeholder {
+        color: #888;
+        opacity: 1;
+    }
+    
+    #editor:focus {
+        outline: none;
+    }
+    
+    /* Modern scrollbar */
+    #editor::-webkit-scrollbar {
+        width: 6px;
+    }
+    #editor::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    #editor::-webkit-scrollbar-thumb {
+        background: #ccc;
+        border-radius: 3px;
+    }
+    #editor::-webkit-scrollbar-thumb:hover {
+        background: #aaa;
+    }
+    
+    /* Character counter */
+    .char-counter {
+        position: absolute;
+        bottom: 6px;
+        right: 10px;
+        font-size: 11px;
+        color: #999;
+        pointer-events: none;
+    }
+    "#
+}
+
+/// Generate HTML for the text input webview
+fn get_editor_html(placeholder: &str) -> String {
+    let css = get_editor_css();
+    let escaped_placeholder = placeholder
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
+    
+    format!(r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>{css}</style>
+</head>
+<body>
+    <div class="editor-container">
+        <textarea id="editor" placeholder="{escaped_placeholder}" autofocus></textarea>
+    </div>
+    <script>
+        const editor = document.getElementById('editor');
+        
+        // Auto focus on load
+        window.onload = () => {{
+            setTimeout(() => editor.focus(), 50);
+        }};
+        
+        // Handle keyboard events
+        editor.addEventListener('keydown', (e) => {{
+            // Enter without Shift = Submit
+            if (e.key === 'Enter' && !e.shiftKey) {{
+                e.preventDefault();
+                const text = editor.value.trim();
+                if (text) {{
+                    window.ipc.postMessage('submit:' + text);
+                }}
+            }}
+            
+            // Escape = Cancel
+            if (e.key === 'Escape') {{
+                e.preventDefault();
+                window.ipc.postMessage('cancel');
+            }}
+        }});
+        
+        // Prevent context menu
+        document.addEventListener('contextmenu', e => e.preventDefault());
+    </script>
+</body>
+</html>"#)
+}
 
 pub fn is_active() -> bool {
     unsafe { INPUT_HWND.0 != 0 }
@@ -46,21 +200,31 @@ pub fn cancel_input() {
 }
 
 /// Get the edit control HWND of the active text input window
-/// Returns the child edit control where text should be pasted
+/// For webview-based input, this returns None as there's no native edit control
 pub fn get_input_edit_hwnd() -> Option<HWND> {
-    unsafe {
-        if INPUT_HWND.0 != 0 && IsWindow(INPUT_HWND).as_bool() {
-            // Find the edit control child (HMENU 101)
-            let edit_hwnd = GetDlgItem(INPUT_HWND, 101);
-            if edit_hwnd.0 != 0 && IsWindow(edit_hwnd).as_bool() {
-                Some(edit_hwnd)
-            } else {
-                None
-            }
-        } else {
-            None
+    // Webview-based input doesn't expose a native HWND for the editor
+    // Pasting is handled via JavaScript in the webview
+    None
+}
+
+/// Set text content in the webview editor (for paste operations)
+pub fn set_editor_text(text: &str) {
+    let escaped = text
+        .replace('\\', "\\\\")
+        .replace('`', "\\`")
+        .replace("${", "\\${")
+        .replace('\n', "\\n")
+        .replace('\r', "");
+    
+    TEXT_INPUT_WEBVIEW.with(|webview| {
+        if let Some(wv) = webview.borrow().as_ref() {
+            let script = format!(
+                r#"document.getElementById('editor').value = `{}`; document.getElementById('editor').focus();"#,
+                escaped
+            );
+            let _ = wv.evaluate_script(&script);
         }
-    }
+    });
 }
 
 pub fn show(
@@ -83,9 +247,13 @@ pub fn show(
         CURRENT_CANCEL_KEY = cancel_hotkey_name;
         FADE_ALPHA = 0;
         IS_DRAGGING = false;
+        
+        // Reset global state
+        *SUBMITTED_TEXT.lock().unwrap() = None;
+        *SHOULD_CLOSE.lock().unwrap() = false;
 
         let instance = GetModuleHandleW(None).unwrap();
-        let class_name = w!("SGT_TextInput");
+        let class_name = w!("SGT_TextInputWry");
 
         REGISTER_INPUT_CLASS.call_once(|| {
             let mut wc = WNDCLASSW::default();
@@ -94,8 +262,7 @@ pub fn show(
             wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
             wc.lpszClassName = class_name;
             wc.style = CS_HREDRAW | CS_VREDRAW;
-            // Use a null brush to prevent flickering if we paint background manually
-            wc.hbrBackground = HBRUSH(0); 
+            wc.hbrBackground = HBRUSH(0);
             let _ = RegisterClassW(&wc);
         });
 
@@ -123,40 +290,77 @@ pub fn show(
         let rgn = CreateRoundRectRgn(0, 0, win_w, win_h, 16, 16);
         SetWindowRgn(hwnd, rgn, true);
 
-        // Calculate Edit Control Rect (Relative)
+        // Create webview for the text editor area
+        // Base dimensions for the editor area
         let edit_x = 20;
         let edit_y = 50;
         let edit_w = win_w - 40;
         let edit_h = win_h - 90;
+        
+        // Inset the webview by the corner radius so the parent's white rounded fill shows at corners
+        let corner_inset = 6; // ~half of CSS border-radius to reveal the rounded corners from parent
+        let webview_x = edit_x + corner_inset;
+        let webview_y = edit_y + corner_inset;
+        let webview_w = edit_w - (corner_inset * 2);
+        let webview_h = edit_h - (corner_inset * 2);
+        
+        let locale = LocaleText::get(&CURRENT_UI_LANG);
+        // Use the locale's placeholder text for the textarea
+        let placeholder = locale.text_input_placeholder.to_string();
 
-        let edit_style = WS_CHILD | WS_VISIBLE | WINDOW_STYLE((ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32);
-        let h_edit = CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            w!("EDIT"),
-            w!(""),
-            edit_style,
-            edit_x + 5, edit_y + 5, edit_w - 10, edit_h - 10,
-            hwnd,
-            HMENU(101),
-            instance,
-            None
-        );
+        
+        let html = get_editor_html(&placeholder);
+        let wrapper = HwndWrapper(hwnd);
+        
+        let result = WebViewBuilder::new()
+            .with_bounds(Rect {
+                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(webview_x, webview_y)),
+                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                    webview_w as u32,
+                    webview_h as u32
+                )),
+            })
 
-        // Apply Font
-        let h_font_edit = CreateFontW(16, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
-        SendMessageW(h_edit, WM_SETFONT, WPARAM(h_font_edit.0 as usize), LPARAM(1));
+            .with_html(&html)
+            .with_transparent(false)
+            .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                let body = msg.body();
+                if body.starts_with("submit:") {
+                    let text = body.strip_prefix("submit:").unwrap_or("").to_string();
+                    if !text.trim().is_empty() {
+                        *SUBMITTED_TEXT.lock().unwrap() = Some(text);
+                        *SHOULD_CLOSE.lock().unwrap() = true;
+                    }
+                } else if body == "cancel" {
+                    *SHOULD_CLOSE.lock().unwrap() = true;
+                }
+            })
+            .build_as_child(&wrapper);
+        
+        match result {
+            Ok(webview) => {
+                TEXT_INPUT_WEBVIEW.with(|wv| {
+                    *wv.borrow_mut() = Some(webview);
+                });
+            }
+            Err(e) => {
+                eprintln!("Failed to create WebView for text input: {:?}", e);
+                DestroyWindow(hwnd);
+                INPUT_HWND = HWND(0);
+                ON_SUBMIT = None;
+                return;
+            }
+        }
 
-        // Subclass Edit
-        let old_proc = SetWindowLongPtrW(h_edit, GWLP_WNDPROC, edit_subclass_proc as *const () as isize);
-        ORIGINAL_EDIT_PROC = Some(std::mem::transmute(old_proc));
-
-        SetFocus(h_edit);
         ShowWindow(hwnd, SW_SHOW);
-        SetForegroundWindow(hwnd); // Ensure focus stealing for both keyboard and mouse hotkeys
+        SetForegroundWindow(hwnd);
         UpdateWindow(hwnd);
         
         // Start Fade Timer (16ms = ~60fps)
         SetTimer(hwnd, 1, 16, None);
+        
+        // IPC check timer (check for submit/cancel from webview)
+        SetTimer(hwnd, 2, 50, None);
 
         // Message Loop
         let mut msg = MSG::default();
@@ -166,77 +370,13 @@ pub fn show(
             if !IsWindow(hwnd).as_bool() { break; }
         }
 
-        DeleteObject(h_font_edit);
+        // Cleanup webview
+        TEXT_INPUT_WEBVIEW.with(|wv| {
+            *wv.borrow_mut() = None;
+        });
+        
         INPUT_HWND = HWND(0);
         ON_SUBMIT = None;
-        ORIGINAL_EDIT_PROC = None;
-    }
-}
-
-unsafe extern "system" fn edit_subclass_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    match msg {
-        WM_KEYDOWN => {
-            let vk = wparam.0 as i32;
-            
-            // ENTER: Submit
-            if vk == VK_RETURN.0 as i32 {
-                let shift = (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
-                if !shift {
-                    let len = GetWindowTextLengthW(hwnd) + 1;
-                    let mut buf = vec![0u16; len as usize];
-                    GetWindowTextW(hwnd, &mut buf);
-                    let text = String::from_utf16_lossy(&buf[..len as usize - 1]);
-                    
-                    if !text.trim().is_empty() {
-                        if let Some(cb) = ON_SUBMIT.as_ref() {
-                            let parent = GetParent(hwnd);
-                            DestroyWindow(parent); 
-                            cb(text, parent);
-                        }
-                    }
-                    return LRESULT(0); 
-                }
-            }
-            
-            // ESCAPE: Cancel
-            if vk == VK_ESCAPE.0 as i32 {
-                let parent = GetParent(hwnd);
-                DestroyWindow(parent);
-                return LRESULT(0); 
-            }
-
-            // CTRL+A: Select All
-            if vk == 0x41 { // 'A'
-                if (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 {
-                    SendMessageW(hwnd, EM_SETSEL, WPARAM(0), LPARAM(-1));
-                    return LRESULT(0);
-                }
-            }
-            
-            // LEFT ARROW: Collapse Selection
-            if vk == VK_LEFT.0 as i32 {
-                let mut start: u32 = 0;
-                let mut end: u32 = 0;
-                SendMessageW(hwnd, EM_GETSEL, WPARAM(&mut start as *mut _ as usize), LPARAM(&mut end as *mut _ as isize));
-                if start != end {
-                    SendMessageW(hwnd, EM_SETSEL, WPARAM(start as usize), LPARAM(start as isize));
-                    return LRESULT(0);
-                }
-            }
-        }
-        WM_CHAR => {
-            // Swallow Enter to prevent beep if no shift
-            if wparam.0 == VK_RETURN.0 as usize && (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) == 0 {
-                return LRESULT(0);
-            }
-        }
-        _ => {}
-    }
-
-    if let Some(proc) = ORIGINAL_EDIT_PROC {
-        CallWindowProcW(proc, hwnd, msg, wparam, lparam)
-    } else {
-        DefWindowProcW(hwnd, msg, wparam, lparam)
     }
 }
 
@@ -257,17 +397,24 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                     KillTimer(hwnd, 1);
                 }
             }
+            
+            if wparam.0 == 2 {
+                // Check for IPC messages from webview
+                let should_close = *SHOULD_CLOSE.lock().unwrap();
+                if should_close {
+                    let submitted = SUBMITTED_TEXT.lock().unwrap().take();
+                    if let Some(text) = submitted {
+                        if let Some(cb) = ON_SUBMIT.as_ref() {
+                            DestroyWindow(hwnd);
+                            cb(text, hwnd);
+                        }
+                    } else {
+                        DestroyWindow(hwnd);
+                    }
+                    *SHOULD_CLOSE.lock().unwrap() = false;
+                }
+            }
             LRESULT(0)
-        }
-
-        WM_CTLCOLOREDIT => {
-            let hdc = HDC(wparam.0 as isize);
-            SetBkMode(hdc, OPAQUE);
-            SetBkColor(hdc, COLORREF(COL_OFF_WHITE)); 
-            SetTextColor(hdc, COLORREF(0x000000)); 
-            let hbrush = GetStockObject(DC_BRUSH);
-            SetDCBrushColor(hdc, COLORREF(COL_OFF_WHITE));
-            LRESULT(hbrush.0 as isize)
         }
 
         WM_LBUTTONDOWN => {
@@ -285,25 +432,25 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                  return LRESULT(0);
             }
 
-            // Start Drag
-            // FIX 1: Use Screen Coordinates for accurate delta calculation
-            IS_DRAGGING = true;
-            
-            let mut pt_screen = POINT::default();
-            GetCursorPos(&mut pt_screen);
-            DRAG_START_MOUSE = pt_screen;
-            
-            let mut rect_win = RECT::default();
-            GetWindowRect(hwnd, &mut rect_win);
-            DRAG_START_WIN_POS = POINT { x: rect_win.left, y: rect_win.top };
-            
-            SetCapture(hwnd);
+            // Only start drag if clicking on the title bar area (top 50px)
+            if y < 50 {
+                IS_DRAGGING = true;
+                
+                let mut pt_screen = POINT::default();
+                GetCursorPos(&mut pt_screen);
+                DRAG_START_MOUSE = pt_screen;
+                
+                let mut rect_win = RECT::default();
+                GetWindowRect(hwnd, &mut rect_win);
+                DRAG_START_WIN_POS = POINT { x: rect_win.left, y: rect_win.top };
+                
+                SetCapture(hwnd);
+            }
             LRESULT(0)
         }
 
         WM_MOUSEMOVE => {
             if IS_DRAGGING {
-                // FIX 2: Calculate delta based on absolute screen coordinates
                 let mut pt_screen = POINT::default();
                 GetCursorPos(&mut pt_screen);
                 
@@ -343,22 +490,69 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             FillRect(mem_dc, &rect, brush_bg);
             DeleteObject(brush_bg);
 
-            // 2. Draw Rounded White Input Area
+            // 2. Draw white rounded rectangle background for webview area with ANTI-ALIASING
+            // This fills the area behind the webview so its transparent corners show white
             let edit_x = 20;
             let edit_y = 50;
             let edit_w = w - 40;
             let edit_h = h - 90;
             
-            let brush_white = CreateSolidBrush(COLORREF(COL_OFF_WHITE));
-            let old_brush = SelectObject(mem_dc, brush_white);
-            let pen_null = GetStockObject(NULL_PEN);
-            let old_pen = SelectObject(mem_dc, pen_null);
+            // Use SDF-based anti-aliased rendering for smooth corners
+            let corner_radius = 12.0f32;
+            let fill_color: u32 = 0xF0F0F0; // Match editor gradient bottom color (BGR for GDI)
             
-            RoundRect(mem_dc, edit_x, edit_y, edit_x + edit_w, edit_y + edit_h, 12, 12);
+            // Draw each pixel with anti-aliasing using signed distance field
+            let cx = (edit_w as f32) / 2.0; // Center X relative to edit area
+            let cy = (edit_h as f32) / 2.0; // Center Y relative to edit area
+            // NOTE: sd_rounded_box expects FULL half-extents, it handles radius internally
+            let half_w = cx;
+            let half_h = cy;
+
             
-            SelectObject(mem_dc, old_pen);
-            SelectObject(mem_dc, old_brush);
-            DeleteObject(brush_white);
+            for py_local in 0..edit_h {
+                for px_local in 0..edit_w {
+                    let px_screen = edit_x + px_local;
+                    let py_screen = edit_y + py_local;
+                    
+                    // Calculate signed distance from rounded rect center
+                    let px_rel = (px_local as f32) - cx;
+                    let py_rel = (py_local as f32) - cy;
+                    
+                    let d = crate::overlay::paint_utils::sd_rounded_box(px_rel, py_rel, half_w, half_h, corner_radius);
+                    
+                    if d < -1.0 {
+                        // Fully inside - solid white
+                        SetPixel(mem_dc, px_screen, py_screen, COLORREF(fill_color));
+                    } else if d < 1.0 {
+                        // Edge - anti-aliased blend
+                        let t = (d + 1.0) / 2.0; // 0.0 (inside) to 1.0 (outside)
+                        let alpha = 1.0 - t * t * (3.0 - 2.0 * t); // Smooth step
+                        
+                        if alpha > 0.01 {
+                            // Get the dark background color
+                            let bg_r = ((COL_DARK_BG >> 16) & 0xFF) as f32;
+                            let bg_g = ((COL_DARK_BG >> 8) & 0xFF) as f32;
+                            let bg_b = (COL_DARK_BG & 0xFF) as f32;
+                            
+                            let fg_r = ((fill_color >> 16) & 0xFF) as f32;
+                            let fg_g = ((fill_color >> 8) & 0xFF) as f32;
+                            let fg_b = (fill_color & 0xFF) as f32;
+                            
+                            // Blend colors
+                            let r = (fg_r * alpha + bg_r * (1.0 - alpha)) as u32;
+                            let g = (fg_g * alpha + bg_g * (1.0 - alpha)) as u32;
+                            let b = (fg_b * alpha + bg_b * (1.0 - alpha)) as u32;
+                            
+                            SetPixel(mem_dc, px_screen, py_screen, COLORREF((r << 16) | (g << 8) | b));
+                        }
+                        // else: leave dark background (already painted)
+                    }
+                    // else: outside - leave dark background
+                }
+            }
+
+
+
             
             // 3. Draw Text Labels
             SetBkMode(mem_dc, TRANSPARENT);
@@ -370,7 +564,7 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             let locale = LocaleText::get(&CURRENT_UI_LANG);
             let title_str = if !CURRENT_TITLE_OVERRIDE.is_empty() { CURRENT_TITLE_OVERRIDE.clone() } else { locale.text_input_title_default.to_string() };
             let mut title_w = crate::overlay::utils::to_wstring(&title_str);
-            let mut r_title = RECT { left: 20, top: 15, right: w - 20, bottom: 45 };
+            let mut r_title = RECT { left: 20, top: 15, right: w - 50, bottom: 45 };
             DrawTextW(mem_dc, &mut title_w, &mut r_title, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
             
             let h_font_small = CreateFontW(13, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32, CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32, (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI"));
