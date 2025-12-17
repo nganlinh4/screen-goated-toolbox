@@ -11,6 +11,11 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32Win
 lazy_static::lazy_static! {
     // Store WebViews per parent window - wrapped in thread-local storage to avoid Send issues
     static ref WEBVIEW_STATES: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
+    
+    // Global lock to serialize WebView2 creation across all threads
+    // This prevents race conditions when multiple WebViews are created simultaneously
+    // (e.g., in the "Omniscient God" preset with parallel branches)
+    static ref WEBVIEW_CREATION_LOCK: Mutex<()> = Mutex::new(());
 }
 
 // Thread-local storage for WebViews since they're not Send
@@ -169,6 +174,19 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
     });
     
     if exists {
+        return update_markdown_content(parent_hwnd, markdown_text);
+    }
+    
+    // CRITICAL: Acquire global lock to serialize WebView2 creation
+    // This prevents race conditions when multiple windows try to create WebViews simultaneously
+    // The lock is held for the entire creation process to ensure sequential initialization
+    let _creation_guard = WEBVIEW_CREATION_LOCK.lock().unwrap();
+    
+    // Double-check after acquiring lock (another thread may have created it while we waited)
+    let exists_after_lock = WEBVIEWS.with(|webviews| {
+        webviews.borrow().contains_key(&hwnd_key)
+    });
+    if exists_after_lock {
         return update_markdown_content(parent_hwnd, markdown_text);
     }
     
