@@ -897,6 +897,10 @@ fn run_chain_step(
             let branch_rect = base_rect;
             
             std::thread::spawn(move || {
+                // Small delay to stagger WebView2 creation across parallel branches
+                // This reduces contention and helps prevent freezing
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                
                 run_chain_step(
                     next_idx,
                     result_clone,

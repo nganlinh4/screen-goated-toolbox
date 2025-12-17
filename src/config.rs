@@ -789,6 +789,7 @@ impl Default for Config {
                 prompt: "Analyze this image and extract all text, claims, and key information. Be detailed and comprehensive.".to_string(),
                 selected_language: "English".to_string(),
                 streaming_enabled: false,
+                render_mode: "markdown".to_string(),
                 show_overlay: true,
                 auto_copy: false,
                 ..Default::default()
@@ -824,6 +825,7 @@ impl Default for Config {
                 prompt: "Translate the following text to {language1}. Output ONLY the translation.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
+                render_mode: "markdown".to_string(),
                 show_overlay: true,
                 auto_copy: false,
                 ..Default::default()
