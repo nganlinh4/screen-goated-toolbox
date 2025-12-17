@@ -449,9 +449,23 @@ fn render_preset_item(
     let has_hotkey = !preset.hotkeys.is_empty();
     
     let icon_type = match preset.preset_type.as_str() {
-        "audio" => Icon::Microphone,
+        "audio" => {
+            // Use Speaker for device audio, Microphone for mic audio
+            if preset.audio_source == "device" {
+                Icon::Speaker
+            } else {
+                Icon::Microphone
+            }
+        },
         "video" => Icon::Video,
-        "text" => Icon::Text,
+        "text" => {
+            // Use TextSelect for select mode, Text (T) for type mode
+            if preset.text_input_mode == "select" {
+                Icon::TextSelect
+            } else {
+                Icon::Text
+            }
+        },
         _ => Icon::Image,
     };
     

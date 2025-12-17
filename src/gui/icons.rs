@@ -28,6 +28,8 @@ pub enum Icon {
     Close,  // NEW: "X" for clearing search
     ChainArrow, // NEW: Arrow for chain links
     ChainArrowDown, // NEW: Vertical arrow for chain steps
+    TextSelect, // NEW: Text with selection cursor for text selection mode
+    Speaker, // NEW: Speaker icon for device audio source
 }
 
 /// Main entry point: Draw a clickable icon button (default size 24.0)
@@ -478,6 +480,84 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             // Arrowhead
             painter.line_segment([end, end - egui::vec2(head_sz, head_sz)], stroke);
             painter.line_segment([end, end - egui::vec2(-head_sz, head_sz)], stroke);
+        }
+
+        Icon::TextSelect => {
+            // Text with selection highlight/cursor - represents "select text" mode
+            // Draw 3 horizontal lines (text lines) with middle one highlighted
+            let line_w = 12.0 * scale;
+            let line_gap = 4.0 * scale;
+            let line_y1 = center.y - line_gap;
+            let line_y2 = center.y;
+            let line_y3 = center.y + line_gap;
+            
+            // Text lines
+            painter.line_segment([egui::pos2(center.x - line_w/2.0, line_y1), egui::pos2(center.x + line_w/2.0, line_y1)], stroke);
+            painter.line_segment([egui::pos2(center.x - line_w/2.0, line_y3), egui::pos2(center.x + line_w/2.0, line_y3)], stroke);
+            
+            // Highlighted middle line (thicker, representing selection)
+            let highlight_stroke = egui::Stroke::new(3.0 * scale, color);
+            painter.line_segment([egui::pos2(center.x - line_w/2.0, line_y2), egui::pos2(center.x + line_w/2.0, line_y2)], highlight_stroke);
+            
+            // Cursor (vertical line with serifs at ends)
+            let cursor_x = center.x + line_w/2.0 + 2.0 * scale;
+            let cursor_top = center.y - 5.0 * scale;
+            let cursor_bot = center.y + 5.0 * scale;
+            let serif_w = 1.5 * scale;
+            painter.line_segment([egui::pos2(cursor_x, cursor_top), egui::pos2(cursor_x, cursor_bot)], stroke);
+            painter.line_segment([egui::pos2(cursor_x - serif_w, cursor_top), egui::pos2(cursor_x + serif_w, cursor_top)], stroke);
+            painter.line_segment([egui::pos2(cursor_x - serif_w, cursor_bot), egui::pos2(cursor_x + serif_w, cursor_bot)], stroke);
+        }
+
+        Icon::Speaker => {
+            // Speaker with sound waves - for device audio (system sound)
+            // Speaker body (trapezoid + rectangle)
+            let body_x = center.x - 3.0 * scale;
+            let body_w = 4.0 * scale;
+            let body_h = 6.0 * scale;
+            let cone_w = 5.0 * scale;
+            let cone_h = 10.0 * scale;
+            
+            // Rectangle (back of speaker)
+            let rect = egui::Rect::from_center_size(
+                egui::pos2(body_x - body_w/2.0, center.y),
+                egui::vec2(body_w, body_h)
+            );
+            painter.rect_stroke(rect, 0.5 * scale, stroke, egui::StrokeKind::Middle);
+            
+            // Cone (trapezoid)
+            let cone_pts = vec![
+                egui::pos2(body_x, center.y - body_h/2.0),           // top-left
+                egui::pos2(body_x + cone_w, center.y - cone_h/2.0), // top-right
+                egui::pos2(body_x + cone_w, center.y + cone_h/2.0), // bottom-right
+                egui::pos2(body_x, center.y + body_h/2.0),           // bottom-left
+            ];
+            painter.add(egui::Shape::closed_line(cone_pts, stroke));
+            
+            // Sound waves (arcs)
+            let wave_x = center.x + 4.0 * scale;
+            let wave_r1 = 3.0 * scale;
+            let wave_r2 = 5.5 * scale;
+            
+            // First wave
+            let wave_segments = 8;
+            let wave_angle = PI / 3.0;
+            let mut wave1_pts = Vec::new();
+            for i in 0..=wave_segments {
+                let t = i as f32 / wave_segments as f32;
+                let angle = -wave_angle + 2.0 * wave_angle * t;
+                wave1_pts.push(egui::pos2(wave_x + wave_r1 * angle.cos(), center.y + wave_r1 * angle.sin()));
+            }
+            painter.add(egui::Shape::line(wave1_pts, stroke));
+            
+            // Second wave
+            let mut wave2_pts = Vec::new();
+            for i in 0..=wave_segments {
+                let t = i as f32 / wave_segments as f32;
+                let angle = -wave_angle + 2.0 * wave_angle * t;
+                wave2_pts.push(egui::pos2(wave_x + wave_r2 * angle.cos(), center.y + wave_r2 * angle.sin()));
+            }
+            painter.add(egui::Shape::line(wave2_pts, stroke));
         }
     }
 }

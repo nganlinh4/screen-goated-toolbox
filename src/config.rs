@@ -808,6 +808,7 @@ impl Default for Config {
         p16.id = "preset_realtime_audio_translate".to_string();
         p16.name = "Realtime Audio Translate (upcoming)".to_string();
         p16.preset_type = "audio".to_string();
+        p16.audio_source = "device".to_string(); // Device audio for cabin translation
         p16.is_upcoming = true;
         p16.blocks = vec![];
 
@@ -869,10 +870,10 @@ impl Default for Config {
             presets: vec![
                 // Column 1: Image presets
                 p1, p7, p2, p3g, p4, p4b, p6, p8, p9, p10, p14b, p14c, pm1,
-                // Column 2: Text presets
-                p3, p3b, p3c, p3d, p3e, p3f, p5, p5b, pm2, pm3,
-                // Column 3: Audio presets
-                p11, p12, p13, p14, p16, pm4, pm5,
+                // Column 2: Text presets (Bôi MASTER after Giải thích code, Gõ MASTER after Internet search)
+                p3, p3b, p3c, p3d, p3e, p3f, pm2, p5, p5b, pm3,
+                // Column 3: Audio presets (Mic presets first, then device audio presets at end)
+                p11, p13, p14, pm4, p12, pm5, p16,
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
