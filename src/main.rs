@@ -199,11 +199,20 @@ fn main() -> eframe::Result<()> {
         run_hotkey_listener();
     });
 
-    // Warmup text input window (hidden startup)
-    overlay::text_input::warmup();
-    
-    // Warmup markdown WebView (hidden startup) - pre-initializes WebView2
-    overlay::result::markdown_view::warmup();
+    // Offload warmups to a sequenced thread to prevent splash screen lag
+    std::thread::spawn(|| {
+        // 1. Wait for splash screen / main box to appear and settle
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        
+        // 2. Warmup text input window first (more likely to be used quickly)
+        overlay::text_input::warmup();
+        
+        // 3. Wait before next warmup to distribute CPU load
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+        
+        // 4. Warmup markdown WebView
+        overlay::result::markdown_view::warmup();
+    });
 
     // --- TRAY MENU SETUP ---
     let tray_menu = Menu::new();
