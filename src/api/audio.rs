@@ -203,6 +203,9 @@ pub fn record_audio_and_transcribe(
 
     let err_fn = |err| eprintln!("Audio stream error: {}", err);
     
+    // Threshold for "meaningful audio" - above this RMS means mic is truly receiving sound
+    const WARMUP_RMS_THRESHOLD: f32 = 0.001;
+    
     let stream_res = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
             &config.into(),
@@ -213,6 +216,11 @@ pub fn record_audio_and_transcribe(
                     for &x in data { rms += x * x; }
                     rms = (rms / data.len() as f32).sqrt();
                     crate::overlay::recording::update_audio_viz(rms);
+                    
+                    // Signal warmup complete when we get meaningful audio
+                    if rms > WARMUP_RMS_THRESHOLD {
+                        crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+                    }
                 }
             },
             err_fn,
@@ -228,6 +236,11 @@ pub fn record_audio_and_transcribe(
                     for &x in data { let f = x as f32 / i16::MAX as f32; rms += f * f; }
                     rms = (rms / data.len() as f32).sqrt();
                     crate::overlay::recording::update_audio_viz(rms);
+                    
+                    // Signal warmup complete when we get meaningful audio
+                    if rms > WARMUP_RMS_THRESHOLD {
+                        crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+                    }
                 }
             },
             err_fn,
@@ -254,10 +267,41 @@ pub fn record_audio_and_transcribe(
 
     let mut collected_samples: Vec<f32> = Vec::new();
 
+    // --- AUTO-STOP LOGIC STATE ---
+    // Only active when preset.auto_stop_recording is true
+    let auto_stop_enabled = preset.auto_stop_recording;
+    let mut has_spoken = false;           // True once user starts speaking
+    let mut last_active_time = std::time::Instant::now();
+    
+    // Thresholds tuned for typical speech vs silence
+    const NOISE_THRESHOLD: f32 = 0.015;   // RMS above this = speech
+    const SILENCE_LIMIT_MS: u128 = 800;   // ms of silence after speech to trigger stop
+
     while !stop_signal.load(Ordering::SeqCst) {
         while let Ok(chunk) = rx.try_recv() {
             collected_samples.extend(chunk);
         }
+        
+        // --- AUTO-STOP: Check volume and silence duration ---
+        if auto_stop_enabled && !stop_signal.load(Ordering::Relaxed) {
+            // Get current RMS from the shared atomic
+            let rms_bits = crate::overlay::recording::CURRENT_RMS.load(Ordering::Relaxed);
+            let current_rms = f32::from_bits(rms_bits);
+            
+            if current_rms > NOISE_THRESHOLD {
+                // User is speaking (volume above threshold)
+                has_spoken = true;
+                last_active_time = std::time::Instant::now();
+            } else if has_spoken {
+                // User was speaking but now is silent
+                let silence_duration = last_active_time.elapsed().as_millis();
+                if silence_duration > SILENCE_LIMIT_MS {
+                    // Silence exceeded limit after speech - auto-stop!
+                    stop_signal.store(true, Ordering::SeqCst);
+                }
+            }
+        }
+        
         std::thread::sleep(std::time::Duration::from_millis(50));
         if !preset.hide_recording_ui {
              if !unsafe { IsWindow(overlay_hwnd).as_bool() } {

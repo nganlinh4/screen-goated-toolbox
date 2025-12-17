@@ -18,7 +18,7 @@ lazy_static::lazy_static! {
     static ref VISUALIZATION_BUFFER: Mutex<[f32; 40]> = Mutex::new([0.0; 40]);
 }
 static mut VIS_HEAD: usize = 0;
-static CURRENT_RMS: AtomicU32 = AtomicU32::new(0);
+pub static CURRENT_RMS: AtomicU32 = AtomicU32::new(0);
 
 // --- UI CONSTANTS ---
 const UI_WIDTH: i32 = 350;   // More compact width

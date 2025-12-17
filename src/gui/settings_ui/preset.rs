@@ -202,11 +202,18 @@ pub fn render_preset_editor(
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label(text.audio_source_label);
-                    if ui.radio_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() { changed = true; }
-                    if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() { changed = true; }
+                    let selected_text = if preset.audio_source == "mic" { text.audio_src_mic } else { text.audio_src_device };
+                    egui::ComboBox::from_id_source("audio_source_combo")
+                        .selected_text(selected_text)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() { changed = true; }
+                            if ui.selectable_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() { changed = true; }
+                        });
                     if !preset.show_controller_ui {
                         ui.add_space(10.0);
                         if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() { changed = true; }
+                        ui.add_space(6.0);
+                        if ui.checkbox(&mut preset.auto_stop_recording, text.auto_stop_recording_label).clicked() { changed = true; }
                     }
                 });
             }

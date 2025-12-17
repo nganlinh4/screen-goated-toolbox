@@ -105,6 +105,8 @@ pub struct Preset {
     pub audio_source: String,
     #[serde(default)]
     pub hide_recording_ui: bool,
+    #[serde(default)]
+    pub auto_stop_recording: bool, // Silence-based auto-stop
 
     // --- Video Fields ---
     #[serde(default)]
@@ -166,6 +168,7 @@ impl Default for Preset {
             preset_type: "image".to_string(),
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
+            auto_stop_recording: false,
             video_capture_method: "region".to_string(),
             text_input_mode: "select".to_string(),
             continuous_input: false,
@@ -603,6 +606,7 @@ impl Default for Config {
         p11.preset_type = "audio".to_string();
         p11.audio_source = "mic".to_string();
         p11.auto_paste = true;
+        p11.auto_stop_recording = true;
         p11.blocks = vec![
             ProcessingBlock {
                 block_type: "audio".to_string(),
