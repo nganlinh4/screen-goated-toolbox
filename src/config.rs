@@ -209,7 +209,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "image".to_string(),
                 model: "maverick".to_string(),
-                prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+                prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: false,
                 show_overlay: true,
@@ -228,7 +228,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "image".to_string(),
                 model: "maverick".to_string(),
-                prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+                prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: false,
                 show_overlay: false,
@@ -318,7 +318,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Fix grammar, spelling, and punctuation errors in the following text. Preserve the original meaning and tone. Output ONLY the corrected text.".to_string(),
+                prompt: "Correct grammar, spelling, and punctuation errors in the following text. Do not change the meaning or tone. Output ONLY the corrected text.".to_string(),
                 selected_language: "Vietnamese".to_string(), // Not used but required
                 streaming_enabled: false,
                 show_overlay: false,
@@ -339,7 +339,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Rephrase the following text using different words while preserving the exact same meaning. Keep the same language. Output ONLY the rephrased text.".to_string(),
+                prompt: "Paraphrase the following text using varied vocabulary while maintaining the exact original meaning and language. Output ONLY the paraphrased text.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: false,
                 show_overlay: false,
@@ -360,7 +360,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Rewrite the following text in a more formal, professional tone suitable for business communication. Keep the same language and meaning. Output ONLY the formal version.".to_string(),
+                prompt: "Rewrite the following text to be professional and formal, suitable for business communication. Maintain the original meaning. Output ONLY the rewritten text.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: false,
                 show_overlay: false,
@@ -417,7 +417,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "image".to_string(),
                 model: "maverick".to_string(),
-                prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly.".to_string(),
+                prompt: "Extract text from this image and translate it to {language1}. Output ONLY the translation text directly, do not add introductory text.".to_string(),
                 selected_language: "Korean".to_string(),
                 streaming_enabled: false,
                 show_overlay: true,
@@ -786,7 +786,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "image".to_string(),
                 model: "maverick".to_string(),
-                prompt: "Extract and describe all text, claims, statements, and information visible in this image.".to_string(),
+                prompt: "Analyze this image and extract all text, claims, and key information. Be detailed and comprehensive.".to_string(),
                 selected_language: "English".to_string(),
                 streaming_enabled: false,
                 show_overlay: true,
