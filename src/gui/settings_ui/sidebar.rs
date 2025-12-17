@@ -32,7 +32,6 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", "vi") => "Trả lời ng.nc.ngoài 2".to_string(),
         ("preset_fact_check", "vi") => "Kiểm chứng thông tin".to_string(),
         ("preset_omniscient_god", "vi") => "Thần Trí tuệ".to_string(),
-        ("preset_video_summary_placeholder", "vi") => "Tóm tắt video (sắp có)".to_string(),
         ("preset_realtime_audio_translate", "vi") => "Dịch cabin (sắp có)".to_string(),
         // MASTER presets - Vietnamese
         ("preset_image_master", "vi") => "Ảnh MASTER".to_string(),
@@ -66,7 +65,6 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", "ko") => "빠른 외국인 답변 2".to_string(),
         ("preset_fact_check", "ko") => "정보 확인".to_string(),
         ("preset_omniscient_god", "ko") => "전지전능한 신".to_string(),
-        ("preset_video_summary_placeholder", "ko") => "비디오 요약 (예정)".to_string(),
         ("preset_realtime_audio_translate", "ko") => "실시간 음성 번역 (예정)".to_string(),
         // MASTER presets - Korean
         ("preset_image_master", "ko") => "이미지 마스터".to_string(),
@@ -100,7 +98,6 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", _) => "Quick 4NR reply 2".to_string(),
         ("preset_fact_check", _) => "Fact Check".to_string(),
         ("preset_omniscient_god", _) => "Omniscient God".to_string(),
-        ("preset_video_summary_placeholder", _) => "Summarize video (soon)".to_string(),
         ("preset_realtime_audio_translate", _) => "Realtime Audio Trans (soon)".to_string(),
         // MASTER presets - English (default)
         ("preset_image_master", _) => "Image MASTER".to_string(),
@@ -164,18 +161,30 @@ pub fn render_sidebar(
         .spacing(egui::vec2(8.0, 6.0))
         .min_row_height(24.0) // Ensure consistent row heights
         .show(ui, |ui| {
-            // === ROW 1: Theme/Lang/History | Global Settings ===
+            // === ROW 1: Theme/Lang/History | (empty) | Global Settings ===
             // Column 1: Use explicit center alignment
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.spacing_mut().item_spacing.x = 6.0;
                 
-                // Theme Switcher
-                let (theme_icon, tooltip) = match config.theme_mode {
-                    ThemeMode::Dark => (Icon::Moon, "Theme: Dark"),
-                    ThemeMode::Light => (Icon::Sun, "Theme: Light"),
-                    ThemeMode::System => (Icon::SystemTheme, "Theme: System (Auto)"),
+                let is_dark = ui.visuals().dark_mode;
+                
+                // Theme Switcher - styled button with background
+                let theme_bg = if is_dark {
+                    egui::Color32::from_rgb(50, 55, 70)
+                } else {
+                    egui::Color32::from_rgb(230, 235, 245)
                 };
-                if icon_button(ui, theme_icon).on_hover_text(tooltip).clicked() {
+                let (theme_text, tooltip) = match config.theme_mode {
+                    ThemeMode::Dark => ("🌙", "Theme: Dark"),
+                    ThemeMode::Light => ("☀", "Theme: Light"),
+                    ThemeMode::System => ("💻", "Theme: System (Auto)"),
+                };
+                if ui.add(egui::Button::new(egui::RichText::new(theme_text).size(14.0))
+                    .fill(theme_bg)
+                    .corner_radius(6.0))
+                    .on_hover_text(tooltip)
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked() {
                     config.theme_mode = match config.theme_mode {
                         ThemeMode::System => ThemeMode::Dark,
                         ThemeMode::Dark => ThemeMode::Light,
@@ -184,32 +193,52 @@ pub fn render_sidebar(
                     changed = true;
                 }
                 
-                // Language Switcher
-                let original_lang = config.ui_language.clone();
-                let lang_display = match config.ui_language.as_str() {
-                    "vi" => "VI",
-                    "ko" => "KO",
-                    _ => "EN",
+                // Language Switcher - styled pill with flag
+                let lang_bg = if is_dark {
+                    egui::Color32::from_rgb(55, 50, 75)
+                } else {
+                    egui::Color32::from_rgb(235, 230, 250)
                 };
-                egui::ComboBox::from_id_source("header_lang_switch")
-                    .width(60.0)
-                    .selected_text(lang_display)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut config.ui_language, "en".to_string(), "English");
-                        ui.selectable_value(&mut config.ui_language, "vi".to_string(), "Vietnamese");
-                        ui.selectable_value(&mut config.ui_language, "ko".to_string(), "Korean");
+                let original_lang = config.ui_language.clone();
+                let lang_flag = match config.ui_language.as_str() {
+                    "vi" => "🇻🇳",
+                    "ko" => "🇰🇷",
+                    _ => "🇺🇸",
+                };
+                egui::Frame::none()
+                    .fill(lang_bg)
+                    .corner_radius(6.0)
+                    .inner_margin(egui::vec2(6.0, 2.0))
+                    .show(ui, |ui| {
+                        egui::ComboBox::from_id_source("header_lang_switch")
+                            .width(32.0)
+                            .selected_text(lang_flag)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut config.ui_language, "en".to_string(), "🇺🇸 English");
+                                ui.selectable_value(&mut config.ui_language, "vi".to_string(), "🇻🇳 Tiếng Việt");
+                                ui.selectable_value(&mut config.ui_language, "ko".to_string(), "🇰🇷 한국어");
+                            });
                     });
                 if original_lang != config.ui_language {
                     changed = true;
                 }
                 
-                // History Button
-                if ui.button(text.history_btn).clicked() {
+                // History Button - styled teal pill
+                let history_bg = if is_dark {
+                    egui::Color32::from_rgb(40, 90, 90)
+                } else {
+                    egui::Color32::from_rgb(100, 180, 180)
+                };
+                if ui.add(egui::Button::new(egui::RichText::new(format!("📜 {}", text.history_btn)).color(egui::Color32::WHITE))
+                    .fill(history_bg)
+                    .corner_radius(8.0))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked() {
                     should_set_history = true;
                 }
             });
 
-            // Column 2: empty spacer for middle column alignment
+            // Column 2: empty spacer
             ui.label("");
 
             // Column 3: Global Settings (Right Aligned with Center vertical alignment)
@@ -223,31 +252,59 @@ pub fn render_sidebar(
             });
             ui.end_row();
 
-            // === ROW 2: Presets Title | Add Buttons ===
-            ui.label(egui::RichText::new(text.presets_section).strong());
-            ui.label(""); // empty for middle column
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.style_mut().spacing.item_spacing.x = 4.0;
-                // Buttons in reverse order for right_to_left
-                if ui.button(text.add_audio_preset_btn).clicked() {
-                    preset_to_add_type = Some("audio");
-                }
-                if ui.button(text.add_text_preset_btn).clicked() {
-                    preset_to_add_type = Some("text");
-                }
-                if ui.button(text.add_image_preset_btn).clicked() {
-                    preset_to_add_type = Some("image");
-                }
-            });
+            // === ROW 2: Add Buttons as Column Headers ===
+            let is_dark = ui.visuals().dark_mode;
+            
+            // Image button - Blue tint
+            let img_bg = if is_dark { 
+                egui::Color32::from_rgb(45, 85, 140) 
+            } else { 
+                egui::Color32::from_rgb(100, 150, 220) 
+            };
+            
+            // Text button - Green tint
+            let txt_bg = if is_dark { 
+                egui::Color32::from_rgb(45, 120, 80) 
+            } else { 
+                egui::Color32::from_rgb(90, 180, 120) 
+            };
+            
+            // Audio button - Orange/Amber tint
+            let aud_bg = if is_dark { 
+                egui::Color32::from_rgb(150, 95, 40) 
+            } else { 
+                egui::Color32::from_rgb(220, 160, 80) 
+            };
+            
+            // Column 1: +Ảnh button
+            if ui.add(egui::Button::new(egui::RichText::new(text.add_image_preset_btn).color(egui::Color32::WHITE).strong())
+                .fill(img_bg)
+                .corner_radius(12.0))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked() {
+                preset_to_add_type = Some("image");
+            }
+            
+            // Column 2: +Text button  
+            if ui.add(egui::Button::new(egui::RichText::new(text.add_text_preset_btn).color(egui::Color32::WHITE).strong())
+                .fill(txt_bg)
+                .corner_radius(12.0))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked() {
+                preset_to_add_type = Some("text");
+            }
+            
+            // Column 3: +Âm thanh button
+            if ui.add(egui::Button::new(egui::RichText::new(text.add_audio_preset_btn).color(egui::Color32::WHITE).strong())
+                .fill(aud_bg)
+                .corner_radius(12.0))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked() {
+                preset_to_add_type = Some("audio");
+            }
             ui.end_row();
 
-            // === ROW 3: Column Headers ===
-            ui.label(egui::RichText::new("📷 Image").small().weak());
-            ui.label(egui::RichText::new("📝 Text").small().weak());
-            ui.label(egui::RichText::new("🎤 Audio/Video").small().weak());
-            ui.end_row();
-
-            // === ROW 4+: Preset Items in 3 columns ===
+            // === ROW 3+: Preset Items in 3 columns ===
             let max_len = *[image_indices.len(), text_indices.len(), audio_video_indices.len()].iter().max().unwrap_or(&0);
 
             for i in 0..max_len {

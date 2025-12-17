@@ -799,14 +799,6 @@ impl Default for Config {
         // Right: Keywords (4) Top, Search (2) Bottom.
         p14c.block_connections = vec![(0, 3), (0, 1), (3, 4), (3, 2)];
 
-        // 15. Video Summarize Placeholder
-        let mut p15 = Preset::default();
-        p15.id = "preset_video_summary_placeholder".to_string();
-        p15.name = "Summarize video (upcoming)".to_string();
-        p15.preset_type = "video".to_string();
-        p15.is_upcoming = true;
-        p15.blocks = vec![];
-
         // 16. Realtime Audio Translation (Dịch cabin) Placeholder
         let mut p16 = Preset::default();
         p16.id = "preset_realtime_audio_translate".to_string();
@@ -875,8 +867,8 @@ impl Default for Config {
                 p1, p7, p2, p3g, p4, p4b, p6, p8, p9, p10, p14b, p14c, pm1,
                 // Column 2: Text presets
                 p3, p3b, p3c, p3d, p3e, p3f, p5, p5b, pm2, pm3,
-                // Column 3: Audio + Video presets
-                p11, p12, p13, p14, p15, p16, pm4, pm5,
+                // Column 3: Audio presets
+                p11, p12, p13, p14, p16, pm4, pm5,
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
