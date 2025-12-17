@@ -9,6 +9,13 @@ use crate::model_config::{get_all_models, ModelType, get_model_by_id};
 use crate::gui::icons::{Icon, icon_button};
 use std::collections::HashMap;
 
+/// Request a node graph view reset (scale=1.0, centered)
+/// This sets a flag that the patched egui-snarl library will check
+pub fn request_node_graph_view_reset(ctx: &egui::Context) {
+    let reset_id = egui::Id::new("snarl_reset_view");
+    ctx.data_mut(|d| d.insert_temp(reset_id, true));
+}
+
 /// Node type for the processing chain
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum ChainNode {
