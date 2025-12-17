@@ -32,6 +32,147 @@ pub fn is_active() -> bool {
     unsafe { TAG_HWND.0 != 0 }
 }
 
+/// Try to process already-selected text instantly.
+/// Returns true if text was found and processing started (caller should NOT show selection tag).
+/// Returns false if no text was selected (caller should show selection tag for manual selection).
+pub fn try_instant_process(preset_idx: usize) -> bool {
+    unsafe {
+        // Step 1: Save current clipboard content (we'll restore if empty selection)
+        let original_clipboard = get_clipboard_text();
+        
+        // Step 2: Clear clipboard and send Ctrl+C to copy current selection
+        if OpenClipboard(HWND(0)).as_bool() { 
+            EmptyClipboard(); 
+            CloseClipboard(); 
+        }
+        
+        // Small delay to ensure clipboard is clear
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        
+        // Send Ctrl+C
+        let send_input_event = |vk: u16, flags: KEYBD_EVENT_FLAGS| {
+            let input = INPUT { 
+                r#type: INPUT_KEYBOARD, 
+                Anonymous: INPUT_0 { 
+                    ki: KEYBDINPUT { 
+                        wVk: VIRTUAL_KEY(vk), 
+                        dwFlags: flags, 
+                        time: 0, 
+                        dwExtraInfo: 0, 
+                        wScan: 0 
+                    } 
+                } 
+            };
+            SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+        };
+        
+        send_input_event(VK_CONTROL.0, KEYBD_EVENT_FLAGS(0));
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        send_input_event(0x43, KEYBD_EVENT_FLAGS(0)); // 'C'
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        send_input_event(0x43, KEYEVENTF_KEYUP);
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        send_input_event(VK_CONTROL.0, KEYEVENTF_KEYUP);
+        
+        // Step 3: Wait for clipboard to update and check for text
+        let mut clipboard_text = String::new();
+        for _ in 0..6 { // Fewer retries since we need to be quick
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            clipboard_text = get_clipboard_text();
+            if !clipboard_text.is_empty() { break; }
+        }
+        
+        // Step 4: Check if we got any text
+        if clipboard_text.trim().is_empty() {
+            // No text was selected - restore original clipboard if we had content
+            if !original_clipboard.is_empty() {
+                crate::overlay::utils::copy_to_clipboard(&original_clipboard, HWND(0));
+            }
+            return false; // Signal caller to show selection tag
+        }
+        
+        // Step 5: Text found! Process it immediately
+        process_selected_text(preset_idx, clipboard_text);
+        true // Signal caller that we handled it
+    }
+}
+
+/// Get text from clipboard (returns empty string if no text available)
+unsafe fn get_clipboard_text() -> String {
+    let mut result = String::new();
+    if OpenClipboard(HWND(0)).as_bool() {
+        if let Ok(h_data) = GetClipboardData(13u32) { // CF_UNICODETEXT
+            let h_global: HGLOBAL = std::mem::transmute(h_data);
+            let ptr = GlobalLock(h_global);
+            if !ptr.is_null() {
+                let size = GlobalSize(h_global);
+                let wide_slice = std::slice::from_raw_parts(ptr as *const u16, size / 2);
+                if let Some(end) = wide_slice.iter().position(|&c| c == 0) { 
+                    result = String::from_utf16_lossy(&wide_slice[..end]); 
+                }
+            }
+            GlobalUnlock(h_global);
+        }
+        CloseClipboard();
+    }
+    result
+}
+
+/// Process selected text with the given preset (shared logic for both instant and manual selection)
+fn process_selected_text(preset_idx: usize, clipboard_text: String) {
+    unsafe {
+        // Check if this is a MASTER preset
+        let (is_master, _original_mode) = {
+            let app = APP.lock().unwrap();
+            let p = &app.config.presets[preset_idx];
+            (p.is_master, p.text_input_mode.clone())
+        };
+        
+        let final_preset_idx = if is_master {
+            // Get cursor position for wheel center
+            let mut cursor_pos = POINT { x: 0, y: 0 };
+            GetCursorPos(&mut cursor_pos);
+            
+            // Show preset wheel
+            let selected = super::preset_wheel::show_preset_wheel("text", Some("select"), cursor_pos);
+            
+            if let Some(idx) = selected {
+                idx
+            } else {
+                // User dismissed wheel - cancel operation
+                return;
+            }
+        } else {
+            preset_idx
+        };
+        
+        // Process with the selected preset
+        let (config, mut preset, screen_w, screen_h) = {
+            let mut app = APP.lock().unwrap();
+            // CRITICAL: Update active_preset_idx so auto_paste logic works!
+            app.config.active_preset_idx = final_preset_idx;
+            (
+                app.config.clone(),
+                app.config.presets[final_preset_idx].clone(),
+                GetSystemMetrics(SM_CXSCREEN),
+                GetSystemMetrics(SM_CYSCREEN)
+            )
+        };
+        
+        // CRITICAL FIX: Force text_input_mode to "select" so the text is processed
+        // directly, not re-opened in a text input modal
+        preset.text_input_mode = "select".to_string();
+        
+        let center_rect = RECT { 
+            left: (screen_w - 700) / 2, 
+            top: (screen_h - 300) / 2, 
+            right: (screen_w + 700) / 2, 
+            bottom: (screen_h + 300) / 2 
+        };
+        super::process::start_text_processing(clipboard_text, center_rect, config, preset, String::new(), String::new());
+    }
+}
+
 pub fn cancel_selection() {
     TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
     unsafe {
@@ -121,75 +262,18 @@ unsafe extern "system" fn tag_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpa
                     std::thread::sleep(std::time::Duration::from_millis(20));
                     send_input_event(VK_CONTROL.0, KEYEVENTF_KEYUP);
                     
+                    // Use helper to get clipboard text
                     let mut clipboard_text = String::new();
                     for _ in 0..10 {
                         if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) { return; }
                         std::thread::sleep(std::time::Duration::from_millis(25));
-                        if OpenClipboard(HWND(0)).as_bool() {
-                            if let Ok(h_data) = GetClipboardData(13u32) {
-                                let h_global: HGLOBAL = std::mem::transmute(h_data);
-                                let ptr = GlobalLock(h_global);
-                                if !ptr.is_null() {
-                                    let size = GlobalSize(h_global);
-                                    let wide_slice = std::slice::from_raw_parts(ptr as *const u16, size / 2);
-                                    if let Some(end) = wide_slice.iter().position(|&c| c == 0) { clipboard_text = String::from_utf16_lossy(&wide_slice[..end]); }
-                                }
-                                GlobalUnlock(h_global);
-                            }
-                            CloseClipboard();
-                        }
+                        clipboard_text = get_clipboard_text();
                         if !clipboard_text.is_empty() { break; }
                     }
 
                     if !clipboard_text.trim().is_empty() && !TAG_ABORT_SIGNAL.load(Ordering::Relaxed) {
-                        // Text found - check if this is a MASTER preset
-                        let (is_master, original_preset_type) = {
-                            let app = APP.lock().unwrap();
-                            let p = &app.config.presets[preset_idx];
-                            (p.is_master, p.text_input_mode.clone())
-                        };
-                        
-                        let final_preset_idx = if is_master {
-                            // Get cursor position for wheel center
-                            let mut cursor_pos = POINT { x: 0, y: 0 };
-                            GetCursorPos(&mut cursor_pos);
-                            
-                            // Show preset wheel on main thread
-                            let selected = super::preset_wheel::show_preset_wheel("text", Some("select"), cursor_pos);
-                            
-                            if let Some(idx) = selected {
-                                idx
-                            } else {
-                                // User dismissed wheel - cancel operation
-                                PostMessageW(hwnd_copy, WM_CLOSE, WPARAM(0), LPARAM(0));
-                                return;
-                            }
-                        } else {
-                            preset_idx
-                        };
-                        
-                        // Process with the selected preset
-                        let (config, mut preset, screen_w, screen_h) = {
-                            let mut app = APP.lock().unwrap(); 
-                            // CRITICAL: Update active_preset_idx so auto_paste logic works!
-                            // The auto_paste code in process.rs reads from active_preset_idx
-                            app.config.active_preset_idx = final_preset_idx;
-                            (
-                                app.config.clone(),
-                                app.config.presets[final_preset_idx].clone(),
-                                GetSystemMetrics(SM_CXSCREEN),
-                                GetSystemMetrics(SM_CYSCREEN)
-                            )
-                        }; 
-
-                        // CRITICAL FIX: Force text_input_mode to "select" so the text is processed
-                        // directly, not re-opened in a text input modal.
-                        // This is the key fix for "Bôi MASTER" - we already have the text!
-                        preset.text_input_mode = "select".to_string();
-
-                        let center_rect = RECT { left: (screen_w - 700) / 2, top: (screen_h - 300) / 2, right: (screen_w + 700) / 2, bottom: (screen_h + 300) / 2 };
-                        super::process::start_text_processing(clipboard_text, center_rect, config, preset, String::new(), String::new());
-
+                        // Use shared processing function
+                        process_selected_text(preset_idx, clipboard_text);
                         
                         // Now destroy the window
                         PostMessageW(hwnd_copy, WM_CLOSE, WPARAM(0), LPARAM(0));

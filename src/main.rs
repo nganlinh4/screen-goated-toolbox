@@ -481,8 +481,13 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                         if overlay::text_selection::is_active() {
                             overlay::text_selection::cancel_selection();
                         } else {
+                            // NEW: Try instant processing if text is already selected
                             std::thread::spawn(move || {
-                                overlay::show_text_selection_tag(preset_idx);
+                                // First, try to process any already-selected text
+                                if !overlay::text_selection::try_instant_process(preset_idx) {
+                                    // No pre-selected text - fall back to showing selection tag
+                                    overlay::show_text_selection_tag(preset_idx);
+                                }
                             });
                         }
                     } else {
