@@ -193,31 +193,20 @@ pub fn render_sidebar(
                     changed = true;
                 }
                 
-                // Language Switcher - styled pill with flag
-                let lang_bg = if is_dark {
-                    egui::Color32::from_rgb(55, 50, 75)
-                } else {
-                    egui::Color32::from_rgb(235, 230, 250)
-                };
+                // Language Switcher - styled combobox with flag
                 let original_lang = config.ui_language.clone();
                 let lang_flag = match config.ui_language.as_str() {
                     "vi" => "🇻🇳",
                     "ko" => "🇰🇷",
                     _ => "🇺🇸",
                 };
-                egui::Frame::none()
-                    .fill(lang_bg)
-                    .corner_radius(6.0)
-                    .inner_margin(egui::vec2(6.0, 2.0))
-                    .show(ui, |ui| {
-                        egui::ComboBox::from_id_source("header_lang_switch")
-                            .width(32.0)
-                            .selected_text(lang_flag)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut config.ui_language, "en".to_string(), "🇺🇸 English");
-                                ui.selectable_value(&mut config.ui_language, "vi".to_string(), "🇻🇳 Tiếng Việt");
-                                ui.selectable_value(&mut config.ui_language, "ko".to_string(), "🇰🇷 한국어");
-                            });
+                egui::ComboBox::from_id_source("header_lang_switch")
+                    .width(32.0)
+                    .selected_text(lang_flag)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut config.ui_language, "en".to_string(), "🇺🇸 English");
+                        ui.selectable_value(&mut config.ui_language, "vi".to_string(), "🇻🇳 Tiếng Việt");
+                        ui.selectable_value(&mut config.ui_language, "ko".to_string(), "🇰🇷 한국어");
                     });
                 if original_lang != config.ui_language {
                     changed = true;
