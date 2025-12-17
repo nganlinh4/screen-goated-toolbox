@@ -43,12 +43,12 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
-            ui.label(egui::RichText::new("🔑 API Keys").strong().size(14.0));
+            ui.label(egui::RichText::new(text.api_keys_header).strong().size(14.0));
             ui.add_space(6.0);
             
             // Groq API Key
             ui.horizontal(|ui| {
-                ui.label("Groq:");
+                ui.label(text.groq_label);
                 if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
             });
             ui.horizontal(|ui| {
@@ -89,7 +89,7 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
-            ui.label(egui::RichText::new("⬆ Software Update").strong().size(14.0));
+            ui.label(egui::RichText::new(text.software_update_header).strong().size(14.0));
             ui.add_space(6.0);
             render_update_section_content(ui, updater, update_status, text);
         });
@@ -103,7 +103,7 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
-            ui.label(egui::RichText::new("⚙ Startup & Display").strong().size(14.0));
+            ui.label(egui::RichText::new(text.startup_display_header).strong().size(14.0));
             ui.add_space(6.0);
             
             // Main startup toggle

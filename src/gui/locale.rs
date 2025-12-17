@@ -129,6 +129,11 @@ pub struct LocaleText {
      // --- MASTER PRESET UI ---
      pub controller_checkbox_label: &'static str, // "Bộ điều khiển" / "Controller" / "컨트롤러"
      pub preset_wheel_dismiss: &'static str,     // "Hủy" / "Dismiss" / "취소"
+     // --- GLOBAL SETTINGS UI HEADERS ---
+     pub api_keys_header: &'static str,
+     pub groq_label: &'static str,
+     pub software_update_header: &'static str,
+     pub startup_display_header: &'static str,
      }
 
 impl LocaleText {
@@ -281,6 +286,11 @@ impl LocaleText {
                 // --- MASTER PRESET UI VI ---
                 controller_checkbox_label: "Bộ điều khiển",
                 preset_wheel_dismiss: "Hủy",
+                // --- GLOBAL SETTINGS UI HEADERS VI ---
+                api_keys_header: "🔑 Mã API",
+                groq_label: "Mã API Groq:",
+                software_update_header: "⬆ Cập Nhật Phần Mềm",
+                startup_display_header: "⚙ Khởi Động & Hiển Thị",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -429,6 +439,11 @@ impl LocaleText {
                    // --- MASTER PRESET UI KO ---
                    controller_checkbox_label: "컨트롤러",
                    preset_wheel_dismiss: "취소",
+                   // --- GLOBAL SETTINGS UI HEADERS KO ---
+                   api_keys_header: "🔑 API 키",
+                   groq_label: "Groq API 키:",
+                   software_update_header: "⬆ 소프트웨어 업데이트",
+                   startup_display_header: "⚙ 시작 및 표시",
                    },
                 _ => Self {
                  history_btn: "History",
@@ -577,6 +592,11 @@ impl LocaleText {
                    // --- MASTER PRESET UI EN ---
                    controller_checkbox_label: "Controller",
                    preset_wheel_dismiss: "Dismiss",
+                   // --- GLOBAL SETTINGS UI HEADERS EN ---
+                   api_keys_header: "🔑 API Keys",
+                   groq_label: "Groq API Key:",
+                   software_update_header: "⬆ Software Update",
+                   startup_display_header: "⚙ Startup & Display",
                    },
                 }
                 }
