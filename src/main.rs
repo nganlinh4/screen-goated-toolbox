@@ -424,6 +424,13 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
         WM_HOTKEY => {
             let id = wparam.0 as i32;
             if id > 0 {
+                // CRITICAL: If preset wheel is active, dismiss it and return early
+                // This allows pressing the hotkey again to dismiss the wheel
+                if overlay::preset_wheel::is_wheel_active() {
+                    overlay::preset_wheel::dismiss_wheel();
+                    return LRESULT(0);
+                }
+                
                 let preset_idx = ((id - 1) / 1000) as usize;
                 
                 // Determine context and fetch hotkey name

@@ -147,11 +147,11 @@ pub fn show_preset_wheel(
         // Calculate positions (first is dismiss, rest are presets)
         let positions = calculate_spiral_positions(filtered.len() + 1, center_pos);
         
-        // Create dismiss button first (at center)
+        // Create dismiss button first (at center) - same size but different styling
         let dismiss_label = match ui_lang.as_str() {
-            "vi" => "Hủy",
+            "vi" => "HỦY",
             "ko" => "취소",
-            _ => "Dismiss",
+            _ => "CANCEL",
         };
         
         WHEEL_BUTTONS.push(WheelButton {
@@ -189,7 +189,61 @@ pub fn show_preset_wheel(
             });
         }
         
-        // Calculate window bounds to encompass all buttons
+        // === SCREEN EDGE DODGING (must be done BEFORE calculating final window bounds) ===
+        // Get screen dimensions
+        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        
+        // First pass: calculate raw bounds
+        let mut raw_min_x = i32::MAX;
+        let mut raw_min_y = i32::MAX;
+        let mut raw_max_x = i32::MIN;
+        let mut raw_max_y = i32::MIN;
+        
+        for btn in &WHEEL_BUTTONS {
+            raw_min_x = raw_min_x.min(btn.rect.left);
+            raw_min_y = raw_min_y.min(btn.rect.top);
+            raw_max_x = raw_max_x.max(btn.rect.right);
+            raw_max_y = raw_max_y.max(btn.rect.bottom);
+        }
+        
+        // Add padding for bounds check
+        let padding = 20;
+        raw_min_x -= padding;
+        raw_min_y -= padding;
+        raw_max_x += padding;
+        raw_max_y += padding;
+        
+        // Calculate shift needed to keep on screen
+        let mut shift_x = 0i32;
+        let mut shift_y = 0i32;
+        
+        // Check right edge
+        if raw_max_x > screen_w {
+            shift_x = screen_w - raw_max_x;
+        }
+        // Check left edge (with any shift already applied)
+        if raw_min_x + shift_x < 0 {
+            shift_x = -raw_min_x;
+        }
+        // Check bottom edge
+        if raw_max_y > screen_h {
+            shift_y = screen_h - raw_max_y;
+        }
+        // Check top edge (with any shift already applied)
+        if raw_min_y + shift_y < 0 {
+            shift_y = -raw_min_y;
+        }
+        
+        // Apply shift to ALL button screen positions FIRST
+        for btn in WHEEL_BUTTONS.iter_mut() {
+            btn.rect.left += shift_x;
+            btn.rect.right += shift_x;
+            btn.rect.top += shift_y;
+            btn.rect.bottom += shift_y;
+        }
+        
+        // Now recalculate window bounds from shifted button positions
         let mut min_x = i32::MAX;
         let mut min_y = i32::MAX;
         let mut max_x = i32::MIN;
@@ -203,7 +257,6 @@ pub fn show_preset_wheel(
         }
         
         // Add padding
-        let padding = 20;
         min_x -= padding;
         min_y -= padding;
         max_x += padding;
@@ -212,7 +265,7 @@ pub fn show_preset_wheel(
         let win_width = max_x - min_x;
         let win_height = max_y - min_y;
         
-        // Adjust button rects relative to window origin
+        // Convert button rects to window-relative coordinates
         for btn in WHEEL_BUTTONS.iter_mut() {
             btn.rect.left -= min_x;
             btn.rect.right -= min_x;
@@ -292,12 +345,32 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             
             if new_hover != HOVERED_BUTTON {
                 HOVERED_BUTTON = new_hover;
+                
+                // Set cursor: hand when hovering a button, arrow otherwise
+                let cursor = if new_hover >= 0 {
+                    LoadCursorW(None, IDC_HAND).unwrap()
+                } else {
+                    LoadCursorW(None, IDC_ARROW).unwrap()
+                };
+                SetCursor(cursor);
+                
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
                 paint_wheel_window(hwnd, rect.right, rect.bottom);
             }
             
             LRESULT(0)
+        }
+        
+        WM_SETCURSOR => {
+            // Override cursor based on hover state
+            let cursor = if HOVERED_BUTTON >= 0 {
+                LoadCursorW(None, IDC_HAND).unwrap()
+            } else {
+                LoadCursorW(None, IDC_ARROW).unwrap()
+            };
+            SetCursor(cursor);
+            LRESULT(1) // Return non-zero to indicate we handled it
         }
         
         // Handle mouse button DOWN - just track that we're clicking
@@ -407,21 +480,21 @@ unsafe fn paint_wheel_window(hwnd: HWND, width: i32, height: i32) {
 }
 
 unsafe fn draw_button(dc: CreatedHDC, pixels: &mut [u32], stride: i32, rect: &RECT, label: &str, is_dismiss: bool, is_hovered: bool, color_idx: usize) {
-    // Beautiful color palette for presets (unhovered state)
-    // Each preset gets a unique, aesthetically pleasing dark color
+    // Beautiful color palette for presets - fully opaque for solid fill
+    // Each preset gets a unique, aesthetically pleasing color
     const PRESET_COLORS: [u32; 12] = [
-        0xDD1E3A5F,  // Deep Blue
-        0xDD2D4A22,  // Forest Green
-        0xDD4A2C2C,  // Wine Red
-        0xDD3D2B4A,  // Royal Purple
-        0xDD4A3B22,  // Warm Brown
-        0xDD1A4040,  // Teal
-        0xDD3B2244,  // Plum
-        0xDD2B3D4A,  // Steel Blue
-        0xDD3D3D22,  // Olive
-        0xDD4A2244,  // Magenta Dark
-        0xDD224440,  // Dark Cyan
-        0xDD44332B,  // Sienna
+        0xFF2E4A6F,  // Deep Blue
+        0xFF3D5A32,  // Forest Green
+        0xFF5A3C3C,  // Wine Red
+        0xFF4D3B5A,  // Royal Purple
+        0xFF5A4B32,  // Warm Brown
+        0xFF2A5050,  // Teal
+        0xFF4B3254,  // Plum
+        0xFF3B4D5A,  // Steel Blue
+        0xFF4D4D32,  // Olive
+        0xFF5A3254,  // Magenta Dark
+        0xFF325450,  // Dark Cyan
+        0xFF54433B,  // Sienna
     ];
     
     // Hover colors - brighter, more saturated versions
@@ -440,23 +513,23 @@ unsafe fn draw_button(dc: CreatedHDC, pixels: &mut [u32], stride: i32, rect: &RE
         0xFFFF7043,  // Deep Orange
     ];
     
-    let (bg_color, text_color) = if is_dismiss {
+    let (bg_color, text_color, corner_radius) = if is_dismiss {
+        // Dismiss button: same shape, but distinct red/dark styling with border feel
         if is_hovered {
-            (0xFF442244u32, 0xFFFFFFFFu32) // Dark purple hover
+            (0xFFAA3333u32, 0xFFFFFFFFu32, 10.0f32) // Bright red hover
         } else {
-            (0xDD333333u32, 0xFFCCCCCCu32) // Dark gray
+            (0xFF552222u32, 0xFFCCCCCCu32, 10.0f32) // Dark maroon with gray text
         }
     } else {
         let idx = color_idx % PRESET_COLORS.len();
         if is_hovered {
-            (HOVER_COLORS[idx], 0xFFFFFFFFu32)
+            (HOVER_COLORS[idx], 0xFFFFFFFFu32, 10.0f32)
         } else {
-            (PRESET_COLORS[idx], 0xFFE8E8E8u32)
+            (PRESET_COLORS[idx], 0xFFFFFFFFu32, 10.0f32) // White text on colored bg
         }
     };
     
-    let corner_radius = 8.0f32;  // Slightly larger radius for smoother look
-    let feather = 1.5f32;        // Anti-aliasing feather width
+    let feather = 1.5f32;         // Anti-aliasing feather width
     
     let w = (rect.right - rect.left) as f32;
     let h = (rect.bottom - rect.top) as f32;
@@ -474,7 +547,6 @@ unsafe fn draw_button(dc: CreatedHDC, pixels: &mut [u32], stride: i32, rect: &RE
             let ly = (y - rect.top) as f32;
             
             // Signed distance to rounded rectangle
-            // For each corner, calculate distance to the corner circle
             let dist = rounded_rect_sdf(lx, ly, w, h, corner_radius);
             
             // Anti-aliasing: smooth transition at edges
@@ -502,9 +574,9 @@ unsafe fn draw_button(dc: CreatedHDC, pixels: &mut [u32], stride: i32, rect: &RE
         }
     }
     
-    // Draw text
+    // Draw text directly on the button (no shadow - causes issues on bright bg)
     let font = CreateFontW(
-        14, 0, 0, 0, FW_SEMIBOLD.0 as i32, 0, 0, 0,
+        14, 0, 0, 0, FW_BOLD.0 as i32, 0, 0, 0,
         DEFAULT_CHARSET.0 as u32, OUT_DEFAULT_PRECIS.0 as u32,
         CLIP_DEFAULT_PRECIS.0 as u32, CLEARTYPE_QUALITY.0 as u32,
         (VARIABLE_PITCH.0 | FF_SWISS.0) as u32, w!("Segoe UI")
@@ -530,10 +602,10 @@ unsafe fn draw_button(dc: CreatedHDC, pixels: &mut [u32], stride: i32, rect: &RE
             let g = (val >> 8) & 0xFF;
             let b = val & 0xFF;
             
-            // If any color channel is brighter than alpha, it's text
+            // If any color channel is brighter than alpha, it's text - make fully opaque
             let max_c = r.max(g).max(b);
             if max_c > a {
-                pixels[idx] = (max_c << 24) | (r << 16) | (g << 8) | b;
+                pixels[idx] = (0xFF << 24) | (r << 16) | (g << 8) | b;
             }
         }
     }
