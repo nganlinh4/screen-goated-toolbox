@@ -256,6 +256,35 @@ impl Default for Config {
             }
         ];
 
+        // 3h. Trans+Retrans (Select) - Dịch+Dịch lại (Bôi)
+        let mut p3h = Preset::default();
+        p3h.id = "preset_trans_retrans_select".to_string();
+        p3h.name = "Trans+Retrans (Select)".to_string();
+        p3h.preset_type = "text".to_string();
+        p3h.text_input_mode = "select".to_string();
+        p3h.blocks = vec![
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Translate the following text to {language1}. Output ONLY the translation.".to_string(),
+                selected_language: "Korean".to_string(),
+                streaming_enabled: true,
+                show_overlay: true,
+                auto_copy: true,
+                ..Default::default()
+            },
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Translate to {language1}. Output ONLY the translation.".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: true,
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            }
+        ];
+
         // 3b. Select-Trans-Replace (Bôi-Dịch-Thay)
         let mut p3b = Preset::default();
         p3b.id = "preset_select_translate_replace".to_string();
@@ -486,6 +515,25 @@ impl Default for Config {
                 block_type: "text".to_string(),
                 model: "compound_mini".to_string(),
                 prompt: "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                streaming_enabled: true,
+                render_mode: "markdown".to_string(),
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            }
+        ];
+
+        // 5c. Make a Game (Tạo con game)
+        let mut p5c = Preset::default();
+        p5c.id = "preset_make_game".to_string();
+        p5c.name = "Make a Game".to_string();
+        p5c.preset_type = "text".to_string();
+        p5c.text_input_mode = "type".to_string();
+        p5c.blocks = vec![
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(), // Use stronger model for coding
+                prompt: "Create a complete, standalone HTML game. The game MUST be playable using ONLY MOUSE CONTROLS (like swipe , drag or clicks, no keyboard required). Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only, and do not include any file indicators or triple backticks. Create the game based on the following request:".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
                 show_overlay: true,
@@ -871,7 +919,7 @@ impl Default for Config {
                 // Column 1: Image presets
                 p1, p7, p2, p3g, p4, p4b, p6, p8, p9, p10, p14b, p14c, pm1,
                 // Column 2: Text presets (Bôi MASTER after Giải thích code, Gõ MASTER after Internet search)
-                p3, p3b, p3c, p3d, p3e, p3f, pm2, p5, p5b, pm3,
+                p3, p3h, p3b, p3c, p3d, p3e, p3f, pm2, p5, p5b, p5c, pm3,
                 // Column 3: Audio presets (Mic presets first, then device audio presets at end)
                 p11, p13, p14, pm4, p12, pm5, p16,
             ],
