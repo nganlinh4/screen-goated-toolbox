@@ -115,9 +115,9 @@ lazy_static::lazy_static! {
             "gemini-robotics-er-1.5-preview",
             ModelType::Vision,
             true,
-            "250 lượt/ngày",
-            "250 요청/일",
-            "250 requests/day"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "fast_text",
@@ -219,9 +219,9 @@ lazy_static::lazy_static! {
             "gemini-robotics-er-1.5-preview",
             ModelType::Text,
             true,
-            "250 lượt/ngày",
-            "250 요청/일",
-            "250 requests/day"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
         ModelConfig::new(
             "whisper-fast",
@@ -284,9 +284,9 @@ lazy_static::lazy_static! {
             "gemini-robotics-er-1.5-preview",
             ModelType::Audio,
             true,
-            "250 lượt/ngày",
-            "250 요청/일",
-            "250 requests/day"
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
         ),
     ];
 }
