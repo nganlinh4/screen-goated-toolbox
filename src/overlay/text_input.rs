@@ -270,8 +270,10 @@ pub fn refocus_editor() {
             // Focus the webview editor immediately
             TEXT_INPUT_WEBVIEW.with(|webview| {
                 if let Some(wv) = webview.borrow().as_ref() {
-                    let script = r#"document.getElementById('editor').focus();"#;
-                    let _ = wv.evaluate_script(script);
+                    // First focus the WebView itself (native focus)
+                    let _ = wv.focus();
+                    // Then focus the textarea inside via JavaScript
+                    let _ = wv.evaluate_script("document.getElementById('editor').focus();");
                 }
             });
             
@@ -486,6 +488,7 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             // Show and bring to front
             ShowWindow(hwnd, SW_SHOW);
             SetForegroundWindow(hwnd);
+            SetFocus(hwnd); // CRITICAL: Set keyboard focus to window
             UpdateWindow(hwnd);
             
             // Start Fade Timer
@@ -493,10 +496,6 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             
             // IPC check timer
             SetTimer(hwnd, 2, 50, None);
-
-            // CRITICAL: Focus the editor AFTER window is visible!
-            // Use timer ID 3 with short delay to ensure window is fully active
-            SetTimer(hwnd, 3, 50, None);
 
             LRESULT(0)
         }
@@ -520,6 +519,19 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                     SetLayeredWindowAttributes(hwnd, COLORREF(0), FADE_ALPHA as u8, LWA_ALPHA);
                 } else {
                     KillTimer(hwnd, 1);
+                    
+                    // CRITICAL: Focus the editor AFTER fade completes (window fully visible)
+                    // WebView2 won't accept focus properly if window is transparent
+                    SetForegroundWindow(hwnd);
+                    SetFocus(hwnd);
+                    TEXT_INPUT_WEBVIEW.with(|webview| {
+                        if let Some(wv) = webview.borrow().as_ref() {
+                            // First focus the WebView itself (native focus)
+                            let _ = wv.focus();
+                            // Then focus the textarea inside via JavaScript
+                            let _ = wv.evaluate_script("document.getElementById('editor').focus();");
+                        }
+                    });
                 }
             }
             
@@ -545,11 +557,12 @@ unsafe extern "system" fn input_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
                     }
                 }
             }
-            // Timer 3: focus logic
+            // Timer 3: focus logic (used by refocus_editor after preset wheel)
             if wparam.0 == 3 {
                 KillTimer(hwnd, 3);
                 TEXT_INPUT_WEBVIEW.with(|webview| {
                     if let Some(wv) = webview.borrow().as_ref() {
+                        let _ = wv.focus();
                         let _ = wv.evaluate_script("document.getElementById('editor').focus();");
                     }
                 });

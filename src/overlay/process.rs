@@ -302,7 +302,8 @@ pub fn show_audio_result(
         RefineContext::None,
         true, // skip_execution: audio already done, just display and chain forward
         processing_hwnd, // Pass recording overlay - will close when first visible block appears
-        Arc::new(AtomicBool::new(false)) // New chains start with cancellation = false
+        Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
+        preset.id.clone()
     );
 }
 
@@ -355,6 +356,7 @@ pub fn start_processing_pipeline(
     let conf_clone = config.clone();
     let blocks = preset.blocks.clone();
     let connections = preset.block_connections.clone();
+    let preset_id = preset.id.clone();
     
     std::thread::spawn(move || {
         // Heavy work: PNG encoding happens here, while animation plays
@@ -377,7 +379,8 @@ pub fn start_processing_pipeline(
             context, 
             false,
             Some(processing_hwnd), // Pass the handle to be closed later
-            Arc::new(AtomicBool::new(false)) // New chains start with cancellation = false
+            Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
+            preset_id
         );
     });
     
@@ -412,6 +415,7 @@ fn execute_chain_pipeline(
     let conf_clone = config.clone();
     let blocks = preset.blocks.clone();
     let connections = preset.block_connections.clone();
+    let preset_id = preset.id.clone();
     
     std::thread::spawn(move || {
         // Reset position queue for new chain
@@ -428,7 +432,8 @@ fn execute_chain_pipeline(
             context, 
             false,
             Some(processing_hwnd), // Pass the handle to be closed later
-            Arc::new(AtomicBool::new(false)) // New chains start with cancellation = false
+            Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
+            preset_id
         );
     });
     
@@ -475,7 +480,8 @@ fn execute_chain_pipeline_with_token(
         context, 
         false,
         None, // No processing window for text presets
-        cancel_token
+        cancel_token,
+        preset.id.clone()
     );
 }
 
@@ -492,6 +498,7 @@ fn run_chain_step(
     skip_execution: bool,   // If true, we just display result
     mut processing_indicator_hwnd: Option<HWND>, // Handle to the "Processing..." overlay
     cancel_token: Arc<AtomicBool>, // Cancellation flag - if true, stop processing
+    preset_id: String,
 ) {
     // Check if cancelled before starting
     if cancel_token.load(Ordering::Relaxed) {
@@ -704,15 +711,7 @@ fn run_chain_step(
         } else {
             // Text Block
             // Compute search label for compound models
-            let search_label = {
-                let active_idx = config.active_preset_idx;
-                if active_idx < config.presets.len() {
-                    let preset_id = &config.presets[active_idx].id;
-                    Some(get_localized_preset_name(preset_id, &config.ui_language))
-                } else {
-                    None
-                }
-            };
+            let search_label = Some(get_localized_preset_name(&preset_id, &config.ui_language));
             translate_text_streaming(
                 &groq_key, &gemini_key, input_text, final_prompt, // CHANGED: Pass final_prompt instead of selected_language
                 model_full_name, provider, actual_streaming_enabled, false, search_label, &config.ui_language,
@@ -891,6 +890,7 @@ fn run_chain_step(
             let config_clone = config.clone();
             let cancel_clone = cancel_token.clone();
             let parent_clone = next_parent.clone();
+            let preset_id_clone = preset_id.clone();
             
             // Position will be determined individually by get_next_window_position inside run_chain_step
             // We just pass the base_rect as a reference point
@@ -908,7 +908,8 @@ fn run_chain_step(
                     RefineContext::None,
                     false,
                     None, // No processing indicator for parallel branches
-                    cancel_clone
+                    cancel_clone,
+                    preset_id_clone
                 );
             });
         }
@@ -925,7 +926,8 @@ fn run_chain_step(
             RefineContext::None,
             false,
             processing_indicator_hwnd, // Pass it along (might be None or Some)
-            cancel_token // Pass the same token through the chain
+            cancel_token, // Pass the same token through the chain
+            preset_id
         );
     } else {
         // Chain stopped unexpectedly (empty result or error)
