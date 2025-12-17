@@ -34,172 +34,185 @@ pub fn render_preset_editor(
         preset.name.clone()
     };
 
-    // --- HEADER: Name & Main Type ---
+    // --- HEADER CARD: Name, Type & Settings ---
+    let is_dark = ui.visuals().dark_mode;
+    let header_bg = if is_dark {
+        egui::Color32::from_rgba_unmultiplied(28, 32, 42, 250)  // Darker for better text contrast
+    } else {
+        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 255)  // Pure white for light mode
+    };
+    let header_stroke = if is_dark {
+        egui::Stroke::new(1.0, egui::Color32::from_gray(50))
+    } else {
+        egui::Stroke::new(1.0, egui::Color32::from_gray(210))
+    };
+    
     ui.add_space(5.0);
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(text.preset_name_label).heading());
-        
-        if is_default_preset {
-            // Default presets: show localized name as read-only label
-            ui.label(egui::RichText::new(&display_name).heading());
-            
-            // Controller checkbox (Bộ điều khiển) - between title and restore button
-            if ui.checkbox(&mut preset.show_controller_ui, text.controller_checkbox_label).clicked() {
-                // When unticking controller UI, restore a default block if blocks are empty
-                if !preset.show_controller_ui && preset.blocks.is_empty() {
-                    preset.blocks.push(create_default_block_for_type(&preset.preset_type));
-                    *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
+    egui::Frame::none()
+        .fill(header_bg)
+        .stroke(header_stroke)
+        .inner_margin(12.0)
+        .corner_radius(10.0)
+        .show(ui, |ui| {
+            // Row 1: Preset Name + Controller + Restore
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(text.preset_name_label).strong());
+                
+                if is_default_preset {
+                    ui.label(egui::RichText::new(&display_name).strong().size(15.0));
+                } else {
+                    if ui.add(egui::TextEdit::singleline(&mut preset.name).font(egui::TextStyle::Body)).changed() {
+                        changed = true;
+                    }
                 }
-                changed = true;
-            }
-            
-            // Restore Button (Right aligned)
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(text.restore_preset_btn).on_hover_text(text.restore_preset_tooltip).clicked() {
-                     let default_config = Config::default();
-                     if let Some(default_p) = default_config.presets.iter().find(|p| p.id == preset.id) {
-                         // Restore to default (reset content to factory state)
-                         preset = default_p.clone();
-                         *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
-                         changed = true;
-                     }
+                
+                ui.add_space(10.0);
+                
+                // Controller checkbox with subtle styling
+                if ui.checkbox(&mut preset.show_controller_ui, text.controller_checkbox_label).clicked() {
+                    if !preset.show_controller_ui && preset.blocks.is_empty() {
+                        preset.blocks.push(create_default_block_for_type(&preset.preset_type));
+                        *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
+                    }
+                    changed = true;
+                }
+                
+                if is_default_preset {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Restore button with subtle styling
+                        let restore_bg = if is_dark { 
+                            egui::Color32::from_rgb(80, 70, 100) 
+                        } else { 
+                            egui::Color32::from_rgb(180, 170, 200) 
+                        };
+                        if ui.add(egui::Button::new(egui::RichText::new(text.restore_preset_btn).color(egui::Color32::WHITE).small())
+                            .fill(restore_bg)
+                            .corner_radius(8.0))
+                            .on_hover_text(text.restore_preset_tooltip)
+                            .clicked() {
+                            let default_config = Config::default();
+                            if let Some(default_p) = default_config.presets.iter().find(|p| p.id == preset.id) {
+                                preset = default_p.clone();
+                                *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
+                                changed = true;
+                            }
+                        }
+                    });
                 }
             });
-        } else {
-            // Custom presets: editable name
-            if ui.add(egui::TextEdit::singleline(&mut preset.name).font(egui::TextStyle::Heading)).changed() {
-                changed = true;
-            }
-            
-            // Controller checkbox (Bộ điều khiển) - also for custom presets
-            if ui.checkbox(&mut preset.show_controller_ui, text.controller_checkbox_label).clicked() {
-                // When unticking controller UI, restore a default block if blocks are empty
-                if !preset.show_controller_ui && preset.blocks.is_empty() {
-                    preset.blocks.push(create_default_block_for_type(&preset.preset_type));
-                    *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
-                }
-                changed = true;
-            }
-        }
-    });
 
-    // Preset Type Selector + Operation Mode on same line
-    ui.horizontal(|ui| {
-        ui.label(text.preset_type_label);
-        let selected_text = match preset.preset_type.as_str() {
-            "audio" => text.preset_type_audio,
-            "video" => text.preset_type_video,
-            "text" => text.preset_type_text,
-            _ => text.preset_type_image,
-        };
-        
-        egui::ComboBox::from_id_source("preset_type_combo")
-            .selected_text(selected_text)
-            .show_ui(ui, |ui| {
-                if ui.selectable_value(&mut preset.preset_type, "image".to_string(), text.preset_type_image).clicked() {
-                    if let Some(first) = preset.blocks.first_mut() {
-                        first.block_type = "image".to_string();
-                        first.model = "maverick".to_string();
+            ui.add_space(6.0);
+            
+            // Row 2: Type + Mode selectors
+            ui.horizontal(|ui| {
+                ui.label(text.preset_type_label);
+                let selected_text = match preset.preset_type.as_str() {
+                    "audio" => text.preset_type_audio,
+                    "video" => text.preset_type_video,
+                    "text" => text.preset_type_text,
+                    _ => text.preset_type_image,
+                };
+                
+                egui::ComboBox::from_id_source("preset_type_combo")
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut preset.preset_type, "image".to_string(), text.preset_type_image).clicked() {
+                            if let Some(first) = preset.blocks.first_mut() {
+                                first.block_type = "image".to_string();
+                                first.model = "maverick".to_string();
+                            }
+                            changed = true;
+                        }
+                        if ui.selectable_value(&mut preset.preset_type, "text".to_string(), text.preset_type_text).clicked() {
+                            if let Some(first) = preset.blocks.first_mut() {
+                                first.block_type = "text".to_string();
+                                first.model = "text_accurate_kimi".to_string();
+                            }
+                            changed = true;
+                        }
+                        if ui.selectable_value(&mut preset.preset_type, "audio".to_string(), text.preset_type_audio).clicked() {
+                            if let Some(first) = preset.blocks.first_mut() {
+                                first.block_type = "audio".to_string();
+                                first.model = "whisper-accurate".to_string();
+                            }
+                            changed = true;
+                        }
+                        ui.add_enabled_ui(false, |ui| {
+                            let _ = ui.selectable_value(&mut preset.preset_type, "video".to_string(), text.preset_type_video);
+                        });
+                    });
+
+                ui.add_space(15.0);
+
+                // Mode selectors based on type
+                if preset.preset_type == "image" {
+                    if !preset.show_controller_ui {
+                        ui.label(text.prompt_mode_label);
+                        egui::ComboBox::from_id_source("prompt_mode_combo")
+                            .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_value(&mut preset.prompt_mode, "fixed".to_string(), text.prompt_mode_fixed).clicked() { changed = true; }
+                                if ui.selectable_value(&mut preset.prompt_mode, "dynamic".to_string(), text.prompt_mode_dynamic).clicked() { changed = true; }
+                            });
                     }
-                    changed = true;
-                }
-                if ui.selectable_value(&mut preset.preset_type, "text".to_string(), text.preset_type_text).clicked() {
-                    if let Some(first) = preset.blocks.first_mut() {
-                        first.block_type = "text".to_string();
-                        first.model = "text_accurate_kimi".to_string();
+                } else if preset.preset_type == "text" {
+                    ui.label(text.text_input_mode_label);
+                    egui::ComboBox::from_id_source("text_input_mode_combo")
+                        .selected_text(if preset.text_input_mode == "type" { text.text_mode_type } else { text.text_mode_select })
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_value(&mut preset.text_input_mode, "select".to_string(), text.text_mode_select).clicked() { changed = true; }
+                            if ui.selectable_value(&mut preset.text_input_mode, "type".to_string(), text.text_mode_type).clicked() { changed = true; }
+                        });
+                    
+                    if preset.text_input_mode == "type" && !preset.show_controller_ui {
+                        if ui.checkbox(&mut preset.continuous_input, text.continuous_input_label).clicked() { changed = true; }
                     }
-                    changed = true;
-                }
-                if ui.selectable_value(&mut preset.preset_type, "audio".to_string(), text.preset_type_audio).clicked() {
-                    if let Some(first) = preset.blocks.first_mut() {
-                        first.block_type = "audio".to_string();
-                        first.model = "whisper-accurate".to_string();
+                } else if preset.preset_type == "audio" {
+                    if !preset.show_controller_ui {
+                        let mode_label = match config.ui_language.as_str() {
+                            "vi" => "Phương thức:",
+                            "ko" => "작동 방식:",
+                            _ => "Mode:",
+                        };
+                        ui.label(mode_label);
+                        
+                        let mode_record = match config.ui_language.as_str() {
+                            "vi" => "Thu âm rồi xử lý",
+                            "ko" => "녹음 후 처리",
+                            _ => "Record then Process",
+                        };
+                        let mode_realtime = match config.ui_language.as_str() {
+                            "vi" => "Xử lý thời gian thực (upcoming)",
+                            "ko" => "실시간 처리 (예정)",
+                            _ => "Realtime Processing (upcoming)",
+                        };
+                        
+                        egui::ComboBox::from_id_source("audio_operation_mode_combo")
+                            .selected_text(mode_record)
+                            .show_ui(ui, |ui| {
+                                let _ = ui.selectable_label(true, mode_record);
+                                ui.add_enabled(false, egui::SelectableLabel::new(false, mode_realtime));
+                            });
                     }
-                    changed = true;
                 }
-                ui.add_enabled_ui(false, |ui| {
-                    let _ = ui.selectable_value(&mut preset.preset_type, "video".to_string(), text.preset_type_video);
-                });
             });
 
-        ui.add_space(10.0);
-
-        // Operation Mode on same line (if applicable)
-        // When show_controller_ui is enabled:
-        // - Image: Hide Phương thức selector
-        // - Text: Keep Phương thức visible, but hide Nhập liên tục
-        // - Audio: Hide Phương thức selector
-        if preset.preset_type == "image" {
-            // Hide prompt mode selector when controller UI is enabled
-            if !preset.show_controller_ui {
-                ui.label(text.prompt_mode_label);
-                egui::ComboBox::from_id_source("prompt_mode_combo")
-                    .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_value(&mut preset.prompt_mode, "fixed".to_string(), text.prompt_mode_fixed).clicked() { changed = true; }
-                        if ui.selectable_value(&mut preset.prompt_mode, "dynamic".to_string(), text.prompt_mode_dynamic).clicked() { changed = true; }
-                    });
-            }
-        } else if preset.preset_type == "text" {
-            // Text: keep Phương thức visible always
-            ui.label(text.text_input_mode_label);
-            egui::ComboBox::from_id_source("text_input_mode_combo")
-                .selected_text(if preset.text_input_mode == "type" { text.text_mode_type } else { text.text_mode_select })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_value(&mut preset.text_input_mode, "select".to_string(), text.text_mode_select).clicked() { changed = true; }
-                    if ui.selectable_value(&mut preset.text_input_mode, "type".to_string(), text.text_mode_type).clicked() { changed = true; }
+            // Row 3: Audio source (if applicable)
+            if preset.preset_type == "audio" {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(text.audio_source_label);
+                    if ui.radio_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() { changed = true; }
+                    if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() { changed = true; }
+                    if !preset.show_controller_ui {
+                        ui.add_space(10.0);
+                        if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() { changed = true; }
+                    }
                 });
-            
-            // Show "Continuous Input" checkbox only when typing mode is selected AND controller UI is off
-            if preset.text_input_mode == "type" && !preset.show_controller_ui {
-                if ui.checkbox(&mut preset.continuous_input, text.continuous_input_label).clicked() { changed = true; }
             }
-        } else if preset.preset_type == "audio" {
-            // Hide audio mode selector when controller UI is enabled
-            if !preset.show_controller_ui {
-                // Audio: Cách hoạt động dropdown (same line as preset type)
-                let mode_label = match config.ui_language.as_str() {
-                    "vi" => "Phương thức:",
-                    "ko" => "작동 방식:",
-                    _ => "Mode:",
-                };
-                ui.label(mode_label);
-                
-                let mode_record = match config.ui_language.as_str() {
-                    "vi" => "Thu âm rồi xử lý",
-                    "ko" => "녹음 후 처리",
-                    _ => "Record then Process",
-                };
-                let mode_realtime = match config.ui_language.as_str() {
-                    "vi" => "Xử lý thời gian thực (upcoming)",
-                    "ko" => "실시간 처리 (예정)",
-                    _ => "Realtime Processing (upcoming)",
-                };
-                
-                egui::ComboBox::from_id_source("audio_operation_mode_combo")
-                    .selected_text(mode_record)
-                    .show_ui(ui, |ui| {
-                        // Active option
-                        ui.selectable_label(true, mode_record);
-                        // Grayed out upcoming option
-                        ui.add_enabled(false, egui::SelectableLabel::new(false, mode_realtime));
-                    });
-            }
-        }
-    });
-
-    // Audio-specific options on separate row (audio source etc)
-    // Hide when controller UI is enabled
-    if preset.preset_type == "audio" && !preset.show_controller_ui {
-        ui.horizontal(|ui| {
-            ui.label(text.audio_source_label);
-            if ui.radio_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() { changed = true; }
-            if ui.radio_value(&mut preset.audio_source, "device".to_string(), text.audio_src_device).clicked() { changed = true; }
-            if ui.checkbox(&mut preset.hide_recording_ui, text.hide_recording_ui_label).clicked() { changed = true; }
         });
-    }
 
-    ui.separator();
+    ui.add_space(8.0);
 
     // Determine visibility conditions
     let has_any_auto_copy = preset.blocks.iter().any(|b| b.auto_copy);
@@ -225,16 +238,55 @@ pub fn render_preset_editor(
     // Hotkeys - always visible, even when controller UI is enabled
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(text.hotkeys_section).strong());
+        
+        let is_dark = ui.visuals().dark_mode;
+        
         if *recording_hotkey_for_preset == Some(preset_idx) {
             ui.colored_label(egui::Color32::YELLOW, text.press_keys);
-            if ui.button(text.cancel_label).clicked() { *recording_hotkey_for_preset = None; }
+            // Cancel button - subtle red pill
+            let cancel_bg = if is_dark { 
+                egui::Color32::from_rgb(120, 60, 60) 
+            } else { 
+                egui::Color32::from_rgb(220, 150, 150) 
+            };
+            if ui.add(egui::Button::new(egui::RichText::new(text.cancel_label).color(egui::Color32::WHITE))
+                .fill(cancel_bg)
+                .corner_radius(10.0))
+                .clicked() { 
+                *recording_hotkey_for_preset = None; 
+            }
         } else {
-            if ui.button(text.add_hotkey_button).clicked() { *recording_hotkey_for_preset = Some(preset_idx); }
+            // Add hotkey button - teal pill
+            let add_bg = if is_dark { 
+                egui::Color32::from_rgb(50, 110, 120) 
+            } else { 
+                egui::Color32::from_rgb(100, 170, 180) 
+            };
+            if ui.add(egui::Button::new(egui::RichText::new(text.add_hotkey_button).color(egui::Color32::WHITE))
+                .fill(add_bg)
+                .corner_radius(10.0))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked() { 
+                *recording_hotkey_for_preset = Some(preset_idx); 
+            }
         }
+        
+        // Hotkey badges - purple/violet tint pills
+        let hotkey_bg = if is_dark { 
+            egui::Color32::from_rgb(90, 70, 130) 
+        } else { 
+            egui::Color32::from_rgb(170, 150, 200) 
+        };
         
         let mut hotkey_to_remove = None;
         for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
-            if ui.small_button(format!("{} ⓧ", hotkey.name)).clicked() { hotkey_to_remove = Some(h_idx); }
+            if ui.add(egui::Button::new(egui::RichText::new(format!("{} ×", hotkey.name)).color(egui::Color32::WHITE).small())
+                .fill(hotkey_bg)
+                .corner_radius(10.0))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked() { 
+                hotkey_to_remove = Some(h_idx); 
+            }
         }
         if let Some(h) = hotkey_to_remove { preset.hotkeys.remove(h); changed = true; }
     });
@@ -247,51 +299,74 @@ pub fn render_preset_editor(
     // --- PROCESSING CHAIN UI ---
     // Hide nodegraph when controller UI is enabled
     if !preset.show_controller_ui {
+        // Use a subtle background for the node graph area
+        let is_dark = ui.visuals().dark_mode;
+        let graph_bg = if is_dark {
+            egui::Color32::from_rgba_unmultiplied(35, 40, 50, 200)  // Subtle dark blue-gray
+        } else {
+            egui::Color32::from_rgba_unmultiplied(240, 242, 248, 255)  // Soft light gray
+        };
+        
         ui.push_id("node_graph_area", |ui| {
-            egui::Frame::none().fill(ui.visuals().extreme_bg_color).inner_margin(4.0).show(ui, |ui| {
-                ui.set_min_height(325.0); // Allocate space for the graph
-                if render_node_graph(ui, snarl, &config.ui_language, &preset.prompt_mode) {
-                    changed = true;
-                }
-            });
+            egui::Frame::none()
+                .fill(graph_bg)
+                .inner_margin(6.0)
+                .corner_radius(8.0)
+                .show(ui, |ui| {
+                    ui.set_min_height(325.0); // Allocate space for the graph
+                    if render_node_graph(ui, snarl, &config.ui_language, &preset.prompt_mode) {
+                        changed = true;
+                    }
+                });
         });
     } else {
-        // Controller UI mode - show helpful description
+        // Controller UI mode - show elegant, minimal description
         ui.add_space(20.0);
+        
+        // Use a subtle background that works in both light and dark modes
+        let is_dark = ui.visuals().dark_mode;
+        let bg_color = if is_dark {
+            egui::Color32::from_rgba_unmultiplied(60, 70, 85, 180)  // Subtle dark blue-gray
+        } else {
+            egui::Color32::from_rgba_unmultiplied(230, 235, 245, 255)  // Soft light gray-blue
+        };
+        
+        let text_color = if is_dark {
+            egui::Color32::from_gray(200)
+        } else {
+            egui::Color32::from_gray(60)
+        };
+        
+        let accent_color = if is_dark {
+            egui::Color32::from_rgb(130, 180, 230)  // Soft blue
+        } else {
+            egui::Color32::from_rgb(70, 120, 180)   // Deeper blue for light mode
+        };
+        
         egui::Frame::none()
-            .fill(ui.visuals().extreme_bg_color)
-            .inner_margin(20.0)
-            .corner_radius(8.0)
+            .fill(bg_color)
+            .inner_margin(24.0)
+            .corner_radius(12.0)
             .show(ui, |ui| {
-                ui.set_min_height(280.0);
+                ui.set_min_height(260.0);
                 
-                // Title
+                // Title - clean, no emoji overload
                 let title = match config.ui_language.as_str() {
-                    "vi" => "🎮 Chế độ Bộ điều khiển",
-                    "ko" => "🎮 컨트롤러 모드",
-                    _ => "🎮 Controller Mode",
+                    "vi" => "Chế độ Bộ điều khiển",
+                    "ko" => "컨트롤러 모드",
+                    _ => "Controller Mode",
                 };
-                ui.label(egui::RichText::new(title).heading().color(egui::Color32::from_rgb(100, 180, 255)));
+                ui.label(egui::RichText::new(title).heading().color(accent_color));
                 
-                ui.add_space(12.0);
+                ui.add_space(16.0);
                 
-                // Main Description
+                // Main Description - combined into one clear paragraph
                 let desc = match config.ui_language.as_str() {
-                    "vi" => "Đây là một cấu hình MASTER. Khi kích hoạt, một bánh xe chọn cấu hình sẽ xuất hiện để bạn chọn cấu hình thực tế muốn sử dụng.",
-                    "ko" => "이것은 MASTER 프리셋입니다. 활성화하면 프리셋 휠이 나타나 실제로 사용할 프리셋을 선택할 수 있습니다.",
-                    _ => "This is a MASTER preset. When activated, a preset selection wheel will appear letting you choose which preset to actually use.",
+                    "vi" => "Đây là cấu hình MASTER. Khi kích hoạt, một bánh xe chọn sẽ xuất hiện để bạn chọn cấu hình muốn sử dụng.\n\nChỉ cần gán một phím tắt để truy cập nhanh nhiều cấu hình khác nhau.",
+                    "ko" => "이것은 MASTER 프리셋입니다. 활성화하면 프리셋 휠이 나타나 사용할 프리셋을 선택할 수 있습니다.\n\n하나의 단축키로 여러 프리셋에 빠르게 접근하세요.",
+                    _ => "This is a MASTER preset. When activated, a selection wheel will appear letting you choose which preset to use.\n\nAssign a single hotkey for quick access to multiple presets.",
                 };
-                ui.label(egui::RichText::new(desc).color(egui::Color32::from_gray(180)));
-                
-                ui.add_space(12.0);
-                
-                // Benefit line with tip styling
-                let benefit = match config.ui_language.as_str() {
-                    "vi" => "💡 Điều này cho phép bạn gán một phím tắt duy nhất để truy cập nhanh nhiều cấu hình khác nhau.",
-                    "ko" => "💡 이를 통해 하나의 단축키로 여러 프리셋에 빠르게 접근할 수 있습니다.",
-                    _ => "💡 This allows you to assign a single hotkey for quick access to multiple different presets.",
-                };
-                ui.label(egui::RichText::new(benefit).italics().color(egui::Color32::from_rgb(180, 180, 120)));
+                ui.label(egui::RichText::new(desc).color(text_color));
             });
     }
 

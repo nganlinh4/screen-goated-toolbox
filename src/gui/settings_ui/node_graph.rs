@@ -374,7 +374,16 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                 ui.label(prompt_label);
                                 
                                 let btn_label = match self.ui_language.as_str() { "vi" => "+ Ngôn ngữ", "ko" => "+ 언어", _ => "+ Language" };
-                                if ui.small_button(btn_label).clicked() {
+                                let is_dark = ui.visuals().dark_mode;
+                                let lang_btn_bg = if is_dark { 
+                                    egui::Color32::from_rgb(50, 100, 110) 
+                                } else { 
+                                    egui::Color32::from_rgb(100, 160, 170) 
+                                };
+                                if ui.add(egui::Button::new(egui::RichText::new(btn_label).small().color(egui::Color32::WHITE))
+                                    .fill(lang_btn_bg)
+                                    .corner_radius(8.0))
+                                    .clicked() {
                                     insert_next_language_tag(prompt, language_vars);
                                     self.changed = true;
                                 }
@@ -482,7 +491,16 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             ui.label(prompt_label);
                             
                             let btn_label = match self.ui_language.as_str() { "vi" => "+ Ngôn ngữ", "ko" => "+ 언어", _ => "+ Language" };
-                            if ui.small_button(btn_label).clicked() {
+                            let is_dark = ui.visuals().dark_mode;
+                            let lang_btn_bg = if is_dark { 
+                                egui::Color32::from_rgb(50, 100, 110) 
+                            } else { 
+                                egui::Color32::from_rgb(100, 160, 170) 
+                            };
+                            if ui.add(egui::Button::new(egui::RichText::new(btn_label).small().color(egui::Color32::WHITE))
+                                .fill(lang_btn_bg)
+                                .corner_radius(8.0))
+                                .clicked() {
                                 insert_next_language_tag(prompt, language_vars);
                                 self.changed = true;
                             }
@@ -637,8 +655,16 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
             let popup_id = ui.make_persistent_id(format!("lang_popup_{}", num));
             let search_id = egui::Id::new(format!("lang_search_{}", num));
             
-            // Button to open popup
-            let button_response = ui.button(&current_val);
+            // Styled button to open popup
+            let is_dark = ui.visuals().dark_mode;
+            let lang_var_bg = if is_dark { 
+                egui::Color32::from_rgb(70, 60, 100) 
+            } else { 
+                egui::Color32::from_rgb(150, 140, 180) 
+            };
+            let button_response = ui.add(egui::Button::new(egui::RichText::new(&current_val).color(egui::Color32::WHITE))
+                .fill(lang_var_bg)
+                .corner_radius(8.0));
             
             if button_response.clicked() {
                 ui.memory_mut(|mem| mem.toggle_popup(popup_id));

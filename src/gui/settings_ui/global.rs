@@ -21,199 +21,229 @@ pub fn render_global_settings(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
+    
+    let is_dark = ui.visuals().dark_mode;
+    let card_bg = if is_dark {
+        egui::Color32::from_rgba_unmultiplied(28, 32, 42, 250)  // Darker for better text contrast
+    } else {
+        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 255)
+    };
+    let card_stroke = if is_dark {
+        egui::Stroke::new(1.0, egui::Color32::from_gray(50))
+    } else {
+        egui::Stroke::new(1.0, egui::Color32::from_gray(210))
+    };
+
+    ui.add_space(5.0);
+    
+    // === API KEYS CARD ===
+    egui::Frame::none()
+        .fill(card_bg)
+        .stroke(card_stroke)
+        .inner_margin(12.0)
+        .corner_radius(10.0)
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("🔑 API Keys").strong().size(14.0));
+            ui.add_space(6.0);
+            
+            // Groq API Key
+            ui.horizontal(|ui| {
+                ui.label("Groq:");
+                if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
+            });
+            ui.horizontal(|ui| {
+                if ui.add(egui::TextEdit::singleline(&mut config.api_key).password(!*show_api_key).desired_width(300.0)).changed() {
+                    changed = true;
+                }
+                let eye_icon = if *show_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
+                if icon_button(ui, eye_icon).clicked() { *show_api_key = !*show_api_key; }
+            });
+            
+            ui.add_space(8.0);
+            
+            // Gemini API Key
+            ui.horizontal(|ui| {
+                ui.label(text.gemini_api_key_label);
+                if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
+            });
+            ui.horizontal(|ui| {
+                if ui.add(egui::TextEdit::singleline(&mut config.gemini_api_key).password(!*show_gemini_api_key).desired_width(300.0)).changed() {
+                    changed = true;
+                }
+                let eye_icon = if *show_gemini_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
+                if icon_button(ui, eye_icon).clicked() { *show_gemini_api_key = !*show_gemini_api_key; }
+            });
+        });
 
     ui.add_space(10.0);
     
-    // API Keys (no border)
-    ui.vertical(|ui| {
-        ui.horizontal(|ui| {
-            ui.label(text.api_key_label);
-            if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
+    // === USAGE STATISTICS CARD ===
+    render_usage_statistics(ui, usage_stats, text, &config.ui_language, card_bg, card_stroke);
+
+    ui.add_space(10.0);
+
+    // === SOFTWARE UPDATE CARD ===
+    egui::Frame::none()
+        .fill(card_bg)
+        .stroke(card_stroke)
+        .inner_margin(12.0)
+        .corner_radius(10.0)
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("⬆ Software Update").strong().size(14.0));
+            ui.add_space(6.0);
+            render_update_section_content(ui, updater, update_status, text);
         });
-        ui.horizontal(|ui| {
-            if ui.add(egui::TextEdit::singleline(&mut config.api_key).password(!*show_api_key).desired_width(320.0)).changed() {
-                changed = true;
-            }
-            let eye_icon = if *show_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
-            if icon_button(ui, eye_icon).clicked() { *show_api_key = !*show_api_key; }
-        });
-        
-        ui.add_space(5.0);
-        ui.horizontal(|ui| {
-            ui.label(text.gemini_api_key_label);
-            if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
-        });
-        ui.horizontal(|ui| {
-            if ui.add(egui::TextEdit::singleline(&mut config.gemini_api_key).password(!*show_gemini_api_key).desired_width(320.0)).changed() {
-                changed = true;
-            }
-            let eye_icon = if *show_gemini_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
-            if icon_button(ui, eye_icon).clicked() { *show_gemini_api_key = !*show_gemini_api_key; }
-        });
-    });
 
     ui.add_space(10.0);
     
-    // Usage Statistics
-    render_usage_statistics(ui, usage_stats, text, &config.ui_language);
-
-    ui.add_space(10.0);
-
-    // Software Update
-    render_update_section(ui, updater, update_status, text);
-
-    ui.add_space(10.0);
-    ui.vertical(|ui| {
-        // Main startup toggle (Normal Registry-based or Admin Task Scheduler)
-        ui.horizontal(|ui| {
-            if let Some(launcher) = auto_launcher {
-                let mut startup_toggle = *run_at_startup;
-                if ui.checkbox(&mut startup_toggle, text.startup_label).clicked() {
-                    if startup_toggle && !(*run_at_startup) {
-                        // Enabling startup
-                        if config.run_as_admin_on_startup && current_admin_state {
-                            // Try to enable Admin startup via Task Scheduler
-                            if crate::gui::utils::set_admin_startup(true) {
-                                // Success: Task created, disable registry to avoid double run
-                                let _ = launcher.disable();
+    // === STARTUP OPTIONS CARD ===
+    egui::Frame::none()
+        .fill(card_bg)
+        .stroke(card_stroke)
+        .inner_margin(12.0)
+        .corner_radius(10.0)
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("⚙ Startup & Display").strong().size(14.0));
+            ui.add_space(6.0);
+            
+            // Main startup toggle
+            ui.horizontal(|ui| {
+                if let Some(launcher) = auto_launcher {
+                    let mut startup_toggle = *run_at_startup;
+                    if ui.checkbox(&mut startup_toggle, text.startup_label).clicked() {
+                        if startup_toggle && !(*run_at_startup) {
+                            if config.run_as_admin_on_startup && current_admin_state {
+                                if crate::gui::utils::set_admin_startup(true) {
+                                    let _ = launcher.disable();
+                                    *run_at_startup = true;
+                                    changed = true;
+                                }
+                            } else {
+                                std::thread::spawn(|| {
+                                    crate::gui::utils::set_admin_startup(false);
+                                });
+                                let _ = launcher.enable();
                                 *run_at_startup = true;
                                 changed = true;
                             }
-                        } else {
-                            // Enable normal registry-based startup
-                            // OPTIMIZATION: Run cleanup in background thread to prevent UI lag
+                        } else if !startup_toggle && *run_at_startup {
                             std::thread::spawn(|| {
                                 crate::gui::utils::set_admin_startup(false);
                             });
-                            
-                            let _ = launcher.enable();
-                            *run_at_startup = true;
+                            let _ = launcher.disable();
+                            config.run_as_admin_on_startup = false;
+                            config.start_in_tray = false;
+                            *run_at_startup = false;
                             changed = true;
                         }
-                    } else if !startup_toggle && *run_at_startup {
-                        // Disabling startup
-                        // OPTIMIZATION: Run cleanup in background thread to prevent UI lag
-                        std::thread::spawn(|| {
-                            crate::gui::utils::set_admin_startup(false);
-                        });
-                        
-                        let _ = launcher.disable();
-                        config.run_as_admin_on_startup = false;
-                        config.start_in_tray = false;
-                        *run_at_startup = false;
-                        changed = true;
                     }
                 }
-            }
-        });
+            });
 
-        // Admin Mode Sub-option (nested, only if startup is enabled)
-        if *run_at_startup {
-            ui.indent("admin_indent", |ui| {
-                let mut is_admin_mode = config.run_as_admin_on_startup;
-                let checkbox_label = text.admin_startup_on;
-                
-                if current_admin_state {
-                    // User IS Admin: Allow toggle
-                    if ui.checkbox(&mut is_admin_mode, checkbox_label).clicked() {
-                        if is_admin_mode && !config.run_as_admin_on_startup {
-                            // User trying to enable Admin Mode
-                            if crate::gui::utils::set_admin_startup(true) {
-                                config.run_as_admin_on_startup = true;
-                                // Disable registry-based run to avoid double startup
+            // Admin Mode Sub-option
+            if *run_at_startup {
+                ui.indent("admin_indent", |ui| {
+                    let mut is_admin_mode = config.run_as_admin_on_startup;
+                    let checkbox_label = text.admin_startup_on;
+                    
+                    if current_admin_state {
+                        if ui.checkbox(&mut is_admin_mode, checkbox_label).clicked() {
+                            if is_admin_mode && !config.run_as_admin_on_startup {
+                                if crate::gui::utils::set_admin_startup(true) {
+                                    config.run_as_admin_on_startup = true;
+                                    if let Some(launcher) = auto_launcher {
+                                        let _ = launcher.disable();
+                                    }
+                                    changed = true;
+                                }
+                            } else if !is_admin_mode && config.run_as_admin_on_startup {
+                                std::thread::spawn(|| {
+                                    crate::gui::utils::set_admin_startup(false);
+                                });
+                                config.run_as_admin_on_startup = false;
                                 if let Some(launcher) = auto_launcher {
-                                    let _ = launcher.disable();
+                                    let _ = launcher.enable();
                                 }
                                 changed = true;
                             }
-                        } else if !is_admin_mode && config.run_as_admin_on_startup {
-                            // User disabling Admin Mode (revert to normal startup)
-                            // OPTIMIZATION: Run cleanup in background thread to prevent UI lag
-                            std::thread::spawn(|| {
-                                crate::gui::utils::set_admin_startup(false);
-                            });
-                            
-                            config.run_as_admin_on_startup = false;
-                            // Re-enable registry-based startup
-                            if let Some(launcher) = auto_launcher {
-                                let _ = launcher.enable();
-                            }
+                        }
+                    } else {
+                        let mut _is_admin_mode_disabled = config.run_as_admin_on_startup;
+                        ui.add_enabled_ui(false, |ui| {
+                            ui.checkbox(&mut _is_admin_mode_disabled, checkbox_label);
+                        });
+                        ui.label(
+                            egui::RichText::new(text.admin_startup_fail)
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(200, 100, 50))
+                        );
+                    }
+
+                    if config.run_as_admin_on_startup && current_admin_state {
+                        ui.label(
+                            egui::RichText::new(text.admin_startup_success)
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(34, 139, 34))
+                        );
+                    }
+                });
+
+                if ui.checkbox(&mut config.start_in_tray, text.start_in_tray_label).clicked() {
+                    changed = true;
+                }
+            }
+            
+            ui.add_space(8.0);
+            
+            // Graphics Mode + Reset button on same row
+            ui.horizontal(|ui| {
+                ui.label(text.graphics_mode_label);
+                
+                let current_label = match config.ui_language.as_str() {
+                    "vi" => if config.graphics_mode == "minimal" { "Tối giản" } else { "Tiêu chuẩn" },
+                    "ko" => if config.graphics_mode == "minimal" { "최소" } else { "표준" },
+                    _ => if config.graphics_mode == "minimal" { "Minimal" } else { "Standard" },
+                };
+                
+                egui::ComboBox::from_id_source("graphics_mode_combo")
+                    .selected_text(current_label)
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(config.graphics_mode == "standard", text.graphics_mode_standard).clicked() {
+                            config.graphics_mode = "standard".to_string();
                             changed = true;
                         }
-                    }
-                } else {
-                    // User is NOT Admin: Disable checkbox and warn
-                    let mut _is_admin_mode_disabled = config.run_as_admin_on_startup;
-                    ui.add_enabled_ui(false, |ui| {
-                        ui.checkbox(&mut _is_admin_mode_disabled, checkbox_label);
+                        if ui.selectable_label(config.graphics_mode == "minimal", text.graphics_mode_minimal).clicked() {
+                            config.graphics_mode = "minimal".to_string();
+                            changed = true;
+                        }
                     });
-                    ui.label(
-                        egui::RichText::new(text.admin_startup_fail)
-                            .size(11.0)
-                            .color(egui::Color32::from_rgb(200, 100, 50))
-                    );
-                }
-
-                // Status message below the checkbox (Success only)
-                // FIX: Only show success message if running as Admin to avoid conflict with the error message above
-                if config.run_as_admin_on_startup && current_admin_state {
-                    ui.label(
-                        egui::RichText::new(text.admin_startup_success)
-                            .size(11.0)
-                            .color(egui::Color32::from_rgb(34, 139, 34))
-                    );
-                }
-            });
-
-            // Start in Tray checkbox (always shown if startup is enabled)
-            if ui.checkbox(&mut config.start_in_tray, text.start_in_tray_label).clicked() {
-                changed = true;
-            }
-        }
-    });
-
-    ui.add_space(10.0);
-    
-    // === GRAPHICS MODE (For weak computers) & RESET BUTTON ===
-    ui.horizontal(|ui| {
-        ui.label(text.graphics_mode_label);
-        
-        // Display short version in the dropdown button
-        let current_label = match config.ui_language.as_str() {
-            "vi" => if config.graphics_mode == "minimal" { "Tối giản" } else { "Tiêu chuẩn" },
-            "ko" => if config.graphics_mode == "minimal" { "최소" } else { "표준" },
-            _ => if config.graphics_mode == "minimal" { "Minimal" } else { "Standard" },
-        };
-        
-        egui::ComboBox::from_id_source("graphics_mode_combo")
-            .selected_text(current_label)
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(config.graphics_mode == "standard", text.graphics_mode_standard).clicked() {
-                    config.graphics_mode = "standard".to_string();
-                    changed = true;
-                }
-                if ui.selectable_label(config.graphics_mode == "minimal", text.graphics_mode_minimal).clicked() {
-                    config.graphics_mode = "minimal".to_string();
+                
+                // Big gap to simulate right alignment
+                ui.add_space(80.0);
+                
+                // Reset button
+                let reset_bg = if is_dark { 
+                    egui::Color32::from_rgb(120, 60, 60) 
+                } else { 
+                    egui::Color32::from_rgb(220, 140, 140) 
+                };
+                if ui.add(egui::Button::new(egui::RichText::new(text.reset_defaults_btn).color(egui::Color32::WHITE))
+                    .fill(reset_bg)
+                    .corner_radius(8.0))
+                    .clicked() {
+                    let saved_groq_key = config.api_key.clone();
+                    let saved_gemini_key = config.gemini_api_key.clone();
+                    let saved_language = config.ui_language.clone();
+                    
+                    *config = Config::default();
+                    
+                    config.api_key = saved_groq_key;
+                    config.gemini_api_key = saved_gemini_key;
+                    config.ui_language = saved_language;
                     changed = true;
                 }
             });
-        
-        // Add large gap and then reset button on the same row
-        ui.add_space(100.0);
-        
-        if ui.button(text.reset_defaults_btn).clicked() {
-            let saved_groq_key = config.api_key.clone();
-            let saved_gemini_key = config.gemini_api_key.clone();
-            let saved_language = config.ui_language.clone();
-            
-            *config = Config::default();
-            
-            config.api_key = saved_groq_key;
-            config.gemini_api_key = saved_gemini_key;
-            config.ui_language = saved_language;
-            changed = true;
-        }
-    });
+        });
 
     changed
 }
@@ -222,42 +252,52 @@ fn render_usage_statistics(
     ui: &mut egui::Ui, 
     usage_stats: &HashMap<String, String>, 
     text: &LocaleText,
-    _lang_code: &str
+    _lang_code: &str,
+    card_bg: egui::Color32,
+    card_stroke: egui::Stroke,
 ) {
-    ui.group(|ui| {
-        egui::ScrollArea::vertical().max_height(77.0).show(ui, |ui| {
-            egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(format!("{} {}", text.usage_statistics_title, text.usage_model_column)).strong());
-                    icon_button(ui, Icon::Info).on_hover_text(text.usage_statistics_tooltip);
-                });
-                ui.label(egui::RichText::new(text.usage_remaining_column).strong());
-                ui.end_row();
-
-                let mut shown_models = std::collections::HashSet::new();
-                
-                for model in get_all_models() {
-                    if !model.enabled { continue; }
-                    
-                    if shown_models.contains(&model.full_name) { continue; }
-                    shown_models.insert(model.full_name.clone());
-                    
-                    ui.label(model.full_name.clone());
-                    
-                    if model.provider == "groq" {
-                        let status = usage_stats.get(&model.full_name).cloned().unwrap_or_else(|| "??? / ?".to_string());
-                        ui.label(status);
-                    } else if model.provider == "google" {
-                        ui.hyperlink_to(text.usage_check_link, "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
-                    }
+    egui::Frame::none()
+        .fill(card_bg)
+        .stroke(card_stroke)
+        .inner_margin(12.0)
+        .corner_radius(10.0)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("📊 {}", text.usage_statistics_title)).strong().size(14.0));
+                icon_button(ui, Icon::Info).on_hover_text(text.usage_statistics_tooltip);
+            });
+            ui.add_space(6.0);
+            
+            egui::ScrollArea::vertical().max_height(70.0).show(ui, |ui| {
+                egui::Grid::new("usage_grid").striped(true).show(ui, |ui| {
+                    ui.label(egui::RichText::new(text.usage_model_column).strong());
+                    ui.label(egui::RichText::new(text.usage_remaining_column).strong());
                     ui.end_row();
-                }
+
+                    let mut shown_models = std::collections::HashSet::new();
+                    
+                    for model in get_all_models() {
+                        if !model.enabled { continue; }
+                        
+                        if shown_models.contains(&model.full_name) { continue; }
+                        shown_models.insert(model.full_name.clone());
+                        
+                        ui.label(model.full_name.clone());
+                        
+                        if model.provider == "groq" {
+                            let status = usage_stats.get(&model.full_name).cloned().unwrap_or_else(|| "??? / ?".to_string());
+                            ui.label(status);
+                        } else if model.provider == "google" {
+                            ui.hyperlink_to(text.usage_check_link, "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
+                        }
+                        ui.end_row();
+                    }
+                });
             });
         });
-    });
 }
 
-fn render_update_section(ui: &mut egui::Ui, updater: &Option<Updater>, status: &UpdateStatus, text: &LocaleText) {
+fn render_update_section_content(ui: &mut egui::Ui, updater: &Option<Updater>, status: &UpdateStatus, text: &LocaleText) {
     match status {
         UpdateStatus::Idle => {
             ui.horizontal(|ui| {
