@@ -15,6 +15,9 @@ use super::paint;
 use super::window::{create_result_window, update_window_text};
 use super::markdown_view; 
 
+// Custom message to defer WebView2 creation (avoids deadlock in button handler)
+const WM_CREATE_WEBVIEW: u32 = WM_USER + 200; 
+
 // Helper to apply rounded corners (duplicate needed since it's private in window.rs)
 unsafe fn set_rounded_edit_region(h_edit: HWND, w: i32, h: i32) {
     let rgn = CreateRoundRectRgn(0, 0, w, h, 12, 12);
@@ -510,13 +513,9 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         };
                         
                         if toggle_on {
-                            // Create/show markdown webview
-                            if !markdown_view::has_markdown_webview(hwnd) {
-                                markdown_view::create_markdown_webview(hwnd, &full_text, true);
-                            } else {
-                                markdown_view::update_markdown_content(hwnd, &full_text);
-                                markdown_view::show_markdown_webview(hwnd);
-                            }
+                            // DEFER WebView creation to after this handler returns
+                            // Using PostMessage allows the handler to return first.
+                            PostMessageW(hwnd, WM_CREATE_WEBVIEW, WPARAM(0), LPARAM(0));
                             // Start hover polling timer (ID 2, 30ms interval)
                             SetTimer(hwnd, 2, 30, None);
                         } else {
@@ -910,6 +909,39 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         WM_KEYDOWN => {
             LRESULT(0)
         }
+        
+        // Deferred WebView2 creation - handles the WM_CREATE_WEBVIEW we posted
+        msg if msg == WM_CREATE_WEBVIEW => {
+            // Get the text to render
+            let (full_text, is_hovered) = {
+                let states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                    (state.full_text.clone(), state.is_hovered)
+                } else {
+                    (String::new(), false)
+                }
+            };
+            
+            if markdown_view::has_markdown_webview(hwnd) {
+                // WebView was pre-created, just show and update it
+                markdown_view::update_markdown_content(hwnd, &full_text);
+                markdown_view::show_markdown_webview(hwnd);
+            } else {
+                // Try to create WebView
+                let result = markdown_view::create_markdown_webview(hwnd, &full_text, is_hovered);
+                if !result {
+                    // Failed to create - revert markdown mode
+                    let mut states = WINDOW_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                        state.is_markdown_mode = false;
+                    }
+                }
+            }
+            
+            InvalidateRect(hwnd, None, false);
+            LRESULT(0)
+        }
+        
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }

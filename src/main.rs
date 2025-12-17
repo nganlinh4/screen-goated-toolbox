@@ -201,6 +201,9 @@ fn main() -> eframe::Result<()> {
 
     // Warmup text input window (hidden startup)
     overlay::text_input::warmup();
+    
+    // Warmup markdown WebView (hidden startup) - pre-initializes WebView2
+    overlay::result::markdown_view::warmup();
 
     // --- TRAY MENU SETUP ---
     let tray_menu = Menu::new();

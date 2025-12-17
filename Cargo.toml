@@ -44,7 +44,7 @@ hound = "3.5"
 
 # Markdown Rendering
 pulldown-cmark = "0.10"
-wry = "0.47"
+wry = "0.53"
 raw-window-handle = "0.6"
 
 [dependencies.windows]
