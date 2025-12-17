@@ -6,6 +6,7 @@ use crate::model_config::get_all_models;
 use crate::updater::{Updater, UpdateStatus};
 use std::collections::HashMap;
 use auto_launch::AutoLaunch;
+use super::node_graph::request_node_graph_view_reset;
 
 pub fn render_global_settings(
     ui: &mut egui::Ui,
@@ -240,6 +241,7 @@ pub fn render_global_settings(
                     config.api_key = saved_groq_key;
                     config.gemini_api_key = saved_gemini_key;
                     config.ui_language = saved_language;
+                    request_node_graph_view_reset(ui.ctx());
                     changed = true;
                 }
             });

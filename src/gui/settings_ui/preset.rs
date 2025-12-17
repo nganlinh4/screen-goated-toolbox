@@ -3,7 +3,7 @@ use crate::config::{Config, ProcessingBlock};
 use crate::gui::locale::LocaleText;
 use super::get_localized_preset_name;
 use egui_snarl::Snarl;
-use super::node_graph::{ChainNode, render_node_graph, blocks_to_snarl};
+use super::node_graph::{ChainNode, render_node_graph, blocks_to_snarl, request_node_graph_view_reset};
 
 pub fn render_preset_editor(
     ui: &mut egui::Ui,
@@ -94,6 +94,7 @@ pub fn render_preset_editor(
                             if let Some(default_p) = default_config.presets.iter().find(|p| p.id == preset.id) {
                                 preset = default_p.clone();
                                 *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
+                                request_node_graph_view_reset(ui.ctx());
                                 changed = true;
                             }
                         }
