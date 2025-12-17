@@ -26,9 +26,9 @@ pub fn render_history_panel(
     };
     
     // Set max width for entire panel (outside frame so it properly constrains the card)
-    ui.set_max_width(475.0);
+    ui.set_max_width(510.0);
     
-    // === HEADER CARD ===
+    // === HEADER CARD ===  
     ui.add_space(5.0);
     egui::Frame::none()
         .fill(card_bg)
@@ -98,10 +98,10 @@ pub fn render_history_panel(
     } else {
         // History items in scroll area
         egui::Frame::none().show(ui, |ui| {
-            ui.set_height(370.0);
+            ui.set_height(460.0);
             
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.set_max_width(475.0);
+                ui.set_max_width(510.0);
                 
                 let mut id_to_delete = None;
                 
