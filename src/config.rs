@@ -514,7 +514,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "compound_mini".to_string(),
-                prompt: "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                prompt: "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
                 show_overlay: true,
@@ -533,7 +533,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(), // Use stronger model for coding
-                prompt: "Create a complete, standalone HTML game. The game MUST be playable using ONLY MOUSE CONTROLS (like swipe , drag or clicks, no keyboard required). Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only, and do not include any file indicators or triple backticks. Create the game based on the following request:".to_string(),
+                prompt: "Create a complete, standalone HTML game. The game MUST be playable using ONLY MOUSE CONTROLS (like swipe , drag or clicks, no keyboard required). Avoid the looping Game Over UI at startup. Use modern and trending CSS on the internet for a polished look, prefer using images or icons or svg assets from the internet for a convincing game aesthetics. Provide HTML code only. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks. Create the game based on the following request:".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
                 show_overlay: true,
@@ -598,7 +598,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "image".to_string(),
                 model: "maverick".to_string(),
-                prompt: "Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely. Format the output as a markdown. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                prompt: "Analyze this image and summarize its content in {language1}. Only return the summary text, super concisely. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
@@ -617,7 +617,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "image".to_string(),
                 model: "maverick".to_string(),
-                prompt: "Describe this image in {language1}. Format the output as a markdown. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                prompt: "Describe this image in {language1}. Format the output as a markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
@@ -766,7 +766,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "compound_mini".to_string(),
-                prompt: "Fact-check the following claims/information. Search the internet to verify accuracy. Provide a clear verdict (TRUE/FALSE/PARTIALLY TRUE/UNVERIFIABLE) for each claim with evidence and sources. Respond in {language1}. Format as markdown. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                prompt: "Fact-check the following claims/information. Search the internet to verify accuracy. Provide a clear verdict (TRUE/FALSE/PARTIALLY TRUE/UNVERIFIABLE) for each claim with evidence and sources. Respond in {language1}. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
@@ -797,7 +797,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Output ONLY the raw HTML code, no file indicator or triple backticks.".to_string(),
+                prompt: "Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
@@ -809,7 +809,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "compound_mini".to_string(),
-                prompt: "Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, no file indicator or triple backticks.".to_string(),
+                prompt: "Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
