@@ -1,26 +1,32 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::HiDpi::*;
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
 use pulldown_cmark::{Parser, Options, html};
 use wry::{WebViewBuilder, Rect};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32WindowHandle, HandleError};
+use windows::core::w;
 
 lazy_static::lazy_static! {
     // Store WebViews per parent window - wrapped in thread-local storage to avoid Send issues
     static ref WEBVIEW_STATES: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
-    
-    // Global lock to serialize WebView2 creation across all threads
-    // This prevents race conditions when multiple WebViews are created simultaneously
-    // (e.g., in the "Omniscient God" preset with parallel branches)
-    static ref WEBVIEW_CREATION_LOCK: Mutex<()> = Mutex::new(());
+    // Global flag to indicate WebView2 is ready
+    static ref WEBVIEW_READY: Mutex<bool> = Mutex::new(false);
 }
+
+// Global hidden window handle for WebView warmup
+static mut WARMUP_HWND: HWND = HWND(0);
+static REGISTER_WARMUP_CLASS: Once = Once::new();
 
 // Thread-local storage for WebViews since they're not Send
 thread_local! {
     static WEBVIEWS: std::cell::RefCell<HashMap<isize, wry::WebView>> = std::cell::RefCell::new(HashMap::new());
+    // Hidden warmup WebView
+    static WARMUP_WEBVIEW: std::cell::RefCell<Option<wry::WebView>> = std::cell::RefCell::new(None);
 }
 
 /// Wrapper for HWND to implement HasWindowHandle
@@ -40,6 +46,83 @@ impl HasWindowHandle for HwndWrapper {
             Err(HandleError::Unavailable)
         }
     }
+}
+
+/// Warmup markdown WebView - call from main.rs at app startup
+/// This pre-initializes WebView2 infrastructure from the main thread context
+pub fn warmup() {
+    std::thread::spawn(|| {
+        warmup_internal();
+    });
+}
+
+fn warmup_internal() {
+    unsafe {
+        let instance = GetModuleHandleW(None).unwrap();
+        let class_name = w!("SGT_MarkdownWarmup");
+
+        REGISTER_WARMUP_CLASS.call_once(|| {
+            let mut wc = WNDCLASSW::default();
+            wc.lpfnWndProc = Some(warmup_wnd_proc);
+            wc.hInstance = instance;
+            wc.lpszClassName = class_name;
+            wc.style = CS_HREDRAW | CS_VREDRAW;
+            wc.hbrBackground = HBRUSH(0);
+            let _ = RegisterClassW(&wc);
+        });
+
+        // Create a small hidden window
+        let hwnd = CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+            class_name,
+            w!("MarkdownWarmup"),
+            WS_POPUP,
+            0, 0, 100, 100,
+            None, None, instance, None
+        );
+
+        WARMUP_HWND = hwnd;
+        
+        // Make it transparent (invisible)
+        SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
+
+        // Create a WebView to warm up WebView2 infrastructure
+        let wrapper = HwndWrapper(hwnd);
+        let result = WebViewBuilder::new()
+            .with_bounds(Rect {
+                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
+            })
+            .with_html("<html><body>Warmup</body></html>")
+            .with_transparent(false)
+            .build_as_child(&wrapper);
+
+        match result {
+            Ok(webview) => {
+                WARMUP_WEBVIEW.with(|wv| {
+                    *wv.borrow_mut() = Some(webview);
+                });
+                // Mark as ready
+                if let Ok(mut ready) = WEBVIEW_READY.lock() {
+                    *ready = true;
+                }
+            }
+            Err(_) => {
+                // Warmup failed - WebView2 may not work
+            }
+        }
+
+        // Message loop to keep the warmup thread alive
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).into() {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+unsafe extern "system" fn warmup_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
 /// CSS styling for the markdown content
@@ -177,24 +260,13 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
         return update_markdown_content(parent_hwnd, markdown_text);
     }
     
-    // CRITICAL: Acquire global lock to serialize WebView2 creation
-    // This prevents race conditions when multiple windows try to create WebViews simultaneously
-    // The lock is held for the entire creation process to ensure sequential initialization
-    let _creation_guard = WEBVIEW_CREATION_LOCK.lock().unwrap();
-    
-    // Double-check after acquiring lock (another thread may have created it while we waited)
-    let exists_after_lock = WEBVIEWS.with(|webviews| {
-        webviews.borrow().contains_key(&hwnd_key)
-    });
-    if exists_after_lock {
-        return update_markdown_content(parent_hwnd, markdown_text);
-    }
     
     // Get parent window rect
     let mut rect = RECT::default();
     unsafe { GetClientRect(parent_hwnd, &mut rect); }
     
     let html_content = markdown_to_html(markdown_text);
+    
     let wrapper = HwndWrapper(parent_hwnd);
     
     // Small margin on edges for resize handle accessibility (2px)
@@ -204,9 +276,14 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
     let content_width = ((rect.right - rect.left) as f64 - edge_margin * 2.0).max(50.0);
     let content_height = ((rect.bottom - rect.top) as f64 - edge_margin - button_area_height).max(50.0);
     
+
+    
     // Create WebView with small margins so resize handles remain accessible
     // Use Physical coordinates since GetClientRect returns physical pixels
     let hwnd_copy = parent_hwnd;
+    
+    // SIMPLIFIED FOR DEBUGGING - minimal WebView creation  
+    // CRITICAL: with_transparent(false) matches text_input's working config
     let result = WebViewBuilder::new()
         .with_bounds(Rect {
             position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(edge_margin as i32, edge_margin as i32)),
@@ -217,49 +294,6 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
         })
         .with_html(&html_content)
         .with_transparent(false)
-        .with_navigation_handler(move |url| {
-            // Check if this is an external navigation
-            // wry usually serves content on http://wry.localhost or custom scheme. 
-            // External links will be https:// or http:// (and not localhost potentially, or just assume distinct)
-            // Ideally we just check if it's NOT the initial load. 
-            // But initial load is via with_html, so the URL might be "wry://localhost" or "data:".
-            
-            // Simple heuristic: if it starts with http/https and is not a local wry url
-            if url.starts_with("http") && !url.contains("wry.localhost") {
-                use crate::overlay::result::state::WINDOW_STATES;
-                use windows::Win32::Graphics::Gdi::InvalidateRect;
-                
-                let mut states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get_mut(&(hwnd_copy.0 as isize)) {
-                    if !state.is_browsing {
-                        state.is_browsing = true;
-                        unsafe { InvalidateRect(hwnd_copy, None, false); }
-                    }
-                }
-            } else {
-                use crate::overlay::result::state::WINDOW_STATES;
-                use windows::Win32::Graphics::Gdi::InvalidateRect;
-                
-                let mut content_to_restore = None;
-                {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(hwnd_copy.0 as isize)) {
-                        if state.is_browsing {
-                            state.is_browsing = false;
-                            unsafe { InvalidateRect(hwnd_copy, None, false); }
-                            content_to_restore = Some(state.full_text.clone());
-                        }
-                    }
-                }
-                
-                if let Some(text) = content_to_restore {
-                    // Restore the markdown view content which was lost during navigation
-                    // Use crate path to ensure we can call the function from within the closure
-                    crate::overlay::result::markdown_view::update_markdown_content(hwnd_copy, &text);
-                }
-            }
-            true // Allow navigation
-        })
         .build_as_child(&wrapper);
     
     match result {
@@ -272,8 +306,8 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
             states.insert(hwnd_key, true);
             true
         }
-        Err(e) => {
-            eprintln!("Failed to create WebView: {:?}", e);
+        Err(_e) => {
+            // WebView creation failed - warmup may not have completed
             false
         }
     }

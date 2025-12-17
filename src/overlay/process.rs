@@ -569,6 +569,8 @@ fn run_chain_step(
         let is_image_block = block.block_type == "image";
         
         std::thread::spawn(move || {
+            // NOTE: wry handles COM internally, explicit initialization may interfere
+            
             let hwnd = create_result_window(
                 my_rect, 
                 WindowType::Primary, 
@@ -883,7 +885,7 @@ fn run_chain_step(
         let s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
         let s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
         
-        for next_idx in parallel_branches {
+        for (branch_index, next_idx) in parallel_branches.iter().enumerate() {
             let result_clone = result_text.clone();
             let blocks_clone = blocks.clone();
             let conns_clone = connections.clone();
@@ -891,18 +893,28 @@ fn run_chain_step(
             let cancel_clone = cancel_token.clone();
             let parent_clone = next_parent.clone();
             let preset_id_clone = preset_id.clone();
+            let next_idx_copy = *next_idx;
             
             // Position will be determined individually by get_next_window_position inside run_chain_step
             // We just pass the base_rect as a reference point
             let branch_rect = base_rect;
             
+            // Incremental delay for each branch (300ms, 600ms, 900ms, ...)
+            // This naturally staggers WebView2 creation without blocking mutexes
+            let delay_ms = (branch_index as u64 + 1) * 300;
+            
             std::thread::spawn(move || {
-                // Small delay to stagger WebView2 creation across parallel branches
-                // This reduces contention and helps prevent freezing
-                std::thread::sleep(std::time::Duration::from_millis(150));
+                // CRITICAL: Initialize COM on this thread - required for WebView2
+                unsafe {
+                    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+                    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                }
+                
+                // Stagger WebView2 creation across parallel branches
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
                 
                 run_chain_step(
-                    next_idx,
+                    next_idx_copy,
                     result_clone,
                     branch_rect,
                     blocks_clone,

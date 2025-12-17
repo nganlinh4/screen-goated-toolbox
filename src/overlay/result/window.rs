@@ -80,14 +80,37 @@ pub fn create_result_window(
 
         // WS_CLIPCHILDREN prevents parent from drawing over child (Fixes Blinking)
         // WS_EX_NOACTIVATE prevents stealing focus when window appears
+        // NOTE: For markdown mode, we match text_input's working configuration exactly
+        let (ex_style, base_style) = if render_mode == "markdown" {
+            // Markdown mode: match text_input (no WS_CLIPCHILDREN, no WS_EX_NOACTIVATE)
+            (
+                WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+                WS_POPUP
+            )
+        } else {
+            // Plain text mode: prevent focus stealing, use clip children
+            (
+                WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                WS_POPUP | WS_CLIPCHILDREN
+            )
+        };
+        
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            ex_style,
             class_name,
             w!(""),
-            WS_POPUP | WS_CLIPCHILDREN, 
+            base_style, 
             x, y, width, height,
             None, None, instance, None
         );
+        
+        // FOR MARKDOWN MODE: Create WebView IMMEDIATELY after window creation
+        // See docs/WEBVIEW2_INITIALIZATION.md for why this is necessary
+        if render_mode == "markdown" {
+            SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
+            let _ = super::markdown_view::create_markdown_webview(hwnd, "", true);
+            SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
+        }
 
         let edit_style = WINDOW_STYLE(
             WS_CHILD.0 | 
@@ -202,6 +225,7 @@ pub fn create_result_window(
         SetTimer(hwnd, 3, 16, None);
         if render_mode == "markdown" {
             SetTimer(hwnd, 2, 30, None);
+            // WebView was already created immediately after window creation (see above)
         }
         
         InvalidateRect(hwnd, None, false);
