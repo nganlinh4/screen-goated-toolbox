@@ -182,7 +182,9 @@ pub struct WindowState {
     // Web Browsing State
     pub is_browsing: bool,                 // True when user has navigated away from initial content
     pub navigation_depth: usize,           // How many pages deep from initial content (0 = at result)
+    pub max_navigation_depth: usize,       // Max depth reached (to know if forward is possible)
     pub on_back_btn: bool,                 // Hover state for back button
+    pub on_forward_btn: bool,              // Hover state for forward button
     
     // Download HTML button state
     pub on_download_btn: bool,             // Hover state for download HTML button

@@ -323,6 +323,13 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
                     if let Some(state) = states.get_mut(&hwnd_key_for_nav) {
                         state.is_browsing = true;
                         state.navigation_depth += 1;
+                        // For a new navigation (not history back/forward), reset max depth to current depth
+                        state.max_navigation_depth = state.navigation_depth;
+                        
+                        if state.is_editing {
+                            state.is_editing = false;
+                            super::refine_input::hide_refine_input(HWND(hwnd_key_for_nav));
+                        }
                     }
                 }
             }
@@ -414,6 +421,36 @@ pub fn go_back(parent_hwnd: HWND) {
             }
         });
     }
+}
+
+/// Navigate forward in browser history
+pub fn go_forward(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+    
+    // Set skip flag to prevent navigation_handler from incrementing depth
+    {
+        let mut skip_map = SKIP_NEXT_NAVIGATION.lock().unwrap();
+        skip_map.insert(hwnd_key, true);
+    }
+    
+    // Increment navigation depth since we're going forward
+    {
+        let mut states = super::state::WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get_mut(&hwnd_key) {
+            if state.navigation_depth < state.max_navigation_depth {
+                state.navigation_depth += 1;
+                state.is_browsing = true;
+            } else {
+                return; // Cannot go forward
+            }
+        }
+    }
+    
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script("history.forward();");
+        }
+    });
 }
 
 /// Update the markdown content in an existing WebView

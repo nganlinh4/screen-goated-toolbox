@@ -77,7 +77,7 @@ pub fn paint_window(hwnd: HWND) {
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
         let (
              bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, on_undo_btn, on_redo_btn, on_markdown_btn, is_markdown_mode, 
-             is_browsing, on_back_btn, on_download_btn,
+             is_browsing, on_back_btn, on_forward_btn, on_download_btn,
              broom_data, particles,
              mut cached_text_bm, _cached_font_size, cache_dirty,
              cached_bg_bm,
@@ -85,6 +85,8 @@ pub fn paint_window(hwnd: HWND) {
              anim_offset,
              history_count,
              redo_count,
+             navigation_depth,
+             max_navigation_depth,
              graphics_mode
          ) = {
             let mut states = WINDOW_STATES.lock().unwrap();
@@ -152,6 +154,7 @@ pub fn paint_window(hwnd: HWND) {
                         && !state.on_redo_btn
                         && !state.on_markdown_btn
                         && !state.on_back_btn
+                        && !state.on_forward_btn
                         && !state.on_download_btn
                         && state.current_resize_edge == ResizeEdge::None
                 );
@@ -167,7 +170,7 @@ pub fn paint_window(hwnd: HWND) {
 
                 (
                     state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, state.on_undo_btn, state.on_redo_btn, state.on_markdown_btn, state.is_markdown_mode, 
-                    state.is_browsing, state.on_back_btn, state.on_download_btn,
+                    state.is_browsing, state.on_back_btn, state.on_forward_btn, state.on_download_btn,
                     broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap,
@@ -175,10 +178,12 @@ pub fn paint_window(hwnd: HWND) {
                     state.animation_offset,
                     state.text_history.len(),
                     state.redo_history.len(),
+                    state.navigation_depth,
+                    state.max_navigation_depth,
                     state.graphics_mode.clone()
                 )
             } else {
-                (0, false, false, false, false, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0, 0, "standard".to_string())
+                (0, false, false, false, false, false, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0, 0, 0, 0, "standard".to_string())
             }
         };
 
@@ -447,13 +452,17 @@ pub fn paint_window(hwnd: HWND) {
                     (height - margin - btn_size / 2) as f32
                 };
                 
+                // Button positions - used differently based on browsing mode
+                let cx_back = (margin + btn_size / 2) as f32;
+                let cx_forward = (width - margin - btn_size / 2) as f32; // Forward on right when browsing
+                
+                // Result UI button positions (only used when not browsing)
                 let cx_copy = (width - margin - btn_size / 2) as f32;
                 let cx_edit = cx_copy - (btn_size as f32) - 8.0;
-                let cx_md = cx_edit - (btn_size as f32) - 8.0;     // MD is between Edit and Download
-                let cx_dl = cx_md - (btn_size as f32) - 8.0;       // Download is between MD and Undo
+                let cx_md = cx_edit - (btn_size as f32) - 8.0;
+                let cx_dl = cx_md - (btn_size as f32) - 8.0;
                 let cx_undo = cx_dl - (btn_size as f32) - 8.0;
-                let cx_redo = cx_undo - (btn_size as f32) - 8.0;   // Redo is left of Undo
-                let cx_back = (margin + btn_size / 2) as f32;
+                let cx_redo = cx_undo - (btn_size as f32) - 8.0;
                 
                 let radius = 13.0;
 
@@ -464,13 +473,14 @@ pub fn paint_window(hwnd: HWND) {
                 let (tr_rd, tg_rd, tb_rd) = if on_redo_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
                 let (tr_m, tg_m, tb_m) = if is_markdown_mode { (60.0, 180.0, 200.0) } else if on_markdown_btn { (100.0, 140.0, 180.0) } else { (80.0, 80.0, 80.0) };
                 let (tr_b, tg_b, tb_b) = if on_back_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
+                let (tr_f, tg_f, tb_f) = if on_forward_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
                 let (tr_dl, tg_dl, tb_dl) = if on_download_btn { (100.0, 180.0, 100.0) } else { (80.0, 80.0, 80.0) };
 
                 let b_start_y = (cy - radius - 4.0) as i32;
                 let b_end_y = (cy + radius + 4.0) as i32;
                 let show_undo = history_count > 0 && !is_browsing;
                 let show_redo = redo_count > 0 && !is_browsing;
-                let show_back = is_browsing;
+                let show_forward = is_browsing && navigation_depth < max_navigation_depth;
                 let border_inner_radius = radius - 1.5;
 
                 for y in b_start_y.max(0)..b_end_y.min(height) {
@@ -485,143 +495,165 @@ pub fn paint_window(hwnd: HWND) {
                         let mut border_alpha = 0.0;
                         let mut icon_alpha = 0.0;
                         
-                        // Check Left (Back)
-                        if show_back && x < width / 2 {
-                             let dx = (fx - cx_back).abs();
-                             let dist = (dx*dx + dy*dy).sqrt();
-                             let aa = (radius + 0.5 - dist).clamp(0.0, 1.0);
-                             if aa > 0.0 {
-                                 hit = true;
-                                 alpha = aa;
-                                 t_r = tr_b; t_g = tg_b; t_b = tb_b;
-                                 border_alpha = ((radius + 0.5 - dist).clamp(0.0, 1.0) * ((dist - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                                 
-                                 // Back Arrow (Left Arrow)
-                                 let tip_x = cx_back - 3.5;
-                                 let tail_x = cx_back + 3.5;
-                                 let d_shaft = dist_segment(fx, fy, tip_x, cy, tail_x, cy);
-                                 let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy - 3.0);
-                                 let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy + 3.0);
-                                 let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
-                                 icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
-                             }
-                        } else if x > width / 2 {
-                             // Check Right Buttons
-                             
-                             // COPY
-                             let dx_c = (fx - cx_copy).abs();
-                             let dist_c = (dx_c*dx_c + dy*dy).sqrt();
-                             let aa_c = (radius + 0.5 - dist_c).clamp(0.0, 1.0);
-                             if aa_c > 0.0 {
-                                 hit = true; alpha = aa_c; t_r = tr_c; t_g = tg_c; t_b = tb_c;
-                                 border_alpha = ((radius + 0.5 - dist_c).clamp(0.0, 1.0) * ((dist_c - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                                 if copy_success {
-                                     let d1 = dist_segment(fx, fy, cx_copy - 4.0, cy, cx_copy - 1.0, cy + 3.0);
-                                     let d2 = dist_segment(fx, fy, cx_copy - 1.0, cy + 3.0, cx_copy + 4.0, cy - 4.0);
-                                     icon_alpha = (1.8 - d1.min(d2)).clamp(0.0, 1.0);
-                                 } else {
-                                     let back_d = sd_box(fx, fy, cx_copy - 2.0, cy - 2.0, 3.0, 4.0);
-                                     let back_outline = (1.25 - back_d.abs()).clamp(0.0, 1.0);
-                                     let front_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 3.0, 4.0);
-                                     let front_fill = (0.8 - front_d).clamp(0.0, 1.0);
-                                     let mask_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 4.5, 5.5);
-                                     icon_alpha = (front_fill + back_outline * mask_d.clamp(0.0, 1.0)).clamp(0.0, 1.0);
-                                 }
-                             }
-                             
-                             // EDIT
-                             if !hit {
-                                 let dx_e = (fx - cx_edit).abs();
-                                 let dist_e = (dx_e*dx_e + dy*dy).sqrt();
-                                 let aa_e = (radius + 0.5 - dist_e).clamp(0.0, 1.0);
-                                 if aa_e > 0.0 {
-                                     hit = true; alpha = aa_e; t_r = tr_e; t_g = tg_e; t_b = tb_e;
-                                     border_alpha = ((radius + 0.5 - dist_e).clamp(0.0, 1.0) * ((dist_e - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                                     let sx = (fx - cx_edit).abs();
-                                     let sy = (fy - cy).abs();
-                                     let star_dist = (sx.powf(0.6) + sy.powf(0.6)).powf(1.0/0.6) - 4.5;
-                                     let mut ia = (1.2 - star_dist).clamp(0.0, 1.0);
-                                     let sx2 = (fx - (cx_edit + 4.5)).abs();
-                                     let sy2 = (fy - (cy - 3.5)).abs();
-                                     let star2_dist = (sx2.powf(0.6) + sy2.powf(0.6)).powf(1.0/0.6) - 2.2;
-                                     ia = ia.max((1.2 - star2_dist).clamp(0.0, 1.0));
-                                     icon_alpha = ia;
-                                 }
-                             }
-                             
-                             // MARKDOWN
-                             if !hit {
-                                 let dx_m = (fx - cx_md).abs();
-                                 let dist_m = (dx_m*dx_m + dy*dy).sqrt();
-                                 let aa_m = (radius + 0.5 - dist_m).clamp(0.0, 1.0);
-                                 if aa_m > 0.0 {
-                                     hit = true; alpha = aa_m; t_r = tr_m; t_g = tg_m; t_b = tb_m;
-                                     border_alpha = ((radius + 0.5 - dist_m).clamp(0.0, 1.0) * ((dist_m - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                                     let d_m1 = dist_segment(fx, fy, cx_md - 4.0, cy + 4.0, cx_md - 4.0, cy - 4.0); 
-                                     let d_m2 = dist_segment(fx, fy, cx_md - 4.0, cy - 4.0, cx_md, cy + 1.0);       
-                                     let d_m3 = dist_segment(fx, fy, cx_md, cy + 1.0, cx_md + 4.0, cy - 4.0);      
-                                     let d_m4 = dist_segment(fx, fy, cx_md + 4.0, cy - 4.0, cx_md + 4.0, cy + 4.0); 
-                                     let d_m = d_m1.min(d_m2).min(d_m3).min(d_m4);
-                                     icon_alpha = (1.5 - d_m).clamp(0.0, 1.0);
-                                 }
-                             }
+                        if is_browsing {
+                            // BROWSING MODE: Only show Back (left) and Forward (right) buttons
+                            
+                            // BACK BUTTON (Left side)
+                            if x < width / 2 {
+                                let dx = (fx - cx_back).abs();
+                                let dist = (dx*dx + dy*dy).sqrt();
+                                let aa = (radius + 0.5 - dist).clamp(0.0, 1.0);
+                                if aa > 0.0 {
+                                    hit = true;
+                                    alpha = aa;
+                                    t_r = tr_b; t_g = tg_b; t_b = tb_b;
+                                    border_alpha = ((radius + 0.5 - dist).clamp(0.0, 1.0) * ((dist - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    
+                                    // Back Arrow (Left Arrow)
+                                    let tip_x = cx_back - 3.5;
+                                    let tail_x = cx_back + 3.5;
+                                    let d_shaft = dist_segment(fx, fy, tip_x, cy, tail_x, cy);
+                                    let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy - 3.0);
+                                    let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy + 3.0);
+                                    let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
+                                    icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
+                                }
+                            }
+                            
+                            // FORWARD BUTTON (Right side)
+                            if !hit && show_forward && x > width / 2 {
+                                let dx = (fx - cx_forward).abs();
+                                let dist = (dx*dx + dy*dy).sqrt();
+                                let aa = (radius + 0.5 - dist).clamp(0.0, 1.0);
+                                if aa > 0.0 {
+                                    hit = true;
+                                    alpha = aa;
+                                    t_r = tr_f; t_g = tg_f; t_b = tb_f;
+                                    border_alpha = ((radius + 0.5 - dist).clamp(0.0, 1.0) * ((dist - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    
+                                    // Forward Arrow (Right Arrow)
+                                    let tip_x = cx_forward + 3.5;
+                                    let tail_x = cx_forward - 3.5;
+                                    let d_shaft = dist_segment(fx, fy, tail_x, cy, tip_x, cy);
+                                    let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x - 3.0, cy - 3.0);
+                                    let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x - 3.0, cy + 3.0);
+                                    let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
+                                    icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
+                                }
+                            }
+                        } else {
+                            // RESULT MODE: Show all result UI buttons on the right side
+                            
+                            // COPY
+                            let dx_c = (fx - cx_copy).abs();
+                            let dist_c = (dx_c*dx_c + dy*dy).sqrt();
+                            let aa_c = (radius + 0.5 - dist_c).clamp(0.0, 1.0);
+                            if aa_c > 0.0 {
+                                hit = true; alpha = aa_c; t_r = tr_c; t_g = tg_c; t_b = tb_c;
+                                border_alpha = ((radius + 0.5 - dist_c).clamp(0.0, 1.0) * ((dist_c - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                if copy_success {
+                                    let d1 = dist_segment(fx, fy, cx_copy - 4.0, cy, cx_copy - 1.0, cy + 3.0);
+                                    let d2 = dist_segment(fx, fy, cx_copy - 1.0, cy + 3.0, cx_copy + 4.0, cy - 4.0);
+                                    icon_alpha = (1.8 - d1.min(d2)).clamp(0.0, 1.0);
+                                } else {
+                                    let back_d = sd_box(fx, fy, cx_copy - 2.0, cy - 2.0, 3.0, 4.0);
+                                    let back_outline = (1.25 - back_d.abs()).clamp(0.0, 1.0);
+                                    let front_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 3.0, 4.0);
+                                    let front_fill = (0.8 - front_d).clamp(0.0, 1.0);
+                                    let mask_d = sd_box(fx, fy, cx_copy + 2.0, cy + 2.0, 4.5, 5.5);
+                                    icon_alpha = (front_fill + back_outline * mask_d.clamp(0.0, 1.0)).clamp(0.0, 1.0);
+                                }
+                            }
+                            
+                            // EDIT
+                            if !hit {
+                                let dx_e = (fx - cx_edit).abs();
+                                let dist_e = (dx_e*dx_e + dy*dy).sqrt();
+                                let aa_e = (radius + 0.5 - dist_e).clamp(0.0, 1.0);
+                                if aa_e > 0.0 {
+                                    hit = true; alpha = aa_e; t_r = tr_e; t_g = tg_e; t_b = tb_e;
+                                    border_alpha = ((radius + 0.5 - dist_e).clamp(0.0, 1.0) * ((dist_e - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    let sx = (fx - cx_edit).abs();
+                                    let sy = (fy - cy).abs();
+                                    let star_dist = (sx.powf(0.6) + sy.powf(0.6)).powf(1.0/0.6) - 4.5;
+                                    let mut ia = (1.2 - star_dist).clamp(0.0, 1.0);
+                                    let sx2 = (fx - (cx_edit + 4.5)).abs();
+                                    let sy2 = (fy - (cy - 3.5)).abs();
+                                    let star2_dist = (sx2.powf(0.6) + sy2.powf(0.6)).powf(1.0/0.6) - 2.2;
+                                    ia = ia.max((1.2 - star2_dist).clamp(0.0, 1.0));
+                                    icon_alpha = ia;
+                                }
+                            }
+                            
+                            // MARKDOWN
+                            if !hit {
+                                let dx_m = (fx - cx_md).abs();
+                                let dist_m = (dx_m*dx_m + dy*dy).sqrt();
+                                let aa_m = (radius + 0.5 - dist_m).clamp(0.0, 1.0);
+                                if aa_m > 0.0 {
+                                    hit = true; alpha = aa_m; t_r = tr_m; t_g = tg_m; t_b = tb_m;
+                                    border_alpha = ((radius + 0.5 - dist_m).clamp(0.0, 1.0) * ((dist_m - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    let d_m1 = dist_segment(fx, fy, cx_md - 4.0, cy + 4.0, cx_md - 4.0, cy - 4.0); 
+                                    let d_m2 = dist_segment(fx, fy, cx_md - 4.0, cy - 4.0, cx_md, cy + 1.0);       
+                                    let d_m3 = dist_segment(fx, fy, cx_md, cy + 1.0, cx_md + 4.0, cy - 4.0);      
+                                    let d_m4 = dist_segment(fx, fy, cx_md + 4.0, cy - 4.0, cx_md + 4.0, cy + 4.0); 
+                                    let d_m = d_m1.min(d_m2).min(d_m3).min(d_m4);
+                                    icon_alpha = (1.5 - d_m).clamp(0.0, 1.0);
+                                }
+                            }
 
-                             // DOWNLOAD
-                             if !hit {
-                                 let dx_dl = (fx - cx_dl).abs();
-                                 let dist_dl = (dx_dl*dx_dl + dy*dy).sqrt();
-                                 let aa_dl = (radius + 0.5 - dist_dl).clamp(0.0, 1.0);
-                                 if aa_dl > 0.0 {
-                                     hit = true; alpha = aa_dl; t_r = tr_dl; t_g = tg_dl; t_b = tb_dl;
-                                     border_alpha = ((radius + 0.5 - dist_dl).clamp(0.0, 1.0) * ((dist_dl - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                                     // Download arrow icon: vertical line + V shape at bottom
-                                     let d_line = dist_segment(fx, fy, cx_dl, cy - 4.0, cx_dl, cy + 2.0);
-                                     let d_arrow1 = dist_segment(fx, fy, cx_dl - 3.5, cy - 0.5, cx_dl, cy + 3.5);
-                                     let d_arrow2 = dist_segment(fx, fy, cx_dl + 3.5, cy - 0.5, cx_dl, cy + 3.5);
-                                     // Base tray
-                                     let d_tray = dist_segment(fx, fy, cx_dl - 4.0, cy + 4.5, cx_dl + 4.0, cy + 4.5);
-                                     let d_icon = d_line.min(d_arrow1).min(d_arrow2).min(d_tray);
-                                     icon_alpha = (1.5 - d_icon).clamp(0.0, 1.0);
-                                 }
-                             }
+                            // DOWNLOAD
+                            if !hit {
+                                let dx_dl = (fx - cx_dl).abs();
+                                let dist_dl = (dx_dl*dx_dl + dy*dy).sqrt();
+                                let aa_dl = (radius + 0.5 - dist_dl).clamp(0.0, 1.0);
+                                if aa_dl > 0.0 {
+                                    hit = true; alpha = aa_dl; t_r = tr_dl; t_g = tg_dl; t_b = tb_dl;
+                                    border_alpha = ((radius + 0.5 - dist_dl).clamp(0.0, 1.0) * ((dist_dl - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    let d_line = dist_segment(fx, fy, cx_dl, cy - 4.0, cx_dl, cy + 2.0);
+                                    let d_arrow1 = dist_segment(fx, fy, cx_dl - 3.5, cy - 0.5, cx_dl, cy + 3.5);
+                                    let d_arrow2 = dist_segment(fx, fy, cx_dl + 3.5, cy - 0.5, cx_dl, cy + 3.5);
+                                    let d_tray = dist_segment(fx, fy, cx_dl - 4.0, cy + 4.5, cx_dl + 4.0, cy + 4.5);
+                                    let d_icon = d_line.min(d_arrow1).min(d_arrow2).min(d_tray);
+                                    icon_alpha = (1.5 - d_icon).clamp(0.0, 1.0);
+                                }
+                            }
 
-                             // UNDO
-                             if !hit && show_undo {
-                                 let dx_u = (fx - cx_undo).abs();
-                                 let dist_u = (dx_u*dx_u + dy*dy).sqrt();
-                                 let aa_u = (radius + 0.5 - dist_u).clamp(0.0, 1.0);
-                                 if aa_u > 0.0 {
-                                     hit = true; alpha = aa_u; t_r = tr_u; t_g = tg_u; t_b = tb_u;
-                                     border_alpha = ((radius + 0.5 - dist_u).clamp(0.0, 1.0) * ((dist_u - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                                     let tip_x = cx_undo - 3.5;
-                                     let tail_x = cx_undo + 3.5;
-                                     // Undo is Left Arrow (Back in history)
-                                     let d_shaft = dist_segment(fx, fy, tip_x, cy, tail_x, cy);
-                                     let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy - 3.0);
-                                     let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy + 3.0);
-                                     let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
-                                     icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
-                                 }
-                             }
-                             
-                             // REDO (Right Arrow - opposite of Undo)
-                             if !hit && show_redo {
-                                 let dx_rd = (fx - cx_redo).abs();
-                                 let dist_rd = (dx_rd*dx_rd + dy*dy).sqrt();
-                                 let aa_rd = (radius + 0.5 - dist_rd).clamp(0.0, 1.0);
-                                 if aa_rd > 0.0 {
-                                     hit = true; alpha = aa_rd; t_r = tr_rd; t_g = tg_rd; t_b = tb_rd;
-                                     border_alpha = ((radius + 0.5 - dist_rd).clamp(0.0, 1.0) * ((dist_rd - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
-                                     let tip_x = cx_redo + 3.5;  // Arrow points right
-                                     let tail_x = cx_redo - 3.5;
-                                     // Redo is Right Arrow (Forward in history)
-                                     let d_shaft = dist_segment(fx, fy, tail_x, cy, tip_x, cy);
-                                     let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x - 3.0, cy - 3.0);
-                                     let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x - 3.0, cy + 3.0);
-                                     let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
-                                     icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
-                                 }
-                             }
+                            // UNDO
+                            if !hit && show_undo {
+                                let dx_u = (fx - cx_undo).abs();
+                                let dist_u = (dx_u*dx_u + dy*dy).sqrt();
+                                let aa_u = (radius + 0.5 - dist_u).clamp(0.0, 1.0);
+                                if aa_u > 0.0 {
+                                    hit = true; alpha = aa_u; t_r = tr_u; t_g = tg_u; t_b = tb_u;
+                                    border_alpha = ((radius + 0.5 - dist_u).clamp(0.0, 1.0) * ((dist_u - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    let tip_x = cx_undo - 3.5;
+                                    let tail_x = cx_undo + 3.5;
+                                    let d_shaft = dist_segment(fx, fy, tip_x, cy, tail_x, cy);
+                                    let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy - 3.0);
+                                    let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x + 3.0, cy + 3.0);
+                                    let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
+                                    icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
+                                }
+                            }
+                            
+                            // REDO
+                            if !hit && show_redo {
+                                let dx_rd = (fx - cx_redo).abs();
+                                let dist_rd = (dx_rd*dx_rd + dy*dy).sqrt();
+                                let aa_rd = (radius + 0.5 - dist_rd).clamp(0.0, 1.0);
+                                if aa_rd > 0.0 {
+                                    hit = true; alpha = aa_rd; t_r = tr_rd; t_g = tg_rd; t_b = tb_rd;
+                                    border_alpha = ((radius + 0.5 - dist_rd).clamp(0.0, 1.0) * ((dist_rd - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    let tip_x = cx_redo + 3.5;
+                                    let tail_x = cx_redo - 3.5;
+                                    let d_shaft = dist_segment(fx, fy, tail_x, cy, tip_x, cy);
+                                    let d_wing1 = dist_segment(fx, fy, tip_x, cy, tip_x - 3.0, cy - 3.0);
+                                    let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x - 3.0, cy + 3.0);
+                                    let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
+                                    icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
+                                }
+                            }
                         }
 
                         if hit {

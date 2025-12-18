@@ -197,7 +197,9 @@ pub fn create_result_window(
                 on_markdown_btn: false,
                 is_browsing: false,
                 navigation_depth: 0,
+                max_navigation_depth: 0,
                 on_back_btn: false,
+                on_forward_btn: false,
                 on_download_btn: false,
             });
         }

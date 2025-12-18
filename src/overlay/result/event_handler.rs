@@ -275,7 +275,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         state.on_redo_btn = false;
                     }
                     
-                    // Calc Back Button state
+                    // Calc Back and Forward Button state (only when browsing)
                     if state.is_browsing {
                          let btn_size = 28;
                          let margin = 12;
@@ -285,25 +285,41 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         } else {
                             (rect.bottom - margin - btn_size / 2) as f32
                         };
+                        
+                        // Back button (left side)
                         let cx_back = (margin + btn_size / 2) as i32;
                         let cy_back = cy as i32;
-                        
-                        // use padding like other buttons
                         let l = cx_back - 14 - padding;
                         let r = cx_back + 14 + padding;
                         let t = cy_back - 14 - padding;
                         let b = cy_back + 14 + padding;
-                        
                         state.on_back_btn = x as i32 >= l && x as i32 <= r && y as i32 >= t && y as i32 <= b;
+                        
+                        // Forward button (right side)
+                        if state.navigation_depth < state.max_navigation_depth {
+                            let cx_forward = (rect.right - margin - btn_size / 2) as i32;
+                            let lf = cx_forward - 14 - padding;
+                            let rf = cx_forward + 14 + padding;
+                            state.on_forward_btn = x as i32 >= lf && x as i32 <= rf && y as i32 >= t && y as i32 <= b;
+                        } else {
+                            state.on_forward_btn = false;
+                        }
+                        
+                        // Disable all result UI button hovers when browsing
+                        state.on_copy_btn = false;
+                        state.on_edit_btn = false;
+                        state.on_markdown_btn = false;
+                        state.on_download_btn = false;
                     } else {
                         state.on_back_btn = false;
-                    }
-                    
-                    let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
-                    state.on_markdown_btn = x as i32 >= md_rect.left - padding && x as i32 <= md_rect.right + padding && y as i32 >= md_rect.top - padding && y as i32 <= md_rect.bottom + padding;
+                        state.on_forward_btn = false;
+                        
+                        let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
+                        state.on_markdown_btn = x as i32 >= md_rect.left - padding && x as i32 <= md_rect.right + padding && y as i32 >= md_rect.top - padding && y as i32 <= md_rect.bottom + padding;
 
-                    let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
-                    state.on_download_btn = x as i32 >= dl_rect.left - padding && x as i32 <= dl_rect.right + padding && y as i32 >= dl_rect.top - padding && y as i32 <= dl_rect.bottom + padding;
+                        let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
+                        state.on_download_btn = x as i32 >= dl_rect.left - padding && x as i32 <= dl_rect.right + padding && y as i32 >= dl_rect.top - padding && y as i32 <= dl_rect.bottom + padding;
+                    }
 
                     // In markdown mode, let the Timer handle is_hovered state to ensure it syncs with WebView resize
                     let handle_hover_in_mousemove = !state.is_markdown_mode;
@@ -396,6 +412,8 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 state.on_redo_btn = false;
                 state.on_markdown_btn = false;
                 state.on_download_btn = false;
+                state.on_back_btn = false;
+                state.on_forward_btn = false;
                 state.current_resize_edge = ResizeEdge::None;
                 
                 // For plain text mode, also clear hover state here 
@@ -418,6 +436,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             let mut is_redo_click = false;
             let mut is_markdown_click = false;
             let mut is_back_click = false;
+            let mut is_forward_click = false;
             let mut is_download_click = false;
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
@@ -431,6 +450,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         is_redo_click = state.on_redo_btn;
                         is_markdown_click = state.on_markdown_btn;
                         is_back_click = state.on_back_btn;
+                        is_forward_click = state.on_forward_btn;
                         is_download_click = state.on_download_btn;
                     }
                 }
@@ -439,6 +459,8 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             if perform_click {
                  if is_back_click {
                      markdown_view::go_back(hwnd);
+                 } else if is_forward_click {
+                     markdown_view::go_forward(hwnd);
                  } else if is_undo_click {
                     let mut prev_text = None;
                     let mut current_text_for_redo = String::new();
@@ -796,6 +818,8 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                                 state.on_undo_btn = false;
                                 state.on_markdown_btn = false;
                                 state.on_download_btn = false;
+                                state.on_back_btn = false;
+                                state.on_forward_btn = false;
                             }
                         }
                         markdown_view::resize_markdown_webview(hwnd, false);
