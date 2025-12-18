@@ -105,8 +105,26 @@ $patchedCode = @"
             snarl_resp.mark_changed();
         }
         
+        // Check if any popup is open (ComboBox dropdowns, context menus, etc.)
+        // If a popup is open, we should NOT capture scroll, let the popup handle it
+        let any_popup_open = ui.ctx().memory(|mem| mem.any_popup_open());
+        
+        // Check if pointer is over a higher layer (Modal windows, Panels, etc.)
+        // Only capture scroll if the pointer is on the Background layer (the canvas itself)
+        let pointer_on_foreground = if let Some(pos) = ui.ctx().input(|i| i.pointer.hover_pos()) {
+            if let Some(layer_id) = ui.ctx().layer_id_at(pos) {
+                // Background order is 0, anything higher means a window/panel/modal is above
+                layer_id.order != egui::Order::Background && layer_id.order != egui::Order::Middle
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        
         // Handle scroll wheel as zoom (not pan) - works anywhere in the canvas, including over nodes
-        if scroll_delta.y.abs() > 0.1 && pointer_in_canvas {
+        // BUT skip if a popup is open OR pointer is over a modal/window so they can scroll properly
+        if scroll_delta.y.abs() > 0.1 && pointer_in_canvas && !any_popup_open && !pointer_on_foreground {
             let zoom_factor = if scroll_delta.y > 0.0 { 1.1 } else { 0.9 };
             let pointer_pos = ui.ctx().input(|i| i.pointer.hover_pos()).unwrap_or(ui_rect.center());
             

@@ -659,34 +659,80 @@ impl eframe::App for SettingsApp {
                 );
             });
 
-        // [MODAL WINDOW RENDER]
+        // [TIPS POPUP - Uses popup system so scroll is not captured by node graph]
+        let tips_popup_id = egui::Id::new("tips_popup_modal");
+        
         if self.show_tips_modal {
+            // Register this as an open popup so any_popup_open() returns true
+            ctx.memory_mut(|mem| mem.open_popup(tips_popup_id));
+            
             let tips_list_copy = text.tips_list.clone();
-            let close_pressed = {
-                let close_flag = false;
-                egui::Window::new(text.tips_title)
-                    .collapsible(false)
-                    .resizable(false)
-                    .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                    .open(&mut self.show_tips_modal)
-                    .show(ctx, |ui| {
-                        ui.set_max_width(750.0);
-                        egui::ScrollArea::vertical().max_height(450.0).auto_shrink([false; 2]).show(ui, |ui| {
-                            for (i, tip) in tips_list_copy.iter().enumerate() {
-                                ui.label(egui::RichText::new(*tip).size(13.0).line_height(Some(18.0)));
-                                if i < tips_list_copy.len() - 1 {
-                                    ui.add_space(8.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-                                }
-                            }
+            let tips_title = text.tips_title;
+            let screen_rect = ctx.input(|i| i.screen_rect());
+            
+            // Dark semi-transparent backdrop
+            let backdrop_layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("tips_backdrop"));
+            let backdrop_painter = ctx.layer_painter(backdrop_layer);
+            backdrop_painter.rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(120));
+            
+            // Popup area centered on screen
+            egui::Area::new(tips_popup_id)
+                .order(egui::Order::Tooltip) // High priority layer
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style())
+                        .inner_margin(egui::Margin::same(16))
+                        .show(ui, |ui| {
+                            ui.set_max_width(750.0);
+                            
+                            // Header with title and close button
+                            ui.horizontal(|ui| {
+                                ui.heading(tips_title);
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if crate::gui::icons::icon_button(ui, crate::gui::icons::Icon::Close).clicked() {
+                                        self.show_tips_modal = false;
+                                    }
+                                });
+                            });
+                            ui.separator();
+                            ui.add_space(8.0);
+                            
+                            // Scrollable tips list
+                            egui::ScrollArea::vertical()
+                                .max_height(450.0)
+                                .auto_shrink([false; 2])
+                                .show(ui, |ui| {
+                                    for (i, tip) in tips_list_copy.iter().enumerate() {
+                                        ui.label(egui::RichText::new(*tip).size(13.0).line_height(Some(18.0)));
+                                        if i < tips_list_copy.len() - 1 {
+                                            ui.add_space(8.0);
+                                            ui.separator();
+                                            ui.add_space(8.0);
+                                        }
+                                    }
+                                });
                         });
-                    });
-                close_flag
-            };
-            if close_pressed {
+                });
+            
+            // Close on click outside (check if clicked outside the popup area)
+            if ctx.input(|i| i.pointer.any_click()) {
+                if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                    // Check if click is on the backdrop (outside popup content)
+                    if let Some(layer) = ctx.layer_id_at(pos) {
+                        if layer.id == egui::Id::new("tips_backdrop") {
+                            self.show_tips_modal = false;
+                        }
+                    }
+                }
+            }
+            
+            // Close on Escape
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.show_tips_modal = false;
             }
+        } else {
+            // Ensure popup is closed in memory when not shown
+            // No need to explicitly close, the popup system handles this automatically
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {

@@ -262,7 +262,12 @@ pub fn render_preset_editor(
         let is_dark = ui.visuals().dark_mode;
         
         if *recording_hotkey_for_preset == Some(preset_idx) {
-            ui.colored_label(egui::Color32::YELLOW, text.press_keys);
+            let text_color = if is_dark { 
+                egui::Color32::from_rgb(255, 200, 60)  // Warm orange-yellow for dark mode
+            } else { 
+                egui::Color32::from_rgb(200, 130, 0)   // Dark orange for light mode
+            };
+            ui.colored_label(text_color, text.press_keys);
             // Cancel button - subtle red pill
             let cancel_bg = if is_dark { 
                 egui::Color32::from_rgb(120, 60, 60) 
