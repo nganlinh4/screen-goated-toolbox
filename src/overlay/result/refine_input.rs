@@ -12,9 +12,14 @@ use wry::{WebViewBuilder, Rect};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32WindowHandle, HandleError};
 use windows::core::w;
 
+const WM_APP_SET_TEXT: u32 = WM_USER + 200; // Custom message for cross-thread text injection
+
 lazy_static::lazy_static! {
     /// Track which parent windows have refine input active
     static ref REFINE_STATES: Mutex<HashMap<isize, RefineInputState>> = Mutex::new(HashMap::new());
+    
+    /// Cross-thread text injection: (parent_key, text_to_insert)
+    static ref PENDING_TEXT: Mutex<Option<(isize, String)>> = Mutex::new(None);
 }
 
 /// State for a refine input instance
@@ -49,7 +54,46 @@ impl HasWindowHandle for HwndWrapper {
 
 /// Window procedure for the refine input child window
 unsafe extern "system" fn refine_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    DefWindowProcW(hwnd, msg, wparam, lparam)
+    match msg {
+        _ if msg == WM_APP_SET_TEXT => {
+            // Apply pending text from cross-thread call
+            apply_pending_text();
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+}
+
+/// Internal function to apply pending text (insert at cursor position)
+fn apply_pending_text() {
+    let pending = PENDING_TEXT.lock().unwrap().take();
+    if let Some((parent_key, text)) = pending {
+        let escaped = text
+            .replace('\\', "\\\\")
+            .replace('`', "\\`")
+            .replace("${", "\\${")
+            .replace('\n', " ") // Refine input is single line
+            .replace('\r', "");
+        
+        REFINE_WEBVIEWS.with(|webviews| {
+            if let Some(wv) = webviews.borrow().get(&parent_key) {
+                // Insert at cursor position instead of replacing all text
+                let script = format!(
+                    r#"(function() {{
+                        const editor = document.getElementById('editor');
+                        const start = editor.selectionStart;
+                        const end = editor.selectionEnd;
+                        const text = `{}`;
+                        editor.value = editor.value.substring(0, start) + text + editor.value.substring(end);
+                        editor.selectionStart = editor.selectionEnd = start + text.length;
+                        editor.focus();
+                    }})();"#,
+                    escaped
+                );
+                let _ = wv.evaluate_script(&script);
+            }
+        });
+    }
 }
 
 /// CSS for the compact refine input
@@ -96,6 +140,37 @@ const REFINE_CSS: &str = r#"
         box-shadow: 0 0 0 1px #4fc3f7;
     }
     
+    /* Mic Button */
+    .mic-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: none;
+        margin-left: 8px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 6px rgba(102, 126, 234, 0.4);
+        transition: all 0.15s ease;
+    }
+    
+    .mic-btn:hover {
+        transform: scale(1.08);
+        box-shadow: 0 3px 10px rgba(102, 126, 234, 0.5);
+    }
+    
+    .mic-btn:active {
+        transform: scale(0.95);
+    }
+    
+    .mic-btn svg {
+        width: 14px;
+        height: 14px;
+        fill: white;
+    }
+    
     .hint {
         font-size: 11px;
         color: #888;
@@ -116,10 +191,17 @@ fn get_refine_html(placeholder: &str) -> String {
 <body>
     <div class="container">
         <input type="text" id="editor" placeholder="{}" autofocus>
+        <button class="mic-btn" id="micBtn" title="Speech to text">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+        </button>
         <span class="hint">Enter ↵ | Esc ✕</span>
     </div>
     <script>
         const editor = document.getElementById('editor');
+        const micBtn = document.getElementById('micBtn');
         
         window.onload = () => {{
             setTimeout(() => editor.focus(), 50);
@@ -138,6 +220,11 @@ fn get_refine_html(placeholder: &str) -> String {
                 e.preventDefault();
                 window.ipc.postMessage('cancel');
             }}
+        }});
+        
+        micBtn.addEventListener('click', (e) => {{
+            e.preventDefault();
+            window.ipc.postMessage('mic');
         }});
         
         document.addEventListener('contextmenu', e => e.preventDefault());
@@ -219,6 +306,18 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
                         state.submitted = true;
                     } else if body == "cancel" {
                         state.cancelled = true;
+                    } else if body == "mic" {
+                        // Trigger transcription preset
+                        let transcribe_idx = {
+                            let app = crate::APP.lock().unwrap();
+                            app.config.presets.iter().position(|p| p.id == "preset_transcribe")
+                        };
+                        
+                        if let Some(preset_idx) = transcribe_idx {
+                            std::thread::spawn(move || {
+                                crate::overlay::recording::show_recording_overlay(preset_idx);
+                            });
+                        }
                     }
                 }
             })
@@ -308,4 +407,52 @@ pub fn is_refine_input_active(parent_hwnd: HWND) -> bool {
 /// Get the height of the refine input (for layout calculation)
 pub fn get_refine_input_height() -> i32 {
     40 // Fixed height
+}
+
+/// Bring the refine input to the top of the z-order
+/// Call this after creating other child windows to ensure refine input stays visible
+pub fn bring_to_top(parent_hwnd: HWND) {
+    let parent_key = parent_hwnd.0 as isize;
+    let states = REFINE_STATES.lock().unwrap();
+    if let Some(state) = states.get(&parent_key) {
+        unsafe {
+            SetWindowPos(state.hwnd, HWND_TOP, 0, 0, 0, 0, 
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+}
+
+/// Check if ANY refine input is active (across all windows)
+/// Used to detect if we should paste into refine input
+pub fn is_any_refine_active() -> bool {
+    let states = REFINE_STATES.lock().unwrap();
+    !states.is_empty()
+}
+
+/// Get the parent HWND of any active refine input
+pub fn get_active_refine_parent() -> Option<HWND> {
+    let states = REFINE_STATES.lock().unwrap();
+    states.keys().next().map(|&k| HWND(k as isize))
+}
+
+/// Set text in the refine input (cross-thread safe)
+/// Inserts at cursor position instead of replacing all text
+pub fn set_refine_text(parent_hwnd: HWND, text: &str) {
+    let parent_key = parent_hwnd.0 as isize;
+    
+    // Get the child window handle for this refine input
+    let child_hwnd = {
+        let states = REFINE_STATES.lock().unwrap();
+        states.get(&parent_key).map(|s| s.hwnd)
+    };
+    
+    if let Some(hwnd) = child_hwnd {
+        // Store the text and parent key in the mutex
+        *PENDING_TEXT.lock().unwrap() = Some((parent_key, text.to_string()));
+        
+        // Post message to the child window to trigger the injection
+        unsafe {
+            PostMessageW(hwnd, WM_APP_SET_TEXT, WPARAM(0), LPARAM(0));
+        }
+    }
 }

@@ -572,27 +572,36 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                             }
                         }
                     } else {
-                        // Plain text mode: use native EDIT control (existing logic)
-                        let show = !is_currently_editing;
-                        {
-                            let mut states = WINDOW_STATES.lock().unwrap();
-                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                                state.is_editing = show;
+                        // Plain text mode: now also use WebView-based refine input (same as markdown)
+                        // This allows the mic button to work in both modes
+                        if refine_input::is_refine_input_active(hwnd) {
+                            // Toggle off - hide the refine input
+                            refine_input::hide_refine_input(hwnd);
+                            {
+                                let mut states = WINDOW_STATES.lock().unwrap();
+                                if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                    state.is_editing = false;
+                                }
+                            }
+                        } else {
+                            // Toggle on - show the refine input
+                            let lang = {
+                                let app = crate::APP.lock().unwrap();
+                                app.config.ui_language.clone()
+                            };
+                            let locale = crate::gui::locale::LocaleText::get(&lang);
+                            let placeholder = locale.text_input_placeholder;
+                            
+                            if refine_input::show_refine_input(hwnd, placeholder) {
+                                {
+                                    let mut states = WINDOW_STATES.lock().unwrap();
+                                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                        state.is_editing = true;
+                                    }
+                                }
                             }
                         }
-                        
-                        if show {
-                            let mut rect = RECT::default();
-                            GetClientRect(hwnd, &mut rect);
-                            let w = rect.right - 20;
-                            let h = 40;
-                            SetWindowPos(h_edit, HWND_TOP, 10, 10, w, h, SWP_SHOWWINDOW);
-                            set_rounded_edit_region(h_edit, w, h);
-                            SetForegroundWindow(hwnd);
-                            SetFocus(h_edit);
-                        } else {
-                            ShowWindow(h_edit, SW_HIDE);
-                        }
+                        InvalidateRect(hwnd, None, false);
                     }
                  } else if is_copy_click {
                     let text_len = GetWindowTextLengthW(hwnd) + 1;
@@ -819,7 +828,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                          need_repaint = true;
                      }
 
-                     // Throttle
+                      // Throttle
                      if state.pending_text.is_some() && 
                         (state.last_text_update_time == 0 || now.wrapping_sub(state.last_text_update_time) > 16) {
                           
@@ -827,57 +836,8 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                           state.last_text_update_time = now;
                       }
                       
-                      // Handle native EDIT control input (plain text mode)
-                      if state.is_editing && !state.is_markdown_mode && GetFocus() == state.edit_hwnd {
-                           // ESCAPE to dismiss edit
-                           if (GetKeyState(VK_ESCAPE.0 as i32) as u16 & 0x8000) != 0 {
-                               state.is_editing = false;
-                               SetWindowTextW(state.edit_hwnd, w!("")); 
-                               ShowWindow(state.edit_hwnd, SW_HIDE);
-                               SetFocus(hwnd); 
-                           }
-                           // Ctrl+A to Select All
-                           else if (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 
-                               && (GetKeyState(0x41) as u16 & 0x8000) != 0 { 
-                               const EM_SETSEL: u32 = 0x00B1;
-                               SendMessageW(state.edit_hwnd, EM_SETSEL, WPARAM(0), LPARAM(-1));
-                           }
-                           // ENTER to submit (unless Shift is held)
-                           else if (GetKeyState(VK_RETURN.0 as i32) as u16 & 0x8000) != 0 {
-                               let shift_pressed = (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
-                               
-                               if !shift_pressed {
-                                   let len = GetWindowTextLengthW(state.edit_hwnd) + 1;
-                                   let mut buf = vec![0u16; len as usize];
-                                   GetWindowTextW(state.edit_hwnd, &mut buf);
-                                   user_input = String::from_utf16_lossy(&buf[..len as usize - 1]).to_string();
-                                   
-                                   // Capture text BEFORE clearing it
-                                   text_to_refine = state.full_text.clone();
-
-                                   // Save current state to history
-                                   state.text_history.push(text_to_refine.clone());
-                                   // Clear redo history when new action is performed
-                                   state.redo_history.clear();
-                                   
-                                   SetWindowTextW(state.edit_hwnd, w!(""));
-                                   ShowWindow(state.edit_hwnd, SW_HIDE);
-                                   state.is_editing = false;
-                                   trigger_refine = true;
-                                   
-                                   state.is_refining = true;
-                                   state.full_text = String::new(); // Clear previous text so animation is visible
-                                   state.pending_text = Some(String::new()); // Force clear update
-                               }
-                           }
-                       }
-                       
-                       // Handle WebView-based refine input (markdown mode)
-                       // Poll for IPC submit/cancel messages
-                       if state.is_editing && state.is_markdown_mode {
-                           // Note: IPC polling happens outside the lock to avoid deadlock
-                           // We just mark that we need to check it
-                       }
+                      // Note: Native EDIT control handling removed - both plain text and markdown modes
+                      // now use WebView-based refine input. Polling happens outside the lock below.
                 }
             }
             
@@ -1138,6 +1098,15 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         state.is_markdown_mode = false;
                     }
                 }
+            }
+            
+            // IMPORTANT: If refine input is active, resize markdown to leave room for it
+            // AND bring refine input to top so it stays visible
+            if refine_input::is_refine_input_active(hwnd) {
+                // Resize markdown webview to account for refine input at top
+                markdown_view::resize_markdown_webview(hwnd, is_hovered);
+                // Bring refine input to top
+                refine_input::bring_to_top(hwnd);
             }
             
             InvalidateRect(hwnd, None, false);

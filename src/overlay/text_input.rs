@@ -284,6 +284,7 @@ pub fn set_editor_text(text: &str) {
 }
 
 /// Internal function to apply pending text (called on the window's thread)
+/// Inserts text at the current cursor position instead of replacing all content
 fn apply_pending_text() {
     let text = PENDING_TEXT.lock().unwrap().take();
     if let Some(text) = text {
@@ -296,8 +297,17 @@ fn apply_pending_text() {
         
         TEXT_INPUT_WEBVIEW.with(|webview| {
             if let Some(wv) = webview.borrow().as_ref() {
+                // Insert at cursor position instead of replacing all text
                 let script = format!(
-                    r#"document.getElementById('editor').value = `{}`; document.getElementById('editor').focus();"#,
+                    r#"(function() {{
+                        const editor = document.getElementById('editor');
+                        const start = editor.selectionStart;
+                        const end = editor.selectionEnd;
+                        const text = `{}`;
+                        editor.value = editor.value.substring(0, start) + text + editor.value.substring(end);
+                        editor.selectionStart = editor.selectionEnd = start + text.length;
+                        editor.focus();
+                    }})();"#,
                     escaped
                 );
                 let _ = wv.evaluate_script(&script);
