@@ -1033,7 +1033,10 @@ lazy_static::lazy_static! {
         let mut languages = Vec::new();
         for i in 0..10000 {
             if let Some(lang) = isolang::Language::from_usize(i) {
-                languages.push(lang.to_name().to_string());
+                // Only include if it has an ISO 639-1 code (major languages)
+                if lang.to_639_1().is_some() {
+                    languages.push(lang.to_name().to_string());
+                }
             }
         }
         languages.sort();

@@ -148,7 +148,7 @@ pub fn render_preset_editor(
                 // Mode selectors based on type
                 if preset.preset_type == "image" {
                     if !preset.show_controller_ui {
-                        ui.label(text.prompt_mode_label);
+                        ui.label(text.command_mode_label);
                         egui::ComboBox::from_id_source("prompt_mode_combo")
                             .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
                             .show_ui(ui, |ui| {
@@ -164,18 +164,6 @@ pub fn render_preset_editor(
                             if ui.selectable_value(&mut preset.text_input_mode, "select".to_string(), text.text_mode_select).clicked() { changed = true; }
                             if ui.selectable_value(&mut preset.text_input_mode, "type".to_string(), text.text_mode_type).clicked() { changed = true; }
                         });
-                    
-                    // For "select" mode: show prompt_mode dropdown (like image presets)
-                    if preset.text_input_mode == "select" && !preset.show_controller_ui {
-                        ui.add_space(10.0);
-                        ui.label(text.prompt_mode_label);
-                        egui::ComboBox::from_id_source("text_prompt_mode_combo")
-                            .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
-                            .show_ui(ui, |ui| {
-                                if ui.selectable_value(&mut preset.prompt_mode, "fixed".to_string(), text.prompt_mode_fixed).clicked() { changed = true; }
-                                if ui.selectable_value(&mut preset.prompt_mode, "dynamic".to_string(), text.prompt_mode_dynamic).clicked() { changed = true; }
-                            });
-                    }
                     
                     if preset.text_input_mode == "type" && !preset.show_controller_ui {
                         if ui.checkbox(&mut preset.continuous_input, text.continuous_input_label).clicked() { changed = true; }
@@ -228,6 +216,20 @@ pub fn render_preset_editor(
                         ui.add_space(6.0);
                         if ui.checkbox(&mut preset.auto_stop_recording, text.auto_stop_recording_label).clicked() { changed = true; }
                     }
+                });
+            }
+
+            // Row 3b: Command mode for text select presets (new row)
+            if preset.preset_type == "text" && preset.text_input_mode == "select" && !preset.show_controller_ui {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(text.command_mode_label);
+                    egui::ComboBox::from_id_source("text_prompt_mode_combo")
+                        .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_value(&mut preset.prompt_mode, "fixed".to_string(), text.prompt_mode_fixed).clicked() { changed = true; }
+                            if ui.selectable_value(&mut preset.prompt_mode, "dynamic".to_string(), text.prompt_mode_dynamic).clicked() { changed = true; }
+                        });
                 });
             }
         });

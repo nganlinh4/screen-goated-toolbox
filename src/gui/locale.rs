@@ -88,6 +88,7 @@ pub struct LocaleText {
      pub text_mode_select: &'static str,
      pub text_mode_type: &'static str,
      pub continuous_input_label: &'static str, // Checkbox for continuous input mode
+     pub command_mode_label: &'static str, // For prompt mode in text/image presets (different from text_input_mode_label)
      pub text_input_title_default: &'static str,
      pub text_input_placeholder: &'static str,
      pub text_input_footer_submit: &'static str,
@@ -228,6 +229,7 @@ impl LocaleText {
                 text_mode_select: "Hotkey rồi bôi text",
                 text_mode_type: "Hotkey rồi gõ",
                 continuous_input_label: "Nhập liên tục",
+                command_mode_label: "Lệnh:",
                 text_input_title_default: "Nhập văn bản cần xử lý:",
                 text_input_placeholder: "Nội dung cần xử lý ...",
                 text_input_footer_submit: "Enter để Gửi",
@@ -381,6 +383,7 @@ impl LocaleText {
                 text_mode_select: "단축키 후 텍스트 선택",
                 text_mode_type: "단축키 후 입력",
                 continuous_input_label: "연속 입력",
+                command_mode_label: "명령:",
                 text_input_title_default: "처리할 텍스트 입력:",
                 text_input_placeholder: "처리할 내용 ...",
                 text_input_footer_submit: "Enter: 제출",
@@ -534,6 +537,7 @@ impl LocaleText {
                 text_mode_select: "Hotkey then Select Text",
                 text_mode_type: "Hotkey then Type",
                 continuous_input_label: "Continuous Input",
+                command_mode_label: "Command:",
                 text_input_title_default: "Enter text to process:",
                 text_input_placeholder: "Content to process...",
                 text_input_footer_submit: "Enter to Submit",
