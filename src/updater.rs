@@ -26,40 +26,61 @@ impl Updater {
         thread::spawn(move || {
             let _ = tx.send(UpdateStatus::Checking);
 
-            // Configure the updater to check GitHub Releases
-            // NOTE: Ensure your GitHub release asset is either just the .exe 
-            // OR a .zip containing the binary named "screen-goated-toolbox.exe"
-            let status = self_update::backends::github::Update::configure()
-                .repo_owner("nganlinh4")
-                .repo_name("screen-goated-toolbox")
-                .bin_name("screen-goated-toolbox") 
-                .show_download_progress(false) 
-                .current_version(env!("CARGO_PKG_VERSION"))
+            // Use a custom manual request with a specific User-Agent to avoid 403 Forbidden
+            // GitHub API requires a User-Agent, and self_update's default might be blocked or rate-limited.
+            let url = "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false";
+            
+            let agent = ureq::builder()
+                .timeout(std::time::Duration::from_secs(10))
                 .build();
 
-            match status {
-                Ok(updater) => {
-                    match updater.get_latest_release() {
-                        Ok(release) => {
+            let response = agent.get(url)
+                .set("User-Agent", "screen-goated-toolbox-checker")
+                .call();
+
+            match response {
+                Ok(resp) => {
+                    let release_json: String = match resp.into_string() {
+                        Ok(s) => s,
+                        Err(e) => {
+                            let _ = tx.send(UpdateStatus::Error(format!("Failed to read response: {}", e)));
+                            return;
+                        }
+                    };
+
+                    let data: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&release_json);
+                    match data {
+                        Ok(mut releases) if !releases.is_empty() => {
+                            let rel = releases.remove(0);
+                            let tag_name = rel.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
+                            let version = tag_name.trim_start_matches('v').to_string();
+                            let body = rel.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            
                             let current = env!("CARGO_PKG_VERSION");
-                            let is_newer = self_update::version::bump_is_greater(current, &release.version).unwrap_or(false);
+                            let is_newer = self_update::version::bump_is_greater(current, &version).unwrap_or(false);
 
                             if is_newer {
-                                let _ = tx.send(UpdateStatus::UpdateAvailable { 
-                                    version: release.version,
-                                    body: release.body.unwrap_or_default()
-                                });
+                                let _ = tx.send(UpdateStatus::UpdateAvailable { version, body });
                             } else {
                                 let _ = tx.send(UpdateStatus::UpToDate(current.to_string()));
                             }
                         }
+                        Ok(_) => {
+                            let _ = tx.send(UpdateStatus::Error("No releases found on GitHub".to_string()));
+                        }
                         Err(e) => {
-                            let _ = tx.send(UpdateStatus::Error(format!("Failed to fetch info: {}", e)));
+                            let _ = tx.send(UpdateStatus::Error(format!("JSON parse error: {}", e)));
                         }
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(UpdateStatus::Error(format!("Config error: {}", e)));
+                    let error_msg = match e {
+                        ureq::Error::Status(code, _) if code == 403 => {
+                            "Status 403: GitHub API rate limit reached or access forbidden. Please try again later or check your network/VPN.".to_string()
+                        }
+                        _ => format!("Network error: {}", e)
+                    };
+                    let _ = tx.send(UpdateStatus::Error(format!("Failed to fetch info: {}", error_msg)));
                 }
             }
         });
@@ -89,22 +110,6 @@ impl Updater {
             // We'll set this after getting the asset
             let mut staging_path = exe_dir.join("update_pending.exe");
 
-            // Get the latest release
-            let _updater = match self_update::backends::github::Update::configure()
-                .repo_owner("nganlinh4")
-                .repo_name("screen-goated-toolbox")
-                .bin_name("screen-goated-toolbox")
-                .show_download_progress(false)
-                .current_version(env!("CARGO_PKG_VERSION"))
-                .build()
-            {
-                Ok(u) => u,
-                Err(e) => {
-                    let _ = tx.send(UpdateStatus::Error(format!("Builder error: {}", e)));
-                    return;
-                }
-            };
-
             // Use a custom HTTP request to get the latest release (the one marked as "Latest" on GitHub)
             let release_json = match ureq::get("https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false")
                 .set("User-Agent", "screen-goated-toolbox-updater")
@@ -120,7 +125,13 @@ impl Updater {
                     }
                 }
                 Err(e) => {
-                    let _ = tx.send(UpdateStatus::Error(format!("Failed to fetch release list: {}", e)));
+                    let error_msg = match e {
+                        ureq::Error::Status(code, _) if code == 403 => {
+                            "Status 403: GitHub API rate limit reached or access forbidden. Please try again later.".to_string()
+                        }
+                        _ => format!("Failed to fetch release list: {}", e)
+                    };
+                    let _ = tx.send(UpdateStatus::Error(error_msg));
                     return;
                 }
             };
