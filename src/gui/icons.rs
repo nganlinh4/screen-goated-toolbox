@@ -30,6 +30,7 @@ pub enum Icon {
     ChainArrowDown, // NEW: Vertical arrow for chain steps
     TextSelect, // NEW: Text with selection cursor for text selection mode
     Speaker, // NEW: Speaker icon for device audio source
+    Lightbulb, // NEW: Lightbulb icon for tips
 }
 
 /// Main entry point: Draw a clickable icon button (default size 24.0)
@@ -73,6 +74,11 @@ pub fn draw_icon_static(ui: &mut egui::Ui, icon: Icon, size_override: Option<f32
 }
 
 // --- INTERNAL PAINTER ENGINE ---
+
+/// Public function to paint an icon directly (for custom layouts where icon_button isn't suitable)
+pub fn paint_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui::Color32) {
+    paint_internal(painter, rect, icon, color);
+}
 
 fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui::Color32) {
     let center = rect.center();
@@ -558,6 +564,71 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
                 wave2_pts.push(egui::pos2(wave_x + wave_r2 * angle.cos(), center.y + wave_r2 * angle.sin()));
             }
             painter.add(egui::Shape::line(wave2_pts, stroke));
+        }
+
+        Icon::Lightbulb => {
+            // Simple lightbulb icon using explicit coordinates
+            // The bulb consists of: circle top + tapered neck + base + rays
+            
+            let bulb_r = 4.5 * scale;
+            let bulb_cy = center.y - 2.0 * scale; // Center of bulb circle (shifted up)
+            
+            // 1. Draw bulb circle (full circle)
+            painter.circle_stroke(egui::pos2(center.x, bulb_cy), bulb_r, stroke);
+            
+            // 2. Draw neck (two converging lines from bulb bottom to base)
+            let neck_top_w = 3.0 * scale;  // Width at top of neck
+            let neck_bot_w = 2.0 * scale;  // Width at bottom of neck
+            let neck_top_y = bulb_cy + bulb_r;
+            let neck_bot_y = neck_top_y + 3.0 * scale;
+            
+            // Left neck line
+            painter.line_segment(
+                [egui::pos2(center.x - neck_top_w, neck_top_y), 
+                 egui::pos2(center.x - neck_bot_w, neck_bot_y)],
+                stroke
+            );
+            // Right neck line
+            painter.line_segment(
+                [egui::pos2(center.x + neck_top_w, neck_top_y), 
+                 egui::pos2(center.x + neck_bot_w, neck_bot_y)],
+                stroke
+            );
+            
+            // 3. Draw base (two horizontal lines)
+            painter.line_segment(
+                [egui::pos2(center.x - neck_bot_w, neck_bot_y), 
+                 egui::pos2(center.x + neck_bot_w, neck_bot_y)],
+                stroke
+            );
+            painter.line_segment(
+                [egui::pos2(center.x - neck_bot_w * 0.7, neck_bot_y + 1.5 * scale), 
+                 egui::pos2(center.x + neck_bot_w * 0.7, neck_bot_y + 1.5 * scale)],
+                stroke
+            );
+            
+            // 4. Draw rays (3 lines going up from top of bulb)
+            let ray_start_y = bulb_cy - bulb_r - 1.5 * scale; // Start above the bulb with gap
+            let ray_len = 2.5 * scale;
+            
+            // Center ray (straight up)
+            painter.line_segment(
+                [egui::pos2(center.x, ray_start_y), 
+                 egui::pos2(center.x, ray_start_y - ray_len)],
+                stroke
+            );
+            // Left ray (diagonal)
+            painter.line_segment(
+                [egui::pos2(center.x - 2.5 * scale, ray_start_y + 1.0 * scale), 
+                 egui::pos2(center.x - 4.0 * scale, ray_start_y - ray_len + 1.5 * scale)],
+                stroke
+            );
+            // Right ray (diagonal)
+            painter.line_segment(
+                [egui::pos2(center.x + 2.5 * scale, ray_start_y + 1.0 * scale), 
+                 egui::pos2(center.x + 4.0 * scale, ray_start_y - ray_len + 1.5 * scale)],
+                stroke
+            );
         }
     }
 }
