@@ -315,7 +315,9 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
             }
             
             // Detect when user navigates to an external URL (clicked a link)
-            let is_external = url.starts_with("http://") || url.starts_with("https://");
+            // CRITICAL: Exclude wry internal URLs to prevent counting original content as browsing
+            let is_internal = url.contains("wry.localhost") || url.contains("localhost") || url.contains("127.0.0.1") || url.starts_with("data:") || url.starts_with("about:");
+            let is_external = (url.starts_with("http://") || url.starts_with("https://")) && !is_internal;
             
             if is_external {
                 // Update browsing state and increment depth counter
@@ -329,6 +331,23 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
                         if state.is_editing {
                             state.is_editing = false;
                             super::refine_input::hide_refine_input(HWND(hwnd_key_for_nav));
+                        }
+                    }
+                }
+            } else if is_internal {
+                // If we hit an internal URL, we are likely back at the start (or initial load)
+                // Force reset depth and browsing state to correct any drift
+                if let Ok(mut states) = super::state::WINDOW_STATES.lock() {
+                    if let Some(state) = states.get_mut(&hwnd_key_for_nav) {
+                        if state.is_browsing {
+                            // Only reset if we were browsing - this handles the "Back to Start" drift
+                            state.is_browsing = false;
+                            state.navigation_depth = 0;
+                            state.max_navigation_depth = 0;
+                            // Ensure repaint to hide buttons
+                            unsafe {
+                                windows::Win32::Graphics::Gdi::InvalidateRect(HWND(hwnd_key_for_nav), None, false);
+                            }
                         }
                     }
                 }
@@ -360,56 +379,41 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
 pub fn go_back(parent_hwnd: HWND) {
     let hwnd_key = parent_hwnd.0 as isize;
     
-    // Check if we're going back to original content (depth will become 0)
-    let returning_to_original = {
+    // Determine if we need to recreate the webview (returning to original content)
+    // or just go back in browser history.
+    let (returning_to_original, markdown_text, is_hovered) = {
         let mut states = super::state::WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd_key) {
             if state.navigation_depth > 0 {
                 state.navigation_depth -= 1;
             }
-            // If depth is now 0, we're returning to original content
+            
+            // If depth is now 0, we are returning to the starting result content.
+            // We recreate the WebView to ensure a clean state and avoid "white screen"
+            // issues that happen when document.write is blocked by website CSP.
             if state.navigation_depth == 0 {
-                state.is_browsing = false; // Hide back button
-                true
+                state.is_browsing = false;
+                state.max_navigation_depth = 0; // History is reset on recreation
+                (true, state.full_text.clone(), state.is_hovered)
             } else {
-                false
+                (false, String::new(), false)
             }
         } else {
-            false
+            (false, String::new(), false)
         }
     };
     
     if returning_to_original {
-        // Reload original content from state
-        let original_content = {
-            let states = super::state::WINDOW_STATES.lock().unwrap();
-            states.get(&hwnd_key).map(|s| s.full_text.clone())
-        };
+        // Full recreation of the WebView with the desired content
+        create_markdown_webview(parent_hwnd, &markdown_text, is_hovered);
         
-        if let Some(markdown_text) = original_content {
-            let html = markdown_to_html(&markdown_text);
-            
-            WEBVIEWS.with(|webviews| {
-                if let Some(webview) = webviews.borrow().get(&hwnd_key) {
-                    let escaped_html = html.replace('\\', "\\\\")
-                        .replace('`', "\\`")
-                        .replace("${", "\\${");
-                    let script = format!(
-                        "document.open(); document.write(`{}`); document.close();",
-                        escaped_html
-                    );
-                    let _ = webview.evaluate_script(&script);
-                }
-            });
-        }
-        
-        // Trigger repaint to hide back button
+        // Trigger repaint to hide navigation buttons
         unsafe {
             windows::Win32::Graphics::Gdi::InvalidateRect(parent_hwnd, None, false);
         }
     } else {
-        // Normal browser history back
-        // Set flag to prevent navigation_handler from re-incrementing depth
+        // Normal browser history back for deeper navigation
+        // Set skip flag to prevent navigation_handler from re-incrementing depth
         {
             let mut skip_map = SKIP_NEXT_NAVIGATION.lock().unwrap();
             skip_map.insert(hwnd_key, true);
