@@ -108,7 +108,7 @@ pub fn create_result_window(
         // See docs/WEBVIEW2_INITIALIZATION.md for why this is necessary
         if render_mode == "markdown" {
             SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
-            let _ = super::markdown_view::create_markdown_webview(hwnd, "", true);
+            let _ = super::markdown_view::create_markdown_webview(hwnd, "", false);
             SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
         }
 
