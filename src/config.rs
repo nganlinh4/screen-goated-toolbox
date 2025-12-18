@@ -640,7 +640,6 @@ impl Default for Config {
                 prompt: "".to_string(),
                 selected_language: "Vietnamese".to_string(),
                 streaming_enabled: true,
-                render_mode: "markdown".to_string(),
                 show_overlay: true,
                 auto_copy: false,
                 ..Default::default()
