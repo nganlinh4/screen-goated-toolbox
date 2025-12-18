@@ -876,7 +876,14 @@ fn run_chain_step(
                     // Use set_editor_text to inject text into the webview editor
                     text_input::set_editor_text(&final_text);
                     text_input::refocus_editor();
-                } else if let Some(target) = target_window {
+                } 
+                // Check if refine input is active - if so, set text there
+                else if crate::overlay::result::refine_input::is_any_refine_active() {
+                    if let Some(parent) = crate::overlay::result::refine_input::get_active_refine_parent() {
+                        crate::overlay::result::refine_input::set_refine_text(parent, &final_text);
+                    }
+                }
+                else if let Some(target) = target_window {
                     // Normal paste to last active window
                     crate::overlay::utils::force_focus_and_paste(target);
                 }
