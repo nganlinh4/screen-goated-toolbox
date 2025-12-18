@@ -1,8 +1,17 @@
+# Re-patch egui-snarl to ensure custom scroll-to-zoom is applied
+Write-Host "Setting up patched egui-snarl..." -ForegroundColor Cyan
+$snarlDir = Join-Path $PSScriptRoot "libs\egui-snarl"
+if (Test-Path $snarlDir) {
+    Remove-Item $snarlDir -Recurse -Force
+}
+& (Join-Path $PSScriptRoot "scripts\setup-egui-snarl.ps1")
+
 # Extract version from Cargo.toml
 $cargoContent = Get-Content "Cargo.toml" -Raw
 if ($cargoContent -match 'version\s*=\s*"([^"]+)"') {
     $version = $matches[1]
-} else {
+}
+else {
     Write-Host "Failed to extract version from Cargo.toml" -ForegroundColor Red
     exit 1
 }
@@ -46,6 +55,7 @@ if (Test-Path $exePath) {
     $size = (Get-Item $outputPath).Length / 1MB
     Write-Host "Done! Output: $outputExeName" -ForegroundColor Green
     Write-Host "Binary size: $([Math]::Round($size, 2)) MB" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "Build failed - exe not found" -ForegroundColor Red
 }
