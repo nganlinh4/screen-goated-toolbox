@@ -1,5 +1,6 @@
 use eframe::egui;
 use crate::gui::locale::LocaleText;
+use crate::gui::icons::{Icon, paint_icon};
 
 pub fn render_footer(
     ui: &mut egui::Ui, 
@@ -46,19 +47,41 @@ pub fn render_footer(
         
         ui.allocate_ui(egui::vec2(available_w, ui.available_height()), |ui| {
             ui.vertical_centered(|ui| {
-                // Tip Text Button
                 let tip_color = ui.visuals().text_color().linear_multiply(tip_alpha);
+                let icon_color = egui::Color32::from_rgba_unmultiplied(255, 200, 50, (tip_alpha * 255.0) as u8); // Yellow/gold color for lightbulb
                 
-                // We use a button that looks like a label to make it clickable
-                let btn = egui::Button::new(
-                    egui::RichText::new(current_tip)
-                        .size(11.0) // Slightly smaller font for tips
-                        .color(tip_color)
-                        .italics()
-                )
-                .frame(false); // No borders
+                // First, calculate text width to properly center everything
+                let icon_size = 14.0;
+                let icon_spacing = 4.0;
+                let text_galley = ui.painter().layout_no_wrap(
+                    current_tip.clone(),
+                    egui::FontId::proportional(11.0),
+                    tip_color
+                );
+                let total_width = icon_size + icon_spacing + text_galley.rect.width();
+                
+                // Allocate space for icon + text centered
+                let (response, painter) = ui.allocate_painter(
+                    egui::vec2(total_width + 8.0, ui.available_height().max(18.0)), 
+                    egui::Sense::click()
+                );
+                let rect = response.rect;
+                
+                // Draw lightbulb icon on the left
+                let icon_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.left(), rect.center().y - icon_size / 2.0),
+                    egui::vec2(icon_size, icon_size)
+                );
+                paint_icon(&painter, icon_rect, Icon::Lightbulb, icon_color);
+                
+                // Draw text to the right of icon
+                let text_pos = egui::pos2(
+                    icon_rect.right() + icon_spacing,
+                    rect.center().y - text_galley.rect.height() / 2.0
+                );
+                painter.galley(text_pos, text_galley, tip_color);
 
-                if ui.add(btn).on_hover_text(text.tips_click_hint).clicked() {
+                if response.on_hover_text(text.tips_click_hint).clicked() {
                     *show_modal = true;
                 }
             });
