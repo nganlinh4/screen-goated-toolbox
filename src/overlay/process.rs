@@ -313,33 +313,81 @@ pub fn start_processing_pipeline(
     config: Config, 
     preset: Preset
 ) {
-    // If dynamic prompt mode, handle separately (needs immediate window, not processing overlay)
+    // If dynamic prompt mode, use WebView-based text input
     if preset.prompt_mode == "dynamic" && !preset.blocks.is_empty() {
-        // For dynamic mode, we still need to encode PNG first (user will type prompt)
+        // For dynamic mode, encode PNG first (user will type prompt)
         let mut png_data = Vec::new();
         let _ = cropped_img.write_to(&mut std::io::Cursor::new(&mut png_data), image::ImageFormat::Png);
-        let context = RefineContext::Image(png_data);
         
-        let block0 = preset.blocks[0].clone();
-        let model_id = block0.model.clone();
-        let prov = crate::model_config::get_model_by_id(&model_id).map(|m| m.provider).unwrap_or("groq".to_string());
+        // Get localized UI elements
+        let ui_lang = config.ui_language.clone();
+        let localized_name = crate::gui::settings_ui::get_localized_preset_name(&preset.id, &ui_lang);
+        let guide_text = format!("{}...", localized_name);
+        let cancel_hotkey = preset.hotkeys.first().map(|h| h.name.clone()).unwrap_or_default();
         
-        std::thread::spawn(move || {
-            let hwnd = create_result_window(
-                screen_rect, 
-                WindowType::Primary, 
-                context, 
-                model_id, 
-                prov, 
-                block0.streaming_enabled, 
-                true, // start_editing
-                block0.prompt.clone(), 
-                None, 
-                get_chain_color(0),
-                &block0.render_mode
-            );
-            unsafe { ShowWindow(hwnd, SW_SHOW); }
-            unsafe { let mut m = MSG::default(); while GetMessageW(&mut m, None, 0, 0).into() { TranslateMessage(&m); DispatchMessageW(&m); if !IsWindow(hwnd).as_bool() { break; } } }
+        // Store for use in callback
+        let png_data = Arc::new(png_data);
+        let config = Arc::new(config);
+        let preset = Arc::new(preset);
+        
+        // Use WebView-based text input
+        text_input::show(guide_text, ui_lang, cancel_hotkey, false, move |user_prompt, input_hwnd| {
+            // Close the input window
+            unsafe { PostMessageW(input_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
+            
+            // Clone preset and modify the first block's prompt with user's input
+            let mut modified_preset = (*preset).clone();
+            if let Some(block0) = modified_preset.blocks.get_mut(0) {
+                if block0.prompt.is_empty() {
+                    block0.prompt = user_prompt.clone();
+                } else {
+                    block0.prompt = format!("{}\n\nUser request: {}", block0.prompt, user_prompt);
+                }
+            }
+            
+            // Context with image data
+            let context = RefineContext::Image((*png_data).clone());
+            let config_clone = (*config).clone();
+            let graphics_mode = config_clone.graphics_mode.clone();
+            
+            // Create processing window IMMEDIATELY
+            let processing_hwnd = unsafe { create_processing_window(screen_rect, graphics_mode) };
+            unsafe { SendMessageW(processing_hwnd, WM_TIMER, WPARAM(1), LPARAM(0)); }
+            
+            // Reset position queue for new chain
+            reset_window_position_queue();
+            
+            // Spawn chain execution - reusing existing run_chain_step!
+            let blocks = modified_preset.blocks.clone();
+            let connections = modified_preset.block_connections.clone();
+            let preset_id = modified_preset.id.clone();
+            
+            std::thread::spawn(move || {
+                run_chain_step(
+                    0, 
+                    String::new(), 
+                    screen_rect, 
+                    blocks,
+                    connections,
+                    config_clone, 
+                    Arc::new(Mutex::new(None)), 
+                    context, 
+                    false,
+                    Some(processing_hwnd),
+                    Arc::new(AtomicBool::new(false)),
+                    preset_id
+                );
+            });
+            
+            // Keep processing window alive until closed
+            unsafe {
+                let mut msg = MSG::default();
+                while GetMessageW(&mut msg, None, 0, 0).into() {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                    if !IsWindow(processing_hwnd).as_bool() { break; }
+                }
+            }
         });
         return;
     }
