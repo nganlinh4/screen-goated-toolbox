@@ -370,11 +370,10 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                 });
                         });
 
-                        // Prompt Section (hidden for Whisper AND Dynamic Image Mode)
+                        // Prompt Section (hidden for Whisper audio models only)
                         let is_whisper = block_type == "audio" && model.starts_with("whisper");
-                        let is_dynamic_image = block_type == "image" && self.prompt_mode == "dynamic";
 
-                        if !is_whisper && !is_dynamic_image {
+                        if !is_whisper {
                             // Row 2: Prompt Label + Add Tag Button
                             ui.horizontal(|ui| {
                                 let prompt_label = match self.ui_language.as_str() { "vi" => "Lệnh:", "ko" => "프롬프트:", _ => "Prompt:" };
