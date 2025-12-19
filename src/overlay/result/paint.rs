@@ -82,6 +82,7 @@ pub fn paint_window(hwnd: HWND) {
              mut cached_text_bm, _cached_font_size, cache_dirty,
              cached_bg_bm,
              is_refining,
+             is_streaming_active,
              anim_offset,
              history_count,
              redo_count,
@@ -177,6 +178,7 @@ pub fn paint_window(hwnd: HWND) {
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap,
                     state.is_refining,
+                    state.is_streaming_active,
                     state.animation_offset,
                     state.text_history.len(),
                     state.redo_history.len(),
@@ -187,7 +189,7 @@ pub fn paint_window(hwnd: HWND) {
                     state.input_text.clone()
                 )
             } else {
-                (0, false, false, false, false, false, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, 0.0, 0, 0, 0, 0, "standard".to_string(), String::new(), String::new())
+                (0, false, false, false, false, false, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, false, 0.0, 0, 0, 0, 0, "standard".to_string(), String::new(), String::new())
             }
         };
 
@@ -460,8 +462,8 @@ pub fn paint_window(hwnd: HWND) {
                 }
             }
 
-            // 4.2 Buttons
-            if is_hovered && !is_refining {
+            // 4.2 Buttons - hide during refining AND streaming to prevent interaction bugs
+            if is_hovered && !is_refining && !is_streaming_active {
                 let btn_size = 28;
                 let margin = 12;
                 let threshold_h = btn_size + (margin * 2);

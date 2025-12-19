@@ -162,6 +162,7 @@ pub fn create_result_window(
                 redo_history: Vec::new(),
                 is_refining: false,
                 animation_offset: 0.0,
+                is_streaming_active: false,
                 model_id,
                 provider,
                 streaming_enabled,

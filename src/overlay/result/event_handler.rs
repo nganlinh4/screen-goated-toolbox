@@ -643,11 +643,11 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     }
                     SetTimer(hwnd, 1, 1500, None);
                  } else if is_markdown_click {
-                    // Only allow markdown toggle when NOT refining
+                    // Only allow markdown toggle when NOT refining AND NOT streaming
                     let can_toggle = {
                         let states = WINDOW_STATES.lock().unwrap();
                         if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                            !state.is_refining
+                            !state.is_refining && !state.is_streaming_active
                         } else {
                             false
                         }
@@ -896,6 +896,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                                 state.input_text = text_to_refine.clone();
                                 state.is_editing = false;
                                 state.is_refining = true;
+                                state.is_streaming_active = true; // Hide buttons during refinement
                                 state.full_text = String::new();
                                 state.pending_text = Some(String::new());
                             }
@@ -1019,6 +1020,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         let mut states = WINDOW_STATES.lock().unwrap();
                         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                             state.is_refining = false;
+                            state.is_streaming_active = false; // Refinement complete, show buttons
                             match result {
                                 Ok(final_text) => {
                                     // SUCCESS: The final_text is the "clean" answer (wiped of verbose search logs).

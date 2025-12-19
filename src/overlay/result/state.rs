@@ -121,6 +121,9 @@ pub struct WindowState {
     // Refinement State
     pub is_refining: bool,
     pub animation_offset: f32,
+    
+    // Streaming state - true when actively receiving chunks (buttons hidden during streaming)
+    pub is_streaming_active: bool,
 
     // Metadata for Refinement/Processing
     pub model_id: String,

@@ -716,7 +716,14 @@ fn run_chain_step(
                 if let Some(st) = s.get_mut(&(my_hwnd.unwrap().0 as isize)) { 
                     st.input_text = input_text.clone();
                     st.is_refining = true; 
+                    st.is_streaming_active = true; // Hide buttons during streaming
                     st.font_cache_dirty = true;
+                }
+            } else {
+                // Image block: also set streaming active to hide buttons
+                let mut s = WINDOW_STATES.lock().unwrap();
+                if let Some(st) = s.get_mut(&(my_hwnd.unwrap().0 as isize)) { 
+                    st.is_streaming_active = true; // Hide buttons during streaming
                 }
             }
         }
@@ -842,6 +849,7 @@ fn run_chain_step(
              let mut s = WINDOW_STATES.lock().unwrap();
              if let Some(st) = s.get_mut(&(h.0 as isize)) { 
                  st.is_refining = false; 
+                 st.is_streaming_active = false; // Streaming complete, show buttons
                  st.font_cache_dirty = true;
              }
         }
