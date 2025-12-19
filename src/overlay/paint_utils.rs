@@ -1,6 +1,3 @@
-use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
-use std::mem::size_of;
 
 const CORNER_RADIUS: f32 = 12.0;
 
@@ -160,31 +157,6 @@ pub unsafe fn draw_direct_sdf_glow(
             }
         }
     }
-}
-
-// Deprecated but kept for compatibility if needed elsewhere
-pub unsafe fn render_box_sdf(hdc_dest: HDC, _bounds: RECT, w: i32, h: i32, is_glowing: bool, time_offset: f32) {
-    let pad = 60; 
-    let buf_w = w + (pad * 2);
-    let buf_h = h + (pad * 2);
-    
-    let bmi = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: buf_w,
-            biHeight: -buf_h,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0 as u32,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let mut p_bits: *mut core::ffi::c_void = std::ptr::null_mut();
-    if CreateDIBSection(hdc_dest, &bmi, DIB_RGB_COLORS, &mut p_bits, None, 0).is_err() { return; }
-    
-    draw_direct_sdf_glow(p_bits as *mut u32, buf_w, buf_h, time_offset, 1.0, is_glowing);
 }
 
 // === MINIMAL GRAPHICS MODE ===

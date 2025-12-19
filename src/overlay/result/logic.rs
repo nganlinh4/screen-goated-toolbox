@@ -15,7 +15,7 @@ fn rand_float(min: f32, max: f32) -> f32 {
 pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
     unsafe {
         if wparam.0 == 3 { // 60 FPS Physics Loop
-            let mut should_close = false;
+            let should_close = false;
             
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
@@ -43,26 +43,8 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                         AnimationMode::Idle => {
                             p.squish_factor = p.squish_factor * 0.9 + 1.0 * 0.1; // Return to 1.0
                         },
-                        AnimationMode::Smashing => {
-                             // SIMPLIFIED: Skip the broom animation entirely
-                             // Just transition directly to fade-out (DragOut) mode
-                             // This eliminates all freezing frame issues
-                             p.mode = AnimationMode::DragOut;
-                             p.particles.clear(); // No particles
-                             p.state_timer = 0.0;
-                         },
-                        AnimationMode::DragOut => {
-                            p.state_timer += 1.0;
-                            p.squish_factor = p.squish_factor * 0.8 + 1.2 * 0.2; // Stretch up
-                            
-                            // FAST fade out - 25 alpha per frame at 60 FPS = ~170ms fade
-                            if state.alpha > 25 {
-                                state.alpha = state.alpha.saturating_sub(25);
-                                SetLayeredWindowAttributes(hwnd, COLORREF(0), state.alpha, LWA_ALPHA);
-                            } else {
-                                should_close = true;
-                            }
-                        }
+
+
                     }
 
                     // --- 3. PARTICLE PHYSICS ---
@@ -79,7 +61,7 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
 
                     // PERFORMANCE FIX: Skip repaints during DragOut EXCEPT for the cleanup repaint
                     // The cleanup repaint clears the broom/particles from the visual
-                    let skip_repaint = matches!(p.mode, AnimationMode::DragOut) && !p.needs_cleanup_repaint;
+                    let skip_repaint = false;
                     if p.needs_cleanup_repaint {
                         p.needs_cleanup_repaint = false; // Consume the flag
                     }

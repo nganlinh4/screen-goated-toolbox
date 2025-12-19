@@ -9,7 +9,7 @@ pub fn render_preset_editor(
     ui: &mut egui::Ui,
     config: &mut Config,
     preset_idx: usize,
-    search_query: &mut String,
+    _search_query: &mut String,
     _cached_monitors: &mut Vec<String>,
     recording_hotkey_for_preset: &mut Option<usize>,
     hotkey_conflict_msg: &Option<String>,
@@ -48,7 +48,7 @@ pub fn render_preset_editor(
     };
     
     ui.add_space(5.0);
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(header_bg)
         .stroke(header_stroke)
         .inner_margin(12.0)
@@ -114,7 +114,7 @@ pub fn render_preset_editor(
                     _ => text.preset_type_image,
                 };
                 
-                egui::ComboBox::from_id_source("preset_type_combo")
+                egui::ComboBox::from_id_salt("preset_type_combo")
                     .selected_text(selected_text)
                     .show_ui(ui, |ui| {
                         if ui.selectable_value(&mut preset.preset_type, "image".to_string(), text.preset_type_image).clicked() {
@@ -149,7 +149,7 @@ pub fn render_preset_editor(
                 if preset.preset_type == "image" {
                     if !preset.show_controller_ui {
                         ui.label(text.command_mode_label);
-                        egui::ComboBox::from_id_source("prompt_mode_combo")
+                        egui::ComboBox::from_id_salt("prompt_mode_combo")
                             .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
                             .show_ui(ui, |ui| {
                                 if ui.selectable_value(&mut preset.prompt_mode, "fixed".to_string(), text.prompt_mode_fixed).clicked() { changed = true; }
@@ -158,7 +158,7 @@ pub fn render_preset_editor(
                     }
                 } else if preset.preset_type == "text" {
                     ui.label(text.text_input_mode_label);
-                    egui::ComboBox::from_id_source("text_input_mode_combo")
+                    egui::ComboBox::from_id_salt("text_input_mode_combo")
                         .selected_text(if preset.text_input_mode == "type" { text.text_mode_type } else { text.text_mode_select })
                         .show_ui(ui, |ui| {
                             if ui.selectable_value(&mut preset.text_input_mode, "select".to_string(), text.text_mode_select).clicked() { changed = true; }
@@ -188,11 +188,11 @@ pub fn render_preset_editor(
                             _ => "Realtime Processing (upcoming)",
                         };
                         
-                        egui::ComboBox::from_id_source("audio_operation_mode_combo")
+                        egui::ComboBox::from_id_salt("audio_operation_mode_combo")
                             .selected_text(mode_record)
                             .show_ui(ui, |ui| {
                                 let _ = ui.selectable_label(true, mode_record);
-                                ui.add_enabled(false, egui::SelectableLabel::new(false, mode_realtime));
+                                ui.add_enabled(false, egui::Button::new(mode_realtime).selected(false));
                             });
                     }
                 }
@@ -204,7 +204,7 @@ pub fn render_preset_editor(
                 ui.horizontal(|ui| {
                     ui.label(text.audio_source_label);
                     let selected_text = if preset.audio_source == "mic" { text.audio_src_mic } else { text.audio_src_device };
-                    egui::ComboBox::from_id_source("audio_source_combo")
+                    egui::ComboBox::from_id_salt("audio_source_combo")
                         .selected_text(selected_text)
                         .show_ui(ui, |ui| {
                             if ui.selectable_value(&mut preset.audio_source, "mic".to_string(), text.audio_src_mic).clicked() { changed = true; }
@@ -224,7 +224,7 @@ pub fn render_preset_editor(
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label(text.command_mode_label);
-                    egui::ComboBox::from_id_source("text_prompt_mode_combo")
+                    egui::ComboBox::from_id_salt("text_prompt_mode_combo")
                         .selected_text(if preset.prompt_mode == "dynamic" { text.prompt_mode_dynamic } else { text.prompt_mode_fixed })
                         .show_ui(ui, |ui| {
                             if ui.selectable_value(&mut preset.prompt_mode, "fixed".to_string(), text.prompt_mode_fixed).clicked() { changed = true; }
@@ -335,7 +335,7 @@ pub fn render_preset_editor(
         };
         
         ui.push_id("node_graph_area", |ui| {
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(graph_bg)
                 .inner_margin(6.0)
                 .corner_radius(8.0)
@@ -370,7 +370,7 @@ pub fn render_preset_editor(
             egui::Color32::from_rgb(70, 120, 180)   // Deeper blue for light mode
         };
         
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(bg_color)
             .inner_margin(24.0)
             .corner_radius(12.0)

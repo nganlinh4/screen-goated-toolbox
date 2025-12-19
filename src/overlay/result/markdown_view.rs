@@ -2,7 +2,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
-use windows::Win32::UI::HiDpi::*;
 use std::sync::{Mutex, Once};
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
@@ -454,7 +453,7 @@ pub fn create_markdown_webview_ex(parent_hwnd: HWND, markdown_text: &str, is_hov
     
     // Create WebView with small margins so resize handles remain accessible
     // Use Physical coordinates since GetClientRect returns physical pixels
-    let hwnd_copy = parent_hwnd;
+    let _hwnd_copy = parent_hwnd;
     let hwnd_key_for_nav = hwnd_key;
     
     // SIMPLIFIED FOR DEBUGGING - minimal WebView creation  
@@ -797,7 +796,7 @@ pub fn save_html_file(markdown_text: &str) -> bool {
         CLSCTX_ALL, COINIT_APARTMENTTHREADED
     };
     use windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG;
-    use windows::core::{PCWSTR, ComInterface};
+    use windows::core::PCWSTR;
     
     unsafe {
         // Initialize COM

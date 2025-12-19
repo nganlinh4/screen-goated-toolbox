@@ -1,5 +1,5 @@
 use eframe::egui;
-use eframe::egui::{Color32, Pos2, Rect, Vec2, FontId, Align2, Stroke, Shape};
+use eframe::egui::{Color32, Pos2, Rect, Vec2, FontId, Align2, Stroke};
 use std::f32::consts::PI;
 use std::cmp::Ordering;
 
@@ -23,7 +23,6 @@ const C_MOON_GLOW: Color32 = Color32::from_rgb(255, 0, 100);
 
 // Dark Cloud Palette - REVERTED TO BLACK AESTHETIC
 const C_CLOUD_CORE: Color32 = Color32::from_rgb(2, 2, 5); // Almost pure black void
-const C_CLOUD_EDGE: Color32 = Color32::from_rgb(15, 12, 22); // Very dark, matches old aesthetic
 
 // --- DAY PALETTE ---
 const C_SKY_DAY_TOP: Color32 = Color32::from_rgb(100, 180, 255); 
@@ -33,13 +32,11 @@ const C_DAY_SEC: Color32 = Color32::from_rgb(255, 255, 255); // Secondary (White
 const C_DAY_TEXT: Color32 = Color32::from_rgb(255, 120, 0);   // Text (Orange) - Title/Loading
 
 const C_SUN_BODY: Color32 = Color32::from_rgb(255, 160, 20);
-const C_SUN_SPOT: Color32 = Color32::from_rgb(210, 90, 10);
 const C_SUN_FLARE: Color32 = Color32::from_rgb(255, 240, 150);
 const C_SUN_GLOW: Color32 = Color32::from_rgb(255, 200, 50);
 const C_SUN_HIGHLIGHT: Color32 = Color32::from_rgb(255, 255, 220);
 
 const C_CLOUD_WHITE: Color32 = Color32::from_rgb(255, 255, 255);
-const C_CLOUD_SHADOW: Color32 = Color32::from_rgb(210, 215, 225);
 
 // --- MATH UTILS ---
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
@@ -62,7 +59,6 @@ impl Vec3 {
     fn add(self, v: Vec3) -> Self { Self::new(self.x + v.x, self.y + v.y, self.z + v.z) }
     fn sub(self, v: Vec3) -> Self { Self::new(self.x - v.x, self.y - v.y, self.z - v.z) }
     fn mul(self, s: f32) -> Self { Self::new(self.x * s, self.y * s, self.z * s) }
-    fn dot(self, v: Vec3) -> f32 { self.x * v.x + self.y * v.y + self.z * v.z }
     fn len(self) -> f32 { (self.x*self.x + self.y*self.y + self.z*self.z).sqrt() }
     fn normalize(self) -> Self {
         let l = self.len();
@@ -345,7 +341,7 @@ impl SplashScreen {
         ctx.request_repaint();
 
         // --- UPDATE CLOUDS ---
-        let rect = ctx.input(|i| i.screen_rect());
+        let rect = ctx.input(|i| i.viewport().inner_rect.unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::ZERO)));
         for cloud in &mut self.clouds {
             cloud.pos.x += cloud.velocity * dt;
             // Wrap around
@@ -487,7 +483,7 @@ impl SplashScreen {
              warp_prog = (dt / EXIT_DURATION).powi(5);
         }
 
-        let rect = ctx.screen_rect();
+        let rect = ctx.input(|i| i.viewport().inner_rect.unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::ZERO)));
         // Use a Foreground layer to paint ON TOP of the main UI
         let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("splash_overlay")));
         
@@ -581,8 +577,7 @@ impl SplashScreen {
             let ray_count = 12;
             let ray_rot = t * 0.1;
             
-            // Fade rays out smoothly
-            let ray_fade = (1.0 - warp_prog * 2.5).clamp(0.0, 1.0);
+
             
             for i in 0..ray_count {
                 let angle = (i as f32 / ray_count as f32) * PI * 2.0 + ray_rot;
@@ -803,12 +798,7 @@ impl SplashScreen {
                     );
                 }
                 
-                // Pass 2: Main Body (Slightly lighter black/purple)
-                for (offset, puff_r_mult) in &cloud.puffs {
-                    let p_pos = Pos2::new(c_x, c_y) + (*offset * cloud.scale);
-                    
-                    // Commented out highlight pass - removed
-                }
+                // Note: Second pass (Main Body with highlight) was intentionally removed
             }
         }
 
@@ -822,7 +812,7 @@ impl SplashScreen {
             // Horizontal lines
             for i in 0..16 {
                 // Random Grid Line Fade
-                let rnd = ((i as f32 * 0.9).sin() * 0.5 + 0.5);
+                let rnd = (i as f32 * 0.9).sin() * 0.5 + 0.5;
                 let start = rnd * 0.5;
                 let dur = 0.25;
                 let local_fade = if warp_prog > 0.0 {

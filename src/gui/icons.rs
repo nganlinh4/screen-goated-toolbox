@@ -8,26 +8,23 @@ use std::f32::consts::PI;
 #[derive(Clone, Copy, PartialEq)]
 pub enum Icon {
     Settings,
-    Moon,
-    Sun,
-    SystemTheme, // NEW: Computer Monitor for System/Auto theme
+
+
     EyeOpen,
     EyeClosed,
     Microphone,
     Image,
-    Video,
+
     Text, // NEW: 'T' icon for text presets
     Delete, // Renders as Trash Can (used for presets)
     DeleteLarge, // NEW: Centered, larger Trash Can (used for history items)
     Info,
-    Statistics,
-    Refresh,
+
     Folder, // NEW: For "Open Media"
     Copy,   // NEW: For "Copy Text"
     CopySmall, // NEW: Smaller copy icon for preset buttons
     Close,  // NEW: "X" for clearing search
-    ChainArrow, // NEW: Arrow for chain links
-    ChainArrowDown, // NEW: Vertical arrow for chain steps
+
     TextSelect, // NEW: Text with selection cursor for text selection mode
     Speaker, // NEW: Speaker icon for device audio source
     Lightbulb, // NEW: Lightbulb icon for tips
@@ -112,55 +109,12 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             painter.circle_stroke(center, hole_r, stroke);
         }
 
-        Icon::Moon => {
-            let r = 7.0 * scale;
-            let offset = 3.5 * scale;
-            painter.circle_filled(center, r, color);
-            painter.circle_filled(
-                center + egui::vec2(offset, -offset * 0.8),
-                r * 0.85,
-                painter.ctx().style().visuals.panel_fill, 
-            );
-        }
 
-        Icon::Sun => {
-            painter.circle_stroke(center, 4.0 * scale, stroke);
-            for i in 0..8 {
-                let angle = (i as f32 * 45.0).to_radians();
-                let dir = egui::vec2(angle.cos(), angle.sin());
-                let start = center + dir * 6.5 * scale;
-                let end = center + dir * 9.0 * scale;
-                painter.line_segment([start, end], stroke);
-            }
-        }
 
-        Icon::SystemTheme => {
-            // Computer Monitor Icon
-            let screen_w = 14.0 * scale;
-            let screen_h = 10.0 * scale;
-            let screen_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, 2.0 * scale), egui::vec2(screen_w, screen_h));
-            
-            // Screen Frame
-            painter.rect_stroke(screen_rect, 2.0 * scale, stroke, egui::StrokeKind::Middle);
-            
-            // Stand
-            let stand_top = egui::pos2(screen_rect.center().x, screen_rect.bottom());
-            let stand_bot = stand_top + egui::vec2(0.0, 3.0 * scale);
-            painter.line_segment([stand_top, stand_bot], stroke);
-            
-            // Base
-            let base_w = 8.0 * scale;
-            painter.line_segment(
-                [stand_bot - egui::vec2(base_w/2.0, 0.0), stand_bot + egui::vec2(base_w/2.0, 0.0)], 
-                stroke
-            );
-            
-            // "Auto" glare inside screen (diagonal line)
-            painter.line_segment(
-                [screen_rect.left_bottom() + egui::vec2(3.0*scale, -3.0*scale), screen_rect.right_top() + egui::vec2(-3.0*scale, 3.0*scale)], 
-                egui::Stroke::new(1.0 * scale, stroke.color.linear_multiply(0.5))
-            );
-        }
+
+
+
+
 
         Icon::EyeOpen => {
             let w = 9.0 * scale;
@@ -232,28 +186,7 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             painter.circle_filled(img_rect.left_top() + egui::vec2(3.5, 3.5)*scale, 1.5*scale, color);
         }
 
-        Icon::Video => {
-            // Larger Video camera icon
-            let body_w = 14.0 * scale;
-            let body_h = 10.0 * scale;
-            let body_rect = egui::Rect::from_center_size(center - egui::vec2(1.5*scale, 0.0), egui::vec2(body_w, body_h));
-            painter.rect_stroke(body_rect, 2.0 * scale, stroke, egui::StrokeKind::Middle);
-            
-            // Lens (triangle on right side)
-            let l_x = body_rect.right();
-            let l_y = center.y;
-            let lens_pts = vec![
-                egui::pos2(l_x, l_y - 3.0*scale),
-                egui::pos2(l_x + 5.0*scale, l_y - 4.5*scale),
-                egui::pos2(l_x + 5.0*scale, l_y + 4.5*scale),
-                egui::pos2(l_x, l_y + 3.0*scale),
-            ];
-            painter.add(egui::Shape::closed_line(lens_pts, stroke));
-            
-            // Film reels on top
-            painter.circle_stroke(body_rect.left_top() + egui::vec2(3.5, 0.0)*scale, 2.0*scale, stroke);
-            painter.circle_stroke(body_rect.right_top() + egui::vec2(-3.5, 0.0)*scale, 2.0*scale, stroke);
-        }
+
 
         Icon::Text => {
             // Larger Elegant Serif 'T' Icon
@@ -338,58 +271,9 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             );
         }
 
-        Icon::Statistics => {
-            let base_y = center.y + 6.0 * scale;
-            let bar_w = 2.5 * scale;
-            let gap = 1.5 * scale;
-            let h1 = 4.0 * scale;
-            let h2 = 7.0 * scale;
-            let h3 = 10.0 * scale;
-            let x1 = center.x - bar_w - gap;
-            let x2 = center.x;
-            let x3 = center.x + bar_w + gap;
 
-            painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x1 - bar_w/2.0, base_y - h1), egui::pos2(x1 + bar_w/2.0, base_y)), 1.0, color);
-            painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x2 - bar_w/2.0, base_y - h2), egui::pos2(x2 + bar_w/2.0, base_y)), 1.0, color);
-            painter.rect_filled(egui::Rect::from_min_max(egui::pos2(x3 - bar_w/2.0, base_y - h3), egui::pos2(x3 + bar_w/2.0, base_y)), 1.0, color);
-            
-            let t_offset = 3.0 * scale; 
-            let points = vec![
-                egui::pos2(x1 - bar_w, base_y - h1 - t_offset + 2.0*scale), 
-                egui::pos2(x1, base_y - h1 - t_offset),
-                egui::pos2(x2, base_y - h2 - t_offset),
-                egui::pos2(x3, base_y - h3 - t_offset),
-                egui::pos2(x3 + bar_w, base_y - h3 - t_offset - 2.0*scale),
-            ];
-            painter.add(egui::Shape::line(points, egui::Stroke::new(1.2 * scale, color)));
-        }
 
-        Icon::Refresh => {
-            let r = 6.0 * scale;
-            let refresh_stroke = egui::Stroke::new(1.2 * scale, color);
-            let segments = 30;
-            let start_angle = -PI / 2.0 + 0.6;
-            let sweep = 2.0 * PI - 1.2;
-            let mut points = Vec::new();
-            for i in 0..=segments {
-                let t = i as f32 / segments as f32;
-                let angle = start_angle + sweep * t;
-                points.push(center + egui::vec2(angle.cos() * r, angle.sin() * r));
-            }
-            painter.add(egui::Shape::line(points.clone(), refresh_stroke));
-            
-            if let Some(tip) = points.last() {
-                let end_angle = start_angle + sweep;
-                let arrow_len = 3.5 * scale;
-                let tangent = end_angle + PI / 2.0;
-                let wing_offset = 0.6; 
-                let back_angle1 = tangent - PI + wing_offset;
-                let back_angle2 = tangent - PI - wing_offset;
-                let p1 = *tip + egui::vec2(back_angle1.cos() * arrow_len, back_angle1.sin() * arrow_len);
-                let p2 = *tip + egui::vec2(back_angle2.cos() * arrow_len, back_angle2.sin() * arrow_len);
-                painter.add(egui::Shape::line(vec![p1, *tip, p2], refresh_stroke));
-            }
-        }
+
 
         Icon::Folder => {
             // Folder Icon
@@ -458,35 +342,9 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             painter.line_segment([p3, p4], stroke);
         }
 
-        Icon::ChainArrow => {
-            // Horizontal right arrow (->) for chain links in header
-            let arrow_len = 6.0 * scale;
-            let head_sz = 3.0 * scale;
-            
-            // Shaft
-            let start = center - egui::vec2(arrow_len, 0.0);
-            let end = center + egui::vec2(arrow_len, 0.0);
-            painter.line_segment([start, end], stroke);
-            
-            // Arrowhead
-            painter.line_segment([end, end - egui::vec2(head_sz, head_sz)], stroke);
-            painter.line_segment([end, end - egui::vec2(head_sz, -head_sz)], stroke);
-        }
 
-        Icon::ChainArrowDown => {
-            // Vertical down arrow for chain steps
-            let arrow_len = 5.0 * scale;
-            let head_sz = 3.0 * scale;
-            
-            // Shaft
-            let start = center - egui::vec2(0.0, arrow_len);
-            let end = center + egui::vec2(0.0, arrow_len);
-            painter.line_segment([start, end], stroke);
-            
-            // Arrowhead
-            painter.line_segment([end, end - egui::vec2(head_sz, head_sz)], stroke);
-            painter.line_segment([end, end - egui::vec2(-head_sz, head_sz)], stroke);
-        }
+
+
 
         Icon::TextSelect => {
             // Text with selection highlight/cursor - represents "select text" mode

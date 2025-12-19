@@ -5,7 +5,7 @@ use windows::core::w;
 use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
 use crate::overlay::paint_utils::{sd_rounded_box, hsv_to_rgb};
-use super::state::{WINDOW_STATES, AnimationMode, ResizeEdge};
+use super::state::{WINDOW_STATES, ResizeEdge};
 
 // Helper: Measure text dimensions (Height AND Width)
 unsafe fn measure_text_bounds(hdc: windows::Win32::Graphics::Gdi::CreatedHDC, text: &mut [u16], font_size: i32, max_width: i32) -> (i32, i32) {
@@ -147,7 +147,7 @@ pub fn paint_window(hwnd: HWND) {
                 // AGGRESSIVE FIX: Don't render broom during ANY closing animation (Smashing OR DragOut)
                 // This completely eliminates the "frozen frame" issue during fade
                 // The broom is only shown on hover, not during click-to-close
-                let is_closing = matches!(state.physics.mode, AnimationMode::Smashing | AnimationMode::DragOut);
+                let is_closing = false;
                 
                 let show_broom = !is_closing && (
                     state.is_hovered 

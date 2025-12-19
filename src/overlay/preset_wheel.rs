@@ -5,17 +5,26 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{SetCapture, ReleaseCapture};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::core::*;
-use std::sync::{Once, atomic::{AtomicBool, AtomicI32, Ordering}};
+use std::sync::{Once, Mutex, atomic::{AtomicBool, AtomicI32, Ordering}};
 use crate::APP;
 use crate::config::Preset;
 use super::utils::to_wstring;
 use crate::gui::settings_ui::get_localized_preset_name;
 
 static REGISTER_WHEEL_CLASS: Once = Once::new();
-static mut WHEEL_HWND: HWND = HWND(0);
-static mut WHEEL_BUTTONS: Vec<WheelButton> = Vec::new();
-static mut HOVERED_BUTTON: i32 = -1;
-static mut SELECTED_PRESET_IDX: Option<usize> = None;
+struct WheelState {
+    hwnd: HWND,
+    buttons: Vec<WheelButton>,
+    hovered_button: i32,
+    selected_preset_idx: Option<usize>,
+}
+
+static WHEEL_STATE: Mutex<WheelState> = Mutex::new(WheelState {
+    hwnd: HWND(0),
+    buttons: Vec::new(),
+    hovered_button: -1,
+    selected_preset_idx: None,
+});
 
 // Result communication
 pub static WHEEL_RESULT: AtomicI32 = AtomicI32::new(-1); // -1 = pending, -2 = dismissed, >=0 = preset index
@@ -95,14 +104,16 @@ pub fn show_preset_wheel(
     center_pos: POINT,
 ) -> Option<usize> {
     unsafe {
-        if WHEEL_HWND.0 != 0 { return None; } // Already showing
-        
         // Reset state
         WHEEL_RESULT.store(-1, Ordering::SeqCst);
         WHEEL_ACTIVE.store(true, Ordering::SeqCst);
-        SELECTED_PRESET_IDX = None;
-        HOVERED_BUTTON = -1;
-        WHEEL_BUTTONS.clear();
+        {
+            let mut state = WHEEL_STATE.lock().unwrap();
+            if state.hwnd.0 != 0 { return None; }
+            state.selected_preset_idx = None;
+            state.hovered_button = -1;
+            state.buttons.clear();
+        }
         
         // Get filtered presets
         let (presets, ui_lang) = {
@@ -111,7 +122,7 @@ pub fn show_preset_wheel(
         };
         
         // Filter presets based on type and mode
-        let mut filtered: Vec<(usize, &Preset)> = presets.iter()
+        let filtered: Vec<(usize, &Preset)> = presets.iter()
             .enumerate()
             .filter(|(_, p)| {
                 // Exclude MASTER presets from the wheel
@@ -154,7 +165,9 @@ pub fn show_preset_wheel(
             _ => "CANCEL",
         };
         
-        WHEEL_BUTTONS.push(WheelButton {
+        let mut buttons = Vec::new();
+
+        buttons.push(WheelButton {
             rect: RECT {
                 left: positions[0].x - BUTTON_WIDTH / 2,
                 top: positions[0].y - BUTTON_HEIGHT / 2,
@@ -175,7 +188,7 @@ pub fn show_preset_wheel(
             let pos = positions[pos_idx];
             let label = get_localized_preset_name(&preset.id, &ui_lang);
             
-            WHEEL_BUTTONS.push(WheelButton {
+            buttons.push(WheelButton {
                 rect: RECT {
                     left: pos.x - BUTTON_WIDTH / 2,
                     top: pos.y - BUTTON_HEIGHT / 2,
@@ -200,7 +213,7 @@ pub fn show_preset_wheel(
         let mut raw_max_x = i32::MIN;
         let mut raw_max_y = i32::MIN;
         
-        for btn in &WHEEL_BUTTONS {
+        for btn in &buttons {
             raw_min_x = raw_min_x.min(btn.rect.left);
             raw_min_y = raw_min_y.min(btn.rect.top);
             raw_max_x = raw_max_x.max(btn.rect.right);
@@ -236,7 +249,7 @@ pub fn show_preset_wheel(
         }
         
         // Apply shift to ALL button screen positions FIRST
-        for btn in WHEEL_BUTTONS.iter_mut() {
+        for btn in buttons.iter_mut() {
             btn.rect.left += shift_x;
             btn.rect.right += shift_x;
             btn.rect.top += shift_y;
@@ -249,7 +262,7 @@ pub fn show_preset_wheel(
         let mut max_x = i32::MIN;
         let mut max_y = i32::MIN;
         
-        for btn in &WHEEL_BUTTONS {
+        for btn in &buttons {
             min_x = min_x.min(btn.rect.left);
             min_y = min_y.min(btn.rect.top);
             max_x = max_x.max(btn.rect.right);
@@ -266,12 +279,15 @@ pub fn show_preset_wheel(
         let win_height = max_y - min_y;
         
         // Convert button rects to window-relative coordinates
-        for btn in WHEEL_BUTTONS.iter_mut() {
+        for btn in buttons.iter_mut() {
             btn.rect.left -= min_x;
             btn.rect.right -= min_x;
             btn.rect.top -= min_y;
             btn.rect.bottom -= min_y;
         }
+        
+        // Final update to state
+        WHEEL_STATE.lock().unwrap().buttons = buttons;
         
         // Create window
         let instance = GetModuleHandleW(None).unwrap();
@@ -296,7 +312,7 @@ pub fn show_preset_wheel(
             None, None, instance, None
         );
         
-        WHEEL_HWND = hwnd;
+        WHEEL_STATE.lock().unwrap().hwnd = hwnd;
         
         // Paint initial state
         paint_wheel_window(hwnd, win_width, win_height);
@@ -320,11 +336,14 @@ pub fn show_preset_wheel(
         }
         
         // Cleanup
-        WHEEL_BUTTONS.clear();
-        WHEEL_HWND = HWND(0);
+        {
+            let mut state = WHEEL_STATE.lock().unwrap();
+            state.buttons.clear();
+            state.hwnd = HWND(0);
+        }
         WHEEL_ACTIVE.store(false, Ordering::SeqCst);
         
-        SELECTED_PRESET_IDX
+        WHEEL_STATE.lock().unwrap().selected_preset_idx
     }
 }
 
@@ -335,19 +354,28 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
             let pt = POINT { x, y };
             
-            let mut new_hover = -1i32;
-            for (i, btn) in WHEEL_BUTTONS.iter().enumerate() {
-                if PtInRect(&btn.rect, pt).into() {
-                    new_hover = i as i32;
-                    break;
+            let (current_hover, needs_paint) = {
+                let mut state = WHEEL_STATE.lock().unwrap();
+                let mut new_hover = -1i32;
+                for (i, btn) in state.buttons.iter().enumerate() {
+                    if PtInRect(&btn.rect, pt).into() {
+                        new_hover = i as i32;
+                        break;
+                    }
                 }
-            }
-            
-            if new_hover != HOVERED_BUTTON {
-                HOVERED_BUTTON = new_hover;
                 
+                let needs_paint = if new_hover != state.hovered_button {
+                    state.hovered_button = new_hover;
+                    true
+                } else {
+                    false
+                };
+                (state.hovered_button, needs_paint)
+            };
+            
+            if needs_paint {
                 // Set cursor: hand when hovering a button, arrow otherwise
-                let cursor = if new_hover >= 0 {
+                let cursor = if current_hover >= 0 {
                     LoadCursorW(None, IDC_HAND).unwrap()
                 } else {
                     LoadCursorW(None, IDC_ARROW).unwrap()
@@ -363,8 +391,9 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
         }
         
         WM_SETCURSOR => {
+            let current_hover = WHEEL_STATE.lock().unwrap().hovered_button;
             // Override cursor based on hover state
-            let cursor = if HOVERED_BUTTON >= 0 {
+            let cursor = if current_hover >= 0 {
                 LoadCursorW(None, IDC_HAND).unwrap()
             } else {
                 LoadCursorW(None, IDC_ARROW).unwrap()
@@ -386,23 +415,30 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
             let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
             let pt = POINT { x, y };
             
-            for btn in WHEEL_BUTTONS.iter() {
-                if PtInRect(&btn.rect, pt).into() {
-                    if btn.is_dismiss {
-                        SELECTED_PRESET_IDX = None;
-                        WHEEL_RESULT.store(-2, Ordering::SeqCst); // Dismissed
-                    } else {
-                        SELECTED_PRESET_IDX = Some(btn.preset_idx);
-                        WHEEL_RESULT.store(btn.preset_idx as i32, Ordering::SeqCst);
+            let mut action = None; // (is_dismiss, preset_idx)
+            
+            {
+                let state = WHEEL_STATE.lock().unwrap();
+                for btn in state.buttons.iter() {
+                    if PtInRect(&btn.rect, pt).into() {
+                        action = Some((btn.is_dismiss, btn.preset_idx));
+                        break;
                     }
-                    // Release capture before destroying to prevent click-through
-                    ReleaseCapture();
-                    DestroyWindow(hwnd);
-                    // NOTE: Do NOT call PostQuitMessage! This wheel may run nested
-                    // inside another message loop (e.g., text_input). WM_QUIT would
-                    // kill the outer loop too. The loop checks WHEEL_RESULT to break.
-                    break;
                 }
+            }
+            
+            if let Some((is_dismiss, preset_idx)) = action {
+                 if is_dismiss {
+                     WHEEL_STATE.lock().unwrap().selected_preset_idx = None;
+                     WHEEL_RESULT.store(-2, Ordering::SeqCst); // Dismissed
+                 } else {
+                     WHEEL_STATE.lock().unwrap().selected_preset_idx = Some(preset_idx);
+                     WHEEL_RESULT.store(preset_idx as i32, Ordering::SeqCst);
+                 }
+                 // Release capture before destroying to prevent click-through
+                 ReleaseCapture();
+                 DestroyWindow(hwnd);
+                 // NOTE: Do NOT call PostQuitMessage!
             }
             
             LRESULT(0)
@@ -410,7 +446,7 @@ unsafe extern "system" fn wheel_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
         
         WM_KEYDOWN => {
             if wparam.0 as u32 == 0x1B { // VK_ESCAPE
-                SELECTED_PRESET_IDX = None;
+                WHEEL_STATE.lock().unwrap().selected_preset_idx = None;
                 WHEEL_RESULT.store(-2, Ordering::SeqCst);
                 ReleaseCapture();
                 DestroyWindow(hwnd);
@@ -459,9 +495,12 @@ unsafe fn paint_wheel_window(hwnd: HWND, width: i32, height: i32) {
     }
     
     // Draw buttons
-    for (i, btn) in WHEEL_BUTTONS.iter().enumerate() {
-        let is_hovered = i as i32 == HOVERED_BUTTON;
-        draw_button(mem_dc, pixels, width, &btn.rect, &btn.label, btn.is_dismiss, is_hovered, btn.color_idx);
+    {
+        let state = WHEEL_STATE.lock().unwrap();
+        for (i, btn) in state.buttons.iter().enumerate() {
+            let is_hovered = i as i32 == state.hovered_button;
+            draw_button(mem_dc, pixels, width, &btn.rect, &btn.label, btn.is_dismiss, is_hovered, btn.color_idx);
+        }
     }
     
     // Update layered window
@@ -645,8 +684,9 @@ pub fn is_wheel_active() -> bool {
 /// Dismiss the wheel if it's showing
 pub fn dismiss_wheel() {
     unsafe {
-        if WHEEL_HWND.0 != 0 {
-            PostMessageW(WHEEL_HWND, WM_CLOSE, WPARAM(0), LPARAM(0));
+        let hwnd = WHEEL_STATE.lock().unwrap().hwnd;
+        if hwnd.0 != 0 {
+            PostMessageW(hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
         }
     }
 }

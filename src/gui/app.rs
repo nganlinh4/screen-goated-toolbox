@@ -634,7 +634,7 @@ impl eframe::App for SettingsApp {
             let elapsed = ctx.input(|i| i.time) - start_time;
             if elapsed < 0.6 {
                 let opacity = 1.0 - (elapsed / 0.6) as f32;
-                let rect = ctx.input(|i| i.screen_rect());
+                let rect = ctx.input(|i| i.viewport().inner_rect.unwrap_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::ZERO)));
                 let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("fade_overlay")));
                 painter.rect_filled(rect, 0.0, eframe::egui::Color32::from_black_alpha((opacity * 255.0) as u8));
                 ctx.request_repaint();
@@ -666,11 +666,11 @@ impl eframe::App for SettingsApp {
         
         if self.show_tips_modal {
             // Register this as an open popup so any_popup_open() returns true
-            ctx.memory_mut(|mem| mem.open_popup(tips_popup_id));
+            egui::Popup::open_id(ctx, tips_popup_id);
             
             let tips_list_copy = text.tips_list.clone();
             let tips_title = text.tips_title;
-            let screen_rect = ctx.input(|i| i.screen_rect());
+            let screen_rect = ctx.input(|i| i.viewport().inner_rect.unwrap_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::ZERO)));
             
             // Dark semi-transparent backdrop
             let backdrop_layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("tips_backdrop"));

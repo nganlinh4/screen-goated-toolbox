@@ -41,7 +41,7 @@ pub fn render_global_settings(
     ui.add_space(5.0);
     
     // === API KEYS CARD ===
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(card_bg)
         .stroke(card_stroke)
         .inner_margin(12.0)
@@ -127,7 +127,7 @@ pub fn render_global_settings(
     ui.add_space(10.0);
 
     // === SOFTWARE UPDATE CARD ===
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(card_bg)
         .stroke(card_stroke)
         .inner_margin(12.0)
@@ -141,7 +141,7 @@ pub fn render_global_settings(
     ui.add_space(10.0);
     
     // === STARTUP OPTIONS CARD ===
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(card_bg)
         .stroke(card_stroke)
         .inner_margin(12.0)
@@ -249,7 +249,7 @@ pub fn render_global_settings(
                     _ => if config.graphics_mode == "minimal" { "Minimal" } else { "Standard" },
                 };
                 
-                egui::ComboBox::from_id_source("graphics_mode_combo")
+                egui::ComboBox::from_id_salt("graphics_mode_combo")
                     .selected_text(current_label)
                     .show_ui(ui, |ui| {
                         if ui.selectable_label(config.graphics_mode == "standard", text.graphics_mode_standard).clicked() {
@@ -309,7 +309,7 @@ fn render_usage_statistics(
     card_bg: egui::Color32,
     card_stroke: egui::Stroke,
 ) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(card_bg)
         .stroke(card_stroke)
         .inner_margin(12.0)

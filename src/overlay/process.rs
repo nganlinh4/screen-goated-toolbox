@@ -25,8 +25,6 @@ struct ProcessingState {
     alpha: u8,
     cache_hbm: HBITMAP,
     cache_bits: *mut core::ffi::c_void,
-    cache_w: i32,
-    cache_h: i32,
     scaled_w: i32,
     scaled_h: i32,
     timer_killed: bool,
@@ -43,8 +41,6 @@ impl ProcessingState {
             alpha: 255,
             cache_hbm: HBITMAP(0),
             cache_bits: std::ptr::null_mut(),
-            cache_w: 0,
-            cache_h: 0,
             scaled_w: 0,
             scaled_h: 0,
             timer_killed: false,
@@ -207,7 +203,7 @@ pub fn start_text_processing(
                 unsafe { PostMessageW(input_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0)); }
             } else {
                 // Continuous mode: close previous result overlays before spawning new ones
-                if let Ok(mut token_guard) = last_cancel_token_clone.lock() {
+                if let Ok(token_guard) = last_cancel_token_clone.lock() {
                     if let Some(ref old_token) = *token_guard {
                         // Close windows from previous submission
                         super::result::close_windows_with_token(old_token);
@@ -667,7 +663,6 @@ fn run_chain_step(
                 stream_en, 
                 false, 
                 prompt_c, 
-                None, 
                 bg_color,
                 &render_md
             );
@@ -1004,8 +999,8 @@ fn run_chain_step(
         let parallel_branches: Vec<usize> = next_blocks.into_iter().skip(1).collect();
         
         // Spawn parallel threads for additional branches FIRST
-        let s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+        let _s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+        let _s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
         
         for (branch_index, next_idx) in parallel_branches.iter().enumerate() {
             let result_clone = result_text.clone();

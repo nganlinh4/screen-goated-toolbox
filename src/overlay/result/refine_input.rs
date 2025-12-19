@@ -450,11 +450,6 @@ pub fn is_refine_input_active(parent_hwnd: HWND) -> bool {
     states.contains_key(&parent_key)
 }
 
-/// Get the height of the refine input (for layout calculation)
-pub fn get_refine_input_height() -> i32 {
-    40 // Fixed height
-}
-
 /// Bring the refine input to the top of the z-order
 /// Call this after creating other child windows to ensure refine input stays visible
 pub fn bring_to_top(parent_hwnd: HWND) {

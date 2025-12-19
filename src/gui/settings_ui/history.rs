@@ -30,7 +30,7 @@ pub fn render_history_panel(
     
     // === HEADER CARD ===  
     ui.add_space(5.0);
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(card_bg)
         .stroke(card_stroke)
         .inner_margin(12.0)
@@ -97,7 +97,7 @@ pub fn render_history_panel(
         });
     } else {
         // History items in scroll area
-        egui::Frame::none().show(ui, |ui| {
+        egui::Frame::new().show(ui, |ui| {
             ui.set_height(460.0);
             
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -128,7 +128,7 @@ pub fn render_history_panel(
                         },
                     };
                     
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(item_bg)
                         .stroke(card_stroke)
                         .inner_margin(8.0)

@@ -8,7 +8,7 @@ use windows::core::*;
 use std::mem::size_of;
 use std::sync::Once;
 
-use super::state::{WINDOW_STATES, WindowState, CursorPhysics, InteractionMode, ResizeEdge, RefineContext, WindowType, RetranslationConfig};
+use super::state::{WINDOW_STATES, WindowState, CursorPhysics, InteractionMode, ResizeEdge, RefineContext, WindowType};
 use super::event_handler::result_wnd_proc;
 
 // Palette for chain windows
@@ -53,7 +53,6 @@ pub fn create_result_window(
     streaming_enabled: bool,
     start_editing: bool,
     preset_prompt: String,
-    _unused_retrans: Option<RetranslationConfig>,
     custom_bg_color: u32,
     render_mode: &str,
 ) -> HWND {
@@ -147,7 +146,7 @@ pub fn create_result_window(
         {
             let mut states = WINDOW_STATES.lock().unwrap();
             states.insert(hwnd.0 as isize, WindowState {
-                alpha: 220,
+
                 is_hovered: false,
                 on_copy_btn: false,
                 copy_success: false,
@@ -187,13 +186,8 @@ pub fn create_result_window(
                 edit_font: hfont,
                 preset_prompt, 
                 input_text: String::new(),
-                retrans_config: None, // Deprecated in favor of chain logic
                 graphics_mode,
                 cancellation_token: None,
-                // Compound model state
-                is_compound_searching: false,
-                compound_search_text: String::new(),
-                compound_final_text: String::new(),
                 // Markdown mode state
                 is_markdown_mode: render_mode == "markdown",
                 on_markdown_btn: false,

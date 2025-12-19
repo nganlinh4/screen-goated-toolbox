@@ -5,14 +5,14 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::core::*;
 use std::mem::size_of;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::overlay::utils::to_wstring;
-use super::state::{WINDOW_STATES, InteractionMode, ResizeEdge, RefineContext, link_windows, WindowType};
+use super::state::{WINDOW_STATES, InteractionMode, ResizeEdge, RefineContext};
 use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_redo_btn_rect, get_markdown_btn_rect, get_download_btn_rect, get_resize_edge};
 use super::logic;
 use super::paint;
-use super::window::{create_result_window, update_window_text};
+
 use super::markdown_view;
 use super::refine_input;
 
@@ -467,7 +467,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                      markdown_view::go_forward(hwnd);
                  } else if is_undo_click {
                     let mut prev_text = None;
-                    let mut current_text_for_redo = String::new();
+
                     let mut is_markdown = false;
                     let mut is_hovered = false;
                     {
@@ -475,7 +475,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                             if let Some(last) = state.text_history.pop() {
                                 // Save current text to redo history before replacing
-                                current_text_for_redo = state.full_text.clone();
+                                let current_text_for_redo = state.full_text.clone();
                                 prev_text = Some(last.clone());
                                 state.full_text = last;
                                 // Push current text to redo stack
@@ -509,7 +509,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                  } else if is_redo_click {
                     // Redo: pop from redo_history, push current to text_history
                     let mut next_text = None;
-                    let mut current_text_for_undo = String::new();
+
                     let mut is_markdown = false;
                     let mut is_hovered = false;
                     {
@@ -517,7 +517,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                             if let Some(redo_text) = state.redo_history.pop() {
                                 // Save current text to undo history before replacing
-                                current_text_for_undo = state.full_text.clone();
+                                let current_text_for_undo = state.full_text.clone();
                                 next_text = Some(redo_text.clone());
                                 state.full_text = redo_text;
                                 // Push current text back to undo stack
@@ -550,7 +550,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     }
                  } else if is_edit_click {
                     // Check if we're in markdown mode to decide which input to use
-                    let (is_markdown_mode, is_currently_editing, h_edit) = {
+                    let (is_markdown_mode, _is_currently_editing, _h_edit) = {
                         let states = WINDOW_STATES.lock().unwrap();
                         if let Some(state) = states.get(&(hwnd.0 as isize)) {
                             (state.is_markdown_mode, state.is_editing, state.edit_hwnd)
@@ -655,7 +655,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     
                     if can_toggle {
                         // Toggle markdown mode
-                        let (toggle_on, full_text) = {
+                        let (toggle_on, _full_text) = {
                             let mut states = WINDOW_STATES.lock().unwrap();
                             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                                 state.is_markdown_mode = !state.is_markdown_mode;
@@ -961,12 +961,12 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
 
             // --- TYPE MODE PROMPT LOGIC ---
             if trigger_refine && !user_input.trim().is_empty() {
-                  let (context_data, model_id, provider, streaming, preset_prompt, _retrans_config_opt) = {
+                  let (context_data, model_id, provider, streaming, preset_prompt) = {
                       let states = WINDOW_STATES.lock().unwrap();
                       if let Some(s) = states.get(&(hwnd.0 as isize)) {
-                          (s.context_data.clone(), s.model_id.clone(), s.provider.clone(), s.streaming_enabled, s.preset_prompt.clone(), s.retrans_config.clone())
+                          (s.context_data.clone(), s.model_id.clone(), s.provider.clone(), s.streaming_enabled, s.preset_prompt.clone())
                       } else {
-                          (RefineContext::None, "scout".to_string(), "groq".to_string(), false, "".to_string(), None)
+                          (RefineContext::None, "scout".to_string(), "groq".to_string(), false, "".to_string())
                       }
                   };
                   
@@ -1033,7 +1033,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                                         let app = crate::APP.lock().unwrap();
                                         let full_name = crate::model_config::get_model_by_id(&model_id)
                                             .map(|m| m.full_name)
-                                            .unwrap_or_else(|| model_id.clone());
+                                            .unwrap_or_else(|| model_id.to_string());
                                         (app.config.ui_language.clone(), full_name)
                                     };
                                     let err_msg = crate::overlay::utils::get_error_message(&e.to_string(), &lang, Some(&model_full_name));
@@ -1103,7 +1103,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     refine_input::hide_refine_input(hwnd);
                 } else {
                     windows_to_close = Vec::new();
-                    token_to_signal = None;
+
                 }
             }
             

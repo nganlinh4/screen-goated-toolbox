@@ -107,7 +107,7 @@ $patchedCode = @"
         
         // Check if any popup is open (ComboBox dropdowns, context menus, etc.)
         // If a popup is open, we should NOT capture scroll, let the popup handle it
-        let any_popup_open = ui.ctx().memory(|mem| mem.any_popup_open());
+        let any_popup_open = egui::Popup::is_any_open(ui.ctx());
         
         // Check if pointer is over a higher layer (Modal windows, Panels, etc.)
         // Only capture scroll if the pointer is on the Background layer (the canvas itself)

@@ -8,24 +8,11 @@ use std::sync::{Once, Mutex};
 use std::num::NonZeroIsize;
 use std::cell::RefCell;
 use crate::gui::locale::LocaleText;
-use crate::APP;
 use wry::{WebViewBuilder, Rect};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32WindowHandle, HandleError};
 
 static REGISTER_INPUT_CLASS: Once = Once::new();
 static mut INPUT_HWND: HWND = HWND(0);
-
-// Static storage for i18n and display state
-// (Replaced by Mutex config below)
-
-// Dragging State (Screen Coordinates)
-static mut IS_DRAGGING: bool = false;
-static mut DRAG_START_MOUSE: POINT = POINT { x: 0, y: 0 };
-static mut DRAG_START_WIN_POS: POINT = POINT { x: 0, y: 0 };
-
-// Callback storage
-type SubmitCallback = Box<dyn Fn(String, HWND) + Send>;
-
 // Colors
 const COL_DARK_BG: u32 = 0x202020; // RGB(32, 32, 32)
 
@@ -313,14 +300,6 @@ pub fn cancel_input() {
             ShowWindow(INPUT_HWND, SW_HIDE);
         }
     }
-}
-
-/// Get the edit control HWND of the active text input window
-/// For webview-based input, this returns None as there's no native edit control
-pub fn get_input_edit_hwnd() -> Option<HWND> {
-    // Webview-based input doesn't expose a native HWND for the editor
-    // Pasting is handled via JavaScript in the webview
-    None
 }
 
 /// Set text content in the webview editor (for paste operations)

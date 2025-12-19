@@ -17,8 +17,8 @@ pub struct DustParticle {
 #[derive(Clone, Copy, PartialEq)]
 pub enum AnimationMode {
     Idle,       // Normal mouse movement
-    Smashing,   // User clicked (Sweep start)
-    DragOut,    // User holding/dragging out
+
+
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -56,7 +56,7 @@ pub struct CursorPhysics {
     
     // Logic
     pub mode: AnimationMode,
-    pub state_timer: f32,
+
     pub particles: Vec<DustParticle>,
     
     // Clean up
@@ -73,7 +73,7 @@ impl Default for CursorPhysics {
             squish_factor: 1.0,
             bristle_bend: 0.0,
             mode: AnimationMode::Idle,
-            state_timer: 0.0,
+
             particles: Vec::new(),
             initialized: false,
             needs_cleanup_repaint: false,
@@ -88,19 +88,9 @@ pub enum RefineContext {
     Image(Vec<u8>), // PNG Bytes
 }
 
-// NEW: Config for Delayed Retranslation (triggered after generation)
-#[derive(Clone)]
-pub struct RetranslationConfig {
-    pub enabled: bool,
-    pub target_lang: String,
-    pub model_id: String,
-    pub provider: String,
-    pub streaming: bool,
-    pub auto_copy: bool,
-}
 
 pub struct WindowState {
-    pub alpha: u8,
+
     pub is_hovered: bool,
     pub on_copy_btn: bool,
     pub copy_success: bool,
@@ -134,8 +124,6 @@ pub struct WindowState {
     pub preset_prompt: String,
     // NEW: Input text currently being refined/processed
     pub input_text: String,
-    // NEW: Retranslation Config
-    pub retrans_config: Option<RetranslationConfig>,
     
     pub bg_color: u32,
     pub linked_window: Option<HWND>,
@@ -175,11 +163,6 @@ pub struct WindowState {
     // Cancellation token - set to true when window is destroyed to stop ongoing chains
     pub cancellation_token: Option<Arc<AtomicBool>>,
     
-    // Compound model multi-stage display state
-    pub is_compound_searching: bool,       // True while showing reasoning/search process
-    pub compound_search_text: String,      // Temporary text during search phase
-    pub compound_final_text: String,       // Final answer text
-    
     // Markdown mode state
     pub is_markdown_mode: bool,            // True when showing markdown view
     pub on_markdown_btn: bool,             // Hover state for markdown button
@@ -195,15 +178,7 @@ pub struct WindowState {
     pub on_download_btn: bool,             // Hover state for download HTML button
 }
 
-/// Check if a cancellation token is set (chain should stop)
-pub fn is_cancelled(token: &Option<Arc<AtomicBool>>) -> bool {
-    token.as_ref().map(|t| t.load(Ordering::Relaxed)).unwrap_or(false)
-}
 
-/// Create a new cancellation token
-pub fn new_cancellation_token() -> Arc<AtomicBool> {
-    Arc::new(AtomicBool::new(false))
-}
 
 // SAFETY: Raw pointers are not Send/Sync, but we only use them within the main thread
 // This is safe because all access is synchronized via WINDOW_STATES mutex
@@ -216,8 +191,7 @@ lazy_static::lazy_static! {
 
 pub enum WindowType {
     Primary,
-    Secondary,
-    SecondaryExplicit, // New type: Trust the coordinates, use Secondary color
+    // Note: Secondary and SecondaryExplicit were removed as dead code
 }
 
 pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {

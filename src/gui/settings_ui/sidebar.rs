@@ -1,7 +1,7 @@
 use eframe::egui;
 use crate::config::{Config, Preset, ThemeMode};
 use crate::gui::locale::LocaleText;
-use crate::gui::icons::{Icon, icon_button, draw_icon_static, icon_button_sized};
+use crate::gui::icons::{Icon, draw_icon_static, icon_button_sized};
 use super::ViewMode;
 
 /// Get localized preset name for default presets (public for reuse in other modules)
@@ -218,7 +218,7 @@ pub fn render_sidebar(
                     "ko" => "🇰🇷",
                     _ => "🇺🇸",
                 };
-                egui::ComboBox::from_id_source("header_lang_switch")
+                egui::ComboBox::from_id_salt("header_lang_switch")
                     .width(32.0)
                     .selected_text(lang_flag)
                     .show_ui(ui, |ui| {
@@ -464,7 +464,7 @@ fn render_preset_item(
                 Icon::Microphone
             }
         },
-        "video" => Icon::Video,
+        "video" => Icon::Image,
         "text" => {
             // Use TextSelect for select mode, Text (T) for type mode
             if preset.text_input_mode == "select" {

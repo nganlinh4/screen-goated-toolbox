@@ -7,45 +7,41 @@ pub struct LocaleText {
      pub clear_all_history_btn: &'static str,
      pub view_image_btn: &'static str, 
      pub listen_audio_btn: &'static str, 
-     pub prompt_mode_label: &'static str,
+
      pub prompt_mode_fixed: &'static str,
      pub prompt_mode_dynamic: &'static str,
-     pub api_section: &'static str,
-     pub api_key_label: &'static str,
+
+
      pub get_key_link: &'static str,
      pub gemini_api_key_label: &'static str,
      pub gemini_get_key_link: &'static str,
-     pub presets_section: &'static str,
+
      pub global_settings: &'static str,
      pub preset_name_label: &'static str,
-     pub prompt_label: &'static str,
-     pub insert_lang_btn: &'static str,
-     pub retranslate_section: &'static str,
-     pub retranslate_checkbox: &'static str,
-     pub retranslate_to_label: &'static str,
-     pub retranslate_model_label: &'static str,
-     pub add_preset_btn: &'static str,
+
+
+
      pub search_placeholder: &'static str,
-     pub model_section: &'static str,
-     pub streaming_label: &'static str,
-     pub streaming_option_stream: &'static str,
-     pub streaming_option_wait: &'static str,
-     pub auto_copy_label: &'static str,
-     pub auto_paste_label: &'static str, 
+
+ 
+     pub auto_paste_label: &'static str,
      pub auto_paste_newline_label: &'static str,
      pub startup_label: &'static str,
      pub add_hotkey_button: &'static str,
      pub press_keys: &'static str,
      pub cancel_label: &'static str,
      pub reset_defaults_btn: &'static str,
-     pub hide_overlay_label: &'static str,
+
+
+
      pub preset_type_label: &'static str,
      pub preset_type_image: &'static str,
      pub preset_type_audio: &'static str,
      pub preset_type_video: &'static str,
      pub preset_type_text: &'static str, // NEW
-     pub capture_method_label: &'static str,
-     pub region_capture: &'static str,
+
+
+
      pub audio_source_label: &'static str,
      pub audio_src_mic: &'static str,
      pub audio_src_device: &'static str,
@@ -65,7 +61,7 @@ pub struct LocaleText {
      pub usage_model_column: &'static str,
      pub usage_remaining_column: &'static str,
      pub usage_check_link: &'static str,
-     pub empty_prompt_warning: &'static str,
+
      pub footer_admin_text: &'static str,
      pub footer_version: &'static str,
      pub check_for_updates_btn: &'static str,
@@ -98,20 +94,8 @@ pub struct LocaleText {
      pub add_image_preset_btn: &'static str,
      pub add_audio_preset_btn: &'static str,
      // --- PROCESSING CHAIN UI ---
-     pub processing_chain_title: &'static str,
-     pub step_input_label: &'static str,
-     pub step_process_label: &'static str,
-     pub remove_step_tooltip: &'static str,
-     pub overlay_visible_tooltip: &'static str,
-     pub overlay_hidden_tooltip: &'static str,
-     pub model_label: &'static str,
-     pub target_lang_label: &'static str,
-     pub stream_checkbox: &'static str,
-     pub stream_tooltip: &'static str,
-     pub auto_copy_tooltip: &'static str,
-     pub add_step_btn: &'static str,
-     pub insert_lang_tag_btn: &'static str,
-     pub insert_lang_tag_tooltip: &'static str,
+
+
      pub tips_title: &'static str,
      pub tips_list: Vec<&'static str>,
      pub tips_click_hint: &'static str,
@@ -129,7 +113,7 @@ pub struct LocaleText {
      pub search_processing: &'static str,      // "Processing and summarizing results..." / "Đang xử lý và tóm tắt kết quả..."
      // --- MASTER PRESET UI ---
      pub controller_checkbox_label: &'static str, // "Bộ điều khiển" / "Controller" / "컨트롤러"
-     pub preset_wheel_dismiss: &'static str,     // "Hủy" / "Dismiss" / "취소"
+
      // --- GLOBAL SETTINGS UI HEADERS ---
      pub api_keys_header: &'static str,
      pub groq_label: &'static str,
@@ -150,30 +134,21 @@ impl LocaleText {
                  clear_all_history_btn: "Dọn tất cả", 
                  view_image_btn: "Xem ảnh",
                  listen_audio_btn: "Nghe audio",
-                 prompt_mode_label: "Phương thức:",
+
                  prompt_mode_fixed: "Làm theo lệnh sẵn",
                  prompt_mode_dynamic: "Viết lệnh tại chỗ",
-                 api_section: "Cài Đặt Chung",
-                 api_key_label: "Mã API Groq:",
+
                  get_key_link: "Lấy tại console.groq.com",
                 gemini_api_key_label: "Mã API Gemini:",
                 gemini_get_key_link: "Lấy mã tại aistudio.google.com",
-                presets_section: "Danh Sách Cấu Hình",
+
                 global_settings: "Cài Đặt Chung",
                 preset_name_label: "Tên Cấu Hình:",
-                prompt_label: "Câu lệnh:",
-                insert_lang_btn: "Chèn thẻ {language}",
-                retranslate_section: "Dịch lại kết quả",
-                retranslate_checkbox: "Bật dịch lại",
-                retranslate_to_label: "Dịch sang:",
-                retranslate_model_label: "Mô hình dịch lại:",
-                add_preset_btn: "+ Thêm Cấu Hình",
+
+
+
                 search_placeholder: "Tìm...",
-                model_section: "Mô hình xử lý",
-                streaming_label: "Cách xuất chữ:",
-                streaming_option_stream: "Nhận gì hiện nấy",
-                streaming_option_wait: "Nhận hết mới hiện",
-                auto_copy_label: "Tự động copy",
+
                 auto_paste_label: "Tự động dán",
                 auto_paste_newline_label: "Tự thêm ký tự xuống dòng sau khi copy",
                 startup_label: "Khởi động cùng Windows",
@@ -181,14 +156,17 @@ impl LocaleText {
                 press_keys: "Ấn tổ hợp phím...",
                 cancel_label: "Hủy",
                 reset_defaults_btn: "Khôi phục mặc định",
-                hide_overlay_label: "Ẩn overlay",
+
+
+
                 preset_type_label: "Loại hình:",
                 preset_type_image: "Hiểu hình ảnh",
                 preset_type_audio: "Hiểu âm thanh",
                 preset_type_video: "Hiểu video (upcoming)",
                 preset_type_text: "Hiểu văn bản", // NEW
-                capture_method_label: "Phương pháp quay:",
-                region_capture: "Chọn vùng màn hình",
+
+
+
                 audio_source_label: "Nguồn:",
                 audio_src_mic: "Microphone",
                 audio_src_device: "Âm thanh máy tính",
@@ -208,7 +186,7 @@ impl LocaleText {
                 usage_model_column: "Mô hình",
                 usage_remaining_column: "Còn lại / Tổng",
                 usage_check_link: "Xem lượng dùng ↗",
-                empty_prompt_warning: "Cảnh báo: Câu lệnh trống có thể cho kết quả không như mong đợi!",
+
                 footer_admin_text: "chạy bằng admin để dịch game",
                 footer_version: "phiên bản",
                 check_for_updates_btn: "Kiểm Tra Cập Nhật",
@@ -241,20 +219,8 @@ impl LocaleText {
                 add_image_preset_btn: "+ Ảnh",
                 add_audio_preset_btn: "+ Âm thanh",
                 // --- PROCESSING CHAIN UI VI ---
-                processing_chain_title: "Chuỗi hành động",
-                step_input_label: "Bước 1: Đầu vào",
-                step_process_label: "Bước",
-                remove_step_tooltip: "Xóa bước này",
-                overlay_visible_tooltip: "Hiện overlay",
-                overlay_hidden_tooltip: "Xử lý ngầm (ẩn)",
-                model_label: "Mô hình:",
-                target_lang_label: "Ngôn ngữ đích:",
-                stream_checkbox: "Nhận gì hiện nấy",
-                stream_tooltip: "Hiển thị kết quả dần dần",
-                auto_copy_tooltip: "Copy kết quả này vào clipboard",
-                add_step_btn: "+ Hành động",
-                insert_lang_tag_btn: "+ Thẻ Ngôn ngữ",
-                insert_lang_tag_tooltip: "Chèn thẻ {languageN} vào prompt",
+
+
                 tips_title: "Mẹo sử dụng",
                 tips_click_hint: "Click vào dòng chữ này để xem danh sách mẹo",
                 tips_list: vec![
@@ -290,7 +256,7 @@ impl LocaleText {
                 search_processing: "🧠 Đang xử lý và tóm tắt kết quả...",
                 // --- MASTER PRESET UI VI ---
                 controller_checkbox_label: "Bộ điều khiển",
-                preset_wheel_dismiss: "Hủy",
+
                 // --- GLOBAL SETTINGS UI HEADERS VI ---
                 api_keys_header: "🔑 Mã API",
                 groq_label: "Mã API Groq:",
@@ -306,30 +272,21 @@ impl LocaleText {
                  clear_all_history_btn: "모두 삭제",
                  view_image_btn: "이미지 보기",
                  listen_audio_btn: "오디오 듣기",
-                 prompt_mode_label: "작동 방식:",
+
                  prompt_mode_fixed: "사전 정의된 프롬프트",
                  prompt_mode_dynamic: "즉석에서 작성",
-                 api_section: "전역 설정",
-                api_key_label: "Groq API 키:",
+
                 get_key_link: "console.groq.com에서 API 키 받기",
                 gemini_api_key_label: "Gemini API 키:",
                 gemini_get_key_link: "aistudio.google.com에서 API 키 받기",
-                presets_section: "프리셋 목록",
+
                 global_settings: "전역 설정",
                 preset_name_label: "프리셋 이름:",
-                prompt_label: "프롬프트:",
-                insert_lang_btn: "{language} 태그 삽입",
-                retranslate_section: "재번역 결과",
-                retranslate_checkbox: "재번역 활성화",
-                retranslate_to_label: "번역 대상:",
-                retranslate_model_label: "재번역 모델:",
-                add_preset_btn: "+ 프리셋 추가",
+
+
+
                 search_placeholder: "검색...",
-                model_section: "처리 모델",
-                streaming_label: "텍스트 출력:",
-                streaming_option_stream: "수신 즉시 스트리밍",
-                streaming_option_wait: "완료 대기",
-                auto_copy_label: "자동 복사",
+
                 auto_paste_label: "자동 붙여넣기", 
                 auto_paste_newline_label: "복사 후 자동 줄바꿈 추가",
                 startup_label: "Windows 시작 시 실행",
@@ -337,14 +294,17 @@ impl LocaleText {
                 press_keys: "조합 키 누르기...",
                 cancel_label: "취소",
                 reset_defaults_btn: "기본값으로 재설정",
-                hide_overlay_label: "오버레이 숨기기",
+
+
+
                 preset_type_label: "유형:",
                 preset_type_image: "이미지 이해",
                 preset_type_audio: "오디오 이해",
                 preset_type_video: "비디오 이해 (upcoming)",
                 preset_type_text: "텍스트 이해", // NEW
-                capture_method_label: "캡처 방법:",
-                region_capture: "영역 캡처",
+
+
+
                 audio_source_label: "오디오 소스:",
                 audio_src_mic: "마이크",
                 audio_src_device: "컴퓨터 오디오",
@@ -364,7 +324,7 @@ impl LocaleText {
                 usage_model_column: "모델",
                 usage_remaining_column: "남은 / 전체",
                 usage_check_link: "사용량 확인 ↗",
-                empty_prompt_warning: "경고: 빈 프롬프트는 예측할 수 없는 결과를 낼 수 있습니다!",
+
                 footer_admin_text: "게임을 번역하려면 관리자로 실행하세요",
                 footer_version: "버전",
                 check_for_updates_btn: "업데이트 확인",
@@ -397,20 +357,8 @@ impl LocaleText {
                 add_image_preset_btn: "+ 이미지",
                 add_audio_preset_btn: "+ 오디오",
                 // --- PROCESSING CHAIN UI KO ---
-                processing_chain_title: "작업 체인",
-                step_input_label: "1단계: 입력",
-                step_process_label: "단계",
-                remove_step_tooltip: "이 단계 삭제",
-                overlay_visible_tooltip: "오버레이 표시",
-                overlay_hidden_tooltip: "백그라운드 처리 (숨김)",
-                model_label: "모델:",
-                target_lang_label: "대상 언어:",
-                stream_checkbox: "실시간 표시",
-                stream_tooltip: "결과 점진적 표시",
-                auto_copy_tooltip: "이 결과 클립보드에 복사",
-                add_step_btn: "+ 액션",
-                insert_lang_tag_btn: "+ 언어 태그",
-                insert_lang_tag_tooltip: "프롬프트에 {languageN} 태그 삽입",
+
+
                 tips_title: "사용 팁",
                 tips_click_hint: "이 텍스트를 클릭하여 팁 목록 보기",
                 tips_list: vec![
@@ -446,7 +394,7 @@ impl LocaleText {
                    search_processing: "🧠 결과 처리 및 요약 중...",
                    // --- MASTER PRESET UI KO ---
                    controller_checkbox_label: "컨트롤러",
-                   preset_wheel_dismiss: "취소",
+   
                    // --- GLOBAL SETTINGS UI HEADERS KO ---
                    api_keys_header: "🔑 API 키",
                    groq_label: "Groq API 키:",
@@ -462,30 +410,21 @@ impl LocaleText {
                  clear_all_history_btn: "Clear All",
                  view_image_btn: "View Image",
                  listen_audio_btn: "Listen Audio",
-                 prompt_mode_label: "Mode:",
+
                  prompt_mode_fixed: "Predefined Prompt",
                  prompt_mode_dynamic: "Write on the spot",
-                 api_section: "Global Settings",
-                api_key_label: "Groq API Key:",
+
                 get_key_link: "Get API Key at console.groq.com",
                 gemini_api_key_label: "Gemini API Key:",
                 gemini_get_key_link: "Get API Key at aistudio.google.com",
-                presets_section: "Presets",
+
                 global_settings: "Global Settings",
                 preset_name_label: "Preset Name:",
-                prompt_label: "Prompt:",
-                insert_lang_btn: "Insert {language}",
-                retranslate_section: "Retranslate Result",
-                retranslate_checkbox: "Enable Retranslate",
-                retranslate_to_label: "Translate to:",
-                retranslate_model_label: "Retranslation Model:",
-                add_preset_btn: "+ Add Preset",
+
+
+
                 search_placeholder: "Search...",
-                model_section: "Processing Model",
-                streaming_label: "Text Output:",
-                streaming_option_stream: "Stream as received",
-                streaming_option_wait: "Wait for completion",
-                auto_copy_label: "Auto copy result",
+
                 auto_paste_label: "Auto-paste", 
                 auto_paste_newline_label: "Auto add newline after copy",
                 startup_label: "Run at Windows Startup",
@@ -493,14 +432,17 @@ impl LocaleText {
                 press_keys: "Press combination...",
                 cancel_label: "Cancel",
                 reset_defaults_btn: "Reset to Defaults",
-                hide_overlay_label: "Hide overlay",
+
+
+
                 preset_type_label: "Type:",
                 preset_type_image: "Image Understanding",
                 preset_type_audio: "Audio Understanding",
                 preset_type_video: "Video Understanding (upcoming)",
                 preset_type_text: "Text Understanding", // NEW
-                capture_method_label: "Capture Method:",
-                region_capture: "Region Capture",
+
+
+
                 audio_source_label: "Audio Source:",
                 audio_src_mic: "Microphone",
                 audio_src_device: "Device Audio",
@@ -520,7 +462,7 @@ impl LocaleText {
                 usage_model_column: "Model",
                 usage_remaining_column: "Remaining / Total",
                 usage_check_link: "Check Usage ↗",
-                empty_prompt_warning: "Warning: Empty prompt may yield unpredictable results!",
+
                 footer_admin_text: "Run with admin to translate games",
                 footer_version: "Version",
                 check_for_updates_btn: "Check for Updates",
@@ -553,20 +495,8 @@ impl LocaleText {
                 add_image_preset_btn: "+ Image",
                 add_audio_preset_btn: "+ Audio",
                 // --- PROCESSING CHAIN UI EN ---
-                processing_chain_title: "Action Chain",
-                step_input_label: "Step 1: Input",
-                step_process_label: "Step",
-                remove_step_tooltip: "Remove Step",
-                overlay_visible_tooltip: "Overlay Visible",
-                overlay_hidden_tooltip: "Background Processing (Hidden)",
-                model_label: "Model:",
-                target_lang_label: "Target Lang:",
-                stream_checkbox: "Live output",
-                stream_tooltip: "Stream text output",
-                auto_copy_tooltip: "Copy this result to clipboard",
-                add_step_btn: "+ Action",
-                insert_lang_tag_btn: "+ Lang Tag",
-                insert_lang_tag_tooltip: "Insert {languageN} tag into prompt",
+
+
                 tips_title: "Usage Tips",
                 tips_click_hint: "Click text to view tip list",
                 tips_list: vec![
@@ -602,7 +532,7 @@ impl LocaleText {
                    search_processing: "🧠 Processing and summarizing results...",
                    // --- MASTER PRESET UI EN ---
                    controller_checkbox_label: "Controller",
-                   preset_wheel_dismiss: "Dismiss",
+   
                    // --- GLOBAL SETTINGS UI HEADERS EN ---
                    api_keys_header: "🔑 API Keys",
                    groq_label: "Groq API Key:",

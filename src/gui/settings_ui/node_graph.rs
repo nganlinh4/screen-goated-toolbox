@@ -79,25 +79,6 @@ impl Default for ChainNode {
 }
 
 impl ChainNode {
-    pub fn new_input(block_type: &str) -> Self {
-        let model = match block_type {
-            "audio" => "whisper-accurate".to_string(),
-            "image" => "maverick".to_string(),
-            _ => "text_accurate_kimi".to_string(),
-        };
-        ChainNode::Input {
-            id: format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()),
-            block_type: block_type.to_string(),
-            model,
-            prompt: String::new(),
-            language_vars: HashMap::new(),
-            show_overlay: true,
-            streaming_enabled: true,
-            render_mode: "stream".to_string(),
-            auto_copy: false,
-        }
-    }
-
     pub fn is_input(&self) -> bool {
         matches!(self, ChainNode::Input { .. })
     }
@@ -192,19 +173,17 @@ pub struct ChainViewer {
     pub ui_language: String,
     pub changed: bool,
     pub language_search: String,
-    pub prompt_mode: String,
     pub use_groq: bool,
     pub use_gemini: bool,
     pub use_openrouter: bool,
 }
 
 impl ChainViewer {
-    pub fn new(ui_language: &str, prompt_mode: &str, use_groq: bool, use_gemini: bool, use_openrouter: bool) -> Self {
+    pub fn new(ui_language: &str, _prompt_mode: &str, use_groq: bool, use_gemini: bool, use_openrouter: bool) -> Self {
         Self {
             ui_language: ui_language.to_string(),
             changed: false,
             language_search: String::new(),
-            prompt_mode: prompt_mode.to_string(),
             use_groq,
             use_gemini,
             use_openrouter,
@@ -352,12 +331,11 @@ impl SnarlViewer<ChainNode> for ChainViewer {
         snarl: &mut Snarl<ChainNode>,
     ) {
         let mut auto_copy_triggered = false;
-        let mut current_node_uuid = String::new();
+        let current_node_uuid = snarl.get_node(node_id).map(|n| n.id().to_string()).unwrap_or_default();
         
         // Render Node UI
         {
             let node = snarl.get_node_mut(node_id).unwrap();
-            current_node_uuid = node.id().to_string();
             
             ui.vertical(|ui| {
                 ui.set_max_width(320.0);
@@ -380,12 +358,13 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             };
                             
                             // Model selector button with manual popup for tight width
-                            let popup_id = ui.make_persistent_id(format!("model_popup_{:?}", node_id));
                             let button_response = ui.button(display_name);
                             if button_response.clicked() {
-                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                egui::Popup::toggle_id(ui.ctx(), button_response.id);
                             }
-                            egui::popup_below_widget(ui, popup_id, &button_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                            let popup_layer_id = button_response.id;
+                            egui::Popup::from_toggle_button_response(&button_response)
+                                .show(|ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
                                 for m in get_all_models() {
                                     if m.enabled && m.model_type == filter_type && self.is_provider_enabled(&m.provider) {
@@ -405,7 +384,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                         if ui.selectable_label(is_selected, label).clicked() {
                                             *model = m.id.clone();
                                             self.changed = true;
-                                            ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                            egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
                                         }
                                     }
                                 }
@@ -508,12 +487,14 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                 .unwrap_or(model.as_str());
                             
                             // Model selector button with manual popup for tight width
-                            let popup_id = ui.make_persistent_id(format!("model_popup_{:?}", node_id));
+
                             let button_response = ui.button(display_name);
                             if button_response.clicked() {
-                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                egui::Popup::toggle_id(ui.ctx(), button_response.id);
                             }
-                            egui::popup_below_widget(ui, popup_id, &button_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                            let popup_layer_id = button_response.id;
+                            egui::Popup::from_toggle_button_response(&button_response)
+                                .show(|ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
                                 for m in get_all_models() {
                                     if m.enabled && m.model_type == ModelType::Text && self.is_provider_enabled(&m.provider) {
@@ -533,7 +514,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                         if ui.selectable_label(is_selected, label).clicked() {
                                             *model = m.id.clone();
                                             self.changed = true;
-                                            ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                            egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
                                         }
                                     }
                                 }
@@ -650,7 +631,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
         if ui.button(add_process_label).clicked() {
             snarl.insert_node(pos, ChainNode::default());
             self.changed = true;
-            ui.close_menu();
+            ui.close();
         }
     }
 
@@ -668,7 +649,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
         if ui.button(delete_label).clicked() {
             snarl.remove_node(node_id);
             self.changed = true;
-            ui.close_menu();
+            ui.close();
         }
     }
 
@@ -707,7 +688,7 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
             let current_val = language_vars.get(&key).cloned().unwrap_or_default();
             
             // Create unique IDs for this specific language selector
-            let popup_id = ui.make_persistent_id(format!("lang_popup_{}", num));
+
             let search_id = egui::Id::new(format!("lang_search_{}", num));
             
             // Styled button to open popup
@@ -722,18 +703,19 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
                 .corner_radius(8.0));
             
             if button_response.clicked() {
-                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                egui::Popup::toggle_id(ui.ctx(), button_response.id);
             }
             
-            // Show popup below the button
-            egui::popup_below_widget(ui, popup_id, &button_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+            let popup_layer_id = button_response.id;
+            egui::Popup::from_toggle_button_response(&button_response)
+                .show(|ui| {
                 ui.set_min_width(180.0);
                 
                 // Get or create search state for this popup from temp data
                 let mut search_text: String = ui.data_mut(|d| d.get_temp(search_id).unwrap_or_default());
                 
                 // Search box
-                let search_response = ui.add(
+                let _search_response = ui.add(
                     egui::TextEdit::singleline(&mut search_text)
                         .hint_text("Search...")
                         .desired_width(170.0)
@@ -755,7 +737,7 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
                                 *changed = true;
                                 // Clear search and close popup
                                 ui.data_mut(|d| d.insert_temp::<String>(search_id, String::new()));
-                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
                             }
                         }
                     }
@@ -948,12 +930,6 @@ pub fn snarl_to_graph(snarl: &Snarl<ChainNode>) -> (Vec<ProcessingBlock>, Vec<(u
     }
     
     (blocks, connections)
-}
-
-/// Convert snarl graph back to blocks (for backward compatibility)
-/// Only returns blocks; connections are extracted separately
-pub fn snarl_to_blocks(snarl: &Snarl<ChainNode>) -> Vec<ProcessingBlock> {
-    snarl_to_graph(snarl).0
 }
 
 /// Render the node graph in the preset editor
