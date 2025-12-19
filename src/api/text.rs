@@ -136,7 +136,11 @@ where
             "messages": [
                 { "role": "user", "content": prompt }
             ],
-            "stream": streaming_enabled
+            "stream": streaming_enabled,
+            "reasoning": {
+                "effort": "none",
+                "exclude": true
+            }
         });
 
         let resp = UREQ_AGENT.post("https://openrouter.ai/api/v1/chat/completions")
@@ -162,8 +166,10 @@ where
                     
                     match serde_json::from_str::<StreamChunk>(data) {
                         Ok(chunk) => {
+                            // Only use content, ignore reasoning tokens
                             if let Some(content) = chunk.choices.get(0)
-                                .and_then(|c| c.delta.content.as_ref()) {
+                                .and_then(|c| c.delta.content.as_ref())
+                                .filter(|s| !s.is_empty()) {
                                 full_content.push_str(content);
                                 on_chunk(content);
                             }
@@ -576,7 +582,11 @@ where
                  "messages": [
                      { "role": "user", "content": final_prompt }
                  ],
-                 "stream": streaming_enabled
+                 "stream": streaming_enabled,
+                 "reasoning": {
+                     "effort": "none",
+                     "exclude": true
+                 }
              });
              
              let resp = UREQ_AGENT.post("https://openrouter.ai/api/v1/chat/completions")
@@ -595,7 +605,10 @@ where
                          
                          match serde_json::from_str::<StreamChunk>(data) {
                              Ok(chunk) => {
-                                 if let Some(content) = chunk.choices.get(0).and_then(|c| c.delta.content.as_ref()) {
+                                 // Only use content, ignore reasoning tokens
+                                 if let Some(content) = chunk.choices.get(0)
+                                     .and_then(|c| c.delta.content.as_ref())
+                                     .filter(|s| !s.is_empty()) {
                                      full_content.push_str(content);
                                      on_chunk(content);
                                  }

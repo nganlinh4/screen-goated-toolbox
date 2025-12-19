@@ -13,6 +13,8 @@ pub struct Choice {
 #[derive(Serialize, Deserialize)]
 pub struct Delta {
     pub content: Option<String>,
+    #[serde(default)]
+    pub reasoning: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

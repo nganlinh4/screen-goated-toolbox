@@ -536,6 +536,25 @@ impl Default for Config {
             }
         ];
 
+        // 5a. Hỏi AI (Ask AI - non-internet version)
+        let mut p5a = Preset::default();
+        p5a.id = "preset_ask_ai".to_string();
+        p5a.name = "Ask AI".to_string();
+        p5a.preset_type = "text".to_string();
+        p5a.text_input_mode = "type".to_string();
+        p5a.blocks = vec![
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "text_accurate_kimi".to_string(),
+                prompt: "Answer the following question or request helpfully and comprehensively. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. QUESTION/REQUEST:".to_string(),
+                streaming_enabled: true,
+                render_mode: "markdown".to_string(),
+                show_overlay: true,
+                auto_copy: false,
+                ..Default::default()
+            }
+        ];
+
         // 5b. Internet Search (Tìm kiếm internet)
         let mut p5b = Preset::default();
         p5b.id = "preset_internet_search".to_string();
@@ -1015,7 +1034,7 @@ impl Default for Config {
                 // Column 1: Image presets
                 p1, p7, p2, p3g, p4, p4b, p6, p8, p9, p10, p14b, p14c, pm1,
                 // Column 2: Text presets (Bôi MASTER after Giải thích code, Gõ MASTER after Internet search)
-                p3, p3h, p3b, p3c, p3d, p3e, p3f, p3f2, pm2, p5, p5b, p5c, pm3,
+                p3, p3h, p3b, p3c, p3d, p3e, p3f, p3f2, pm2, p5, p5a, p5b, p5c, pm3,
                 // Column 3: Audio presets (Mic presets first, then device audio presets at end)
                 p11, p13, p14, p16b, p16c, pm4, p12, pm5, p16,
             ],
