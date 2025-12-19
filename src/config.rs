@@ -907,8 +907,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Answer the following question concisely and helpfully in {language1}. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
-                selected_language: "Vietnamese".to_string(),
+                prompt: "Answer the following question concisely and helpfully. Format as markdown. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
                 show_overlay: true,
@@ -938,8 +937,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "compound_mini".to_string(),
-                prompt: "Search the internet for information about the following query and provide a comprehensive summary in {language1}. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
-                selected_language: "Vietnamese".to_string(),
+                prompt: "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
                 show_overlay: true,

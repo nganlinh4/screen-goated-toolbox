@@ -100,7 +100,7 @@ fn get_editor_css() -> &'static str {
         flex: 1;
         width: 100%;
         padding: 12px 14px;
-        padding-right: 50px; /* Space for mic button */
+        padding-right: 95px; /* Space for mic + send buttons */
         border: none;
         outline: none;
         resize: none;
@@ -146,14 +146,22 @@ fn get_editor_css() -> &'static str {
         pointer-events: none;
     }
     
-    /* Floating Mic Button */
-    .mic-btn {
+    /* Floating Button Container - Vertical Layout */
+    .btn-container {
         position: absolute;
         right: 10px;
         top: 50%;
         transform: translateY(-50%);
-        width: 36px;
-        height: 36px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        z-index: 10;
+    }
+    
+    /* Floating Mic Button */
+    .mic-btn {
+        width: 44px;
+        height: 44px;
         border-radius: 50%;
         border: none;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -163,21 +171,50 @@ fn get_editor_css() -> &'static str {
         justify-content: center;
         box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
         transition: all 0.2s ease;
-        z-index: 10;
     }
     
     .mic-btn:hover {
-        transform: translateY(-50%) scale(1.08);
+        transform: scale(1.08);
         box-shadow: 0 4px 12px rgba(102, 126, 234, 0.5);
     }
     
     .mic-btn:active {
-        transform: translateY(-50%) scale(0.95);
+        transform: scale(0.95);
     }
     
     .mic-btn svg {
-        width: 18px;
-        height: 18px;
+        width: 22px;
+        height: 22px;
+        fill: white;
+    }
+    
+    /* Send Button */
+    .send-btn {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: none;
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 8px rgba(56, 239, 125, 0.4);
+        transition: all 0.2s ease;
+    }
+    
+    .send-btn:hover {
+        transform: scale(1.08);
+        box-shadow: 0 4px 12px rgba(56, 239, 125, 0.5);
+    }
+    
+    .send-btn:active {
+        transform: scale(0.95);
+    }
+    
+    .send-btn svg {
+        width: 22px;
+        height: 22px;
         fill: white;
     }
     "#
@@ -201,16 +238,24 @@ fn get_editor_html(placeholder: &str) -> String {
 <body>
     <div class="editor-container">
         <textarea id="editor" placeholder="{escaped_placeholder}" autofocus></textarea>
-        <button class="mic-btn" id="micBtn" title="Speech to text">
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-            </svg>
-        </button>
+        <div class="btn-container">
+            <button class="mic-btn" id="micBtn" title="Speech to text">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                </svg>
+            </button>
+            <button class="send-btn" id="sendBtn" title="Send">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+            </button>
+        </div>
     </div>
     <script>
         const editor = document.getElementById('editor');
         const micBtn = document.getElementById('micBtn');
+        const sendBtn = document.getElementById('sendBtn');
         
         // Auto focus on load
         window.onload = () => {{
@@ -239,6 +284,15 @@ fn get_editor_html(placeholder: &str) -> String {
         micBtn.addEventListener('click', (e) => {{
             e.preventDefault();
             window.ipc.postMessage('mic');
+        }});
+        
+        // Send button click (simulates Enter)
+        sendBtn.addEventListener('click', (e) => {{
+            e.preventDefault();
+            const text = editor.value.trim();
+            if (text) {{
+                window.ipc.postMessage('submit:' + text);
+            }}
         }});
         
         // Prevent context menu

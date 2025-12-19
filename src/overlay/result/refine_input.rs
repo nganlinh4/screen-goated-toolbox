@@ -171,6 +171,37 @@ const REFINE_CSS: &str = r#"
         fill: white;
     }
     
+    /* Send Button */
+    .send-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: none;
+        margin-left: 6px;
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 6px rgba(56, 239, 125, 0.4);
+        transition: all 0.15s ease;
+    }
+    
+    .send-btn:hover {
+        transform: scale(1.08);
+        box-shadow: 0 3px 10px rgba(56, 239, 125, 0.5);
+    }
+    
+    .send-btn:active {
+        transform: scale(0.95);
+    }
+    
+    .send-btn svg {
+        width: 14px;
+        height: 14px;
+        fill: white;
+    }
+    
     .hint {
         font-size: 11px;
         color: #888;
@@ -197,11 +228,17 @@ fn get_refine_html(placeholder: &str) -> String {
                 <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
             </svg>
         </button>
-        <span class="hint">Enter ↵ | Esc ✕</span>
+        <button class="send-btn" id="sendBtn" title="Send">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+            </svg>
+        </button>
+        <span class="hint">Esc ✕</span>
     </div>
     <script>
         const editor = document.getElementById('editor');
         const micBtn = document.getElementById('micBtn');
+        const sendBtn = document.getElementById('sendBtn');
         
         window.onload = () => {{
             setTimeout(() => editor.focus(), 50);
@@ -225,6 +262,15 @@ fn get_refine_html(placeholder: &str) -> String {
         micBtn.addEventListener('click', (e) => {{
             e.preventDefault();
             window.ipc.postMessage('mic');
+        }});
+        
+        // Send button click (simulates Enter)
+        sendBtn.addEventListener('click', (e) => {{
+            e.preventDefault();
+            const text = editor.value.trim();
+            if (text) {{
+                window.ipc.postMessage('submit:' + text);
+            }}
         }});
         
         document.addEventListener('contextmenu', e => e.preventDefault());
@@ -453,6 +499,46 @@ pub fn set_refine_text(parent_hwnd: HWND, text: &str) {
         // Post message to the child window to trigger the injection
         unsafe {
             PostMessageW(hwnd, WM_APP_SET_TEXT, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Resize the refine input to match parent window width
+/// Call this when the parent window is resized
+pub fn resize_refine_input(parent_hwnd: HWND) {
+    let parent_key = parent_hwnd.0 as isize;
+    
+    // Get the child window handle
+    let child_hwnd = {
+        let states = REFINE_STATES.lock().unwrap();
+        states.get(&parent_key).map(|s| s.hwnd)
+    };
+    
+    if let Some(hwnd) = child_hwnd {
+        unsafe {
+            let mut parent_rect = RECT::default();
+            GetClientRect(parent_hwnd, &mut parent_rect);
+            
+            let input_height = 40i32;
+            let width = parent_rect.right - 4; // 2px margin each side
+            
+            // Resize the child window
+            SetWindowPos(
+                hwnd, 
+                HWND::default(), 
+                2, 2, width, input_height,
+                SWP_NOZORDER | SWP_NOACTIVATE
+            );
+            
+            // Resize the WebView inside
+            REFINE_WEBVIEWS.with(|webviews| {
+                if let Some(webview) = webviews.borrow().get(&parent_key) {
+                    let _ = webview.set_bounds(Rect {
+                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(width as u32, input_height as u32)),
+                    });
+                }
+            });
         }
     }
 }

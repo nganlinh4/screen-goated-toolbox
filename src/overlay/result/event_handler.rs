@@ -386,6 +386,10 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                             if state.is_markdown_mode {
                                 markdown_view::resize_markdown_webview(hwnd, state.is_hovered);
                             }
+                            // Resize refine input if active
+                            if refine_input::is_refine_input_active(hwnd) {
+                                refine_input::resize_refine_input(hwnd);
+                            }
                         }
                         _ => {}
                     }
