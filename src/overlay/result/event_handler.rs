@@ -1000,7 +1000,13 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                                        first_chunk = false;
                                    }
                                    
-                                   acc_text.push_str(chunk); 
+                                   // Handle WIPE_SIGNAL - clear accumulator and use content after signal
+                                   if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+                                       acc_text.clear();
+                                       acc_text.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+                                   } else {
+                                       acc_text.push_str(chunk); 
+                                   }
                                    state.pending_text = Some(acc_text.clone());
                                    state.full_text = acc_text.clone();
                                }

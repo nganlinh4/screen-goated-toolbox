@@ -135,6 +135,8 @@ pub struct LocaleText {
      pub groq_label: &'static str,
      pub software_update_header: &'static str,
      pub startup_display_header: &'static str,
+     // --- MODEL THINKING INDICATOR ---
+     pub model_thinking: &'static str,
      }
 
 impl LocaleText {
@@ -294,6 +296,7 @@ impl LocaleText {
                 groq_label: "Mã API Groq:",
                 software_update_header: "⬆ Cập Nhật Phần Mềm",
                 startup_display_header: "⚙ Khởi Động & Hiển Thị",
+                model_thinking: "💭 Đang suy nghĩ...",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -449,6 +452,7 @@ impl LocaleText {
                    groq_label: "Groq API 키:",
                    software_update_header: "⬆ 소프트웨어 업데이트",
                    startup_display_header: "⚙ 시작 및 표시",
+                   model_thinking: "💭 생각 중...",
                    },
                 _ => Self {
                  history_btn: "History",
@@ -604,6 +608,7 @@ impl LocaleText {
                    groq_label: "Groq API Key:",
                    software_update_header: "⬆ Software Update",
                    startup_display_header: "⚙ Startup & Display",
+                   model_thinking: "💭 Thinking...",
                    },
                 }
                 }

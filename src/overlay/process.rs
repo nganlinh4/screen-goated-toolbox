@@ -775,7 +775,14 @@ fn run_chain_step(
                     &groq_key, &gemini_key, final_prompt, model_full_name, provider, img, 
                     actual_streaming_enabled, use_json, 
                     |chunk| {
-                        let mut t = acc_clone.lock().unwrap(); t.push_str(chunk);
+                        let mut t = acc_clone.lock().unwrap();
+                        // Handle WIPE_SIGNAL - clear accumulator and use content after signal
+                        if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+                            t.clear();
+                            t.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+                        } else {
+                            t.push_str(chunk);
+                        }
                         if let Some(h) = my_hwnd { 
                             // On first chunk for image blocks: show window and close processing indicator
                             {
@@ -809,7 +816,14 @@ fn run_chain_step(
                 &groq_key, &gemini_key, input_text, final_prompt, // CHANGED: Pass final_prompt instead of selected_language
                 model_full_name, provider, actual_streaming_enabled, false, search_label, &config.ui_language,
                 |chunk| {
-                    let mut t = acc_clone.lock().unwrap(); t.push_str(chunk);
+                    let mut t = acc_clone.lock().unwrap();
+                    // Handle WIPE_SIGNAL - clear accumulator and use content after signal
+                    if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+                        t.clear();
+                        t.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+                    } else {
+                        t.push_str(chunk);
+                    }
                     if let Some(h) = my_hwnd { 
                         {
                             let mut s = WINDOW_STATES.lock().unwrap();
