@@ -66,6 +66,16 @@ where
             }]
         });
         
+        // Enable thinking for Gemini 2.5+ models (gemini-flash-latest and gemini-robotics-er)
+        let supports_thinking = model.contains("gemini-flash-latest") || model.contains("gemini-robotics");
+        if supports_thinking {
+            payload["generationConfig"] = serde_json::json!({
+                "thinkingConfig": {
+                    "includeThoughts": true
+                }
+            });
+        }
+        
         if !model.contains("gemma-3-27b-it") {
             payload["tools"] = serde_json::json!([
                 { "url_context": {} },
@@ -87,6 +97,10 @@ where
 
         if streaming_enabled {
             let reader = BufReader::new(resp.into_reader());
+            let mut thinking_shown = false;
+            let mut content_started = false;
+            let locale = LocaleText::get(ui_language);
+            
             for line in reader.lines() {
                 let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
                 if line.starts_with("data: ") {
@@ -97,10 +111,31 @@ where
                         if let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array()) {
                             if let Some(first_candidate) = candidates.first() {
                                 if let Some(parts) = first_candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
-                                    if let Some(first_part) = parts.first() {
-                                        if let Some(text) = first_part.get("text").and_then(|t| t.as_str()) {
-                                            full_content.push_str(text);
-                                            on_chunk(text);
+                                    for part in parts {
+                                        let is_thought = part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false);
+                                        
+                                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                            if is_thought {
+                                                // Model is thinking - show thinking indicator (only once)
+                                                if !thinking_shown && !content_started {
+                                                    on_chunk(locale.model_thinking);
+                                                    thinking_shown = true;
+                                                }
+                                                // Consume thought, don't display
+                                            } else {
+                                                // Regular content
+                                                if !content_started && thinking_shown {
+                                                    // Wipe thinking message on first content
+                                                    content_started = true;
+                                                    full_content.push_str(text);
+                                                    let wipe_content = format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                                    on_chunk(&wipe_content);
+                                                } else {
+                                                    content_started = true;
+                                                    full_content.push_str(text);
+                                                    on_chunk(text);
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -116,7 +151,9 @@ where
             if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array()) {
                 if let Some(first_choice) = candidates.first() {
                     if let Some(parts) = first_choice.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+                        // Filter out thought parts and collect only content
                         full_content = parts.iter()
+                            .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
                             .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
                             .collect::<String>();
                         on_chunk(&full_content);
@@ -136,11 +173,7 @@ where
             "messages": [
                 { "role": "user", "content": prompt }
             ],
-            "stream": streaming_enabled,
-            "reasoning": {
-                "effort": "none",
-                "exclude": true
-            }
+            "stream": streaming_enabled
         });
 
         let resp = UREQ_AGENT.post("https://openrouter.ai/api/v1/chat/completions")
@@ -158,6 +191,10 @@ where
 
         if streaming_enabled {
             let reader = BufReader::new(resp.into_reader());
+            let mut thinking_shown = false;
+            let mut content_started = false;
+            let locale = LocaleText::get(ui_language);
+            
             for line in reader.lines() {
                 let line = line?;
                 if line.starts_with("data: ") {
@@ -166,12 +203,34 @@ where
                     
                     match serde_json::from_str::<StreamChunk>(data) {
                         Ok(chunk) => {
-                            // Only use content, ignore reasoning tokens
+                            // Check for reasoning tokens (thinking phase)
+                            if let Some(reasoning) = chunk.choices.get(0)
+                                .and_then(|c| c.delta.reasoning.as_ref())
+                                .filter(|s| !s.is_empty()) {
+                                // Model is thinking - show thinking indicator (only once)
+                                if !thinking_shown && !content_started {
+                                    on_chunk(locale.model_thinking);
+                                    thinking_shown = true;
+                                }
+                                let _ = reasoning; // Just consume reasoning, don't display
+                            }
+                            
+                            // Check for content tokens (final result)
                             if let Some(content) = chunk.choices.get(0)
                                 .and_then(|c| c.delta.content.as_ref())
                                 .filter(|s| !s.is_empty()) {
-                                full_content.push_str(content);
-                                on_chunk(content);
+                                // Content started - wipe thinking message on first content chunk
+                                if !content_started && thinking_shown {
+                                    content_started = true;
+                                    // Use WIPE_SIGNAL to tell callback to clear accumulator
+                                    full_content.push_str(content);
+                                    let wipe_content = format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                    on_chunk(&wipe_content);
+                                } else {
+                                    content_started = true;
+                                    full_content.push_str(content);
+                                    on_chunk(content);
+                                }
                             }
                         }
                         Err(_) => continue,
@@ -528,6 +587,16 @@ where
                  "contents": [{ "role": "user", "parts": [{ "text": final_prompt }] }]
              });
              
+             // Enable thinking for Gemini 2.5+ models
+             let supports_thinking = p_model.contains("gemini-flash-latest") || p_model.contains("gemini-robotics");
+             if supports_thinking {
+                 payload["generationConfig"] = serde_json::json!({
+                     "thinkingConfig": {
+                         "includeThoughts": true
+                     }
+                 });
+             }
+             
              if !p_model.contains("gemma-3-27b-it") {
                  payload["tools"] = serde_json::json!([
                      { "url_context": {} },
@@ -542,6 +611,10 @@ where
 
              if streaming_enabled {
                  let reader = BufReader::new(resp.into_reader());
+                 let mut thinking_shown = false;
+                 let mut content_started = false;
+                 let locale = LocaleText::get(ui_language);
+                 
                  for line in reader.lines() {
                      let line = line?;
                      if line.starts_with("data: ") {
@@ -551,10 +624,27 @@ where
                              if let Some(candidates) = chunk_resp.get("candidates").and_then(|c| c.as_array()) {
                                  if let Some(first) = candidates.first() {
                                      if let Some(parts) = first.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
-                                         if let Some(p) = parts.first() {
-                                             if let Some(t) = p.get("text").and_then(|v| v.as_str()) {
-                                                 full_content.push_str(t);
-                                                 on_chunk(t);
+                                         for part in parts {
+                                             let is_thought = part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false);
+                                             
+                                             if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
+                                                 if is_thought {
+                                                     if !thinking_shown && !content_started {
+                                                         on_chunk(locale.model_thinking);
+                                                         thinking_shown = true;
+                                                     }
+                                                 } else {
+                                                     if !content_started && thinking_shown {
+                                                         content_started = true;
+                                                         full_content.push_str(t);
+                                                         let wipe_content = format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                                         on_chunk(&wipe_content);
+                                                     } else {
+                                                         content_started = true;
+                                                         full_content.push_str(t);
+                                                         on_chunk(t);
+                                                     }
+                                                 }
                                              }
                                          }
                                      }
@@ -568,7 +658,10 @@ where
                  if let Some(candidates) = json.get("candidates").and_then(|c| c.as_array()) {
                      if let Some(first) = candidates.first() {
                          if let Some(parts) = first.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
-                            full_content = parts.iter().filter_map(|p| p.get("text").and_then(|t| t.as_str())).collect::<String>();
+                            // Filter out thought parts
+                            full_content = parts.iter()
+                                .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
+                                .filter_map(|p| p.get("text").and_then(|t| t.as_str())).collect::<String>();
                             on_chunk(&full_content);
                          }
                      }
@@ -582,11 +675,7 @@ where
                  "messages": [
                      { "role": "user", "content": final_prompt }
                  ],
-                 "stream": streaming_enabled,
-                 "reasoning": {
-                     "effort": "none",
-                     "exclude": true
-                 }
+                 "stream": streaming_enabled
              });
              
              let resp = UREQ_AGENT.post("https://openrouter.ai/api/v1/chat/completions")
@@ -597,6 +686,10 @@ where
              
              if streaming_enabled {
                  let reader = BufReader::new(resp.into_reader());
+                 let mut thinking_shown = false;
+                 let mut content_started = false;
+                 let locale = LocaleText::get(ui_language);
+                 
                  for line in reader.lines() {
                      let line = line?;
                      if line.starts_with("data: ") {
@@ -605,12 +698,31 @@ where
                          
                          match serde_json::from_str::<StreamChunk>(data) {
                              Ok(chunk) => {
-                                 // Only use content, ignore reasoning tokens
+                                 // Check for reasoning tokens (thinking phase)
+                                 if let Some(reasoning) = chunk.choices.get(0)
+                                     .and_then(|c| c.delta.reasoning.as_ref())
+                                     .filter(|s| !s.is_empty()) {
+                                     if !thinking_shown && !content_started {
+                                         on_chunk(locale.model_thinking);
+                                         thinking_shown = true;
+                                     }
+                                     let _ = reasoning;
+                                 }
+                                 
+                                 // Check for content tokens (final result)
                                  if let Some(content) = chunk.choices.get(0)
                                      .and_then(|c| c.delta.content.as_ref())
                                      .filter(|s| !s.is_empty()) {
-                                     full_content.push_str(content);
-                                     on_chunk(content);
+                                     if !content_started && thinking_shown {
+                                         content_started = true;
+                                         full_content.push_str(content);
+                                         let wipe_content = format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                         on_chunk(&wipe_content);
+                                     } else {
+                                         content_started = true;
+                                         full_content.push_str(content);
+                                         on_chunk(content);
+                                     }
                                  }
                              }
                              Err(_) => continue,
