@@ -218,7 +218,7 @@ fn is_html_content(content: &str) -> bool {
 
 /// Convert markdown text to styled HTML, or pass through raw HTML
 pub fn markdown_to_html(markdown: &str, is_refining: bool, preset_prompt: &str, input_text: &str) -> String {
-    if is_refining {
+    if is_refining && crate::overlay::utils::SHOW_REFINING_CONTEXT_QUOTE {
         let combined = if input_text.is_empty() {
             preset_prompt.to_string()
         } else {
