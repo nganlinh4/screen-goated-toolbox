@@ -8,11 +8,14 @@ use std::collections::HashMap;
 use auto_launch::AutoLaunch;
 use super::node_graph::request_node_graph_view_reset;
 
+const API_KEY_FIELD_WIDTH: f32 = 340.0;
+
 pub fn render_global_settings(
     ui: &mut egui::Ui,
     config: &mut Config,
     show_api_key: &mut bool,
     show_gemini_api_key: &mut bool,
+    show_openrouter_api_key: &mut bool,
     usage_stats: &HashMap<String, String>,
     updater: &Option<Updater>,
     update_status: &UpdateStatus,
@@ -44,36 +47,76 @@ pub fn render_global_settings(
         .inner_margin(12.0)
         .corner_radius(10.0)
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(text.api_keys_header).strong().size(14.0));
+            // Header row with title and provider checkboxes
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(text.api_keys_header).strong().size(14.0));
+                ui.add_space(16.0);
+                
+                // Localized checkbox labels
+                let (use_groq_label, use_gemini_label, use_openrouter_label) = match config.ui_language.as_str() {
+                    "vi" => ("Dùng Groq", "Dùng Gemini", "Dùng OpenRouter"),
+                    "ko" => ("Groq 사용", "Gemini 사용", "OpenRouter 사용"),
+                    _ => ("Use Groq", "Use Gemini", "Use OpenRouter"),
+                };
+                
+                if ui.checkbox(&mut config.use_groq, use_groq_label).changed() {
+                    changed = true;
+                }
+                if ui.checkbox(&mut config.use_gemini, use_gemini_label).changed() {
+                    changed = true;
+                }
+                if ui.checkbox(&mut config.use_openrouter, use_openrouter_label).changed() {
+                    changed = true;
+                }
+            });
             ui.add_space(6.0);
             
-            // Groq API Key
-            ui.horizontal(|ui| {
-                ui.label(text.groq_label);
-                if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
-            });
-            ui.horizontal(|ui| {
-                if ui.add(egui::TextEdit::singleline(&mut config.api_key).password(!*show_api_key).desired_width(300.0)).changed() {
-                    changed = true;
-                }
-                let eye_icon = if *show_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
-                if icon_button(ui, eye_icon).clicked() { *show_api_key = !*show_api_key; }
-            });
+            // Groq API Key (only show if enabled)
+            if config.use_groq {
+                ui.horizontal(|ui| {
+                    ui.label(text.groq_label);
+                    if ui.link(text.get_key_link).clicked() { let _ = open::that("https://console.groq.com/keys"); }
+                });
+                ui.horizontal(|ui| {
+                    if ui.add(egui::TextEdit::singleline(&mut config.api_key).password(!*show_api_key).desired_width(API_KEY_FIELD_WIDTH)).changed() {
+                        changed = true;
+                    }
+                    let eye_icon = if *show_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
+                    if icon_button(ui, eye_icon).clicked() { *show_api_key = !*show_api_key; }
+                });
+                ui.add_space(8.0);
+            }
             
-            ui.add_space(8.0);
+            // Gemini API Key (only show if enabled)
+            if config.use_gemini {
+                ui.horizontal(|ui| {
+                    ui.label(text.gemini_api_key_label);
+                    if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
+                });
+                ui.horizontal(|ui| {
+                    if ui.add(egui::TextEdit::singleline(&mut config.gemini_api_key).password(!*show_gemini_api_key).desired_width(API_KEY_FIELD_WIDTH)).changed() {
+                        changed = true;
+                    }
+                    let eye_icon = if *show_gemini_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
+                    if icon_button(ui, eye_icon).clicked() { *show_gemini_api_key = !*show_gemini_api_key; }
+                });
+                ui.add_space(8.0);
+            }
             
-            // Gemini API Key
-            ui.horizontal(|ui| {
-                ui.label(text.gemini_api_key_label);
-                if ui.link(text.gemini_get_key_link).clicked() { let _ = open::that("https://aistudio.google.com/app/apikey"); }
-            });
-            ui.horizontal(|ui| {
-                if ui.add(egui::TextEdit::singleline(&mut config.gemini_api_key).password(!*show_gemini_api_key).desired_width(300.0)).changed() {
-                    changed = true;
-                }
-                let eye_icon = if *show_gemini_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
-                if icon_button(ui, eye_icon).clicked() { *show_gemini_api_key = !*show_gemini_api_key; }
-            });
+            // OpenRouter API Key (only show if enabled)
+            if config.use_openrouter {
+                ui.horizontal(|ui| {
+                    ui.label("OpenRouter API Key:");
+                    if ui.link("Get API Key").clicked() { let _ = open::that("https://openrouter.ai/settings/keys"); }
+                });
+                ui.horizontal(|ui| {
+                    if ui.add(egui::TextEdit::singleline(&mut config.openrouter_api_key).password(!*show_openrouter_api_key).desired_width(API_KEY_FIELD_WIDTH)).changed() {
+                        changed = true;
+                    }
+                    let eye_icon = if *show_openrouter_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
+                    if icon_button(ui, eye_icon).clicked() { *show_openrouter_api_key = !*show_openrouter_api_key; }
+                });
+            }
         });
 
     ui.add_space(10.0);
@@ -234,13 +277,21 @@ pub fn render_global_settings(
                     .clicked() {
                     let saved_groq_key = config.api_key.clone();
                     let saved_gemini_key = config.gemini_api_key.clone();
+                    let saved_openrouter_key = config.openrouter_api_key.clone();
                     let saved_language = config.ui_language.clone();
+                    let saved_use_groq = config.use_groq;
+                    let saved_use_gemini = config.use_gemini;
+                    let saved_use_openrouter = config.use_openrouter;
                     
                     *config = Config::default();
                     
                     config.api_key = saved_groq_key;
                     config.gemini_api_key = saved_gemini_key;
+                    config.openrouter_api_key = saved_openrouter_key;
                     config.ui_language = saved_language;
+                    config.use_groq = saved_use_groq;
+                    config.use_gemini = saved_use_gemini;
+                    config.use_openrouter = saved_use_openrouter;
                     request_node_graph_view_reset(ui.ctx());
                     changed = true;
                 }

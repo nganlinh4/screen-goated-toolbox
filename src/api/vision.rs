@@ -20,7 +20,18 @@ pub fn translate_image_streaming<F>(
 where
     F: FnMut(&str),
 {
-    // Reverted resizing logic as it caused issues with main overlay capture
+    let openrouter_api_key = crate::APP.lock()
+        .ok()
+        .and_then(|app| {
+            let config = app.config.clone();
+            if config.openrouter_api_key.is_empty() {
+                None
+            } else {
+                Some(config.openrouter_api_key.clone())
+            }
+        })
+        .unwrap_or_default();
+
     let mut image_data = Vec::new();
     image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
     let b64_image = general_purpose::STANDARD.encode(&image_data);
@@ -30,7 +41,7 @@ where
     if provider == "google" {
         // Gemini API
         if gemini_api_key.trim().is_empty() {
-            return Err(anyhow::anyhow!("NO_API_KEY:google"));
+            return Err(anyhow::anyhow!("NO_API_KEY:gemini"));
         }
 
         let method = if streaming_enabled { "streamGenerateContent" } else { "generateContent" };
@@ -61,7 +72,6 @@ where
             }]
         });
         
-        // Add grounding tools for all models except gemma-3-27b-it
         if !model.contains("gemma-3-27b-it") {
             payload["tools"] = serde_json::json!([
                 { "url_context": {} },
@@ -122,6 +132,70 @@ where
                 }
             }
         }
+
+    } else if provider == "openrouter" {
+        // --- OPENROUTER API ---
+        if openrouter_api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!("NO_API_KEY:openrouter"));
+        }
+
+        let payload = serde_json::json!({
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": prompt },
+                        { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", b64_image) } }
+                    ]
+                }
+            ],
+            "stream": streaming_enabled
+        });
+
+        let resp = UREQ_AGENT.post("https://openrouter.ai/api/v1/chat/completions")
+            .set("Authorization", &format!("Bearer {}", openrouter_api_key))
+            .set("Content-Type", "application/json")
+            .send_json(payload)
+            .map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("401") || err_str.contains("403") {
+                    anyhow::anyhow!("INVALID_API_KEY")
+                } else {
+                    anyhow::anyhow!("OpenRouter API Error: {}", err_str)
+                }
+            })?;
+
+        if streaming_enabled {
+            let reader = BufReader::new(resp.into_reader());
+            for line in reader.lines() {
+                let line = line?;
+                if line.starts_with("data: ") {
+                    let data = &line[6..];
+                    if data == "[DONE]" { break; }
+                    
+                    match serde_json::from_str::<StreamChunk>(data) {
+                        Ok(chunk) => {
+                            if let Some(content) = chunk.choices.get(0)
+                                .and_then(|c| c.delta.content.as_ref()) {
+                                full_content.push_str(content);
+                                on_chunk(content);
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+        } else {
+            let chat_resp: ChatCompletionResponse = resp.into_json()
+                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+
+            if let Some(choice) = chat_resp.choices.first() {
+                full_content = choice.message.content.clone();
+                on_chunk(&full_content);
+            }
+        }
+
     } else {
         // Groq API (default)
         if groq_api_key.trim().is_empty() {
@@ -178,7 +252,6 @@ where
                 }
             })?;
 
-        // --- CAPTURE RATE LIMITS ---
         if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
              let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
              let usage_str = format!("{} / {}", remaining, limit);
@@ -187,7 +260,6 @@ where
                  app.model_usage_stats.insert(model.clone(), usage_str);
              }
         }
-        // ---------------------------
 
         if streaming_enabled {
             let reader = BufReader::new(resp.into_reader());

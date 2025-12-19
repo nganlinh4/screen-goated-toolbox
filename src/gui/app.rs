@@ -59,6 +59,7 @@ pub struct SettingsApp {
     auto_launcher: Option<AutoLaunch>,
     show_api_key: bool,
     show_gemini_api_key: bool,
+    show_openrouter_api_key: bool,
     
     view_mode: ViewMode,
     recording_hotkey_for_preset: Option<usize>,
@@ -256,6 +257,7 @@ impl SettingsApp {
             auto_launcher: Some(auto),
             show_api_key: false,
             show_gemini_api_key: false,
+            show_openrouter_api_key: false,
             view_mode,
             recording_hotkey_for_preset: None,
             hotkey_conflict_msg: None,
@@ -763,6 +765,7 @@ impl eframe::App for SettingsApp {
                                 &mut self.config, 
                                 &mut self.show_api_key, 
                                 &mut self.show_gemini_api_key, 
+                                &mut self.show_openrouter_api_key,
                                 &usage_stats, 
                                 &self.updater, 
                                 &self.update_status, 

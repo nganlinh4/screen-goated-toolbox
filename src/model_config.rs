@@ -133,6 +133,19 @@ lazy_static::lazy_static! {
             "20 requests/day"
         ),
         ModelConfig::new(
+            "or-nemotron-vl",
+            "openrouter",
+            "OR-Cân bằng",
+            "OR-균형",
+            "OR-Balanced",
+            "nvidia/nemotron-nano-12b-v2-vl:free",
+            ModelType::Vision,
+            true,
+            "50 lượt chung/ngày",
+            "50 공유 요청/일",
+            "50 shared requests/day"
+        ),
+        ModelConfig::new(
             "fast_text",
             "groq",
             "Cực nhanh",
@@ -248,6 +261,71 @@ lazy_static::lazy_static! {
             "20 lượt/ngày",
             "20 요청/일",
             "20 requests/day"
+        ),
+        ModelConfig::new(
+            "or-nemotron-text",
+            "openrouter",
+            "OR-Nhanh",
+            "OR-빠름",
+            "OR-Fast",
+            "nvidia/nemotron-3-nano-30b-a3b:free",
+            ModelType::Text,
+            true,
+            "50 lượt chung/ngày",
+            "50 공유 요청/일",
+            "50 shared requests/day"
+        ),
+        ModelConfig::new(
+            "or-mimo",
+            "openrouter",
+            "OR-Cân bằng",
+            "OR-균형",
+            "OR-Balanced",
+            "xiaomi/mimo-v2-flash:free",
+            ModelType::Text,
+            true,
+            "50 lượt chung/ngày",
+            "50 공유 요청/일",
+            "50 shared requests/day"
+        ),
+        ModelConfig::new(
+            "or-deepseek-chimera",
+            "openrouter",
+            "OR-Ch.xác, chậm",
+            "OR-정확, 느림",
+            "OR-Accurate, Slow",
+            "tngtech/deepseek-r1t2-chimera:free",
+            ModelType::Text,
+            true,
+            "50 lượt chung/ngày",
+            "50 공유 요청/일",
+            "50 shared requests/day"
+        ),
+        ModelConfig::new(
+            "or-kat-coder",
+            "openrouter",
+            "OR-Chính xác",
+            "OR-정확함",
+            "OR-Accurate",
+            "kwaipilot/kat-coder-pro:free",
+            ModelType::Text,
+            true,
+            "50 lượt chung/ngày",
+            "50 공유 요청/일",
+            "50 shared requests/day"
+        ),
+        ModelConfig::new(
+            "or-devstral",
+            "openrouter",
+            "OR-Rất ch.xác",
+            "OR-매우 정확",
+            "OR-Very Accurate",
+            "mistralai/devstral-2512:free",
+            ModelType::Text,
+            true,
+            "50 lượt chung/ngày",
+            "50 공유 요청/일",
+            "50 shared requests/day"
         ),
         ModelConfig::new(
             "whisper-fast",

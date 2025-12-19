@@ -27,7 +27,7 @@ use history::HistoryManager;
 
 // Window dimensions - Increased to accommodate two-column sidebar and longer text labels
 pub const WINDOW_WIDTH: f32 = 1135.0;
-pub const WINDOW_HEIGHT: f32 = 610.0;
+pub const WINDOW_HEIGHT: f32 = 665.0;
 
 // Modifier Constants for Hook
 const MOD_ALT: u32 = 0x0001;

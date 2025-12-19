@@ -13,26 +13,37 @@ pub fn translate_text_streaming<F>(
     groq_api_key: &str,
     gemini_api_key: &str,
     text: String,
-    instruction: String, // CHANGED: Renamed from target_lang to instruction
+    instruction: String,
     model: String,
     provider: String,
     streaming_enabled: bool,
     use_json_format: bool,
-    search_label: Option<String>, // Localized preset name for compound model search UI
-    ui_language: &str, // Language code for localized search UI strings
+    search_label: Option<String>,
+    ui_language: &str,
     mut on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    let openrouter_api_key = crate::APP.lock()
+        .ok()
+        .and_then(|app| {
+            let config = app.config.clone();
+            if config.openrouter_api_key.is_empty() {
+                None
+            } else {
+                Some(config.openrouter_api_key.clone())
+            }
+        })
+        .unwrap_or_default();
+    
     let mut full_content = String::new();
-    // CHANGED: Use the instruction directly instead of hardcoded template
     let prompt = format!("{}\n\n{}", instruction, text);
 
     if provider == "google" {
         // --- GEMINI TEXT API ---
         if gemini_api_key.trim().is_empty() {
-            return Err(anyhow::anyhow!("NO_API_KEY:[REDACTED:api-key]"));
+            return Err(anyhow::anyhow!("NO_API_KEY:gemini"));
         }
 
         let method = if streaming_enabled { "streamGenerateContent" } else { "generateContent" };
@@ -55,7 +66,6 @@ where
             }]
         });
         
-        // Add grounding tools for all models except gemma-3-27b-it
         if !model.contains("gemma-3-27b-it") {
             payload["tools"] = serde_json::json!([
                 { "url_context": {} },
@@ -115,18 +125,73 @@ where
             }
         }
 
+    } else if provider == "openrouter" {
+        // --- OPENROUTER API ---
+        if openrouter_api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!("NO_API_KEY:openrouter"));
+        }
+
+        let payload = serde_json::json!({
+            "model": model,
+            "messages": [
+                { "role": "user", "content": prompt }
+            ],
+            "stream": streaming_enabled
+        });
+
+        let resp = UREQ_AGENT.post("https://openrouter.ai/api/v1/chat/completions")
+            .set("Authorization", &format!("Bearer {}", openrouter_api_key))
+            .set("Content-Type", "application/json")
+            .send_json(payload)
+            .map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("401") || err_str.contains("403") {
+                    anyhow::anyhow!("INVALID_API_KEY")
+                } else {
+                    anyhow::anyhow!("OpenRouter API Error: {}", err_str)
+                }
+            })?;
+
+        if streaming_enabled {
+            let reader = BufReader::new(resp.into_reader());
+            for line in reader.lines() {
+                let line = line?;
+                if line.starts_with("data: ") {
+                    let data = &line[6..];
+                    if data == "[DONE]" { break; }
+                    
+                    match serde_json::from_str::<StreamChunk>(data) {
+                        Ok(chunk) => {
+                            if let Some(content) = chunk.choices.get(0)
+                                .and_then(|c| c.delta.content.as_ref()) {
+                                full_content.push_str(content);
+                                on_chunk(content);
+                            }
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+        } else {
+            let chat_resp: ChatCompletionResponse = resp.into_json()
+                .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
+
+            if let Some(choice) = chat_resp.choices.first() {
+                full_content = choice.message.content.clone();
+                on_chunk(&full_content);
+            }
+        }
+
     } else {
         // --- GROQ API (Default) ---
         if groq_api_key.trim().is_empty() {
             return Err(anyhow::anyhow!("NO_API_KEY:groq"));
         }
 
-        // Check if this is a compound model (agentic with web search)
         let is_compound = model.starts_with("groq/compound");
         
         if is_compound {
             // --- COMPOUND MODEL API ---
-            // Compound models are non-streaming agentic models that do web search
             let payload = serde_json::json!({
                 "model": model,
                 "messages": [
@@ -146,7 +211,6 @@ where
                 }
             });
 
-            // Show initial searching state with localized preset name
             let locale = LocaleText::get(ui_language);
             let context_quote = get_context_quote(&prompt);
             let search_msg = match &search_label {
@@ -157,7 +221,7 @@ where
             
             let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
                 .set("Authorization", &format!("Bearer {}", groq_api_key))
-                .timeout(std::time::Duration::from_secs(60)) // Compound can take longer
+                .timeout(std::time::Duration::from_secs(60))
                 .send_json(payload)
                 .map_err(|e| {
                     let err_str = e.to_string();
@@ -168,7 +232,6 @@ where
                     }
                 })?;
 
-            // --- CAPTURE RATE LIMITS ---
             if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
                  let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
                  let usage_str = format!("{} / {}", remaining, limit);
@@ -178,23 +241,19 @@ where
                  }
             }
 
-            // Parse the compound response
             let json: serde_json::Value = resp.into_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse compound response: {}", e))?;
 
-            // Show search phase: Display search queries and sources
             if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
                 if let Some(first_choice) = choices.first() {
                     if let Some(message) = first_choice.get("message") {
                         
-                        // PHASE 1: Extract and show search queries from executed_tools arguments
                         if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
                             let mut search_queries = Vec::new();
                             for tool in executed_tools {
                                 if let Some(tool_type) = tool.get("type").and_then(|t| t.as_str()) {
                                     if tool_type == "search" {
                                         if let Some(args) = tool.get("arguments").and_then(|a| a.as_str()) {
-                                            // Parse JSON arguments to get query
                                             if let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args) {
                                                 if let Some(query) = args_json.get("query").and_then(|q| q.as_str()) {
                                                     search_queries.push(query.to_string());
@@ -220,7 +279,6 @@ where
                                 std::thread::sleep(std::time::Duration::from_millis(800));
                             }
                             
-                            // PHASE 2: Show sources found with details
                             let mut all_sources = Vec::new();
                             for tool in executed_tools {
                                 if let Some(search_results) = tool.get("search_results")
@@ -239,7 +297,6 @@ where
                             }
                             
                             if !all_sources.is_empty() {
-                                // Sort by score descending
                                 all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
                                 
                                 let context_quote = get_context_quote(&prompt);
@@ -247,23 +304,18 @@ where
                                 phase2.push_str(&format!("{}\n\n", locale.search_sources_label));
                                 
                                 for (i, (title, url, score, content)) in all_sources.iter().take(6).enumerate() {
-                                    // Truncate title if too long (character-aware for UTF-8)
                                     let title_display = if title.chars().count() > 60 {
                                         format!("{}...", title.chars().take(57).collect::<String>())
                                     } else {
                                         title.clone()
                                     };
                                     
-                                    // Extract domain from URL
                                     let domain = url.split('/').nth(2).unwrap_or(url);
-                                    
-                                    // Show score as percentage
                                     let score_pct = (score * 100.0) as i32;
                                     
                                     phase2.push_str(&format!("{}. {} [{}%]\n", i + 1, title_display, score_pct));
                                     phase2.push_str(&format!("   🔗 {}\n", domain));
                                     
-                                    // Show content preview (first 100 chars)
                                     if !content.is_empty() {
                                         let preview = if content.len() > 100 {
                                             format!("{}...", content.chars().take(100).collect::<String>().replace('\n', " "))
@@ -278,7 +330,6 @@ where
                                 on_chunk(&phase2);
                                 std::thread::sleep(std::time::Duration::from_millis(1200));
                                 
-                                // PHASE 3: Synthesizing message
                                 let context_quote = get_context_quote(&prompt);
                                 let phase3 = format!(
                                     "{}\n\n{}\n\n{}\n{}\n",
@@ -292,7 +343,6 @@ where
                             }
                         }
                         
-                        // FINAL PHASE: Show the actual content (final answer)
                         if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
                             full_content = content.to_string();
                             on_chunk(&full_content);
@@ -339,7 +389,6 @@ where
                     }
                 })?;
 
-            // --- CAPTURE RATE LIMITS ---
             if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
                  let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
                  let usage_str = format!("{} / {}", remaining, limit);
@@ -348,7 +397,6 @@ where
                      app.model_usage_stats.insert(model.clone(), usage_str);
                  }
             }
-            // ---------------------------
 
             if streaming_enabled {
                 let reader = BufReader::new(resp.into_reader());
@@ -410,12 +458,24 @@ pub fn refine_text_streaming<F>(
     original_model_id: &str,
     original_provider: &str,
     streaming_enabled: bool,
-    ui_language: &str, // Language code for localized search UI strings
+    ui_language: &str,
     mut on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    let openrouter_api_key = crate::APP.lock()
+        .ok()
+        .and_then(|app| {
+            let config = app.config.clone();
+            if config.openrouter_api_key.is_empty() {
+                None
+            } else {
+                Some(config.openrouter_api_key.clone())
+            }
+        })
+        .unwrap_or_default();
+
     let final_prompt = format!(
         "Content:\n{}\n\nInstruction:\n{}\n\nOutput ONLY the result.",
         previous_text, user_prompt
@@ -449,7 +509,7 @@ where
         let mut full_content = String::new();
 
         if p_provider == "google" {
-             if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:[REDACTED:api-key]")); }
+             if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:gemini")); }
              
              let method = if streaming_enabled { "streamGenerateContent" } else { "generateContent" };
              let url = if streaming_enabled {
@@ -462,7 +522,6 @@ where
                  "contents": [{ "role": "user", "parts": [{ "text": final_prompt }] }]
              });
              
-             // Add grounding tools for all models except gemma-3-27b-it
              if !p_model.contains("gemma-3-27b-it") {
                  payload["tools"] = serde_json::json!([
                      { "url_context": {} },
@@ -509,174 +568,211 @@ where
                      }
                  }
              }
-        } else {
-            if groq_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:groq")); }
-            
-            // Check if this is a compound model
-            let is_compound = p_model.starts_with("groq/compound");
-            
-            if is_compound {
-                // Compound model handling
-                let payload = serde_json::json!({
-                    "model": p_model,
-                    "messages": [
-                        { 
-                            "role": "system", 
-                            "content": "IMPORTANT: Limit yourself to a maximum of 3 tool calls total. Make 1-2 focused searches, then answer. Do not visit websites unless absolutely necessary. Be efficient." 
-                        },
-                        { "role": "user", "content": final_prompt }
-                    ],
-                    "temperature": 1,
-                    "max_completion_tokens": 8192,
-                    "stream": false,
-                    "compound_custom": {
-                        "tools": {
-                            "enabled_tools": ["web_search", "visit_website"]
-                        }
-                    }
-                });
-                
-                let locale = LocaleText::get(ui_language);
-                let context_quote = get_context_quote(&final_prompt);
-                on_chunk(&format!("{}\n\n🔍 {} {}...", context_quote, locale.search_doing, locale.search_searching));
-                
-                let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
-                    .set("Authorization", &format!("Bearer {}", groq_api_key))
-                    .timeout(std::time::Duration::from_secs(60))
-                    .send_json(payload)
-                    .map_err(|e| anyhow::anyhow!("Groq Compound Refine Error: {}", e))?;
-                
-                if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                    let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
-                    let usage_str = format!("{} / {}", remaining, limit);
-                    if let Ok(mut app) = APP.lock() {
-                        app.model_usage_stats.insert(p_model.clone(), usage_str);
-                    }
-                }
-                
-                let json: serde_json::Value = resp.into_json()?;
-                
-                if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
-                    if let Some(first_choice) = choices.first() {
-                        if let Some(message) = first_choice.get("message") {
-                            // Show sources if available
-                            if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
-                                // Extract search queries
-                                let mut search_queries = Vec::new();
-                                for tool in executed_tools {
-                                    if tool.get("type").and_then(|t| t.as_str()) == Some("search") {
-                                        if let Some(args) = tool.get("arguments").and_then(|a| a.as_str()) {
-                                            if let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args) {
-                                                if let Some(query) = args_json.get("query").and_then(|q| q.as_str()) {
-                                                    search_queries.push(query.to_string());
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                if !search_queries.is_empty() {
-                                    let context_quote = get_context_quote(&final_prompt);
-                                    let mut phase1 = format!("{}\n\n🔍 {} {}...\n\n{}\n", 
-                                        context_quote,
-                                        locale.search_doing.to_uppercase(), 
-                                        locale.search_searching.to_uppercase(),
-                                        locale.search_query_label);
-                                    for (i, q) in search_queries.iter().enumerate() {
-                                        phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, q));
-                                    }
-                                    on_chunk(&phase1);
-                                    std::thread::sleep(std::time::Duration::from_millis(600));
-                                }
-                                
-                                // Collect sources
-                                let mut all_sources = Vec::new();
-                                for tool in executed_tools {
-                                    if let Some(results) = tool.get("search_results").and_then(|s| s.get("results")).and_then(|r| r.as_array()) {
-                                        for r in results {
-                                            let title = r.get("title").and_then(|t| t.as_str()).unwrap_or(locale.search_no_title);
-                                            let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
-                                            let score = r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
-                                            all_sources.push((title.to_string(), url.to_string(), score));
-                                        }
-                                    }
-                                }
-                                
-                                if !all_sources.is_empty() {
-                                    all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-                                    let context_quote = get_context_quote(&final_prompt);
-                                    let mut phase2 = format!("{}\n\n{}\n\n", context_quote, locale.search_found_sources.replace("{}", &all_sources.len().to_string()));
-                                    for (i, (title, url, score)) in all_sources.iter().take(5).enumerate() {
-                                        let t = if title.chars().count() > 50 { format!("{}...", title.chars().take(47).collect::<String>()) } else { title.clone() };
-                                        let domain = url.split('/').nth(2).unwrap_or("");
-                                        phase2.push_str(&format!("{}. {} [{}%]\n   🔗 {}\n", i + 1, t, (score * 100.0) as i32, domain));
-                                    }
-                                    phase2.push_str(&format!("\n{}", locale.search_synthesizing));
-                                    on_chunk(&phase2);
-                                    std::thread::sleep(std::time::Duration::from_millis(800));
-                                }
-                            }
-                            
-                            if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
-                                full_content = content.to_string();
-                                on_chunk(&full_content);
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Standard Groq model
-                let payload = serde_json::json!({
-                    "model": p_model,
-                    "messages": [{ "role": "user", "content": final_prompt }],
-                    "stream": streaming_enabled
-                });
-                
-                let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
-                    .set("Authorization", &format!("Bearer {}", groq_api_key))
-                    .send_json(payload)
-                    .map_err(|e| anyhow::anyhow!("Groq Refine Error: {}", e))?;
-
-                if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                     let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
-                     let usage_str = format!("{} / {}", remaining, limit);
-                     if let Ok(mut app) = APP.lock() {
-                         app.model_usage_stats.insert(p_model.clone(), usage_str);
-                     }
-                }
-
-                if streaming_enabled {
-                    let reader = BufReader::new(resp.into_reader());
-                    for line in reader.lines() {
-                        let line = line?;
-                        if line.starts_with("data: ") {
-                             let data = &line[6..];
-                             if data == "[DONE]" { break; }
-                             if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data) {
+        } else if p_provider == "openrouter" {
+             if openrouter_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:openrouter")); }
+             
+             let payload = serde_json::json!({
+                 "model": p_model,
+                 "messages": [
+                     { "role": "user", "content": final_prompt }
+                 ],
+                 "stream": streaming_enabled
+             });
+             
+             let resp = UREQ_AGENT.post("https://openrouter.ai/api/v1/chat/completions")
+                 .set("Authorization", &format!("Bearer {}", openrouter_api_key))
+                 .set("Content-Type", "application/json")
+                 .send_json(payload)
+                 .map_err(|e| anyhow::anyhow!("OpenRouter Refine Error: {}", e))?;
+             
+             if streaming_enabled {
+                 let reader = BufReader::new(resp.into_reader());
+                 for line in reader.lines() {
+                     let line = line?;
+                     if line.starts_with("data: ") {
+                         let data = &line[6..];
+                         if data == "[DONE]" { break; }
+                         
+                         match serde_json::from_str::<StreamChunk>(data) {
+                             Ok(chunk) => {
                                  if let Some(content) = chunk.choices.get(0).and_then(|c| c.delta.content.as_ref()) {
                                      full_content.push_str(content);
                                      on_chunk(content);
                                  }
                              }
-                        }
-                    }
-                } else {
-                     let json: ChatCompletionResponse = resp.into_json()?;
-                     if let Some(choice) = json.choices.first() {
-                         full_content = choice.message.content.clone();
-                         on_chunk(&full_content);
+                             Err(_) => continue,
+                         }
                      }
-                }
-            }
+                 }
+             } else {
+                 let json: ChatCompletionResponse = resp.into_json()?;
+                 if let Some(choice) = json.choices.first() {
+                     full_content = choice.message.content.clone();
+                     on_chunk(&full_content);
+                 }
+             }
+        } else {
+             if groq_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:groq")); }
+             
+             let is_compound = p_model.starts_with("groq/compound");
+             
+             if is_compound {
+                 let payload = serde_json::json!({
+                     "model": p_model,
+                     "messages": [
+                         { 
+                             "role": "system", 
+                             "content": "IMPORTANT: Limit yourself to a maximum of 3 tool calls total. Make 1-2 focused searches, then answer. Do not visit websites unless absolutely necessary. Be efficient." 
+                         },
+                         { "role": "user", "content": final_prompt }
+                     ],
+                     "temperature": 1,
+                     "max_completion_tokens": 8192,
+                     "stream": false,
+                     "compound_custom": {
+                         "tools": {
+                             "enabled_tools": ["web_search", "visit_website"]
+                         }
+                     }
+                 });
+                 
+                 let locale = LocaleText::get(ui_language);
+                 let context_quote = get_context_quote(&final_prompt);
+                 on_chunk(&format!("{}\n\n🔍 {} {}...", context_quote, locale.search_doing, locale.search_searching));
+                 
+                 let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
+                     .set("Authorization", &format!("Bearer {}", groq_api_key))
+                     .timeout(std::time::Duration::from_secs(60))
+                     .send_json(payload)
+                     .map_err(|e| anyhow::anyhow!("Groq Compound Refine Error: {}", e))?;
+                 
+                 if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                     let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                     let usage_str = format!("{} / {}", remaining, limit);
+                     if let Ok(mut app) = APP.lock() {
+                         app.model_usage_stats.insert(p_model.clone(), usage_str);
+                     }
+                 }
+                 
+                 let json: serde_json::Value = resp.into_json()?;
+                 
+                 if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
+                     if let Some(first_choice) = choices.first() {
+                         if let Some(message) = first_choice.get("message") {
+                             if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
+                                 let mut search_queries = Vec::new();
+                                 for tool in executed_tools {
+                                     if tool.get("type").and_then(|t| t.as_str()) == Some("search") {
+                                         if let Some(args) = tool.get("arguments").and_then(|a| a.as_str()) {
+                                             if let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args) {
+                                                 if let Some(query) = args_json.get("query").and_then(|q| q.as_str()) {
+                                                     search_queries.push(query.to_string());
+                                                 }
+                                             }
+                                         }
+                                     }
+                                 }
+                                 
+                                 if !search_queries.is_empty() {
+                                     let context_quote = get_context_quote(&final_prompt);
+                                     let mut phase1 = format!("{}\n\n🔍 {} {}...\n\n{}\n", 
+                                         context_quote,
+                                         locale.search_doing.to_uppercase(), 
+                                         locale.search_searching.to_uppercase(),
+                                         locale.search_query_label);
+                                     for (i, q) in search_queries.iter().enumerate() {
+                                         phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, q));
+                                     }
+                                     on_chunk(&phase1);
+                                     std::thread::sleep(std::time::Duration::from_millis(600));
+                                 }
+                                 
+                                 let mut all_sources = Vec::new();
+                                 for tool in executed_tools {
+                                     if let Some(results) = tool.get("search_results").and_then(|s| s.get("results")).and_then(|r| r.as_array()) {
+                                         for r in results {
+                                             let title = r.get("title").and_then(|t| t.as_str()).unwrap_or(locale.search_no_title);
+                                             let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                                             let score = r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                                             all_sources.push((title.to_string(), url.to_string(), score));
+                                         }
+                                     }
+                                 }
+                                 
+                                 if !all_sources.is_empty() {
+                                     all_sources.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                                     let context_quote = get_context_quote(&final_prompt);
+                                     let mut phase2 = format!("{}\n\n{}\n\n", context_quote, locale.search_found_sources.replace("{}", &all_sources.len().to_string()));
+                                     for (i, (title, url, score)) in all_sources.iter().take(5).enumerate() {
+                                         let t = if title.chars().count() > 50 { format!("{}...", title.chars().take(47).collect::<String>()) } else { title.clone() };
+                                         let domain = url.split('/').nth(2).unwrap_or("");
+                                         phase2.push_str(&format!("{}. {} [{}%]\n   🔗 {}\n", i + 1, t, (score * 100.0) as i32, domain));
+                                     }
+                                     phase2.push_str(&format!("\n{}", locale.search_synthesizing));
+                                     on_chunk(&phase2);
+                                     std::thread::sleep(std::time::Duration::from_millis(800));
+                                 }
+                             }
+                             
+                             if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                                 full_content = content.to_string();
+                                 on_chunk(&full_content);
+                             }
+                         }
+                     }
+                 }
+             } else {
+                 let payload = serde_json::json!({
+                     "model": p_model,
+                     "messages": [{ "role": "user", "content": final_prompt }],
+                     "stream": streaming_enabled
+                 });
+                 
+                 let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
+                     .set("Authorization", &format!("Bearer {}", groq_api_key))
+                     .send_json(payload)
+                     .map_err(|e| anyhow::anyhow!("Groq Refine Error: {}", e))?;
+
+                 if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                      let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                      let usage_str = format!("{} / {}", remaining, limit);
+                      if let Ok(mut app) = APP.lock() {
+                          app.model_usage_stats.insert(p_model.clone(), usage_str);
+                      }
+                 }
+
+                 if streaming_enabled {
+                     let reader = BufReader::new(resp.into_reader());
+                     for line in reader.lines() {
+                         let line = line?;
+                         if line.starts_with("data: ") {
+                              let data = &line[6..];
+                              if data == "[DONE]" { break; }
+                              if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data) {
+                                  if let Some(content) = chunk.choices.get(0).and_then(|c| c.delta.content.as_ref()) {
+                                      full_content.push_str(content);
+                                      on_chunk(content);
+                                  }
+                              }
+                         }
+                     }
+                 } else {
+                      let json: ChatCompletionResponse = resp.into_json()?;
+                      if let Some(choice) = json.choices.first() {
+                          full_content = choice.message.content.clone();
+                          on_chunk(&full_content);
+                      }
+                 }
+             }
         }
-        
-        Ok(full_content)
-    };
+         
+         Ok(full_content)
+     };
 
     match context {
         RefineContext::Image(img_bytes) => {
             if target_provider == "google" {
-                if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:[REDACTED:api-key]")); }
+                if gemini_api_key.trim().is_empty() { return Err(anyhow::anyhow!("NO_API_KEY:gemini")); }
                 let img = image::load_from_memory(&img_bytes)?.to_rgba8();
                 vision_translate_image_streaming(groq_api_key, gemini_api_key, final_prompt, target_id_or_name, target_provider, img, streaming_enabled, false, on_chunk)
             } else {

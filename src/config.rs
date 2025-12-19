@@ -186,6 +186,8 @@ impl Default for Preset {
 pub struct Config {
     pub api_key: String,
     pub gemini_api_key: String,
+    #[serde(default)]
+    pub openrouter_api_key: String,
     pub presets: Vec<Preset>,
     pub active_preset_idx: usize,
     #[serde(default = "default_theme_mode")]
@@ -198,7 +200,13 @@ pub struct Config {
     #[serde(default)]
     pub start_in_tray: bool,
     #[serde(default)]
-    pub run_as_admin_on_startup: bool, 
+    pub run_as_admin_on_startup: bool,
+    #[serde(default = "default_true")]
+    pub use_groq: bool,
+    #[serde(default = "default_true")]
+    pub use_gemini: bool,
+    #[serde(default)]
+    pub use_openrouter: bool,
 }
 
 impl Default for Config {
@@ -1002,6 +1010,7 @@ impl Default for Config {
         Self {
             api_key: "".to_string(),
             gemini_api_key: "".to_string(),
+            openrouter_api_key: "".to_string(),
             presets: vec![
                 // Column 1: Image presets
                 p1, p7, p2, p3g, p4, p4b, p6, p8, p9, p10, p14b, p14c, pm1,
@@ -1017,6 +1026,9 @@ impl Default for Config {
             graphics_mode: "standard".to_string(),
             start_in_tray: false,
             run_as_admin_on_startup: false,
+            use_groq: true,
+            use_gemini: true,
+            use_openrouter: false,
         }
     }
 }

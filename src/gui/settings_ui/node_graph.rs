@@ -193,15 +193,31 @@ pub struct ChainViewer {
     pub changed: bool,
     pub language_search: String,
     pub prompt_mode: String,
+    pub use_groq: bool,
+    pub use_gemini: bool,
+    pub use_openrouter: bool,
 }
 
 impl ChainViewer {
-    pub fn new(ui_language: &str, prompt_mode: &str) -> Self {
+    pub fn new(ui_language: &str, prompt_mode: &str, use_groq: bool, use_gemini: bool, use_openrouter: bool) -> Self {
         Self {
             ui_language: ui_language.to_string(),
             changed: false,
             language_search: String::new(),
             prompt_mode: prompt_mode.to_string(),
+            use_groq,
+            use_gemini,
+            use_openrouter,
+        }
+    }
+    
+    /// Check if a model's provider is enabled
+    fn is_provider_enabled(&self, provider: &str) -> bool {
+        match provider {
+            "groq" => self.use_groq,
+            "google" => self.use_gemini,
+            "openrouter" => self.use_openrouter,
+            _ => true, // Unknown providers are enabled by default
         }
     }
 }
@@ -372,7 +388,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             egui::popup_below_widget(ui, popup_id, &button_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
                                 for m in get_all_models() {
-                                    if m.enabled && m.model_type == filter_type {
+                                    if m.enabled && m.model_type == filter_type && self.is_provider_enabled(&m.provider) {
                                         let name = match self.ui_language.as_str() { 
                                             "vi" => &m.name_vi, 
                                             "ko" => &m.name_ko, 
@@ -500,7 +516,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             egui::popup_below_widget(ui, popup_id, &button_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
                                 for m in get_all_models() {
-                                    if m.enabled && m.model_type == ModelType::Text {
+                                    if m.enabled && m.model_type == ModelType::Text && self.is_provider_enabled(&m.provider) {
                                         let name = match self.ui_language.as_str() { 
                                             "vi" => &m.name_vi, 
                                             "ko" => &m.name_ko, 
@@ -946,8 +962,11 @@ pub fn render_node_graph(
     snarl: &mut Snarl<ChainNode>,
     ui_language: &str,
     prompt_mode: &str,
+    use_groq: bool,
+    use_gemini: bool,
+    use_openrouter: bool,
 ) -> bool {
-    let mut viewer = ChainViewer::new(ui_language, prompt_mode);
+    let mut viewer = ChainViewer::new(ui_language, prompt_mode, use_groq, use_gemini, use_openrouter);
     let style = SnarlStyle::default();
     
     snarl.show(&mut viewer, &style, egui::Id::new("chain_graph"), ui);
