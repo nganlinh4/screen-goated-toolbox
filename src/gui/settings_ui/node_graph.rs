@@ -9,6 +9,25 @@ use crate::model_config::{get_all_models, ModelType, get_model_by_id};
 use crate::gui::icons::{Icon, icon_button};
 use std::collections::HashMap;
 
+/// Check if a model supports search capabilities (grounding/web search)
+fn model_supports_search(model_id: &str) -> bool {
+    if let Some(model_config) = get_model_by_id(model_id) {
+        // gemma-3-27b-it model doesn't support grounding
+        if model_config.full_name.contains("gemma-3-27b-it") {
+            return false;
+        }
+        // Gemini models support search
+        if model_id.contains("gemini") || model_id.contains("gemma") {
+            return true;
+        }
+        // Groq compound models support search
+        if model_id.contains("compound") {
+            return true;
+        }
+    }
+    false
+}
+
 /// Request a node graph view reset (scale=1.0, centered)
 /// This sets a flag that the patched egui-snarl library will check
 pub fn request_node_graph_view_reset(ctx: &egui::Context) {
@@ -325,7 +344,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
             current_node_uuid = node.id().to_string();
             
             ui.vertical(|ui| {
-                ui.set_max_width(250.0);
+                ui.set_max_width(320.0);
                 
                 match node {
                     ChainNode::Input { block_type, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, .. } => {
@@ -344,30 +363,37 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                 _ => ModelType::Text,
                             };
                             
-                            egui::ComboBox::from_id_salt(format!("model_{:?}", node_id))
-                                .selected_text(display_name)
-                                .show_ui(ui, |ui| {
-                                    for m in get_all_models() {
-                                        if m.enabled && m.model_type == filter_type {
-                                            // Get localized name and quota
-                                            let name = match self.ui_language.as_str() { 
-                                                "vi" => &m.name_vi, 
-                                                "ko" => &m.name_ko, 
-                                                _ => &m.name_en 
-                                            };
-                                            let quota = match self.ui_language.as_str() { 
-                                                "vi" => &m.quota_limit_vi, 
-                                                "ko" => &m.quota_limit_ko, 
-                                                _ => &m.quota_limit_en 
-                                            };
-                                            // Display as "Name - ModelName - Quota"
-                                            let label = format!("{} - {} - {}", name, m.full_name, quota);
-                                            if ui.selectable_value(model, m.id.clone(), label).clicked() {
-                                                self.changed = true;
-                                            }
+                            // Model selector button with manual popup for tight width
+                            let popup_id = ui.make_persistent_id(format!("model_popup_{:?}", node_id));
+                            let button_response = ui.button(display_name);
+                            if button_response.clicked() {
+                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                            }
+                            egui::popup_below_widget(ui, popup_id, &button_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
+                                for m in get_all_models() {
+                                    if m.enabled && m.model_type == filter_type {
+                                        let name = match self.ui_language.as_str() { 
+                                            "vi" => &m.name_vi, 
+                                            "ko" => &m.name_ko, 
+                                            _ => &m.name_en 
+                                        };
+                                        let quota = match self.ui_language.as_str() { 
+                                            "vi" => &m.quota_limit_vi, 
+                                            "ko" => &m.quota_limit_ko, 
+                                            _ => &m.quota_limit_en 
+                                        };
+                                        let search_icon = if model_supports_search(&m.id) { "🔍 " } else { "" };
+                                        let label = format!("{}{} - {} - {}", search_icon, name, m.full_name, quota);
+                                        let is_selected = *model == m.id;
+                                        if ui.selectable_label(is_selected, label).clicked() {
+                                            *model = m.id.clone();
+                                            self.changed = true;
+                                            ui.memory_mut(|mem| mem.toggle_popup(popup_id));
                                         }
                                     }
-                                });
+                                }
+                            });
                         });
 
                         // Prompt Section (hidden for Whisper audio models only)
@@ -465,30 +491,37 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                 .map(|m| match self.ui_language.as_str() { "vi" => m.name_vi.as_str(), "ko" => m.name_ko.as_str(), _ => m.name_en.as_str() })
                                 .unwrap_or(model.as_str());
                             
-                            egui::ComboBox::from_id_salt(format!("model_{:?}", node_id))
-                                .selected_text(display_name)
-                                .show_ui(ui, |ui| {
-                                    for m in get_all_models() {
-                                        if m.enabled && m.model_type == ModelType::Text {
-                                            // Get localized name and quota
-                                            let name = match self.ui_language.as_str() { 
-                                                "vi" => &m.name_vi, 
-                                                "ko" => &m.name_ko, 
-                                                _ => &m.name_en 
-                                            };
-                                            let quota = match self.ui_language.as_str() { 
-                                                "vi" => &m.quota_limit_vi, 
-                                                "ko" => &m.quota_limit_ko, 
-                                                _ => &m.quota_limit_en 
-                                            };
-                                            // Display as "Name - ModelName - Quota"
-                                            let label = format!("{} - {} - {}", name, m.full_name, quota);
-                                            if ui.selectable_value(model, m.id.clone(), label).clicked() {
-                                                self.changed = true;
-                                            }
+                            // Model selector button with manual popup for tight width
+                            let popup_id = ui.make_persistent_id(format!("model_popup_{:?}", node_id));
+                            let button_response = ui.button(display_name);
+                            if button_response.clicked() {
+                                ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                            }
+                            egui::popup_below_widget(ui, popup_id, &button_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
+                                for m in get_all_models() {
+                                    if m.enabled && m.model_type == ModelType::Text {
+                                        let name = match self.ui_language.as_str() { 
+                                            "vi" => &m.name_vi, 
+                                            "ko" => &m.name_ko, 
+                                            _ => &m.name_en 
+                                        };
+                                        let quota = match self.ui_language.as_str() { 
+                                            "vi" => &m.quota_limit_vi, 
+                                            "ko" => &m.quota_limit_ko, 
+                                            _ => &m.quota_limit_en 
+                                        };
+                                        let search_icon = if model_supports_search(&m.id) { "🔍 " } else { "" };
+                                        let label = format!("{}{} - {} - {}", search_icon, name, m.full_name, quota);
+                                        let is_selected = *model == m.id;
+                                        if ui.selectable_label(is_selected, label).clicked() {
+                                            *model = m.id.clone();
+                                            self.changed = true;
+                                            ui.memory_mut(|mem| mem.toggle_popup(popup_id));
                                         }
                                     }
-                                });
+                                }
+                            });
                         });
 
                         // Row 2: Prompt Label + Add Tag Button

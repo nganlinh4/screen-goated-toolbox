@@ -509,7 +509,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "text_accurate_kimi".to_string(),
-                prompt: "Translate the following text to {language1}. Output ONLY the translation.".to_string(),
+                prompt: "Translate the following text to {language1}. Output ONLY the translation. Text to translate:".to_string(),
                 selected_language: "Korean".to_string(),
                 streaming_enabled: true,
                 show_overlay: true,
@@ -538,7 +538,7 @@ impl Default for Config {
             ProcessingBlock {
                 block_type: "text".to_string(),
                 model: "compound_mini".to_string(),
-                prompt: "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.".to_string(),
+                prompt: "Search the internet for information about the following query and provide a comprehensive summary. Include key facts, recent developments, and relevant details with clickable links to sources if possible. Format the output as markdown creatively. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks. SEARCH FOR:".to_string(),
                 streaming_enabled: true,
                 render_mode: "markdown".to_string(),
                 show_overlay: true,

@@ -30,7 +30,7 @@ where
         model
     );
 
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "contents": [{
             "role": "user",
             "parts": [
@@ -44,6 +44,14 @@ where
             ]
         }]
     });
+    
+    // Add grounding tools for all models except gemma-3-27b-it
+    if !model.contains("gemma-3-27b-it") {
+        payload["tools"] = serde_json::json!([
+            { "url_context": {} },
+            { "google_search": {} }
+        ]);
+    }
 
     let resp = UREQ_AGENT.post(&url)
         .set("x-goog-api-key", gemini_api_key)

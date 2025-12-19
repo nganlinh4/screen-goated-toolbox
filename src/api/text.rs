@@ -48,12 +48,20 @@ where
             )
         };
 
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "contents": [{
                 "role": "user",
                 "parts": [{ "text": prompt }]
             }]
         });
+        
+        // Add grounding tools for all models except gemma-3-27b-it
+        if !model.contains("gemma-3-27b-it") {
+            payload["tools"] = serde_json::json!([
+                { "url_context": {} },
+                { "google_search": {} }
+            ]);
+        }
 
         let resp = UREQ_AGENT.post(&url)
             .set("x-goog-api-key", gemini_api_key)
@@ -450,9 +458,17 @@ where
                  format!("https://generativelanguage.googleapis.com/v1beta/models/{}:{}", p_model, method)
              };
 
-             let payload = serde_json::json!({
+             let mut payload = serde_json::json!({
                  "contents": [{ "role": "user", "parts": [{ "text": final_prompt }] }]
              });
+             
+             // Add grounding tools for all models except gemma-3-27b-it
+             if !p_model.contains("gemma-3-27b-it") {
+                 payload["tools"] = serde_json::json!([
+                     { "url_context": {} },
+                     { "google_search": {} }
+                 ]);
+             }
 
              let resp = UREQ_AGENT.post(&url)
                  .set("x-goog-api-key", gemini_api_key)
