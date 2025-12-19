@@ -9,6 +9,10 @@ pub fn to_wstring(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// Global switch for the "context quote" displayed in result windows during refining.
+/// Set to false to hide the quote and only show the glow animation.
+pub const SHOW_REFINING_CONTEXT_QUOTE: bool = false;
+
 pub fn get_context_quote(text: &str) -> String {
     let words: Vec<&str> = text.split_whitespace().collect();
     let len = words.len();

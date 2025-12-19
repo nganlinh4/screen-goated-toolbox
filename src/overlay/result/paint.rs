@@ -230,13 +230,17 @@ pub fn paint_window(hwnd: HWND) {
                 SetTextColor(cache_dc, COLORREF(0x00FFFFFF));
 
                 let mut buf = if is_refining {
-                    let combined = if input_text.is_empty() {
-                        preset_prompt.clone()
+                    if !crate::overlay::utils::SHOW_REFINING_CONTEXT_QUOTE {
+                        vec![0u16; 1] // Return empty buffer
                     } else {
-                        format!("{}\n\n{}", preset_prompt, input_text)
-                    };
-                    let quote = crate::overlay::utils::get_context_quote(&combined);
-                    quote.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>()
+                        let combined = if input_text.is_empty() {
+                            preset_prompt.clone()
+                        } else {
+                            format!("{}\n\n{}", preset_prompt, input_text)
+                        };
+                        let quote = crate::overlay::utils::get_context_quote(&combined);
+                        quote.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>()
+                    }
                 } else {
                     let text_len = GetWindowTextLengthW(hwnd) + 1;
                     let mut b = vec![0u16; text_len as usize];
