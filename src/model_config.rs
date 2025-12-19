@@ -81,6 +81,19 @@ lazy_static::lazy_static! {
             "1000 requests/day"
         ),
         ModelConfig::new(
+            "gemma-3-27b-vision",
+            "google",
+            "Cân bằng, chậm",
+            "균형잡힌, 느림",
+            "Balanced, Slow",
+            "gemma-3-27b-it",
+            ModelType::Vision,
+            true,
+            "14400 lượt/ngày",
+            "14400 요청/일",
+            "14400 requests/day"
+        ),
+        ModelConfig::new(
             "gemini-flash-lite",
             "google",
             "Chính xác hơn",
@@ -144,6 +157,19 @@ lazy_static::lazy_static! {
             "1000 lượt/ngày",
             "1000 요청/일",
             "1000 requests/day"
+        ),
+        ModelConfig::new(
+            "gemma-3-27b",
+            "google",
+            "Cân bằng, chậm",
+            "균형잡힌, 느림",
+            "Balanced, Slow",
+            "gemma-3-27b-it",
+            ModelType::Text,
+            true,
+            "14400 lượt/ngày",
+            "14400 요청/일",
+            "14400 requests/day"
         ),
         ModelConfig::new(
             "text_accurate_kimi",
