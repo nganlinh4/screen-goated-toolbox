@@ -709,7 +709,7 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
             let popup_layer_id = button_response.id;
             egui::Popup::from_toggle_button_response(&button_response)
                 .show(|ui| {
-                ui.set_min_width(180.0);
+                ui.set_min_width(120.0);
                 
                 // Get or create search state for this popup from temp data
                 let mut search_text: String = ui.data_mut(|d| d.get_temp(search_id).unwrap_or_default());
@@ -718,7 +718,7 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
                 let _search_response = ui.add(
                     egui::TextEdit::singleline(&mut search_text)
                         .hint_text("Search...")
-                        .desired_width(170.0)
+                        .desired_width(110.0)
                 );
                 
                 // Store search state back
@@ -728,7 +728,7 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
                 
                 // Language list in scroll area
                 egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                    ui.set_width(180.0); // Ensure scrollbar stays on the right edge
+                    ui.set_width(120.0); // Ensure scrollbar stays on the right edge
                     for lang in get_all_languages() {
                         let matches_search = search_text.is_empty() || lang.to_lowercase().contains(&search_text.to_lowercase());
                         if matches_search {
