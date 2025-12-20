@@ -110,6 +110,8 @@ pub struct Preset {
     pub hide_recording_ui: bool,
     #[serde(default)]
     pub auto_stop_recording: bool, // Silence-based auto-stop
+    #[serde(default = "default_audio_processing_mode")]
+    pub audio_processing_mode: String, // "record_then_process" or "realtime"
 
     // --- Video Fields ---
     #[serde(default)]
@@ -146,6 +148,7 @@ fn default_theme_mode() -> ThemeMode { ThemeMode::System }
 fn default_auto_paste_newline() -> bool { true }
 fn default_history_limit() -> usize { DEFAULT_HISTORY_LIMIT }
 fn default_graphics_mode() -> String { "standard".to_string() }
+fn default_audio_processing_mode() -> String { "record_then_process".to_string() }
 
 
 impl Default for Preset {
@@ -172,6 +175,7 @@ impl Default for Preset {
             audio_source: "mic".to_string(),
             hide_recording_ui: false,
             auto_stop_recording: false,
+            audio_processing_mode: "record_then_process".to_string(),
             video_capture_method: "region".to_string(),
             text_input_mode: "select".to_string(),
             continuous_input: false,

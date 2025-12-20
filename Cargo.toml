@@ -10,6 +10,9 @@ image = { version = "0.24", default-features = false, features = ["png"] }
 [dependencies]
 # Network & Serialization
 ureq = { version = "2.9", features = ["json"] }
+tungstenite = { version = "0.21", features = ["native-tls"] }
+native-tls = "0.2"
+url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"

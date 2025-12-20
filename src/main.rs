@@ -479,12 +479,34 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 }
 
                 if preset_type == "audio" {
-                    if overlay::is_recording_overlay_active() {
-                        overlay::stop_recording_and_submit();
+                    // Check for realtime mode
+                    let is_realtime = {
+                        if let Ok(app) = APP.lock() {
+                            if preset_idx < app.config.presets.len() {
+                                app.config.presets[preset_idx].audio_processing_mode == "realtime"
+                            } else { false }
+                        } else { false }
+                    };
+                    
+                    if is_realtime {
+                        // Realtime mode - toggle realtime overlay
+                        if overlay::is_realtime_overlay_active() {
+                            // Already active - just return, user can close via overlay UI
+                            return LRESULT(0);
+                        } else {
+                            std::thread::spawn(move || {
+                                overlay::show_realtime_overlay(preset_idx);
+                            });
+                        }
                     } else {
-                        std::thread::spawn(move || {
-                            overlay::show_recording_overlay(preset_idx);
-                        });
+                        // Record-then-process mode
+                        if overlay::is_recording_overlay_active() {
+                            overlay::stop_recording_and_submit();
+                        } else {
+                            std::thread::spawn(move || {
+                                overlay::show_recording_overlay(preset_idx);
+                            });
+                        }
                     }
                 } else if preset_type == "text" {
                     // NEW TEXT LOGIC

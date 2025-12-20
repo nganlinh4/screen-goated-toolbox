@@ -183,16 +183,22 @@ pub fn render_preset_editor(
                             _ => "Record then Process",
                         };
                         let mode_realtime = match config.ui_language.as_str() {
-                            "vi" => "Xử lý thời gian thực (upcoming)",
-                            "ko" => "실시간 처리 (예정)",
-                            _ => "Realtime Processing (upcoming)",
+                            "vi" => "Xử lý thời gian thực",
+                            "ko" => "실시간 처리",
+                            _ => "Realtime Processing",
+                        };
+                        
+                        let selected_mode_text = if preset.audio_processing_mode == "realtime" {
+                            mode_realtime
+                        } else {
+                            mode_record
                         };
                         
                         egui::ComboBox::from_id_salt("audio_operation_mode_combo")
-                            .selected_text(mode_record)
+                            .selected_text(selected_mode_text)
                             .show_ui(ui, |ui| {
-                                let _ = ui.selectable_label(true, mode_record);
-                                ui.add_enabled(false, egui::Button::new(mode_realtime).selected(false));
+                                if ui.selectable_value(&mut preset.audio_processing_mode, "record_then_process".to_string(), mode_record).clicked() { changed = true; }
+                                if ui.selectable_value(&mut preset.audio_processing_mode, "realtime".to_string(), mode_realtime).clicked() { changed = true; }
                             });
                     }
                 }

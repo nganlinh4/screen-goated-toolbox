@@ -1,0 +1,742 @@
+//! Real-time audio transcription using Gemini Live API
+//! 
+//! This module handles streaming audio to Gemini's native audio model
+//! and receives real-time transcriptions via WebSocket.
+//! 
+//! Translation is handled separately via Groq's llama-3.1-8b-instant model
+//! every 2 seconds for new sentence chunks.
+
+use anyhow::Result;
+use base64::{Engine as _, engine::general_purpose};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}, Mutex};
+use std::net::TcpStream;
+use std::time::{Duration, Instant};
+use std::io::BufRead;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use windows::Win32::Foundation::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+use crate::config::Preset;
+use crate::APP;
+use crate::api::client::UREQ_AGENT;
+
+/// Maximum words to display in overlay (older words get truncated with "...")
+const MAX_DISPLAY_WORDS: usize = 50;
+
+/// Interval for triggering translation (milliseconds)
+const TRANSLATION_INTERVAL_MS: u64 = 2000;
+
+/// Model for realtime audio transcription
+const REALTIME_MODEL: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
+
+/// Safely truncate a string to max_bytes, respecting UTF-8 character boundaries
+fn safe_truncate(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    // Find the last valid char boundary at or before max_bytes
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// Shared state for realtime transcription
+pub struct RealtimeState {
+    pub full_transcript: String,
+    pub display_transcript: String,
+    pub last_translation_pos: usize,  // Track where we last translated from
+    pub translation_text: String,
+    pub display_translation: String,
+}
+
+impl RealtimeState {
+    pub fn new() -> Self {
+        Self {
+            full_transcript: String::new(),
+            display_transcript: String::new(),
+            last_translation_pos: 0,
+            translation_text: String::new(),
+            display_translation: String::new(),
+        }
+    }
+    
+    /// Truncate text to MAX_DISPLAY_WORDS, adding "..." prefix if truncated
+    fn truncate_to_max_words(text: &str) -> String {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if words.len() <= MAX_DISPLAY_WORDS {
+            text.to_string()
+        } else {
+            let start = words.len() - MAX_DISPLAY_WORDS;
+            format!("... {}", words[start..].join(" "))
+        }
+    }
+    
+    /// Append new transcript text and update display
+    pub fn append_transcript(&mut self, new_text: &str) {
+        self.full_transcript.push_str(new_text);
+        self.display_transcript = Self::truncate_to_max_words(&self.full_transcript);
+    }
+    
+    /// Get text since last translation for the next translation chunk
+    pub fn get_untranslated_text(&self) -> Option<String> {
+        if self.last_translation_pos >= self.full_transcript.len() {
+            return None;
+        }
+        // Ensure we're at a valid char boundary
+        if !self.full_transcript.is_char_boundary(self.last_translation_pos) {
+            return None;
+        }
+        let text = &self.full_transcript[self.last_translation_pos..];
+        if text.trim().is_empty() {
+            return None;
+        }
+        Some(text.trim().to_string())
+    }
+    
+    /// Mark current position as translated
+    pub fn mark_translated(&mut self) {
+        self.last_translation_pos = self.full_transcript.len();
+    }
+    
+    /// Append translation text and update display
+    pub fn append_translation(&mut self, new_text: &str) {
+        self.translation_text.push_str(new_text);
+        self.display_translation = Self::truncate_to_max_words(&self.translation_text);
+    }
+}
+
+pub type SharedRealtimeState = Arc<Mutex<RealtimeState>>;
+
+/// Create TLS WebSocket connection to Gemini Live API
+fn connect_websocket(api_key: &str) -> Result<tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>> {
+    let ws_url = format!(
+        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={}",
+        api_key
+    );
+    
+    let url = url::Url::parse(&ws_url)?;
+    let host = url.host_str().ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
+    let port = 443;
+    
+    // Resolve hostname to IP address first
+    use std::net::ToSocketAddrs;
+    let addr = format!("{}:{}", host, port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Failed to resolve hostname: {}", host))?;
+    
+    println!("Resolved {} to {}", host, addr);
+    
+    // Connect TCP with a long timeout for initial handshake
+    let tcp_stream = TcpStream::connect_timeout(&addr, Duration::from_secs(10))?;
+    // Use blocking mode with long timeout during setup
+    tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
+    tcp_stream.set_nodelay(true)?;
+    
+    // Wrap with TLS
+    let connector = native_tls::TlsConnector::new()?;
+    let tls_stream = connector.connect(host, tcp_stream)?;
+    
+    // WebSocket handshake
+    let (socket, _response) = tungstenite::client::client(&ws_url, tls_stream)?;
+    
+    Ok(socket)
+}
+
+/// Set socket to non-blocking mode for the main loop
+fn set_socket_nonblocking(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>) -> Result<()> {
+    let stream = socket.get_mut();
+    let tcp_stream = stream.get_mut();
+    tcp_stream.set_read_timeout(Some(Duration::from_millis(50)))?;
+    Ok(())
+}
+
+/// Send session setup message to configure transcription mode
+fn send_setup_message(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>) -> Result<()> {
+    // Using camelCase as per Gemini Live API documentation
+    // We set responseModalities to AUDIO to satisfy the native audio model,
+    // but we'll only use the inputAudioTranscription (ignore audio talkback)
+    let setup = serde_json::json!({
+        "setup": {
+            "model": format!("models/{}", REALTIME_MODEL),
+            "generationConfig": {
+                "responseModalities": ["AUDIO"]  // Required for native audio model
+            },
+            "inputAudioTranscription": {}  // This is what we actually want - input transcription
+        }
+    });
+    
+    let msg_str = setup.to_string();
+    println!("Sending setup: {}", safe_truncate(&msg_str, 500));
+    
+    socket.write(tungstenite::Message::Text(msg_str))?;
+    socket.flush()?;
+    
+    Ok(())
+}
+
+/// Send audio chunk to the WebSocket
+fn send_audio_chunk(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>, pcm_data: &[i16]) -> Result<()> {
+    // Convert i16 samples to bytes (little-endian)
+    let mut bytes = Vec::with_capacity(pcm_data.len() * 2);
+    for sample in pcm_data {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    
+    let b64_audio = general_purpose::STANDARD.encode(&bytes);
+    
+    let msg = serde_json::json!({
+        "realtime_input": {
+            "media_chunks": [{
+                "data": b64_audio,
+                "mime_type": "audio/pcm;rate=16000"
+            }]
+        }
+    });
+    
+    socket.write(tungstenite::Message::Text(msg.to_string()))?;
+    socket.flush()?;
+    
+    Ok(())
+}
+
+/// Parse inputTranscription from WebSocket message (what the user said)
+fn parse_input_transcription(msg: &str) -> Option<String> {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(msg) {
+        if let Some(server_content) = json.get("serverContent") {
+            if let Some(input_transcription) = server_content.get("inputTranscription") {
+                if let Some(text) = input_transcription.get("text").and_then(|t| t.as_str()) {
+                    return Some(text.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Custom message for updating overlay text
+pub const WM_REALTIME_UPDATE: u32 = WM_APP + 200;
+pub const WM_TRANSLATION_UPDATE: u32 = WM_APP + 201;
+
+/// Start realtime audio transcription
+/// 
+/// This function:
+/// 1. Connects to Gemini Live API via WebSocket
+/// 2. Streams audio from mic/device
+/// 3. Receives transcriptions and updates the overlay
+/// 4. Optionally triggers translation every 2 seconds on new sentence chunks
+pub fn start_realtime_transcription(
+    preset: Preset,
+    stop_signal: Arc<AtomicBool>,
+    overlay_hwnd: HWND,
+    translation_hwnd: Option<HWND>,
+    state: SharedRealtimeState,
+) {
+    std::thread::spawn(move || {
+        if let Err(e) = run_realtime_transcription(preset, stop_signal, overlay_hwnd, translation_hwnd, state) {
+            eprintln!("Realtime transcription error: {}", e);
+        }
+    });
+}
+
+fn run_realtime_transcription(
+    preset: Preset,
+    stop_signal: Arc<AtomicBool>,
+    overlay_hwnd: HWND,
+    translation_hwnd: Option<HWND>,
+    state: SharedRealtimeState,
+) -> Result<()> {
+    // Get API key
+    let gemini_api_key = {
+        let app = APP.lock().unwrap();
+        app.config.gemini_api_key.clone()
+    };
+    
+    if gemini_api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!("NO_API_KEY:google"));
+    }
+    
+    // Connect WebSocket
+    println!("Connecting to Gemini Live API...");
+    let mut socket = connect_websocket(&gemini_api_key)?;
+    println!("Connected! Sending setup...");
+    
+    // Send setup for transcription only
+    send_setup_message(&mut socket)?;
+    println!("Setup sent. Starting audio capture...");
+    
+    // Wait for setup acknowledgment (blocking mode with 30s timeout)
+    let setup_start = Instant::now();
+    loop {
+        match socket.read() {
+            Ok(tungstenite::Message::Text(msg)) => {
+                println!("Received TEXT: {}", safe_truncate(&msg, 500));
+                if msg.contains("setupComplete") {
+                    println!("Setup complete!");
+                    break;
+                }
+                // Check for error messages
+                if msg.contains("error") || msg.contains("Error") {
+                    println!("ERROR in response: {}", msg);
+                    return Err(anyhow::anyhow!("Server returned error: {}", msg));
+                }
+            }
+            Ok(tungstenite::Message::Close(frame)) => {
+                let close_info = frame.map(|f| format!("code={}, reason={}", f.code, f.reason)).unwrap_or("no frame".to_string());
+                println!("Received CLOSE: {}", close_info);
+                return Err(anyhow::anyhow!("Connection closed by server: {}", close_info));
+            }
+            Ok(tungstenite::Message::Binary(data)) => {
+                println!("Received BINARY: {} bytes", data.len());
+                // Try to decode as UTF-8 text
+                if let Ok(text) = String::from_utf8(data.clone()) {
+                    println!("Binary as text: {}", safe_truncate(&text, 500));
+                    if text.contains("setupComplete") {
+                        println!("Setup complete (from binary)!");
+                        break;
+                    }
+                } else {
+                    // Could be protobuf or binary JSON - print hex for debugging
+                    let hex: String = data.iter().take(50).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
+                    println!("Binary hex: {}", hex);
+                    // The first binary message after setup is likely the setupComplete confirmation
+                    // For native audio API, a small binary message is the setup acknowledgment
+                    if data.len() < 100 {
+                        println!("Assuming small binary is setupComplete");
+                        break;
+                    }
+                }
+            }
+            Ok(other) => {
+                println!("Received OTHER message type: {:?}", other);
+            }
+            Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                // Timeout during read - this is expected with blocking socket, retry
+                if setup_start.elapsed() > Duration::from_secs(30) {
+                    return Err(anyhow::anyhow!("Setup timeout - no response from server"));
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                println!("WebSocket error during setup: {:?}", e);
+                return Err(e.into());
+            }
+        }
+        
+        if stop_signal.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+    }
+    
+    // Switch to non-blocking mode for the main loop
+    set_socket_nonblocking(&mut socket)?;
+    println!("Switched to non-blocking mode. Starting audio capture...");
+    
+    // Setup audio capture (similar to record_audio_and_transcribe)
+    #[cfg(target_os = "windows")]
+    let host = if preset.audio_source == "device" {
+        cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or(cpal::default_host())
+    } else {
+        cpal::default_host()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let host = cpal::default_host();
+
+    let device = if preset.audio_source == "device" {
+        #[cfg(target_os = "windows")]
+        {
+            match host.default_output_device() {
+                Some(d) => d,
+                None => host.default_input_device().expect("No input device available"),
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            host.default_input_device().expect("No input device available")
+        }
+    } else {
+        host.default_input_device().expect("No input device available")
+    };
+
+    let config = if preset.audio_source == "device" {
+        match device.default_output_config() {
+            Ok(c) => c,
+            Err(_) => device.default_input_config()?,
+        }
+    } else {
+        device.default_input_config()?
+    };
+
+    let sample_rate = config.sample_rate().0;
+    let channels = config.channels() as usize;
+    
+    // Audio buffer for accumulating samples before sending
+    let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let audio_buffer_clone = audio_buffer.clone();
+    
+    // Resample to 16kHz if needed
+    let target_rate = 16000u32;
+    let resample_ratio = target_rate as f64 / sample_rate as f64;
+    
+    let stop_signal_audio = stop_signal.clone();
+    let err_fn = |err| eprintln!("Audio stream error: {}", err);
+    
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            move |data: &[f32], _: &_| {
+                if stop_signal_audio.load(Ordering::Relaxed) { return; }
+                
+                // Convert to mono and i16
+                let mono_samples: Vec<i16> = data.chunks(channels)
+                    .map(|frame| {
+                        let sum: f32 = frame.iter().sum();
+                        let avg = sum / channels as f32;
+                        (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+                    })
+                    .collect();
+                
+                // Simple resampling (linear interpolation)
+                let resampled: Vec<i16> = if resample_ratio < 1.0 {
+                    let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
+                    (0..new_len)
+                        .map(|i| {
+                            let src_idx = i as f64 / resample_ratio;
+                            let idx0 = src_idx as usize;
+                            let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
+                            let frac = src_idx - idx0 as f64;
+                            let s0 = mono_samples[idx0] as f64;
+                            let s1 = mono_samples[idx1] as f64;
+                            (s0 + (s1 - s0) * frac) as i16
+                        })
+                        .collect()
+                } else {
+                    mono_samples
+                };
+                
+                if let Ok(mut buf) = audio_buffer_clone.lock() {
+                    buf.extend(resampled);
+                }
+            },
+            err_fn,
+            None,
+        )?,
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[i16], _: &_| {
+                if stop_signal_audio.load(Ordering::Relaxed) { return; }
+                
+                // Convert to mono
+                let mono_samples: Vec<i16> = data.chunks(channels)
+                    .map(|frame| {
+                        let sum: i32 = frame.iter().map(|&s| s as i32).sum();
+                        (sum / channels as i32) as i16
+                    })
+                    .collect();
+                
+                // Simple resampling
+                let resampled: Vec<i16> = if resample_ratio < 1.0 {
+                    let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
+                    (0..new_len)
+                        .map(|i| {
+                            let src_idx = i as f64 / resample_ratio;
+                            let idx0 = src_idx as usize;
+                            let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
+                            let frac = src_idx - idx0 as f64;
+                            let s0 = mono_samples[idx0] as f64;
+                            let s1 = mono_samples[idx1] as f64;
+                            (s0 + (s1 - s0) * frac) as i16
+                        })
+                        .collect()
+                } else {
+                    mono_samples
+                };
+                
+                if let Ok(mut buf) = audio_buffer_clone.lock() {
+                    buf.extend(resampled);
+                }
+            },
+            err_fn,
+            None,
+        )?,
+        _ => return Err(anyhow::anyhow!("Unsupported audio format")),
+    };
+    
+    stream.play()?;
+    
+    // Create translation thread using Groq's llama-3.1-8b-instant
+    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;
+    let translation_state = state.clone();
+    let translation_stop = stop_signal.clone();
+    let translation_preset = preset.clone();
+    
+    if has_translation {
+        let translation_hwnd = translation_hwnd.unwrap();
+        std::thread::spawn(move || {
+            run_translation_loop(translation_preset, translation_stop, translation_hwnd, translation_state);
+        });
+    }
+    
+    // Main loop: send audio chunks and receive transcriptions
+    let mut last_send = Instant::now();
+    let mut last_debug = Instant::now();
+    let send_interval = Duration::from_millis(100); // Send audio every 100ms
+    let mut total_samples_sent: usize = 0;
+    let mut messages_received: usize = 0;
+    
+    while !stop_signal.load(Ordering::Relaxed) {
+        // Check if overlay window still exists
+        if !unsafe { IsWindow(overlay_hwnd).as_bool() } {
+            stop_signal.store(true, Ordering::SeqCst);
+            break;
+        }
+        
+        // Send accumulated audio
+        if last_send.elapsed() >= send_interval {
+            let audio_to_send: Vec<i16> = {
+                let mut buf = audio_buffer.lock().unwrap();
+                std::mem::take(&mut *buf)
+            };
+            
+            if !audio_to_send.is_empty() {
+                total_samples_sent += audio_to_send.len();
+                if let Err(e) = send_audio_chunk(&mut socket, &audio_to_send) {
+                    eprintln!("Error sending audio: {}", e);
+                    break;
+                }
+            }
+            last_send = Instant::now();
+        }
+        
+        // Debug output every 3 seconds
+        if last_debug.elapsed() > Duration::from_secs(3) {
+            println!("[DEBUG] Samples sent: {}, Messages received: {}", total_samples_sent, messages_received);
+            last_debug = Instant::now();
+        }
+        
+        // Receive transcriptions (non-blocking)
+        match socket.read() {
+            Ok(tungstenite::Message::Text(msg)) => {
+                messages_received += 1;
+                println!("[RECV TEXT] {}", safe_truncate(&msg, 300));
+                
+                // Parse inputTranscription for Window 1 (what user said)
+                if let Some(transcript) = parse_input_transcription(&msg) {
+                    if !transcript.is_empty() {
+                        println!("[TRANSCRIPT] {}", transcript);
+                        if let Ok(mut s) = state.lock() {
+                            s.append_transcript(&transcript);
+                            let display = s.display_transcript.clone();
+                            update_overlay_text(overlay_hwnd, &display);
+                        }
+                    }
+                }
+            }
+            Ok(tungstenite::Message::Binary(data)) => {
+                messages_received += 1;
+                // Try to decode as JSON text (the API seems to send JSON in binary frames)
+                if let Ok(text) = String::from_utf8(data.clone()) {
+                    println!("[RECV BINARY as TEXT] {}", safe_truncate(&text, 300));
+                    
+                    // Parse inputTranscription for Window 1
+                    if let Some(transcript) = parse_input_transcription(&text) {
+                        if !transcript.is_empty() {
+                            println!("[TRANSCRIPT from binary] {}", transcript);
+                            if let Ok(mut s) = state.lock() {
+                                s.append_transcript(&transcript);
+                                let display = s.display_transcript.clone();
+                                update_overlay_text(overlay_hwnd, &display);
+                            }
+                        }
+                    }
+                } else {
+                    println!("[RECV BINARY] {} bytes (not UTF-8)", data.len());
+                }
+            }
+            Ok(tungstenite::Message::Close(_)) => {
+                println!("WebSocket closed by server");
+                break;
+            }
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                // Non-blocking or timeout, no data available - this is expected
+            }
+            Err(e) => {
+                eprintln!("WebSocket read error: {}", e);
+                break;
+            }
+        }
+        
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    
+    drop(stream);
+    let _ = socket.close(None);
+    
+    Ok(())
+}
+
+/// Translation loop using Groq's llama-3.1-8b-instant model
+/// Runs every 2 seconds and translates any new untranslated text
+fn run_translation_loop(
+    preset: Preset,
+    stop_signal: Arc<AtomicBool>,
+    translation_hwnd: HWND,
+    state: SharedRealtimeState,
+) {
+    let interval = Duration::from_millis(TRANSLATION_INTERVAL_MS);
+    let mut last_run = Instant::now();
+    
+    // Get translation block (second block) for target language
+    let translation_block = match preset.blocks.get(1) {
+        Some(b) => b.clone(),
+        None => return,
+    };
+    
+    // Get target language
+    let target_language = if !translation_block.selected_language.is_empty() {
+        translation_block.selected_language.clone()
+    } else {
+        translation_block.language_vars.get("language").cloned()
+            .or_else(|| translation_block.language_vars.get("language1").cloned())
+            .unwrap_or_else(|| "English".to_string())
+    };
+    
+    println!("Translation loop started. Target language: {}", target_language);
+    
+    while !stop_signal.load(Ordering::Relaxed) {
+        if !unsafe { IsWindow(translation_hwnd).as_bool() } {
+            break;
+        }
+        
+        if last_run.elapsed() >= interval {
+            // Get untranslated text
+            let chunk = {
+                let s = state.lock().unwrap();
+                s.get_untranslated_text()
+            };
+            
+            if let Some(chunk) = chunk {
+                println!("[TRANSLATION] Translating: {}", safe_truncate(&chunk, 100));
+                
+                // Get Groq API key
+                let groq_key = {
+                    let app = APP.lock().unwrap();
+                    app.config.api_key.clone()  // api_key is the Groq API key
+                };
+                
+                if !groq_key.is_empty() {
+                    // Use Groq's llama-3.1-8b-instant for fast translation
+                    let url = "https://api.groq.com/openai/v1/chat/completions";
+                    
+                    let payload = serde_json::json!({
+                        "model": "llama-3.1-8b-instant",
+                        "messages": [{
+                            "role": "user",
+                            "content": format!(
+                                "Translate the following text to {}. Output ONLY the translation, nothing else:\n\n{}",
+                                target_language, chunk
+                            )
+                        }],
+                        "stream": true,
+                        "max_tokens": 512
+                    });
+                    
+                    match UREQ_AGENT.post(url)
+                        .set("Authorization", &format!("Bearer {}", groq_key))
+                        .set("Content-Type", "application/json")
+                        .send_json(payload)
+                    {
+                        Ok(resp) => {
+                            let reader = std::io::BufReader::new(resp.into_reader());
+                            
+                            for line in reader.lines().flatten() {
+                                if stop_signal.load(Ordering::Relaxed) { break; }
+                                
+                                if line.starts_with("data: ") {
+                                    let json_str = &line["data: ".len()..];
+                                    if json_str.trim() == "[DONE]" { break; }
+                                    
+                                    if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                        if let Some(choices) = chunk_resp.get("choices").and_then(|c| c.as_array()) {
+                                            if let Some(first) = choices.first() {
+                                                if let Some(delta) = first.get("delta") {
+                                                    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                                        // Append translation and update display
+                                                        if let Ok(mut s) = state.lock() {
+                                                            s.append_translation(content);
+                                                            let display = s.display_translation.clone();
+                                                            update_translation_text(translation_hwnd, &display);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Mark as translated
+                            if let Ok(mut s) = state.lock() {
+                                s.mark_translated();
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[TRANSLATION] Groq API error: {}", e);
+                        }
+                    }
+                } else {
+                    println!("[TRANSLATION] No Groq API key available");
+                }
+            }
+            
+            last_run = Instant::now();
+        }
+        
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    
+    println!("Translation loop stopped.");
+}
+
+// Static buffer for overlay text updates (thread-safe)
+lazy_static::lazy_static! {
+    pub static ref REALTIME_DISPLAY_TEXT: Mutex<String> = Mutex::new(String::new());
+    pub static ref TRANSLATION_DISPLAY_TEXT: Mutex<String> = Mutex::new(String::new());
+}
+
+/// Update overlay with new text
+fn update_overlay_text(hwnd: HWND, text: &str) {
+    if let Ok(mut display) = REALTIME_DISPLAY_TEXT.lock() {
+        *display = text.to_string();
+    }
+    
+    // Post message to trigger repaint
+    unsafe {
+        let _ = PostMessageW(hwnd, WM_REALTIME_UPDATE, WPARAM(0), LPARAM(0));
+    }
+}
+
+/// Update translation overlay with new text
+fn update_translation_text(hwnd: HWND, text: &str) {
+    if let Ok(mut display) = TRANSLATION_DISPLAY_TEXT.lock() {
+        *display = text.to_string();
+    }
+    
+    // Post message to trigger repaint
+    unsafe {
+        let _ = PostMessageW(hwnd, WM_TRANSLATION_UPDATE, WPARAM(0), LPARAM(0));
+    }
+}
+
+/// Get current realtime display text (called by overlay paint)
+pub fn get_realtime_display_text() -> String {
+    REALTIME_DISPLAY_TEXT.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+/// Get current translation display text (called by overlay paint)
+pub fn get_translation_display_text() -> String {
+    TRANSLATION_DISPLAY_TEXT.lock().map(|s| s.clone()).unwrap_or_default()
+}
