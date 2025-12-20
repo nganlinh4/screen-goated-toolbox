@@ -68,19 +68,6 @@ lazy_static::lazy_static! {
             "1000 requests/day"
         ),
         ModelConfig::new(
-            "maverick",
-            "groq",
-            "Chính xác",
-            "정확함",
-            "Accurate",
-            "meta-llama/llama-4-maverick-17b-128e-instruct",
-            ModelType::Vision,
-            true,
-            "1000 lượt/ngày",
-            "1000 요청/일",
-            "1000 requests/day"
-        ),
-        ModelConfig::new(
             "gemma-3-27b-vision",
             "google",
             "Cân bằng, chậm",
@@ -92,6 +79,19 @@ lazy_static::lazy_static! {
             "14400 lượt/ngày",
             "14400 요청/일",
             "14400 requests/day"
+        ),
+        ModelConfig::new(
+            "maverick",
+            "groq",
+            "Chính xác",
+            "정확함",
+            "Accurate",
+            "meta-llama/llama-4-maverick-17b-128e-instruct",
+            ModelType::Vision,
+            true,
+            "1000 lượt/ngày",
+            "1000 요청/일",
+            "1000 requests/day"
         ),
         ModelConfig::new(
             "gemini-flash-lite",
