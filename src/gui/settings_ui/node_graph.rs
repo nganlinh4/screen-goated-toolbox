@@ -728,6 +728,7 @@ fn show_language_vars(ui: &mut egui::Ui, _ui_language: &str, prompt: &str, langu
                 
                 // Language list in scroll area
                 egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                    ui.set_width(180.0); // Ensure scrollbar stays on the right edge
                     for lang in get_all_languages() {
                         let matches_search = search_text.is_empty() || lang.to_lowercase().contains(&search_text.to_lowercase());
                         if matches_search {
