@@ -19,9 +19,6 @@ use crate::config::Preset;
 use crate::APP;
 use crate::api::client::UREQ_AGENT;
 
-/// Maximum words to display in overlay (older words get truncated with "...")
-const MAX_DISPLAY_WORDS: usize = 50;
-
 /// Interval for triggering translation (milliseconds)
 const TRANSLATION_INTERVAL_MS: u64 = 2000;
 
@@ -43,10 +40,21 @@ fn safe_truncate(s: &str, max_bytes: usize) -> &str {
 
 /// Shared state for realtime transcription
 pub struct RealtimeState {
+    /// Full transcript (used for translation and display)
     pub full_transcript: String,
+    /// Display transcript (same as full - WebView handles scrolling)
     pub display_transcript: String,
-    pub last_translation_pos: usize,  // Track where we last translated from
-    pub translation_text: String,
+    
+    /// Position after the last FULLY FINISHED sentence that was translated
+    pub last_committed_pos: usize,
+    /// The last text chunk we sent for translation (to detect changes)
+    pub last_sent_text: String,
+    
+    /// Committed translation (finished sentences, never replaced)
+    pub committed_translation: String,
+    /// Current uncommitted translation (may be replaced when sentence grows)
+    pub uncommitted_translation: String,
+    /// Display translation (WebView handles scrolling)
     pub display_translation: String,
 }
 
@@ -55,54 +63,119 @@ impl RealtimeState {
         Self {
             full_transcript: String::new(),
             display_transcript: String::new(),
-            last_translation_pos: 0,
-            translation_text: String::new(),
+            last_committed_pos: 0,
+            last_sent_text: String::new(),
+            committed_translation: String::new(),
+            uncommitted_translation: String::new(),
             display_translation: String::new(),
         }
     }
     
-    /// Truncate text to MAX_DISPLAY_WORDS, adding "..." prefix if truncated
-    fn truncate_to_max_words(text: &str) -> String {
-        let words: Vec<&str> = text.split_whitespace().collect();
-        if words.len() <= MAX_DISPLAY_WORDS {
-            text.to_string()
-        } else {
-            let start = words.len() - MAX_DISPLAY_WORDS;
-            format!("... {}", words[start..].join(" "))
-        }
+    /// Update display transcript from full transcript
+    fn update_display_transcript(&mut self) {
+        // No truncation - WebView handles smooth scrolling
+        self.display_transcript = self.full_transcript.clone();
     }
+    
+    /// Update display translation from committed + uncommitted
+    fn update_display_translation(&mut self) {
+        let full = if self.committed_translation.is_empty() {
+            self.uncommitted_translation.clone()
+        } else if self.uncommitted_translation.is_empty() {
+            self.committed_translation.clone()
+        } else {
+            format!("{} {}", self.committed_translation, self.uncommitted_translation)
+        };
+        // No truncation - WebView handles smooth scrolling
+        self.display_translation = full;
+    }
+
     
     /// Append new transcript text and update display
     pub fn append_transcript(&mut self, new_text: &str) {
         self.full_transcript.push_str(new_text);
-        self.display_transcript = Self::truncate_to_max_words(&self.full_transcript);
+        self.update_display_transcript();
     }
     
-    /// Get text since last translation for the next translation chunk
-    pub fn get_untranslated_text(&self) -> Option<String> {
-        if self.last_translation_pos >= self.full_transcript.len() {
+    /// Get text to translate: from last_committed_pos to end
+    /// Returns (text_to_translate, contains_finished_sentence)
+    pub fn get_translation_chunk(&self) -> Option<(String, bool)> {
+        if self.last_committed_pos >= self.full_transcript.len() {
             return None;
         }
-        // Ensure we're at a valid char boundary
-        if !self.full_transcript.is_char_boundary(self.last_translation_pos) {
+        if !self.full_transcript.is_char_boundary(self.last_committed_pos) {
             return None;
         }
-        let text = &self.full_transcript[self.last_translation_pos..];
+        let text = &self.full_transcript[self.last_committed_pos..];
         if text.trim().is_empty() {
             return None;
         }
-        Some(text.trim().to_string())
+        
+        let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
+        let has_finished_sentence = text.chars().any(|c| sentence_delimiters.contains(&c));
+        
+        Some((text.trim().to_string(), has_finished_sentence))
     }
     
-    /// Mark current position as translated
-    pub fn mark_translated(&mut self) {
-        self.last_translation_pos = self.full_transcript.len();
+    /// Check if the chunk is the same as what we last sent (no change)
+    pub fn is_chunk_unchanged(&self, chunk: &str) -> bool {
+        chunk == self.last_sent_text
     }
     
-    /// Append translation text and update display
+    /// Find the end position of the last complete sentence in the transcript
+    fn find_last_sentence_end(&self) -> Option<usize> {
+        let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
+        let mut last_end: Option<usize> = None;
+        
+        for (idx, ch) in self.full_transcript.char_indices() {
+            if sentence_delimiters.contains(&ch) {
+                last_end = Some(idx + ch.len_utf8());
+            }
+        }
+        last_end
+    }
+    
+    /// Commit finished sentences after successful translation
+    pub fn commit_finished_sentences(&mut self) {
+        if let Some(last_sentence_end) = self.find_last_sentence_end() {
+            if last_sentence_end > self.last_committed_pos {
+                self.last_committed_pos = last_sentence_end;
+                // Move uncommitted translation to committed
+                if !self.uncommitted_translation.is_empty() {
+                    if self.committed_translation.is_empty() {
+                        self.committed_translation = self.uncommitted_translation.clone();
+                    } else {
+                        self.committed_translation.push(' ');
+                        self.committed_translation.push_str(&self.uncommitted_translation);
+                    }
+                    // No truncation needed - WebView handles scrolling
+                    self.uncommitted_translation.clear();
+                    self.update_display_translation();
+                }
+            }
+        }
+    }
+    
+    /// Check if we should replace the previous translation (sentence grew)
+    pub fn should_replace_translation(&self, new_chunk: &str) -> bool {
+        !self.last_sent_text.is_empty() && new_chunk != self.last_sent_text
+    }
+    
+    /// Remember what we sent for translation
+    pub fn set_last_sent(&mut self, text: &str) {
+        self.last_sent_text = text.to_string();
+    }
+    
+    /// Start new translation (clears uncommitted, keeps committed)
+    pub fn start_new_translation(&mut self) {
+        self.uncommitted_translation.clear();
+        self.update_display_translation();
+    }
+    
+    /// Append to uncommitted translation and update display
     pub fn append_translation(&mut self, new_text: &str) {
-        self.translation_text.push_str(new_text);
-        self.display_translation = Self::truncate_to_max_words(&self.translation_text);
+        self.uncommitted_translation.push_str(new_text);
+        self.update_display_translation();
     }
 }
 
@@ -612,23 +685,46 @@ fn run_translation_loop(
         }
         
         if last_run.elapsed() >= interval {
-            // Get untranslated text
-            let chunk = {
+            // Get translation chunk (from last committed sentence to current end)
+            let (chunk, should_replace, has_finished, is_unchanged) = {
                 let s = state.lock().unwrap();
-                s.get_untranslated_text()
+                match s.get_translation_chunk() {
+                    Some((text, has_finished)) => {
+                        let is_unchanged = s.is_chunk_unchanged(&text);
+                        let should_replace = s.should_replace_translation(&text);
+                        (Some(text), should_replace, has_finished, is_unchanged)
+                    }
+                    None => (None, false, false, true)
+                }
             };
             
+            // Skip if chunk is unchanged since last translation
+            if is_unchanged {
+                last_run = Instant::now();
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            
             if let Some(chunk) = chunk {
-                println!("[TRANSLATION] Translating: {}", safe_truncate(&chunk, 100));
+                println!("[TRANSLATION] {} chunk: {} (has_finished: {})", 
+                    if should_replace { "REPLACING" } else { "NEW" },
+                    safe_truncate(&chunk, 100),
+                    has_finished
+                );
+                
+                // Remember what we're sending
+                {
+                    let mut s = state.lock().unwrap();
+                    s.set_last_sent(&chunk);
+                }
                 
                 // Get Groq API key
                 let groq_key = {
                     let app = APP.lock().unwrap();
-                    app.config.api_key.clone()  // api_key is the Groq API key
+                    app.config.api_key.clone()
                 };
                 
                 if !groq_key.is_empty() {
-                    // Use Groq's llama-3.1-8b-instant for fast translation
                     let url = "https://api.groq.com/openai/v1/chat/completions";
                     
                     let payload = serde_json::json!({
@@ -651,6 +747,8 @@ fn run_translation_loop(
                     {
                         Ok(resp) => {
                             let reader = std::io::BufReader::new(resp.into_reader());
+                            let mut full_translation = String::new();
+                            let mut is_first_chunk = true;
                             
                             for line in reader.lines().flatten() {
                                 if stop_signal.load(Ordering::Relaxed) { break; }
@@ -664,9 +762,23 @@ fn run_translation_loop(
                                             if let Some(first) = choices.first() {
                                                 if let Some(delta) = first.get("delta") {
                                                     if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                                        // Append translation and update display
+                                                        full_translation.push_str(content);
+                                                        
+                                                        // Update display in real-time
                                                         if let Ok(mut s) = state.lock() {
-                                                            s.append_translation(content);
+                                                            if is_first_chunk && should_replace {
+                                                                // Clear uncommitted and start fresh
+                                                                s.start_new_translation();
+                                                                s.append_translation(content);
+                                                                is_first_chunk = false;
+                                                            } else if is_first_chunk {
+                                                                // First chunk - just start appending
+                                                                s.append_translation(content);
+                                                                is_first_chunk = false;
+                                                            } else {
+                                                                // Subsequent chunks - just append
+                                                                s.append_translation(content);
+                                                            }
                                                             let display = s.display_translation.clone();
                                                             update_translation_text(translation_hwnd, &display);
                                                         }
@@ -678,9 +790,13 @@ fn run_translation_loop(
                                 }
                             }
                             
-                            // Mark as translated
-                            if let Ok(mut s) = state.lock() {
-                                s.mark_translated();
+                            // After successful translation, commit any finished sentences
+                            if has_finished && !full_translation.is_empty() {
+                                if let Ok(mut s) = state.lock() {
+                                    s.commit_finished_sentences();
+                                    // Clear last_sent since we committed
+                                    s.last_sent_text.clear();
+                                }
                             }
                         }
                         Err(e) => {
