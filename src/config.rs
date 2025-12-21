@@ -949,11 +949,26 @@ impl Default for Config {
         // 16. Realtime Audio Translation (Dịch cabin) Placeholder
         let mut p16 = Preset::default();
         p16.id = "preset_realtime_audio_translate".to_string();
-        p16.name = "Realtime Audio Translate (upcoming)".to_string();
+        p16.name = "Realtime Audio Translate".to_string();
         p16.preset_type = "audio".to_string();
         p16.audio_source = "device".to_string(); // Device audio for cabin translation
-        p16.is_upcoming = true;
-        p16.blocks = vec![];
+        p16.audio_processing_mode = "realtime".to_string();
+        p16.is_upcoming = false;
+        p16.blocks = vec![
+            ProcessingBlock {
+                block_type: "audio".to_string(),
+                model: "whisper-accurate".to_string(),
+                auto_copy: false,
+                ..Default::default()
+            },
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "google-gemma".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                auto_copy: false,
+                ..Default::default()
+            }
+        ];
 
         // 16b. Hỏi nhanh AI (Quick AI question via mic)
         let mut p16b = Preset::default();
@@ -1094,7 +1109,7 @@ impl Default for Config {
             realtime_font_size: 16,
             realtime_transcription_size: (500, 180),
             realtime_translation_size: (500, 180),
-            realtime_audio_source: "mic".to_string(),
+            realtime_audio_source: "device".to_string(),
             realtime_target_language: "Vietnamese".to_string(),
         }
     }

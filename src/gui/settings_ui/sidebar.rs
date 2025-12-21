@@ -37,7 +37,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", "vi") => "Trả lời ng.nc.ngoài 2".to_string(),
         ("preset_fact_check", "vi") => "Kiểm chứng thông tin".to_string(),
         ("preset_omniscient_god", "vi") => "Thần Trí tuệ".to_string(),
-        ("preset_realtime_audio_translate", "vi") => "Dịch cabin (sắp có)".to_string(),
+        ("preset_realtime_audio_translate", "vi") => "Dịch cabin".to_string(),
         ("preset_quick_ai_question", "vi") => "Hỏi nhanh AI".to_string(),
         ("preset_voice_search", "vi") => "Nói để search".to_string(),
         // MASTER presets - Vietnamese
@@ -77,7 +77,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", "ko") => "빠른 외국인 답변 2".to_string(),
         ("preset_fact_check", "ko") => "정보 확인".to_string(),
         ("preset_omniscient_god", "ko") => "전지전능한 신".to_string(),
-        ("preset_realtime_audio_translate", "ko") => "실시간 음성 번역 (예정)".to_string(),
+        ("preset_realtime_audio_translate", "ko") => "실시간 음성 번역".to_string(),
         ("preset_quick_ai_question", "ko") => "빠른 AI 질문".to_string(),
         ("preset_voice_search", "ko") => "음성 검색".to_string(),
         // MASTER presets - Korean
@@ -117,7 +117,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", _) => "Quick 4NR reply 2".to_string(),
         ("preset_fact_check", _) => "Fact Check".to_string(),
         ("preset_omniscient_god", _) => "Omniscient God".to_string(),
-        ("preset_realtime_audio_translate", _) => "Realtime Audio Trans (soon)".to_string(),
+        ("preset_realtime_audio_translate", _) => "Realtime Audio Translate".to_string(),
         ("preset_quick_ai_question", _) => "Quick AI Question".to_string(),
         ("preset_voice_search", _) => "Voice Search".to_string(),
         // MASTER presets - English (default)
