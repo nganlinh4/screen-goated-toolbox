@@ -34,6 +34,7 @@ open = "5.0"
 sys-locale = "0.3"
 winreg = "0.50"
 auto-launch = "0.5"
+urlencoding = "2.1"
 
 # Language Data (Kept as requested)
 isolang = { version = "2.0", features = ["serde", "english_names"] }
