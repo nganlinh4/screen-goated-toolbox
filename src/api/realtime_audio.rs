@@ -748,16 +748,144 @@ fn run_realtime_transcription(
                 }
             }
             Ok(tungstenite::Message::Close(_)) => {
-                println!("WebSocket closed by server");
-                break;
+                println!("[RECONNECT] WebSocket closed by server - attempting reconnection...");
+                
+                // Enter reconnection mode - buffer audio while reconnecting
+                let reconnect_start = Instant::now();
+                let mut reconnect_buffer: Vec<i16> = Vec::new();
+                
+                // Close old socket (don't drop - we'll reassign it)
+                let _ = socket.close(None);
+                
+                // Try to reconnect (with retry)
+                let mut reconnected = false;
+                for attempt in 1..=3 {
+                    println!("[RECONNECT] Attempt {} of 3...", attempt);
+                    
+                    // Buffer audio while we try to reconnect
+                    {
+                        let mut buf = audio_buffer.lock().unwrap();
+                        reconnect_buffer.extend(std::mem::take(&mut *buf));
+                    }
+                    
+                    // Try to create new connection
+                    match connect_websocket(&gemini_api_key) {
+                        Ok(mut new_socket) => {
+                            // Send setup message
+                            if let Err(e) = send_setup_message(&mut new_socket) {
+                                eprintln!("[RECONNECT] Setup failed: {}", e);
+                                continue;
+                            }
+                            
+                            // Set non-blocking
+                            if let Err(e) = set_socket_nonblocking(&mut new_socket) {
+                                eprintln!("[RECONNECT] Non-blocking failed: {}", e);
+                                continue;
+                            }
+                            
+                            // Buffer any audio that came in during reconnection
+                            {
+                                let mut buf = audio_buffer.lock().unwrap();
+                                reconnect_buffer.extend(std::mem::take(&mut *buf));
+                            }
+                            
+                            println!("[RECONNECT] Success! Buffered {} samples during reconnect ({:.1}s)", 
+                                reconnect_buffer.len(), 
+                                reconnect_buffer.len() as f64 / TARGET_SAMPLE_RATE as f64
+                            );
+                            
+                            // Put buffered audio into silence_buffer for catch-up
+                            silence_buffer.clear();
+                            silence_buffer.extend(reconnect_buffer);
+                            
+                            // Enter catch-up mode
+                            audio_mode = AudioMode::CatchUp;
+                            mode_start = Instant::now();
+                            
+                            // Replace socket
+                            socket = new_socket;
+                            reconnected = true;
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("[RECONNECT] Connection failed: {}", e);
+                            std::thread::sleep(Duration::from_millis(500));
+                        }
+                    }
+                }
+                
+                if !reconnected {
+                    eprintln!("[RECONNECT] Failed after 3 attempts, stopping...");
+                    break;
+                }
+                
+                println!("[RECONNECT] Reconnection took {:.1}s, entering catch-up mode", 
+                    reconnect_start.elapsed().as_secs_f64());
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
                 // Non-blocking or timeout, no data available - this is expected
             }
             Err(e) => {
-                eprintln!("WebSocket read error: {}", e);
-                break;
+                // Check if it's a connection reset error - treat similar to close
+                let error_str = e.to_string();
+                if error_str.contains("reset") || error_str.contains("closed") || error_str.contains("broken") {
+                    println!("[RECONNECT] Connection error: {} - attempting reconnection...", e);
+                    
+                    // Enter reconnection mode
+                    let reconnect_start = Instant::now();
+                    let mut reconnect_buffer: Vec<i16> = Vec::new();
+                    
+                    // Close old socket (don't drop - we'll reassign it)
+                    let _ = socket.close(None);
+                    
+                    // Try to reconnect
+                    let mut reconnected = false;
+                    for attempt in 1..=3 {
+                        println!("[RECONNECT] Attempt {} of 3...", attempt);
+                        
+                        {
+                            let mut buf = audio_buffer.lock().unwrap();
+                            reconnect_buffer.extend(std::mem::take(&mut *buf));
+                        }
+                        
+                        match connect_websocket(&gemini_api_key) {
+                            Ok(mut new_socket) => {
+                                if send_setup_message(&mut new_socket).is_err() { continue; }
+                                if set_socket_nonblocking(&mut new_socket).is_err() { continue; }
+                                
+                                {
+                                    let mut buf = audio_buffer.lock().unwrap();
+                                    reconnect_buffer.extend(std::mem::take(&mut *buf));
+                                }
+                                
+                                println!("[RECONNECT] Success! Buffered {} samples", reconnect_buffer.len());
+                                
+                                silence_buffer.clear();
+                                silence_buffer.extend(reconnect_buffer);
+                                audio_mode = AudioMode::CatchUp;
+                                mode_start = Instant::now();
+                                socket = new_socket;
+                                reconnected = true;
+                                break;
+                            }
+                            Err(e) => {
+                                eprintln!("[RECONNECT] Failed: {}", e);
+                                std::thread::sleep(Duration::from_millis(500));
+                            }
+                        }
+                    }
+                    
+                    if !reconnected {
+                        eprintln!("[RECONNECT] Failed after 3 attempts");
+                        break;
+                    }
+                    
+                    println!("[RECONNECT] Reconnection took {:.1}s", reconnect_start.elapsed().as_secs_f64());
+                } else {
+                    eprintln!("WebSocket error: {}", e);
+                    break;
+                }
             }
         }
         
@@ -980,7 +1108,36 @@ fn run_translation_loop(
                             }
                         }
                         Err(e) => {
-                            eprintln!("[TRANSLATION] API error ({}): {}", model_name, e);
+                            let error_str = e.to_string();
+                            
+                            // Check if it's a rate limit error (429)
+                            if error_str.contains("429") {
+                                println!("[TRANSLATION] Rate limit hit, trying LibreTranslate fallback...");
+                                
+                                // Use LibreTranslate as fallback
+                                if let Some(fallback_translation) = translate_with_libretranslate(&chunk, &target_language) {
+                                    // Display fallback translation
+                                    if let Ok(mut s) = state.lock() {
+                                        if should_replace {
+                                            s.start_new_translation();
+                                        }
+                                        s.append_translation(&fallback_translation);
+                                        let display = s.display_translation.clone();
+                                        update_translation_text(translation_hwnd, &display);
+                                        
+                                        // Commit if this was a finished sentence
+                                        if has_finished {
+                                            s.add_to_history(chunk_for_history.clone(), fallback_translation);
+                                            s.commit_finished_sentences();
+                                            s.last_sent_text.clear();
+                                        }
+                                    }
+                                } else {
+                                    eprintln!("[TRANSLATION] LibreTranslate fallback also failed");
+                                }
+                            } else {
+                                eprintln!("[TRANSLATION] API error ({}): {}", model_name, e);
+                            }
                         }
                     }
                 } else {
@@ -1035,4 +1192,58 @@ pub fn get_realtime_display_text() -> String {
 /// Get current translation display text (called by overlay paint)
 pub fn get_translation_display_text() -> String {
     TRANSLATION_DISPLAY_TEXT.lock().map(|s| s.clone()).unwrap_or_default()
+}
+
+/// Free translation fallback for when primary APIs hit rate limits
+/// Uses MyMemory API - free, no API key needed, 1000 words/day limit
+fn translate_with_libretranslate(text: &str, target_lang: &str) -> Option<String> {
+    // Convert full language name to ISO 639-1 code
+    let target_code = match target_lang.to_lowercase().as_str() {
+        "vietnamese" | "tiếng việt" => "vi",
+        "korean" | "한국어" => "ko",
+        "english" => "en",
+        "japanese" | "日本語" => "ja",
+        "chinese" | "chinese (simplified)" | "中文" => "zh-CN",
+        "french" | "français" => "fr",
+        "german" | "deutsch" => "de",
+        "spanish" | "español" => "es",
+        "russian" | "русский" => "ru",
+        "portuguese" | "português" => "pt",
+        "italian" | "italiano" => "it",
+        "thai" | "ไทย" => "th",
+        "indonesian" | "bahasa indonesia" => "id",
+        _ => "en", // Default to English
+    };
+    
+    // Use MyMemory API - free, no API key required
+    // Format: https://api.mymemory.translated.net/get?q=text&langpair=auto|target
+    let encoded_text = urlencoding::encode(text);
+    let url = format!(
+        "https://api.mymemory.translated.net/get?q={}&langpair=autodetect|{}",
+        encoded_text, target_code
+    );
+    
+    match UREQ_AGENT.get(&url)
+        .timeout(std::time::Duration::from_secs(10))
+        .call()
+    {
+        Ok(resp) => {
+            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                // MyMemory returns: { "responseData": { "translatedText": "..." } }
+                if let Some(translated) = json
+                    .get("responseData")
+                    .and_then(|d| d.get("translatedText"))
+                    .and_then(|t| t.as_str())
+                {
+                    println!("[MYMEMORY] Fallback translation successful");
+                    return Some(translated.to_string());
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[MYMEMORY] API failed: {}", e);
+        }
+    }
+    
+    None
 }
