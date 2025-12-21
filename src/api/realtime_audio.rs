@@ -962,7 +962,7 @@ fn run_translation_loop(
     };
     
     // Get target language
-    let target_language = if !translation_block.selected_language.is_empty() {
+    let mut target_language = if !translation_block.selected_language.is_empty() {
         translation_block.selected_language.clone()
     } else {
         translation_block.language_vars.get("language").cloned()
@@ -975,6 +975,25 @@ fn run_translation_loop(
     while !stop_signal.load(Ordering::Relaxed) {
         if !unsafe { IsWindow(translation_hwnd).as_bool() } {
             break;
+        }
+        
+        // Check for language change
+        if crate::overlay::realtime_webview::LANGUAGE_CHANGE.load(Ordering::SeqCst) {
+            if let Ok(new_lang) = crate::overlay::realtime_webview::NEW_TARGET_LANGUAGE.lock() {
+                if !new_lang.is_empty() {
+                    println!("[TRANSLATION] Switching target language to: {}", new_lang);
+                    target_language = new_lang.clone();
+                    
+                    // Clear current translation state for clean switch
+                    if let Ok(mut s) = state.lock() {
+                        s.start_new_translation();
+                        s.display_translation.clear();
+                        s.last_sent_text.clear();
+                        update_translation_text(translation_hwnd, "");
+                    }
+                }
+            }
+            crate::overlay::realtime_webview::LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
         }
         
         if last_run.elapsed() >= interval {
