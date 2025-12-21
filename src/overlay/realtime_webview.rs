@@ -126,6 +126,14 @@ fn get_realtime_html(is_translation: bool) -> String {
             line-height: 1.5;
             padding-bottom: 5px;
         }}
+        /* Old/committed content - dimmer for less distraction */
+        .old {{
+            color: #888;
+        }}
+        /* New/current content - bright white for focus */
+        .new {{
+            color: #fff;
+        }}
         .placeholder {{
             color: #666;
             font-style: italic;
@@ -167,7 +175,7 @@ fn get_realtime_html(is_translation: bool) -> String {
         let currentScrollTop = 0;
         let targetScrollTop = 0;
         let animationFrame = null;
-        let lastContentHeight = 0;
+        let minContentHeight = 0;  // Track minimum height - content never shrinks
         
         // Smooth scroll animation - very gentle, no jumps
         function animateScroll() {{
@@ -186,54 +194,68 @@ fn get_realtime_html(is_translation: bool) -> String {
             }}
         }}
         
-        function updateText(text) {{
-            if (isFirstText && text) {{
+        // Escape HTML entities for safe display
+        function escapeHtml(text) {{
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }}
+        
+        // Update with separate old and new content
+        function updateText(oldText, newText) {{
+            const hasContent = oldText || newText;
+            
+            if (isFirstText && hasContent) {{
                 content.innerHTML = '';
                 isFirstText = false;
+                minContentHeight = 0;
             }}
             
-            if (!text) {{
+            if (!hasContent) {{
                 content.innerHTML = '<span class="placeholder">Chờ giọng nói...</span>';
+                content.style.minHeight = '';
                 isFirstText = true;
+                minContentHeight = 0;
                 targetScrollTop = 0;
-                if (!animationFrame) {{
-                    animationFrame = requestAnimationFrame(animateScroll);
-                }}
+                currentScrollTop = 0;
+                viewport.scrollTop = 0;
                 return;
             }}
             
-            // Update text content
-            content.textContent = text;
+            // Build HTML with old (dim) and new (bright) spans
+            let html = '';
+            if (oldText) {{
+                html += '<span class="old">' + escapeHtml(oldText) + '</span>';
+                if (newText) html += ' ';
+            }}
+            if (newText) {{
+                html += '<span class="new">' + escapeHtml(newText) + '</span>';
+            }}
+            content.innerHTML = html;
             
-            // Calculate scroll needed
-            const contentHeight = content.offsetHeight;
+            // Get natural height of new content
+            const naturalHeight = content.offsetHeight;
+            
+            // Content height can only grow, never shrink
+            if (naturalHeight > minContentHeight) {{
+                minContentHeight = naturalHeight;
+            }}
+            
+            // Apply minimum height to prevent shrinking
+            content.style.minHeight = minContentHeight + 'px';
+            
+            // Calculate scroll based on minimum height (stable height)
             const viewportHeight = viewport.offsetHeight;
             
             // Only scroll if content exceeds viewport
-            if (contentHeight > viewportHeight) {{
-                // How much we need to scroll to see the bottom
-                const maxScroll = contentHeight - viewportHeight;
+            if (minContentHeight > viewportHeight) {{
+                const maxScroll = minContentHeight - viewportHeight;
                 
-                // If content just grew (new line), smoothly adjust
-                if (contentHeight > lastContentHeight) {{
-                    // New content added - scroll to show it
+                // NEVER allow downward movement - only increase targetScrollTop
+                if (maxScroll > targetScrollTop) {{
                     targetScrollTop = maxScroll;
                 }}
-                
-                // Ensure we don't jump backwards
-                if (targetScrollTop < currentScrollTop - 50) {{
-                    // Only allow small backward adjustments
-                    targetScrollTop = currentScrollTop - 50;
-                }}
-                
-                // Clamp to valid range
-                targetScrollTop = Math.max(0, Math.min(maxScroll, targetScrollTop));
-            }} else {{
-                // Content fits - stay at top
-                targetScrollTop = 0;
             }}
-            
-            lastContentHeight = contentHeight;
             
             // Start animation if not running
             if (!animationFrame) {{
@@ -433,17 +455,21 @@ fn destroy_realtime_webview(hwnd: HWND) {
     });
 }
 
-fn update_webview_text(hwnd: HWND, text: &str) {
+fn update_webview_text(hwnd: HWND, old_text: &str, new_text: &str) {
     let hwnd_key = hwnd.0 as isize;
     
     // Escape the text for JavaScript
-    let escaped = text
-        .replace('\\', "\\\\")
-        .replace('\'', "\\'")
-        .replace('\n', "\\n")
-        .replace('\r', "");
+    fn escape_js(text: &str) -> String {
+        text.replace('\\', "\\\\")
+            .replace('\'', "\\'")
+            .replace('\n', "\\n")
+            .replace('\r', "")
+    }
     
-    let script = format!("window.updateText('{}');", escaped);
+    let escaped_old = escape_js(old_text);
+    let escaped_new = escape_js(new_text);
+    
+    let script = format!("window.updateText('{}', '{}');", escaped_old, escaped_new);
     
     REALTIME_WEBVIEWS.with(|wvs| {
         if let Some(webview) = wvs.borrow().get(&hwnd_key) {
@@ -455,15 +481,21 @@ fn update_webview_text(hwnd: HWND, text: &str) {
 unsafe extern "system" fn realtime_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_REALTIME_UPDATE => {
-            // Get display text from state
-            let text = {
+            // Get old (committed) and new (current sentence) text from state
+            let (old_text, new_text) = {
                 if let Ok(state) = REALTIME_STATE.lock() {
-                    state.display_transcript.clone()
+                    // Everything before last_committed_pos is "old"
+                    // Everything after is "new" (current sentence)
+                    let full = &state.full_transcript;
+                    let pos = state.last_committed_pos.min(full.len());
+                    let old = &full[..pos];
+                    let new = &full[pos..];
+                    (old.trim().to_string(), new.trim().to_string())
                 } else {
-                    String::new()
+                    (String::new(), String::new())
                 }
             };
-            update_webview_text(hwnd, &text);
+            update_webview_text(hwnd, &old_text, &new_text);
             LRESULT(0)
         }
         WM_NCHITTEST => {
@@ -488,15 +520,18 @@ unsafe extern "system" fn realtime_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM
 unsafe extern "system" fn translation_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_TRANSLATION_UPDATE => {
-            // Get display text from state
-            let text = {
+            // Get old (committed) and new (uncommitted) translation from state
+            let (old_text, new_text) = {
                 if let Ok(state) = REALTIME_STATE.lock() {
-                    state.display_translation.clone()
+                    (
+                        state.committed_translation.clone(),
+                        state.uncommitted_translation.clone()
+                    )
                 } else {
-                    String::new()
+                    (String::new(), String::new())
                 }
             };
-            update_webview_text(hwnd, &text);
+            update_webview_text(hwnd, &old_text, &new_text);
             LRESULT(0)
         }
         WM_NCHITTEST => {
@@ -516,3 +551,4 @@ unsafe extern "system" fn translation_wnd_proc(hwnd: HWND, msg: u32, wparam: WPA
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
+
