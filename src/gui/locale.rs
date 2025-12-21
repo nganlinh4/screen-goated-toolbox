@@ -126,6 +126,12 @@ pub struct LocaleText {
      pub startup_display_header: &'static str,
      // --- MODEL THINKING INDICATOR ---
      pub model_thinking: &'static str,
+     // --- REALTIME OVERLAY ---
+     pub realtime_listening: &'static str,
+     pub realtime_device: &'static str,
+     pub realtime_waiting: &'static str,
+     pub realtime_translation: &'static str,
+     pub realtime_mic: &'static str,
      }
 
 impl LocaleText {
@@ -273,6 +279,12 @@ impl LocaleText {
                 software_update_header: "⬆ Cập Nhật Phần Mềm",
                 startup_display_header: "⚙ Khởi Động & Hiển Thị",
                 model_thinking: "💭 Đang suy nghĩ...",
+                // --- REALTIME OVERLAY VI ---
+                realtime_listening: "Đang nghe...",
+                realtime_device: "Thiết bị",
+                realtime_waiting: "Đang chờ nói...",
+                realtime_translation: "Bản dịch",
+                realtime_mic: "Micro",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -416,7 +428,13 @@ impl LocaleText {
                    software_update_header: "⬆ 소프트웨어 업데이트",
                    startup_display_header: "⚙ 시작 및 표시",
                    model_thinking: "💭 생각 중...",
-                   },
+                // --- REALTIME OVERLAY KO ---
+                realtime_listening: "듣고 있는 중...",
+                realtime_device: "장치 오디오",
+                realtime_waiting: "말하기 대기 중...",
+                realtime_translation: "번역",
+                realtime_mic: "마이크",
+                },
                 _ => Self {
                  history_btn: "History",
                  history_title: "Result Library",
@@ -559,7 +577,13 @@ impl LocaleText {
                    software_update_header: "⬆ Software Update",
                    startup_display_header: "⚙ Startup & Display",
                    model_thinking: "💭 Thinking...",
-                   },
+                // --- REALTIME OVERLAY EN ---
+                realtime_listening: "Listening...",
+                realtime_device: "Device",
+                realtime_waiting: "Waiting for speech...",
+                realtime_translation: "Translation",
+                realtime_mic: "Mic",
+                },
                 }
                 }
                 }

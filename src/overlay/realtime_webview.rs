@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use wry::{WebViewBuilder, Rect};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32WindowHandle, HandleError};
 use crate::APP;
+use crate::gui::locale::LocaleText;
 use crate::config::get_all_languages;
 use crate::api::realtime_audio::{
     start_realtime_transcription, RealtimeState, SharedRealtimeState,
@@ -75,9 +76,14 @@ impl HasWindowHandle for HwndWrapper {
 }
 
 /// CSS and HTML for the realtime overlay with smooth scrolling
-fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[String], current_language: &str) -> String {
-    let title = if is_translation { "🌐 Translation" } else { "🎤 Listening..." };
+fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[String], current_language: &str, font_size: u32, text: &LocaleText) -> String {
+    let title_icon = if is_translation { "translate" } else { "graphic_eq" };
+    let title_text = if is_translation { text.realtime_translation } else { text.realtime_listening };
     let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
+    
+    let mic_text = text.realtime_mic;
+    let device_text = text.realtime_device;
+    let placeholder_text = text.realtime_waiting;
     
     // Build language options HTML
     let lang_options: String = languages.iter()
@@ -90,14 +96,28 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
     
     // Audio source selector (only for transcription window)
     let audio_selector = if !is_translation {
-        let mic_selected = if audio_source == "mic" { "selected" } else { "" };
-        let device_selected = if audio_source == "device" { "selected" } else { "" };
+
         format!(r#"
-            <select id="audio-source" title="Audio Source">
-                <option value="mic" {}>🎤 Mic</option>
-                <option value="device" {}>🔊 Device</option>
-            </select>
-        "#, mic_selected, device_selected)
+            <div class="custom-select" id="audio-source-select" tabindex="0">
+                <div class="select-trigger">
+                    <span class="material-symbols-rounded select-icon">{current_icon}</span>
+                    <span class="select-text">{current_text}</span>
+                    <span class="material-symbols-rounded arrow">arrow_drop_down</span>
+                </div>
+                <div class="select-options">
+                    <div class="select-option" data-value="mic">
+                        <span class="material-symbols-rounded">mic</span>
+                        <span>{mic_text}</span>
+                    </div>
+                    <div class="select-option" data-value="device">
+                        <span class="material-symbols-rounded">speaker_group</span>
+                        <span>{device_text}</span>
+                    </div>
+                </div>
+            </div>
+        "#, current_icon = if audio_source == "device" { "speaker_group" } else { "mic" }, 
+            current_text = if audio_source == "device" { device_text } else { mic_text },
+            mic_text = mic_text, device_text = device_text)
     } else {
         // Language selector for translation window
         format!(r#"
@@ -111,6 +131,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
 <html>
 <head>
     <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" />
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         html, body {{
@@ -122,6 +143,20 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             border-radius: 12px;
             border: 1px solid {glow_color}40;
             box-shadow: 0 0 20px {glow_color}30;
+        }}
+        .material-symbols-rounded {{
+            font-family: 'Material Symbols Rounded';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 18px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            vertical-align: middle;
         }}
         #container {{
             display: flex;
@@ -244,7 +279,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             position: relative;
         }}
         #content {{
-            font-size: 16px;
+            font-size: {font_size}px;
             line-height: 1.5;
             padding-bottom: 5px;
         }}
@@ -279,28 +314,77 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             opacity: 1;
             color: {glow_color};
         }}
+        .custom-select {{
+            position: relative;
+            background: #2a2a2a;
+            color: #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            user-select: none;
+            outline: none;
+            min-width: 90px;
+        }}
+        .select-trigger {{
+            display: flex;
+            align-items: center;
+            padding: 4px 8px;
+            gap: 6px;
+        }}
+        .select-trigger:hover {{
+            color: #fff;
+        }}
+        .select-options {{
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            z-index: 100;
+            overflow: hidden;
+            margin-top: 4px;
+        }}
+        .custom-select.open .select-options {{
+           display: block;
+        }}
+        .select-option {{
+           display: flex;
+           align-items: center;
+           padding: 6px 8px;
+           gap: 6px;
+        }}
+        .select-option:hover {{
+           background: #3a3a3a;
+           color: #fff;
+        }}
+        .select-icon {{
+           font-size: 16px;
+        }}
     </style>
 </head>
 <body>
     <div id="container">
         <div id="header">
-            <div id="title">{title}</div>
+            <div id="title"><span class="material-symbols-rounded" style="margin-right: 6px; font-size: 20px;">{title_icon}</span>{title_text}</div>
             <div id="controls">
                 {audio_selector}
-                <span class="ctrl-btn" id="font-decrease" title="Decrease font size">−</span>
-                <span class="ctrl-btn" id="font-increase" title="Increase font size">+</span>
+                <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">remove</span></span>
+                <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">add</span></span>
                 <div class="vis-toggle">
-                    <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription">🎤</span>
-                    <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation">🌐</span>
+                    <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription"><span class="material-symbols-rounded">subtitles</span></span>
+                    <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation"><span class="material-symbols-rounded">translate</span></span>
                 </div>
             </div>
         </div>
         <div id="viewport">
             <div id="content">
-                <span class="placeholder">Waiting for speech...</span>
+                <span class="placeholder">{placeholder_text}</span>
             </div>
         </div>
-        <div id="resize-hint">⋱</div>
+        <div id="resize-hint"><span class="material-symbols-rounded" style="font-size: 14px;">south_east</span></div>
     </div>
     <script>
         const container = document.getElementById('container');
@@ -312,7 +396,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         const fontIncrease = document.getElementById('font-increase');
         const resizeHint = document.getElementById('resize-hint');
         
-        let currentFontSize = 16;
+        let currentFontSize = {font_size};
         let isResizing = false;
         let resizeStartX = 0;
         let resizeStartY = 0;
@@ -351,6 +435,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             isResizing = false;
             document.removeEventListener('mousemove', onResizeMove);
             document.removeEventListener('mouseup', onResizeEnd);
+            window.ipc.postMessage('saveResize');
         }}
         
         // Visibility toggle buttons
@@ -405,20 +490,53 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
         }});
         
-        // Audio source / Language selector
-        const selector = document.getElementById('audio-source') || document.getElementById('language-select');
-        if (selector) {{
-            selector.addEventListener('change', function(e) {{
+        // Custom Audio Select Logic
+        const audioSelect = document.getElementById('audio-source-select');
+        if (audioSelect) {{
+            const trigger = audioSelect.querySelector('.select-trigger');
+            const options = audioSelect.querySelectorAll('.select-option');
+            const currentIcon = audioSelect.querySelector('.select-icon');
+            const currentText = audioSelect.querySelector('.select-text');
+
+            trigger.addEventListener('mousedown', (e) => {{
                 e.stopPropagation();
-                if (this.id === 'audio-source') {{
-                    window.ipc.postMessage('audioSource:' + this.value);
-                }} else {{
-                    window.ipc.postMessage('language:' + this.value);
+                audioSelect.classList.toggle('open');
+            }});
+
+            options.forEach(opt => {{
+                opt.addEventListener('mousedown', (e) => {{
+                    e.stopPropagation();
+                    // Close dropdown
+                    audioSelect.classList.remove('open');
+                    
+                    // Update UI
+                    const val = opt.getAttribute('data-value');
+                    const iconName = opt.querySelector('.material-symbols-rounded').textContent;
+                    const text = opt.querySelector('span:last-child').textContent;
+                    currentIcon.textContent = iconName;
+                    currentText.textContent = text;
+                    
+                    // IPC
+                    window.ipc.postMessage('audioSource:' + val);
+                }});
+            }});
+
+            // Close on click outside
+            document.addEventListener('mousedown', (e) => {{
+                if (!audioSelect.contains(e.target)) {{
+                    audioSelect.classList.remove('open');
                 }}
             }});
-            selector.addEventListener('mousedown', function(e) {{
+        }}
+
+        // Language Select Logic
+        const langSelect = document.getElementById('language-select');
+        if (langSelect) {{
+            langSelect.addEventListener('change', function(e) {{
                 e.stopPropagation();
+                window.ipc.postMessage('language:' + this.value);
             }});
+            langSelect.addEventListener('mousedown', function(e) {{ e.stopPropagation(); }});
         }}
         
         // Handle resize to keep text at bottom
@@ -479,7 +597,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
             
             if (!hasContent) {{
-                content.innerHTML = '<span class="placeholder">Waiting for speech...</span>';
+                content.innerHTML = '<span class="placeholder">{placeholder_text}</span>';
                 content.style.minHeight = '';
                 isFirstText = true;
                 minContentHeight = 0;
@@ -538,21 +656,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
         
         let preset = APP.lock().unwrap().config.presets[preset_idx].clone();
         
-        // Extract audio source and target language from preset
-        let audio_source = preset.audio_source.as_str();
-        let target_language = if preset.blocks.len() > 1 {
-            // Get from translation block
-            let trans_block = &preset.blocks[1];
-            if !trans_block.selected_language.is_empty() {
-                trans_block.selected_language.clone()
-            } else {
-                trans_block.language_vars.get("language").cloned()
-                    .or_else(|| trans_block.language_vars.get("language1").cloned())
-                    .unwrap_or_else(|| "Vietnamese".to_string())
-            }
-        } else {
-            "Vietnamese".to_string()
-        };
+
         
         // Reset state
         IS_ACTIVE = true;
@@ -577,17 +681,51 @@ pub fn show_realtime_overlay(preset_idx: usize) {
             let _ = RegisterClassW(&wc);
         });
         
+        // Fetch config
+        let (font_size, config_audio_source, config_language, trans_size, transcription_size) = {
+            let app = APP.lock().unwrap();
+            (
+                app.config.realtime_font_size,
+                app.config.realtime_audio_source.clone(),
+                app.config.realtime_target_language.clone(),
+                app.config.realtime_translation_size,
+                app.config.realtime_transcription_size
+            )
+        };
+        
+        let target_language = if !config_language.is_empty() {
+            config_language
+        } else if preset.blocks.len() > 1 {
+            // Get from translation block
+            let trans_block = &preset.blocks[1];
+            if !trans_block.selected_language.is_empty() {
+                trans_block.selected_language.clone()
+            } else {
+                trans_block.language_vars.get("language").cloned()
+                    .or_else(|| trans_block.language_vars.get("language1").cloned())
+                    .unwrap_or_else(|| "Vietnamese".to_string())
+            }
+        } else {
+            "Vietnamese".to_string()
+        };
+        
         // Calculate positions
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         
         let has_translation = preset.blocks.len() > 1;
         
+        // Use configured sizes
+        let main_w = transcription_size.0;
+        let main_h = transcription_size.1;
+        let trans_w = trans_size.0;
+        let trans_h = trans_size.1;
+        
         let (main_x, main_y) = if has_translation {
-            let total_w = OVERLAY_WIDTH * 2 + GAP;
-            ((screen_w - total_w) / 2, (screen_h - OVERLAY_HEIGHT) / 2)
+            let total_w = main_w + trans_w + GAP;
+            ((screen_w - total_w) / 2, (screen_h - main_h) / 2)
         } else {
-            ((screen_w - OVERLAY_WIDTH) / 2, (screen_h - OVERLAY_HEIGHT) / 2)
+            ((screen_w - main_w) / 2, (screen_h - main_h) / 2)
         };
         
         // Create popup window with resize support
@@ -596,7 +734,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
             class_name,
             w!("Realtime Transcription"),
             WS_POPUP | WS_VISIBLE,
-            main_x, main_y, OVERLAY_WIDTH, OVERLAY_HEIGHT,
+            main_x, main_y, main_w, main_h,
             None, None, instance, None
         );
         
@@ -612,7 +750,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
         REALTIME_HWND = main_hwnd;
         
         // Create WebView for main overlay
-        create_realtime_webview(main_hwnd, false, audio_source, &target_language);
+        create_realtime_webview(main_hwnd, false, &config_audio_source, &target_language, font_size);
         
         // --- Create Translation Overlay if needed ---
         let translation_hwnd = if has_translation {
@@ -628,13 +766,13 @@ pub fn show_realtime_overlay(preset_idx: usize) {
                 let _ = RegisterClassW(&wc);
             });
             
-            let trans_x = main_x + OVERLAY_WIDTH + GAP;
+            let trans_x = main_x + main_w + GAP;
             let trans_hwnd = CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                 trans_class,
                 w!("Translation"),
                 WS_POPUP | WS_VISIBLE,
-                trans_x, main_y, TRANSLATION_WIDTH, TRANSLATION_HEIGHT,
+                trans_x, main_y, trans_w, trans_h,
                 None, None, instance, None
             );
             
@@ -648,7 +786,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
             );
             
             TRANSLATION_HWND = trans_hwnd;
-            create_realtime_webview(trans_hwnd, true, audio_source, &target_language);
+            create_realtime_webview(trans_hwnd, true, "mic", &target_language, font_size);
             
             Some(trans_hwnd)
         } else {
@@ -687,7 +825,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
 
 
 
-fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str, current_language: &str) {
+fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str, current_language: &str, font_size: u32) {
     let hwnd_key = hwnd.0 as isize;
     
     let mut rect = RECT::default();
@@ -695,7 +833,15 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
     
     // Use full language list from isolang crate
     let languages = get_all_languages();
-    let html = get_realtime_html(is_translation, audio_source, languages, current_language);
+    
+    // Fetch locale text
+    let locale_text = {
+        let app = APP.lock().unwrap();
+        let lang = app.config.ui_language.clone();
+        LocaleText::get(&lang)
+    };
+    
+    let html = get_realtime_html(is_translation, audio_source, &languages, current_language, font_size, &locale_text);
     let wrapper = HwndWrapper(hwnd);
     
     // Capture hwnd for the IPC handler closure
@@ -733,18 +879,42 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                         LPARAM(0)
                     );
                 }
+            } else if body == "saveResize" {
+                unsafe {
+                    let mut rect = RECT::default();
+                    GetWindowRect(hwnd_for_ipc, &mut rect);
+                    let w = rect.right - rect.left;
+                    let h = rect.bottom - rect.top;
+                    
+                    let mut app = APP.lock().unwrap();
+                    if hwnd_for_ipc == REALTIME_HWND {
+                        app.config.realtime_transcription_size = (w, h);
+                    } else {
+                        app.config.realtime_translation_size = (w, h);
+                    }
+                    crate::config::save_config(&app.config);
+                }
             } else if body.starts_with("fontSize:") {
                 // Font size change - store for future use
                 if let Ok(size) = body[9..].parse::<u32>() {
                     println!("[WEBVIEW] Font size changed to: {}", size);
-                    // Could save to config here
+                    let mut app = APP.lock().unwrap();
+                    app.config.realtime_font_size = size;
+                    crate::config::save_config(&app.config);
                 }
             } else if body.starts_with("audioSource:") {
                 // Audio source change - signal restart with new source
                 let source = body[12..].to_string();
                 println!("[WEBVIEW] Audio source change requested: {}", source);
                 if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-                    *new_source = source;
+                    *new_source = source.clone();
+                }
+                
+                // Save to config
+                {
+                    let mut app = APP.lock().unwrap();
+                    app.config.realtime_audio_source = source;
+                    crate::config::save_config(&app.config);
                 }
                 AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
             } else if body.starts_with("language:") {
@@ -752,7 +922,14 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                 let lang = body[9..].to_string();
                 println!("[WEBVIEW] Target language change requested: {}", lang);
                 if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
-                    *new_lang = lang;
+                    *new_lang = lang.clone();
+                }
+                
+                // Save to config
+                {
+                    let mut app = APP.lock().unwrap();
+                    app.config.realtime_target_language = lang;
+                    crate::config::save_config(&app.config);
                 }
                 LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
             } else if body.starts_with("resize:") {
