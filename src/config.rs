@@ -214,9 +214,24 @@ pub struct Config {
     /// Model for realtime translation: "groq-llama" or "google-gemma"
     #[serde(default = "default_realtime_translation_model")]
     pub realtime_translation_model: String,
+    
+    // --- Realtime Overlay Persistence ---
+    #[serde(default = "default_realtime_font_size")]
+    pub realtime_font_size: u32,
+    #[serde(default = "default_realtime_window_size")]
+    pub realtime_transcription_size: (i32, i32),
+    #[serde(default = "default_realtime_window_size")]
+    pub realtime_translation_size: (i32, i32),
+    #[serde(default)]
+    pub realtime_audio_source: String, // "mic" or "device"
+    #[serde(default = "default_realtime_target_language")]
+    pub realtime_target_language: String,
 }
 
-fn default_realtime_translation_model() -> String { "groq-llama".to_string() }
+fn default_realtime_translation_model() -> String { "google-gemma".to_string() }
+fn default_realtime_font_size() -> u32 { 16 }
+fn default_realtime_window_size() -> (i32, i32) { (500, 180) }
+fn default_realtime_target_language() -> String { "Vietnamese".to_string() }
 
 impl Default for Config {
     fn default() -> Self {
@@ -1075,7 +1090,12 @@ impl Default for Config {
             use_groq: true,
             use_gemini: true,
             use_openrouter: false,
-            realtime_translation_model: "groq-llama".to_string(),
+            realtime_translation_model: "google-gemma".to_string(),
+            realtime_font_size: 16,
+            realtime_transcription_size: (500, 180),
+            realtime_translation_size: (500, 180),
+            realtime_audio_source: "mic".to_string(),
+            realtime_target_language: "Vietnamese".to_string(),
         }
     }
 }
