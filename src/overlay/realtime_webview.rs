@@ -20,7 +20,7 @@ use crate::gui::locale::LocaleText;
 use crate::config::get_all_languages;
 use crate::api::realtime_audio::{
     start_realtime_transcription, RealtimeState, SharedRealtimeState,
-    WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE,
+    WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE, WM_VOLUME_UPDATE, REALTIME_RMS,
 };
 
 // Window dimensions
@@ -81,6 +81,15 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
     let title_text = if is_translation { text.realtime_translation } else { text.realtime_listening };
     let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
     
+    // Title content: volume bars for transcription, text for translation
+    let title_content = if is_translation {
+        format!("{}", title_text)
+    } else {
+        // Volume visualizer bars (30 bars for ~3 seconds of history at 100ms updates)
+        let bars: String = (0..30).map(|_| r#"<div class="volume-bar" style="height: 3px;"></div>"#).collect::<Vec<_>>().join("");
+        format!(r#"<div class="volume-bars" id="volume-bars">{}</div>"#, bars)
+    };
+    
     let mic_text = text.realtime_mic;
     let device_text = text.realtime_device;
     let placeholder_text = text.realtime_waiting;
@@ -101,7 +110,6 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             <div class="custom-select" id="audio-source-select" tabindex="0">
                 <div class="select-trigger">
                     <span class="material-symbols-rounded select-icon">{current_icon}</span>
-                    <span class="select-text">{current_text}</span>
                     <span class="material-symbols-rounded arrow">arrow_drop_down</span>
                 </div>
                 <div class="select-options">
@@ -115,8 +123,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
                     </div>
                 </div>
             </div>
-        "#, current_icon = if audio_source == "device" { "speaker_group" } else { "mic" }, 
-            current_text = if audio_source == "device" { device_text } else { mic_text },
+        "#, current_icon = if audio_source == "device" { "speaker_group" } else { "mic" },
             mic_text = mic_text, device_text = device_text)
     } else {
         // Language selector for translation window
@@ -164,6 +171,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             height: 100%;
             padding: 8px 12px;
             cursor: grab;
+            position: relative;
         }}
         #container:active {{
             cursor: grabbing;
@@ -175,12 +183,80 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             margin-bottom: 6px;
             flex-shrink: 0;
             gap: 8px;
+            transition: all 0.25s ease-out;
+            overflow: hidden;
+            max-height: 40px;
+        }}
+        #header.collapsed {{
+            max-height: 0;
+            margin-bottom: 0;
+            opacity: 0;
+        }}
+        @keyframes pulse {{
+            0%, 100% {{ transform: translateX(-50%) scale(1); opacity: 0.7; }}
+            50% {{ transform: translateX(-50%) scale(1.2); opacity: 1; }}
+        }}
+        #header-toggle {{
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            padding: 2px 6px;
+            color: #666;
+            transition: all 0.25s ease-out;
+            z-index: 10;
+            top: 32px;
+            opacity: 0.5;
+        }}
+        #header:hover ~ #header-toggle {{
+            color: #00c8ff;
+            opacity: 1;
+            animation: pulse 1s ease-in-out infinite;
+        }}
+        #header-toggle:hover {{
+            color: #fff;
+            opacity: 1;
+            animation: pulse 0.8s ease-in-out infinite;
+        }}
+        #header-toggle.collapsed {{
+            top: 4px;
+            opacity: 0.3;
+            animation: none;
+        }}
+        #header-toggle.collapsed:hover {{
+            opacity: 0.8;
+        }}
+        #header-toggle .material-symbols-rounded {{
+            font-size: 14px;
+            transition: transform 0.25s ease-out;
+        }}
+        #header-toggle.collapsed .material-symbols-rounded {{
+            transform: rotate(180deg);
         }}
         #title {{
             font-size: 12px;
             font-weight: bold;
             color: #aaa;
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        .volume-bars {{
+            display: flex;
+            align-items: center;
+            gap: 1px;
+            height: 16px;
+        }}
+        .volume-bar {{
+            width: 2px;
+            background: linear-gradient(to top, #00c8ff, #00f0ff);
+            border-radius: 1px;
+            transition: height 0.08s ease-out;
+            min-height: 2px;
         }}
         #controls {{
             display: flex;
@@ -368,7 +444,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
 <body>
     <div id="container">
         <div id="header">
-            <div id="title"><span class="material-symbols-rounded" style="margin-right: 6px; font-size: 20px;">{title_icon}</span>{title_text}</div>
+            <div id="title">{title_content}</div>
             <div id="controls">
                 {audio_selector}
                 <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">remove</span></span>
@@ -379,6 +455,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
                 </div>
             </div>
         </div>
+        <div id="header-toggle" title="Toggle header"><span class="material-symbols-rounded">expand_less</span></div>
         <div id="viewport">
             <div id="content">
                 <span class="placeholder">{placeholder_text}</span>
@@ -390,6 +467,8 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         const container = document.getElementById('container');
         const viewport = document.getElementById('viewport');
         const content = document.getElementById('content');
+        const header = document.getElementById('header');
+        const headerToggle = document.getElementById('header-toggle');
         const toggleMic = document.getElementById('toggle-mic');
         const toggleTrans = document.getElementById('toggle-trans');
         const fontDecrease = document.getElementById('font-decrease');
@@ -402,10 +481,19 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         let resizeStartY = 0;
         let micVisible = true;
         let transVisible = true;
+        let headerCollapsed = false;
+        
+        // Header toggle
+        headerToggle.addEventListener('click', function(e) {{
+            e.stopPropagation();
+            headerCollapsed = !headerCollapsed;
+            header.classList.toggle('collapsed', headerCollapsed);
+            headerToggle.classList.toggle('collapsed', headerCollapsed);
+        }});
         
         // Drag support
         container.addEventListener('mousedown', function(e) {{
-            if (e.target.closest('#controls') || e.target.id === 'resize-hint' || isResizing) return;
+            if (e.target.closest('#controls') || e.target.closest('#header-toggle') || e.target.id === 'resize-hint' || isResizing) return;
             window.ipc.postMessage('startDrag');
         }});
         
@@ -641,6 +729,33 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         }}
         
         window.updateText = updateText;
+        
+        // Volume visualizer with history buffer (like recording.rs)
+        // 30 samples at 100ms = 3 seconds of history
+        const volumeHistory = new Array(30).fill(0);
+        let historyHead = 0;
+        
+        function updateVolume(rms) {{
+            const bars = document.querySelectorAll('.volume-bar');
+            if (!bars.length) return;
+            
+            // Add new RMS to history buffer (circular)
+            volumeHistory[historyHead] = rms;
+            historyHead = (historyHead + 1) % 30;
+            
+            // Draw bars from history (newest on right, oldest on left)
+            bars.forEach((bar, i) => {{
+                // Get historical value, flowing from left to right
+                const histIdx = (historyHead + i) % 30;
+                const amp = volumeHistory[histIdx];
+                
+                // Scale RMS (0-0.3) to visual height (2-16px)
+                const height = Math.max(2, Math.min(16, amp * 120));
+                bar.style.height = height + 'px';
+            }});
+        }}
+        
+        window.updateVolume = updateVolume;
     </script>
 </body>
 </html>"#)
@@ -1066,6 +1181,21 @@ unsafe extern "system" fn realtime_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM
                 }
             };
             update_webview_text(hwnd, &old_text, &new_text);
+            LRESULT(0)
+        }
+        WM_VOLUME_UPDATE => {
+            // Read RMS from shared atomic and update visualizer
+            let rms_bits = REALTIME_RMS.load(Ordering::Relaxed);
+            let rms = f32::from_bits(rms_bits);
+            
+            let hwnd_key = hwnd.0 as isize;
+            let script = format!("if(window.updateVolume) window.updateVolume({});", rms);
+            
+            REALTIME_WEBVIEWS.with(|wvs| {
+                if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                    let _ = webview.evaluate_script(&script);
+                }
+            });
             LRESULT(0)
         }
         WM_SIZE => {

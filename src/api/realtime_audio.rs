@@ -327,6 +327,10 @@ fn parse_input_transcription(msg: &str) -> Option<String> {
 /// Custom message for updating overlay text
 pub const WM_REALTIME_UPDATE: u32 = WM_APP + 200;
 pub const WM_TRANSLATION_UPDATE: u32 = WM_APP + 201;
+pub const WM_VOLUME_UPDATE: u32 = WM_APP + 202;
+
+// Shared RMS value for volume visualization
+pub static REALTIME_RMS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// Start realtime audio transcription
 /// 
@@ -562,7 +566,16 @@ fn run_realtime_transcription(
                 };
                 
                 if let Ok(mut buf) = audio_buffer_clone.lock() {
-                    buf.extend(resampled);
+                    buf.extend(resampled.iter().cloned());
+                }
+                
+                // Calculate RMS for volume visualization
+                if !resampled.is_empty() {
+                    let sum_sq: f64 = resampled.iter()
+                        .map(|&s| (s as f64 / 32768.0).powi(2))
+                        .sum();
+                    let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
+                    REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
                 }
             },
             err_fn,
@@ -600,7 +613,16 @@ fn run_realtime_transcription(
                 };
                 
                 if let Ok(mut buf) = audio_buffer_clone.lock() {
-                    buf.extend(resampled);
+                    buf.extend(resampled.iter().cloned());
+                }
+                
+                // Calculate RMS for volume visualization
+                if !resampled.is_empty() {
+                    let sum_sq: f64 = resampled.iter()
+                        .map(|&s| (s as f64 / 32768.0).powi(2))
+                        .sum();
+                    let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
+                    REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
                 }
             },
             err_fn,
@@ -746,6 +768,11 @@ fn run_realtime_transcription(
                 }
             }
             last_send = Instant::now();
+            
+            // Post volume update to overlay window for visualizer
+            unsafe {
+                let _ = PostMessageW(overlay_hwnd, WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
+            }
         }
         
         // Debug output every 3 seconds
