@@ -184,11 +184,11 @@ impl RealtimeState {
     }
     
     /// Add a completed translation to history for conversation context
-    /// Keeps only the last 9 entries
+    /// Keeps only the last 3 entries
     pub fn add_to_history(&mut self, source: String, translation: String) {
         self.translation_history.push((source, translation));
-        // Keep only last 9 entries
-        while self.translation_history.len() > 9 {
+        // Keep only last 3 entries
+        while self.translation_history.len() > 3 {
             self.translation_history.remove(0);
         }
     }
