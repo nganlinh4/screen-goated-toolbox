@@ -204,8 +204,8 @@ pub fn render_preset_editor(
                 }
             });
 
-            // Row 3: Audio source (if applicable)
-            if preset.preset_type == "audio" {
+            // Row 3: Audio source (if applicable) - Hide if Realtime mode
+            if preset.preset_type == "audio" && preset.audio_processing_mode != "realtime" {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.label(text.audio_source_label);
@@ -330,8 +330,8 @@ pub fn render_preset_editor(
     }
 
     // --- PROCESSING CHAIN UI ---
-    // Hide nodegraph when controller UI is enabled
-    if !preset.show_controller_ui {
+    // Hide nodegraph when controller UI is enabled OR when in Realtime mode (no graph needed)
+    if !preset.show_controller_ui && !(preset.preset_type == "audio" && preset.audio_processing_mode == "realtime") {
         // Use a subtle background for the node graph area
         let is_dark = ui.visuals().dark_mode;
         let graph_bg = if is_dark {
@@ -384,20 +384,38 @@ pub fn render_preset_editor(
                 ui.set_min_height(260.0);
                 
                 // Title - clean, no emoji overload
-                let title = match config.ui_language.as_str() {
-                    "vi" => "Chế độ Bộ điều khiển",
-                    "ko" => "컨트롤러 모드",
-                    _ => "Controller Mode",
+                let is_realtime = preset.preset_type == "audio" && preset.audio_processing_mode == "realtime";
+                
+                let title = if is_realtime {
+                    match config.ui_language.as_str() {
+                        "vi" => "Xử lý âm thanh (Thời gian thực)",
+                        "ko" => "오디오 처리 (실시간)",
+                        _ => "Audio Processing (Realtime)",
+                    }
+                } else {
+                    match config.ui_language.as_str() {
+                        "vi" => "Chế độ Bộ điều khiển",
+                        "ko" => "컨트롤러 모드",
+                        _ => "Controller Mode",
+                    }
                 };
                 ui.label(egui::RichText::new(title).heading().color(accent_color));
                 
                 ui.add_space(16.0);
                 
                 // Main Description - combined into one clear paragraph
-                let desc = match config.ui_language.as_str() {
-                    "vi" => "Đây là cấu hình MASTER. Khi kích hoạt, một bánh xe chọn sẽ xuất hiện để bạn chọn cấu hình muốn sử dụng.\n\nChỉ cần gán một phím tắt để truy cập nhanh nhiều cấu hình khác nhau.",
-                    "ko" => "이것은 MASTER 프리셋입니다. 활성화하면 프리셋 휠이 나타나 사용할 프리셋을 선택할 수 있습니다.\n\n하나의 단축키로 여러 프리셋에 빠르게 접근하세요.",
-                    _ => "This is a MASTER preset. When activated, a selection wheel will appear letting you choose which preset to use.\n\nAssign a single hotkey for quick access to multiple presets.",
+                let desc = if is_realtime {
+                    match config.ui_language.as_str() {
+                        "vi" => "Chế độ này cung cấp phụ đề và dịch thuật trực tiếp theo thời gian thực.\n\nBạn có thể điều chỉnh cỡ chữ, nguồn âm thanh và ngôn ngữ dịch ngay trong cửa sổ kết quả.",
+                        "ko" => "이 모드는 실시간 자막 및 번역을 제공합니다.\n\n결과 창에서 글꼴 크기, 오디오 소스, 번역 언어를 직접 조정할 수 있습니다.",
+                        _ => "This mode provides real-time transcription and translation.\n\nYou can adjust font size, audio source, and translation language directly in the result window.",
+                    }
+                } else {
+                    match config.ui_language.as_str() {
+                        "vi" => "Đây là cấu hình MASTER. Khi kích hoạt, một bánh xe chọn sẽ xuất hiện để bạn chọn cấu hình muốn sử dụng.\n\nChỉ cần gán một phím tắt để truy cập nhanh nhiều cấu hình khác nhau.",
+                        "ko" => "이것은 MASTER 프리셋입니다. 활성화하면 프리셋 휠이 나타나 사용할 프리셋을 선택할 수 있습니다.\n\n하나의 단축키로 여러 프리셋에 빠르게 접근하세요.",
+                        _ => "This is a MASTER preset. When activated, a selection wheel will appear letting you choose which preset to use.\n\nAssign a single hotkey for quick access to multiple presets.",
+                    }
                 };
                 ui.label(egui::RichText::new(desc).color(text_color));
             });

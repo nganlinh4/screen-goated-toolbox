@@ -764,10 +764,15 @@ fn run_realtime_transcription(
                 if let Some(transcript) = parse_input_transcription(&msg) {
                     if !transcript.is_empty() {
                         println!("[TRANSCRIPT] {}", transcript);
-                        if let Ok(mut s) = state.lock() {
+                        let display_text = if let Ok(mut s) = state.lock() {
                             s.append_transcript(&transcript);
-                            let display = s.display_transcript.clone();
-                            update_overlay_text(overlay_hwnd, &display);
+                            s.display_transcript.clone()
+                        } else {
+                            String::new()
+                        };
+                        
+                        if !display_text.is_empty() {
+                            update_overlay_text(overlay_hwnd, &display_text);
                         }
                     }
                 }
@@ -782,11 +787,16 @@ fn run_realtime_transcription(
                     if let Some(transcript) = parse_input_transcription(&text) {
                         if !transcript.is_empty() {
                             println!("[TRANSCRIPT from binary] {}", transcript);
-                            if let Ok(mut s) = state.lock() {
-                                s.append_transcript(&transcript);
-                                let display = s.display_transcript.clone();
-                                update_overlay_text(overlay_hwnd, &display);
-                            }
+                                let display_text = if let Ok(mut s) = state.lock() {
+                                    s.append_transcript(&transcript);
+                                    s.display_transcript.clone()
+                                } else {
+                                    String::new()
+                                };
+                                
+                                if !display_text.is_empty() {
+                                    update_overlay_text(overlay_hwnd, &display_text);
+                                }
                         }
                     }
                 } else {
@@ -1142,22 +1152,24 @@ fn run_translation_loop(
                                                         full_translation.push_str(content);
                                                         
                                                         // Update display in real-time
-                                                        if let Ok(mut s) = state.lock() {
+                                                        let display_text = if let Ok(mut s) = state.lock() {
                                                             if is_first_chunk && should_replace {
-                                                                // Clear uncommitted and start fresh
                                                                 s.start_new_translation();
                                                                 s.append_translation(content);
                                                                 is_first_chunk = false;
                                                             } else if is_first_chunk {
-                                                                // First chunk - just start appending
                                                                 s.append_translation(content);
                                                                 is_first_chunk = false;
                                                             } else {
-                                                                // Subsequent chunks - just append
                                                                 s.append_translation(content);
                                                             }
-                                                            let display = s.display_translation.clone();
-                                                            update_translation_text(translation_hwnd, &display);
+                                                            s.display_translation.clone()
+                                                        } else {
+                                                            String::new()
+                                                        };
+
+                                                        if !display_text.is_empty() {
+                                                            update_translation_text(translation_hwnd, &display_text);
                                                         }
                                                     }
                                                 }
@@ -1238,10 +1250,10 @@ fn update_overlay_text(hwnd: HWND, text: &str) {
         *display = text.to_string();
     }
     
-    // Skip IPC if hidden
-    if !crate::overlay::realtime_webview::MIC_VISIBLE.load(Ordering::SeqCst) {
-        return;
-    }
+    // Force update regardless of visibility flag to prevent state desync
+    // if !crate::overlay::realtime_webview::MIC_VISIBLE.load(Ordering::SeqCst) {
+    //     return;
+    // }
     
     // Post message to trigger repaint
     unsafe {
@@ -1255,10 +1267,10 @@ fn update_translation_text(hwnd: HWND, text: &str) {
         *display = text.to_string();
     }
     
-    // Skip IPC if hidden
-    if !crate::overlay::realtime_webview::TRANS_VISIBLE.load(Ordering::SeqCst) {
-        return;
-    }
+    // Force update regardless of visibility flag
+    // if !crate::overlay::realtime_webview::TRANS_VISIBLE.load(Ordering::SeqCst) {
+    //     return;
+    // }
     
     // Post message to trigger repaint
     unsafe {
