@@ -421,6 +421,27 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }});
         }}
         
+        // Handle resize to keep text at bottom
+        let lastWidth = viewport.clientWidth;
+        const resizeObserver = new ResizeObserver(entries => {{
+            for (let entry of entries) {{
+                if (Math.abs(entry.contentRect.width - lastWidth) > 5) {{
+                    lastWidth = entry.contentRect.width;
+                    // Reset min height on width change (reflow)
+                    minContentHeight = 0;
+                    content.style.minHeight = '';
+                    
+                    // Force scroll to bottom immediately to prevent jump
+                    if (content.scrollHeight > viewport.clientHeight) {{
+                        viewport.scrollTop = content.scrollHeight - viewport.clientHeight;
+                    }}
+                    targetScrollTop = viewport.scrollTop;
+                    currentScrollTop = targetScrollTop;
+                }}
+            }}
+        }});
+        resizeObserver.observe(viewport);
+        
         let isFirstText = true;
         let currentScrollTop = 0;
         let targetScrollTop = 0;
