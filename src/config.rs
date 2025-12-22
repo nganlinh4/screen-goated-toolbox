@@ -946,10 +946,10 @@ impl Default for Config {
         // Right: Keywords (4) Top, Search (2) Bottom.
         p14c.block_connections = vec![(0, 3), (0, 1), (3, 4), (3, 2)];
 
-        // 16. Realtime Audio Translation (Dịch cabin) Placeholder
+        // 16. Live Translation (Dịch cabin) Placeholder
         let mut p16 = Preset::default();
         p16.id = "preset_realtime_audio_translate".to_string();
-        p16.name = "Realtime Audio Translate".to_string();
+        p16.name = "Live Translate".to_string();
         p16.preset_type = "audio".to_string();
         p16.audio_source = "device".to_string(); // Device audio for cabin translation
         p16.audio_processing_mode = "realtime".to_string();

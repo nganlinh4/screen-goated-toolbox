@@ -117,7 +117,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", _) => "Quick 4NR reply 2".to_string(),
         ("preset_fact_check", _) => "Fact Check".to_string(),
         ("preset_omniscient_god", _) => "Omniscient God".to_string(),
-        ("preset_realtime_audio_translate", _) => "Realtime Audio Translate".to_string(),
+        ("preset_realtime_audio_translate", _) => "Live Translate".to_string(),
         ("preset_quick_ai_question", _) => "Quick AI Question".to_string(),
         ("preset_voice_search", _) => "Voice Search".to_string(),
         // MASTER presets - English (default)
