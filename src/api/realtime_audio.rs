@@ -95,7 +95,7 @@ impl RealtimeState {
         self.display_translation = full;
     }
 
-    
+        
     /// Append new transcript text and update display
     pub fn append_transcript(&mut self, new_text: &str) {
         self.full_transcript.push_str(new_text);
@@ -116,6 +116,7 @@ impl RealtimeState {
             return None;
         }
         
+        // Check if chunk contains any sentence delimiter
         let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
         let has_finished_sentence = text.chars().any(|c| sentence_delimiters.contains(&c));
         
@@ -127,69 +128,63 @@ impl RealtimeState {
         chunk == self.last_sent_text
     }
     
-    /// Find the end position of the last complete sentence in the transcript
-    fn find_last_sentence_end(&self) -> Option<usize> {
-        let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
-        let mut last_end: Option<usize> = None;
-        
-        for (idx, ch) in self.full_transcript.char_indices() {
-            if sentence_delimiters.contains(&ch) {
-                last_end = Some(idx + ch.len_utf8());
-            }
-        }
-        last_end
-    }
-    
     /// Commit finished sentences after successful translation
+    /// Uses FIFO (First-In First-Out) matching to align sentences 1-by-1.
+    /// This prevents "swallowing" text or duplicating text when sentence counts mismatch.
     pub fn commit_finished_sentences(&mut self) {
-        if let Some(last_sentence_end) = self.find_last_sentence_end() {
-            if last_sentence_end > self.last_committed_pos {
-                self.last_committed_pos = last_sentence_end;
+        let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
+        
+        // Loop to process as many complete sentence pairs as possible
+        loop {
+            // 1. Get current uncommitted source text
+            if self.last_committed_pos >= self.full_transcript.len() {
+                break;
+            }
+            
+            // We need to look at the slice from last_committed_pos relative to the full string
+            let source_text = &self.full_transcript[self.last_committed_pos..];
+            
+            // 2. Find the FIRST sentence delimiter in the Source
+            let source_end_idx = source_text.char_indices()
+                .find(|(_, c)| sentence_delimiters.contains(c))
+                .map(|(i, c)| i + c.len_utf8());
                 
-                // Find the last sentence delimiter in the translation
-                // Only commit up to that point, keep the rest in uncommitted
-                if !self.uncommitted_translation.is_empty() {
-                    let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
-                    
-                    // Find the last sentence end in the translation
-                    let mut last_trans_end: Option<usize> = None;
-                    for (idx, ch) in self.uncommitted_translation.char_indices() {
-                        if sentence_delimiters.contains(&ch) {
-                            last_trans_end = Some(idx + ch.len_utf8());
-                        }
-                    }
-                    
-                    if let Some(trans_end) = last_trans_end {
-                        // Split translation: commit the finished part, keep the rest
-                        let to_commit = self.uncommitted_translation[..trans_end].trim().to_string();
-                        let to_keep = self.uncommitted_translation[trans_end..].trim().to_string();
-                        
-                        if !to_commit.is_empty() {
-                            if self.committed_translation.is_empty() {
-                                self.committed_translation = to_commit;
-                            } else {
-                                self.committed_translation.push(' ');
-                                self.committed_translation.push_str(&to_commit);
-                            }
-                        }
-                        
-                        self.uncommitted_translation = to_keep;
-                    } else {
-                        // No sentence delimiter in translation - move all to committed
-                        // (This handles edge cases where source has punctuation but translation doesn't)
-                        if self.committed_translation.is_empty() {
-                            self.committed_translation = self.uncommitted_translation.clone();
-                        } else {
-                            self.committed_translation.push(' ');
-                            self.committed_translation.push_str(&self.uncommitted_translation);
-                        }
-                        self.uncommitted_translation.clear();
-                    }
-                    
-                    self.update_display_translation();
+            let Some(rel_end) = source_end_idx else { break; }; // No complete sentence in source yet
+            let abs_end = self.last_committed_pos + rel_end;
+            
+            // 3. Find the FIRST sentence delimiter in the Translation
+            let trans_end_idx = self.uncommitted_translation.char_indices()
+                .find(|(_, c)| sentence_delimiters.contains(c))
+                .map(|(i, c)| i + c.len_utf8());
+                
+            let Some(t_end) = trans_end_idx else { break; }; // No complete sentence in translation yet
+            
+            // 4. We have a matching pair (Source 1 -> Trans 1). Commit them.
+            let source_segment = self.full_transcript[self.last_committed_pos..abs_end].trim().to_string();
+            let trans_segment = self.uncommitted_translation[..t_end].trim().to_string();
+            
+            if !source_segment.is_empty() && !trans_segment.is_empty() {
+                // Add Clean History (prevents context poisoning)
+                self.add_to_history(source_segment, trans_segment.clone());
+                
+                // Add to Committed
+                if self.committed_translation.is_empty() {
+                    self.committed_translation = trans_segment;
+                } else {
+                    self.committed_translation.push(' ');
+                    self.committed_translation.push_str(&trans_segment);
                 }
             }
+            
+            // 5. Advance pointers and slice the uncommitted translation buffer
+            // This effectively "consumes" the sentence we just committed
+            self.last_committed_pos = abs_end;
+            self.uncommitted_translation = self.uncommitted_translation[t_end..].trim().to_string();
+            
+            // The loop continues. If there is a Sentence 2 and Trans 2, it will catch them now.
         }
+        
+        self.update_display_translation();
     }
     
     /// Check if we should replace the previous translation (sentence grew)
@@ -989,10 +984,13 @@ fn run_translation_loop(
             
             if let Some(chunk) = chunk {
                 
-                // Remember what we're sending
+                // Remember what we're sending and clear any stale uncommitted translation
                 {
                     let mut s = state.lock().unwrap();
                     s.set_last_sent(&chunk);
+                    // Clear uncommitted NOW, before we start translating
+                    // This ensures partial results from previous translations don't linger
+                    s.start_new_translation();
                 }
                 
                 // Get API keys, model selection, and history
@@ -1072,9 +1070,6 @@ fn run_translation_loop(
                         "max_tokens": 512
                     });
                     
-                    // Clone chunk for adding to history later
-                    let chunk_for_history = chunk.clone();
-                    
                     match UREQ_AGENT.post(&url)
                         .set("Authorization", &format!("Bearer {}", api_key))
                         .set("Content-Type", "application/json")
@@ -1083,7 +1078,6 @@ fn run_translation_loop(
                         Ok(resp) => {
                             let reader = std::io::BufReader::new(resp.into_reader());
                             let mut full_translation = String::new();
-                            let mut is_first_chunk = true;
                             
                             for line in reader.lines().flatten() {
                                 if stop_signal.load(Ordering::Relaxed) { break; }
@@ -1100,16 +1094,10 @@ fn run_translation_loop(
                                                         full_translation.push_str(content);
                                                         
                                                         // Update display in real-time
+                                                        // Uncommitted was already cleared before API call,
+                                                        // so just append each streaming chunk
                                                         let display_text = if let Ok(mut s) = state.lock() {
-                                                            if is_first_chunk {
-                                                                // Always clear uncommitted when starting a new translation
-                                                                // The full chunk is being translated, so any partial translation is stale
-                                                                s.start_new_translation();
-                                                                s.append_translation(content);
-                                                                is_first_chunk = false;
-                                                            } else {
-                                                                s.append_translation(content);
-                                                            }
+                                                            s.append_translation(content);
                                                             s.display_translation.clone()
                                                         } else {
                                                             String::new()
@@ -1129,11 +1117,9 @@ fn run_translation_loop(
                             // After successful translation, commit any finished sentences
                             if has_finished && !full_translation.is_empty() {
                                 if let Ok(mut s) = state.lock() {
-                                    // Add to history for context in future translations
-                                    s.add_to_history(chunk_for_history, full_translation.clone());
-                                    
+                                    // commit_finished_sentences now handles history internally
+                                    // using only the committed segments (prevents context poisoning)
                                     s.commit_finished_sentences();
-                                    // Clear last_sent since we committed
                                     s.last_sent_text.clear();
                                 }
                             }
@@ -1218,7 +1204,6 @@ fn run_translation_loop(
                                     {
                                         let alt_reader = std::io::BufReader::new(alt_resp.into_reader());
                                         let mut retry_translation = String::new();
-                                        let mut retry_first = true;
                                         
                                         for line in alt_reader.lines().flatten() {
                                             if stop_signal.load(Ordering::Relaxed) { break; }
@@ -1234,14 +1219,9 @@ fn run_translation_loop(
                                                                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                                                                     retry_translation.push_str(content);
                                                                     
+                                                                    // Uncommitted was already cleared at start of translation cycle
                                                                     if let Ok(mut s) = state.lock() {
-                                                                        if retry_first {
-                                                                            s.start_new_translation();
-                                                                            s.append_translation(content);
-                                                                            retry_first = false;
-                                                                        } else {
-                                                                            s.append_translation(content);
-                                                                        }
+                                                                        s.append_translation(content);
                                                                         let display = s.display_translation.clone();
                                                                         update_translation_text(translation_hwnd, &display);
                                                                     }
@@ -1253,10 +1233,9 @@ fn run_translation_loop(
                                             }
                                         }
                                         
-                                        // Commit if finished
+                                        // Commit if finished (history handled internally by commit_finished_sentences)
                                         if has_finished && !retry_translation.is_empty() {
                                             if let Ok(mut s) = state.lock() {
-                                                s.add_to_history(chunk_for_history.clone(), retry_translation);
                                                 s.commit_finished_sentences();
                                                 s.last_sent_text.clear();
                                             }
