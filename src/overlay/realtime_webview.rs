@@ -815,6 +815,17 @@ pub fn show_realtime_overlay(preset_idx: usize) {
         // Reset state
         IS_ACTIVE = true;
         REALTIME_STOP_SIGNAL.store(false, Ordering::SeqCst);
+        
+        // Reset visibility flags
+        MIC_VISIBLE.store(true, Ordering::SeqCst);
+        TRANS_VISIBLE.store(true, Ordering::SeqCst);
+        
+        // Reset change signals
+        AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
+        LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
+        TRANSLATION_MODEL_CHANGE.store(false, Ordering::SeqCst);
+        
+        // Reset translation state
         {
             let mut state = REALTIME_STATE.lock().unwrap();
             *state = RealtimeState::new();
