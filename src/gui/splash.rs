@@ -6,8 +6,8 @@ use std::cmp::Ordering;
 use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 
 // --- CONFIGURATION ---
-const ANIMATION_DURATION: f32 = 8.5;
-const START_TRANSITION: f32 = 3.0; 
+const ANIMATION_DURATION: f32 = 3.6;
+const START_TRANSITION: f32 = 0.8; 
 const EXIT_DURATION: f32 = 1.6;  // Extended for majestic slow-motion reveal 
 
 // --- PALETTE ---
@@ -320,7 +320,7 @@ impl SplashScreen {
         
         if self.exit_start_time.is_none() {
             let t = (now - self.start_time) as f32;
-            if t > ANIMATION_DURATION - 1.0 {
+            if t > ANIMATION_DURATION - 0.5 {
                 if ctx.input(|i| i.pointer.any_click()) {
                     self.exit_start_time = Some(now);
                 }
@@ -368,7 +368,7 @@ impl SplashScreen {
             self.mouse_influence.y += (ty - self.mouse_influence.y) * 0.05;
 
             let cam_z_offset = warp_progress * 2000.0; 
-            let cam_dist = 600.0 + smoothstep(0.0, 8.0, physics_t) * 100.0 - cam_z_offset;
+            let cam_dist = 600.0 + smoothstep(0.0, ANIMATION_DURATION, physics_t) * 100.0 - cam_z_offset;
             
             let fov = 800.0;
             let mouse_wx = (pointer.x - center.x) * cam_dist / fov;
@@ -377,9 +377,9 @@ impl SplashScreen {
         }
 
         if self.exit_start_time.is_none() {
-            if t_abs < 2.0 { self.loading_text = "TRANSLATING...".to_string(); }
-            else if t_abs < 4.0 { self.loading_text = "OCR...".to_string(); }
-            else if t_abs < 6.0 { self.loading_text = "TRANSCRIBING...".to_string(); }
+            if t_abs < 0.8 { self.loading_text = "TRANSLATING...".to_string(); }
+            else if t_abs < 1.6 { self.loading_text = "OCR...".to_string(); }
+            else if t_abs < 2.4 { self.loading_text = "TRANSCRIBING...".to_string(); }
             else { self.loading_text = "nganlinh4".to_string(); }
         } else {
             self.loading_text = "READY TO ROCK!".to_string();
@@ -389,8 +389,8 @@ impl SplashScreen {
         let helix_spin = physics_t * 2.0 + (physics_t * physics_t * 0.2); 
         
         for v in &mut self.voxels {
-            let my_start = START_TRANSITION + (v.noise_factor * 1.5); 
-            let my_end = my_start + 2.0;
+            let my_start = START_TRANSITION + (v.noise_factor * 0.6); 
+            let my_end = my_start + 1.0;
             let progress = smoothstep(my_start, my_end, physics_t);
 
             if progress <= 0.0 {
@@ -398,8 +398,9 @@ impl SplashScreen {
                 let current_angle = v.helix_angle_offset + helix_spin;
                 let mut current_radius = v.helix_radius * (1.0 + physics_t * 0.1);
                 
-                if v.is_debris && physics_t > 3.5 {
-                    let flare = (physics_t - 3.5).powi(2) * 15.0; 
+                if v.is_debris && physics_t > ANIMATION_DURATION * 0.7 {
+                    let flare_start = ANIMATION_DURATION * 0.7;
+                    let flare = (physics_t - flare_start).powi(2) * 20.0; 
                     current_radius += flare;
                 }
 
@@ -412,8 +413,9 @@ impl SplashScreen {
                 let current_angle = v.helix_angle_offset + helix_spin;
                 
                 let mut current_radius = v.helix_radius * (1.0 + physics_t * 0.1);
-                if v.is_debris && physics_t > 3.5 {
-                    let flare = (physics_t - 3.5).powi(2) * 15.0; 
+                if v.is_debris && physics_t > ANIMATION_DURATION * 0.7 {
+                    let flare_start = ANIMATION_DURATION * 0.7;
+                    let flare = (physics_t - flare_start).powi(2) * 20.0; 
                     current_radius += flare;
                 }
 
@@ -515,15 +517,16 @@ impl SplashScreen {
         let center = rect.center();
         let _center_vec = Vec2::new(center.x, center.y);
         
-        let alpha = if t < 1.0 { t } else { 1.0 };
+        let alpha_fade_in = 0.4;
+        let alpha = if t < alpha_fade_in { t / alpha_fade_in } else { 1.0 };
         let master_alpha = alpha.clamp(0.0, 1.0);
 
         // 1. Background
         // Startup: Fade from Solid Black (Night) or White (Day) to Target Color
         // This ensures the Main UI underneath is hidden start-up.
         let mut bg_color = if self.is_dark { C_VOID } else { C_SKY_DAY_TOP };
-        if t < 1.0 {
-            let t_fade = (t * t).clamp(0.0, 1.0);
+        if t < 0.5 {
+            let t_fade = (t / 0.5).clamp(0.0, 1.0);
             let start_col = if self.is_dark { Color32::BLACK } else { Color32::WHITE };
             // Lerp r,g,b
             bg_color = Color32::from_rgb(
@@ -889,8 +892,8 @@ impl SplashScreen {
         // Light direction highlight offset (Top-Left)
         let light_dir_2d = Vec2::new(-0.4, -0.4); 
 
-        // Store: (Z-depth, ScreenPos, Radius, BaseColor, IsGlowing/White)
-        let mut draw_list: Vec<(f32, Pos2, f32, Color32, bool)> = Vec::with_capacity(self.voxels.len());
+        // Store: (Z-depth, ScreenPos, Radius, BaseColor, IsGlowing/White, IsDebris)
+        let mut draw_list: Vec<(f32, Pos2, f32, Color32, bool, bool)> = Vec::with_capacity(self.voxels.len());
 
         let sphere_radius_base = 8.5; // Overlap for pipe look
 
@@ -941,13 +944,13 @@ impl SplashScreen {
             
             let final_col = base_col.linear_multiply(alpha_local);
             
-            draw_list.push((z_depth, screen_pos, r, final_col, v.color == C_WHITE || v.color == C_DAY_SEC));
+            draw_list.push((z_depth, screen_pos, r, final_col, v.color == C_WHITE || v.color == C_DAY_SEC, v.is_debris));
         }
 
         // Sort back-to-front (Z-Painter's Algorithm)
         draw_list.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Equal));
 
-        for (_, pos, r, col, is_white_voxel) in draw_list {
+        for (_, pos, r, col, is_white_voxel, is_debris) in draw_list {
              // 1. Shadow/Base (The "Rim" on the shadow side)
              // Darken the color significantly for the edge
              let shadow_col = if self.is_dark {
@@ -978,14 +981,16 @@ impl SplashScreen {
              let gradient_offset = light_dir_2d * (r * 0.3);
              painter.circle_filled(pos + gradient_offset, r * 0.5, glow_col);
 
-             // 4. Specular Highlight (Sharp Reflection)
-             let highlight_pos = pos + (light_dir_2d * (r * 0.5));
-             let highlight_alpha = if self.is_dark { 0.8 } else { 0.9 }; 
-             let highlight_col = Color32::from_white_alpha((255.0 * highlight_alpha) as u8)
-                                    .linear_multiply(col.a() as f32 / 255.0);
-                                    
-             painter.circle_filled(highlight_pos, r * 0.25, highlight_col);
-             painter.circle_filled(highlight_pos, r * 0.15, Color32::WHITE.linear_multiply(col.a() as f32 / 255.0)); // Hotspot
+             // 4. Specular Highlight (Sharp Reflection) - ONLY FOR MAIN LOGO VOXELS
+             if !is_debris {
+                 let highlight_pos = pos + (light_dir_2d * (r * 0.5));
+                 let highlight_alpha = if self.is_dark { 0.8 } else { 0.9 }; 
+                 let highlight_col = Color32::from_white_alpha((255.0 * highlight_alpha) as u8)
+                                        .linear_multiply(col.a() as f32 / 255.0);
+                                        
+                 painter.circle_filled(highlight_pos, r * 0.25, highlight_col);
+                 painter.circle_filled(highlight_pos, r * 0.15, Color32::WHITE.linear_multiply(col.a() as f32 / 255.0)); // Hotspot
+             }
         }
 
         // --- LAYER 6: UI TEXT ---
