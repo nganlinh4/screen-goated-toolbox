@@ -491,8 +491,8 @@ unsafe extern "system" fn hotkey_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     if is_realtime {
                         // Realtime mode - toggle realtime overlay
                         if overlay::is_realtime_overlay_active() {
-                            // Already active - just return, user can close via overlay UI
-                            return LRESULT(0);
+                            // Already active - stop it (toggle off)
+                            overlay::stop_realtime_overlay();
                         } else {
                             std::thread::spawn(move || {
                                 overlay::show_realtime_overlay(preset_idx);

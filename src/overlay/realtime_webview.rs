@@ -154,6 +154,8 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
     <meta charset="UTF-8">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" as="style" />
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" as="style" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" />
     <style>
@@ -167,6 +169,22 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             border-radius: 8px;
             border: 1px solid {glow_color}40;
             box-shadow: 0 0 20px {glow_color}30;
+        }}
+        /* Loading overlay - covers content until fonts load, then fades out */
+        #loading-overlay {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgb(26, 26, 26);
+            z-index: 9999;
+            pointer-events: none;
+            animation: fadeOut 0.3s ease-out 0.7s forwards;
+        }}
+        @keyframes fadeOut {{
+            from {{ opacity: 1; }}
+            to {{ opacity: 0; }}
         }}
         .material-symbols-rounded {{
             font-family: 'Material Symbols Rounded';
@@ -530,6 +548,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
     </style>
 </head>
 <body>
+    <div id="loading-overlay"></div>
     <div id="container">
         <div id="header">
             <div id="title">{title_content}</div>
@@ -966,6 +985,15 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
 
 pub fn is_realtime_overlay_active() -> bool {
     unsafe { IS_ACTIVE && REALTIME_HWND.0 != 0 }
+}
+
+/// Stop the realtime overlay and close all windows
+pub fn stop_realtime_overlay() {
+    unsafe {
+        if REALTIME_HWND.0 != 0 {
+            let _ = PostMessageW(REALTIME_HWND, WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+    }
 }
 
 pub fn show_realtime_overlay(preset_idx: usize) {

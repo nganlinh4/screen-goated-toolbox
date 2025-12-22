@@ -15,4 +15,4 @@ pub use selection::{show_selection_overlay, is_selection_overlay_active_and_dism
 pub use recording::{show_recording_overlay, is_recording_overlay_active, stop_recording_and_submit};
 pub use text_selection::show_text_selection_tag;
 // Use the new WebView2-based realtime overlay
-pub use realtime_webview::{show_realtime_overlay, is_realtime_overlay_active};
+pub use realtime_webview::{show_realtime_overlay, is_realtime_overlay_active, stop_realtime_overlay};
