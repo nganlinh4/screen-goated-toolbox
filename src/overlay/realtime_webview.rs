@@ -412,37 +412,49 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
         }}
 
-        .old, .old-text {{
+        /* Base styling for all text chunks */
+        .text-chunk {{
             font-family: 'Google Sans Flex', sans-serif !important;
             font-optical-sizing: auto;
-            color: #9aa0a6;
-            font-variation-settings: 'wght' 300, 'wdth' 100, 'slnt' 0, 'GRAD' 0, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
             display: inline;
-            /* No transition - content updates should be instant and invisible */
-        }}
-        .new-chunk {{
-            font-family: 'Google Sans Flex', sans-serif !important;
-            font-optical-sizing: auto;
-            color: #ffffff;
-            font-variation-settings: 'wght' 400, 'wdth' 98, 'slnt' 0, 'GRAD' 150, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
-            display: inline;
-            
-            -webkit-mask-image: linear-gradient(to right, black 50%, transparent 100%);
-            mask-image: linear-gradient(to right, black 50%, transparent 100%);
-            -webkit-mask-size: 200% 100%;
-            mask-size: 200% 100%;
-            
-            -webkit-mask-position: 100% 0;
-            mask-position: 100% 0;
-            opacity: 0;
-            filter: blur(2px);
             transition: 
+                color 0.6s cubic-bezier(0.2, 0, 0.2, 1),
+                font-variation-settings 0.6s cubic-bezier(0.2, 0, 0.2, 1),
                 -webkit-mask-position 0.35s cubic-bezier(0.2, 0, 0.2, 1),
                 mask-position 0.35s cubic-bezier(0.2, 0, 0.2, 1),
                 opacity 0.35s ease-out,
                 filter 0.35s ease-out;
         }}
-        .new-chunk.show {{
+        
+        /* Old/committed text styling */
+        .text-chunk.old {{
+            color: #9aa0a6;
+            font-variation-settings: 'wght' 300, 'wdth' 100, 'slnt' 0, 'GRAD' 0, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
+        }}
+        
+        /* New/uncommitted text styling */
+        .text-chunk.new {{
+            color: #ffffff;
+            font-variation-settings: 'wght' 400, 'wdth' 98, 'slnt' 0, 'GRAD' 150, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
+        }}
+        
+        /* Appearing state - wipe animation */
+        .text-chunk.appearing {{
+            color: #ffffff;
+            font-variation-settings: 'wght' 400, 'wdth' 98, 'slnt' 0, 'GRAD' 150, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
+            
+            -webkit-mask-image: linear-gradient(to right, black 50%, transparent 100%);
+            mask-image: linear-gradient(to right, black 50%, transparent 100%);
+            -webkit-mask-size: 200% 100%;
+            mask-size: 200% 100%;
+            -webkit-mask-position: 100% 0;
+            mask-position: 100% 0;
+            opacity: 0;
+            filter: blur(2px);
+        }}
+        
+        /* Appearing -> visible */
+        .text-chunk.appearing.show {{
             -webkit-mask-position: 0% 0;
             mask-position: 0% 0;
             opacity: 1;
@@ -809,57 +821,73 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             if (oldText.length < currentOldTextLength) {{
                 content.innerHTML = '';
                 currentOldTextLength = 0;
-                // Will be rebuilt below
             }}
             
-            // 2. Ensure stable old span exists and update its content
-            let oldSpan = content.querySelector('.old-text');
-            if (!oldSpan && oldText) {{
-                oldSpan = document.createElement('span');
-                oldSpan.className = 'old-text';
-                content.insertBefore(oldSpan, content.firstChild);
-            }}
-            if (oldSpan) {{
-                // Just update content - no animation, no recreation
-                if (oldSpan.textContent !== oldText) {{
-                    oldSpan.textContent = oldText;
+            // Get all existing chunks
+            const allChunks = Array.from(content.querySelectorAll('.text-chunk'));
+            let totalChunkText = allChunks.map(c => c.textContent).join('');
+            const fullText = oldText + newText;
+            
+            // 2. If old text grew, transition chunks from new to old
+            if (oldText.length > currentOldTextLength) {{
+                let committedLen = oldText.length;
+                let accumulatedLen = 0;
+                
+                for (const chunk of allChunks) {{
+                    const chunkLen = chunk.textContent.length;
+                    const chunkEnd = accumulatedLen + chunkLen;
+                    
+                    // If this chunk falls within committed range, mark as old
+                    if (chunkEnd <= committedLen) {{
+                        if (!chunk.classList.contains('old')) {{
+                            chunk.classList.remove('appearing', 'new');
+                            chunk.classList.add('old');
+                        }}
+                    }}
+                    accumulatedLen = chunkEnd;
                 }}
             }}
             currentOldTextLength = oldText.length;
             
-            // 3. Handle New Text - parallel animation with independent chunks
-            // Get what's currently displayed as new text
-            const newChunks = content.querySelectorAll('.new-chunk');
-            let displayedNewText = '';
-            newChunks.forEach(c => displayedNewText += c.textContent);
-            
-            if (newText) {{
-                if (newText.length > displayedNewText.length && newText.startsWith(displayedNewText)) {{
-                    // Text grew - create new animated chunk for the delta
-                    const delta = newText.substring(displayedNewText.length);
-                    
-                    const chunk = document.createElement('span');
-                    chunk.className = 'new-chunk';
-                    chunk.textContent = delta;
-                    content.appendChild(chunk);
-                    
-                    // Trigger animation
-                    requestAnimationFrame(() => {{
-                        chunk.classList.add('show');
-                    }});
-                }} else if (newText !== displayedNewText) {{
-                    // Text was revised - rebuild new chunks silently (no animation)
-                    newChunks.forEach(c => c.remove());
-                    
-                    const chunk = document.createElement('span');
-                    chunk.className = 'new-chunk show'; // Already visible
-                    chunk.textContent = newText;
-                    content.appendChild(chunk);
+            // 3. Handle new text growth - create appearing chunks
+            if (fullText.length > totalChunkText.length && fullText.startsWith(totalChunkText)) {{
+                const delta = fullText.substring(totalChunkText.length);
+                
+                const chunk = document.createElement('span');
+                chunk.className = 'text-chunk appearing';
+                chunk.textContent = delta;
+                content.appendChild(chunk);
+                
+                // Trigger wipe animation
+                requestAnimationFrame(() => {{
+                    chunk.classList.add('show');
+                    // After wipe completes, transition to proper state
+                    setTimeout(() => {{
+                        chunk.classList.remove('appearing', 'show');
+                        // Check if this chunk is now committed or still new
+                        const chunkStart = totalChunkText.length;
+                        if (chunkStart < currentOldTextLength) {{
+                            chunk.classList.add('old');
+                        }} else {{
+                            chunk.classList.add('new');
+                        }}
+                    }}, 350); // Match wipe animation duration
+                }});
+            }} else if (fullText !== totalChunkText) {{
+                // Text was revised - rebuild (rare case)
+                content.innerHTML = '';
+                if (oldText) {{
+                    const oldChunk = document.createElement('span');
+                    oldChunk.className = 'text-chunk old';
+                    oldChunk.textContent = oldText;
+                    content.appendChild(oldChunk);
                 }}
-                // If equal, do nothing
-            }} else {{
-                // No new text - remove all new chunks
-                newChunks.forEach(c => c.remove());
+                if (newText) {{
+                    const newChunk = document.createElement('span');
+                    newChunk.className = 'text-chunk new';
+                    newChunk.textContent = newText;
+                    content.appendChild(newChunk);
+                }}
             }}
             
             // Scroll logic
