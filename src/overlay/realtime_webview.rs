@@ -395,19 +395,58 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             line-height: 1.5;
             padding-bottom: 5px;
         }}
-        .old {{
+        @keyframes wipe-in {{
+            from {{
+                -webkit-mask-position: 100% 0;
+                mask-position: 100% 0;
+                transform: translateX(-4px);
+                opacity: 0;
+                filter: blur(2px);
+            }}
+            to {{
+                -webkit-mask-position: 0% 0;
+                mask-position: 0% 0;
+                transform: translateX(0);
+                opacity: 1;
+                filter: blur(0);
+            }}
+        }}
+
+        .old, .old-text {{
             font-family: 'Google Sans Flex', sans-serif !important;
             font-optical-sizing: auto;
             color: #9aa0a6;
             font-variation-settings: 'wght' 300, 'wdth' 100, 'slnt' 0, 'GRAD' 0, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
-            transition: all 0.8s cubic-bezier(0.2, 0.0, 0.2, 1);
+            display: inline;
+            /* No transition - content updates should be instant and invisible */
         }}
-        .new {{
+        .new-chunk {{
             font-family: 'Google Sans Flex', sans-serif !important;
             font-optical-sizing: auto;
             color: #ffffff;
             font-variation-settings: 'wght' 400, 'wdth' 98, 'slnt' 0, 'GRAD' 150, 'ROND' 100, 'ROUN' 100, 'RNDS' 100;
-            transition: all 0.5s cubic-bezier(0.2, 0.0, 0.2, 1);
+            display: inline;
+            
+            -webkit-mask-image: linear-gradient(to right, black 50%, transparent 100%);
+            mask-image: linear-gradient(to right, black 50%, transparent 100%);
+            -webkit-mask-size: 200% 100%;
+            mask-size: 200% 100%;
+            
+            -webkit-mask-position: 100% 0;
+            mask-position: 100% 0;
+            opacity: 0;
+            filter: blur(2px);
+            transition: 
+                -webkit-mask-position 0.35s cubic-bezier(0.2, 0, 0.2, 1),
+                mask-position 0.35s cubic-bezier(0.2, 0, 0.2, 1),
+                opacity 0.35s ease-out,
+                filter 0.35s ease-out;
+        }}
+        .new-chunk.show {{
+            -webkit-mask-position: 0% 0;
+            mask-position: 0% 0;
+            opacity: 1;
+            filter: blur(0);
         }}
         .placeholder {{
             color: #666;
@@ -742,6 +781,8 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
         }}
         
+        let currentOldTextLength = 0;
+
         function updateText(oldText, newText) {{
             const hasContent = oldText || newText;
             
@@ -763,55 +804,62 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
                 currentOldTextLength = 0;
                 return;
             }}
-            
-            // Handle history rewrite or shrink (e.g. restart)
+
+            // 1. Handle history rewrite or shrink
             if (oldText.length < currentOldTextLength) {{
                 content.innerHTML = '';
-                if (oldText) {{
-                    const span = document.createElement('span');
-                    span.className = 'old';
-                    span.textContent = oldText;
-                    content.appendChild(span);
-                }}
-                currentOldTextLength = oldText.length;
+                currentOldTextLength = 0;
+                // Will be rebuilt below
             }}
             
-            // 1. Handle Old Text Growth (Committing)
-            if (oldText.length > currentOldTextLength) {{
-                const committedText = oldText.substring(currentOldTextLength);
-                
-                // Find the existing 'new' span to promote
-                const newSpan = content.querySelector('.new');
-                
-                if (newSpan) {{
-                    // Promote the new span to old to trigger transition
-                    newSpan.className = 'old';
-                    newSpan.textContent = committedText; 
-                }} else {{
-                    // Fallback if no new span existed (rare)
-                    const span = document.createElement('span');
-                    span.className = 'old';
-                    span.textContent = committedText;
-                    content.appendChild(span);
-                }}
-                currentOldTextLength = oldText.length;
+            // 2. Ensure stable old span exists and update its content
+            let oldSpan = content.querySelector('.old-text');
+            if (!oldSpan && oldText) {{
+                oldSpan = document.createElement('span');
+                oldSpan.className = 'old-text';
+                content.insertBefore(oldSpan, content.firstChild);
             }}
-
-            // 2. Handle Current New Text
-            let newSpan = content.querySelector('.new');
+            if (oldSpan) {{
+                // Just update content - no animation, no recreation
+                if (oldSpan.textContent !== oldText) {{
+                    oldSpan.textContent = oldText;
+                }}
+            }}
+            currentOldTextLength = oldText.length;
+            
+            // 3. Handle New Text - parallel animation with independent chunks
+            // Get what's currently displayed as new text
+            const newChunks = content.querySelectorAll('.new-chunk');
+            let displayedNewText = '';
+            newChunks.forEach(c => displayedNewText += c.textContent);
             
             if (newText) {{
-                if (!newSpan) {{
-                    newSpan = document.createElement('span');
-                    newSpan.className = 'new';
-                    content.appendChild(newSpan);
+                if (newText.length > displayedNewText.length && newText.startsWith(displayedNewText)) {{
+                    // Text grew - create new animated chunk for the delta
+                    const delta = newText.substring(displayedNewText.length);
+                    
+                    const chunk = document.createElement('span');
+                    chunk.className = 'new-chunk';
+                    chunk.textContent = delta;
+                    content.appendChild(chunk);
+                    
+                    // Trigger animation
+                    requestAnimationFrame(() => {{
+                        chunk.classList.add('show');
+                    }});
+                }} else if (newText !== displayedNewText) {{
+                    // Text was revised - rebuild new chunks silently (no animation)
+                    newChunks.forEach(c => c.remove());
+                    
+                    const chunk = document.createElement('span');
+                    chunk.className = 'new-chunk show'; // Already visible
+                    chunk.textContent = newText;
+                    content.appendChild(chunk);
                 }}
-                if (newSpan.textContent !== newText) {{
-                    newSpan.textContent = newText;
-                }}
+                // If equal, do nothing
             }} else {{
-                // Remove empty new span if it exists (e.g. after commit)
-                if (newSpan) newSpan.remove();
+                // No new text - remove all new chunks
+                newChunks.forEach(c => c.remove());
             }}
             
             // Scroll logic
@@ -832,7 +880,6 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
         }}
 
-        let currentOldTextLength = 0;
         window.updateText = updateText;
         
         // Volume visualizer with history buffer (like recording.rs)
