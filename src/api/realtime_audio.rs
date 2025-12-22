@@ -136,10 +136,8 @@ impl RealtimeState {
     }
     
     /// Commit finished sentences after successful translation
-    /// Uses a "Keep-One-Behind" strategy. 
-    /// It matches all sentences but intentionally DOES NOT commit the last matching pair.
-    /// This keeps the latest sentence in the "fluid" state, allowing the LLM to rephrase it 
-    /// when new context arrives, preventing duplications at the boundary.
+    /// Matches sentence delimiters between source and translation, then commits all matched pairs.
+    /// Uses a low-threshold pressure valve for single sentences to avoid excessive re-translation.
     pub fn commit_finished_sentences(&mut self) {
         let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
         
@@ -183,21 +181,14 @@ impl RealtimeState {
             }
         }
 
-        // 2. Decide how many to commit
+        // 2. Decide how many to commit - commit ALL matched sentences immediately
         let num_matches = matches.len();
-        let mut num_to_commit = 0;
+        let mut num_to_commit = num_matches; // Commit all matches, no keep-one-behind
 
-        if num_matches > 1 {
-            // Normal Robust Mode: Commit all except the last one
-            num_to_commit = num_matches - 1;
-        } else if num_matches == 1 {
-            // Pressure Valve Mode:
-            // If we only have 1 match, usually we wait. 
-            // BUT if the uncommitted text is long (> 100 chars), the start is likely stable.
-            // Force commit to keep the buffer clean.
-            if self.uncommitted_translation.len() > 100 {
-                num_to_commit = 1;
-            }
+        // Pressure Valve: For single sentence, still require minimum length
+        // to avoid committing very short fragments that might grow
+        if num_matches == 1 && self.uncommitted_translation.len() < 50 {
+            num_to_commit = 0; // Wait for more text or another sentence
         }
 
         if num_to_commit > 0 {
@@ -1035,13 +1026,24 @@ fn run_translation_loop(
         None => return,
     };
     
-    // Get target language
-    let mut target_language = if !translation_block.selected_language.is_empty() {
-        translation_block.selected_language.clone()
-    } else {
-        translation_block.language_vars.get("language").cloned()
-            .or_else(|| translation_block.language_vars.get("language1").cloned())
-            .unwrap_or_else(|| "English".to_string())
+    // Get target language - FIRST check if UI already set NEW_TARGET_LANGUAGE (race condition fix)
+    // Then fall back to translation block settings
+    let mut target_language = {
+        // Check if realtime_webview already set the language at startup
+        let from_ui = crate::overlay::realtime_webview::NEW_TARGET_LANGUAGE.lock()
+            .ok()
+            .and_then(|lang| if lang.is_empty() { None } else { Some(lang.clone()) });
+        
+        from_ui.unwrap_or_else(|| {
+            // Fall back to preset's translation block
+            if !translation_block.selected_language.is_empty() {
+                translation_block.selected_language.clone()
+            } else {
+                translation_block.language_vars.get("language").cloned()
+                    .or_else(|| translation_block.language_vars.get("language1").cloned())
+                    .unwrap_or_else(|| "English".to_string())
+            }
+        })
     };
     
     while !stop_signal.load(Ordering::Relaxed) {
@@ -1055,10 +1057,14 @@ fn run_translation_loop(
                 if !new_lang.is_empty() {
                     target_language = new_lang.clone();
                     
-                                    // Clear current translation state for clean switch
+                    // Clear ALL translation state for clean language switch
+                    // IMPORTANT: Also clear history - old language translations poison new ones!
                     if let Ok(mut s) = state.lock() {
                         s.start_new_translation();
+                        s.committed_translation.clear();
                         s.display_translation.clear();
+                        s.translation_history.clear(); // Clear old language history!
+                        s.last_committed_pos = 0; // Reset so we re-translate everything in new language
                         update_translation_text(translation_hwnd, "");
                     }
                 }

@@ -1091,21 +1091,21 @@ pub fn show_realtime_overlay(preset_idx: usize) {
             preset.audio_source = config_audio_source.clone();
         }
         
-        let target_language = if !config_language.is_empty() {
-            config_language
-        } else if preset.blocks.len() > 1 {
-            // Get from translation block
-            let trans_block = &preset.blocks[1];
-            if !trans_block.selected_language.is_empty() {
-                trans_block.selected_language.clone()
-            } else {
-                trans_block.language_vars.get("language").cloned()
-                    .or_else(|| trans_block.language_vars.get("language1").cloned())
-                    .unwrap_or_else(|| "Vietnamese".to_string())
-            }
+    let target_language = if !config_language.is_empty() {
+        config_language
+    } else if preset.blocks.len() > 1 {
+        // Get from translation block
+        let trans_block = &preset.blocks[1];
+        if !trans_block.selected_language.is_empty() {
+            trans_block.selected_language.clone()
         } else {
-            "Vietnamese".to_string()
-        };
+            trans_block.language_vars.get("language").cloned()
+                .or_else(|| trans_block.language_vars.get("language1").cloned())
+                .unwrap_or_else(|| "English".to_string())
+        }
+    } else {
+        "English".to_string()
+    };
         
         // Initialize NEW_TARGET_LANGUAGE so translation loop uses saved language from start
         if !target_language.is_empty() {
