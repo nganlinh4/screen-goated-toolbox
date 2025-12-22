@@ -460,8 +460,11 @@ fn render_preset_item(
     
     let icon_type = match preset.preset_type.as_str() {
         "audio" => {
-            // Use Speaker for device audio, Microphone for mic audio
-            if preset.audio_source == "device" {
+            // Use Realtime icon for realtime processing mode
+            // Otherwise use Speaker for device audio, Microphone for mic audio
+            if preset.audio_processing_mode == "realtime" {
+                Icon::Realtime
+            } else if preset.audio_source == "device" {
                 Icon::Speaker
             } else {
                 Icon::Microphone

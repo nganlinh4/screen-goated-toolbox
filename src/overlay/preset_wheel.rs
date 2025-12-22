@@ -133,6 +133,12 @@ pub fn show_preset_wheel(
                 // Filter by type
                 if p.preset_type != filter_type { return false; }
                 
+                // Exclude realtime audio presets from Mic/Device wheels
+                // (they use a different processing flow via realtime overlay)
+                if filter_type == "audio" && p.audio_processing_mode == "realtime" {
+                    return false;
+                }
+                
                 // Filter by mode if specified
                 if let Some(mode) = filter_mode {
                     match filter_type {

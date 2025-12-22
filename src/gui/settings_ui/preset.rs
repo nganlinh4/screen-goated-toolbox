@@ -69,12 +69,16 @@ pub fn render_preset_editor(
                 ui.add_space(10.0);
                 
                 // Controller checkbox with subtle styling
-                if ui.checkbox(&mut preset.show_controller_ui, text.controller_checkbox_label).clicked() {
-                    if !preset.show_controller_ui && preset.blocks.is_empty() {
-                        preset.blocks.push(create_default_block_for_type(&preset.preset_type));
-                        *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
+                // Hide for realtime audio presets (they always use the realtime overlay)
+                let is_realtime_audio = preset.preset_type == "audio" && preset.audio_processing_mode == "realtime";
+                if !is_realtime_audio {
+                    if ui.checkbox(&mut preset.show_controller_ui, text.controller_checkbox_label).clicked() {
+                        if !preset.show_controller_ui && preset.blocks.is_empty() {
+                            preset.blocks.push(create_default_block_for_type(&preset.preset_type));
+                            *snarl = blocks_to_snarl(&preset.blocks, &preset.block_connections);
+                        }
+                        changed = true;
                     }
-                    changed = true;
                 }
                 
                 if is_default_preset {

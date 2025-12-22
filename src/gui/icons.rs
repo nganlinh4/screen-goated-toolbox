@@ -28,6 +28,7 @@ pub enum Icon {
     TextSelect, // NEW: Text with selection cursor for text selection mode
     Speaker, // NEW: Speaker icon for device audio source
     Lightbulb, // NEW: Lightbulb icon for tips
+    Realtime, // NEW: Streaming waves icon for realtime audio processing
 }
 
 /// Main entry point: Draw a clickable icon button (default size 24.0)
@@ -486,6 +487,41 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
                 [egui::pos2(center.x + 2.5 * scale, ray_start_y + 1.0 * scale), 
                  egui::pos2(center.x + 4.0 * scale, ray_start_y - ray_len + 1.5 * scale)],
                 stroke
+            );
+        }
+
+        Icon::Realtime => {
+            // Realtime waveform icon - audio oscilloscope pattern
+            // Horizontal line with peaks and valleys representing live audio
+            
+            let y_center = center.y;
+            let wave_stroke = egui::Stroke::new(2.0 * scale, color);
+            
+            // Left flat segment
+            let left_start = center.x - 10.0 * scale;
+            let left_end = center.x - 7.0 * scale;
+            painter.line_segment(
+                [egui::pos2(left_start, y_center), egui::pos2(left_end, y_center)],
+                wave_stroke
+            );
+            
+            // Waveform points - small peak, big valley, big peak, small valley pattern
+            let wave_pts = vec![
+                egui::pos2(left_end, y_center),                          // start
+                egui::pos2(center.x - 5.5 * scale, y_center - 3.0 * scale), // small peak
+                egui::pos2(center.x - 3.5 * scale, y_center + 7.0 * scale), // big valley
+                egui::pos2(center.x, y_center - 7.0 * scale),              // big peak
+                egui::pos2(center.x + 3.5 * scale, y_center + 3.0 * scale), // small valley
+                egui::pos2(center.x + 5.5 * scale, y_center),              // return to center
+            ];
+            painter.add(egui::Shape::line(wave_pts, wave_stroke));
+            
+            // Right flat segment
+            let right_start = center.x + 5.5 * scale;
+            let right_end = center.x + 10.0 * scale;
+            painter.line_segment(
+                [egui::pos2(right_start, y_center), egui::pos2(right_end, y_center)],
+                wave_stroke
             );
         }
     }
