@@ -98,11 +98,17 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
     let device_text = text.realtime_device;
     let placeholder_text = text.realtime_waiting;
     
-    // Build language options HTML
+    // Build language options HTML - show full name in dropdown, but store code for display
     let lang_options: String = languages.iter()
         .map(|lang| {
             let selected = if lang == current_language { "selected" } else { "" };
-            format!(r#"<option value="{}" {}>{}</option>"#, lang, selected, lang)
+            // Get 2-letter ISO 639-1 code
+            let lang_code = isolang::Language::from_name(lang)
+                .and_then(|l| l.to_639_1())
+                .map(|c| c.to_uppercase())
+                .unwrap_or_else(|| lang.chars().take(2).collect::<String>().to_uppercase());
+            // Option shows full name, but we store code as data attribute for selected display
+            format!(r#"<option value="{}" data-code="{}" {}>{}</option>"#, lang, lang_code, selected, lang)
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -111,9 +117,9 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
     let audio_selector = if !is_translation {
         let is_device = audio_source == "device";
         format!(r#"
-            <div class="audio-toggle" id="audio-toggle" title="Toggle audio source">
-                <span class="material-symbols-rounded audio-icon {mic_active}" data-value="mic">mic</span>
-                <span class="material-symbols-rounded audio-icon {device_active}" data-value="device">speaker_group</span>
+            <div class="btn-group">
+                <span class="material-symbols-rounded audio-icon {mic_active}" id="audio-toggle" data-value="mic" title="Microphone">mic</span>
+                <span class="material-symbols-rounded audio-icon {device_active}" data-value="device" title="System Audio">speaker_group</span>
             </div>
         "#, 
             mic_active = if !is_device { "active" } else { "" },
@@ -123,8 +129,8 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         // Language selector and model toggle for translation window
         let is_gemma = translation_model == "google-gemma";
         format!(r#"
-            <div class="model-toggle" id="model-toggle">
-                <span class="material-symbols-rounded model-icon {gemma_active}" data-value="google-gemma" title="AI Translation (Gemma)">auto_awesome</span>
+            <div class="btn-group">
+                <span class="material-symbols-rounded model-icon {gemma_active}" id="model-toggle" data-value="google-gemma" title="AI Translation (Gemma)">auto_awesome</span>
                 <span class="material-symbols-rounded model-icon {fallback_active}" data-value="groq-llama" title="Fast Translation (Groq)">speed</span>
             </div>
             <select id="language-select" title="Target Language">
@@ -263,40 +269,47 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         }}
         #controls {{
             display: flex;
-            gap: 6px;
+            gap: 8px;
             align-items: center;
             flex: 1;
             justify-content: flex-end;
+        }}
+        .btn-group {{
+            display: flex;
+            gap: 1px;
+            align-items: center;
         }}
         .ctrl-btn {{
             font-size: 14px;
             color: #888;
             cursor: pointer;
-            padding: 2px 8px;
-            border-radius: 4px;
-            background: rgba(255,255,255,0.05);
+            padding: 4px 8px;
+            border-radius: 50%;
+            background: rgba(30,30,30,0.8);
             border: 1px solid rgba(255,255,255,0.1);
             transition: all 0.2s;
             user-select: none;
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }}
         .ctrl-btn:hover {{
             color: #fff;
             background: rgba(255,255,255,0.15);
-        }}
-        .vis-toggle {{
-            display: flex;
-            gap: 2px;
-            background: rgba(30,30,30,0.8);
-            border-radius: 4px;
-            padding: 2px;
+            border-color: {glow_color};
+            box-shadow: 0 0 8px {glow_color}40;
         }}
         .vis-btn {{
-            font-size: 12px;
+            font-size: 14px;
             cursor: pointer;
-            padding: 2px 5px;
-            border-radius: 3px;
+            padding: 2px;
+            border-radius: 4px;
             transition: all 0.2s;
             user-select: none;
+            background: transparent;
+            border: none;
         }}
         .vis-btn.active {{
             opacity: 1;
@@ -305,7 +318,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             opacity: 0.3;
         }}
         .vis-btn:hover {{
-            background: rgba(255,255,255,0.1);
+            opacity: 0.7;
         }}
         .vis-btn.mic {{
             color: #00c8ff;
@@ -314,20 +327,29 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             color: #ff9633;
         }}
         select {{
-            background: rgba(40, 40, 40, 0.9);
+            background: rgba(30, 30, 30, 0.9);
             color: #ccc;
             border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 4px;
-            padding: 3px 8px;
-            font-size: 11px;
+            border-radius: 50%;
+            padding: 0;
+            font-size: 10px;
+            font-weight: bold;
             cursor: pointer;
             outline: none;
-            max-width: 120px;
+            width: 26px;
+            height: 26px;
             scrollbar-width: thin;
             scrollbar-color: #555 #2a2a2a;
+            transition: all 0.2s;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            text-align: center;
+            text-align-last: center;
         }}
         select:hover {{
             border-color: {glow_color};
+            box-shadow: 0 0 6px {glow_color}30;
         }}
         select option {{
             background: #2a2a2a;
@@ -393,49 +415,35 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             opacity: 1;
             color: {glow_color};
         }}
-        .audio-toggle {{
-            display: flex;
-            gap: 2px;
-            background: rgba(30,30,30,0.8);
-            border-radius: 4px;
-            padding: 2px;
-        }}
         .audio-icon {{
             font-size: 16px;
-            padding: 4px;
-            border-radius: 3px;
+            padding: 2px;
             cursor: pointer;
             color: #555;
             transition: all 0.2s;
+            background: transparent;
+            border: none;
         }}
         .audio-icon:hover {{
             color: #aaa;
         }}
         .audio-icon.active {{
             color: #00c8ff;
-            background: rgba(0,200,255,0.15);
-        }}
-        .model-toggle {{
-            display: flex;
-            gap: 2px;
-            background: rgba(30,30,30,0.8);
-            border-radius: 4px;
-            padding: 2px;
         }}
         .model-icon {{
             font-size: 16px;
-            padding: 4px;
-            border-radius: 3px;
+            padding: 2px;
             cursor: pointer;
             color: #555;
             transition: all 0.2s;
+            background: transparent;
+            border: none;
         }}
         .model-icon:hover {{
             color: #aaa;
         }}
         .model-icon.active {{
             color: #ff9633;
-            background: rgba(255,150,51,0.15);
         }}
         @keyframes model-switch-pulse {{
             0% {{ transform: scale(1); box-shadow: 0 0 0 0 rgba(255,150,51,0.7); }}
@@ -457,9 +465,11 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             <div id="title">{title_content}</div>
             <div id="controls">
                 {audio_selector}
-                <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">remove</span></span>
-                <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">add</span></span>
-                <div class="vis-toggle">
+                <div class="btn-group">
+                    <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">remove</span></span>
+                    <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">add</span></span>
+                </div>
+                <div class="btn-group">
                     <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription"><span class="material-symbols-rounded">subtitles</span></span>
                     <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation"><span class="material-symbols-rounded">translate</span></span>
                 </div>
@@ -590,18 +600,16 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
         }});
         
-        // Audio Toggle Switch Logic
-        const audioToggle = document.getElementById('audio-toggle');
-        if (audioToggle) {{
-            const icons = audioToggle.querySelectorAll('.audio-icon');
-            
-            icons.forEach(icon => {{
+        // Audio Toggle Switch Logic - query all audio icons directly
+        const audioIcons = document.querySelectorAll('.audio-icon');
+        if (audioIcons.length) {{
+            audioIcons.forEach(icon => {{
                 icon.addEventListener('click', (e) => {{
                     e.stopPropagation();
                     e.preventDefault();
                     
                     // Update UI - toggle active class
-                    icons.forEach(i => i.classList.remove('active'));
+                    audioIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
                     
                     // Send IPC
@@ -611,28 +619,59 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }});
         }}
 
-        // Language Select Logic
+        // Language Select Logic - show short code when collapsed, full name when open
         const langSelect = document.getElementById('language-select');
         if (langSelect) {{
+            // Store original full names
+            const options = langSelect.querySelectorAll('option');
+            options.forEach(opt => {{
+                opt.dataset.fullname = opt.textContent;
+            }});
+            
+            // Function to show short codes (when collapsed)
+            function showCodes() {{
+                options.forEach(opt => {{
+                    opt.textContent = opt.dataset.code || opt.dataset.fullname.substring(0, 2).toUpperCase();
+                }});
+            }}
+            
+            // Function to show full names (when dropdown open)
+            function showFullNames() {{
+                options.forEach(opt => {{
+                    opt.textContent = opt.dataset.fullname;
+                }});
+            }}
+            
+            // Initially show codes
+            showCodes();
+            
+            // Show full names when dropdown opens
+            langSelect.addEventListener('focus', showFullNames);
+            langSelect.addEventListener('mousedown', function(e) {{ 
+                e.stopPropagation();
+                showFullNames();
+            }});
+            
+            // Show codes when dropdown closes
+            langSelect.addEventListener('blur', showCodes);
             langSelect.addEventListener('change', function(e) {{
                 e.stopPropagation();
                 window.ipc.postMessage('language:' + this.value);
+                // Delay to let the dropdown close animation finish
+                setTimeout(showCodes, 100);
             }});
-            langSelect.addEventListener('mousedown', function(e) {{ e.stopPropagation(); }});
         }}
 
-        // Model Toggle Switch Logic
-        const modelToggle = document.getElementById('model-toggle');
-        if (modelToggle) {{
-            const icons = modelToggle.querySelectorAll('.model-icon');
-            
-            icons.forEach(icon => {{
+        // Model Toggle Switch Logic - query all model icons directly
+        const modelIcons = document.querySelectorAll('.model-icon');
+        if (modelIcons.length) {{
+            modelIcons.forEach(icon => {{
                 icon.addEventListener('click', (e) => {{
                     e.stopPropagation();
                     e.preventDefault();
                     
                     // Update UI - toggle active class
-                    icons.forEach(i => i.classList.remove('active'));
+                    modelIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
                     
                     // Send IPC
@@ -774,10 +813,9 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         
         // Model switch animation (called when 429 fallback switches models)
         function switchModel(isGemma) {{
-            const modelToggle = document.getElementById('model-toggle');
-            if (!modelToggle) return;
+            const icons = document.querySelectorAll('.model-icon');
+            if (!icons.length) return;
             
-            const icons = modelToggle.querySelectorAll('.model-icon');
             icons.forEach(icon => {{
                 const val = icon.getAttribute('data-value');
                 const shouldBeActive = (isGemma && val === 'google-gemma') || (!isGemma && val === 'groq-llama');

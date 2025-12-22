@@ -228,7 +228,7 @@ pub struct Config {
     pub realtime_target_language: String,
 }
 
-fn default_realtime_translation_model() -> String { "google-gemma".to_string() }
+fn default_realtime_translation_model() -> String { "groq-llama".to_string() }
 fn default_realtime_font_size() -> u32 { 16 }
 fn default_realtime_window_size() -> (i32, i32) { (500, 180) }
 fn default_realtime_target_language() -> String { "Vietnamese".to_string() }
@@ -1105,7 +1105,7 @@ impl Default for Config {
             use_groq: true,
             use_gemini: true,
             use_openrouter: false,
-            realtime_translation_model: "google-gemma".to_string(),
+            realtime_translation_model: "groq-llama".to_string(),
             realtime_font_size: 16,
             realtime_transcription_size: (500, 180),
             realtime_translation_size: (500, 180),
