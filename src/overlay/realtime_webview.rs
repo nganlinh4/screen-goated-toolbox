@@ -1034,7 +1034,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
     unsafe {
         if IS_ACTIVE { return; }
         
-        let preset = APP.lock().unwrap().config.presets[preset_idx].clone();
+        let mut preset = APP.lock().unwrap().config.presets[preset_idx].clone();
         
 
         
@@ -1085,6 +1085,12 @@ pub fn show_realtime_overlay(preset_idx: usize) {
             )
         };
         
+        // IMPORTANT: Override preset.audio_source with saved config value
+        // This ensures the transcription engine uses the user's saved preference
+        if !config_audio_source.is_empty() {
+            preset.audio_source = config_audio_source.clone();
+        }
+        
         let target_language = if !config_language.is_empty() {
             config_language
         } else if preset.blocks.len() > 1 {
@@ -1100,6 +1106,15 @@ pub fn show_realtime_overlay(preset_idx: usize) {
         } else {
             "Vietnamese".to_string()
         };
+        
+        // Initialize NEW_TARGET_LANGUAGE so translation loop uses saved language from start
+        if !target_language.is_empty() {
+            if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
+                *new_lang = target_language.clone();
+            }
+            // Trigger a language "change" so translation loop picks it up immediately
+            LANGUAGE_CHANGE.store(true, Ordering::SeqCst);
+        }
         
         // Calculate positions
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
