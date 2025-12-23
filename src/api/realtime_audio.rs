@@ -1044,15 +1044,9 @@ fn run_translation_loop(
                 if !new_lang.is_empty() {
                     target_language = new_lang.clone();
                     
-                    // Clear ALL translation state for clean language switch
-                    // IMPORTANT: Also clear history - old language translations poison new ones!
+                    // Clear history to prevent context poisoning, but keep existing translations on screen
                     if let Ok(mut s) = state.lock() {
-                        s.start_new_translation();
-                        s.committed_translation.clear();
-                        s.display_translation.clear();
-                        s.translation_history.clear(); // Clear old language history!
-                        s.last_committed_pos = 0; // Reset so we re-translate everything in new language
-                        update_translation_text(translation_hwnd, "");
+                        s.translation_history.clear();
                     }
                 }
             }
@@ -1162,7 +1156,7 @@ fn run_translation_loop(
                     // Construct messages
                     let mut messages: Vec<serde_json::Value> = Vec::new();
                     let system_instruction = format!(
-                        "You are a professional translator. Translate text to {} while maintaining consistent style, tone, and atmosphere. Output ONLY the translation, nothing else.",
+                        "You are a professional translator. Translate text to {} to append suitably to the context. Output ONLY the translation, nothing else.",
                         target_language
                     );
 
@@ -1289,7 +1283,7 @@ fn run_translation_loop(
 
                             if !alt_key.is_empty() {
                                 let mut alt_msgs = Vec::new();
-                                let alt_sys = format!("You are a professional translator. Translate text to {} while maintaining consistent style, tone, and atmosphere. Output ONLY the translation, nothing else.", target_language);
+                                let alt_sys = format!("You are a professional translator. Translate text to {} to append suitably to the context. Output ONLY the translation, nothing else.", target_language);
                                 
                                 if alt_is_google {
                                     alt_msgs.extend(history_messages.clone());
