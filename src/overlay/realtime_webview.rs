@@ -1493,9 +1493,7 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
             } else if body.starts_with("copyText:") {
                 // Copy text to clipboard
                 let text = &body[9..];
-                unsafe {
-                    crate::overlay::utils::copy_to_clipboard(text, hwnd_for_ipc);
-                }
+                crate::overlay::utils::copy_to_clipboard(text, hwnd_for_ipc);
             } else if body == "close" {
                 unsafe {
                     let _ = PostMessageW(
