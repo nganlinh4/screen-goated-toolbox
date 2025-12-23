@@ -95,6 +95,9 @@ pub struct SettingsApp {
     snarl: Option<Snarl<ChainNode>>,
     last_edited_preset_idx: Option<usize>,
     // ------------------------
+    
+    // --- USAGE MODAL STATE ---
+    show_usage_modal: bool,
     // --------------------
 }
 
@@ -286,6 +289,10 @@ impl SettingsApp {
             show_tips_modal: false,
             rng_seed,
             // ---------------
+            
+            // --- USAGE MODAL INIT ---
+            show_usage_modal: false,
+            // -----------------------
         }
     }
 
@@ -772,7 +779,8 @@ impl eframe::App for SettingsApp {
                                 &mut self.run_at_startup, 
                                 &self.auto_launcher, 
                                 self.current_admin_state, // <-- Pass current admin state
-                                &text
+                                &text,
+                                &mut self.show_usage_modal,
                             ) {
                                 self.save_and_sync();
                             }

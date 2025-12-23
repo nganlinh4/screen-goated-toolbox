@@ -1210,6 +1210,17 @@ fn run_translation_loop(
                             .send_json(payload) 
                         {
                             Ok(resp) => {
+                                // Track usage for llama-3.1-8b-instant (Groq)
+                                if !is_google {
+                                    if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                                        let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                                        let usage_str = format!("{} / {}", remaining, limit);
+                                        if let Ok(mut app) = APP.lock() {
+                                            app.model_usage_stats.insert("llama-3.1-8b-instant".to_string(), usage_str);
+                                        }
+                                    }
+                                }
+                                
                                 // Streaming Loop
                                 let reader = std::io::BufReader::new(resp.into_reader());
                                 let mut full_translation = String::new();
@@ -1308,6 +1319,17 @@ fn run_translation_loop(
                                 let payload = serde_json::json!({ "model": alt_model_name, "messages": alt_msgs, "stream": true, "max_tokens": 512 });
                                 
                                 if let Ok(resp) = UREQ_AGENT.post(&alt_url).set("Authorization", &format!("Bearer {}", alt_key)).set("Content-Type", "application/json").send_json(payload) {
+                                    // Track usage for llama-3.1-8b-instant (Groq fallback)
+                                    if !alt_is_google {
+                                        if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
+                                            let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                                            let usage_str = format!("{} / {}", remaining, limit);
+                                            if let Ok(mut app) = APP.lock() {
+                                                app.model_usage_stats.insert("llama-3.1-8b-instant".to_string(), usage_str);
+                                            }
+                                        }
+                                    }
+                                    
                                     let reader = std::io::BufReader::new(resp.into_reader());
                                     let mut full_t = String::new();
                                     for line in reader.lines().flatten() {
