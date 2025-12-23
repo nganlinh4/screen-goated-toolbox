@@ -138,9 +138,17 @@ pub fn render_global_settings(
     ui.add_space(10.0);
     
     // === USAGE STATISTICS BUTTON ===
-    if ui.add(egui::Button::new(egui::RichText::new(format!("📊 {}", text.usage_statistics_title)).size(13.0))
-        .min_size(egui::vec2(200.0, 28.0))
-        .corner_radius(8.0))
+    let is_dark = ui.visuals().dark_mode;
+    let stats_bg = if is_dark { 
+        egui::Color32::from_rgb(50, 100, 110)  // Teal for dark mode
+    } else { 
+        egui::Color32::from_rgb(90, 160, 170)  // Lighter teal for light mode
+    };
+    
+    if ui.add(egui::Button::new(egui::RichText::new(format!("📊 {}", text.usage_statistics_title)).color(egui::Color32::WHITE).strong())
+        .fill(stats_bg)
+        .corner_radius(10.0))
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(text.usage_statistics_tooltip)
         .clicked() 
     {
@@ -377,7 +385,11 @@ fn render_usage_modal(
             
             let mut shown_models = std::collections::HashSet::new();
             
-            egui::ScrollArea::vertical().max_height(450.0).show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(450.0)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 if use_groq {
                     egui::CollapsingHeader::new(egui::RichText::new("⚡ Groq").strong().size(13.0))
                         .default_open(true)
