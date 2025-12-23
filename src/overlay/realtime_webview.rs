@@ -529,22 +529,22 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             font-style: italic;
         }}
         /* Resize handle - visible grip in corner */
-        #resize-hint {{
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            width: 16px;
-            height: 16px;
-            cursor: se-resize;
-            opacity: 0.5;
-            display: flex;
-            align-items: flex-end;
-            justify-content: flex-end;
-            padding: 2px;
-            font-size: 10px;
-            color: #888;
-            user-select: none;
-        }}
+         #resize-hint {{
+             position: absolute;
+             bottom: 0;
+             right: 0;
+             width: 16px;
+             height: 16px;
+             cursor: se-resize;
+             opacity: 0.2;
+             display: flex;
+             align-items: flex-end;
+             justify-content: flex-end;
+             padding: 2px;
+             font-size: 10px;
+             color: #888;
+             user-select: none;
+         }}
         #resize-hint:hover {{
             opacity: 1;
             color: {glow_color};
@@ -617,7 +617,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
                 <span class="placeholder">{placeholder_text}</span>
             </div>
         </div>
-        <div id="resize-hint"><span class="material-symbols-rounded" style="font-size: 14px;">south_east</span></div>
+        <div id="resize-hint"><span class="material-symbols-rounded" style="font-size: 14px;">picture_in_picture_small</span></div>
     </div>
     <script>
         const container = document.getElementById('container');
