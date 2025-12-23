@@ -40,7 +40,27 @@ where
     let mut full_content = String::new();
     let prompt = format!("{}\n\n{}", instruction, text);
 
-    if provider == "google" {
+    if provider == "ollama" {
+        // --- OLLAMA LOCAL API ---
+        let (ollama_base_url, ollama_text_model) = crate::APP.lock()
+            .ok()
+            .map(|app| {
+                let config = app.config.clone();
+                (config.ollama_base_url.clone(), config.ollama_text_model.clone())
+            })
+            .unwrap_or_else(|| ("http://localhost:11434".to_string(), model.clone()));
+        
+        let actual_model = if ollama_text_model.is_empty() { model.clone() } else { ollama_text_model };
+        
+        return super::ollama::ollama_generate_text(
+            &ollama_base_url,
+            &actual_model,
+            &prompt,
+            streaming_enabled,
+            ui_language,
+            on_chunk,
+        );
+    } else if provider == "google" {
         // --- GEMINI TEXT API ---
         if gemini_api_key.trim().is_empty() {
             return Err(anyhow::anyhow!("NO_API_KEY:gemini"));

@@ -62,6 +62,9 @@ pub fn render_global_settings(
                 if ui.checkbox(&mut config.use_openrouter, text.use_openrouter_checkbox).changed() {
                     changed = true;
                 }
+                if ui.checkbox(&mut config.use_ollama, "Ollama").changed() {
+                    changed = true;
+                }
             });
             ui.add_space(6.0);
             
@@ -109,6 +112,24 @@ pub fn render_global_settings(
                     }
                     let eye_icon = if *show_openrouter_api_key { Icon::EyeOpen } else { Icon::EyeClosed };
                     if icon_button(ui, eye_icon).clicked() { *show_openrouter_api_key = !*show_openrouter_api_key; }
+                });
+                ui.add_space(8.0);
+            }
+            
+            // Ollama (Local AI) - only show URL field if enabled
+            if config.use_ollama {
+                ui.horizontal(|ui| {
+                    ui.label("Ollama URL:");
+                    if ui.link("ollama.com").clicked() { let _ = open::that("https://ollama.com"); }
+                });
+                ui.horizontal(|ui| {
+                    if ui.add(egui::TextEdit::singleline(&mut config.ollama_base_url).desired_width(API_KEY_FIELD_WIDTH)).changed() {
+                        changed = true;
+                    }
+                    // Show status if available
+                    if let Some(status) = ui.ctx().memory(|mem| mem.data.get_temp::<String>(egui::Id::new("ollama_status"))) {
+                        ui.label(egui::RichText::new(&status).size(11.0));
+                    }
                 });
             }
         });

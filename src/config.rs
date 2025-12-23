@@ -226,12 +226,23 @@ pub struct Config {
     pub realtime_audio_source: String, // "mic" or "device"
     #[serde(default = "default_realtime_target_language")]
     pub realtime_target_language: String,
+    
+    // --- Ollama Configuration ---
+    #[serde(default)]
+    pub use_ollama: bool,
+    #[serde(default = "default_ollama_base_url")]
+    pub ollama_base_url: String,
+    #[serde(default)]
+    pub ollama_vision_model: String,
+    #[serde(default)]
+    pub ollama_text_model: String,
 }
 
 fn default_realtime_translation_model() -> String { "groq-llama".to_string() }
 fn default_realtime_font_size() -> u32 { 16 }
 fn default_realtime_window_size() -> (i32, i32) { (500, 180) }
 fn default_realtime_target_language() -> String { "Vietnamese".to_string() }
+fn default_ollama_base_url() -> String { "http://localhost:11434".to_string() }
 
 impl Default for Config {
     fn default() -> Self {
@@ -1111,6 +1122,11 @@ impl Default for Config {
             realtime_translation_size: (500, 180),
             realtime_audio_source: "device".to_string(),
             realtime_target_language: "Vietnamese".to_string(),
+            // Ollama defaults
+            use_ollama: false,
+            ollama_base_url: "http://localhost:11434".to_string(),
+            ollama_vision_model: String::new(),
+            ollama_text_model: String::new(),
         }
     }
 }

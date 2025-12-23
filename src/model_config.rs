@@ -402,3 +402,167 @@ pub fn get_all_models() -> &'static [ModelConfig] {
 pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
     get_all_models().iter().find(|m| m.id == id).cloned()
 }
+
+/// Get all models including dynamically fetched Ollama models
+/// This combines static models with Ollama models (if Ollama is enabled)
+pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
+    let mut models: Vec<ModelConfig> = ALL_MODELS.iter().cloned().collect();
+    
+    // Add cached Ollama models
+    let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
+    for ollama_model in cached.iter() {
+        models.push(ollama_model.clone());
+    }
+    
+    models
+}
+
+/// Get model by ID, checking both static and Ollama models
+pub fn get_model_by_id_with_ollama(id: &str) -> Option<ModelConfig> {
+    // First check static models
+    if let Some(model) = get_model_by_id(id) {
+        return Some(model);
+    }
+    
+    // Check cached Ollama models
+    let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
+    cached.iter().find(|m| m.id == id).cloned()
+}
+
+// === OLLAMA MODEL CACHE ===
+
+use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+
+lazy_static::lazy_static! {
+    /// Cached Ollama models (populated by background scan)
+    static ref OLLAMA_MODEL_CACHE: Mutex<Vec<ModelConfig>> = Mutex::new(Vec::new());
+    
+    /// Whether a scan is currently in progress
+    static ref OLLAMA_SCAN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+    
+    /// Last scan time (for debouncing) - initialized to 10s ago so first scan works immediately
+    static ref OLLAMA_LAST_SCAN: Mutex<std::time::Instant> = Mutex::new(
+        std::time::Instant::now().checked_sub(std::time::Duration::from_secs(10)).unwrap_or_else(std::time::Instant::now)
+    );
+}
+
+/// Check if Ollama model scan is in progress
+pub fn is_ollama_scan_in_progress() -> bool {
+    OLLAMA_SCAN_IN_PROGRESS.load(Ordering::SeqCst)
+}
+
+/// Check if we have any cached Ollama models
+pub fn has_cached_ollama_models() -> bool {
+    let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
+    !cached.is_empty()
+}
+
+/// Trigger background scan for Ollama models (non-blocking)
+/// Returns immediately, models will be populated in cache when ready
+pub fn trigger_ollama_model_scan() {
+    // Check if Ollama is enabled
+    let (use_ollama, base_url) = if let Ok(app) = crate::APP.lock() {
+        (app.config.use_ollama, app.config.ollama_base_url.clone())
+    } else {
+        return;
+    };
+    
+    if !use_ollama {
+        return;
+    }
+    
+    // Debounce: don't scan more than once per 5 seconds
+    {
+        let last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
+        if last_scan.elapsed().as_secs() < 5 {
+            return;
+        }
+    }
+    
+    // Check if already scanning
+    if OLLAMA_SCAN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        return; // Already scanning
+    }
+    
+    // Update last scan time
+    {
+        let mut last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
+        *last_scan = std::time::Instant::now();
+    }
+    
+    // Spawn background thread to scan
+    std::thread::spawn(move || {
+        let result = crate::api::ollama::fetch_ollama_models_with_caps(&base_url);
+        
+        if let Ok(ollama_models) = result {
+            let mut new_models = Vec::new();
+            
+            for ollama_model in ollama_models {
+                // Create model ID from name (e.g., "qwen3-vl:2b" -> "ollama-qwen3-vl-2b")
+                let model_id = format!("ollama-{}", ollama_model.name.replace(":", "-").replace("/", "-"));
+                let display_name = format!("{} (Local)", ollama_model.name);
+                
+                // Vision models can do BOTH vision and text, so we add them to both
+                // Text-only models just get Text type
+                if ollama_model.has_vision {
+                    // Add as Vision model
+                    new_models.push(ModelConfig {
+                        id: format!("{}-vision", model_id),
+                        provider: "ollama".to_string(),
+                        name_vi: display_name.clone(),
+                        name_ko: display_name.clone(),
+                        name_en: display_name.clone(),
+                        full_name: ollama_model.name.clone(),
+                        model_type: ModelType::Vision,
+                        enabled: true,
+                        quota_limit_vi: "Không giới hạn".to_string(),
+                        quota_limit_ko: "무제한".to_string(),
+                        quota_limit_en: "Unlimited".to_string(),
+                    });
+                    
+                    // Also add as Text model (vision models can do text too)
+                    new_models.push(ModelConfig {
+                        id: model_id,
+                        provider: "ollama".to_string(),
+                        name_vi: display_name.clone(),
+                        name_ko: display_name.clone(),
+                        name_en: display_name.clone(),
+                        full_name: ollama_model.name.clone(),
+                        model_type: ModelType::Text,
+                        enabled: true,
+                        quota_limit_vi: "Không giới hạn".to_string(),
+                        quota_limit_ko: "무제한".to_string(),
+                        quota_limit_en: "Unlimited".to_string(),
+                    });
+                } else {
+                    // Text-only model
+                    new_models.push(ModelConfig {
+                        id: model_id,
+                        provider: "ollama".to_string(),
+                        name_vi: display_name.clone(),
+                        name_ko: display_name.clone(),
+                        name_en: display_name,
+                        full_name: ollama_model.name,
+                        model_type: ModelType::Text,
+                        enabled: true,
+                        quota_limit_vi: "Không giới hạn".to_string(),
+                        quota_limit_ko: "무제한".to_string(),
+                        quota_limit_en: "Unlimited".to_string(),
+                    });
+                }
+            }
+            
+            // Update cache
+            let mut cache = OLLAMA_MODEL_CACHE.lock().unwrap();
+            *cache = new_models;
+        }
+        
+        OLLAMA_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
+    });
+}
+
+/// Clear the Ollama model cache
+pub fn clear_ollama_model_cache() {
+    let mut cache = OLLAMA_MODEL_CACHE.lock().unwrap();
+    cache.clear();
+}
