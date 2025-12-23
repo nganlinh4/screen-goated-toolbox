@@ -52,6 +52,8 @@ pub struct ProcessingBlock {
     pub show_overlay: bool,
     #[serde(default)]
     pub auto_copy: bool, // Only one block in chain should have this true
+    #[serde(default)]
+    pub auto_speak: bool,
 }
 
 fn default_true() -> bool { true }
@@ -71,6 +73,7 @@ impl Default for ProcessingBlock {
             render_mode: "stream".to_string(),
             show_overlay: true,
             auto_copy: false,
+            auto_speak: false,
         }
     }
 }

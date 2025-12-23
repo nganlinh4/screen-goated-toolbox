@@ -73,10 +73,30 @@ impl TtsManager {
         self.is_ready.load(Ordering::SeqCst)
     }
     
-    /// Request TTS for the given text. Returns immediately.
-    /// If TTS is already speaking, the current speech is stopped and new one starts.
-    /// hwnd is used to update window state when audio starts playing.
+    /// Request TTS for the given text. Appends to queue (sequential playback).
+    /// Returns the request ID.
     pub fn speak(&self, text: &str, hwnd: isize) -> u64 {
+        let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+        
+        // Add new request to back of queue (do not clear or stop current)
+        {
+            let mut queue = self.request_queue.lock().unwrap();
+            queue.push_back(TtsRequest {
+                id,
+                text: text.to_string(),
+                hwnd,
+            });
+        }
+        
+        // Signal the worker thread
+        self.request_signal.notify_one();
+        
+        id
+    }
+
+    /// Request TTS for the given text, interrupting any current speech.
+    /// Clears the queue and stops current playback immediately.
+    pub fn speak_interrupt(&self, text: &str, hwnd: isize) -> u64 {
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         
         // Stop any current speech

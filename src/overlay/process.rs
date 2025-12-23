@@ -918,6 +918,15 @@ fn run_chain_step(
         });
     }
 
+    // Auto-Speak
+    if block.auto_speak && !result_text.trim().is_empty() {
+        let txt_s = result_text.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            crate::api::tts::TTS_MANAGER.speak(&txt_s, 0);
+        });
+    }
+
     // SAVE TO HISTORY: Handle both Text and Image blocks
     if block.show_overlay && !result_text.trim().is_empty() {
         let text_for_history = result_text.clone();

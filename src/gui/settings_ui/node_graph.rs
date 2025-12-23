@@ -49,6 +49,7 @@ pub enum ChainNode {
         streaming_enabled: bool,
         render_mode: String,
         auto_copy: bool,
+        auto_speak: bool,
     },
     /// Processing node (transforms text)
     Process {
@@ -60,6 +61,7 @@ pub enum ChainNode {
         streaming_enabled: bool,
         render_mode: String,
         auto_copy: bool,
+        auto_speak: bool,
     },
 }
 
@@ -74,6 +76,7 @@ impl Default for ChainNode {
             streaming_enabled: true,
             render_mode: "stream".to_string(),
             auto_copy: false,
+            auto_speak: false,
         }
     }
 }
@@ -86,7 +89,7 @@ impl ChainNode {
     /// Convert to ProcessingBlock for execution
     pub fn to_block(&self) -> ProcessingBlock {
         match self {
-            ChainNode::Input { id, block_type, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy } => {
+            ChainNode::Input { id, block_type, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, auto_speak } => {
                 ProcessingBlock {
                     id: id.clone(),
                     block_type: block_type.clone(),
@@ -98,9 +101,10 @@ impl ChainNode {
                     streaming_enabled: *streaming_enabled,
                     render_mode: render_mode.clone(),
                     auto_copy: *auto_copy,
+                    auto_speak: *auto_speak,
                 }
             }
-            ChainNode::Process { id, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy } => {
+            ChainNode::Process { id, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, auto_speak } => {
                 ProcessingBlock {
                     id: id.clone(),
                     block_type: "text".to_string(),
@@ -112,6 +116,7 @@ impl ChainNode {
                     streaming_enabled: *streaming_enabled,
                     render_mode: render_mode.clone(),
                     auto_copy: *auto_copy,
+                    auto_speak: *auto_speak,
                 }
             }
         }
@@ -136,6 +141,7 @@ impl ChainNode {
                 streaming_enabled: block.streaming_enabled,
                 render_mode: block.render_mode.clone(),
                 auto_copy: block.auto_copy,
+                auto_speak: block.auto_speak,
             }
         } else {
             ChainNode::Process {
@@ -147,6 +153,7 @@ impl ChainNode {
                 streaming_enabled: block.streaming_enabled,
                 render_mode: block.render_mode.clone(),
                 auto_copy: block.auto_copy,
+                auto_speak: block.auto_speak,
             }
         }
     }
@@ -344,7 +351,7 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                 ui.set_max_width(320.0);
                 
                 match node {
-                    ChainNode::Input { block_type, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, .. } => {
+                    ChainNode::Input { block_type, model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, auto_speak, .. } => {
                         // Row 1: Model
                         let model_label = match self.ui_language.as_str() { "vi" => "Mô hình:", "ko" => "모델:", _ => "Model:" };
                         ui.horizontal(|ui| {
@@ -493,9 +500,14 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                                 self.changed = true;
                                 if *auto_copy { auto_copy_triggered = true; }
                             }
+
+                            let speak_label = match self.ui_language.as_str() { "vi" => "Đọc", "ko" => "읽기", _ => "Speak" };
+                            if ui.checkbox(auto_speak, speak_label).changed() {
+                                self.changed = true;
+                            }
                         });
                     }
-                    ChainNode::Process { model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, .. } => {
+                    ChainNode::Process { model, prompt, language_vars, show_overlay, streaming_enabled, render_mode, auto_copy, auto_speak, .. } => {
                         // Row 1: Model
                         let model_label = match self.ui_language.as_str() { "vi" => "Mô hình:", "ko" => "모델:", _ => "Model:" };
                         ui.horizontal(|ui| {
@@ -633,6 +645,11 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             if ui.checkbox(auto_copy, copy_label).changed() {
                                 self.changed = true;
                                 if *auto_copy { auto_copy_triggered = true; }
+                            }
+
+                            let speak_label = match self.ui_language.as_str() { "vi" => "Đọc", "ko" => "읽기", _ => "Speak" };
+                            if ui.checkbox(auto_speak, speak_label).changed() {
+                                self.changed = true;
                             }
                         });
                     }

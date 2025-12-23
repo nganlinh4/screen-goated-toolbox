@@ -614,10 +614,10 @@ fn render_tts_settings_modal(
                                                  LAST_PREVIEW_IDX.store(idx, Ordering::Relaxed);
                                                  
                                                  let preview_text = text.tts_preview_texts[idx].replace("{}", name);
-                                                 crate::api::tts::TTS_MANAGER.speak(&preview_text, 0);
+                                                 crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
                                              } else {
                                                  let preview_text = format!("Hello, I am {}. This is a voice preview.", name);
-                                                 crate::api::tts::TTS_MANAGER.speak(&preview_text, 0);
+                                                 crate::api::tts::TTS_MANAGER.speak_interrupt(&preview_text, 0);
                                              }
                                          }
                                          ui.label(egui::RichText::new(*name).strong());
