@@ -132,7 +132,8 @@ pub struct LocaleText {
      pub realtime_waiting: &'static str,
      pub realtime_translation: &'static str,
      pub realtime_mic: &'static str,
-}
+     pub ollama_url_guide: &'static str,
+     }
 
 impl LocaleText {
     pub fn get(lang_code: &str) -> Self {
@@ -285,6 +286,7 @@ impl LocaleText {
                 realtime_waiting: "Đang chờ nói...",
                 realtime_translation: "Bản dịch",
                 realtime_mic: "Micro",
+                ollama_url_guide: "Xem hướng dẫn tại ollama.com",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -303,9 +305,9 @@ impl LocaleText {
                 gemini_get_key_link: "aistudio.google.com에서 API 키 받기",
                 openrouter_api_key_label: "OpenRouter API 키:",
                 openrouter_get_key_link: "openrouter.ai에서 API 키 받기",
-                use_groq_checkbox: "Groq 사용",
-                use_gemini_checkbox: "Gemini 사용",
-                use_openrouter_checkbox: "OpenRouter 사용",
+                use_groq_checkbox: "Groq",
+                use_gemini_checkbox: "Gemini",
+                use_openrouter_checkbox: "OpenRouter",
 
                 global_settings: "전역 설정",
                 preset_name_label: "프리셋 이름:",
@@ -434,6 +436,7 @@ impl LocaleText {
                 realtime_waiting: "말하기 대기 중...",
                 realtime_translation: "번역",
                 realtime_mic: "마이크",
+                ollama_url_guide: "올라마 설명서 보기",
                 },
                 _ => Self {
                  history_btn: "History",
@@ -452,9 +455,9 @@ impl LocaleText {
                 gemini_get_key_link: "Get API Key at aistudio.google.com",
                 openrouter_api_key_label: "OpenRouter API Key:",
                 openrouter_get_key_link: "Get API Key at openrouter.ai",
-                use_groq_checkbox: "Use Groq",
-                use_gemini_checkbox: "Use Gemini",
-                use_openrouter_checkbox: "Use OpenRouter",
+                use_groq_checkbox: "Groq",
+                use_gemini_checkbox: "Gemini",
+                use_openrouter_checkbox: "OpenRouter",
 
                 global_settings: "Global Settings",
                 preset_name_label: "Preset Name:",
@@ -583,6 +586,7 @@ impl LocaleText {
                 realtime_waiting: "Waiting for speech...",
                 realtime_translation: "Translation",
                 realtime_mic: "Mic",
+                ollama_url_guide: "View guide at ollama.com",
                 },
                 }
                 }

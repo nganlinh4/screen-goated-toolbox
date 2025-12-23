@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use auto_launch::AutoLaunch;
 use super::node_graph::request_node_graph_view_reset;
 
-const API_KEY_FIELD_WIDTH: f32 = 340.0;
+const API_KEY_FIELD_WIDTH: f32 = 320.0;
 
 pub fn render_global_settings(
     ui: &mut egui::Ui,
@@ -118,21 +118,21 @@ pub fn render_global_settings(
             }
             
             // Ollama (Local AI) - only show URL field if enabled
-            if config.use_ollama {
-                ui.horizontal(|ui| {
-                    ui.label("Ollama URL:");
-                    if ui.link("ollama.com").clicked() { let _ = open::that("https://ollama.com"); }
-                });
-                ui.horizontal(|ui| {
-                    if ui.add(egui::TextEdit::singleline(&mut config.ollama_base_url).desired_width(API_KEY_FIELD_WIDTH)).changed() {
-                        changed = true;
-                    }
-                    // Show status if available
-                    if let Some(status) = ui.ctx().memory(|mem| mem.data.get_temp::<String>(egui::Id::new("ollama_status"))) {
-                        ui.label(egui::RichText::new(&status).size(11.0));
-                    }
-                });
-            }
+             if config.use_ollama {
+                 ui.horizontal(|ui| {
+                     ui.label("Ollama URL:");
+                     if ui.link(text.ollama_url_guide).clicked() { let _ = open::that("https://docs.ollama.com/api/introduction#base-url"); }
+                 });
+                 ui.horizontal(|ui| {
+                     if ui.add(egui::TextEdit::singleline(&mut config.ollama_base_url).desired_width(API_KEY_FIELD_WIDTH)).changed() {
+                         changed = true;
+                     }
+                     // Show status if available
+                     if let Some(status) = ui.ctx().memory(|mem| mem.data.get_temp::<String>(egui::Id::new("ollama_status"))) {
+                         ui.label(egui::RichText::new(&status).size(11.0));
+                     }
+                 });
+             }
         });
 
     ui.add_space(10.0);
