@@ -187,29 +187,21 @@ fn connect_tts_websocket(api_key: &str) -> Result<tungstenite::WebSocket<native_
     let host = url.host_str().ok_or_else(|| anyhow::anyhow!("No host in URL"))?;
     let port = 443;
     
-    eprintln!("TTS: Resolving {}...", host);
     use std::net::ToSocketAddrs;
     let addr = format!("{}:{}", host, port)
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow::anyhow!("Failed to resolve hostname: {}", host))?;
-    eprintln!("TTS: Resolved to {}", addr);
     
-    eprintln!("TTS: Opening TCP connection...");
     let tcp_stream = TcpStream::connect_timeout(&addr, Duration::from_secs(10))?;
     tcp_stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     tcp_stream.set_write_timeout(Some(Duration::from_secs(30)))?;
     tcp_stream.set_nodelay(true)?;
-    eprintln!("TTS: TCP connected");
     
-    eprintln!("TTS: TLS handshake...");
     let connector = native_tls::TlsConnector::new()?;
     let tls_stream = connector.connect(host, tcp_stream)?;
-    eprintln!("TTS: TLS connected");
     
-    eprintln!("TTS: WebSocket handshake...");
     let (socket, _response) = tungstenite::client::client(&ws_url, tls_stream)?;
-    eprintln!("TTS: WebSocket connected!");
     
     Ok(socket)
 }
@@ -241,7 +233,6 @@ fn send_tts_setup(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpS
     });
     
     let msg_str = setup.to_string();
-    eprintln!("TTS: Sending setup: {}", msg_str);
     socket.write(tungstenite::Message::Text(msg_str))?;
     socket.flush()?;
     
@@ -360,7 +351,6 @@ fn run_tts_worker() {
         }
         
         // Attempt to connect
-        eprintln!("TTS: Connecting...");
         let socket_result = connect_tts_websocket(&api_key);
         let mut socket = match socket_result {
             Ok(s) => s,
@@ -385,10 +375,8 @@ fn run_tts_worker() {
         loop {
             match socket.read() {
                 Ok(tungstenite::Message::Text(msg)) => {
-                    eprintln!("TTS: Received: {}", &msg[..msg.len().min(200)]);
                     if msg.contains("setupComplete") {
                         setup_complete = true;
-                        eprintln!("TTS: Setup complete, ready for requests");
                         break;
                     }
                     if msg.contains("error") || msg.contains("Error") {
@@ -403,10 +391,8 @@ fn run_tts_worker() {
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
                     if let Ok(text) = String::from_utf8(data.clone()) {
-                        eprintln!("TTS: Received binary as text: {}", &text[..text.len().min(200)]);
                         if text.contains("setupComplete") {
                             setup_complete = true;
-                            eprintln!("TTS: Setup complete (from binary)");
                             break;
                         }
                     }
@@ -458,7 +444,6 @@ fn run_tts_worker() {
             let request: Option<TtsRequest> = {
                 let mut queue = manager.request_queue.lock().unwrap();
                 if queue.is_empty() {
-                    eprintln!("TTS: Waiting for request...");
                     // Wait with timeout
                     let result = manager.request_signal.wait_timeout(queue, Duration::from_secs(30)).unwrap();
                     queue = result.0;
@@ -471,12 +456,10 @@ fn run_tts_worker() {
             }
             
             if let Some(req) = request {
-                eprintln!("TTS: Got request id={}, text length={}", req.id, req.text.len());
                 manager.stop_current.store(false, Ordering::SeqCst);
                 manager.current_request_id.store(req.id, Ordering::SeqCst);
                 
                 // Send the text to be spoken
-                eprintln!("TTS: Sending text: {}...", &req.text[..req.text.len().min(100)]);
                 if let Err(e) = send_tts_text(&mut socket, &req.text) {
                     eprintln!("TTS: Failed to send text: {}", e);
                     manager.current_request_id.store(0, Ordering::SeqCst);
@@ -484,20 +467,17 @@ fn run_tts_worker() {
                     clear_tts_loading_state(req.hwnd);
                     break 'connection_loop; // Reconnect
                 }
-                eprintln!("TTS: Text sent, initializing audio player...");
                 
                 // Initialize audio playback (Windows Audio API)
                 let audio_player = AudioPlayer::new(PLAYBACK_SAMPLE_RATE);
                 
                 // Receive and play audio chunks
-                eprintln!("TTS: Waiting for audio response...");
                 let mut audio_chunks_received = 0;
                 let mut loading_cleared = false;
                 loop {
                     if manager.stop_current.load(Ordering::SeqCst) {
                         // Stop requested - drain any pending audio
                         drop(audio_player);
-                        eprintln!("TTS: Stopped by user");
                         clear_tts_loading_state(req.hwnd);
                         break;
                     }
@@ -508,7 +488,6 @@ fn run_tts_worker() {
                     
                     match socket.read() {
                         Ok(tungstenite::Message::Text(msg)) => {
-                            eprintln!("TTS: Received text message: {}...", &msg[..msg.len().min(150)]);
                             // Parse and play audio data
                             if let Some(audio_data) = parse_audio_data(&msg) {
                                 audio_chunks_received += 1;
@@ -517,16 +496,13 @@ fn run_tts_worker() {
                                 if !loading_cleared {
                                     loading_cleared = true;
                                     clear_tts_loading_state(req.hwnd);
-                                    eprintln!("TTS: First audio received, button now blue");
                                 }
                                 
-                                eprintln!("TTS: Got audio chunk #{}, {} bytes", audio_chunks_received, audio_data.len());
                                 audio_player.play(&audio_data);
                             }
                             
                             // Check if turn is complete
                             if is_turn_complete(&msg) {
-                                eprintln!("TTS: Turn complete, draining audio ({} chunks received)", audio_chunks_received);
                                 // Wait for audio to finish playing
                                 audio_player.drain();
                                 break;
@@ -535,7 +511,6 @@ fn run_tts_worker() {
                         Ok(tungstenite::Message::Binary(data)) => {
                             // Try to parse as JSON text
                             if let Ok(text) = String::from_utf8(data.clone()) {
-                                eprintln!("TTS: Received binary as text: {}...", &text[..text.len().min(150)]);
                                 if let Some(audio_data) = parse_audio_data(&text) {
                                     audio_chunks_received += 1;
                                     
@@ -543,14 +518,11 @@ fn run_tts_worker() {
                                     if !loading_cleared {
                                         loading_cleared = true;
                                         clear_tts_loading_state(req.hwnd);
-                                        eprintln!("TTS: First audio received (binary), button now blue");
                                     }
                                     
-                                    eprintln!("TTS: Got audio chunk #{}, {} bytes", audio_chunks_received, audio_data.len());
                                     audio_player.play(&audio_data);
                                 }
                                 if is_turn_complete(&text) {
-                                    eprintln!("TTS: Turn complete (from binary), draining audio ({} chunks received)", audio_chunks_received);
                                     audio_player.drain();
                                     break;
                                 }
@@ -582,7 +554,6 @@ fn run_tts_worker() {
                 
                 // Break connection after each request to get fresh context
                 // This prevents conversation history from accumulating
-                eprintln!("TTS: Request complete, reconnecting for fresh context...");
                 break 'connection_loop;
             }
             
@@ -615,8 +586,6 @@ impl AudioPlayer {
     fn new(sample_rate: u32) -> Self {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
         
-        eprintln!("TTS: Creating audio player for source at {}Hz", sample_rate);
-        
         let shared_buffer: Arc<Mutex<VecDeque<i16>>> = Arc::new(Mutex::new(VecDeque::new()));
         let buffer_clone = shared_buffer.clone();
         
@@ -633,14 +602,13 @@ impl AudioPlayer {
         }
         
         let stream = device.and_then(|device| {
-            eprintln!("TTS: Using audio device: {:?}", device.name());
             
             // Try to get supported configs for debugging
-            if let Ok(configs) = device.supported_output_configs() {
-                for cfg in configs {
-                    eprintln!("TTS: Supported config: {:?}", cfg);
-                }
-            }
+            // if let Ok(configs) = device.supported_output_configs() {
+            //     for cfg in configs {
+            //         eprintln!("TTS: Supported config: {:?}", cfg);
+            //     }
+            // }
             
             // Try f32 format first (more commonly supported)
             // Use stereo (2 channels) since many devices don't support mono
@@ -670,7 +638,6 @@ impl AudioPlayer {
                 None,
             ) {
                 Ok(stream) => {
-                    eprintln!("TTS: Created f32 stream at {}Hz", sample_rate);
                     Some(stream)
                 }
                 Err(e) => {
@@ -691,7 +658,6 @@ impl AudioPlayer {
                         None,
                     ) {
                         Ok(stream) => {
-                            eprintln!("TTS: Created i16 stream at {}Hz", sample_rate);
                             Some(stream)
                         }
                         Err(e2) => {
@@ -705,14 +671,11 @@ impl AudioPlayer {
         
         if stream.is_none() {
             eprintln!("TTS: Failed to create audio stream!");
-        } else {
-            eprintln!("TTS: Audio stream created successfully");
         }
         
         if let Some(ref s) = stream {
-            match s.play() {
-                Ok(_) => eprintln!("TTS: Audio stream started"),
-                Err(e) => eprintln!("TTS: Failed to start stream: {}", e),
+            if let Err(e) = s.play() {
+                eprintln!("TTS: Failed to start stream: {}", e);
             }
         }
         
