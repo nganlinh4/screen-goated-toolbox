@@ -121,6 +121,7 @@ const REFINE_CSS: &str = r#"
     #editor {
         flex: 1;
         height: 28px;
+        min-width: 30px;
         padding: 4px 10px;
         border: none;
         outline: none;
@@ -144,6 +145,7 @@ const REFINE_CSS: &str = r#"
     .mic-btn {
         width: 28px;
         height: 28px;
+        aspect-ratio: 1;
         border-radius: 50%;
         border: 1px solid rgba(0, 200, 255, 0.3);
         margin-left: 8px;
@@ -153,6 +155,7 @@ const REFINE_CSS: &str = r#"
         align-items: center;
         justify-content: center;
         transition: all 0.15s ease;
+        flex-shrink: 0;
     }
     
     .mic-btn:hover {
@@ -175,6 +178,7 @@ const REFINE_CSS: &str = r#"
     .send-btn {
         width: 28px;
         height: 28px;
+        aspect-ratio: 1;
         border-radius: 50%;
         border: 1px solid rgba(79, 195, 247, 0.3);
         margin-left: 6px;
@@ -184,6 +188,7 @@ const REFINE_CSS: &str = r#"
         align-items: center;
         justify-content: center;
         transition: all 0.15s ease;
+        flex-shrink: 0;
     }
     
     .send-btn:hover {
