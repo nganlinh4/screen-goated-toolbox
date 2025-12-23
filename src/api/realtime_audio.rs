@@ -308,7 +308,10 @@ fn send_setup_message(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<
         "setup": {
             "model": format!("models/{}", REALTIME_MODEL),
             "generationConfig": {
-                "responseModalities": ["AUDIO"]  // Required for native audio model
+                "responseModalities": ["AUDIO"],  // Required for native audio model
+                "thinkingConfig": {
+                    "thinkingBudget": 0  // Disable thinking for lower latency
+                }
             },
             "inputAudioTranscription": {}  // This is what we actually want - input transcription
         }

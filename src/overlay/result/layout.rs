@@ -171,14 +171,14 @@ pub fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
 }
 
 pub fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
-    let copy_rect = get_copy_btn_rect(window_w, window_h);
+    let speaker_rect = get_speaker_btn_rect(window_w, window_h);
     let gap = 8;
-    let width = copy_rect.right - copy_rect.left;
+    let width = speaker_rect.right - speaker_rect.left;
     RECT {
-        left: copy_rect.left - width - gap,
-        top: copy_rect.top,
-        right: copy_rect.left - gap,
-        bottom: copy_rect.bottom
+        left: speaker_rect.left - width - gap,
+        top: speaker_rect.top,
+        right: speaker_rect.left - gap,
+        bottom: speaker_rect.bottom
     }
 }
 
@@ -229,6 +229,19 @@ pub fn get_redo_btn_rect(window_w: i32, window_h: i32) -> RECT {
         top: undo_rect.top,
         right: undo_rect.left - gap,
         bottom: undo_rect.bottom
+    }
+}
+
+/// Speaker button for TTS - positioned left of copy button (rightmost after copy)
+pub fn get_speaker_btn_rect(window_w: i32, window_h: i32) -> RECT {
+    let copy_rect = get_copy_btn_rect(window_w, window_h);
+    let gap = 8;
+    let width = copy_rect.right - copy_rect.left;
+    RECT {
+        left: copy_rect.left - width - gap,
+        top: copy_rect.top,
+        right: copy_rect.left - gap,
+        bottom: copy_rect.bottom
     }
 }
 
