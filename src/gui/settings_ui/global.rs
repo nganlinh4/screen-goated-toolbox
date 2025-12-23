@@ -531,14 +531,19 @@ fn render_tts_settings_modal(
         ("Zephyr", "Female"), ("Zubenelgenubi", "Male"),
     ];
 
+    let male_voices: Vec<_> = VOICES.iter().filter(|(_, g)| *g == "Male").collect();
+    let female_voices: Vec<_> = VOICES.iter().filter(|(_, g)| *g == "Female").collect();
+
     egui::Window::new(format!("🔊 {}", text.tts_settings_title))
         .collapsible(false)
-        .resizable(true)
+        .resizable(false)
         .title_bar(false)
-        .default_width(400.0)
-        .max_height(600.0)
+        .default_width(650.0)
+        .default_height(600.0)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .show(ui.ctx(), |ui| {
+            ui.set_min_height(500.0); // Force minimum height for the content area
+
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(format!("🔊 {}", text.tts_settings_title)).strong().size(14.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -561,36 +566,118 @@ fn render_tts_settings_modal(
             ui.separator();
             ui.add_space(10.0);
             
-            ui.label(egui::RichText::new(text.tts_voice_label).strong());
-            
-            egui::ScrollArea::vertical()
-                .max_height(350.0)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    egui::Grid::new("tts_voice_grid").striped(true).spacing(egui::vec2(10.0, 8.0)).show(ui, |ui| {
-                         for (name, gender) in VOICES {
-                             let is_selected = config.tts_voice == *name;
-                             if ui.radio(is_selected, "").clicked() {
-                                 config.tts_voice = name.to_string();
-                                 changed = true;
-                             }
-                             if ui.button("🔊").on_hover_text("Preview").clicked() {
-                                 config.tts_voice = name.to_string();
-                                 changed = true;
-                                 
-                                 let preview_text = match config.ui_language.as_str() {
-                                     "vi" => "Xin chào, đây là giọng đọc.",
-                                     "ko" => "안녕하세요, 음성 미리듣기입니다.",
-                                     _ => "Hello, this is a voice preview.",
-                                 };
-                                 crate::api::tts::TTS_MANAGER.speak(preview_text, 0);
-                             }
-                             ui.label(egui::RichText::new(*name).strong());
-                             ui.label(egui::RichText::new(format!("({})", gender)).italics().color(egui::Color32::GRAY));
-                             ui.end_row();
-                         }
+            // Voice selection columns
+            ui.horizontal(|ui| {
+                ui.columns(2, |columns| {
+                    use std::sync::atomic::{AtomicUsize, Ordering};
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    use std::collections::hash_map::RandomState;
+                    use std::hash::{BuildHasher, Hasher};
+                    
+                    // Shared static to ensure randomness across both columns and no repeats globally
+                    static LAST_PREVIEW_IDX: AtomicUsize = AtomicUsize::new(9999);
+
+                    // Male Column
+                    columns[0].vertical(|ui| {
+                         ui.label(egui::RichText::new(text.tts_male).strong().underline());
+                         ui.add_space(4.0);
+                         egui::ScrollArea::vertical()
+                            .id_salt("male_scroll")
+                            .min_scrolled_height(450.0)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                egui::Grid::new("tts_male_grid").striped(true).spacing(egui::vec2(10.0, 8.0)).show(ui, |ui| {
+                                    for (name, _) in &male_voices {
+                                         let is_selected = config.tts_voice == *name;
+                                         if ui.radio(is_selected, "").clicked() {
+                                             config.tts_voice = name.to_string();
+                                             changed = true;
+                                         }
+                                         if ui.button("🔊").on_hover_text("Preview").clicked() {
+                                             config.tts_voice = name.to_string();
+                                             changed = true;
+                                             
+                                             if !text.tts_preview_texts.is_empty() {
+                                                 // Generate a robust random index using RandomState
+                                                 let s = RandomState::new();
+                                                 let mut hasher = s.build_hasher();
+                                                 hasher.write_usize(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos() as usize);
+                                                 let rand_val = hasher.finish();
+                                                 let len = text.tts_preview_texts.len();
+                                                 let mut idx = (rand_val as usize) % len;
+                                                 
+                                                 // Ensure we don't repeat the last played text immediately
+                                                 let last = LAST_PREVIEW_IDX.load(Ordering::Relaxed);
+                                                 if idx == last {
+                                                     idx = (idx + 1) % len;
+                                                 }
+                                                 LAST_PREVIEW_IDX.store(idx, Ordering::Relaxed);
+                                                 
+                                                 let preview_text = text.tts_preview_texts[idx].replace("{}", name);
+                                                 crate::api::tts::TTS_MANAGER.speak(&preview_text, 0);
+                                             } else {
+                                                 let preview_text = format!("Hello, I am {}. This is a voice preview.", name);
+                                                 crate::api::tts::TTS_MANAGER.speak(&preview_text, 0);
+                                             }
+                                         }
+                                         ui.label(egui::RichText::new(*name).strong());
+                                         ui.end_row();
+                                    }
+                                });
+                            });
+                    });
+                    
+                    // Female Column
+                    columns[1].vertical(|ui| {
+                         ui.label(egui::RichText::new(text.tts_female).strong().underline());
+                         ui.add_space(4.0);
+                         egui::ScrollArea::vertical()
+                            .id_salt("female_scroll")
+                            .min_scrolled_height(450.0)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                egui::Grid::new("tts_female_grid").striped(true).spacing(egui::vec2(10.0, 8.0)).show(ui, |ui| {
+                                    for (name, _) in &female_voices {
+                                         let is_selected = config.tts_voice == *name;
+                                         if ui.radio(is_selected, "").clicked() {
+                                             config.tts_voice = name.to_string();
+                                             changed = true;
+                                         }
+                                         if ui.button("🔊").on_hover_text("Preview").clicked() {
+                                             config.tts_voice = name.to_string();
+                                             changed = true;
+
+                                             if !text.tts_preview_texts.is_empty() {
+                                                 // Generate a robust random index using RandomState
+                                                 let s = RandomState::new();
+                                                 let mut hasher = s.build_hasher();
+                                                 hasher.write_usize(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_nanos() as usize);
+                                                 let rand_val = hasher.finish();
+                                                 let len = text.tts_preview_texts.len();
+                                                 let mut idx = (rand_val as usize) % len;
+                                                 
+                                                 // Ensure we don't repeat the last played text immediately
+                                                 let last = LAST_PREVIEW_IDX.load(Ordering::Relaxed);
+                                                 if idx == last {
+                                                     idx = (idx + 1) % len;
+                                                 }
+                                                 LAST_PREVIEW_IDX.store(idx, Ordering::Relaxed);
+
+                                                 let preview_text = text.tts_preview_texts[idx].replace("{}", name);
+                                                 crate::api::tts::TTS_MANAGER.speak(&preview_text, 0);
+                                             } else {
+                                                  let preview_text = format!("Hello, I am {}. This is a voice preview.", name);
+                                                  crate::api::tts::TTS_MANAGER.speak(&preview_text, 0);
+                                             }
+                                         }
+                                         ui.label(egui::RichText::new(*name).strong());
+                                         ui.end_row();
+                                    }
+                                });
+                            });
                     });
                 });
+            });
         });
         
     changed

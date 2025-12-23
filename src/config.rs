@@ -245,7 +245,7 @@ pub struct Config {
 }
 
 fn default_tts_voice() -> String { "Aoede".to_string() }
-fn default_tts_speed() -> String { "Normal".to_string() }
+fn default_tts_speed() -> String { "Fast".to_string() }
 
 fn default_realtime_translation_model() -> String { "groq-llama".to_string() }
 fn default_realtime_font_size() -> u32 { 16 }

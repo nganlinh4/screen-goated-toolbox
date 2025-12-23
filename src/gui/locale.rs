@@ -140,6 +140,9 @@ pub struct LocaleText {
      pub tts_speed_slow: &'static str,
      pub tts_speed_fast: &'static str,
      pub tts_voice_label: &'static str,
+     pub tts_preview_texts: Vec<&'static str>,
+     pub tts_male: &'static str,
+     pub tts_female: &'static str,
      }
 
 impl LocaleText {
@@ -301,6 +304,20 @@ impl LocaleText {
                 tts_speed_slow: "Chậm",
                 tts_speed_fast: "Nhanh",
                 tts_voice_label: "Giọng đọc:",
+                tts_preview_texts: vec![
+                    "Xin chào, tôi là {}, tôi có thể đọc giúp bạn đoạn văn này.",
+                    "Cuộc sống thật đẹp tươi, {} rất vui khi được trò chuyện cùng bạn.",
+                    "Hôm nay trời đẹp quá, {} nghĩ chúng ta nên đi dạo một chút.",
+                    "Công nghệ giúp cuộc sống trở nên dễ dàng hơn, đúng không nào?",
+                    "Hãy luôn giữ nụ cười trên môi nhé, {} chúc bạn một ngày vui vẻ.",
+                    "Kiến thức là kho báu mà không ai có thể lấy đi.",
+                    "Bạn đang nghe thử giọng đọc của {}, hy vọng bạn sẽ thích.",
+                    "{} chúc bạn một ngày làm việc thật hiệu quả và tràn đầy năng lượng.",
+                    "Đừng quên uống đủ nước mỗi ngày nhé.",
+                    "Cảm ơn bạn đã sử dụng phần mềm Screen Goated Toolbox.",
+                ],
+                tts_male: "Nam",
+                tts_female: "Nữ",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -458,6 +475,20 @@ impl LocaleText {
                 tts_speed_slow: "느림",
                 tts_speed_fast: "빠름",
                 tts_voice_label: "목소리:",
+                tts_preview_texts: vec![
+                    "안녕하세요, 제 이름은 {}입니다. 만나서 반갑습니다.",
+                    "오늘 날씨가 정말 좋네요, {}와 함께 산책 어떠세요?",
+                    "무엇을 도와드릴까요? 언제든 {}에게 말씀해주세요.",
+                    "{}가 행복한 하루 보내시길 바랍니다.",
+                    "이것은 음성 합성 테스트 문장입니다. {}의 목소리는 어떤가요?",
+                    "한국어 발음이 자연스럽게 들리나요?",
+                    "꿈을 향해 꾸준히 나아가세요, {}가 응원할게요.",
+                    "건강이 가장 중요하니 챙기세요.",
+                    "잠시 휴식을 취하는 것도 좋은 방법입니다.",
+                    "Screen Goated Toolbox를 사용해주셔서 감사합니다.",
+                ],
+                 tts_male: "남성",
+                 tts_female: "여성",
                 },
                 _ => Self {
                  history_btn: "History",
@@ -615,6 +646,20 @@ impl LocaleText {
                 tts_speed_slow: "Slow",
                 tts_speed_fast: "Fast",
                 tts_voice_label: "Voice:",
+                tts_preview_texts: vec![
+                    "Hello, I am {}, ready to read this text for you.",
+                    "The quick brown fox jumps over the lazy dog.",
+                    "Today is a beautiful day, {} hopes you learn something new.",
+                    "Technology is rapidly changing the world we live in.",
+                    "I hope you are having a wonderful day, from {}.",
+                    "This is a demonstration of the synthetic voice capabilities of {}.",
+                    "Remember to take breaks and rest your eyes.",
+                    "Success is the sum of small efforts repeated day in and day out.",
+                    "Stay curious and never stop exploring with {}.",
+                    "Thank you for using Screen Goated Toolbox.",
+                ],
+                tts_male: "Male",
+                tts_female: "Female",
                 },
                 }
                 }
