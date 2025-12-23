@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 
 // Simple Linear Congruential Generator for randomness without external crate
 fn simple_rand(seed: u32) -> u32 {
