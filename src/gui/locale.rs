@@ -132,6 +132,18 @@ pub struct LocaleText {
      pub realtime_waiting: &'static str,
      pub realtime_translation: &'static str,
      pub realtime_mic: &'static str,
+     // --- OLLAMA UI ---
+     pub ollama_settings_btn: &'static str,
+     pub ollama_modal_title: &'static str,
+     pub ollama_base_url_label: &'static str,
+     pub ollama_test_connection: &'static str,
+     pub ollama_testing: &'static str,
+     pub ollama_connected: &'static str,
+     pub ollama_failed: &'static str,
+     pub ollama_vision_model: &'static str,
+     pub ollama_text_model: &'static str,
+     pub ollama_no_models: &'static str,
+     pub ollama_refresh_models: &'static str,
      }
 
 impl LocaleText {
@@ -154,9 +166,9 @@ impl LocaleText {
                  gemini_get_key_link: "Lấy mã tại aistudio.google.com",
                  openrouter_api_key_label: "Mã API OpenRouter:",
                  openrouter_get_key_link: "Lấy mã tại openrouter.ai",
-                 use_groq_checkbox: "Dùng Groq",
-                 use_gemini_checkbox: "Dùng Gemini",
-                 use_openrouter_checkbox: "Dùng OpenRouter",
+                 use_groq_checkbox: "Groq",
+                 use_gemini_checkbox: "Gemini",
+                 use_openrouter_checkbox: "OpenRouter",
 
                 global_settings: "Cài Đặt Chung",
                 preset_name_label: "Tên Cấu Hình:",
@@ -285,6 +297,18 @@ impl LocaleText {
                 realtime_waiting: "Đang chờ nói...",
                 realtime_translation: "Bản dịch",
                 realtime_mic: "Micro",
+                // --- OLLAMA UI VI ---
+                ollama_settings_btn: "⚙ Ollama",
+                ollama_modal_title: "Cài đặt Ollama (AI nội bộ)",
+                ollama_base_url_label: "URL máy chủ:",
+                ollama_test_connection: "Kiểm tra kết nối",
+                ollama_testing: "Đang kiểm tra...",
+                ollama_connected: "Đã kết nối!",
+                ollama_failed: "Kết nối thất bại",
+                ollama_vision_model: "Mô hình hình ảnh:",
+                ollama_text_model: "Mô hình văn bản:",
+                ollama_no_models: "(Không có mô hình)",
+                ollama_refresh_models: "🔄",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -434,6 +458,18 @@ impl LocaleText {
                 realtime_waiting: "말하기 대기 중...",
                 realtime_translation: "번역",
                 realtime_mic: "마이크",
+                // --- OLLAMA UI KO ---
+                ollama_settings_btn: "⚙ Ollama",
+                ollama_modal_title: "Ollama 설정 (로컬 AI)",
+                ollama_base_url_label: "서버 URL:",
+                ollama_test_connection: "연결 테스트",
+                ollama_testing: "테스트 중...",
+                ollama_connected: "연결됨!",
+                ollama_failed: "연결 실패",
+                ollama_vision_model: "비전 모델:",
+                ollama_text_model: "텍스트 모델:",
+                ollama_no_models: "(모델 없음)",
+                ollama_refresh_models: "🔄",
                 },
                 _ => Self {
                  history_btn: "History",
@@ -583,6 +619,18 @@ impl LocaleText {
                 realtime_waiting: "Waiting for speech...",
                 realtime_translation: "Translation",
                 realtime_mic: "Mic",
+                // --- OLLAMA UI EN ---
+                ollama_settings_btn: "⚙ Ollama",
+                ollama_modal_title: "Ollama Settings (Local AI)",
+                ollama_base_url_label: "Server URL:",
+                ollama_test_connection: "Test Connection",
+                ollama_testing: "Testing...",
+                ollama_connected: "Connected!",
+                ollama_failed: "Connection Failed",
+                ollama_vision_model: "Vision Model:",
+                ollama_text_model: "Text Model:",
+                ollama_no_models: "(No models)",
+                ollama_refresh_models: "🔄",
                 },
                 }
                 }

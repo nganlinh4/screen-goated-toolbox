@@ -4,6 +4,7 @@ pub mod vision;
 pub mod audio;
 pub mod text;
 pub mod realtime_audio;
+pub mod ollama;
 
 pub use vision::translate_image_streaming;
 pub use text::{translate_text_streaming, refine_text_streaming};

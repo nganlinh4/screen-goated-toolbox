@@ -5,7 +5,7 @@ use eframe::egui;
 use egui_snarl::{Snarl, InPin, InPinId, OutPin, OutPinId, NodeId};
 use egui_snarl::ui::{SnarlStyle, PinInfo, SnarlViewer};
 use crate::config::{ProcessingBlock, get_all_languages};
-use crate::model_config::{get_all_models, ModelType, get_model_by_id};
+use crate::model_config::{get_all_models, get_all_models_with_ollama, ModelType, get_model_by_id, trigger_ollama_model_scan, is_ollama_scan_in_progress};
 use crate::gui::icons::{Icon, icon_button};
 use std::collections::HashMap;
 
@@ -176,10 +176,11 @@ pub struct ChainViewer {
     pub use_groq: bool,
     pub use_gemini: bool,
     pub use_openrouter: bool,
+    pub use_ollama: bool,
 }
 
 impl ChainViewer {
-    pub fn new(ui_language: &str, _prompt_mode: &str, use_groq: bool, use_gemini: bool, use_openrouter: bool) -> Self {
+    pub fn new(ui_language: &str, _prompt_mode: &str, use_groq: bool, use_gemini: bool, use_openrouter: bool, use_ollama: bool) -> Self {
         Self {
             ui_language: ui_language.to_string(),
             changed: false,
@@ -187,6 +188,7 @@ impl ChainViewer {
             use_groq,
             use_gemini,
             use_openrouter,
+            use_ollama,
         }
     }
     
@@ -196,6 +198,7 @@ impl ChainViewer {
             "groq" => self.use_groq,
             "google" => self.use_gemini,
             "openrouter" => self.use_openrouter,
+            "ollama" => self.use_ollama,
             _ => true, // Unknown providers are enabled by default
         }
     }
@@ -361,12 +364,28 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             let button_response = ui.button(display_name);
                             if button_response.clicked() {
                                 egui::Popup::toggle_id(ui.ctx(), button_response.id);
+                                // Trigger background scan when popup opens
+                                if self.use_ollama {
+                                    trigger_ollama_model_scan();
+                                }
                             }
                             let popup_layer_id = button_response.id;
                             egui::Popup::from_toggle_button_response(&button_response)
                                 .show(|ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
-                                for m in get_all_models() {
+                                
+                                // Show Ollama loading indicator if scanning
+                                if self.use_ollama && is_ollama_scan_in_progress() {
+                                    let loading_text = match self.ui_language.as_str() {
+                                        "vi" => "⏳ Đang quét các model local...",
+                                        "ko" => "⏳ 로컬 모델 스캔 중...",
+                                        _ => "⏳ Scanning local models...",
+                                    };
+                                    ui.label(egui::RichText::new(loading_text).weak().italics());
+                                    ui.separator();
+                                }
+                                
+                            for m in get_all_models_with_ollama() {
                                     if m.enabled && m.model_type == filter_type && self.is_provider_enabled(&m.provider) {
                                         let name = match self.ui_language.as_str() { 
                                             "vi" => &m.name_vi, 
@@ -491,12 +510,28 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             let button_response = ui.button(display_name);
                             if button_response.clicked() {
                                 egui::Popup::toggle_id(ui.ctx(), button_response.id);
+                                // Trigger background scan when popup opens
+                                if self.use_ollama {
+                                    trigger_ollama_model_scan();
+                                }
                             }
                             let popup_layer_id = button_response.id;
                             egui::Popup::from_toggle_button_response(&button_response)
                                 .show(|ui| {
                                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // No text wrapping, auto width
-                                for m in get_all_models() {
+                                
+                                // Show Ollama loading indicator if scanning
+                                if self.use_ollama && is_ollama_scan_in_progress() {
+                                    let loading_text = match self.ui_language.as_str() {
+                                        "vi" => "⏳ Đang quét các model local...",
+                                        "ko" => "⏳ 로컬 모델 스캔 중...",
+                                        _ => "⏳ Scanning local models...",
+                                    };
+                                    ui.label(egui::RichText::new(loading_text).weak().italics());
+                                    ui.separator();
+                                }
+                                
+                                for m in get_all_models_with_ollama() {
                                     if m.enabled && m.model_type == ModelType::Text && self.is_provider_enabled(&m.provider) {
                                         let name = match self.ui_language.as_str() { 
                                             "vi" => &m.name_vi, 
@@ -942,8 +977,9 @@ pub fn render_node_graph(
     use_groq: bool,
     use_gemini: bool,
     use_openrouter: bool,
+    use_ollama: bool,
 ) -> bool {
-    let mut viewer = ChainViewer::new(ui_language, prompt_mode, use_groq, use_gemini, use_openrouter);
+    let mut viewer = ChainViewer::new(ui_language, prompt_mode, use_groq, use_gemini, use_openrouter, use_ollama);
     let style = SnarlStyle::default();
     
     snarl.show(&mut viewer, &style, egui::Id::new("chain_graph"), ui);

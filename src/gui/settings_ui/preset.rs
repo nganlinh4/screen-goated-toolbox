@@ -351,7 +351,7 @@ pub fn render_preset_editor(
                 .corner_radius(8.0)
                 .show(ui, |ui| {
                     ui.set_min_height(325.0); // Allocate space for the graph
-                    if render_node_graph(ui, snarl, &config.ui_language, &preset.prompt_mode, config.use_groq, config.use_gemini, config.use_openrouter) {
+                    if render_node_graph(ui, snarl, &config.ui_language, &preset.prompt_mode, config.use_groq, config.use_gemini, config.use_openrouter, config.use_ollama) {
                         changed = true;
                     }
                 });

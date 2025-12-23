@@ -39,7 +39,31 @@ where
 
     let mut full_content = String::new();
 
-    if provider == "google" {
+    if provider == "ollama" {
+        // Ollama Local API
+        let (ollama_base_url, ollama_vision_model, ui_language) = crate::APP.lock()
+            .ok()
+            .map(|app| {
+                let config = app.config.clone();
+                (config.ollama_base_url.clone(), config.ollama_vision_model.clone(), config.ui_language.clone())
+            })
+            .unwrap_or_else(|| ("http://localhost:11434".to_string(), model.clone(), "en".to_string()));
+        
+        let actual_model = if ollama_vision_model.is_empty() { model.clone() } else { ollama_vision_model };
+        
+        // Reload image from PNG data
+        let ollama_image = image::load_from_memory(&image_data)?.to_rgba8();
+        
+        return super::ollama::ollama_generate_vision(
+            &ollama_base_url,
+            &actual_model,
+            &prompt,
+            ollama_image,
+            streaming_enabled,
+            &ui_language,
+            on_chunk,
+        );
+    } else if provider == "google" {
         // Gemini API
         if gemini_api_key.trim().is_empty() {
             return Err(anyhow::anyhow!("NO_API_KEY:gemini"));
