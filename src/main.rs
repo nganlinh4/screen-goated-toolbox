@@ -198,6 +198,9 @@ fn main() -> eframe::Result<()> {
     std::thread::spawn(|| {
         run_hotkey_listener();
     });
+    
+    // Initialize TTS for instant speech synthesis
+    api::tts::init_tts();
 
     // Offload warmups to a sequenced thread to prevent splash screen lag
     std::thread::spawn(|| {

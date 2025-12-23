@@ -77,7 +77,7 @@ pub fn paint_window(hwnd: HWND) {
         // --- PHASE 1: STATE SNAPSHOT & CACHE MANAGEMENT ---
         let (
              bg_color_u32, is_hovered, on_copy_btn, copy_success, on_edit_btn, on_undo_btn, on_redo_btn, on_markdown_btn, is_markdown_mode, 
-             is_browsing, on_back_btn, on_forward_btn, on_download_btn,
+             is_browsing, on_back_btn, on_forward_btn, on_download_btn, on_speaker_btn, is_speaking, tts_loading,
              broom_data, particles,
              mut cached_text_bm, _cached_font_size, cache_dirty,
              cached_bg_bm,
@@ -159,6 +159,7 @@ pub fn paint_window(hwnd: HWND) {
                         && !state.on_back_btn
                         && !state.on_forward_btn
                         && !state.on_download_btn
+                        && !state.on_speaker_btn
                         && state.current_resize_edge == ResizeEdge::None
                 );
                 
@@ -170,10 +171,13 @@ pub fn paint_window(hwnd: HWND) {
                             opacity: 1.0,
                         }))
                 } else { None };
+                
+                // Check if TTS is currently speaking for this window
+                let is_speaking = state.tts_request_id != 0 && crate::api::tts::TTS_MANAGER.is_speaking(state.tts_request_id);
 
                 (
                     state.bg_color, state.is_hovered, state.on_copy_btn, state.copy_success, state.on_edit_btn, state.on_undo_btn, state.on_redo_btn, state.on_markdown_btn, state.is_markdown_mode, 
-                    state.is_browsing, state.on_back_btn, state.on_forward_btn, state.on_download_btn,
+                    state.is_browsing, state.on_back_btn, state.on_forward_btn, state.on_download_btn, state.on_speaker_btn, is_speaking, state.tts_loading,
                     broom_info, particles_vec,
                     state.content_bitmap, state.cached_font_size as i32, state.font_cache_dirty,
                     state.bg_bitmap,
@@ -189,7 +193,7 @@ pub fn paint_window(hwnd: HWND) {
                     state.input_text.clone()
                 )
             } else {
-                (0, false, false, false, false, false, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, false, 0.0, 0, 0, 0, 0, "standard".to_string(), String::new(), String::new())
+                (0, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, None, Vec::new(), HBITMAP(0), 72, true, HBITMAP(0), false, false, 0.0, 0, 0, 0, 0, "standard".to_string(), String::new(), String::new())
             }
         };
 
@@ -478,8 +482,10 @@ pub fn paint_window(hwnd: HWND) {
                 let cx_forward = (width - margin - btn_size / 2) as f32; // Forward on right when browsing
                 
                 // Result UI button positions (only used when not browsing)
+                // Order from right to left: Copy -> Speaker -> Edit -> Markdown -> Download -> Undo -> Redo
                 let cx_copy = (width - margin - btn_size / 2) as f32;
-                let cx_edit = cx_copy - (btn_size as f32) - 8.0;
+                let cx_speaker = cx_copy - (btn_size as f32) - 8.0;
+                let cx_edit = cx_speaker - (btn_size as f32) - 8.0;
                 let cx_md = cx_edit - (btn_size as f32) - 8.0;
                 let cx_dl = cx_md - (btn_size as f32) - 8.0;
                 let cx_undo = cx_dl - (btn_size as f32) - 8.0;
@@ -496,12 +502,23 @@ pub fn paint_window(hwnd: HWND) {
                 let (tr_b, tg_b, tb_b) = if on_back_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
                 let (tr_f, tg_f, tb_f) = if on_forward_btn { (128.0, 128.0, 128.0) } else { (80.0, 80.0, 80.0) };
                 let (tr_dl, tg_dl, tb_dl) = if on_download_btn { (100.0, 180.0, 100.0) } else { (80.0, 80.0, 80.0) };
+                // Speaker button: orange when loading, blue when speaking, gray when idle
+                let (tr_sp, tg_sp, tb_sp) = if tts_loading { 
+                    (255.0, 180.0, 50.0) // Orange/yellow for loading
+                } else if is_speaking { 
+                    (80.0, 150.0, 220.0)  // Blue for speaking
+                } else if on_speaker_btn { 
+                    (128.0, 128.0, 128.0) // Highlight on hover
+                } else { 
+                    (80.0, 80.0, 80.0)    // Default gray
+                };
 
                 let b_start_y = (cy - radius - 4.0) as i32;
                 let b_end_y = (cy + radius + 4.0) as i32;
                 let show_undo = history_count > 0 && !is_browsing;
                 let show_redo = redo_count > 0 && !is_browsing;
                 let show_forward = is_browsing && navigation_depth < max_navigation_depth;
+                let show_speaker = !is_browsing; // Always show speaker when not browsing
                 let border_inner_radius = radius - 1.5;
 
                 for y in b_start_y.max(0)..b_end_y.min(height) {
@@ -673,6 +690,50 @@ pub fn paint_window(hwnd: HWND) {
                                     let d_wing2 = dist_segment(fx, fy, tip_x, cy, tip_x - 3.0, cy + 3.0);
                                     let d_arrow = d_shaft.min(d_wing1).min(d_wing2);
                                     icon_alpha = (1.3 - d_arrow).clamp(0.0, 1.0);
+                                }
+                            }
+                            
+                            // SPEAKER (TTS)
+                            if !hit && show_speaker {
+                                let dx_sp = (fx - cx_speaker).abs();
+                                let dist_sp = (dx_sp*dx_sp + dy*dy).sqrt();
+                                let aa_sp = (radius + 0.5 - dist_sp).clamp(0.0, 1.0);
+                                if aa_sp > 0.0 {
+                                    hit = true; alpha = aa_sp; t_r = tr_sp; t_g = tg_sp; t_b = tb_sp;
+                                    border_alpha = ((radius + 0.5 - dist_sp).clamp(0.0, 1.0) * ((dist_sp - (border_inner_radius - 0.5)).clamp(0.0, 1.0))) * 0.6;
+                                    
+                                    // Speaker icon: cone + sound waves
+                                    // Speaker cone (left side)
+                                    let cone_l = cx_speaker - 4.0;
+                                    let cone_r = cx_speaker - 1.0;
+                                    let cone_t = cy - 2.0;
+                                    let cone_b = cy + 2.0;
+                                    let d_cone = sd_box(fx, fy, (cone_l + cone_r) / 2.0, cy, (cone_r - cone_l) / 2.0, (cone_b - cone_t) / 2.0);
+                                    
+                                    // Speaker "bell" (trapezoid-ish, made with lines)
+                                    let d_bell1 = dist_segment(fx, fy, cone_r, cone_t, cone_r + 2.5, cy - 4.0);
+                                    let d_bell2 = dist_segment(fx, fy, cone_r + 2.5, cy - 4.0, cone_r + 2.5, cy + 4.0);
+                                    let d_bell3 = dist_segment(fx, fy, cone_r + 2.5, cy + 4.0, cone_r, cone_b);
+                                    let d_bell = d_bell1.min(d_bell2).min(d_bell3);
+                                    
+                                    // Sound waves (arcs to the right)
+                                    let wave_cx = cx_speaker + 2.0;
+                                    let px = fx - wave_cx;
+                                    let py_wave = fy - cy;
+                                    let angle = py_wave.atan2(px);
+                                    
+                                    // Only draw waves on the right side (facing direction)
+                                    let mut d_wave = 100.0f32;
+                                    if px > 0.0 && angle.abs() < std::f32::consts::FRAC_PI_3 {
+                                        let dist_from_center = (px*px + py_wave*py_wave).sqrt();
+                                        // Two wave arcs at different distances
+                                        let d_wave1 = (dist_from_center - 3.5).abs() - 0.8;
+                                        let d_wave2 = (dist_from_center - 6.0).abs() - 0.8;
+                                        d_wave = d_wave1.min(d_wave2);
+                                    }
+                                    
+                                    let d_speaker = d_cone.min(d_bell).min(d_wave);
+                                    icon_alpha = (1.5 - d_speaker).clamp(0.0, 1.0);
                                 }
                             }
                         }

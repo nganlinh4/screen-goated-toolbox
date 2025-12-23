@@ -197,6 +197,9 @@ pub fn create_result_window(
                 on_back_btn: false,
                 on_forward_btn: false,
                 on_download_btn: false,
+                on_speaker_btn: false,
+                tts_request_id: 0,
+                tts_loading: false,
             });
         }
 

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::overlay::utils::to_wstring;
 use super::state::{WINDOW_STATES, InteractionMode, ResizeEdge, RefineContext};
-use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_redo_btn_rect, get_markdown_btn_rect, get_download_btn_rect, get_resize_edge};
+use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_redo_btn_rect, get_markdown_btn_rect, get_download_btn_rect, get_speaker_btn_rect, get_resize_edge};
 use super::logic;
 use super::paint;
 
@@ -119,7 +119,10 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
                     let on_dl = pt.x >= dl_rect.left && pt.x <= dl_rect.right && pt.y >= dl_rect.top && pt.y <= dl_rect.bottom;
                     
-                    if on_copy || on_edit || on_undo || on_md || on_back || on_dl {
+                    let speaker_rect = get_speaker_btn_rect(rect.right, rect.bottom);
+                    let on_speaker = pt.x >= speaker_rect.left && pt.x <= speaker_rect.right && pt.y >= speaker_rect.top && pt.y <= speaker_rect.bottom;
+                    
+                    if on_copy || on_edit || on_undo || on_md || on_back || on_dl || on_speaker {
                         cursor_id = IDC_HAND;
                     }
                 }
@@ -319,6 +322,9 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
 
                         let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
                         state.on_download_btn = x as i32 >= dl_rect.left - padding && x as i32 <= dl_rect.right + padding && y as i32 >= dl_rect.top - padding && y as i32 <= dl_rect.bottom + padding;
+                        
+                        let speaker_rect = get_speaker_btn_rect(rect.right, rect.bottom);
+                        state.on_speaker_btn = x as i32 >= speaker_rect.left - padding && x as i32 <= speaker_rect.right + padding && y as i32 >= speaker_rect.top - padding && y as i32 <= speaker_rect.bottom + padding;
                     }
 
                     // In markdown mode, let the Timer handle is_hovered state to ensure it syncs with WebView resize
@@ -418,6 +424,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 state.on_download_btn = false;
                 state.on_back_btn = false;
                 state.on_forward_btn = false;
+                state.on_speaker_btn = false;
                 state.current_resize_edge = ResizeEdge::None;
                 
                 // For plain text mode, also clear hover state here 
@@ -442,6 +449,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             let mut is_back_click = false;
             let mut is_forward_click = false;
             let mut is_download_click = false;
+            let mut is_speaker_click = false;
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -456,6 +464,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         is_back_click = state.on_back_btn;
                         is_forward_click = state.on_forward_btn;
                         is_download_click = state.on_download_btn;
+                        is_speaker_click = state.on_speaker_btn;
                     }
                 }
             }
@@ -705,6 +714,50 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                         // Call save_html_file which opens the file save dialog
                         markdown_view::save_html_file(&full_text);
                     }
+                 } else if is_speaker_click {
+                    // TTS - speak the result text
+                    let (full_text, current_tts_id, is_loading) = {
+                        let states = WINDOW_STATES.lock().unwrap();
+                        if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                            (state.full_text.clone(), state.tts_request_id, state.tts_loading)
+                        } else {
+                            (String::new(), 0, false)
+                        }
+                    };
+                    
+                    // Don't allow clicks while loading
+                    if is_loading {
+                        // Ignore click during loading state
+                    } else if current_tts_id != 0 && crate::api::tts::TTS_MANAGER.is_speaking(current_tts_id) {
+                        // Currently speaking (blue button) - stop immediately
+                        crate::api::tts::TTS_MANAGER.stop();
+                        {
+                            let mut states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                state.tts_request_id = 0;
+                                state.tts_loading = false;
+                            }
+                        }
+                    } else if !full_text.is_empty() {
+                        // Start new speech - enter loading state first
+                        {
+                            let mut states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                state.tts_loading = true;
+                            }
+                        }
+                        InvalidateRect(hwnd, None, false); // Redraw to show loading
+                        
+                        let request_id = crate::api::tts::TTS_MANAGER.speak(&full_text, hwnd.0 as isize);
+                        {
+                            let mut states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                                state.tts_request_id = request_id;
+                                // Keep tts_loading = true until audio starts playing
+                            }
+                        }
+                    }
+                    InvalidateRect(hwnd, None, false);
                  } else {
                       let linked_hwnd = {
                           let states = WINDOW_STATES.lock().unwrap();
@@ -1061,6 +1114,11 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.remove(&(hwnd.0 as isize)) {
+                    // Stop TTS if speaking
+                    if state.tts_request_id != 0 {
+                        crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
+                    }
+                    
                     // Get the cancellation token from this window
                     token_to_signal = state.cancellation_token.clone();
                     
@@ -1165,6 +1223,8 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
             InvalidateRect(hwnd, None, false);
             LRESULT(0)
         }
+        
+
         
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }

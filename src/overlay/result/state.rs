@@ -176,6 +176,11 @@ pub struct WindowState {
     
     // Download HTML button state
     pub on_download_btn: bool,             // Hover state for download HTML button
+    
+    // Speaker/TTS button state
+    pub on_speaker_btn: bool,              // Hover state for speaker button
+    pub tts_request_id: u64,               // Active TTS request ID (0 = not speaking)
+    pub tts_loading: bool,                 // True when TTS is loading/connecting (shows spinner)
 }
 
 
