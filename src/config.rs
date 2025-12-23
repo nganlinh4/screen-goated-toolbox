@@ -295,6 +295,46 @@ impl Default for Config {
             }
         ];
 
+        // 2b. Read aloud (Đọc to) - FIRST text preset
+        let mut p2b = Preset::default();
+        p2b.id = "preset_read_aloud".to_string();
+        p2b.name = "Read aloud".to_string();
+        p2b.preset_type = "text".to_string();
+        p2b.text_input_mode = "select".to_string();
+        p2b.blocks = vec![
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "compound_mini".to_string(),
+                prompt: "Return the following text exactly as is. Output ONLY the text.".to_string(),
+                selected_language: "English".to_string(),
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: false,
+                auto_speak: true,
+                ..Default::default()
+            }
+        ];
+
+        // 2b. Read aloud (Đọc to) - FIRST text preset
+        let mut p2b = Preset::default();
+        p2b.id = "preset_read_aloud".to_string();
+        p2b.name = "Read aloud".to_string();
+        p2b.preset_type = "text".to_string();
+        p2b.text_input_mode = "select".to_string();
+        p2b.blocks = vec![
+            ProcessingBlock {
+                block_type: "text".to_string(),
+                model: "compound_mini".to_string(),
+                prompt: "Return the following text exactly as is. Output ONLY the text.".to_string(),
+                selected_language: "English".to_string(),
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: false,
+                auto_speak: true,
+                ..Default::default()
+            }
+        ];
+
         // 3. Trans (Select text)
         let mut p3 = Preset::default();
         p3.id = "preset_translate_select".to_string();
@@ -705,6 +745,25 @@ impl Default for Config {
         ];
         p7.hotkeys.push(Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 });
 
+        // 6b. OCR Read (Đọc vùng này)
+        let mut p6b = Preset::default();
+        p6b.id = "preset_ocr_read".to_string();
+        p6b.name = "Read this region".to_string();
+        p6b.preset_type = "image".to_string();
+        p6b.blocks = vec![
+            ProcessingBlock {
+                block_type: "image".to_string(),
+                model: "maverick".to_string(),
+                prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+                selected_language: "English".to_string(),
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: false,
+                auto_speak: true,
+                ..Default::default()
+            }
+        ];
+
         // 8. Summarize Preset
         let mut p8 = Preset::default();
         p8.id = "preset_summarize".to_string();
@@ -780,6 +839,50 @@ impl Default for Config {
                 streaming_enabled: false,
                 show_overlay: false,
                 auto_copy: true,
+                ..Default::default()
+            }
+        ];
+
+        // 11b. Fix pronunciation (Chỉnh phát âm)
+        let mut p11b = Preset::default();
+        p11b.id = "preset_fix_pronunciation".to_string();
+        p11b.name = "Fix pronunciation".to_string();
+        p11b.preset_type = "audio".to_string();
+        p11b.audio_source = "mic".to_string();
+        p11b.auto_paste = false;
+        p11b.auto_stop_recording = true;
+        p11b.blocks = vec![
+            ProcessingBlock {
+                block_type: "audio".to_string(),
+                model: "whisper-accurate".to_string(),
+                prompt: "".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: false,
+                auto_speak: true,
+                ..Default::default()
+            }
+        ];
+
+        // 11b. Fix pronunciation (Chỉnh phát âm)
+        let mut p11b = Preset::default();
+        p11b.id = "preset_fix_pronunciation".to_string();
+        p11b.name = "Fix pronunciation".to_string();
+        p11b.preset_type = "audio".to_string();
+        p11b.audio_source = "mic".to_string();
+        p11b.auto_paste = false;
+        p11b.auto_stop_recording = true;
+        p11b.blocks = vec![
+            ProcessingBlock {
+                block_type: "audio".to_string(),
+                model: "whisper-accurate".to_string(),
+                prompt: "".to_string(),
+                selected_language: "Vietnamese".to_string(),
+                streaming_enabled: false,
+                show_overlay: false,
+                auto_copy: false,
+                auto_speak: true,
                 ..Default::default()
             }
         ];
@@ -1112,11 +1215,11 @@ impl Default for Config {
             openrouter_api_key: "".to_string(),
             presets: vec![
                 // Column 1: Image presets
-                p1, p7, p2, p3g, p4, p4b, p6, p8, p9, p10, p14b, p14c, pm1,
+                p1, p7, p2, p3g, p4, p4b, p6, p6b, p8, p9, p10, p14b, p14c, pm1,
                 // Column 2: Text presets (Bôi MASTER after Giải thích code, Gõ MASTER after Internet search)
-                p3, p3h, p3b, p3c, p3d, p3e, p3f, p3f2, p3f3, pm2, p5, p5a, p5b, p5c, pm3,
+                p2b, p3, p3h, p3b, p3c, p3d, p3e, p3f, p3f2, p3f3, pm2, p5, p5a, p5b, p5c, pm3,
                 // Column 3: Audio presets (Mic presets first, then device audio presets at end)
-                p11, p13, p14, p16b, p16c, pm4, p12, pm5, p16,
+                p11, p11b, p13, p14, p16b, p16c, pm4, p12, pm5, p16,
             ],
             active_preset_idx: 0,
             theme_mode: ThemeMode::System,
