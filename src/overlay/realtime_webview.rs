@@ -341,6 +341,11 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             border-color: {glow_color};
             box-shadow: 0 0 8px {glow_color}40;
         }}
+        .ctrl-btn.copied {{
+            color: #4caf50 !important;
+            border-color: #4caf50;
+            box-shadow: 0 0 8px #4caf5040;
+        }}
         .vis-btn {{
             font-size: 14px;
             cursor: pointer;
@@ -568,6 +573,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             <div id="title">{title_content}</div>
             <div id="controls">
                 {audio_selector}
+                <span class="ctrl-btn" id="copy-btn" title="Copy text"><span class="material-symbols-rounded">content_copy</span></span>
                 <div class="btn-group">
                     <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">remove</span></span>
                     <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">add</span></span>
@@ -597,6 +603,7 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         const fontDecrease = document.getElementById('font-decrease');
         const fontIncrease = document.getElementById('font-increase');
         const resizeHint = document.getElementById('resize-hint');
+        const copyBtn = document.getElementById('copy-btn');
         
         let currentFontSize = {font_size};
         let isResizing = false;
@@ -616,11 +623,78 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }});
         }}
         
-        // Drag support
+        // Copy button handler
+        if (copyBtn) {{
+            copyBtn.addEventListener('click', function(e) {{
+                e.stopPropagation();
+                // Get all text content (excluding placeholder)
+                const textContent = content.textContent.trim();
+                if (textContent && !content.querySelector('.placeholder')) {{
+                    // Send to Rust via IPC for clipboard (navigator.clipboard not available in WebView2)
+                    window.ipc.postMessage('copyText:' + textContent);
+                    // Show success feedback
+                    copyBtn.classList.add('copied');
+                    const icon = copyBtn.querySelector('.material-symbols-rounded');
+                    if (icon) icon.textContent = 'check_circle';
+                    setTimeout(() => {{
+                        copyBtn.classList.remove('copied');
+                        if (icon) icon.textContent = 'content_copy';
+                    }}, 1500);
+                }}
+            }});
+        }}
+        
+        // Drag support (left click for single window)
         container.addEventListener('mousedown', function(e) {{
+            if (e.button !== 0) return; // Only left click
             if (e.target.closest('#controls') || e.target.closest('#header-toggle') || e.target.id === 'resize-hint' || isResizing) return;
             window.ipc.postMessage('startDrag');
         }});
+        
+        // Right-click group drag support (moves both windows together)
+        let isGroupDragging = false;
+        let groupDragStartX = 0;
+        let groupDragStartY = 0;
+        
+        container.addEventListener('mousedown', function(e) {{
+            if (e.button !== 2) return; // Only right click
+            // Allow context menu on interactive controls
+            if (e.target.closest('#controls') || e.target.closest('select')) return;
+            
+            e.preventDefault();
+            isGroupDragging = true;
+            groupDragStartX = e.screenX;
+            groupDragStartY = e.screenY;
+            window.ipc.postMessage('startGroupDrag');
+            document.addEventListener('mousemove', onGroupDragMove);
+            document.addEventListener('mouseup', onGroupDragEnd);
+        }});
+        
+        // Prevent context menu when right-click dragging on the window body
+        container.addEventListener('contextmenu', function(e) {{
+            // Allow context menu on interactive controls and selects
+            if (e.target.closest('#controls') || e.target.closest('select')) return;
+            e.preventDefault();
+        }});
+        
+        function onGroupDragMove(e) {{
+            if (!isGroupDragging) return;
+            const dx = e.screenX - groupDragStartX;
+            const dy = e.screenY - groupDragStartY;
+            if (dx !== 0 || dy !== 0) {{
+                window.ipc.postMessage('groupDragMove:' + dx + ',' + dy);
+                groupDragStartX = e.screenX;
+                groupDragStartY = e.screenY;
+            }}
+        }}
+        
+        function onGroupDragEnd(e) {{
+            if (isGroupDragging) {{
+                isGroupDragging = false;
+                document.removeEventListener('mousemove', onGroupDragMove);
+                document.removeEventListener('mouseup', onGroupDragEnd);
+            }}
+        }}
         
         // Resize support
         resizeHint.addEventListener('mousedown', function(e) {{
@@ -1316,6 +1390,51 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                         WPARAM(HTCAPTION as usize),
                         LPARAM(0)
                     );
+                }
+            } else if body == "startGroupDrag" {
+                // Start group drag - nothing special needed, just mark drag started
+                // The actual movement is handled by groupDragMove
+            } else if body.starts_with("groupDragMove:") {
+                // Move both windows together by delta
+                let coords = &body[14..];
+                if let Some((dx_str, dy_str)) = coords.split_once(',') {
+                    if let (Ok(dx), Ok(dy)) = (dx_str.parse::<i32>(), dy_str.parse::<i32>()) {
+                        unsafe {
+                            // Move realtime window
+                            if REALTIME_HWND.0 != 0 {
+                                let mut rect = RECT::default();
+                                GetWindowRect(REALTIME_HWND, &mut rect);
+                                SetWindowPos(
+                                    REALTIME_HWND,
+                                    None,
+                                    rect.left + dx,
+                                    rect.top + dy,
+                                    0, 0,
+                                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                                );
+                            }
+                            
+                            // Move translation window
+                            if TRANSLATION_HWND.0 != 0 {
+                                let mut rect = RECT::default();
+                                GetWindowRect(TRANSLATION_HWND, &mut rect);
+                                SetWindowPos(
+                                    TRANSLATION_HWND,
+                                    None,
+                                    rect.left + dx,
+                                    rect.top + dy,
+                                    0, 0,
+                                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                                );
+                            }
+                        }
+                    }
+                }
+            } else if body.starts_with("copyText:") {
+                // Copy text to clipboard
+                let text = &body[9..];
+                unsafe {
+                    crate::overlay::utils::copy_to_clipboard(text, hwnd_for_ipc);
                 }
             } else if body == "close" {
                 unsafe {
