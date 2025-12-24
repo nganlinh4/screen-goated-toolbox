@@ -342,7 +342,7 @@ fn start_per_app_capture(
             return;
         }
         
-        eprintln!("Per-app capture: Started capturing audio from PID {}", process_id);
+        // Per-app capture started for process_id
         
         // Buffer for reading audio data
         let mut capture_buffer: VecDeque<u8> = VecDeque::new();
@@ -404,7 +404,7 @@ fn start_per_app_capture(
         
         // Cleanup
         let _ = audio_client.stop_stream();
-        eprintln!("Per-app capture: Stopped capturing from PID {}", process_id);
+        // Per-app capture stopped
     });
     
     Ok(())
@@ -690,13 +690,11 @@ fn run_realtime_transcription(
     // Stream holder (only used for cpal path)
     let _stream: Option<cpal::Stream>;
     
-    // Debug: show decision state
-    eprintln!("Audio capture decision: tts_enabled={}, selected_pid={}, using_per_app={}, using_device_loopback={}", 
-        tts_enabled, selected_pid, using_per_app_capture, using_device_loopback);
+
     
     if using_per_app_capture {
         // Use per-app audio capture via wasapi (TTS is on, so isolate)
-        eprintln!("Audio capture: Using PER-APP mode for PID {} (TTS isolation)", selected_pid);
+        // Using per-app capture for TTS isolation
         #[cfg(target_os = "windows")]
         {
             start_per_app_capture(selected_pid, audio_buffer.clone(), stop_signal.clone())?;
@@ -704,7 +702,7 @@ fn run_realtime_transcription(
         _stream = None;
     } else if using_device_loopback {
         // TTS is off, safe to capture all device audio
-        eprintln!("Audio capture: Using device loopback (TTS off)");
+        // Using device loopback
         #[cfg(target_os = "windows")]
         let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or(cpal::default_host());
         #[cfg(not(target_os = "windows"))]
@@ -829,11 +827,11 @@ fn run_realtime_transcription(
         _stream = Some(stream);
     } else if preset.audio_source == "device" && tts_enabled && selected_pid == 0 {
         // Device mode + TTS on + no app selected - need to select app first
-        eprintln!("Audio capture: Device mode with TTS but no app selected - waiting");
+        // Waiting for app selection
         _stream = None;
     } else {
         // Microphone mode
-        eprintln!("Audio capture: Using microphone");
+        // Using microphone input
         let host = cpal::default_host();
         let device = host.default_input_device().expect("No microphone available");
         let config = device.default_input_config()?;
