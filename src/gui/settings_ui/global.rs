@@ -160,8 +160,14 @@ pub fn render_global_settings(
 
         ui.add_space(10.0);
 
+        let tts_bg = if is_dark { 
+            egui::Color32::from_rgb(100, 80, 120)  // Purple for dark mode
+        } else { 
+            egui::Color32::from_rgb(180, 140, 200)  // Lighter purple for light mode
+        };
+        
         if ui.add(egui::Button::new(egui::RichText::new(format!("🔊 {}", text.tts_settings_button)).color(egui::Color32::WHITE).strong())
-            .fill(stats_bg)
+            .fill(tts_bg)
             .corner_radius(10.0))
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .clicked()
