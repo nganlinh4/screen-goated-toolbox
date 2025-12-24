@@ -10,6 +10,8 @@ pub mod text_input; // NEW MODULE
 pub mod preset_wheel; // MASTER preset wheel
 // realtime_overlay module removed (was old GDI-based, now using realtime_webview)
 pub mod realtime_webview; // New WebView2-based with smooth scrolling
+pub mod realtime_html; // HTML generation for realtime overlay
+pub mod html_components; // Split HTML components (CSS/JS)
 
 pub use selection::{show_selection_overlay, is_selection_overlay_active_and_dismiss};
 pub use recording::{show_recording_overlay, is_recording_overlay_active, stop_recording_and_submit};
