@@ -67,8 +67,8 @@ pub struct TtsManager {
     /// Signal for Socket Workers
     work_signal: Condvar,
 
-    /// Queue for Player: (Input Channel, Window Handle, Request ID)
-    playback_queue: Mutex<VecDeque<(mpsc::Receiver<AudioEvent>, isize, u64)>>,
+    /// Queue for Player: (Input Channel, Window Handle, Request ID, Generation ID)
+    playback_queue: Mutex<VecDeque<(mpsc::Receiver<AudioEvent>, isize, u64, u64)>>,
     /// Signal for Player
     playback_signal: Condvar,
 
@@ -120,7 +120,7 @@ impl TtsManager {
         
         {
             let mut pq = self.playback_queue.lock().unwrap();
-            pq.push_back((rx, hwnd, id));
+            pq.push_back((rx, hwnd, id, current_gen));
         }
         self.playback_signal.notify_one();
         
@@ -161,7 +161,7 @@ impl TtsManager {
         
         {
             let mut pq = self.playback_queue.lock().unwrap();
-            pq.push_back((rx, hwnd, id));
+            pq.push_back((rx, hwnd, id, new_gen));
         }
         // Force notify player to wake up and check generation/queue
         self.playback_signal.notify_one();
@@ -436,14 +436,23 @@ fn run_player_thread() {
             pq.pop_front()
         };
         
-        if let Some((rx, hwnd, _req_id)) = playback_job {
+        if let Some((rx, hwnd, _req_id, generation)) = playback_job {
              let mut loading_cleared = false;
              
              // Loop reading chunks from this channel
              // This blocks if the worker is buffering (which is what we want)
              loop {
+                 // Check interrupt before blocking? No, wait for data or close.
+                 
                  match rx.recv() {
                      Ok(AudioEvent::Data(data)) => {
+                         // Check interrupt before playing
+                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+                             audio_player.stop();
+                             clear_tts_state(hwnd);
+                             break;
+                         }
+
                          if !loading_cleared {
                              loading_cleared = true;
                              clear_tts_loading_state(hwnd);
@@ -451,20 +460,36 @@ fn run_player_thread() {
                          audio_player.play(&data);
                      }
                      Ok(AudioEvent::End) => {
-                         audio_player.drain();
+                         // Check if we were interrupted or finished normally
+                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+                             audio_player.stop(); // Immediate cut-off
+                         } else {
+                             audio_player.drain(); // Normal finish
+                         }
                          clear_tts_state(hwnd);
                          break; // Job done
                      }
                      Err(_) => {
-                         // Sender disconnected (likely worker aborted due to interrupt or network error)
-                         // Stop immediately
-                         audio_player.drain(); // Or flush? Draining is safer to finish partials.
+                         // Sender disconnected
+                         // If interrupted, stop immediately
+                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+                             audio_player.stop();
+                         } else {
+                             audio_player.drain(); // Or flush?
+                         }
                          clear_tts_state(hwnd);
                          break;
                      }
                  }
                  
                  if manager.shutdown.load(Ordering::SeqCst) { return; }
+                 
+                 // Check interrupt again
+                 if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+                      audio_player.stop();
+                      clear_tts_state(hwnd); 
+                      break; 
+                 }
              }
         }
     }
@@ -833,7 +858,16 @@ impl AudioPlayer {
         
         let mut frames_written = 0;
         
+        let mut last_gen = TTS_MANAGER.interrupt_generation.load(Ordering::SeqCst);
+        
          while !shutdown.load(Ordering::Relaxed) {
+             let current_gen = TTS_MANAGER.interrupt_generation.load(Ordering::SeqCst);
+             if current_gen > last_gen {
+                 if let Ok(mut deck) = shared_buffer.lock() {
+                     deck.clear();
+                 }
+                 last_gen = current_gen;
+             }
              let padding = client.GetCurrentPadding()?;
              let available = buffer_size.saturating_sub(padding);
              
@@ -987,6 +1021,12 @@ impl AudioPlayer {
         }
         // Extra grace period
         std::thread::sleep(Duration::from_millis(100));
+    }
+
+    fn stop(&self) {
+        if let Ok(mut buf) = self.shared_buffer.lock() {
+            buf.clear();
+        }
     }
 }
 

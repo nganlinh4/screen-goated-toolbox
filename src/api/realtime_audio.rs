@@ -675,34 +675,44 @@ fn run_realtime_transcription(
     // Audio buffer for accumulating samples before sending (used by both capture methods)
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     
-    // Check if user selected a specific app for per-app capture
+    // Check TTS state and app selection
+    use crate::overlay::realtime_webview::REALTIME_TTS_ENABLED;
+    let tts_enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
     let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
-    let using_per_app_capture = selected_pid > 0 && preset.audio_source == "device";
     
-    // Stream holder (only used for cpal mic path)
+    // Capture mode decision:
+    // - mic mode: always use microphone
+    // - device mode + TTS on + app selected: per-app capture (isolate from TTS)
+    // - device mode + TTS off: normal device loopback (capture all system audio)
+    let using_per_app_capture = preset.audio_source == "device" && tts_enabled && selected_pid > 0;
+    let using_device_loopback = preset.audio_source == "device" && !tts_enabled;
+    
+    // Stream holder (only used for cpal path)
     let _stream: Option<cpal::Stream>;
     
+    // Debug: show decision state
+    eprintln!("Audio capture decision: tts_enabled={}, selected_pid={}, using_per_app={}, using_device_loopback={}", 
+        tts_enabled, selected_pid, using_per_app_capture, using_device_loopback);
+    
     if using_per_app_capture {
-        // Use per-app audio capture via wasapi
-        eprintln!("Audio capture: Using PER-APP mode for PID {}", selected_pid);
+        // Use per-app audio capture via wasapi (TTS is on, so isolate)
+        eprintln!("Audio capture: Using PER-APP mode for PID {} (TTS isolation)", selected_pid);
         #[cfg(target_os = "windows")]
         {
             start_per_app_capture(selected_pid, audio_buffer.clone(), stop_signal.clone())?;
         }
         _stream = None;
-    } else if preset.audio_source == "device" && selected_pid == 0 {
-        // Device mode but no app selected - DON'T capture anything
-        // This prevents accidentally capturing TTS when no app is selected
-        eprintln!("Audio capture: Device mode but no app selected - waiting for app selection");
-        _stream = None;
-    } else {
-        // Use cpal for microphone only (NOT for device loopback anymore)
-        eprintln!("Audio capture: Using microphone");
+    } else if using_device_loopback {
+        // TTS is off, safe to capture all device audio
+        eprintln!("Audio capture: Using device loopback (TTS off)");
+        #[cfg(target_os = "windows")]
+        let host = cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or(cpal::default_host());
+        #[cfg(not(target_os = "windows"))]
         let host = cpal::default_host();
-
-        // Always use default input device (microphone)
-        let device = host.default_input_device().expect("No microphone available");
-        let config = device.default_input_config()?;
+        
+        // Use default output device for loopback
+        let device = host.default_output_device().expect("No output device available");
+        let config = device.default_output_config()?;
 
         let sample_rate = config.sample_rate().0;
         let channels = config.channels() as usize;
@@ -817,7 +827,77 @@ fn run_realtime_transcription(
         
         stream.play()?;
         _stream = Some(stream);
-    } // End of else block for cpal capture
+    } else if preset.audio_source == "device" && tts_enabled && selected_pid == 0 {
+        // Device mode + TTS on + no app selected - need to select app first
+        eprintln!("Audio capture: Device mode with TTS but no app selected - waiting");
+        _stream = None;
+    } else {
+        // Microphone mode
+        eprintln!("Audio capture: Using microphone");
+        let host = cpal::default_host();
+        let device = host.default_input_device().expect("No microphone available");
+        let config = device.default_input_config()?;
+        
+        let sample_rate = config.sample_rate().0;
+        let channels = config.channels() as usize;
+        let audio_buffer_clone = audio_buffer.clone();
+        let target_rate = 16000u32;
+        let resample_ratio = target_rate as f64 / sample_rate as f64;
+        let stop_signal_audio = stop_signal.clone();
+        let err_fn = |err| eprintln!("Audio stream error: {}", err);
+        
+        let stream = match config.sample_format() {
+            cpal::SampleFormat::F32 => device.build_input_stream(
+                &config.into(),
+                move |data: &[f32], _: &_| {
+                    if stop_signal_audio.load(Ordering::Relaxed) { return; }
+                    
+                    let mono_samples: Vec<i16> = data.chunks(channels)
+                        .map(|frame| {
+                            let sum: f32 = frame.iter().sum();
+                            let avg = sum / channels as f32;
+                            (avg.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+                        })
+                        .collect();
+                    
+                    let resampled: Vec<i16> = if resample_ratio < 1.0 {
+                        let new_len = (mono_samples.len() as f64 * resample_ratio) as usize;
+                        (0..new_len)
+                            .map(|i| {
+                                let src_idx = i as f64 / resample_ratio;
+                                let idx0 = src_idx as usize;
+                                let idx1 = (idx0 + 1).min(mono_samples.len() - 1);
+                                let frac = src_idx - idx0 as f64;
+                                let s0 = mono_samples[idx0] as f64;
+                                let s1 = mono_samples[idx1] as f64;
+                                (s0 + frac * (s1 - s0)) as i16
+                            })
+                            .collect()
+                    } else {
+                        mono_samples
+                    };
+                    
+                    if let Ok(mut buf) = audio_buffer_clone.lock() {
+                        buf.extend(resampled.iter().cloned());
+                    }
+                    
+                    if !resampled.is_empty() {
+                        let sum_sq: f64 = resampled.iter()
+                            .map(|&s| (s as f64 / 32768.0).powi(2))
+                            .sum();
+                        let rms = (sum_sq / resampled.len() as f64).sqrt() as f32;
+                        REALTIME_RMS.store(rms.to_bits(), Ordering::Relaxed);
+                    }
+                },
+                err_fn,
+                None,
+            )?,
+            _ => return Err(anyhow::anyhow!("Unsupported audio format")),
+        };
+        
+        stream.play()?;
+        _stream = Some(stream);
+    }
     
     // Create translation thread using Groq's llama-3.1-8b-instant
     let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;

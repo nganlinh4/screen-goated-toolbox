@@ -124,15 +124,14 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         .collect::<Vec<_>>()
         .join("\n");
     
-    // Audio source selector (only for transcription window) - mic toggle + app selector
+    // Audio source selector (only for transcription window) - simple mic/device toggle
     let audio_selector = if !is_translation {
         let is_device = audio_source == "device";
         format!(r#"
             <div class="btn-group">
-                <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone">mic</span>
-                <span class="material-symbols-rounded audio-icon {device_active}" id="app-select-btn" title="Select App to Capture">apps</span>
+                <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone Input">mic</span>
+                <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">speaker_group</span>
             </div>
-            <span id="selected-app-name" class="app-name-badge" style="display: none;"></span>
         "#, 
             mic_active = if !is_device { "active" } else { "" },
             device_active = if is_device { "active" } else { "" }
@@ -1178,13 +1177,9 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
         }});
         
-        // Mic Button Logic
+        // Audio source toggle buttons
         const micBtn = document.getElementById('mic-btn');
-        const appSelectBtn = document.getElementById('app-select-btn');
-        const appModal = document.getElementById('app-modal');
-        const appModalOverlay = document.getElementById('app-modal-overlay');
-        const appList = document.getElementById('app-list');
-        const selectedAppName = document.getElementById('selected-app-name');
+        const deviceBtn = document.getElementById('device-btn');
         
         if (micBtn) {{
             micBtn.addEventListener('click', (e) => {{
@@ -1193,76 +1188,25 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
                 
                 // Switch to mic mode
                 micBtn.classList.add('active');
-                if (appSelectBtn) appSelectBtn.classList.remove('active');
-                if (selectedAppName) selectedAppName.style.display = 'none';
+                if (deviceBtn) deviceBtn.classList.remove('active');
                 
                 window.ipc.postMessage('audioSource:mic');
             }});
         }}
         
-        // App Selection Modal Logic
-        if (appSelectBtn && appModal && appModalOverlay) {{
-            appSelectBtn.addEventListener('click', (e) => {{
+        if (deviceBtn) {{
+            deviceBtn.addEventListener('click', (e) => {{
                 e.stopPropagation();
                 e.preventDefault();
                 
-                // Show modal and request app list from Rust
-                appModal.classList.add('show');
-                appModalOverlay.classList.add('show');
-                appList.innerHTML = '<div class="app-loading">Loading apps...</div>';
+                // Switch to device mode
+                if (micBtn) micBtn.classList.remove('active');
+                deviceBtn.classList.add('active');
                 
-                // Request app list from Rust
-                window.ipc.postMessage('requestAppList');
-            }});
-            
-            appModalOverlay.addEventListener('click', () => {{
-                appModal.classList.remove('show');
-                appModalOverlay.classList.remove('show');
+                window.ipc.postMessage('audioSource:device');
             }});
         }}
-        
-        // Function to populate app list (called from Rust)
-        window.populateAppList = function(apps) {{
-            if (!appList) return;
-            
-            if (!apps || apps.length === 0) {{
-                appList.innerHTML = '<div class="app-loading">No audio apps found</div>';
-                return;
-            }}
-            
-            appList.innerHTML = apps.map(app => `
-                <div class="app-item" data-pid="${{app.pid}}" data-name="${{app.name}}">
-                    <span class="material-symbols-rounded app-icon">play_circle</span>
-                    <span class="app-title">${{app.name}}</span>
-                    <span class="app-pid">PID: ${{app.pid}}</span>
-                </div>
-            `).join('');
-            
-            // Add click handlers
-            appList.querySelectorAll('.app-item').forEach(item => {{
-                item.addEventListener('click', (e) => {{
-                    e.stopPropagation();
-                    const pid = item.dataset.pid;
-                    const name = item.dataset.name;
-                    
-                    // Close modal
-                    appModal.classList.remove('show');
-                    appModalOverlay.classList.remove('show');
-                    
-                    // Update UI
-                    if (micBtn) micBtn.classList.remove('active');
-                    if (appSelectBtn) appSelectBtn.classList.add('active');
-                    if (selectedAppName) {{
-                        selectedAppName.textContent = name.length > 12 ? name.substring(0, 12) + '...' : name;
-                        selectedAppName.style.display = 'inline';
-                        selectedAppName.title = name;
-                    }}
-                    
-                    // Send selection to Rust
-                    window.ipc.postMessage('selectApp:' + pid + ':' + name);
-                }});
-            }});
-        }};
+
 
 
         // Language Select Logic - show short code when collapsed, full name when open
@@ -1935,17 +1879,30 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                     crate::config::save_config(&app.config);
                 }
             } else if body.starts_with("audioSource:") {
-                // Audio source change - switching to mic clears app selection
+                // Audio source change
                 let source = body[12..].to_string();
                 if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
                     *new_source = source.clone();
                 }
                 
-                // Clear app selection when switching to mic
                 if source == "mic" {
+                    // Clear app selection when switching to mic
                     SELECTED_APP_PID.store(0, Ordering::SeqCst);
                     if let Ok(mut name) = SELECTED_APP_NAME.lock() {
                         name.clear();
+                    }
+                } else if source == "device" {
+                    // Check if TTS is enabled - if so, show app selection popup
+                    let tts_enabled = REALTIME_TTS_ENABLED.load(Ordering::SeqCst);
+                    if tts_enabled {
+                        // Show app selection popup for user to choose which app to capture
+                        show_app_selection_popup();
+                    } else {
+                        // TTS is off, use normal device loopback (clear any app selection)
+                        SELECTED_APP_PID.store(0, Ordering::SeqCst);
+                        if let Ok(mut name) = SELECTED_APP_NAME.lock() {
+                            name.clear();
+                        }
                     }
                 }
                 
@@ -1956,52 +1913,6 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                     crate::config::save_config(&app.config);
                 }
                 AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
-            } else if body == "requestAppList" {
-                // Enumerate running apps and send to WebView
-                let apps = enumerate_audio_apps();
-                let hwnd_key = hwnd_for_ipc.0 as isize;
-                
-                // Build JSON array
-                let json_apps: Vec<String> = apps.iter()
-                    .map(|(pid, name)| {
-                        let escaped_name = name.replace('\\', "\\\\").replace('"', "\\\"");
-                        format!(r#"{{"pid":{},"name":"{}"}}"#, pid, escaped_name)
-                    })
-                    .collect();
-                let json_str = format!("[{}]", json_apps.join(","));
-                
-                // Send to WebView
-                let script = format!("if(window.populateAppList) window.populateAppList({});", json_str);
-                REALTIME_WEBVIEWS.with(|wvs| {
-                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                        let _ = webview.evaluate_script(&script);
-                    }
-                });
-            } else if body.starts_with("selectApp:") {
-                // User selected an app for per-app audio capture
-                let rest = &body[10..];
-                if let Some((pid_str, name)) = rest.split_once(':') {
-                    if let Ok(pid) = pid_str.parse::<u32>() {
-                        SELECTED_APP_PID.store(pid, Ordering::SeqCst);
-                        if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
-                            *app_name = name.to_string();
-                        }
-                        
-                        // Set audio source to device (per-app capture)
-                        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-                            *new_source = "device".to_string();
-                        }
-                        
-                        // Save to config
-                        {
-                            let mut app = APP.lock().unwrap();
-                            app.config.realtime_audio_source = "device".to_string();
-                            crate::config::save_config(&app.config);
-                        }
-                        
-                        AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
-                    }
-                }
             } else if body.starts_with("language:") {
                 // Target language change - signal update
                 let lang = body[9..].to_string();
@@ -2099,10 +2010,35 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                 
                 // Reset spoken length when disabling so we start fresh next time
                 if !enabled {
+                    // IMMEDIATELY stop TTS (cut off mid-sentence to prevent capture)
+                    crate::api::tts::TTS_MANAGER.stop();
+                    
                     LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
                     // Clear any queued translations
                     if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
                         queue.clear();
+                    }
+                    
+                    // Clear app selection and trigger restart to switch back to device loopback
+                    SELECTED_APP_PID.store(0, Ordering::SeqCst);
+                    if let Ok(mut name) = SELECTED_APP_NAME.lock() {
+                        name.clear();
+                    }
+                    // Must set NEW_AUDIO_SOURCE for restart to work
+                    if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                        *new_source = "device".to_string();
+                    }
+                    AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+                } else {
+                    // TTS enabled - if in device mode, show app selection popup
+                    // Note: We DON'T change audio mode here - only when user selects an app
+                    let current_source = {
+                        let app = APP.lock().unwrap();
+                        app.config.realtime_audio_source.clone()
+                    };
+                    if current_source == "device" {
+                        // Show app selection popup (no audio change yet - happens when app is selected)
+                        show_app_selection_popup();
                     }
                 }
             } else if body.starts_with("ttsSpeed:") {
@@ -2254,9 +2190,31 @@ unsafe extern "system" fn translation_wnd_proc(hwnd: HWND, msg: u32, wparam: WPA
                 }
             };
             
+            
             // TTS: Check if we have new committed text to speak
-            if REALTIME_TTS_ENABLED.load(Ordering::SeqCst) && !old_text.is_empty() {
+            // Only speak if TTS is enabled AND an app is selected (per-app capture active)
+            let app_selected = SELECTED_APP_PID.load(Ordering::SeqCst) > 0;
+            if REALTIME_TTS_ENABLED.load(Ordering::SeqCst) && app_selected && !old_text.is_empty() {
                 let old_len = old_text.len();
+                
+                // Smart catch-up: If starting fresh (0) with existing text, skip to last sentence
+                // This prevents reading the entire history when toggling TTS on
+                if LAST_SPOKEN_LENGTH.load(Ordering::SeqCst) == 0 && old_len > 50 {
+                    let text = old_text.trim_end();
+                    // Ignore the very last char if it's punctuation, to find the PREVIOUS sentence boundary
+                    let search_limit = text.len().saturating_sub(1);
+                    if search_limit > 0 {
+                        // Find last sentence terminator (. ? ! or newline)
+                        let last_boundary = text[..search_limit].rfind(|c| c == '.' || c == '?' || c == '!' || c == '\n');
+                        
+                        if let Some(idx) = last_boundary {
+                            // Mark everything up to (and including) this punctuation as "spoken"
+                            // So we only read what follows
+                            LAST_SPOKEN_LENGTH.store(idx + 1, Ordering::SeqCst);
+                        }
+                    }
+                }
+
                 let last_spoken = LAST_SPOKEN_LENGTH.load(Ordering::SeqCst);
                 
                 if old_len > last_spoken {
@@ -2406,4 +2364,249 @@ pub fn enumerate_audio_apps() -> Vec<(u32, String)> {
     apps.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
     
     apps
+}
+
+/// Show a popup window for selecting which app to capture audio from
+/// This is called when TTS is enabled in device mode
+pub fn show_app_selection_popup() {
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::Win32::Graphics::Gdi::*;
+    use windows::core::*;
+    use std::sync::atomic::Ordering;
+    
+    // Get apps list
+    let apps = enumerate_audio_apps();
+    if apps.is_empty() {
+        eprintln!("No audio apps found for selection");
+        return;
+    }
+    
+    // Build HTML for app list
+    let app_items: Vec<String> = apps.iter()
+        .map(|(pid, name)| {
+            let escaped_name = name.replace('\\', "\\\\").replace('"', "\\\"").replace('<', "&lt;").replace('>', "&gt;");
+            let short_name = if escaped_name.len() > 50 { 
+                format!("{}...", &escaped_name[..47]) 
+            } else { 
+                escaped_name.clone() 
+            };
+            format!(
+                r#"<div class="app-item" data-pid="{}" onclick="selectApp({}, '{}')">
+                    <span class="app-icon">🎵</span>
+                    <div class="app-info">
+                        <span class="app-name" title="{}">{}</span>
+                        <span class="app-pid">PID: {}</span>
+                    </div>
+                </div>"#,
+                pid, pid, escaped_name.replace('\'', "\\'"), escaped_name, short_name, pid
+            )
+        })
+        .collect();
+    
+    let html = format!(r#"<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: rgba(20, 20, 30, 0.98);
+            color: #fff;
+            padding: 20px;
+            min-height: 100vh;
+        }}
+        h1 {{
+            font-size: 18px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #fff;
+        }}
+        .hint {{
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 16px;
+        }}
+        .app-list {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }}
+        .app-item {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            border: 1px solid transparent;
+        }}
+        .app-item:hover {{
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(100, 180, 255, 0.5);
+        }}
+        .app-icon {{
+            font-size: 24px;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(100, 180, 255, 0.2);
+            border-radius: 8px;
+        }}
+        .app-info {{
+            flex: 1;
+            min-width: 0;
+        }}
+        .app-name {{
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
+        .app-pid {{
+            font-size: 11px;
+            color: #888;
+        }}
+        .app-list::-webkit-scrollbar {{
+            width: 6px;
+        }}
+        .app-list::-webkit-scrollbar-track {{
+            background: transparent;
+        }}
+        .app-list::-webkit-scrollbar-thumb {{
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }}
+    </style>
+</head>
+<body>
+    <h1>🎧 Select App to Capture</h1>
+    <p class="hint">Choose the app whose audio you want to transcribe (TTS will be isolated)</p>
+    <div class="app-list">
+        {}
+    </div>
+    <script>
+        function selectApp(pid, name) {{
+            window.ipc.postMessage('selectApp:' + pid + ':' + name);
+        }}
+    </script>
+</body>
+</html>"#, app_items.join("\n"));
+    
+    // Create popup window
+    std::thread::spawn(move || {
+        unsafe {
+            // Register window class
+            let class_name = w!("AppSelectPopup");
+            let h_instance = GetModuleHandleW(None).unwrap_or_default();
+            
+            let wc = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                style: CS_HREDRAW | CS_VREDRAW,
+                lpfnWndProc: Some(app_select_wndproc),
+                hInstance: h_instance.into(),
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+                hbrBackground: HBRUSH(GetStockObject(BLACK_BRUSH).0),
+                lpszClassName: class_name,
+                ..Default::default()
+            };
+            RegisterClassExW(&wc);
+            
+            // Center the window on screen
+            let screen_width = GetSystemMetrics(SM_CXSCREEN);
+            let screen_height = GetSystemMetrics(SM_CYSCREEN);
+            let win_width = 400;
+            let win_height = 500;
+            let x = (screen_width - win_width) / 2;
+            let y = (screen_height - win_height) / 2;
+            
+            let hwnd = CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                class_name,
+                w!("Select App"),
+                WS_POPUP | WS_VISIBLE,
+                x, y, win_width, win_height,
+                None,
+                None,
+                Some(h_instance.into()),
+                None,
+            ).unwrap();
+            
+            // Create WebView2
+            let html_clone = html.clone();
+            let hwnd_val = hwnd.0 as isize;
+            
+            let result = wry::WebViewBuilder::new()
+                .with_html(&html_clone)
+                .with_transparent(true)
+                .with_ipc_handler(move |req| {
+                    let body = req.body();
+                    if body.starts_with("selectApp:") {
+                        let rest = &body[10..];
+                        if let Some((pid_str, name)) = rest.split_once(':') {
+                            if let Ok(pid) = pid_str.parse::<u32>() {
+                                // Store selected app
+                                SELECTED_APP_PID.store(pid, Ordering::SeqCst);
+                                if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
+                                    *app_name = name.to_string();
+                                }
+                                eprintln!("User selected app: PID {} ({})", pid, name);
+                                
+                                // Set audio source to trigger restart (must set this for restart to work!)
+                                if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                                    *new_source = "device".to_string();
+                                }
+                                AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+                                
+                                // Close popup window
+                                let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+                                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                            }
+                        }
+                    }
+                })
+                .build_as_child(&HwndWrapper(hwnd));
+            
+            if result.is_err() {
+                eprintln!("Failed to create WebView for app selection");
+                let _ = DestroyWindow(hwnd);
+                return;
+            }
+            
+            // Message loop
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    });
+}
+
+unsafe extern "system" fn app_select_wndproc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    
+    match msg {
+        WM_CLOSE => {
+            let _ = DestroyWindow(hwnd);
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            PostQuitMessage(0);
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
 }
