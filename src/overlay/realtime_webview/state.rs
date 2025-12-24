@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32WindowHandle, HandleError};
 use crate::api::realtime_audio::{RealtimeState, SharedRealtimeState};
 pub const WM_CLOSE_TTS_MODAL: u32 = 0x0400 + 400; // WM_USER + 400
+pub const WM_UPDATE_TTS_SPEED: u32 = 0x0400 + 401; // WM_USER + 401
 
 // Gap between realtime and translation overlays
 pub const GAP: i32 = 20;
@@ -50,6 +51,8 @@ lazy_static::lazy_static! {
     pub static ref APP_SELECTION_HWND: Arc<std::sync::atomic::AtomicIsize> = Arc::new(std::sync::atomic::AtomicIsize::new(0));
     /// Track how much of the committed text has been sent to TTS
     pub static ref LAST_SPOKEN_LENGTH: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    /// Current effective TTS speed (including auto-speed boost) for UI display
+    pub static ref CURRENT_TTS_SPEED: Arc<std::sync::atomic::AtomicU32> = Arc::new(std::sync::atomic::AtomicU32::new(100));
 }
 
 pub static mut REALTIME_HWND: HWND = HWND(std::ptr::null_mut());

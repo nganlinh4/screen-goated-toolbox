@@ -49,6 +49,18 @@ pub unsafe extern "system" fn realtime_wnd_proc(hwnd: HWND, msg: u32, wparam: WP
             });
             LRESULT(0)
         }
+        WM_UPDATE_TTS_SPEED => {
+            let speed = wparam.0 as u32;
+            let hwnd_key = hwnd.0 as isize;
+            let script = format!("if(window.updateTtsSpeed) window.updateTtsSpeed({});", speed);
+            
+            REALTIME_WEBVIEWS.with(|wvs| {
+                if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                    let _ = webview.evaluate_script(&script);
+                }
+            });
+            LRESULT(0)
+        }
         WM_SIZE => {
             // Resize WebView to match window size
             let width = (lparam.0 & 0xFFFF) as u32;
@@ -160,6 +172,18 @@ pub unsafe extern "system" fn translation_wnd_proc(hwnd: HWND, msg: u32, wparam:
             };
             let hwnd_key = hwnd.0 as isize;
             let script = format!("if(window.switchModel) window.switchModel('{}');", model_name);
+            
+            REALTIME_WEBVIEWS.with(|wvs| {
+                if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                    let _ = webview.evaluate_script(&script);
+                }
+            });
+            LRESULT(0)
+        }
+        WM_UPDATE_TTS_SPEED => {
+            let speed = wparam.0 as u32;
+            let hwnd_key = hwnd.0 as isize;
+            let script = format!("if(window.updateTtsSpeed) window.updateTtsSpeed({});", speed);
             
             REALTIME_WEBVIEWS.with(|wvs| {
                 if let Some(webview) = wvs.borrow().get(&hwnd_key) {

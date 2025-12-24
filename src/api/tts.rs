@@ -996,7 +996,7 @@ impl AudioPlayer {
     fn play(&self, audio_data: &[u8], is_realtime: bool) {
         // Get effective speed for realtime TTS (or 100 for normal TTS)
         let effective_speed = if is_realtime {
-            use crate::overlay::realtime_webview::state::{REALTIME_TTS_SPEED, REALTIME_TTS_AUTO_SPEED, COMMITTED_TRANSLATION_QUEUE};
+            use crate::overlay::realtime_webview::state::{REALTIME_TTS_SPEED, REALTIME_TTS_AUTO_SPEED, COMMITTED_TRANSLATION_QUEUE, CURRENT_TTS_SPEED, WM_UPDATE_TTS_SPEED, REALTIME_HWND};
             
             let base_speed = REALTIME_TTS_SPEED.load(Ordering::Relaxed);
             let auto_enabled = REALTIME_TTS_AUTO_SPEED.load(Ordering::Relaxed);
@@ -1006,13 +1006,30 @@ impl AudioPlayer {
                 .map(|q| q.len())
                 .unwrap_or(0);
             
-            if auto_enabled && queue_len > 0 {
+            let speed = if auto_enabled && queue_len > 0 {
                 // +15% per queued item, up to +60%
                 let boost = (queue_len as u32 * 15).min(60);
                 (base_speed + boost).min(200)
             } else {
                 base_speed
+            };
+            
+            // Update current speed for UI if it changed
+            let old_speed = CURRENT_TTS_SPEED.swap(speed, Ordering::Relaxed);
+            if old_speed != speed {
+                unsafe {
+                    use crate::overlay::realtime_webview::state::TRANSLATION_HWND;
+                    use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
+                    use windows::Win32::Foundation::{WPARAM, LPARAM};
+                    if !REALTIME_HWND.is_invalid() {
+                        let _ = PostMessageW(Some(REALTIME_HWND), WM_UPDATE_TTS_SPEED, WPARAM(speed as usize), LPARAM(0));
+                    }
+                    if !TRANSLATION_HWND.is_invalid() {
+                        let _ = PostMessageW(Some(TRANSLATION_HWND), WM_UPDATE_TTS_SPEED, WPARAM(speed as usize), LPARAM(0));
+                    }
+                }
             }
+            speed
         } else {
             100 // Normal speed for non-realtime TTS
         };

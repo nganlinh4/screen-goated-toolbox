@@ -217,6 +217,13 @@ pub fn get(font_size: u32) -> String { format!(r###"        const container = do
             toggleTrans.classList.toggle('inactive', !trans);
         }};
         
+        // Function to update current TTS speed from native side
+        window.updateTtsSpeed = function(speed) {{
+            ttsSpeed = speed;
+            if (speedSlider) speedSlider.value = speed;
+            if (speedValue) speedValue.textContent = (speed / 100).toFixed(1) + 'x';
+        }};
+        
         // Font size controls
         fontDecrease.addEventListener('click', function(e) {{
             e.stopPropagation();
