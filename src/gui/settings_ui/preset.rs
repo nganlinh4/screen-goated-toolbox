@@ -410,9 +410,9 @@ pub fn render_preset_editor(
                 // Main Description - combined into one clear paragraph
                 let desc = if is_realtime {
                     match config.ui_language.as_str() {
-                        "vi" => "Chế độ này cung cấp phụ đề và dịch thuật trực tiếp theo thời gian thực.\n\nBạn có thể điều chỉnh cỡ chữ, nguồn âm thanh và ngôn ngữ dịch ngay trong cửa sổ kết quả.",
-                        "ko" => "이 모드는 실시간 자막 및 번역을 제공합니다.\n\n결과 창에서 글꼴 크기, 오디오 소스, 번역 언어를 직접 조정할 수 있습니다.",
-                        _ => "This mode provides real-time transcription and translation.\n\nYou can adjust font size, audio source, and translation language directly in the result window.",
+                        "vi" => "Chế độ này cung cấp phụ đề và dịch thuật trực tiếp theo thời gian thực.\nMã API của Gemini là bắt buộc, tính năng chỉ hoạt động tốt trên âm thanh có lời nói to rõ như podcast!\n\nBạn có thể điều chỉnh cỡ chữ, nguồn âm thanh và ngôn ngữ dịch ngay trong cửa sổ kết quả.",
+                        "ko" => "이 모드는 실시간 자막 및 번역을 제공합니다.\nGemini API 키가 필수이며, 명확한 음성이 있는 팟캐스트 같은 오디오에서 잘 작동합니다!\n\n결과 창에서 글꼴 크기, 오디오 소스, 번역 언어를 직접 조정할 수 있습니다.",
+                        _ => "This mode provides real-time transcription and translation.\nGemini API key is required, works best on audio with clear speech like podcasts!\n\nYou can adjust font size, audio source, and translation language directly in the result window.",
                     }
                 } else {
                     match config.ui_language.as_str() {
