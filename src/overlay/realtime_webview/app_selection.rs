@@ -90,6 +90,15 @@ pub fn show_app_selection_popup() {
     use windows::Win32::Graphics::Gdi::*;
     use windows::core::*;
     use std::sync::atomic::Ordering;
+    use crate::gui::locale::LocaleText;
+    use crate::APP;
+    
+    // Get locale text
+    let locale_text = {
+        let app = APP.lock().unwrap();
+        let lang = app.config.ui_language.clone();
+        LocaleText::get(&lang)
+    };
     
     // Get apps list
     let apps = enumerate_audio_apps();
@@ -111,7 +120,7 @@ pub fn show_app_selection_popup() {
             };
             format!(
                 r#"<div class="app-item" data-pid="{}" onclick="selectApp({}, '{}')">
-                    <span class="app-icon">🎵</span>
+                    <span class="material-symbols-rounded app-icon">music_note</span>
                     <div class="app-info">
                         <span class="app-name" title="{}">{}</span>
                         <span class="app-pid">PID: {}</span>
@@ -122,23 +131,76 @@ pub fn show_app_selection_popup() {
         })
         .collect();
     
-    let html = format!(r#"<!DOCTYPE html>
+    let html = format!(r##"<!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" />
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
             background: rgba(20, 20, 30, 0.98);
             color: #fff;
             padding: 20px;
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
+        }}
+        /* Loading overlay - covers content until fonts load, then fades out */
+        #loading-overlay {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgb(20, 20, 30);
+            z-index: 9999;
+            pointer-events: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            animation: fadeOut 0.4s ease-out 0.9s forwards;
+        }}
+        .loading-svg {{
+            width: 72px;
+            height: 72px;
+            filter: drop-shadow(0 0 12px #00c8ff90);
+            animation: breathe 2.5s ease-in-out infinite;
+        }}
+        @keyframes breathe {{
+            0%, 100% {{ 
+                transform: scale(1); 
+                opacity: 0.85;
+                filter: drop-shadow(0 0 8px #00c8ff60);
+            }}
+            50% {{ 
+                transform: scale(1.08); 
+                opacity: 1;
+                filter: drop-shadow(0 0 20px #00c8ff);
+            }}
+        }}
+        @keyframes fadeOut {{
+            from {{ opacity: 1; }}
+            to {{ opacity: 0; }}
+        }}
+        .material-symbols-rounded {{
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
         }}
         h1 {{
             font-size: 18px;
             font-weight: 500;
             margin-bottom: 8px;
             color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        h1 .material-symbols-rounded {{
+            font-size: 22px;
+            color: #00c8ff;
         }}
         .hint {{
             font-size: 12px;
@@ -176,6 +238,7 @@ pub fn show_app_selection_popup() {
             justify-content: center;
             background: rgba(100, 180, 255, 0.2);
             border-radius: 8px;
+            color: #00c8ff;
         }}
         .app-info {{
             flex: 1;
@@ -206,10 +269,15 @@ pub fn show_app_selection_popup() {
     </style>
 </head>
 <body>
-    <h1>🎧 Select App to Capture</h1>
-    <p class="hint">Choose the app whose audio you want to transcribe (TTS will be isolated)</p>
+    <div id="loading-overlay">
+        <svg class="loading-svg" viewBox="0 0 24 24" fill="none" stroke="#00c8ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path>
+        </svg>
+    </div>
+    <h1><span class="material-symbols-rounded">headphones</span> {app_title}</h1>
+    <p class="hint">{app_hint}</p>
     <div class="app-list">
-        {}
+        {app_list}
     </div>
     <script>
         function selectApp(pid, name) {{
@@ -217,7 +285,10 @@ pub fn show_app_selection_popup() {
         }}
     </script>
 </body>
-</html>"#, app_items.join("\n"));
+</html>"##, 
+        app_title = locale_text.app_select_title,
+        app_hint = locale_text.app_select_hint,
+        app_list = app_items.join("\n"));
     
     // Create popup window
     std::thread::spawn(move || {

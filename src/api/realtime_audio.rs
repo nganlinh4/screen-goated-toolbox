@@ -163,7 +163,6 @@ impl RealtimeState {
             if let (Some(s_rel), Some(t_rel)) = (src_clause_end, trn_clause_end) {
                 let s_abs = self.last_committed_pos + s_rel;
                 matches.push((s_abs, t_rel, true));
-                eprintln!("[Commit] PROACTIVE comma split: {} chars at pos {}", t_rel, t_rel);
             }
         }
         
@@ -208,8 +207,6 @@ impl RealtimeState {
         // (but clause splits already checked for 30 char minimum)
         if num_matches == 1 && !matches[0].2 && self.uncommitted_translation.len() < 50 {
             num_to_commit = 0; // Wait for more text or another sentence
-            eprintln!("[Commit] Waiting - single short sentence ({} chars)", 
-                self.uncommitted_translation.len());
         }
 
         if num_to_commit > 0 {
@@ -221,11 +218,6 @@ impl RealtimeState {
             let trans_segment = self.uncommitted_translation[..final_trans_pos].trim().to_string();
             
             if !source_segment.is_empty() && !trans_segment.is_empty() {
-                eprintln!("[Commit] {} {} chars: \"{}...\"", 
-                    if is_clause { "CLAUSE" } else { "SENTENCE" },
-                    trans_segment.len(),
-                    trans_segment.chars().take(50).collect::<String>());
-                
                 // Add to history (Clean, stabilized context)
                 self.add_to_history(source_segment, trans_segment.clone());
                 
@@ -243,10 +235,7 @@ impl RealtimeState {
                 // Slice the uncommitted buffer
                 self.uncommitted_translation = self.uncommitted_translation[final_trans_pos..].trim().to_string();
                 
-                if !self.uncommitted_translation.is_empty() {
-                    eprintln!("[Commit] Remaining uncommitted: \"{}...\"", 
-                        self.uncommitted_translation.chars().take(30).collect::<String>());
-                }
+
             }
         }
         

@@ -145,6 +145,13 @@ pub struct LocaleText {
      pub tts_female: &'static str,
      pub tts_instructions_label: &'static str,
      pub tts_instructions_hint: &'static str,
+     // Realtime TTS modal
+     pub realtime_tts_title: &'static str,
+     pub realtime_tts_speed: &'static str,
+     pub realtime_tts_auto: &'static str,
+     // App selection modal
+     pub app_select_title: &'static str,
+     pub app_select_hint: &'static str,
      }
 
 impl LocaleText {
@@ -322,6 +329,13 @@ impl LocaleText {
                 tts_female: "Nữ",
                 tts_instructions_label: "Giọng điệu (tuỳ chọn):",
                 tts_instructions_hint: "VD: Nếu là tiếng Việt, hãy đọc giọng miền Tây.",
+                // Realtime TTS modal
+                realtime_tts_title: "Đọc phần Dịch",
+                realtime_tts_speed: "Tốc độ",
+                realtime_tts_auto: "Tự động",
+                // App selection modal
+                app_select_title: "Chọn Ứng Dụng",
+                app_select_hint: "Chọn ứng dụng cần ghi âm (TTS sẽ được tách riêng)",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -495,6 +509,13 @@ impl LocaleText {
                  tts_female: "여성",
                  tts_instructions_label: "톤 & 스타일 (선택):",
                  tts_instructions_hint: "예: 베트남어라면 \"지옹 미엔 떼이\" 억양으로 말해.",
+                // Realtime TTS modal
+                realtime_tts_title: "번역 읽기",
+                realtime_tts_speed: "속도",
+                realtime_tts_auto: "자동",
+                // App selection modal
+                app_select_title: "앱 선택",
+                app_select_hint: "녹음할 앱을 선택하세요 (TTS는 분리됨)",
                 },
                 _ => Self {
                  history_btn: "History",
@@ -668,6 +689,13 @@ impl LocaleText {
                 tts_female: "Female",
                 tts_instructions_label: "Tone & Style (Optional):",
                 tts_instructions_hint: "e.g. If it's Vietnamese, speak in a \"giọng miền Tây\" accent.",
+                // Realtime TTS modal
+                realtime_tts_title: "Read translation",
+                realtime_tts_speed: "Speed",
+                realtime_tts_auto: "AUTO",
+                // App selection modal
+                app_select_title: "Select App to Capture",
+                app_select_hint: "Choose the app whose audio you want to transcribe (TTS isolated)",
                 },
                 }
                 }
