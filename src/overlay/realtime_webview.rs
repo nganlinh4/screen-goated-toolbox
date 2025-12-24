@@ -45,6 +45,12 @@ lazy_static::lazy_static! {
     pub static ref MIC_VISIBLE: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     pub static ref TRANS_VISIBLE: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     
+    // --- Per-App Audio Capture State ---
+    /// Selected app's Process ID for per-app audio capture (0 = not selected / use mic)
+    pub static ref SELECTED_APP_PID: Arc<std::sync::atomic::AtomicU32> = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    /// Selected app's name for display in UI
+    pub static ref SELECTED_APP_NAME: Mutex<String> = Mutex::new(String::new());
+    
     // --- Realtime TTS State ---
     /// Enable/disable realtime TTS for committed translations
     pub static ref REALTIME_TTS_ENABLED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -118,14 +124,15 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
         .collect::<Vec<_>>()
         .join("\n");
     
-    // Audio source selector (only for transcription window) - simple toggle switch
+    // Audio source selector (only for transcription window) - mic toggle + app selector
     let audio_selector = if !is_translation {
         let is_device = audio_source == "device";
         format!(r#"
             <div class="btn-group">
-                <span class="material-symbols-rounded audio-icon {mic_active}" id="audio-toggle" data-value="mic" title="Microphone">mic</span>
-                <span class="material-symbols-rounded audio-icon {device_active}" data-value="device" title="System Audio">speaker_group</span>
+                <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone">mic</span>
+                <span class="material-symbols-rounded audio-icon {device_active}" id="app-select-btn" title="Select App to Capture">apps</span>
             </div>
+            <span id="selected-app-name" class="app-name-badge" style="display: none;"></span>
         "#, 
             mic_active = if !is_device { "active" } else { "" },
             device_active = if is_device { "active" } else { "" }
@@ -772,6 +779,118 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             min-width: 32px;
             text-align: right;
         }}
+        
+        /* App Selection Modal */
+        #app-modal {{
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(30, 30, 30, 0.98);
+            border: 1px solid #00c8ff80;
+            border-radius: 12px;
+            padding: 16px 20px;
+            z-index: 1000;
+            min-width: 280px;
+            max-width: 400px;
+            max-height: 70vh;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px #00c8ff30;
+        }}
+        #app-modal.show {{
+            display: block;
+            animation: modal-appear 0.2s ease-out;
+        }}
+        #app-modal-overlay {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 999;
+        }}
+        #app-modal-overlay.show {{
+            display: block;
+        }}
+        .app-modal-title {{
+            font-size: 13px;
+            font-weight: bold;
+            color: #00c8ff;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        .app-modal-hint {{
+            font-size: 10px;
+            color: #888;
+            margin-bottom: 12px;
+        }}
+        .app-list {{
+            max-height: 300px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #555 #2a2a2a;
+        }}
+        .app-list::-webkit-scrollbar {{
+            width: 6px;
+        }}
+        .app-list::-webkit-scrollbar-track {{
+            background: #2a2a2a;
+            border-radius: 3px;
+        }}
+        .app-list::-webkit-scrollbar-thumb {{
+            background: #555;
+            border-radius: 3px;
+        }}
+        .app-item {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-bottom: 4px;
+        }}
+        .app-item:hover {{
+            background: rgba(0, 200, 255, 0.15);
+        }}
+        .app-item .app-icon {{
+            font-size: 18px;
+            color: #00c8ff;
+        }}
+        .app-item .app-title {{
+            font-size: 12px;
+            color: #ccc;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }}
+        .app-item .app-pid {{
+            font-size: 9px;
+            color: #666;
+        }}
+        .app-loading {{
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+            padding: 20px;
+        }}
+        .app-name-badge {{
+            font-size: 10px;
+            color: #00c8ff;
+            background: rgba(0, 200, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 10px;
+            max-width: 80px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }}
     </style>
 </head>
 <body>
@@ -817,6 +936,18 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
                 <input type="range" class="speed-slider" id="speed-slider" min="50" max="200" value="100" step="10">
                 <span class="speed-value" id="speed-value">1.0x</span>
             </div>
+        </div>
+    </div>
+    <!-- App Selection Modal -->
+    <div id="app-modal-overlay"></div>
+    <div id="app-modal">
+        <div class="app-modal-title">
+            <span class="material-symbols-rounded">apps</span>
+            Select App to Capture
+        </div>
+        <div class="app-modal-hint">Choose an app to capture its audio (Windows 10+)</div>
+        <div id="app-list" class="app-list">
+            <div class="app-loading">Loading apps...</div>
         </div>
     </div>
     <script>
@@ -1047,24 +1178,92 @@ fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[Stri
             }}
         }});
         
-        // Audio Toggle Switch Logic - query all audio icons directly
-        const audioIcons = document.querySelectorAll('.audio-icon');
-        if (audioIcons.length) {{
-            audioIcons.forEach(icon => {{
-                icon.addEventListener('click', (e) => {{
-                    e.stopPropagation();
-                    e.preventDefault();
-                    
-                    // Update UI - toggle active class
-                    audioIcons.forEach(i => i.classList.remove('active'));
-                    icon.classList.add('active');
-                    
-                    // Send IPC
-                    const val = icon.getAttribute('data-value');
-                    window.ipc.postMessage('audioSource:' + val);
-                }});
+        // Mic Button Logic
+        const micBtn = document.getElementById('mic-btn');
+        const appSelectBtn = document.getElementById('app-select-btn');
+        const appModal = document.getElementById('app-modal');
+        const appModalOverlay = document.getElementById('app-modal-overlay');
+        const appList = document.getElementById('app-list');
+        const selectedAppName = document.getElementById('selected-app-name');
+        
+        if (micBtn) {{
+            micBtn.addEventListener('click', (e) => {{
+                e.stopPropagation();
+                e.preventDefault();
+                
+                // Switch to mic mode
+                micBtn.classList.add('active');
+                if (appSelectBtn) appSelectBtn.classList.remove('active');
+                if (selectedAppName) selectedAppName.style.display = 'none';
+                
+                window.ipc.postMessage('audioSource:mic');
             }});
         }}
+        
+        // App Selection Modal Logic
+        if (appSelectBtn && appModal && appModalOverlay) {{
+            appSelectBtn.addEventListener('click', (e) => {{
+                e.stopPropagation();
+                e.preventDefault();
+                
+                // Show modal and request app list from Rust
+                appModal.classList.add('show');
+                appModalOverlay.classList.add('show');
+                appList.innerHTML = '<div class="app-loading">Loading apps...</div>';
+                
+                // Request app list from Rust
+                window.ipc.postMessage('requestAppList');
+            }});
+            
+            appModalOverlay.addEventListener('click', () => {{
+                appModal.classList.remove('show');
+                appModalOverlay.classList.remove('show');
+            }});
+        }}
+        
+        // Function to populate app list (called from Rust)
+        window.populateAppList = function(apps) {{
+            if (!appList) return;
+            
+            if (!apps || apps.length === 0) {{
+                appList.innerHTML = '<div class="app-loading">No audio apps found</div>';
+                return;
+            }}
+            
+            appList.innerHTML = apps.map(app => `
+                <div class="app-item" data-pid="${{app.pid}}" data-name="${{app.name}}">
+                    <span class="material-symbols-rounded app-icon">play_circle</span>
+                    <span class="app-title">${{app.name}}</span>
+                    <span class="app-pid">PID: ${{app.pid}}</span>
+                </div>
+            `).join('');
+            
+            // Add click handlers
+            appList.querySelectorAll('.app-item').forEach(item => {{
+                item.addEventListener('click', (e) => {{
+                    e.stopPropagation();
+                    const pid = item.dataset.pid;
+                    const name = item.dataset.name;
+                    
+                    // Close modal
+                    appModal.classList.remove('show');
+                    appModalOverlay.classList.remove('show');
+                    
+                    // Update UI
+                    if (micBtn) micBtn.classList.remove('active');
+                    if (appSelectBtn) appSelectBtn.classList.add('active');
+                    if (selectedAppName) {{
+                        selectedAppName.textContent = name.length > 12 ? name.substring(0, 12) + '...' : name;
+                        selectedAppName.style.display = 'inline';
+                        selectedAppName.title = name;
+                    }}
+                    
+                    // Send selection to Rust
+                    window.ipc.postMessage('selectApp:' + pid + ':' + name);
+                }});
+            }});
+        }};
+
 
         // Language Select Logic - show short code when collapsed, full name when open
         const langSelect = document.getElementById('language-select');
@@ -1736,10 +1935,18 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                     crate::config::save_config(&app.config);
                 }
             } else if body.starts_with("audioSource:") {
-                // Audio source change - signal restart with new source
+                // Audio source change - switching to mic clears app selection
                 let source = body[12..].to_string();
                 if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
                     *new_source = source.clone();
+                }
+                
+                // Clear app selection when switching to mic
+                if source == "mic" {
+                    SELECTED_APP_PID.store(0, Ordering::SeqCst);
+                    if let Ok(mut name) = SELECTED_APP_NAME.lock() {
+                        name.clear();
+                    }
                 }
                 
                 // Save to config
@@ -1749,6 +1956,52 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                     crate::config::save_config(&app.config);
                 }
                 AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+            } else if body == "requestAppList" {
+                // Enumerate running apps and send to WebView
+                let apps = enumerate_audio_apps();
+                let hwnd_key = hwnd_for_ipc.0 as isize;
+                
+                // Build JSON array
+                let json_apps: Vec<String> = apps.iter()
+                    .map(|(pid, name)| {
+                        let escaped_name = name.replace('\\', "\\\\").replace('"', "\\\"");
+                        format!(r#"{{"pid":{},"name":"{}"}}"#, pid, escaped_name)
+                    })
+                    .collect();
+                let json_str = format!("[{}]", json_apps.join(","));
+                
+                // Send to WebView
+                let script = format!("if(window.populateAppList) window.populateAppList({});", json_str);
+                REALTIME_WEBVIEWS.with(|wvs| {
+                    if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
+            } else if body.starts_with("selectApp:") {
+                // User selected an app for per-app audio capture
+                let rest = &body[10..];
+                if let Some((pid_str, name)) = rest.split_once(':') {
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        SELECTED_APP_PID.store(pid, Ordering::SeqCst);
+                        if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
+                            *app_name = name.to_string();
+                        }
+                        
+                        // Set audio source to device (per-app capture)
+                        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                            *new_source = "device".to_string();
+                        }
+                        
+                        // Save to config
+                        {
+                            let mut app = APP.lock().unwrap();
+                            app.config.realtime_audio_source = "device".to_string();
+                            crate::config::save_config(&app.config);
+                        }
+                        
+                        AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+                    }
+                }
             } else if body.starts_with("language:") {
                 // Target language change - signal update
                 let lang = body[9..].to_string();
@@ -2080,3 +2333,77 @@ unsafe extern "system" fn translation_wnd_proc(hwnd: HWND, msg: u32, wparam: WPA
     }
 }
 
+/// Enumerate visible windows with titles for app selection
+/// Returns a list of (PID, Window Title) for apps that likely emit audio
+pub fn enumerate_audio_apps() -> Vec<(u32, String)> {
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    
+    let mut apps: Vec<(u32, String)> = Vec::new();
+    let mut seen_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    
+    unsafe {
+        // Callback to collect window info
+        let mut callback_data = (&mut apps, &mut seen_pids);
+        
+        extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            unsafe {
+                // Skip invisible windows
+                if !IsWindowVisible(hwnd).as_bool() {
+                    return BOOL(1);
+                }
+                
+                // Get window title
+                let mut title_buf = [0u16; 256];
+                let len = GetWindowTextW(hwnd, &mut title_buf);
+                if len == 0 {
+                    return BOOL(1);
+                }
+                
+                let title = String::from_utf16_lossy(&title_buf[..len as usize]);
+                
+                // Skip empty/system windows
+                if title.is_empty() || title == "Program Manager" || title == "Settings" {
+                    return BOOL(1);
+                }
+                
+                // Get process ID
+                let mut pid: u32 = 0;
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                
+                if pid == 0 {
+                    return BOOL(1);
+                }
+                
+                // Get callback data from lparam
+                let data = &mut *(lparam.0 as *mut (&mut Vec<(u32, String)>, &mut std::collections::HashSet<u32>));
+                let (apps, seen_pids) = data;
+                
+                // Skip if we've already seen this PID (one entry per app)
+                if seen_pids.contains(&pid) {
+                    return BOOL(1);
+                }
+                seen_pids.insert(pid);
+                
+                // Skip our own process
+                let our_pid = std::process::id();
+                if pid == our_pid {
+                    return BOOL(1);
+                }
+                
+                apps.push((pid, title));
+                
+                BOOL(1)
+            }
+        }
+        
+        let _ = EnumWindows(
+            Some(enum_callback),
+            LPARAM(&mut callback_data as *mut _ as isize)
+        );
+    }
+    
+    // Sort by title for better UX
+    apps.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    
+    apps
+}

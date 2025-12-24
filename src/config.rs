@@ -1246,6 +1246,7 @@ impl Default for Config {
             ollama_text_model: String::new(),
             tts_voice: default_tts_voice(),
             tts_speed: default_tts_speed(),
+            tts_output_device: String::new(),
         }
     }
 }

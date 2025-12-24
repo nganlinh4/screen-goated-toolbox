@@ -211,6 +211,11 @@ impl TtsManager {
         self.work_signal.notify_all();
         self.playback_signal.notify_all();
     }
+    
+    /// List available audio output devices (ID, Name)
+    pub fn get_output_devices() -> Vec<(String, String)> {
+        AudioPlayer::get_output_devices()
+    }
 }
 
 /// Initialize the TTS system - call this at app startup
@@ -800,26 +805,8 @@ impl AudioPlayer {
         // Activate IAudioClient
         let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
         
-        // Try to set exclusion
-        let client_res = client.cast::<IAudioClient2>();
-        if let Ok(client2) = client_res {
-             let mut props = AudioClientProperties::default();
-             props.cbSize = std::mem::size_of::<AudioClientProperties>() as u32;
-             props.bIsOffload = false.into();
-             // Communications category often works better for exclusion/ducking
-             props.eCategory = AudioCategory_Communications;
-             // AUDCLNT_STREAMOPTIONS_EXCLUDE_FROM_LOOPBACK (0x100)
-             props.Options = AUDCLNT_STREAMOPTIONS(0x100);
-             
-             if let Err(e) = client2.SetClientProperties(&props) {
-                 eprintln!("WASAPI: SetClientProperties (Exclusion) failed: {:?}", e);
-                 // Proceed anyway, as audio playback is better than silence, even if captured.
-             } else {
-                 eprintln!("WASAPI: SetClientProperties (Exclusion) success.");
-             }
-        } else {
-             eprintln!("WASAPI: IAudioClient2 not supported, skipping exclusion.");
-        }
+        // Note: We no longer try to exclude from loopback (AUDCLNT_STREAMOPTIONS_EXCLUDE_FROM_SESSION)
+        // because per-app audio capture solves this problem at the capture side instead.
 
         let mix_format_ptr = client.GetMixFormat()?;
         let mix_format = *mix_format_ptr;
