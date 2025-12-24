@@ -174,7 +174,7 @@ pub fn render_global_settings(
     render_usage_modal(ui, usage_stats, text, show_usage_modal, config.use_groq, config.use_gemini, config.use_openrouter, config.use_ollama);
 
     // === TTS SETTINGS MODAL ===
-    if render_tts_settings_modal(ui, config, text, show_tts_modal, cached_audio_devices) {
+    if render_tts_settings_modal(ui, config, text, show_tts_modal) {
         changed = true;
     }
 
@@ -513,7 +513,6 @@ fn render_tts_settings_modal(
     config: &mut Config,
     text: &LocaleText,
     show_modal: &mut bool,
-    cached_audio_devices: &std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
 ) -> bool {
     if !*show_modal {
         return false;
@@ -557,54 +556,26 @@ fn render_tts_settings_modal(
             ui.separator();
             ui.add_space(8.0);
             
-            ui.label(egui::RichText::new(text.tts_speed_label).strong());
-            ui.horizontal(|ui| {
-                if ui.radio_value(&mut config.tts_speed, "Slow".to_string(), text.tts_speed_slow).clicked() { changed = true; }
-                if ui.radio_value(&mut config.tts_speed, "Normal".to_string(), text.tts_speed_normal).clicked() { changed = true; }
-                if ui.radio_value(&mut config.tts_speed, "Fast".to_string(), text.tts_speed_fast).clicked() { changed = true; }
-            });
-            
-            ui.add_space(8.0);
-            
-            // Output Device Selector
-            ui.label(egui::RichText::new("Output Device").strong());
-            let devices = cached_audio_devices.lock().unwrap();
-            
-            let selected_text = if config.tts_output_device.is_empty() {
-                "Default Output".to_string()
-            } else {
-                devices.iter()
-                    .find(|(id, _)| *id == config.tts_output_device)
-                    .map(|(_, name)| name.clone())
-                    .unwrap_or_else(|| "Unknown / Disconnected".to_string())
-            };
-            
-            egui::ComboBox::from_id_salt("tts_output_device_combo")
-                .selected_text(selected_text)
-                .width(300.0)
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(config.tts_output_device.is_empty(), "Default Output").clicked() {
-                        config.tts_output_device = String::new();
-                        changed = true;
-                    }
-                    
-                    if !devices.is_empty() {
-                        ui.separator();
-                        for (id, name) in devices.iter() {
-                            let is_selected = config.tts_output_device == *id;
-                            if ui.selectable_label(is_selected, name).clicked() {
-                                config.tts_output_device = id.clone();
-                                changed = true;
-                            }
-                        }
-                    }
+            // Speed and Tone & Style side by side
+            ui.columns(2, |columns| {
+                // Left column: Speed
+                columns[0].label(egui::RichText::new(text.tts_speed_label).strong());
+                columns[0].horizontal(|ui| {
+                    if ui.radio_value(&mut config.tts_speed, "Slow".to_string(), text.tts_speed_slow).clicked() { changed = true; }
+                    if ui.radio_value(&mut config.tts_speed, "Normal".to_string(), text.tts_speed_normal).clicked() { changed = true; }
+                    if ui.radio_value(&mut config.tts_speed, "Fast".to_string(), text.tts_speed_fast).clicked() { changed = true; }
                 });
-            
-            if !config.tts_output_device.is_empty() {
-                ui.label(egui::RichText::new("Note: Restart required to change active stream.").size(10.0).color(egui::Color32::from_gray(150)));
-            }
-
-            ui.add_space(10.0);
+                
+                // Right column: Tone & Style Instructions
+                columns[1].label(egui::RichText::new(text.tts_instructions_label).strong());
+                if columns[1].add(
+                    egui::TextEdit::singleline(&mut config.tts_system_instructions)
+                        .desired_width(280.0)
+                        .hint_text(text.tts_instructions_hint)
+                ).changed() {
+                    changed = true;
+                }
+            });
             
             ui.add_space(10.0);
             ui.separator();

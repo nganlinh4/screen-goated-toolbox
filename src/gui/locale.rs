@@ -143,6 +143,8 @@ pub struct LocaleText {
      pub tts_preview_texts: Vec<&'static str>,
      pub tts_male: &'static str,
      pub tts_female: &'static str,
+     pub tts_instructions_label: &'static str,
+     pub tts_instructions_hint: &'static str,
      }
 
 impl LocaleText {
@@ -318,6 +320,8 @@ impl LocaleText {
                 ],
                 tts_male: "Nam",
                 tts_female: "Nữ",
+                tts_instructions_label: "Giọng điệu (tuỳ chọn):",
+                tts_instructions_hint: "VD: Nếu là tiếng Việt, hãy đọc giọng miền Tây.",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -489,6 +493,8 @@ impl LocaleText {
                 ],
                  tts_male: "남성",
                  tts_female: "여성",
+                 tts_instructions_label: "톤 & 스타일 (선택):",
+                 tts_instructions_hint: "예: 베트남어라면 \"지옹 미엔 떼이\" 억양으로 말해.",
                 },
                 _ => Self {
                  history_btn: "History",
@@ -660,6 +666,8 @@ impl LocaleText {
                 ],
                 tts_male: "Male",
                 tts_female: "Female",
+                tts_instructions_label: "Tone & Style (Optional):",
+                tts_instructions_hint: "e.g. If it's Vietnamese, speak in a \"giọng miền Tây\" accent.",
                 },
                 }
                 }

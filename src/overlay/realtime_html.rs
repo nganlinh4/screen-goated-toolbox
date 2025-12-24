@@ -142,7 +142,6 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
                 <span class="speed-value" id="speed-value">1.0x</span>
                 <button class="auto-toggle on" id="auto-speed-toggle" title="Auto-adjust speed to catch up">Auto</button>
             </div>
-        </div>
     </div>
     <!-- App Selection Modal -->
     <div id="app-modal-overlay"></div>

@@ -315,11 +315,7 @@ fn connect_tts_websocket(api_key: &str) -> Result<tungstenite::WebSocket<native_
 }
 
 /// Send TTS setup message - configures for audio output only, no input transcription
-fn send_tts_setup(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>, voice_name: &str, speed: &str) -> Result<()> {
-    
-    // System instruction based on speed
-
-
+fn send_tts_setup(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>, voice_name: &str, speed: &str, custom_instructions: &str) -> Result<()> {
     // System instruction based on speed
     let mut system_text = "You are a text-to-speech reader. Your ONLY job is to read the user's text out loud, exactly as written, word for word. Do NOT respond conversationally. Do NOT add commentary. Do NOT ask questions. ".to_string();
     
@@ -328,6 +324,14 @@ fn send_tts_setup(socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpS
         "Fast" => system_text.push_str("Speak quickly, efficiently, and with a brisk pace. "),
         _ => system_text.push_str("Simply read the provided text aloud naturally and clearly. "),
     }
+    
+    // Append custom tone/style instructions if provided
+    if !custom_instructions.trim().is_empty() {
+        system_text.push_str(" Additional instructions: ");
+        system_text.push_str(custom_instructions.trim());
+        system_text.push(' ');
+    }
+    
     system_text.push_str("Start reading immediately.");
 
     let setup = serde_json::json!({
@@ -576,22 +580,23 @@ fn run_socket_worker() {
         };
         
         // Read config for setup - handle realtime vs regular TTS
-        let (current_voice, current_speed) = {
+        let (current_voice, current_speed, custom_instructions) = {
             let app = APP.lock().unwrap();
             let voice = app.config.tts_voice.clone();
+            let instructions = app.config.tts_system_instructions.clone();
             
             if request.req.is_realtime {
                 // For realtime TTS: AI always speaks at normal pace
                 // Playback speed adjustment is done in the audio player
-                (voice, "Normal".to_string())
+                (voice, "Normal".to_string(), instructions)
             } else {
                 // Regular TTS: Use app config speed
-                (voice, app.config.tts_speed.clone())
+                (voice, app.config.tts_speed.clone(), instructions)
             }
         };
 
         // Send setup
-        if let Err(e) = send_tts_setup(&mut socket, &current_voice, &current_speed) {
+        if let Err(e) = send_tts_setup(&mut socket, &current_voice, &current_speed, &custom_instructions) {
             eprintln!("TTS: Failed to send setup: {}", e);
             let _ = socket.close(None);
             let _ = tx.send(AudioEvent::End);

@@ -247,10 +247,13 @@ pub struct Config {
     pub tts_speed: String, // "Normal", "Slow", "Fast"
     #[serde(default)]
     pub tts_output_device: String, // Device ID
+    #[serde(default = "default_tts_system_instructions")]
+    pub tts_system_instructions: String, // Custom tone/style instructions
 }
 
 fn default_tts_voice() -> String { "Aoede".to_string() }
 fn default_tts_speed() -> String { "Fast".to_string() }
+fn default_tts_system_instructions() -> String { "If the text is in Vietnamese, speak in a \"giọng miền Tây\" accent.".to_string() }
 
 fn default_realtime_translation_model() -> String { "groq-llama".to_string() }
 fn default_realtime_font_size() -> u32 { 16 }
@@ -1247,6 +1250,7 @@ impl Default for Config {
             tts_voice: default_tts_voice(),
             tts_speed: default_tts_speed(),
             tts_output_device: String::new(),
+            tts_system_instructions: default_tts_system_instructions(),
         }
     }
 }
