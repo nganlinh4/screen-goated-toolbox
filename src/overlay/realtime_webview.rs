@@ -23,6 +23,8 @@ use crate::api::realtime_audio::{
     WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE, WM_VOLUME_UPDATE, WM_MODEL_SWITCH, REALTIME_RMS,
 };
 
+const WM_CLOSE_TTS_MODAL: u32 = 0x0400 + 400; // WM_USER + 400
+
 // Gap between realtime and translation overlays
 const GAP: i32 = 20;
 
@@ -58,6 +60,9 @@ lazy_static::lazy_static! {
     pub static ref REALTIME_TTS_SPEED: Arc<std::sync::atomic::AtomicU32> = Arc::new(std::sync::atomic::AtomicU32::new(100));
     /// Queue of committed translation text segments to speak
     pub static ref COMMITTED_TRANSLATION_QUEUE: Mutex<std::collections::VecDeque<String>> = Mutex::new(std::collections::VecDeque::new());
+    
+    // --- Window Handle for App Selection ---
+    pub static ref APP_SELECTION_HWND: Arc<std::sync::atomic::AtomicIsize> = Arc::new(std::sync::atomic::AtomicIsize::new(0));
     /// Track how much of the committed text has been sent to TTS
     pub static ref LAST_SPOKEN_LENGTH: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 }
@@ -1551,6 +1556,14 @@ pub fn is_realtime_overlay_active() -> bool {
 /// Stop the realtime overlay and close all windows
 pub fn stop_realtime_overlay() {
     unsafe {
+        // Close app selection popup if open
+        let popup_val = APP_SELECTION_HWND.load(std::sync::atomic::Ordering::SeqCst);
+        if popup_val != 0 {
+             let popup_hwnd = HWND(popup_val as *mut std::ffi::c_void);
+             let _ = PostMessageW(Some(popup_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+             APP_SELECTION_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
+        }
+
         if !REALTIME_HWND.is_invalid() {
             let _ = PostMessageW(Some(REALTIME_HWND), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
@@ -2013,6 +2026,14 @@ fn create_realtime_webview(hwnd: HWND, is_translation: bool, audio_source: &str,
                     // IMMEDIATELY stop TTS (cut off mid-sentence to prevent capture)
                     crate::api::tts::TTS_MANAGER.stop();
                     
+                    // Close app selection popup if open
+                    let popup_hwnd_val = APP_SELECTION_HWND.load(Ordering::SeqCst);
+                    if popup_hwnd_val != 0 {
+                        let popup_hwnd = windows::Win32::Foundation::HWND(popup_hwnd_val as *mut std::ffi::c_void);
+                        let _ = unsafe { windows::Win32::UI::WindowsAndMessaging::PostMessageW(Some(popup_hwnd), windows::Win32::UI::WindowsAndMessaging::WM_CLOSE, windows::Win32::Foundation::WPARAM(0), windows::Win32::Foundation::LPARAM(0)) };
+                        APP_SELECTION_HWND.store(0, Ordering::SeqCst);
+                    }
+                    
                     LAST_SPOKEN_LENGTH.store(0, Ordering::SeqCst);
                     // Clear any queued translations
                     if let Ok(mut queue) = COMMITTED_TRANSLATION_QUEUE.lock() {
@@ -2276,6 +2297,18 @@ unsafe extern "system" fn translation_wnd_proc(hwnd: HWND, msg: u32, wparam: WPA
             });
             LRESULT(0)
         }
+        WM_CLOSE_TTS_MODAL => {
+            // Close the TTS settings modal in the WebView
+            let hwnd_key = hwnd.0 as isize;
+            let script = "if(document.getElementById('tts-modal')) { document.getElementById('tts-modal').classList.remove('show'); document.getElementById('tts-modal-overlay').classList.remove('show'); }";
+            
+            REALTIME_WEBVIEWS.with(|wvs| {
+                if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                    let _ = webview.evaluate_script(script);
+                }
+            });
+            LRESULT(0)
+        }
         WM_CLOSE => {
             REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
             DestroyWindow(hwnd);
@@ -2503,6 +2536,9 @@ pub fn show_app_selection_popup() {
     // Create popup window
     std::thread::spawn(move || {
         unsafe {
+            use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND};
+            use windows::Win32::UI::WindowsAndMessaging::{WS_CLIPCHILDREN, ShowWindow, SW_HIDE};
+            
             // Register window class
             let class_name = w!("AppSelectPopup");
             let h_instance = GetModuleHandleW(None).unwrap_or_default();
@@ -2531,7 +2567,7 @@ pub fn show_app_selection_popup() {
                 WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                 class_name,
                 w!("Select App"),
-                WS_POPUP | WS_VISIBLE,
+                WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN,
                 x, y, win_width, win_height,
                 None,
                 None,
@@ -2539,11 +2575,27 @@ pub fn show_app_selection_popup() {
                 None,
             ).unwrap();
             
+            // Store handle for external closing
+            APP_SELECTION_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+            
+            // Apply rounded corners
+            let preference = DWMWCP_ROUND;
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &preference as *const _ as *const _,
+                std::mem::size_of::<u32>() as u32,
+            );
+            
             // Create WebView2
             let html_clone = html.clone();
             let hwnd_val = hwnd.0 as isize;
             
             let result = wry::WebViewBuilder::new()
+                .with_bounds(wry::Rect {
+                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(win_width as u32, win_height as u32)),
+                })
                 .with_html(&html_clone)
                 .with_transparent(true)
                 .with_ipc_handler(move |req| {
@@ -2557,7 +2609,6 @@ pub fn show_app_selection_popup() {
                                 if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
                                     *app_name = name.to_string();
                                 }
-                                eprintln!("User selected app: PID {} ({})", pid, name);
                                 
                                 // Set audio source to trigger restart (must set this for restart to work!)
                                 if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
@@ -2565,9 +2616,17 @@ pub fn show_app_selection_popup() {
                                 }
                                 AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
                                 
-                                // Close popup window
                                 let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-                                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                                unsafe {
+                                    // Close native popup
+                                    let _ = ShowWindow(hwnd, SW_HIDE);
+                                    let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                                    
+                                    // Close TTS Modal in translation window (if exists)
+                                    if !TRANSLATION_HWND.is_invalid() {
+                                        let _ = PostMessageW(Some(TRANSLATION_HWND), WM_CLOSE_TTS_MODAL, WPARAM(0), LPARAM(0));
+                                    }
+                                }
                             }
                         }
                     }
@@ -2579,6 +2638,9 @@ pub fn show_app_selection_popup() {
                 let _ = DestroyWindow(hwnd);
                 return;
             }
+            
+            // Keep WebView alive
+            let _webview = result.unwrap();
             
             // Message loop
             let mut msg = MSG::default();
@@ -2604,7 +2666,19 @@ unsafe extern "system" fn app_select_wndproc(
             LRESULT(0)
         }
         WM_DESTROY => {
+            APP_SELECTION_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
             PostQuitMessage(0);
+            LRESULT(0)
+        }
+        WM_SIZE => {
+            // Resize child (WebView) to match parent
+            let width = (lparam.0 & 0xFFFF) as i32;
+            let height = ((lparam.0 >> 16) & 0xFFFF) as i32;
+            if let Ok(child) = GetWindow(hwnd, GW_CHILD) {
+                if child.0 != std::ptr::null_mut() {
+                    let _ = MoveWindow(child, 0, 0, width, height, true);
+                }
+            }
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
