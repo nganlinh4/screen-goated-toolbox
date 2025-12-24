@@ -129,18 +129,15 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
     <div id="tts-modal">
         <div class="tts-modal-title">
             <span class="material-symbols-rounded">volume_up</span>
-            Text-to-Speech
+            {tts_title}
+            <div class="toggle-switch" id="tts-toggle" style="margin-left: auto;"></div>
         </div>
         <div class="tts-modal-row">
-            <span class="tts-modal-label">Speak translations</span>
-            <div class="toggle-switch" id="tts-toggle"></div>
-        </div>
-        <div class="tts-modal-row">
-            <span class="tts-modal-label">Speed</span>
+            <span class="tts-modal-label">{tts_speed}</span>
             <div class="speed-slider-container">
                 <input type="range" class="speed-slider" id="speed-slider" min="50" max="200" value="100" step="10">
                 <span class="speed-value" id="speed-value">1.0x</span>
-                <button class="auto-toggle on" id="auto-speed-toggle" title="Auto-adjust speed to catch up">Auto</button>
+                <button class="auto-toggle on" id="auto-speed-toggle" title="Auto-adjust speed to catch up">{tts_auto}</button>
             </div>
     </div>
     <!-- App Selection Modal -->
@@ -148,11 +145,11 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
     <div id="app-modal">
         <div class="app-modal-title">
             <span class="material-symbols-rounded">apps</span>
-            Select App to Capture
+            {app_select_title}
         </div>
-        <div class="app-modal-hint">Choose an app to capture its audio (Windows 10+)</div>
+        <div class="app-modal-hint">{app_select_hint}</div>
         <div id="app-list" class="app-list">
-            <div class="app-loading">Loading apps...</div>
+            <div class="app-loading">Loading...</div>
         </div>
     </div>
     <script>
@@ -166,5 +163,10 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
         title_content = title_content,
         audio_selector = audio_selector,
         placeholder_text = placeholder_text,
+        tts_title = text.realtime_tts_title,
+        tts_speed = text.realtime_tts_speed,
+        tts_auto = text.realtime_tts_auto,
+        app_select_title = text.app_select_title,
+        app_select_hint = text.app_select_hint,
     )
 }

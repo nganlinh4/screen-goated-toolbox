@@ -57,6 +57,7 @@ pub fn get() -> String { r###"
         .tts-modal-label {
             font-size: 12px;
             color: #aaa;
+            white-space: nowrap;
         }
         /* Toggle Switch */
         .toggle-switch {
@@ -139,6 +140,7 @@ pub fn get() -> String { r###"
             background: linear-gradient(135deg, #ff9633 0%, #ff6b00 100%);
             border-color: #ff9633;
             color: #fff;
+            white-space: nowrap;
         }
         
         /* App Selection Modal */
@@ -157,6 +159,7 @@ pub fn get() -> String { r###"
             max-width: 400px;
             max-height: 70vh;
             box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px #00c8ff30;
+            overflow: hidden;
         }
         #app-modal.show {
             display: block !important;
