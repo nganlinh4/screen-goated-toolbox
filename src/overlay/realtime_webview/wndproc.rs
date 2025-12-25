@@ -95,7 +95,7 @@ pub unsafe extern "system" fn translation_wnd_proc(hwnd: HWND, msg: u32, wparam:
     match msg {
         WM_TRANSLATION_UPDATE => {
             // Get old (committed) and new (uncommitted) translation from state
-            let (old_text, new_text) = {
+            let (old_text, new_text): (String, String) = {
                 if let Ok(state) = REALTIME_STATE.lock() {
                     let old = state.committed_translation.trim_end();
                     let new = state.uncommitted_translation.trim_start();
