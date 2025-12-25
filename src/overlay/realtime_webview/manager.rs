@@ -113,6 +113,15 @@ pub fn show_realtime_overlay(preset_idx: usize) {
         "English".to_string()
     };
         
+        // Initialize NEW_AUDIO_SOURCE so TTS checks use correct source from start
+        // This is CRITICAL: if device mode but NEW_AUDIO_SOURCE is empty, TTS would be
+        // incorrectly allowed without app selection (since empty defaults to mic mode)
+        if !config_audio_source.is_empty() {
+            if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                *new_source = config_audio_source.clone();
+            }
+        }
+        
         // Initialize NEW_TARGET_LANGUAGE so translation loop uses saved language from start
         if !target_language.is_empty() {
             if let Ok(mut new_lang) = NEW_TARGET_LANGUAGE.lock() {
