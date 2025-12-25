@@ -28,6 +28,9 @@ const TRANSLATION_INTERVAL_MS: u64 = 1500;
 /// Model for realtime audio transcription
 const REALTIME_MODEL: &str = "gemini-2.5-flash-native-audio-preview-12-2025";
 
+/// Timeout for auto-committing sentences when no new words arrive (milliseconds)
+const SENTENCE_COMMIT_TIMEOUT_MS: u64 = 1000;
+
 /// Shared state for realtime transcription
 pub struct RealtimeState {
     /// Full transcript (used for translation and display)
@@ -50,6 +53,9 @@ pub struct RealtimeState {
     /// Translation history for conversation context: (source_text, translation)
     /// Keeps last 3 entries to maintain consistent style/atmosphere
     pub translation_history: Vec<(String, String)>,
+    
+    /// Timestamp of when transcript was last appended (for timeout-based commit)
+    pub last_transcript_append_time: Instant,
 }
 
 impl RealtimeState {
@@ -63,6 +69,7 @@ impl RealtimeState {
             uncommitted_translation: String::new(),
             display_translation: String::new(),
             translation_history: Vec::new(),
+            last_transcript_append_time: Instant::now(),
         }
     }
     
@@ -89,7 +96,76 @@ impl RealtimeState {
     /// Append new transcript text and update display
     pub fn append_transcript(&mut self, new_text: &str) {
         self.full_transcript.push_str(new_text);
+        self.last_transcript_append_time = Instant::now();
         self.update_display_transcript();
+    }
+    
+    /// Check if uncommitted source text ends with a sentence delimiter
+    pub fn source_ends_with_sentence(&self) -> bool {
+        let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
+        if self.last_committed_pos >= self.full_transcript.len() {
+            return false;
+        }
+        let uncommitted_source = &self.full_transcript[self.last_committed_pos..];
+        uncommitted_source.trim().chars().last()
+            .map(|c| sentence_delimiters.contains(&c))
+            .unwrap_or(false)
+    }
+    
+    /// Check if we should force-commit due to timeout
+    /// Returns true if: uncommitted translation exists, AND either:
+    /// - Source ends with sentence delimiter, OR
+    /// - Transcription is already fully committed (translation lagging)
+    /// AND no new words for 1+ second
+    pub fn should_force_commit_on_timeout(&self) -> bool {
+        if self.uncommitted_translation.is_empty() {
+            return false;
+        }
+        
+        // Either source ends with sentence OR transcription is fully committed (translation lagging)
+        let source_ready = self.source_ends_with_sentence() 
+            || self.last_committed_pos >= self.full_transcript.len();
+        
+        source_ready && self.last_transcript_append_time.elapsed() > Duration::from_millis(SENTENCE_COMMIT_TIMEOUT_MS)
+    }
+    
+    /// Force commit all uncommitted content (used for timeout-based commit)
+    /// This bypasses the normal sentence-matching logic and commits everything as-is
+    pub fn force_commit_all(&mut self) {
+        if self.uncommitted_translation.is_empty() {
+            return;
+        }
+        
+        let trans_segment = self.uncommitted_translation.trim().to_string();
+        
+        if !trans_segment.is_empty() {
+            // Get source segment for history (may be empty if transcription already committed)
+            let source_segment = if self.last_committed_pos < self.full_transcript.len() {
+                self.full_transcript[self.last_committed_pos..].trim().to_string()
+            } else {
+                // Transcription already committed - use a placeholder for history
+                "[continued]".to_string()
+            };
+            
+            // Add to history (for translation context continuity)
+            self.add_to_history(source_segment, trans_segment.clone());
+            
+            // Append to committed translation
+            if self.committed_translation.is_empty() {
+                self.committed_translation = trans_segment;
+            } else {
+                self.committed_translation.push(' ');
+                self.committed_translation.push_str(&trans_segment);
+            }
+            
+            // Update commit pointer to end of transcript (in case it wasn't already)
+            self.last_committed_pos = self.full_transcript.len();
+            
+            // Clear uncommitted
+            self.uncommitted_translation.clear();
+        }
+        
+        self.update_display_translation();
     }
     
     /// Get text to translate: from last_committed_pos to end
@@ -127,7 +203,8 @@ impl RealtimeState {
     /// Matches sentence delimiters between source and translation, then commits all matched pairs.
     /// For long sentences, PROACTIVELY uses commas as split points before waiting for sentence end.
     /// Uses a low-threshold pressure valve for single sentences to avoid excessive re-translation.
-    pub fn commit_finished_sentences(&mut self) {
+    /// Returns true if any sentences were committed.
+    pub fn commit_finished_sentences(&mut self) -> bool {
         let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
         let clause_delimiters = [',', ';', ':', '，', '；', '：'];
         
@@ -209,9 +286,10 @@ impl RealtimeState {
             num_to_commit = 0; // Wait for more text or another sentence
         }
 
+        let mut did_commit = false;
         if num_to_commit > 0 {
             // Get the boundary of the last item we are committing
-            let (final_src_pos, final_trans_pos, is_clause) = matches[num_to_commit - 1];
+            let (final_src_pos, final_trans_pos, _is_clause) = matches[num_to_commit - 1];
             
             // Extract the text chunk we are committing
             let source_segment = self.full_transcript[self.last_committed_pos..final_src_pos].trim().to_string();
@@ -235,11 +313,12 @@ impl RealtimeState {
                 // Slice the uncommitted buffer
                 self.uncommitted_translation = self.uncommitted_translation[final_trans_pos..].trim().to_string();
                 
-
+                did_commit = true;
             }
         }
         
         self.update_display_translation();
+        did_commit
     }
     
     /// Start new translation (clears uncommitted, keeps committed)
@@ -1354,6 +1433,26 @@ fn run_translation_loop(
             crate::overlay::realtime_webview::TRANSLATION_MODEL_CHANGE.store(false, Ordering::SeqCst);
         }
         
+        // First: Check timeout-based commit on EVERY iteration (every ~100ms)
+        // This ensures sentences with periods get committed within ~1.1 seconds of silence
+        {
+            let should_force = {
+                let s = state.lock().unwrap();
+                s.should_force_commit_on_timeout()
+            };
+            
+            if should_force {
+                if let Ok(mut s) = state.lock() {
+                    s.force_commit_all();
+                    let display = s.display_translation.clone();
+                    update_translation_text(translation_hwnd, &display);
+                    
+                    // ALSO update transcription window - its old/new split depends on last_committed_pos
+                    refresh_transcription_window();
+                }
+            }
+        }
+        
         if last_run.elapsed() >= interval {
             // Check visibility - avoid burning API requests if hidden
             if !crate::overlay::realtime_webview::TRANS_VISIBLE.load(Ordering::SeqCst) {
@@ -1426,7 +1525,9 @@ fn run_translation_loop(
                             s.append_translation(&text);
                             let display = s.display_translation.clone();
                             update_translation_text(translation_hwnd, &display);
-                            if has_finished { s.commit_finished_sentences(); }
+                            if has_finished && s.commit_finished_sentences() {
+                                refresh_transcription_window();
+                            }
                         }
                     } else {
                         primary_failed = true;
@@ -1521,7 +1622,11 @@ fn run_translation_loop(
                                     }
                                 }
                                 if has_finished && !full_translation.is_empty() {
-                                    if let Ok(mut s) = state.lock() { s.commit_finished_sentences(); }
+                                    if let Ok(mut s) = state.lock() {
+                                        if s.commit_finished_sentences() {
+                                            refresh_transcription_window();
+                                        }
+                                    }
                                 }
                             }
                             Err(_) => { primary_failed = true; }
@@ -1564,7 +1669,9 @@ fn run_translation_loop(
                                     s.append_translation(&text);
                                     let display = s.display_translation.clone();
                                     update_translation_text(translation_hwnd, &display);
-                                    if has_finished { s.commit_finished_sentences(); }
+                                    if has_finished && s.commit_finished_sentences() {
+                                        refresh_transcription_window();
+                                    }
                                 }
                             }
                         } else {
@@ -1626,7 +1733,11 @@ fn run_translation_loop(
                                         }
                                     }
                                     if has_finished && !full_t.is_empty() {
-                                        if let Ok(mut s) = state.lock() { s.commit_finished_sentences(); }
+                                        if let Ok(mut s) = state.lock() {
+                                            if s.commit_finished_sentences() {
+                                                refresh_transcription_window();
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1679,6 +1790,16 @@ fn update_translation_text(hwnd: HWND, text: &str) {
     // Post message to trigger repaint
     unsafe {
         let _ = PostMessageW(Some(hwnd), WM_TRANSLATION_UPDATE, WPARAM(0), LPARAM(0));
+    }
+}
+
+/// Trigger transcription window refresh (update old/new split after commit)
+fn refresh_transcription_window() {
+    unsafe {
+        let realtime_hwnd = crate::overlay::realtime_webview::REALTIME_HWND;
+        if !realtime_hwnd.is_invalid() {
+            let _ = PostMessageW(Some(realtime_hwnd), WM_REALTIME_UPDATE, WPARAM(0), LPARAM(0));
+        }
     }
 }
 
