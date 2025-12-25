@@ -2,6 +2,23 @@ use windows::Win32::Foundation::{RECT, HWND};
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindow};
 use super::state::{ResizeEdge, WINDOW_STATES};
 
+/// Minimum width threshold for showing buttons.
+/// When overlay width is below this value, buttons are hidden to avoid
+/// overlapping with the broom cursor and content.
+/// When only height is small but width is adequate, buttons are shown
+/// since they're positioned on the right side and center-aligned vertically.
+const MIN_WIDTH_FOR_BUTTONS: i32 = 200;
+
+/// Determine if overlay buttons should be displayed based on window dimensions.
+/// - Returns false when width is too small (would overlap with broom cursor/content)
+/// - Returns true when width is adequate, even if height is small (buttons are right-aligned, center-vertical)
+pub fn should_show_buttons(window_w: i32, _window_h: i32) -> bool {
+    // Only check width - height doesn't matter because buttons are:
+    // 1. Right-aligned (don't interfere with left-side content)
+    // 2. Vertically center-aligned (adapt to any height)
+    window_w >= MIN_WIDTH_FOR_BUTTONS
+}
+
 /// Check if two RECTs overlap (with a gap margin)
 fn rects_overlap(a: &RECT, b: &RECT, gap: i32) -> bool {
     // Expand both rects by gap/2 to account for minimum gap between windows

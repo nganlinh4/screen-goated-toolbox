@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::overlay::utils::to_wstring;
 use super::state::{WINDOW_STATES, InteractionMode, ResizeEdge, RefineContext};
-use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_redo_btn_rect, get_markdown_btn_rect, get_download_btn_rect, get_speaker_btn_rect, get_resize_edge};
+use super::layout::{get_copy_btn_rect, get_edit_btn_rect, get_undo_btn_rect, get_redo_btn_rect, get_markdown_btn_rect, get_download_btn_rect, get_speaker_btn_rect, get_resize_edge, should_show_buttons};
 use super::logic;
 use super::paint;
 
@@ -77,54 +77,57 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                 ResizeEdge::TopLeft | ResizeEdge::BottomRight => cursor_id = IDC_SIZENWSE,
                 ResizeEdge::TopRight | ResizeEdge::BottomLeft => cursor_id = IDC_SIZENESW,
                 ResizeEdge::None => {
-                    let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
-                    let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
-                    let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
-                    
-                    let on_copy = pt.x >= copy_rect.left && pt.x <= copy_rect.right && pt.y >= copy_rect.top && pt.y <= copy_rect.bottom;
-                    let on_edit = pt.x >= edit_rect.left && pt.x <= edit_rect.right && pt.y >= edit_rect.top && pt.y <= edit_rect.bottom;
-                    
-                    let mut has_history = false;
-                    let mut is_browsing = false;
-                    {
-                        let states = WINDOW_STATES.lock().unwrap();
-                        if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                            has_history = !state.text_history.is_empty();
-                            is_browsing = state.is_browsing;
+                    // Only show hand cursor on buttons if overlay is large enough to display them
+                    if should_show_buttons(rect.right, rect.bottom) {
+                        let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
+                        let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
+                        let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
+                        
+                        let on_copy = pt.x >= copy_rect.left && pt.x <= copy_rect.right && pt.y >= copy_rect.top && pt.y <= copy_rect.bottom;
+                        let on_edit = pt.x >= edit_rect.left && pt.x <= edit_rect.right && pt.y >= edit_rect.top && pt.y <= edit_rect.bottom;
+                        
+                        let mut has_history = false;
+                        let mut is_browsing = false;
+                        {
+                            let states = WINDOW_STATES.lock().unwrap();
+                            if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                                has_history = !state.text_history.is_empty();
+                                is_browsing = state.is_browsing;
+                            }
                         }
-                    }
-                    
-                    // Manual calc for Back button rect
-                    let btn_size = 28;
-                    let margin = 12;
-                    let threshold_h = btn_size + (margin * 2);
-                    let cy = if rect.bottom < threshold_h {
-                        (rect.bottom as f32) / 2.0
-                    } else {
-                        (rect.bottom - margin - btn_size / 2) as f32
-                    };
-                    let cx_back = (margin + btn_size / 2) as i32;
-                    let cy_back = cy as i32;
-                    let back_rect = RECT { 
-                        left: cx_back - 14, top: cy_back - 14, 
-                        right: cx_back + 14, bottom: cy_back + 14 
-                    };
-                    
-                    let on_back = is_browsing && pt.x >= back_rect.left && pt.x <= back_rect.right && pt.y >= back_rect.top && pt.y <= back_rect.bottom;
-                    
-                    let on_undo = has_history && pt.x >= undo_rect.left && pt.x <= undo_rect.right && pt.y >= undo_rect.top && pt.y <= undo_rect.bottom;
-                    
-                    let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
-                    let on_md = pt.x >= md_rect.left && pt.x <= md_rect.right && pt.y >= md_rect.top && pt.y <= md_rect.bottom;
-                    
-                    let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
-                    let on_dl = pt.x >= dl_rect.left && pt.x <= dl_rect.right && pt.y >= dl_rect.top && pt.y <= dl_rect.bottom;
-                    
-                    let speaker_rect = get_speaker_btn_rect(rect.right, rect.bottom);
-                    let on_speaker = pt.x >= speaker_rect.left && pt.x <= speaker_rect.right && pt.y >= speaker_rect.top && pt.y <= speaker_rect.bottom;
-                    
-                    if on_copy || on_edit || on_undo || on_md || on_back || on_dl || on_speaker {
-                        cursor_id = IDC_HAND;
+                        
+                        // Manual calc for Back button rect
+                        let btn_size = 28;
+                        let margin = 12;
+                        let threshold_h = btn_size + (margin * 2);
+                        let cy = if rect.bottom < threshold_h {
+                            (rect.bottom as f32) / 2.0
+                        } else {
+                            (rect.bottom - margin - btn_size / 2) as f32
+                        };
+                        let cx_back = (margin + btn_size / 2) as i32;
+                        let cy_back = cy as i32;
+                        let back_rect = RECT { 
+                            left: cx_back - 14, top: cy_back - 14, 
+                            right: cx_back + 14, bottom: cy_back + 14 
+                        };
+                        
+                        let on_back = is_browsing && pt.x >= back_rect.left && pt.x <= back_rect.right && pt.y >= back_rect.top && pt.y <= back_rect.bottom;
+                        
+                        let on_undo = has_history && pt.x >= undo_rect.left && pt.x <= undo_rect.right && pt.y >= undo_rect.top && pt.y <= undo_rect.bottom;
+                        
+                        let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
+                        let on_md = pt.x >= md_rect.left && pt.x <= md_rect.right && pt.y >= md_rect.top && pt.y <= md_rect.bottom;
+                        
+                        let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
+                        let on_dl = pt.x >= dl_rect.left && pt.x <= dl_rect.right && pt.y >= dl_rect.top && pt.y <= dl_rect.bottom;
+                        
+                        let speaker_rect = get_speaker_btn_rect(rect.right, rect.bottom);
+                        let on_speaker = pt.x >= speaker_rect.left && pt.x <= speaker_rect.right && pt.y >= speaker_rect.top && pt.y <= speaker_rect.bottom;
+                        
+                        if on_copy || on_edit || on_undo || on_md || on_back || on_dl || on_speaker {
+                            cursor_id = IDC_HAND;
+                        }
                     }
                 }
             }
@@ -259,73 +262,88 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
                     state.physics.x = x;
                     state.physics.y = y;
                     
-                    let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
-                    let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
-                    let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
-                    let padding = 4;
-                    state.on_copy_btn = x as i32 >= copy_rect.left - padding && x as i32 <= copy_rect.right + padding && y as i32 >= copy_rect.top - padding && y as i32 <= copy_rect.bottom + padding;
-                    state.on_edit_btn = x as i32 >= edit_rect.left - padding && x as i32 <= edit_rect.right + padding && y as i32 >= edit_rect.top - padding && y as i32 <= edit_rect.bottom + padding;
-                    if !state.text_history.is_empty() && !state.is_browsing {
-                        state.on_undo_btn = x as i32 >= undo_rect.left - padding && x as i32 <= undo_rect.right + padding && y as i32 >= undo_rect.top - padding && y as i32 <= undo_rect.bottom + padding;
-                    } else {
-                        state.on_undo_btn = false;
-                    }
-                    
-                    // Redo button hover state
-                    let redo_rect = get_redo_btn_rect(rect.right, rect.bottom);
-                    if !state.redo_history.is_empty() && !state.is_browsing {
-                        state.on_redo_btn = x as i32 >= redo_rect.left - padding && x as i32 <= redo_rect.right + padding && y as i32 >= redo_rect.top - padding && y as i32 <= redo_rect.bottom + padding;
-                    } else {
-                        state.on_redo_btn = false;
-                    }
-                    
-                    // Calc Back and Forward Button state (only when browsing)
-                    if state.is_browsing {
-                         let btn_size = 28;
-                         let margin = 12;
-                         let threshold_h = btn_size + (margin * 2);
-                         let cy = if rect.bottom < threshold_h {
-                            (rect.bottom as f32) / 2.0
+                    // Only process button hover states if overlay is large enough to show buttons
+                    if should_show_buttons(rect.right, rect.bottom) {
+                        let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
+                        let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
+                        let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
+                        let padding = 4;
+                        state.on_copy_btn = x as i32 >= copy_rect.left - padding && x as i32 <= copy_rect.right + padding && y as i32 >= copy_rect.top - padding && y as i32 <= copy_rect.bottom + padding;
+                        state.on_edit_btn = x as i32 >= edit_rect.left - padding && x as i32 <= edit_rect.right + padding && y as i32 >= edit_rect.top - padding && y as i32 <= edit_rect.bottom + padding;
+                        if !state.text_history.is_empty() && !state.is_browsing {
+                            state.on_undo_btn = x as i32 >= undo_rect.left - padding && x as i32 <= undo_rect.right + padding && y as i32 >= undo_rect.top - padding && y as i32 <= undo_rect.bottom + padding;
                         } else {
-                            (rect.bottom - margin - btn_size / 2) as f32
-                        };
-                        
-                        // Back button (left side)
-                        let cx_back = (margin + btn_size / 2) as i32;
-                        let cy_back = cy as i32;
-                        let l = cx_back - 14 - padding;
-                        let r = cx_back + 14 + padding;
-                        let t = cy_back - 14 - padding;
-                        let b = cy_back + 14 + padding;
-                        state.on_back_btn = x as i32 >= l && x as i32 <= r && y as i32 >= t && y as i32 <= b;
-                        
-                        // Forward button (right side)
-                        if state.navigation_depth < state.max_navigation_depth {
-                            let cx_forward = (rect.right - margin - btn_size / 2) as i32;
-                            let lf = cx_forward - 14 - padding;
-                            let rf = cx_forward + 14 + padding;
-                            state.on_forward_btn = x as i32 >= lf && x as i32 <= rf && y as i32 >= t && y as i32 <= b;
-                        } else {
-                            state.on_forward_btn = false;
+                            state.on_undo_btn = false;
                         }
                         
-                        // Disable all result UI button hovers when browsing
+                        // Redo button hover state
+                        let redo_rect = get_redo_btn_rect(rect.right, rect.bottom);
+                        if !state.redo_history.is_empty() && !state.is_browsing {
+                            state.on_redo_btn = x as i32 >= redo_rect.left - padding && x as i32 <= redo_rect.right + padding && y as i32 >= redo_rect.top - padding && y as i32 <= redo_rect.bottom + padding;
+                        } else {
+                            state.on_redo_btn = false;
+                        }
+                        
+                        // Calc Back and Forward Button state (only when browsing)
+                        if state.is_browsing {
+                             let btn_size = 28;
+                             let margin = 12;
+                             let threshold_h = btn_size + (margin * 2);
+                             let cy = if rect.bottom < threshold_h {
+                                (rect.bottom as f32) / 2.0
+                            } else {
+                                (rect.bottom - margin - btn_size / 2) as f32
+                            };
+                            
+                            // Back button (left side)
+                            let cx_back = (margin + btn_size / 2) as i32;
+                            let cy_back = cy as i32;
+                            let l = cx_back - 14 - padding;
+                            let r = cx_back + 14 + padding;
+                            let t = cy_back - 14 - padding;
+                            let b = cy_back + 14 + padding;
+                            state.on_back_btn = x as i32 >= l && x as i32 <= r && y as i32 >= t && y as i32 <= b;
+                            
+                            // Forward button (right side)
+                            if state.navigation_depth < state.max_navigation_depth {
+                                let cx_forward = (rect.right - margin - btn_size / 2) as i32;
+                                let lf = cx_forward - 14 - padding;
+                                let rf = cx_forward + 14 + padding;
+                                state.on_forward_btn = x as i32 >= lf && x as i32 <= rf && y as i32 >= t && y as i32 <= b;
+                            } else {
+                                state.on_forward_btn = false;
+                            }
+                            
+                            // Disable all result UI button hovers when browsing
+                            state.on_copy_btn = false;
+                            state.on_edit_btn = false;
+                            state.on_markdown_btn = false;
+                            state.on_download_btn = false;
+                        } else {
+                            state.on_back_btn = false;
+                            state.on_forward_btn = false;
+                            
+                            let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
+                            let padding = 4;
+                            state.on_markdown_btn = x as i32 >= md_rect.left - padding && x as i32 <= md_rect.right + padding && y as i32 >= md_rect.top - padding && y as i32 <= md_rect.bottom + padding;
+
+                            let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
+                            state.on_download_btn = x as i32 >= dl_rect.left - padding && x as i32 <= dl_rect.right + padding && y as i32 >= dl_rect.top - padding && y as i32 <= dl_rect.bottom + padding;
+                            
+                            let speaker_rect = get_speaker_btn_rect(rect.right, rect.bottom);
+                            state.on_speaker_btn = x as i32 >= speaker_rect.left - padding && x as i32 <= speaker_rect.right + padding && y as i32 >= speaker_rect.top - padding && y as i32 <= speaker_rect.bottom + padding;
+                        }
+                    } else {
+                        // Overlay too small - clear all button hover states
                         state.on_copy_btn = false;
                         state.on_edit_btn = false;
+                        state.on_undo_btn = false;
+                        state.on_redo_btn = false;
                         state.on_markdown_btn = false;
                         state.on_download_btn = false;
-                    } else {
                         state.on_back_btn = false;
                         state.on_forward_btn = false;
-                        
-                        let md_rect = get_markdown_btn_rect(rect.right, rect.bottom);
-                        state.on_markdown_btn = x as i32 >= md_rect.left - padding && x as i32 <= md_rect.right + padding && y as i32 >= md_rect.top - padding && y as i32 <= md_rect.bottom + padding;
-
-                        let dl_rect = get_download_btn_rect(rect.right, rect.bottom);
-                        state.on_download_btn = x as i32 >= dl_rect.left - padding && x as i32 <= dl_rect.right + padding && y as i32 >= dl_rect.top - padding && y as i32 <= dl_rect.bottom + padding;
-                        
-                        let speaker_rect = get_speaker_btn_rect(rect.right, rect.bottom);
-                        state.on_speaker_btn = x as i32 >= speaker_rect.left - padding && x as i32 <= speaker_rect.right + padding && y as i32 >= speaker_rect.top - padding && y as i32 <= speaker_rect.bottom + padding;
+                        state.on_speaker_btn = false;
                     }
 
                     // In markdown mode, let the Timer handle is_hovered state to ensure it syncs with WebView resize

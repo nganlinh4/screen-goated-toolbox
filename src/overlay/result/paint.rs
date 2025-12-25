@@ -6,6 +6,7 @@ use std::mem::size_of;
 use crate::overlay::broom_assets::{render_procedural_broom, BroomRenderParams, BROOM_W, BROOM_H};
 use crate::overlay::paint_utils::{sd_rounded_box, hsv_to_rgb};
 use super::state::{WINDOW_STATES, ResizeEdge};
+use super::layout::should_show_buttons;
 
 // Helper: Measure text dimensions (Height AND Width)
 unsafe fn measure_text_bounds(hdc: windows::Win32::Graphics::Gdi::HDC, text: &mut [u16], font_size: i32, max_width: i32) -> (i32, i32) {
@@ -466,8 +467,8 @@ pub fn paint_window(hwnd: HWND) {
                 }
             }
 
-            // 4.2 Buttons - hide during refining AND streaming to prevent interaction bugs
-            if is_hovered && !is_refining && !is_streaming_active {
+            // 4.2 Buttons - hide during refining, streaming, or when overlay is too small
+            if is_hovered && !is_refining && !is_streaming_active && should_show_buttons(width, height) {
                 let btn_size = 28;
                 let margin = 12;
                 let threshold_h = btn_size + (margin * 2);
