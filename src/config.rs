@@ -309,27 +309,7 @@ impl Default for Config {
         p2b.blocks = vec![
             ProcessingBlock {
                 block_type: "text".to_string(),
-                model: "compound_mini".to_string(),
-                prompt: "Return the following text exactly as is. Output ONLY the text.".to_string(),
-                selected_language: "English".to_string(),
-                streaming_enabled: false,
-                show_overlay: false,
-                auto_copy: false,
-                auto_speak: true,
-                ..Default::default()
-            }
-        ];
-
-        // 2b. Read aloud (Đọc to) - FIRST text preset
-        let mut p2b = Preset::default();
-        p2b.id = "preset_read_aloud".to_string();
-        p2b.name = "Read aloud".to_string();
-        p2b.preset_type = "text".to_string();
-        p2b.text_input_mode = "select".to_string();
-        p2b.blocks = vec![
-            ProcessingBlock {
-                block_type: "text".to_string(),
-                model: "compound_mini".to_string(),
+                model: "text_fast_120b".to_string(),
                 prompt: "Return the following text exactly as is. Output ONLY the text.".to_string(),
                 selected_language: "English".to_string(),
                 streaming_enabled: false,
