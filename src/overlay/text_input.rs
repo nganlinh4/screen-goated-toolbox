@@ -143,7 +143,7 @@ fn get_editor_css() -> &'static str {
         transform: translateY(-50%);
         display: flex;
         flex-direction: column;
-        gap: 24px;
+        gap: 18px;
         z-index: 10;
     }
     
