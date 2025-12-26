@@ -26,6 +26,8 @@ pub enum Icon {
 
     TextSelect, // NEW: Text with selection cursor for text selection mode
     Speaker, // NEW: Speaker icon for device audio source
+    SpeakerDisabled, // NEW: Speaker with cross (disabled TTS)
+    CopyDisabled, // NEW: Copy icon with cross (disabled auto-copy)
     Lightbulb, // NEW: Lightbulb icon for tips
     Realtime, // NEW: Streaming waves icon for realtime audio processing
 }
@@ -408,6 +410,63 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
                 wave2_pts.push(egui::pos2(wave_x + wave_r2 * angle.cos(), center.y + wave_r2 * angle.sin()));
             }
             painter.add(egui::Shape::line(wave2_pts, stroke));
+        }
+
+        Icon::SpeakerDisabled => {
+            // Speaker with NO sound waves and a cross (gray/disabled look)
+            let body_x = center.x - 3.0 * scale;
+            let body_w = 4.0 * scale;
+            let body_h = 6.0 * scale;
+            let cone_w = 5.0 * scale;
+            let cone_h = 10.0 * scale;
+            
+            // Rectangle (back of speaker)
+            let rect = egui::Rect::from_center_size(
+                egui::pos2(body_x - body_w/2.0, center.y),
+                egui::vec2(body_w, body_h)
+            );
+            painter.rect_stroke(rect, 0.5 * scale, stroke, egui::StrokeKind::Middle);
+            
+            // Cone (trapezoid)
+            let cone_pts = vec![
+                egui::pos2(body_x, center.y - body_h/2.0),
+                egui::pos2(body_x + cone_w, center.y - cone_h/2.0),
+                egui::pos2(body_x + cone_w, center.y + cone_h/2.0),
+                egui::pos2(body_x, center.y + body_h/2.0),
+            ];
+            painter.add(egui::Shape::closed_line(cone_pts, stroke));
+            
+            // Diagonal cross (indicating disabled)
+            let cross_stroke = egui::Stroke::new(2.0 * scale, color);
+            let cross_sz = 8.0 * scale;
+            painter.line_segment([
+                egui::pos2(center.x - cross_sz/2.0, center.y - cross_sz/2.0),
+                egui::pos2(center.x + cross_sz/2.0, center.y + cross_sz/2.0)
+            ], cross_stroke);
+        }
+
+        Icon::CopyDisabled => {
+            // Copy icon with diagonal cross
+            let w = 7.0 * scale;
+            let h = 9.0 * scale;
+            let offset = 2.0 * scale;
+
+            // Back rect (Top Left)
+            let back_rect = egui::Rect::from_center_size(center - egui::vec2(offset/2.0, offset/2.0), egui::vec2(w, h));
+            painter.rect_stroke(back_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
+
+            // Front rect (Bottom Right)
+            let front_rect = egui::Rect::from_center_size(center + egui::vec2(offset, offset), egui::vec2(w, h));
+            painter.rect_filled(front_rect, 1.0 * scale, painter.ctx().style().visuals.panel_fill);
+            painter.rect_stroke(front_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
+            
+            // Diagonal cross (indicating disabled)
+            let cross_stroke = egui::Stroke::new(2.0 * scale, color);
+            let cross_sz = 10.0 * scale;
+            painter.line_segment([
+                egui::pos2(center.x - cross_sz/2.0, center.y - cross_sz/2.0),
+                egui::pos2(center.x + cross_sz/2.0, center.y + cross_sz/2.0)
+            ], cross_stroke);
         }
 
         Icon::Lightbulb => {
