@@ -25,6 +25,7 @@ use config::{Config, load_config, ThemeMode};
 use tray_icon::menu::{Menu, MenuItem};
 use std::collections::HashMap;
 use history::HistoryManager;
+use gui::locale::LocaleText;
 
 // Window dimensions - Increased to accommodate two-column sidebar and longer text labels
 pub const WINDOW_WIDTH: f32 = 1135.0;
@@ -221,12 +222,16 @@ fn main() -> eframe::Result<()> {
         overlay::result::markdown_view::warmup();
     });
 
-    // --- TRAY MENU SETUP ---
+    // 1. Load config early to get theme setting and language for tray i18n
+    let initial_config = APP.lock().unwrap().config.clone();
+
+    // --- TRAY MENU SETUP (with i18n) ---
+    let tray_locale = LocaleText::get(&initial_config.ui_language);
     let tray_menu = Menu::new();
-    let settings_i = MenuItem::with_id("1002", "Settings", true, None);
-    let quit_i = MenuItem::with_id("1001", "Quit", true, None);
-    let _ = tray_menu.append(&settings_i);
-    let _ = tray_menu.append(&quit_i);
+    let tray_settings_item = MenuItem::with_id("1002", tray_locale.tray_settings, true, None);
+    let tray_quit_item = MenuItem::with_id("1001", tray_locale.tray_quit, true, None);
+    let _ = tray_menu.append(&tray_settings_item);
+    let _ = tray_menu.append(&tray_quit_item);
 
     // --- WINDOW SETUP ---
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
@@ -235,9 +240,6 @@ fn main() -> eframe::Result<()> {
         .with_visible(false) // Start invisible
         .with_transparent(false) 
         .with_decorations(true); // FIX: Start WITH decorations, opaque window
-    
-    // 1. Load config early to get theme setting
-    let initial_config = APP.lock().unwrap().config.clone();
     
     // 2. Detect System Theme
     let system_dark = gui::utils::is_system_in_dark_mode();
@@ -274,7 +276,7 @@ fn main() -> eframe::Result<()> {
             // 6. Set Native Icon
             gui::utils::update_window_icon_native(effective_dark);
 
-            Ok(Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_menu, cc.egui_ctx.clone())))
+            Ok(Box::new(gui::SettingsApp::new(initial_config, APP.clone(), tray_menu, tray_settings_item, tray_quit_item, cc.egui_ctx.clone())))
         }),
     )
 }

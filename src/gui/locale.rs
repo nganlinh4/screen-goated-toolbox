@@ -153,6 +153,9 @@ pub struct LocaleText {
      // App selection modal
      pub app_select_title: &'static str,
      pub app_select_hint: &'static str,
+     // --- TRAY MENU ---
+     pub tray_settings: &'static str,
+     pub tray_quit: &'static str,
      }
 
 impl LocaleText {
@@ -338,6 +341,9 @@ impl LocaleText {
                 // App selection modal
                 app_select_title: "Chọn Ứng Dụng",
                 app_select_hint: "Chọn ứng dụng cần ghi âm (TTS sẽ được tách riêng)",
+                // --- TRAY MENU VI ---
+                tray_settings: "Cài đặt",
+                tray_quit: "Thoát",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -519,6 +525,9 @@ impl LocaleText {
                 // App selection modal
                 app_select_title: "앱 선택",
                 app_select_hint: "녹음할 앱을 선택하세요 (TTS는 분리됨)",
+                // --- TRAY MENU KO ---
+                tray_settings: "설정",
+                tray_quit: "종료",
                 },
                 _ => Self {
                  history_btn: "History",
@@ -700,6 +709,9 @@ impl LocaleText {
                 // App selection modal
                 app_select_title: "Select App to Capture",
                 app_select_hint: "Choose the app whose audio you want to transcribe (TTS isolated)",
+                // --- TRAY MENU EN ---
+                tray_settings: "Settings",
+                tray_quit: "Quit",
                 },
                 }
                 }

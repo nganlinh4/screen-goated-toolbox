@@ -9,7 +9,7 @@ use eframe::egui;
 use crate::config::{Config, save_config, Hotkey, ThemeMode};
 use crate::{WINDOW_WIDTH, WINDOW_HEIGHT};
 use std::sync::{Arc, Mutex};
-use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent}};
+use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent, MouseButton, menu::{Menu, MenuEvent, MenuItem}};
 use auto_launch::AutoLaunch;
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,6 +52,9 @@ pub struct SettingsApp {
     tray_icon: Option<TrayIcon>,
     _tray_menu: Menu,
     tray_menu: Menu, // Store menu for lazy icon creation
+    tray_settings_item: MenuItem, // Store for dynamic i18n update
+    tray_quit_item: MenuItem, // Store for dynamic i18n update
+    last_ui_language: String, // Track language to detect changes
     tray_retry_timer: f64, // Timer for lazy tray icon creation
     event_rx: Receiver<UserEvent>,
     is_quitting: bool,
@@ -106,7 +109,7 @@ pub struct SettingsApp {
 
 
 impl SettingsApp {
-    pub fn new(mut config: Config, app_state: Arc<Mutex<crate::AppState>>, tray_menu: Menu, ctx: egui::Context) -> Self {
+    pub fn new(mut config: Config, app_state: Arc<Mutex<crate::AppState>>, tray_menu: Menu, tray_settings_item: MenuItem, tray_quit_item: MenuItem, ctx: egui::Context) -> Self {
         let app_name = "ScreenGoatedToolbox";
         let app_path = std::env::current_exe().unwrap();
         let args: &[&str] = &[];
@@ -259,6 +262,7 @@ impl SettingsApp {
         };
 
         let start_in_tray = config.start_in_tray;
+        let initial_ui_language = config.ui_language.clone(); // Extract before move
         let rng_seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u32;
 
         Self {
@@ -268,6 +272,9 @@ impl SettingsApp {
             tray_icon: None, // INITIALIZE AS NONE - will be created lazily in update()
             _tray_menu: tray_menu.clone(),
             tray_menu, // Store for lazy initialization
+            tray_settings_item,
+            tray_quit_item,
+            last_ui_language: initial_ui_language,
             tray_retry_timer: -5.0, // Negative to force immediate retry if needed
             event_rx: rx,
             is_quitting: false,
@@ -401,6 +408,15 @@ impl eframe::App for SettingsApp {
                 let _ = tray.set_icon(Some(new_icon));
             }
             crate::gui::utils::update_window_icon_native(effective_dark);
+        }
+
+        // --- TRAY MENU I18N UPDATE ---
+        // Update tray menu items when language changes
+        if self.config.ui_language != self.last_ui_language {
+            self.last_ui_language = self.config.ui_language.clone();
+            let new_locale = LocaleText::get(&self.config.ui_language);
+            self.tray_settings_item.set_text(new_locale.tray_settings);
+            self.tray_quit_item.set_text(new_locale.tray_quit);
         }
 
         // --- LAZY TRAY ICON CREATION ---
