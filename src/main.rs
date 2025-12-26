@@ -99,12 +99,43 @@ lazy_static! {
     }));
 }
 
+/// Enable dark mode for Win32 native menus (context menus, tray menus)
+/// This uses the undocumented SetPreferredAppMode API from uxtheme.dll
+fn enable_dark_mode_for_app() {
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    use windows::core::w;
+    
+    // PreferredAppMode enum values
+    const ALLOW_DARK: u32 = 1; // AllowDark mode
+    
+    unsafe {
+        // Load uxtheme.dll
+        if let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) {
+            // SetPreferredAppMode is at ordinal 135 (undocumented)
+            // MAKEINTRESOURCEA(135) is just the number 135 cast to PCSTR
+            let ordinal = 135u16;
+            let ordinal_ptr = ordinal as usize as *const u8;
+            let proc_name = windows::core::PCSTR::from_raw(ordinal_ptr);
+            
+            if let Some(set_preferred_app_mode) = GetProcAddress(uxtheme, proc_name) {
+                // Cast to function pointer: fn(u32) -> u32
+                let func: extern "system" fn(u32) -> u32 = std::mem::transmute(set_preferred_app_mode);
+                func(ALLOW_DARK);
+            }
+        }
+    }
+}
+
 fn main() -> eframe::Result<()> {
     // --- INIT COM ---
     // Essential for Tray Icon and Shell interactions, especially in Admin/Task Scheduler context.
     unsafe {
         let _ = CoInitialize(None);
     }
+
+    // --- ENABLE DARK MODE FOR NATIVE MENUS ---
+    // Uses undocumented Windows API to make context menus respect system dark theme
+    enable_dark_mode_for_app();
 
     // --- APPLY PENDING UPDATE ---
     if let Ok(exe_path) = std::env::current_exe() {
