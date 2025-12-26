@@ -460,49 +460,70 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             }
                             
                             if *show_overlay {
-                                // Render Mode Dropdown (Normal, Stream, Markdown)
+                                // Render Mode Dropdown (Normal, Stream, Markdown) - using button+popup
                                 let current_mode_label = match (render_mode.as_str(), *streaming_enabled) {
                                     ("markdown", _) => match self.ui_language.as_str() { "vi" => "Đẹp", "ko" => "마크다운", _ => "Markdown" },
                                     (_, true) => match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" },
                                     (_, false) => match self.ui_language.as_str() { "vi" => "Thường", "ko" => "일반", _ => "Normal" },
                                 };
+                                
+                                let popup_id = ui.make_persistent_id(format!("render_mode_popup_{:?}", node_id));
+                                let btn = ui.add(egui::Button::new(current_mode_label)
+                                    .fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180))
+                                    .corner_radius(4.0));
+                                if btn.clicked() {
+                                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                }
+                                
+                                egui::popup_below_widget(ui, popup_id, &btn, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                                    ui.set_min_width(60.0);
+                                    let (lbl_norm, lbl_stm, lbl_md) = match self.ui_language.as_str() {
+                                        "vi" => ("Thường", "Stream", "Đẹp"),
+                                        "ko" => ("일반", "스트림", "마크다운"), 
+                                        _ => ("Normal", "Stream", "Markdown"),
+                                    };
 
-                                egui::ComboBox::from_id_salt(format!("render_mode_{:?}", node_id))
-                                    .selected_text(current_mode_label)
-                                    .width(0.0)
-                                    .show_ui(ui, |ui| {
-                                        let (lbl_norm, lbl_stm, lbl_md) = match self.ui_language.as_str() {
-                                            "vi" => ("Thường", "Stream", "Đẹp"),
-                                            "ko" => ("일반", "스트림", "마크다운"), 
-                                            _ => ("Normal", "Stream", "Markdown"),
-                                        };
-
-                                        if ui.selectable_label(render_mode == "plain" && !*streaming_enabled, lbl_norm).clicked() {
-                                            *render_mode = "plain".to_string();
-                                            *streaming_enabled = false;
-                                            self.changed = true;
-                                        }
-                                        if ui.selectable_label((render_mode == "stream" || render_mode == "plain") && *streaming_enabled, lbl_stm).clicked() {
-                                            *render_mode = "stream".to_string();
-                                            *streaming_enabled = true;
-                                            self.changed = true;
-                                        }
-                                        if ui.selectable_label(render_mode == "markdown", lbl_md).clicked() {
-                                            *render_mode = "markdown".to_string();
-                                            *streaming_enabled = false;
-                                            self.changed = true;
-                                        }
-                                    });
+                                    if ui.selectable_label(render_mode == "plain" && !*streaming_enabled, lbl_norm).clicked() {
+                                        *render_mode = "plain".to_string();
+                                        *streaming_enabled = false;
+                                        self.changed = true;
+                                        ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                    }
+                                    if ui.selectable_label((render_mode == "stream" || render_mode == "plain") && *streaming_enabled, lbl_stm).clicked() {
+                                        *render_mode = "stream".to_string();
+                                        *streaming_enabled = true;
+                                        self.changed = true;
+                                        ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                    }
+                                    if ui.selectable_label(render_mode == "markdown", lbl_md).clicked() {
+                                        *render_mode = "markdown".to_string();
+                                        *streaming_enabled = false;
+                                        self.changed = true;
+                                        ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                    }
+                                });
                             }
                             
-                            let copy_label = match self.ui_language.as_str() { "vi" => "Copy", "ko" => "복사", _ => "Copy" };
-                            if ui.checkbox(auto_copy, copy_label).changed() {
+                            // Copy icon toggle
+                            let copy_icon = if *auto_copy { Icon::Copy } else { Icon::CopyDisabled };
+                            if icon_button(ui, copy_icon).on_hover_text(match self.ui_language.as_str() { 
+                                "vi" => "Tự động copy", 
+                                "ko" => "자동 복사", 
+                                _ => "Auto-copy" 
+                            }).clicked() {
+                                *auto_copy = !*auto_copy;
                                 self.changed = true;
                                 if *auto_copy { auto_copy_triggered = true; }
                             }
 
-                            let speak_label = match self.ui_language.as_str() { "vi" => "Đọc", "ko" => "읽기", _ => "Speak" };
-                            if ui.checkbox(auto_speak, speak_label).changed() {
+                            // Speak icon toggle
+                            let speak_icon = if *auto_speak { Icon::Speaker } else { Icon::SpeakerDisabled };
+                            if icon_button(ui, speak_icon).on_hover_text(match self.ui_language.as_str() { 
+                                "vi" => "Tự động đọc", 
+                                "ko" => "자동 읽기", 
+                                _ => "Auto-speak" 
+                            }).clicked() {
+                                *auto_speak = !*auto_speak;
                                 self.changed = true;
                             }
                         });
@@ -606,49 +627,70 @@ impl SnarlViewer<ChainNode> for ChainViewer {
                             }
                             
                             if *show_overlay {
-                                // Render Mode Dropdown (Normal, Stream, Markdown)
+                                // Render Mode Dropdown (Normal, Stream, Markdown) - using button+popup
                                 let current_mode_label = match (render_mode.as_str(), *streaming_enabled) {
                                     ("markdown", _) => match self.ui_language.as_str() { "vi" => "Đẹp", "ko" => "마크다운", _ => "Markdown" },
                                     (_, true) => match self.ui_language.as_str() { "vi" => "Stream", "ko" => "스트림", _ => "Stream" },
                                     (_, false) => match self.ui_language.as_str() { "vi" => "Thường", "ko" => "일반", _ => "Normal" },
                                 };
+                                
+                                let popup_id = ui.make_persistent_id(format!("render_mode_popup_{:?}", node_id));
+                                let btn = ui.add(egui::Button::new(current_mode_label)
+                                    .fill(egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180))
+                                    .corner_radius(4.0));
+                                if btn.clicked() {
+                                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                }
+                                
+                                egui::popup_below_widget(ui, popup_id, &btn, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                                    ui.set_min_width(60.0);
+                                    let (lbl_norm, lbl_stm, lbl_md) = match self.ui_language.as_str() {
+                                        "vi" => ("Thường", "Stream", "Đẹp"),
+                                        "ko" => ("일반", "스트림", "마크다운"), 
+                                        _ => ("Normal", "Stream", "Markdown"),
+                                    };
 
-                                egui::ComboBox::from_id_salt(format!("render_mode_{:?}", node_id))
-                                    .selected_text(current_mode_label)
-                                    .width(0.0)
-                                    .show_ui(ui, |ui| {
-                                        let (lbl_norm, lbl_stm, lbl_md) = match self.ui_language.as_str() {
-                                            "vi" => ("Thường", "Stream", "Đẹp"),
-                                            "ko" => ("일반", "스트림", "마크다운"), 
-                                            _ => ("Normal", "Stream", "Markdown"),
-                                        };
-
-                                        if ui.selectable_label(render_mode == "plain" && !*streaming_enabled, lbl_norm).clicked() {
-                                            *render_mode = "plain".to_string();
-                                            *streaming_enabled = false;
-                                            self.changed = true;
-                                        }
-                                        if ui.selectable_label((render_mode == "stream" || render_mode == "plain") && *streaming_enabled, lbl_stm).clicked() {
-                                            *render_mode = "stream".to_string();
-                                            *streaming_enabled = true;
-                                            self.changed = true;
-                                        }
-                                        if ui.selectable_label(render_mode == "markdown", lbl_md).clicked() {
-                                            *render_mode = "markdown".to_string();
-                                            *streaming_enabled = false;
-                                            self.changed = true;
-                                        }
-                                    });
+                                    if ui.selectable_label(render_mode == "plain" && !*streaming_enabled, lbl_norm).clicked() {
+                                        *render_mode = "plain".to_string();
+                                        *streaming_enabled = false;
+                                        self.changed = true;
+                                        ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                    }
+                                    if ui.selectable_label((render_mode == "stream" || render_mode == "plain") && *streaming_enabled, lbl_stm).clicked() {
+                                        *render_mode = "stream".to_string();
+                                        *streaming_enabled = true;
+                                        self.changed = true;
+                                        ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                    }
+                                    if ui.selectable_label(render_mode == "markdown", lbl_md).clicked() {
+                                        *render_mode = "markdown".to_string();
+                                        *streaming_enabled = false;
+                                        self.changed = true;
+                                        ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                    }
+                                });
                             }
                             
-                            let copy_label = match self.ui_language.as_str() { "vi" => "Copy", "ko" => "복사", _ => "Copy" };
-                            if ui.checkbox(auto_copy, copy_label).changed() {
+                            // Copy icon toggle
+                            let copy_icon = if *auto_copy { Icon::Copy } else { Icon::CopyDisabled };
+                            if icon_button(ui, copy_icon).on_hover_text(match self.ui_language.as_str() { 
+                                "vi" => "Tự động copy", 
+                                "ko" => "자동 복사", 
+                                _ => "Auto-copy" 
+                            }).clicked() {
+                                *auto_copy = !*auto_copy;
                                 self.changed = true;
                                 if *auto_copy { auto_copy_triggered = true; }
                             }
 
-                            let speak_label = match self.ui_language.as_str() { "vi" => "Đọc", "ko" => "읽기", _ => "Speak" };
-                            if ui.checkbox(auto_speak, speak_label).changed() {
+                            // Speak icon toggle
+                            let speak_icon = if *auto_speak { Icon::Speaker } else { Icon::SpeakerDisabled };
+                            if icon_button(ui, speak_icon).on_hover_text(match self.ui_language.as_str() { 
+                                "vi" => "Tự động đọc", 
+                                "ko" => "자동 읽기", 
+                                _ => "Auto-speak" 
+                            }).clicked() {
+                                *auto_speak = !*auto_speak;
                                 self.changed = true;
                             }
                         });
