@@ -795,26 +795,55 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
         }
 
         Icon::StarFilled => {
-            // 5-pointed star filled - SMALL variant to match CopySmall/Delete
-            let outer_r = 5.5 * scale;
-            let inner_r = 2.4 * scale;
-            let center_pt = center;
+            // 5-pointed star filled with gold color, soft rounded corners, smaller visual footprint
+            // Base size reduced to match visual weight of outline star
+            let outer_r = 6.0 * scale; // Increased from 5.6
+            let inner_r = 2.6 * scale; // Increased from 2.4
+            let gold = egui::Color32::from_rgb(255, 193, 7);
 
-            // Draw as a filled polygon
-            let mut points = Vec::new();
+            // 1. Calculate the 10 raw vertices
+            let mut raw_points = Vec::with_capacity(10);
             for i in 0..10 {
-                let angle = (i as f32 * PI / 5.0) - PI / 2.0; // Start from top
+                let angle = (i as f32 * PI / 5.0) - PI / 2.0;
                 let r = if i % 2 == 0 { outer_r } else { inner_r };
-                points.push(egui::pos2(
-                    center_pt.x + r * angle.cos(),
-                    center_pt.y + r * angle.sin(),
+                raw_points.push(egui::pos2(
+                    center.x + r * angle.cos(),
+                    center.y + r * angle.sin(),
                 ));
             }
-            painter.add(egui::Shape::convex_polygon(
-                points,
-                color,
-                egui::Stroke::NONE,
-            ));
+
+            // 2. Generate rounded path
+            // We round the Tips (even indices) by cutting corners with a bezier curve
+            let mut path_points = Vec::new();
+            let round_ratio = 0.35; // How much of the tip to round off
+
+            for i in 0..10 {
+                let p = raw_points[i];
+
+                if i % 2 == 0 {
+                    // Tip: Replace sharp vertex with a curve
+                    let p_prev = raw_points[(i + 9) % 10]; // Previous valley
+                    let p_next = raw_points[(i + 1) % 10]; // Next valley
+
+                    // Calculate start and end points of the curve along the star arms
+                    let p_start = lerp(p, p_prev, round_ratio);
+                    let p_end = lerp(p, p_next, round_ratio);
+
+                    // Generate smooth quadratic bezier curve for the tip
+                    let curve = bezier_points(p_start, p, p_end, 5);
+                    path_points.extend(curve);
+                } else {
+                    // Valley: Keep sharp
+                    path_points.push(p);
+                }
+            }
+
+            painter.add(egui::Shape::Path(egui::epaint::PathShape {
+                points: path_points,
+                closed: true,
+                fill: gold,
+                stroke: egui::Stroke::new(1.0 * scale, gold).into(),
+            }));
         }
 
         Icon::Sun => {
