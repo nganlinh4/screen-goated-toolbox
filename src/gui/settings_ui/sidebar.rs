@@ -284,15 +284,16 @@ pub fn render_sidebar(
     ui.add_space(8.0);
 
     // --- Presets Grid ---
-    // Use dynamic ID based on preset count + names hash to reset column widths when content changes
-    let preset_hash: u64 = config.presets.iter().enumerate().fold(0u64, |acc, (i, p)| {
-        let name = if p.id.starts_with("preset_") {
-            get_localized_preset_name(&p.id, &config.ui_language)
-        } else {
-            p.name.clone()
-        };
-        acc.wrapping_add((i as u64).wrapping_mul(31).wrapping_add(name.len() as u64))
-    });
+    // Use stable ID based on preset count and IDs (not names - those change during typing)
+    let preset_hash: u64 = config
+        .presets
+        .iter()
+        .fold(config.presets.len() as u64, |acc, p| {
+            acc.wrapping_mul(31).wrapping_add(
+                p.id.bytes()
+                    .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)),
+            )
+        });
     let grid_id = egui::Id::new("presets_grid").with(preset_hash);
 
     let grid_response = egui::Grid::new(grid_id)

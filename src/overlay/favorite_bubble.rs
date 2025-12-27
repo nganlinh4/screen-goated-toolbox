@@ -168,7 +168,8 @@ fn get_favorite_presets_html(presets: &[crate::config::Preset], lang: &str) -> S
     }
 
     if html_items.is_empty() {
-        html_items = r#"<div class="empty">No favorites</div>"#.to_string();
+        let locale = crate::gui::locale::LocaleText::get(lang);
+        html_items = format!(r#"<div class="empty">{}</div>"#, html_escape(locale.favorites_empty));
     } else {
         // Wrap in a single list container if needed, but simple items stack is fine with .list css
         // Using "group" class might add margin we don't want if they are not separated.
@@ -957,9 +958,18 @@ unsafe fn refresh_panel_layout_and_content(
     };
 
     // Calculate dimensions
-    let panel_width = (PANEL_WIDTH as usize * num_cols) as i32;
+    let panel_width = if fav_count == 0 {
+        // Wider panel for empty message
+        (PANEL_WIDTH as i32 * 2).max(320)
+    } else {
+        (PANEL_WIDTH as usize * num_cols) as i32
+    };
     // Calculate total height: items + minimal padding
-    let panel_height = (items_per_col as i32 * height_per_item) + 24;
+    let panel_height = if fav_count == 0 {
+        80 // Fixed height for empty message
+    } else {
+        (items_per_col as i32 * height_per_item) + 24
+    };
     let panel_height = panel_height.max(50);
 
     let screen_w = GetSystemMetrics(SM_CXSCREEN);
