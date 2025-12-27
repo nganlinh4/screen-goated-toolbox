@@ -435,6 +435,7 @@ pub fn render_sidebar(
             preset.is_favorite = !preset.is_favorite;
             changed = true;
             crate::overlay::favorite_bubble::update_favorites_panel();
+            crate::overlay::favorite_bubble::trigger_blink_animation();
         }
     }
 
