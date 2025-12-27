@@ -594,7 +594,7 @@ fn render_preset_item(
 
     // Use horizontal_centered for proper vertical alignment
     ui.horizontal_centered(|ui| {
-        ui.spacing_mut().item_spacing.x = 1.0;
+        ui.spacing_mut().item_spacing.x = 0.0;
 
         // Draw background if has hotkey
         if has_hotkey && !preset.is_upcoming {
@@ -624,6 +624,7 @@ fn render_preset_item(
                 *preset_idx_to_select = Some(idx);
             }
 
+            ui.add_space(-3.0); // Balanced gap from text
             ui.spacing_mut().item_spacing.x = 0.0;
 
             // Copy Button
@@ -668,7 +669,8 @@ fn render_preset_item(
                     }
                 }
             };
-            if icon_button_sized(ui, star_icon, 18.0)
+            ui.add_space(-4.0); // Relaxed gap between icons
+            if icon_button_sized(ui, star_icon, 22.0)
                 .on_hover_text(star_tooltip)
                 .clicked()
             {
@@ -677,6 +679,7 @@ fn render_preset_item(
 
             // Delete button (Small X icon)
             if presets.len() > 1 {
+                ui.add_space(-4.0); // Relaxed gap before delete X
                 if icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
                     *preset_idx_to_delete = Some(idx);
                 }
