@@ -33,11 +33,15 @@ const DRAG_THRESHOLD: i32 = 5; // Pixels of movement before counting as a drag
 
 // Smooth opacity animation state
 static CURRENT_OPACITY: AtomicU8 = AtomicU8::new(80); // Start at inactive opacity
+static BLINK_STATE: AtomicU8 = AtomicU8::new(0); // 0=None, 1..4=Blink Phases
 const OPACITY_TIMER_ID: usize = 1;
 const OPACITY_STEP: u8 = 25; // Opacity change per frame (~150ms total animation)
 
+const PHYSICS_TIMER_ID: usize = 2;
+
 thread_local! {
     static PANEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
+    static PHYSICS_STATE: RefCell<(f32, f32)> = RefCell::new((0.0, 0.0));
 }
 
 const BUBBLE_SIZE: i32 = 40;
@@ -104,6 +108,19 @@ pub fn hide_favorite_bubble() {
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Trigger a blink animation (e.g. when favorite is toggled)
+pub fn trigger_blink_animation() {
+    let hwnd_val = BUBBLE_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        BLINK_STATE.store(1, Ordering::SeqCst); // Start Blink Phase 1
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        unsafe {
+            // Force timer start
+            let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None);
         }
     }
 }
@@ -775,6 +792,10 @@ unsafe extern "system" fn bubble_wnd_proc(
 
     match msg {
         WM_LBUTTONDOWN => {
+            // Stop any ongoing physics
+            let _ = KillTimer(Some(hwnd), PHYSICS_TIMER_ID);
+            PHYSICS_STATE.with(|p| *p.borrow_mut() = (0.0, 0.0));
+
             IS_DRAGGING.store(true, Ordering::SeqCst);
             IS_DRAGGING_MOVED.store(false, Ordering::SeqCst);
 
@@ -800,6 +821,9 @@ unsafe extern "system" fn bubble_wnd_proc(
                 } else {
                     show_panel(hwnd);
                 }
+            } else {
+                // Start physics inertia if we were moving
+                let _ = SetTimer(Some(hwnd), PHYSICS_TIMER_ID, 16, None);
             }
             LRESULT(0)
         }
@@ -831,8 +855,41 @@ unsafe extern "system" fn bubble_wnd_proc(
                     let mut rect = RECT::default();
                     let _ = GetWindowRect(hwnd, &mut rect);
 
-                    let new_x = rect.left + x - BUBBLE_SIZE / 2;
-                    let new_y = rect.top + y - BUBBLE_SIZE / 2;
+                    // Use Work Area (exclude taskbar) for boundaries
+                    let mut work_area = RECT::default();
+                    unsafe {
+                        let _ = SystemParametersInfoW(
+                            SPI_GETWORKAREA,
+                            0,
+                            Some(&mut work_area as *mut _ as *mut std::ffi::c_void),
+                            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+                        );
+                    }
+
+                    let new_x = (rect.left + x - BUBBLE_SIZE / 2)
+                        .clamp(work_area.left, work_area.right - BUBBLE_SIZE);
+                    let new_y = (rect.top + y - BUBBLE_SIZE / 2)
+                        .clamp(work_area.top, work_area.bottom - BUBBLE_SIZE);
+
+                    // Track velocity (instantaneous delta) with smoothing and boost
+                    let raw_vx = (new_x - rect.left) as f32;
+                    let raw_vy = (new_y - rect.top) as f32;
+
+                    // Boost factor allows "throwing" to feel more powerful
+                    // Smoothing helps filter out jitter from high polling rates
+                    const THROW_BOOST: f32 = 2.5;
+                    const SMOOTHING: f32 = 0.6; // Weight for new value
+
+                    PHYSICS_STATE.with(|p| {
+                        let (old_vx, old_vy) = *p.borrow();
+                        let target_vx = raw_vx * THROW_BOOST;
+                        let target_vy = raw_vy * THROW_BOOST;
+
+                        let final_vx = old_vx * (1.0 - SMOOTHING) + target_vx * SMOOTHING;
+                        let final_vy = old_vy * (1.0 - SMOOTHING) + target_vy * SMOOTHING;
+
+                        *p.borrow_mut() = (final_vx, final_vy);
+                    });
 
                     let _ = SetWindowPos(
                         hwnd,
@@ -880,24 +937,123 @@ unsafe extern "system" fn bubble_wnd_proc(
             if wparam.0 == OPACITY_TIMER_ID {
                 let is_hovered = IS_HOVERED.load(Ordering::SeqCst);
                 let is_expanded = IS_EXPANDED.load(Ordering::SeqCst);
-                let target = if is_hovered || is_expanded {
+                let blink_state = BLINK_STATE.load(Ordering::SeqCst);
+
+                let mut target = if is_hovered || is_expanded {
                     OPACITY_ACTIVE
                 } else {
                     OPACITY_INACTIVE
                 };
+
+                // Blink override
+                if blink_state > 0 {
+                    // Odd state = Active (255), Even state = Low (50) for visibility
+                    if blink_state % 2 != 0 {
+                        target = OPACITY_ACTIVE;
+                    } else {
+                        target = 50; // Drop lower than inactive to be distinct
+                    }
+                }
+
                 let current = CURRENT_OPACITY.load(Ordering::SeqCst);
 
                 if current != target {
+                    // Faster step for blinking
+                    let step = if blink_state > 0 { 45 } else { OPACITY_STEP };
+
                     let new_opacity = if current < target {
-                        (current as u16 + OPACITY_STEP as u16).min(target as u16) as u8
+                        (current as u16 + step as u16).min(target as u16) as u8
                     } else {
-                        (current as i16 - OPACITY_STEP as i16).max(target as i16) as u8
+                        (current as i16 - step as i16).max(target as i16) as u8
                     };
                     CURRENT_OPACITY.store(new_opacity, Ordering::SeqCst);
                     update_bubble_visual(hwnd);
                 } else {
-                    let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
+                    if blink_state > 0 {
+                        // Transition to next blink state
+                        if blink_state >= 4 {
+                            BLINK_STATE.store(0, Ordering::SeqCst);
+                        } else {
+                            BLINK_STATE.fetch_add(1, Ordering::SeqCst);
+                        }
+                        // Keep timer running for next phase (no KillTimer)
+                    } else {
+                        let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
+                    }
                 }
+            } else if wparam.0 == PHYSICS_TIMER_ID {
+                PHYSICS_STATE.with(|p| {
+                    let (mut vx, mut vy) = *p.borrow();
+
+                    // Lower friction for longer travel (was 0.92)
+                    vx *= 0.95;
+                    vy *= 0.95;
+
+                    // Stop if slow
+                    if vx.abs() < 0.2 && vy.abs() < 0.2 {
+                        // Lower threshold for smoother stop
+                        let _ = KillTimer(Some(hwnd), PHYSICS_TIMER_ID);
+                        *p.borrow_mut() = (0.0, 0.0);
+                        return;
+                    }
+
+                    let mut rect = RECT::default();
+                    let _ = GetWindowRect(hwnd, &mut rect);
+
+                    let mut next_x = rect.left as f32 + vx;
+                    let mut next_y = rect.top as f32 + vy;
+
+                    // Use Work Area (exclude taskbar) for physics collision logic
+                    let mut work_area = RECT::default();
+                    unsafe {
+                        let _ = SystemParametersInfoW(
+                            SPI_GETWORKAREA,
+                            0,
+                            Some(&mut work_area as *mut _ as *mut std::ffi::c_void),
+                            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+                        );
+                    }
+
+                    let min_x = work_area.left as f32;
+                    let max_x = (work_area.right - BUBBLE_SIZE) as f32;
+                    let min_y = work_area.top as f32;
+                    let max_y = (work_area.bottom - BUBBLE_SIZE) as f32;
+
+                    let bounce_factor = 0.75; // Rubbery bounce
+
+                    // Bounce off edges
+                    if next_x < min_x {
+                        next_x = min_x;
+                        vx = -vx * bounce_factor;
+                    } else if next_x > max_x {
+                        next_x = max_x;
+                        vx = -vx * bounce_factor;
+                    }
+
+                    if next_y < min_y {
+                        next_y = min_y;
+                        vy = -vy * bounce_factor;
+                    } else if next_y > max_y {
+                        next_y = max_y;
+                        vy = -vy * bounce_factor;
+                    }
+
+                    *p.borrow_mut() = (vx, vy);
+
+                    let _ = SetWindowPos(
+                        hwnd,
+                        None,
+                        next_x as i32,
+                        next_y as i32,
+                        0,
+                        0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
+
+                    if IS_EXPANDED.load(Ordering::SeqCst) {
+                        move_panel_to_bubble(next_x as i32, next_y as i32);
+                    }
+                });
             }
             LRESULT(0)
         }
