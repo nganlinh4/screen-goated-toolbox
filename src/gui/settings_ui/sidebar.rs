@@ -180,21 +180,19 @@ pub fn render_sidebar(
     let mut should_set_global = false;
     let mut should_set_history = false;
 
-    // Use thread_local to persist grid width across frames for header alignment
+    // Use actual grid width from previous frame (now that action column is tight)
     thread_local! {
-        static LAST_GRID_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+        static GRID_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
     }
-
-    // Get the stored grid width from previous frame, fallback to available width
-    let cached_grid_width = LAST_GRID_WIDTH.with(|w| w.get());
-    let header_width = if cached_grid_width > 0.0 {
-        cached_grid_width
+    let cached_width = GRID_WIDTH.with(|w| w.get());
+    // First frame uses available_width, subsequent frames use actual grid width
+    let header_width = if cached_width > 0.0 {
+        cached_width
     } else {
         ui.available_width()
     };
 
-    // --- Header Navigation (Outside Grid to avoid forcing column widths) ---
-    // Use the cached grid width for proper right alignment that accounts for grid expansion
+    // --- Header Navigation ---
     ui.allocate_ui_with_layout(
         egui::vec2(header_width, 24.0),
         egui::Layout::left_to_right(egui::Align::Center),
@@ -269,7 +267,7 @@ pub fn render_sidebar(
                 should_set_history = true;
             }
 
-            // Global Settings (anchored to the right using remaining space)
+            // Global Settings (anchored to the right)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 let is_global = matches!(current_view_mode, ViewMode::Global);
@@ -287,7 +285,18 @@ pub fn render_sidebar(
     ui.add_space(8.0);
 
     // --- Presets Grid ---
-    let grid_response = egui::Grid::new("presets_grid")
+    // Use dynamic ID based on preset count + names hash to reset column widths when content changes
+    let preset_hash: u64 = config.presets.iter().enumerate().fold(0u64, |acc, (i, p)| {
+        let name = if p.id.starts_with("preset_") {
+            get_localized_preset_name(&p.id, &config.ui_language)
+        } else {
+            p.name.clone()
+        };
+        acc.wrapping_add((i as u64).wrapping_mul(31).wrapping_add(name.len() as u64))
+    });
+    let grid_id = egui::Id::new("presets_grid").with(preset_hash);
+
+    let grid_response = egui::Grid::new(grid_id)
         .num_columns(6)
         .spacing([8.0, 8.0])
         .min_col_width(67.0)
@@ -417,8 +426,8 @@ pub fn render_sidebar(
             }
         });
 
-    // Update the cached grid width for next frame's header alignment
-    LAST_GRID_WIDTH.with(|w| w.set(grid_response.response.rect.width()));
+    // Update cached grid width for next frame
+    GRID_WIDTH.with(|w| w.set(grid_response.response.rect.width()));
 
     if should_set_global {
         *view_mode = ViewMode::Global;
@@ -577,13 +586,12 @@ fn render_preset_item_parts(
     });
 
     // --- Column X+1: Actions ---
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    // Use horizontal layout (not right_to_left) to prevent column expansion
+    ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         if !preset.is_upcoming {
-            if presets.len() > 1 {
-                if icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
-                    *preset_idx_to_delete = Some(idx);
-                }
+            if icon_button_sized(ui, Icon::CopySmall, 22.0).clicked() {
+                *preset_idx_to_clone = Some(idx);
             }
             let star_icon = if preset.is_favorite {
                 Icon::StarFilled
@@ -593,8 +601,10 @@ fn render_preset_item_parts(
             if icon_button_sized(ui, star_icon, 22.0).clicked() {
                 *preset_idx_to_toggle_favorite = Some(idx);
             }
-            if icon_button_sized(ui, Icon::CopySmall, 22.0).clicked() {
-                *preset_idx_to_clone = Some(idx);
+            if presets.len() > 1 {
+                if icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
+                    *preset_idx_to_delete = Some(idx);
+                }
             }
         }
     });
