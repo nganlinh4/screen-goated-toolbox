@@ -5,7 +5,7 @@ use crate::gui::settings_ui::get_localized_preset_name;
 use crate::APP;
 use std::cell::RefCell;
 use std::sync::{
-    atomic::{AtomicBool, AtomicIsize, Ordering},
+    atomic::{AtomicBool, AtomicIsize, AtomicU8, Ordering},
     Once,
 };
 use windows::core::w;
@@ -30,6 +30,11 @@ static IS_DRAGGING_MOVED: AtomicBool = AtomicBool::new(false);
 static DRAG_START_X: AtomicIsize = AtomicIsize::new(0);
 static DRAG_START_Y: AtomicIsize = AtomicIsize::new(0);
 const DRAG_THRESHOLD: i32 = 5; // Pixels of movement before counting as a drag
+
+// Smooth opacity animation state
+static CURRENT_OPACITY: AtomicU8 = AtomicU8::new(80); // Start at inactive opacity
+const OPACITY_TIMER_ID: usize = 1;
+const OPACITY_STEP: u8 = 25; // Opacity change per frame (~150ms total animation)
 
 thread_local! {
     static PANEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
@@ -169,7 +174,10 @@ fn get_favorite_presets_html(presets: &[crate::config::Preset], lang: &str) -> S
 
     if html_items.is_empty() {
         let locale = crate::gui::locale::LocaleText::get(lang);
-        html_items = format!(r#"<div class="empty">{}</div>"#, html_escape(locale.favorites_empty));
+        html_items = format!(
+            r#"<div class="empty">{}</div>"#,
+            html_escape(locale.favorites_empty)
+        );
     } else {
         // Wrap in a single list container if needed, but simple items stack is fine with .list css
         // Using "group" class might add margin we don't want if they are not separated.
@@ -494,12 +502,9 @@ fn update_bubble_visual(hwnd: HWND) {
     }
 }
 
-fn draw_bubble_pixels(pixels: &mut [u32], size: i32, is_active: bool) {
-    let opacity = if is_active {
-        OPACITY_ACTIVE
-    } else {
-        OPACITY_INACTIVE
-    };
+fn draw_bubble_pixels(pixels: &mut [u32], size: i32, _is_active: bool) {
+    // Use animated opacity for smooth transitions
+    let opacity = CURRENT_OPACITY.load(Ordering::SeqCst);
 
     // Use embedded icon if available
     if !ICON_RGBA.is_empty() {
@@ -848,7 +853,9 @@ unsafe extern "system" fn bubble_wnd_proc(
 
             if !IS_HOVERED.load(Ordering::SeqCst) {
                 IS_HOVERED.store(true, Ordering::SeqCst);
-                update_bubble_visual(hwnd);
+
+                // Start animation timer
+                let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None); // ~60 FPS
 
                 // Track mouse leave
                 let mut tme = TRACKMOUSEEVENT {
@@ -864,8 +871,33 @@ unsafe extern "system" fn bubble_wnd_proc(
 
         WM_MOUSELEAVE => {
             IS_HOVERED.store(false, Ordering::SeqCst);
-            if !IS_EXPANDED.load(Ordering::SeqCst) {
-                update_bubble_visual(hwnd);
+            // Start animation timer to fade out (unless expanded)
+            let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None);
+            LRESULT(0)
+        }
+
+        WM_TIMER => {
+            if wparam.0 == OPACITY_TIMER_ID {
+                let is_hovered = IS_HOVERED.load(Ordering::SeqCst);
+                let is_expanded = IS_EXPANDED.load(Ordering::SeqCst);
+                let target = if is_hovered || is_expanded {
+                    OPACITY_ACTIVE
+                } else {
+                    OPACITY_INACTIVE
+                };
+                let current = CURRENT_OPACITY.load(Ordering::SeqCst);
+
+                if current != target {
+                    let new_opacity = if current < target {
+                        (current as u16 + OPACITY_STEP as u16).min(target as u16) as u8
+                    } else {
+                        (current as i16 - OPACITY_STEP as i16).max(target as i16) as u8
+                    };
+                    CURRENT_OPACITY.store(new_opacity, Ordering::SeqCst);
+                    update_bubble_visual(hwnd);
+                } else {
+                    let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
+                }
             }
             LRESULT(0)
         }
