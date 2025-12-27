@@ -438,28 +438,8 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                         auto_speak,
                         ..
                     } => {
-                        // Input settings (Simplified)
-                        ui.vertical(|ui| {
-                            // Constraint width for input node
-                            ui.set_max_width(200.0);
-
-                            let actual_type = if block_type == "input_adapter" {
-                                self.preset_type.as_str()
-                            } else {
-                                block_type.as_str()
-                            };
-
-                            let prefix = self.text.node_input_prefix;
-                            let type_name = match actual_type {
-                                "audio" => self.text.node_input_audio,
-                                "image" => self.text.node_input_image,
-                                "text" => self.text.node_input_text,
-                                _ => "Input",
-                            };
-                            ui.label(format!("{} {}", prefix, type_name));
-                        });
-
-                        ui.separator();
+                        // Input settings (Simplified) - Label removed to avoid duplication with header
+                        // ui.separator() removed for compact look
 
                         // Copy/Speak toggles for Input - Conditional based on Type
                         ui.horizontal(|ui| {
@@ -478,20 +458,37 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                             let show_speak = actual_type == "text"; // Show only for text
 
                             if show_copy {
-                                // Copy icon toggle
-                                let copy_icon = if *auto_copy {
-                                    Icon::Copy
+                                let is_text_input = actual_type == "text";
+
+                                if is_text_input {
+                                    // Enforce Auto-Copy ON for Text Input
+                                    // Required for text extraction mechanism
+                                    if !*auto_copy {
+                                        *auto_copy = true;
+                                        self.changed = true;
+                                    }
+
+                                    // Render as active Copy Icon, but ignore clicks (locked ON)
+                                    // We don't disable the UI, so it looks full color/active.
+                                    // We just don't react to .clicked() to toggle it off.
+                                    let _ = icon_button(ui, Icon::Copy)
+                                        .on_hover_text(self.text.input_auto_copy_tooltip);
                                 } else {
-                                    Icon::CopyDisabled
-                                };
-                                if icon_button(ui, copy_icon)
-                                    .on_hover_text(self.text.input_auto_copy_tooltip)
-                                    .clicked()
-                                {
-                                    *auto_copy = !*auto_copy;
-                                    self.changed = true;
-                                    if *auto_copy {
-                                        auto_copy_triggered = true;
+                                    // Copy icon toggle for other inputs (Image, Audio, etc.)
+                                    let copy_icon = if *auto_copy {
+                                        Icon::Copy
+                                    } else {
+                                        Icon::CopyDisabled
+                                    };
+                                    if icon_button(ui, copy_icon)
+                                        .on_hover_text(self.text.input_auto_copy_tooltip)
+                                        .clicked()
+                                    {
+                                        *auto_copy = !*auto_copy;
+                                        self.changed = true;
+                                        if *auto_copy {
+                                            auto_copy_triggered = true;
+                                        }
                                     }
                                 }
                             }
