@@ -180,107 +180,106 @@ pub fn render_sidebar(
     let mut should_set_global = false;
     let mut should_set_history = false;
 
-    // Use actual grid width from previous frame (now that action column is tight)
+    // Use actual grid width from previous frame for Global Settings position
     thread_local! {
         static GRID_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
     }
-    let cached_width = GRID_WIDTH.with(|w| w.get());
-    // First frame uses available_width, subsequent frames use actual grid width
-    let header_width = if cached_width > 0.0 {
-        cached_width
-    } else {
-        ui.available_width()
-    };
+    let cached_grid_width = GRID_WIDTH.with(|w| w.get());
 
     // --- Header Navigation ---
-    ui.allocate_ui_with_layout(
-        egui::vec2(header_width, 24.0),
-        egui::Layout::left_to_right(egui::Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            let is_dark = ui.visuals().dark_mode;
+    // Use horizontal layout that doesn't claim fixed space (avoids influencing grid)
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let is_dark = ui.visuals().dark_mode;
 
-            // Theme Switcher
-            let theme_bg = if is_dark {
-                egui::Color32::from_rgb(50, 55, 70)
-            } else {
-                egui::Color32::from_rgb(230, 235, 245)
+        // Theme Switcher
+        let theme_bg = if is_dark {
+            egui::Color32::from_rgb(50, 55, 70)
+        } else {
+            egui::Color32::from_rgb(230, 235, 245)
+        };
+        let (theme_text, tooltip) = match config.theme_mode {
+            ThemeMode::Dark => ("🌙", "Theme: Dark"),
+            ThemeMode::Light => ("☀", "Theme: Light"),
+            ThemeMode::System => ("💻", "Theme: System (Auto)"),
+        };
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new(theme_text).size(14.0))
+                    .fill(theme_bg)
+                    .corner_radius(6.0),
+            )
+            .on_hover_text(tooltip)
+            .clicked()
+        {
+            config.theme_mode = match config.theme_mode {
+                ThemeMode::System => ThemeMode::Dark,
+                ThemeMode::Dark => ThemeMode::Light,
+                ThemeMode::Light => ThemeMode::System,
             };
-            let (theme_text, tooltip) = match config.theme_mode {
-                ThemeMode::Dark => ("🌙", "Theme: Dark"),
-                ThemeMode::Light => ("☀", "Theme: Light"),
-                ThemeMode::System => ("💻", "Theme: System (Auto)"),
-            };
-            if ui
-                .add(
-                    egui::Button::new(egui::RichText::new(theme_text).size(14.0))
-                        .fill(theme_bg)
-                        .corner_radius(6.0),
-                )
-                .on_hover_text(tooltip)
-                .clicked()
-            {
-                config.theme_mode = match config.theme_mode {
-                    ThemeMode::System => ThemeMode::Dark,
-                    ThemeMode::Dark => ThemeMode::Light,
-                    ThemeMode::Light => ThemeMode::System,
-                };
-                changed = true;
-            }
+            changed = true;
+        }
 
-            // Language Switcher
-            let original_lang = config.ui_language.clone();
-            let lang_flag = match config.ui_language.as_str() {
-                "vi" => "🇻🇳",
-                "ko" => "🇰🇷",
-                _ => "🇺🇸",
-            };
-            egui::ComboBox::from_id_salt("header_lang_switch")
-                .width(32.0)
-                .selected_text(lang_flag)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut config.ui_language, "en".to_string(), "🇺🇸 English");
-                    ui.selectable_value(&mut config.ui_language, "vi".to_string(), "🇻🇳 Tiếng Việt");
-                    ui.selectable_value(&mut config.ui_language, "ko".to_string(), "🇰🇷 한국어");
-                });
-            if original_lang != config.ui_language {
-                changed = true;
-            }
-
-            // History Button
-            let history_bg = if is_dark {
-                egui::Color32::from_rgb(40, 90, 90)
-            } else {
-                egui::Color32::from_rgb(100, 180, 180)
-            };
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(format!("📜 {}", text.history_btn))
-                            .color(egui::Color32::WHITE),
-                    )
-                    .fill(history_bg)
-                    .corner_radius(8.0),
-                )
-                .clicked()
-            {
-                should_set_history = true;
-            }
-
-            // Global Settings (anchored to the right)
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let is_global = matches!(current_view_mode, ViewMode::Global);
-                if ui
-                    .selectable_label(is_global, text.global_settings)
-                    .clicked()
-                {
-                    should_set_global = true;
-                }
-                draw_icon_static(ui, Icon::Settings, None);
+        // Language Switcher
+        let original_lang = config.ui_language.clone();
+        let lang_flag = match config.ui_language.as_str() {
+            "vi" => "🇻🇳",
+            "ko" => "🇰🇷",
+            _ => "🇺🇸",
+        };
+        egui::ComboBox::from_id_salt("header_lang_switch")
+            .width(32.0)
+            .selected_text(lang_flag)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut config.ui_language, "en".to_string(), "🇺🇸 English");
+                ui.selectable_value(&mut config.ui_language, "vi".to_string(), "🇻🇳 Tiếng Việt");
+                ui.selectable_value(&mut config.ui_language, "ko".to_string(), "🇰🇷 한국어");
             });
-        },
-    );
+        if original_lang != config.ui_language {
+            changed = true;
+        }
+
+        // History Button
+        let history_bg = if is_dark {
+            egui::Color32::from_rgb(40, 90, 90)
+        } else {
+            egui::Color32::from_rgb(100, 180, 180)
+        };
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new(format!("📜 {}", text.history_btn))
+                        .color(egui::Color32::WHITE),
+                )
+                .fill(history_bg)
+                .corner_radius(8.0),
+            )
+            .clicked()
+        {
+            should_set_history = true;
+        }
+
+        // Calculate remaining space to push Global Settings to align with grid edge
+        let used_width = ui.min_rect().width();
+        let target_width = if cached_grid_width > 0.0 {
+            cached_grid_width
+        } else {
+            ui.available_width() + used_width
+        };
+        let remaining = (target_width - used_width - 120.0).max(0.0); // 120 = approx settings button width
+        ui.add_space(remaining);
+
+        // Global Settings
+        ui.spacing_mut().item_spacing.x = 4.0;
+        draw_icon_static(ui, Icon::Settings, None);
+        let is_global = matches!(current_view_mode, ViewMode::Global);
+        if ui
+            .selectable_label(is_global, text.global_settings)
+            .clicked()
+        {
+            should_set_global = true;
+        }
+    });
 
     ui.add_space(8.0);
 
