@@ -151,16 +151,12 @@ pub fn render_sidebar(
     text: &LocaleText,
 ) -> bool {
     let mut changed = false;
+    let mut preset_to_add_type = None;
+    let mut preset_idx_to_select: Option<usize> = None;
     let mut preset_idx_to_delete = None;
     let mut preset_idx_to_clone = None;
     let mut preset_idx_to_toggle_favorite = None;
-    let mut preset_to_add_type = None;
-    let mut preset_idx_to_select: Option<usize> = None;
 
-    // Split indices for presets into 3 columns
-    // Column 1: Image presets
-    // Column 2: Text presets
-    // Column 3: Audio + Video presets
     let mut image_indices = Vec::new();
     let mut text_indices = Vec::new();
     let mut audio_video_indices = Vec::new();
@@ -170,220 +166,184 @@ pub fn render_sidebar(
             "image" => image_indices.push(i),
             "text" => text_indices.push(i),
             "audio" | "video" => audio_video_indices.push(i),
-            _ => image_indices.push(i), // fallback to image
+            _ => image_indices.push(i),
         }
     }
 
-    // Sort audio_video column: Audio first, then Video
     audio_video_indices.sort_by_key(|&i| match config.presets[i].preset_type.as_str() {
         "audio" => 0,
         "video" => 1,
         _ => 2,
     });
 
-    // Capture current view_mode for comparison (avoids borrow issues)
     let current_view_mode = view_mode.clone();
     let mut should_set_global = false;
     let mut should_set_history = false;
 
-    // === UNIFIED GRID: Header + Presets in ONE grid for perfect alignment ===
-    egui::Grid::new("sidebar_unified_grid")
-        .striped(false)
-        .spacing(egui::vec2(8.0, 6.0))
-        .min_row_height(24.0) // Ensure consistent row heights
+    // --- Header Navigation (Outside Grid to avoid forcing column widths) ---
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let is_dark = ui.visuals().dark_mode;
+
+        // Theme Switcher
+        let theme_bg = if is_dark {
+            egui::Color32::from_rgb(50, 55, 70)
+        } else {
+            egui::Color32::from_rgb(230, 235, 245)
+        };
+        let (theme_text, tooltip) = match config.theme_mode {
+            ThemeMode::Dark => ("🌙", "Theme: Dark"),
+            ThemeMode::Light => ("☀", "Theme: Light"),
+            ThemeMode::System => ("💻", "Theme: System (Auto)"),
+        };
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new(theme_text).size(14.0))
+                    .fill(theme_bg)
+                    .corner_radius(6.0),
+            )
+            .on_hover_text(tooltip)
+            .clicked()
+        {
+            config.theme_mode = match config.theme_mode {
+                ThemeMode::System => ThemeMode::Dark,
+                ThemeMode::Dark => ThemeMode::Light,
+                ThemeMode::Light => ThemeMode::System,
+            };
+            changed = true;
+        }
+
+        // Language Switcher
+        let original_lang = config.ui_language.clone();
+        let lang_flag = match config.ui_language.as_str() {
+            "vi" => "🇻🇳",
+            "ko" => "🇰🇷",
+            _ => "🇺🇸",
+        };
+        egui::ComboBox::from_id_salt("header_lang_switch")
+            .width(32.0)
+            .selected_text(lang_flag)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut config.ui_language, "en".to_string(), "🇺🇸 English");
+                ui.selectable_value(&mut config.ui_language, "vi".to_string(), "🇻🇳 Tiếng Việt");
+                ui.selectable_value(&mut config.ui_language, "ko".to_string(), "🇰🇷 한국어");
+            });
+        if original_lang != config.ui_language {
+            changed = true;
+        }
+
+        // History Button
+        let history_bg = if is_dark {
+            egui::Color32::from_rgb(40, 90, 90)
+        } else {
+            egui::Color32::from_rgb(100, 180, 180)
+        };
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new(format!("📜 {}", text.history_btn))
+                        .color(egui::Color32::WHITE),
+                )
+                .fill(history_bg)
+                .corner_radius(8.0),
+            )
+            .clicked()
+        {
+            should_set_history = true;
+        }
+
+        // Global Settings (anchored to the right)
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let is_global = matches!(current_view_mode, ViewMode::Global);
+            if ui
+                .selectable_label(is_global, text.global_settings)
+                .clicked()
+            {
+                should_set_global = true;
+            }
+            draw_icon_static(ui, Icon::Settings, None);
+        });
+    });
+
+    ui.add_space(8.0);
+
+    // --- Presets Grid ---
+    egui::Grid::new("presets_grid")
+        .num_columns(6)
+        .spacing([8.0, 8.0])
+        .min_col_width(67.0)
         .show(ui, |ui| {
-            // === ROW 1: Theme/Lang/History | (empty) | Global Settings ===
-            // Column 1: Use explicit center alignment
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-
-                let is_dark = ui.visuals().dark_mode;
-
-                // Theme Switcher - styled button with background
-                let theme_bg = if is_dark {
-                    egui::Color32::from_rgb(50, 55, 70)
-                } else {
-                    egui::Color32::from_rgb(230, 235, 245)
-                };
-                let (theme_text, tooltip) = match config.theme_mode {
-                    ThemeMode::Dark => ("🌙", "Theme: Dark"),
-                    ThemeMode::Light => ("☀", "Theme: Light"),
-                    ThemeMode::System => ("💻", "Theme: System (Auto)"),
-                };
-                if ui
-                    .add(
-                        egui::Button::new(egui::RichText::new(theme_text).size(14.0))
-                            .fill(theme_bg)
-                            .corner_radius(6.0),
-                    )
-                    .on_hover_text(tooltip)
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    config.theme_mode = match config.theme_mode {
-                        ThemeMode::System => ThemeMode::Dark,
-                        ThemeMode::Dark => ThemeMode::Light,
-                        ThemeMode::Light => ThemeMode::System,
-                    };
-                    changed = true;
-                }
-
-                // Language Switcher - styled combobox with flag
-                let original_lang = config.ui_language.clone();
-                let lang_flag = match config.ui_language.as_str() {
-                    "vi" => "🇻🇳",
-                    "ko" => "🇰🇷",
-                    _ => "🇺🇸",
-                };
-                egui::ComboBox::from_id_salt("header_lang_switch")
-                    .width(32.0)
-                    .selected_text(lang_flag)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut config.ui_language,
-                            "en".to_string(),
-                            "🇺🇸 English",
-                        );
-                        ui.selectable_value(
-                            &mut config.ui_language,
-                            "vi".to_string(),
-                            "🇻🇳 Tiếng Việt",
-                        );
-                        ui.selectable_value(&mut config.ui_language, "ko".to_string(), "🇰🇷 한국어");
-                    });
-                if original_lang != config.ui_language {
-                    changed = true;
-                }
-
-                // History Button - styled teal pill
-                let history_bg = if is_dark {
-                    egui::Color32::from_rgb(40, 90, 90)
-                } else {
-                    egui::Color32::from_rgb(100, 180, 180)
-                };
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(format!("📜 {}", text.history_btn))
-                                .color(egui::Color32::WHITE),
-                        )
-                        .fill(history_bg)
-                        .corner_radius(8.0),
-                    )
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    should_set_history = true;
-                }
-            });
-
-            // Column 2: empty spacer
-            ui.label("");
-
-            // Column 3: Global Settings (Right Aligned with Center vertical alignment)
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let is_global = matches!(current_view_mode, ViewMode::Global);
-                if ui
-                    .selectable_label(is_global, text.global_settings)
-                    .clicked()
-                {
-                    should_set_global = true;
-                }
-                draw_icon_static(ui, Icon::Settings, None);
-            });
-            ui.end_row();
-
-            // === ROW 2: Add Buttons as Column Headers ===
+            // ROW 1: Add Buttons
             let is_dark = ui.visuals().dark_mode;
-
-            // Image button - Blue tint
             let img_bg = if is_dark {
                 egui::Color32::from_rgb(45, 85, 140)
             } else {
                 egui::Color32::from_rgb(100, 150, 220)
             };
-
-            // Text button - Green tint
             let txt_bg = if is_dark {
                 egui::Color32::from_rgb(45, 120, 80)
             } else {
                 egui::Color32::from_rgb(90, 180, 120)
             };
-
-            // Audio button - Orange/Amber tint
             let aud_bg = if is_dark {
                 egui::Color32::from_rgb(150, 95, 40)
             } else {
                 egui::Color32::from_rgb(220, 160, 80)
             };
 
-            // Column 1: +Ảnh button
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(text.add_image_preset_btn)
-                            .color(egui::Color32::WHITE)
-                            .strong(),
-                    )
-                    .fill(img_bg)
-                    .corner_radius(12.0),
+            // Image
+            ui.add(
+                egui::Button::new(
+                    egui::RichText::new(text.add_image_preset_btn)
+                        .color(egui::Color32::WHITE)
+                        .strong(),
                 )
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-            {
-                preset_to_add_type = Some("image");
-            }
+                .fill(img_bg)
+                .corner_radius(12.0),
+            )
+            .clicked()
+            .then(|| preset_to_add_type = Some("image"));
+            ui.label("");
 
-            // Column 2: +Text button
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(text.add_text_preset_btn)
-                            .color(egui::Color32::WHITE)
-                            .strong(),
-                    )
-                    .fill(txt_bg)
-                    .corner_radius(12.0),
+            // Text
+            ui.add(
+                egui::Button::new(
+                    egui::RichText::new(text.add_text_preset_btn)
+                        .color(egui::Color32::WHITE)
+                        .strong(),
                 )
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-            {
-                preset_to_add_type = Some("text");
-            }
+                .fill(txt_bg)
+                .corner_radius(12.0),
+            )
+            .clicked()
+            .then(|| preset_to_add_type = Some("text"));
+            ui.label("");
 
-            // Column 3: +Âm thanh button
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(text.add_audio_preset_btn)
-                            .color(egui::Color32::WHITE)
-                            .strong(),
-                    )
-                    .fill(aud_bg)
-                    .corner_radius(12.0),
+            // Audio
+            ui.add(
+                egui::Button::new(
+                    egui::RichText::new(text.add_audio_preset_btn)
+                        .color(egui::Color32::WHITE)
+                        .strong(),
                 )
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .clicked()
-            {
-                preset_to_add_type = Some("audio");
-            }
+                .fill(aud_bg)
+                .corner_radius(12.0),
+            )
+            .clicked()
+            .then(|| preset_to_add_type = Some("audio"));
+            ui.label("");
             ui.end_row();
 
-            // === ROW 3+: Preset Items in 3 columns ===
-            let max_len = *[
-                image_indices.len(),
-                text_indices.len(),
-                audio_video_indices.len(),
-            ]
-            .iter()
-            .max()
-            .unwrap_or(&0);
-
+            // ROW 2+: Preset Items
+            let max_len = image_indices
+                .len()
+                .max(text_indices.len())
+                .max(audio_video_indices.len());
             for i in 0..max_len {
-                // Column 1: Image Presets
+                // Column 1&2: Image
                 if let Some(&idx) = image_indices.get(i) {
-                    render_preset_item(
+                    render_preset_item_parts(
                         ui,
                         &config.presets,
                         idx,
@@ -396,11 +356,12 @@ pub fn render_sidebar(
                     );
                 } else {
                     ui.label("");
+                    ui.label("");
                 }
 
-                // Column 2: Text Presets
+                // Column 3&4: Text
                 if let Some(&idx) = text_indices.get(i) {
-                    render_preset_item(
+                    render_preset_item_parts(
                         ui,
                         &config.presets,
                         idx,
@@ -413,11 +374,12 @@ pub fn render_sidebar(
                     );
                 } else {
                     ui.label("");
+                    ui.label("");
                 }
 
-                // Column 3: Audio + Video Presets
+                // Column 5&6: Audio
                 if let Some(&idx) = audio_video_indices.get(i) {
-                    render_preset_item(
+                    render_preset_item_parts(
                         ui,
                         &config.presets,
                         idx,
@@ -429,6 +391,7 @@ pub fn render_sidebar(
                         &config.ui_language,
                     );
                 } else {
+                    ui.label("");
                     ui.label("");
                 }
 
@@ -436,7 +399,6 @@ pub fn render_sidebar(
             }
         });
 
-    // Apply view_mode changes after the grid
     if should_set_global {
         *view_mode = ViewMode::Global;
     }
@@ -447,21 +409,16 @@ pub fn render_sidebar(
         *view_mode = ViewMode::Preset(idx);
     }
 
-    // Handle Toggle Favorite
     if let Some(idx) = preset_idx_to_toggle_favorite {
         if let Some(preset) = config.presets.get_mut(idx) {
             preset.is_favorite = !preset.is_favorite;
             changed = true;
-            // Update favorite bubble immediately if it's open, passing fresh data
             crate::overlay::favorite_bubble::update_favorites_panel();
         }
     }
 
-    // Handle Clone
     if let Some(idx) = preset_idx_to_clone {
         let mut new_preset = config.presets[idx].clone();
-
-        // Generate new ID
         new_preset.id = format!(
             "{:x}",
             std::time::SystemTime::now()
@@ -469,38 +426,30 @@ pub fn render_sidebar(
                 .unwrap()
                 .as_nanos()
         );
-
-        // Generate new Name
         let base_name = if config.presets[idx].id.starts_with("preset_") {
             get_localized_preset_name(&config.presets[idx].id, &config.ui_language)
         } else {
             new_preset.name.clone()
         };
         let mut new_name = format!("{} Copy", base_name);
-
         let mut counter = 1;
         while config.presets.iter().any(|p| p.name == new_name) {
             new_name = format!("{} Copy {}", base_name, counter);
             counter += 1;
         }
         new_preset.name = new_name;
-
-        // Clear hotkeys to avoid conflicts
         new_preset.hotkeys.clear();
-
         config.presets.push(new_preset);
         *view_mode = ViewMode::Preset(config.presets.len() - 1);
         changed = true;
     }
 
-    // Handle Add
     if let Some(type_str) = preset_to_add_type {
         let mut new_preset = Preset::default();
         if type_str == "text" {
             new_preset.preset_type = "text".to_string();
             new_preset.name = format!("Text {}", config.presets.len() + 1);
             new_preset.text_input_mode = "select".to_string();
-            // Update block 0 instead of legacy fields
             if let Some(block) = new_preset.blocks.first_mut() {
                 block.block_type = "text".to_string();
                 block.model = "text_accurate_kimi".to_string();
@@ -510,23 +459,18 @@ pub fn render_sidebar(
             new_preset.preset_type = "audio".to_string();
             new_preset.name = format!("Audio {}", config.presets.len() + 1);
             new_preset.audio_source = "mic".to_string();
-            // Update block 0 instead of legacy fields
             if let Some(block) = new_preset.blocks.first_mut() {
                 block.block_type = "audio".to_string();
                 block.model = "whisper-fast".to_string();
-                block.prompt = "".to_string();
             }
         } else {
             new_preset.name = format!("Image {}", config.presets.len() + 1);
-            // Default preset already has image block, no changes needed
         }
-
         config.presets.push(new_preset);
         *view_mode = ViewMode::Preset(config.presets.len() - 1);
         changed = true;
     }
 
-    // Handle Delete
     if let Some(idx) = preset_idx_to_delete {
         config.presets.remove(idx);
         if let ViewMode::Preset(curr) = *view_mode {
@@ -544,8 +488,7 @@ pub fn render_sidebar(
     changed
 }
 
-// Helper function to render a single preset item (avoids closure borrow issues)
-fn render_preset_item(
+fn render_preset_item_parts(
     ui: &mut egui::Ui,
     presets: &[Preset],
     idx: usize,
@@ -557,21 +500,16 @@ fn render_preset_item(
     lang: &str,
 ) {
     let preset = &presets[idx];
-
-    // Get display name: localized for default presets, original for custom
     let display_name = if preset.id.starts_with("preset_") {
         get_localized_preset_name(&preset.id, lang)
     } else {
         preset.name.clone()
     };
-
     let is_selected = matches!(current_view_mode, ViewMode::Preset(i) if *i == idx);
     let has_hotkey = !preset.hotkeys.is_empty();
 
     let icon_type = match preset.preset_type.as_str() {
         "audio" => {
-            // Use Realtime icon for realtime processing mode
-            // Otherwise use Speaker for device audio, Microphone for mic audio
             if preset.audio_processing_mode == "realtime" {
                 Icon::Realtime
             } else if preset.audio_source == "device" {
@@ -582,7 +520,6 @@ fn render_preset_item(
         }
         "video" => Icon::Image,
         "text" => {
-            // Use TextSelect for select mode, Text (T) for type mode
             if preset.text_input_mode == "select" {
                 Icon::TextSelect
             } else {
@@ -592,27 +529,19 @@ fn render_preset_item(
         _ => Icon::Image,
     };
 
-    // Use horizontal_centered for proper vertical alignment
-    ui.horizontal_centered(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-
-        // Draw background if has hotkey
+    // --- Column X: Content ---
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
         if has_hotkey && !preset.is_upcoming {
             let rect = ui.available_rect_before_wrap();
             let is_dark = ui.visuals().dark_mode;
-
-            if is_dark {
-                // Dark Mode: Softer, muted teal/green (tint)
-                let bg_color = egui::Color32::from_rgba_unmultiplied(40, 150, 130, 70);
-                ui.painter().rect_filled(rect, 4.0, bg_color);
+            let bg_color = if is_dark {
+                egui::Color32::from_rgba_unmultiplied(40, 150, 130, 70)
             } else {
-                // Light Mode: Stronger pastel green (Mint) - needs to be visible against white
-                // RGB(210, 245, 230) is a visible mint green
-                let bg_color = egui::Color32::from_rgb(200, 235, 220);
-                ui.painter().rect_filled(rect, 4.0, bg_color);
-            }
+                egui::Color32::from_rgb(200, 235, 220)
+            };
+            ui.painter().rect_filled(rect, 4.0, bg_color);
         }
-
         if preset.is_upcoming {
             ui.add_enabled_ui(false, |ui| {
                 draw_icon_static(ui, icon_type, Some(14.0));
@@ -623,66 +552,28 @@ fn render_preset_item(
             if ui.selectable_label(is_selected, &display_name).clicked() {
                 *preset_idx_to_select = Some(idx);
             }
+        }
+    });
 
-            ui.add_space(-3.0); // Balanced gap from text
-            ui.spacing_mut().item_spacing.x = 0.0;
-
-            // Copy Button
-            let copy_tooltip = match lang {
-                "vi" => "Nhân bản",
-                "ko" => "복제",
-                _ => "Duplicate",
-            };
-            if icon_button_sized(ui, Icon::CopySmall, 22.0)
-                .on_hover_text(copy_tooltip)
-                .clicked()
-            {
-                *preset_idx_to_clone = Some(idx);
+    // --- Column X+1: Actions ---
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        if !preset.is_upcoming {
+            if presets.len() > 1 {
+                if icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
+                    *preset_idx_to_delete = Some(idx);
+                }
             }
-
-            // Favorite Button (Star) - between copy and delete
             let star_icon = if preset.is_favorite {
                 Icon::StarFilled
             } else {
                 Icon::Star
             };
-            let star_tooltip = match lang {
-                "vi" => {
-                    if preset.is_favorite {
-                        "Bỏ yêu thích"
-                    } else {
-                        "Yêu thích"
-                    }
-                }
-                "ko" => {
-                    if preset.is_favorite {
-                        "즐겨찾기 해제"
-                    } else {
-                        "즐겨찾기"
-                    }
-                }
-                _ => {
-                    if preset.is_favorite {
-                        "Remove from favorites"
-                    } else {
-                        "Add to favorites"
-                    }
-                }
-            };
-            ui.add_space(-4.0); // Relaxed gap between icons
-            if icon_button_sized(ui, star_icon, 22.0)
-                .on_hover_text(star_tooltip)
-                .clicked()
-            {
+            if icon_button_sized(ui, star_icon, 22.0).clicked() {
                 *preset_idx_to_toggle_favorite = Some(idx);
             }
-
-            // Delete button (Small X icon)
-            if presets.len() > 1 {
-                ui.add_space(-4.0); // Relaxed gap before delete X
-                if icon_button_sized(ui, Icon::Delete, 22.0).clicked() {
-                    *preset_idx_to_delete = Some(idx);
-                }
+            if icon_button_sized(ui, Icon::CopySmall, 22.0).clicked() {
+                *preset_idx_to_clone = Some(idx);
             }
         }
     });
