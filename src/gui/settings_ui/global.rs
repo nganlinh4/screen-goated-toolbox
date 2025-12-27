@@ -565,21 +565,25 @@ fn render_tts_settings_modal(
             ui.add_space(8.0);
             
             // === TTS METHOD SELECTION ===
+            // === TTS METHOD SELECTION ===
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(text.tts_method_label).strong());
-                if ui.selectable_label(config.tts_method == TtsMethod::GeminiLive, text.tts_method_standard).clicked() {
-                    config.tts_method = TtsMethod::GeminiLive;
+                
+                // Gemini Live (Premium)
+                if ui.radio_value(&mut config.tts_method, TtsMethod::GeminiLive, text.tts_method_standard).clicked() {
                     changed = true;
                 }
-                if ui.selectable_label(config.tts_method == TtsMethod::GoogleTranslate, text.tts_method_fast).clicked() {
-                    config.tts_method = TtsMethod::GoogleTranslate;
+                
+                // Edge TTS (Good)
+                if ui.radio_value(&mut config.tts_method, TtsMethod::EdgeTTS, text.tts_method_edge).clicked() {
+                    changed = true;
+                }
+
+                // Google Translate (Fast)
+                if ui.radio_value(&mut config.tts_method, TtsMethod::GoogleTranslate, text.tts_method_fast).clicked() {
                     if config.tts_speed == "Fast" {
                         config.tts_speed = "Normal".to_string();
                     }
-                    changed = true;
-                }
-                if ui.selectable_label(config.tts_method == TtsMethod::EdgeTTS, text.tts_method_edge).clicked() {
-                    config.tts_method = TtsMethod::EdgeTTS;
                     changed = true;
                 }
             });

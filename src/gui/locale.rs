@@ -362,7 +362,7 @@ impl LocaleText {
                 tts_settings_button: "Cài đặt giọng đọc",
                 tts_settings_title: "Thiết lập Giọng Đọc",
                 tts_method_label: "Phương pháp Đọc chữ (TTS):",
-                tts_method_standard: "Chuẩn (Gemini Live)",
+                tts_method_standard: "Xịn (Gemini Live)",
                 tts_method_fast: "Nhanh (Google Translate)",
                 tts_method_edge: "Tốt (Edge TTS)",
                 tts_google_translate_title: "Google Translate TTS",
