@@ -578,7 +578,7 @@ fn render_tts_settings_modal(
                     }
                     changed = true;
                 }
-                if ui.selectable_label(config.tts_method == TtsMethod::EdgeTTS, "Edge TTS").clicked() {
+                if ui.selectable_label(config.tts_method == TtsMethod::EdgeTTS, text.tts_method_edge).clicked() {
                     config.tts_method = TtsMethod::EdgeTTS;
                     changed = true;
                 }
@@ -794,10 +794,9 @@ fn render_tts_settings_modal(
                 // Simplified UI for Google Translate
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
-                    ui.label(egui::RichText::new("Google Translate TTS (Fast Mode)").size(18.0).strong());
+                    ui.label(egui::RichText::new(text.tts_google_translate_title).size(18.0).strong());
                     ui.add_space(10.0);
-                    ui.label("This method is faster and doesn't require an API key.");
-                    ui.label("It uses the built-in system language or detected language automatically.");
+                    ui.label(text.tts_google_translate_desc);
                     ui.add_space(20.0);
                     
                     ui.horizontal(|ui| {
@@ -807,7 +806,6 @@ fn render_tts_settings_modal(
                     });
                     
                     ui.add_space(20.0);
-                    ui.label("Note: Voice and language-specific instructions are disabled in Fast mode.");
                 });
             } else if config.tts_method == TtsMethod::EdgeTTS {
                 // Trigger voice list loading on first render
@@ -816,15 +814,15 @@ fn render_tts_settings_modal(
                 // Edge TTS Settings
                 ui.vertical_centered(|ui| {
                     ui.add_space(10.0);
-                    ui.label(egui::RichText::new("Microsoft Edge TTS (Neural)").size(18.0).strong());
+                    ui.label(egui::RichText::new(text.tts_edge_title).size(18.0).strong());
                     ui.add_space(5.0);
-                    ui.label("High-quality neural voices. Free, no API key required.");
+                    ui.label(text.tts_edge_desc);
                     ui.add_space(15.0);
                 });
                 
                 // Pitch and Rate sliders
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Pitch:").strong());
+                    ui.label(egui::RichText::new(text.tts_pitch_label).strong());
                     if ui.add(egui::Slider::new(&mut config.edge_tts_settings.pitch, -50..=50).suffix(" Hz")).changed() {
                         changed = true;
                     }
@@ -832,7 +830,7 @@ fn render_tts_settings_modal(
                 
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Rate:").strong());
+                    ui.label(egui::RichText::new(text.tts_rate_label).strong());
                     if ui.add(egui::Slider::new(&mut config.edge_tts_settings.rate, -50..=100).suffix("%")).changed() {
                         changed = true;
                     }
@@ -843,7 +841,7 @@ fn render_tts_settings_modal(
                 ui.add_space(10.0);
                 
                 // Per-language voice configuration
-                ui.label(egui::RichText::new("Voice per Language:").strong());
+                ui.label(egui::RichText::new(text.tts_voice_per_language_label).strong());
                 ui.add_space(5.0);
                 
                 // Check voice cache status
@@ -856,12 +854,12 @@ fn render_tts_settings_modal(
                     // Loading
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Loading voice list...");
+                        ui.label(text.tts_loading_voices);
                     });
                 } else if let Some(ref error) = cache_status.2 {
                     // Error
-                    ui.colored_label(egui::Color32::RED, format!("Failed to load voices: {}", error));
-                    if ui.button("Retry").clicked() {
+                    ui.colored_label(egui::Color32::RED, format!("{} {}", text.tts_failed_load_voices, error).replace("{}", ""));
+                    if ui.button(text.tts_retry_label).clicked() {
                         // Reset cache and retry
                         let mut cache = crate::api::tts::edge_voices::EDGE_VOICE_CACHE.lock().unwrap();
                         cache.loaded = false;
@@ -923,7 +921,7 @@ fn render_tts_settings_modal(
                         
                         if !available.is_empty() {
                             egui::ComboBox::from_id_salt("edge_add_language")
-                                .selected_text("+ Add Language")
+                                .selected_text(text.tts_add_language_label)
                                 .width(150.0)
                                 .show_ui(ui, |ui| {
                                     for (code, name) in &available {
@@ -947,7 +945,7 @@ fn render_tts_settings_modal(
                                 });
                         }
                         
-                        if ui.button("Reset to Defaults").clicked() {
+                        if ui.button(text.tts_reset_to_defaults_label).clicked() {
                             config.edge_tts_settings = crate::config::EdgeTtsSettings::default();
                             changed = true;
                         }
@@ -956,7 +954,7 @@ fn render_tts_settings_modal(
                     // Not loaded yet, show loading message
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Initializing voice list...");
+                        ui.label(text.tts_initializing_voices);
                     });
                 }
             }
