@@ -103,7 +103,7 @@ pub fn hide_favorite_bubble() {
     }
 }
 
-fn get_favorite_presets_html() -> String {
+fn get_favorite_presets_html(presets: &[crate::config::Preset], lang: &str) -> String {
     let mut html_items = String::new();
     let mut image_items = String::new();
     let mut text_items = String::new();
@@ -114,34 +114,31 @@ fn get_favorite_presets_html() -> String {
     let icon_audio = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zM17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>"#;
     let icon_image = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>"#;
 
-    if let Ok(app) = APP.lock() {
-        let lang = &app.config.ui_language;
-        for (idx, preset) in app.config.presets.iter().enumerate() {
-            if preset.is_favorite && !preset.is_upcoming && !preset.is_master {
-                let name = if preset.id.starts_with("preset_") {
-                    get_localized_preset_name(&preset.id, lang)
-                } else {
-                    preset.name.clone()
-                };
+    for (idx, preset) in presets.iter().enumerate() {
+        if preset.is_favorite && !preset.is_upcoming && !preset.is_master {
+            let name = if preset.id.starts_with("preset_") {
+                get_localized_preset_name(&preset.id, lang)
+            } else {
+                preset.name.clone()
+            };
 
-                let icon = match preset.preset_type.as_str() {
-                    "text" => icon_text,
-                    "audio" => icon_audio,
-                    _ => icon_image,
-                };
+            let icon = match preset.preset_type.as_str() {
+                "text" => icon_text,
+                "audio" => icon_audio,
+                _ => icon_image,
+            };
 
-                let item = format!(
-                    r#"<div class="preset-item" onclick="trigger({})"><span class="icon">{}</span><span class="name">{}</span></div>"#,
-                    idx,
-                    icon,
-                    html_escape(&name)
-                );
+            let item = format!(
+                r#"<div class="preset-item" onclick="trigger({})"><span class="icon">{}</span><span class="name">{}</span></div>"#,
+                idx,
+                icon,
+                html_escape(&name)
+            );
 
-                match preset.preset_type.as_str() {
-                    "text" => text_items.push_str(&item),
-                    "audio" => audio_items.push_str(&item),
-                    _ => image_items.push_str(&item),
-                }
+            match preset.preset_type.as_str() {
+                "text" => text_items.push_str(&item),
+                "audio" => audio_items.push_str(&item),
+                _ => image_items.push_str(&item),
             }
         }
     }
@@ -177,8 +174,8 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn generate_panel_html() -> String {
-    let favorites_html = get_favorite_presets_html();
+fn generate_panel_html(presets: &[crate::config::Preset], lang: &str) -> String {
+    let favorites_html = get_favorite_presets_html(presets, lang);
 
     format!(
         r#"<!DOCTYPE html>
@@ -873,88 +870,105 @@ fn show_panel(bubble_hwnd: HWND) {
     unsafe {
         let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
 
-        // Update content (favorites might have changed)
-        let favorites_html = get_favorite_presets_html();
-        update_panel_content(&favorites_html);
-
-        // Recalculate size/pos
-        let mut bubble_rect = RECT::default();
-        let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
-
-        // Adjusted height calculation for compactness
-        let height_per_item = 48;
-        let spacing_per_group = 8;
-
-        let (fav_count, group_count) = if let Ok(app) = APP.lock() {
-            let presets = &app.config.presets;
-            let favs: Vec<_> = presets
-                .iter()
-                .filter(|p| p.is_favorite && !p.is_upcoming && !p.is_master)
-                .collect();
-
-            let count = favs.len();
-
-            let has_image = favs
-                .iter()
-                .any(|p| p.preset_type != "text" && p.preset_type != "audio");
-            let has_text = favs.iter().any(|p| p.preset_type == "text");
-            let has_audio = favs.iter().any(|p| p.preset_type == "audio");
-
-            let g_count = (if has_image { 1 } else { 0 })
-                + (if has_text { 1 } else { 0 })
-                + (if has_audio { 1 } else { 0 });
-
-            (count, g_count)
-        } else {
-            (0, 0)
-        };
-
-        // Calculate total height: items + spacing between groups + minimal padding
-        let panel_height =
-            (fav_count as i32 * height_per_item) + (group_count as i32 * spacing_per_group) + 12;
-        let panel_height = panel_height.max(60);
-
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-
-        let (panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
-            (
-                bubble_rect.left - PANEL_WIDTH - 8,
-                bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
-            )
-        } else {
-            (
-                bubble_rect.right + 8,
-                bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
-            )
-        };
-
-        // Show and Move Window FIRST to correct size
-        let _ = SetWindowPos(
-            panel_hwnd,
-            None,
-            panel_x,
-            panel_y.max(10),
-            PANEL_WIDTH,
-            panel_height,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        );
-
-        // Resize WebView content to match new window size
-        PANEL_WEBVIEW.with(|wv| {
-            if let Some(webview) = wv.borrow().as_ref() {
-                let _ = webview.set_bounds(Rect {
-                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        PANEL_WIDTH as u32,
-                        panel_height as u32,
-                    )),
-                });
-            }
-        });
+        if let Ok(app) = APP.lock() {
+            refresh_panel_layout_and_content(
+                bubble_hwnd,
+                panel_hwnd,
+                &app.config.presets,
+                &app.config.ui_language,
+            );
+        }
 
         IS_EXPANDED.store(true, Ordering::SeqCst);
         update_bubble_visual(bubble_hwnd);
     }
+}
+
+pub fn update_favorites_panel() {
+    // Simply close the panel if it's open, forcing a reopen (and refresh) next time the user clicks.
+    if IS_EXPANDED.load(Ordering::SeqCst) {
+        close_panel();
+    }
+}
+
+unsafe fn refresh_panel_layout_and_content(
+    bubble_hwnd: HWND,
+    panel_hwnd: HWND,
+    presets: &[crate::config::Preset],
+    lang: &str,
+) {
+    // Recalculate size/pos FIRST
+    let mut bubble_rect = RECT::default();
+    let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
+
+    // Adjusted height calculation for compactness
+    let height_per_item = 44;
+    let spacing_per_group = 12;
+
+    let favs: Vec<_> = presets
+        .iter()
+        .filter(|p| p.is_favorite && !p.is_upcoming && !p.is_master)
+        .collect();
+
+    let fav_count = favs.len();
+
+    let has_image = favs
+        .iter()
+        .any(|p| p.preset_type != "text" && p.preset_type != "audio");
+    let has_text = favs.iter().any(|p| p.preset_type == "text");
+    let has_audio = favs.iter().any(|p| p.preset_type == "audio");
+
+    let group_count = (if has_image { 1 } else { 0 })
+        + (if has_text { 1 } else { 0 })
+        + (if has_audio { 1 } else { 0 });
+
+    // Calculate total height: items + spacing between groups + minimal padding
+    let panel_height =
+        (fav_count as i32 * height_per_item) + (group_count as i32 * spacing_per_group) + 16;
+    let panel_height = panel_height.max(50);
+
+    let screen_w = GetSystemMetrics(SM_CXSCREEN);
+
+    let (panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
+        (
+            bubble_rect.left - PANEL_WIDTH - 8,
+            bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
+        )
+    } else {
+        (
+            bubble_rect.right + 8,
+            bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
+        )
+    };
+
+    // Show and Move Window FIRST to correct size
+    // Added SWP_NOCOPYBITS to redraw fully on resize
+    let _ = SetWindowPos(
+        panel_hwnd,
+        None,
+        panel_x,
+        panel_y.max(10),
+        PANEL_WIDTH,
+        panel_height,
+        SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOCOPYBITS,
+    );
+
+    // Resize WebView content to match new window size
+    PANEL_WEBVIEW.with(|wv| {
+        if let Some(webview) = wv.borrow().as_ref() {
+            let _ = webview.set_bounds(Rect {
+                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                    PANEL_WIDTH as u32,
+                    panel_height as u32,
+                )),
+            });
+        }
+    });
+
+    // Update content LAST to ensure container is ready
+    let favorites_html = get_favorite_presets_html(presets, lang);
+    update_panel_content(&favorites_html);
 }
 
 fn create_panel_window_internal(bubble_hwnd: HWND) {
@@ -1105,7 +1119,12 @@ fn create_panel_webview(panel_hwnd: HWND) {
         let _ = GetClientRect(panel_hwnd, &mut rect);
     }
 
-    let html = generate_panel_html();
+    let html = if let Ok(app) = APP.lock() {
+        generate_panel_html(&app.config.presets, &app.config.ui_language)
+    } else {
+        String::new()
+    };
+
     let wrapper = HwndWrapper(panel_hwnd);
 
     let result = WebViewBuilder::new()
