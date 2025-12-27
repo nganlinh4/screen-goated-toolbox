@@ -325,6 +325,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         use crate::gui::icons::{draw_icon_static, Icon};
 
         let node = &snarl[node];
+        // Reverting to vertical-centered horizontal layout which is standard/safe
         ui.horizontal(|ui| {
             // Add icon based on node type
             match node {
@@ -438,6 +439,7 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                         auto_speak,
                         ..
                     } => {
+                        ui.set_min_width(173.0);
                         // Input settings (Simplified) - Label removed to avoid duplication with header
                         // ui.separator() removed for compact look
 
