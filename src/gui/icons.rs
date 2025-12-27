@@ -31,6 +31,9 @@ pub enum Icon {
     Realtime,        // NEW: Streaming waves icon for realtime audio processing
     Star,            // Outline star for non-favorite presets
     StarFilled,      // Filled star for favorite presets
+    Sun,             // New: Sun icon for light mode
+    Moon,            // New: Moon icon for dark mode
+    Device,          // New: Monitor/Device icon for system theme
 }
 
 /// Main entry point: Draw a clickable icon button (default size 24.0)
@@ -797,26 +800,74 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             let inner_r = 2.4 * scale;
             let center_pt = center;
 
-            // Draw as a triangle fan from center
-            let gold = egui::Color32::from_rgb(255, 193, 7); // Bright gold/amber
-
+            // Draw as a filled polygon
+            let mut points = Vec::new();
             for i in 0..10 {
-                let angle1 = (i as f32 * PI / 5.0) - PI / 2.0;
-                let angle2 = ((i + 1) as f32 * PI / 5.0) - PI / 2.0;
-
-                let r1 = if i % 2 == 0 { outer_r } else { inner_r };
-                let r2 = if (i + 1) % 2 == 0 { outer_r } else { inner_r };
-
-                let p1 = egui::pos2(center.x + r1 * angle1.cos(), center.y + r1 * angle1.sin());
-                let p2 = egui::pos2(center.x + r2 * angle2.cos(), center.y + r2 * angle2.sin());
-
-                // Add triangle (Center, P1, P2)
-                painter.add(egui::Shape::convex_polygon(
-                    vec![center_pt, p1, p2],
-                    gold,
-                    egui::Stroke::NONE,
+                let angle = (i as f32 * PI / 5.0) - PI / 2.0; // Start from top
+                let r = if i % 2 == 0 { outer_r } else { inner_r };
+                points.push(egui::pos2(
+                    center_pt.x + r * angle.cos(),
+                    center_pt.y + r * angle.sin(),
                 ));
             }
+            painter.add(egui::Shape::convex_polygon(
+                points,
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+
+        Icon::Sun => {
+            painter.circle_stroke(center, 4.0 * scale, stroke);
+            for i in 0..8 {
+                let angle = (i as f32 * 45.0).to_radians();
+                let dir = egui::vec2(angle.cos(), angle.sin());
+                let start = center + dir * 6.5 * scale;
+                let end = center + dir * 9.0 * scale;
+                painter.line_segment([start, end], stroke);
+            }
+        }
+
+        Icon::Moon => {
+            let r = 7.0 * scale;
+            let offset = 3.5 * scale;
+            painter.circle_filled(center, r, color);
+            painter.circle_filled(
+                center + egui::vec2(offset, -offset * 0.8),
+                r * 0.85,
+                painter.ctx().style().visuals.panel_fill,
+            );
+        }
+
+        Icon::Device => {
+            // Monitor / PC Icon
+            let w = 12.0 * scale;
+            let h = 8.0 * scale;
+
+            // Screen rect
+            let screen_rect = egui::Rect::from_center_size(
+                center + egui::vec2(0.0, -1.0 * scale),
+                egui::vec2(w, h),
+            );
+            painter.rect_stroke(screen_rect, 1.0 * scale, stroke, egui::StrokeKind::Middle);
+
+            // Stand
+            painter.line_segment(
+                [
+                    egui::pos2(center.x, center.y + 3.0 * scale),
+                    egui::pos2(center.x, center.y + 6.0 * scale),
+                ],
+                stroke,
+            );
+
+            // Base feet
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - 3.0 * scale, center.y + 6.0 * scale),
+                    egui::pos2(center.x + 3.0 * scale, center.y + 6.0 * scale),
+                ],
+                stroke,
+            );
         }
     }
 }
