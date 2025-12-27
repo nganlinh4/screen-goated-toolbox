@@ -53,6 +53,11 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             continue;
         }
 
+        if tts_method == crate::config::TtsMethod::EdgeTTS {
+            handle_edge_tts(manager.clone(), request, tx);
+            continue;
+        }
+
         // Get API key
         let api_key = {
             match APP.lock() {
@@ -414,4 +419,283 @@ fn resample_linear(samples: &[i16], from_rate: u32, to_rate: u32) -> Vec<i16> {
     }
 
     output
+}
+
+/// Microsoft Edge TTS using WebSocket connection
+/// Free, high-quality neural voices with pitch/rate control
+fn handle_edge_tts(
+    manager: Arc<TtsManager>,
+    request: super::types::QueuedRequest,
+    tx: std::sync::mpsc::Sender<AudioEvent>,
+) {
+    let text = request.req.text.clone();
+    let is_realtime = request.req.is_realtime;
+
+    // Detect language for voice selection
+    let lang_code = whatlang::detect_lang(&text).unwrap_or(whatlang::Lang::Eng);
+    let tl = match lang_code {
+        whatlang::Lang::Vie => "vi",
+        whatlang::Lang::Kor => "ko",
+        whatlang::Lang::Jpn => "ja",
+        whatlang::Lang::Cmn => "zh",
+        whatlang::Lang::Fra => "fr",
+        whatlang::Lang::Deu => "de",
+        whatlang::Lang::Spa => "es",
+        whatlang::Lang::Rus => "ru",
+        whatlang::Lang::Ita => "it",
+        _ => "en",
+    };
+
+    // Get Edge TTS settings from config
+    let (voice_name, pitch, rate) = {
+        match APP.lock() {
+            Ok(app) => {
+                let settings = &app.config.edge_tts_settings;
+
+                // Find voice for detected language
+                let voice = settings
+                    .voice_configs
+                    .iter()
+                    .find(|v| v.language_code == tl)
+                    .map(|v| v.voice_name.clone())
+                    .unwrap_or_else(|| "en-US-AriaNeural".to_string());
+
+                // For realtime, let player handle speed; otherwise use config
+                let rate_val = if is_realtime { 0 } else { settings.rate };
+
+                (voice, settings.pitch, rate_val)
+            }
+            Err(_) => ("en-US-AriaNeural".to_string(), 0, 0),
+        }
+    };
+
+    let manager_clone = manager.clone();
+    let generation = request.generation;
+
+    std::thread::spawn(move || {
+        use minimp3::{Decoder, Frame};
+        use std::io::Cursor;
+        use tungstenite::Message as WsMessage;
+
+        // Check for interrupt
+        if generation < manager_clone.interrupt_generation.load(Ordering::SeqCst) {
+            let _ = tx.send(AudioEvent::End);
+            return;
+        }
+
+        // Edge TTS WebSocket constants
+        let trusted_token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+        let connection_id = format!(
+            "{:032x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        let wss_url = format!(
+            "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken={}&ConnectionId={}",
+            trusted_token, connection_id
+        );
+
+        // Connect to WebSocket
+        let connector = match native_tls::TlsConnector::new() {
+            Ok(c) => c,
+            Err(_) => {
+                let _ = tx.send(AudioEvent::End);
+                return;
+            }
+        };
+
+        let host = "speech.platform.bing.com";
+        let stream = match std::net::TcpStream::connect(format!("{}:443", host)) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = tx.send(AudioEvent::End);
+                return;
+            }
+        };
+
+        let tls_stream = match connector.connect(host, stream) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = tx.send(AudioEvent::End);
+                return;
+            }
+        };
+
+        // Use the simpler client method with string URL
+        let (mut socket, _) = match tungstenite::client(&wss_url, tls_stream) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = tx.send(AudioEvent::End);
+                return;
+            }
+        };
+
+        // Generate request ID
+        let request_id = format!(
+            "{:032x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+
+        // Send config message
+        let config_msg = format!(
+            "X-Timestamp:{}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{{\"context\":{{\"synthesis\":{{\"audio\":{{\"metadataoptions\":{{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}}}}}",
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        );
+
+        if socket.send(WsMessage::Text(config_msg)).is_err() {
+            let _ = tx.send(AudioEvent::End);
+            return;
+        }
+
+        // Format pitch and rate for SSML
+        let pitch_str = if pitch >= 0 {
+            format!("+{}Hz", pitch)
+        } else {
+            format!("{}Hz", pitch)
+        };
+        let rate_str = if rate >= 0 {
+            format!("+{}%", rate)
+        } else {
+            format!("{}%", rate)
+        };
+
+        // Escape text for XML
+        let escaped_text = text
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&apos;");
+
+        // Send SSML message
+        let ssml = format!(
+            "<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"en-US\">\
+            <voice name=\"{}\">\
+            <prosody pitch=\"{}\" rate=\"{}\" volume=\"+0%\">{}</prosody>\
+            </voice></speak>",
+            voice_name, pitch_str, rate_str, escaped_text
+        );
+
+        let ssml_msg = format!(
+            "X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:{}\r\nPath:ssml\r\n\r\n{}",
+            request_id,
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ"),
+            ssml
+        );
+
+        if socket.send(WsMessage::Text(ssml_msg)).is_err() {
+            let _ = tx.send(AudioEvent::End);
+            return;
+        }
+
+        // Collect MP3 audio chunks
+        let mut mp3_data: Vec<u8> = Vec::new();
+
+        loop {
+            if generation < manager_clone.interrupt_generation.load(Ordering::SeqCst) {
+                break;
+            }
+
+            match socket.read() {
+                Ok(WsMessage::Binary(data)) => {
+                    // Binary message format:
+                    // - First 2 bytes: header length (big endian)
+                    // - Header bytes (contains Path:audio\r\n etc)
+                    // - Audio data (MP3)
+                    if data.len() >= 2 {
+                        let header_len = u16::from_be_bytes([data[0], data[1]]) as usize;
+                        let audio_start = 2 + header_len;
+                        if data.len() > audio_start {
+                            // Verify this is audio data by checking the header
+                            let header = &data[2..audio_start];
+                            if header.windows(11).any(|w| w == b"Path:audio\r") {
+                                mp3_data.extend_from_slice(&data[audio_start..]);
+                            }
+                        }
+                    }
+                }
+                Ok(WsMessage::Text(text)) => {
+                    if text.contains("Path:turn.end") {
+                        break;
+                    }
+                }
+                Ok(WsMessage::Close(_)) => break,
+                Err(tungstenite::Error::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+                _ => {}
+            }
+        }
+
+        let _ = socket.close(None);
+
+        if mp3_data.is_empty() {
+            let _ = tx.send(AudioEvent::End);
+            return;
+        }
+
+        // Decode MP3 to PCM
+        let mut decoder = Decoder::new(Cursor::new(mp3_data));
+        let mut all_samples: Vec<i16> = Vec::new();
+        let mut source_sample_rate = 24000u32;
+
+        loop {
+            match decoder.next_frame() {
+                Ok(Frame {
+                    data,
+                    sample_rate,
+                    channels,
+                    ..
+                }) => {
+                    source_sample_rate = sample_rate as u32;
+                    let mono_samples: Vec<i16> = if channels == 2 {
+                        data.chunks(2)
+                            .map(|chunk| ((chunk[0] as i32 + chunk[1] as i32) / 2) as i16)
+                            .collect()
+                    } else {
+                        data
+                    };
+                    all_samples.extend(mono_samples);
+                }
+                Err(minimp3::Error::Eof) => break,
+                Err(_) => break,
+            }
+        }
+
+        if all_samples.is_empty() {
+            let _ = tx.send(AudioEvent::End);
+            return;
+        }
+
+        // Resample to 24kHz if needed
+        let resampled = if source_sample_rate != 24000 {
+            resample_linear(&all_samples, source_sample_rate, 24000)
+        } else {
+            all_samples
+        };
+
+        // Convert to bytes and send
+        let audio_bytes: Vec<u8> = resampled.iter().flat_map(|&s| s.to_le_bytes()).collect();
+
+        let chunk_size = 4800;
+        for chunk in audio_bytes.chunks(chunk_size) {
+            if generation < manager_clone.interrupt_generation.load(Ordering::SeqCst) {
+                break;
+            }
+            if tx.send(AudioEvent::Data(chunk.to_vec())).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        let _ = tx.send(AudioEvent::End);
+    });
 }

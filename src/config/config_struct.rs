@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 
 use super::preset::Preset;
 use super::types::{
-    default_graphics_mode, default_history_limit, default_ollama_base_url,
-    default_realtime_font_size, default_realtime_target_language,
+    default_edge_tts_settings, default_graphics_mode, default_history_limit,
+    default_ollama_base_url, default_realtime_font_size, default_realtime_target_language,
     default_realtime_translation_model, default_realtime_window_size, default_theme_mode,
     default_true, default_tts_language_conditions, default_tts_method, default_tts_speed,
-    default_tts_voice, ThemeMode, TtsLanguageCondition, TtsMethod,
+    default_tts_voice, EdgeTtsSettings, ThemeMode, TtsLanguageCondition, TtsMethod,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -73,6 +73,8 @@ pub struct Config {
     pub tts_output_device: String, // Device ID
     #[serde(default = "default_tts_language_conditions")]
     pub tts_language_conditions: Vec<TtsLanguageCondition>, // Language-specific TTS conditions
+    #[serde(default = "default_edge_tts_settings")]
+    pub edge_tts_settings: EdgeTtsSettings, // Edge TTS pitch, rate, volume, voice per language
 
     // --- Favorite Bubble Settings ---
     #[serde(default)]

@@ -264,6 +264,7 @@ impl Default for Config {
             tts_output_device: String::new(),
             tts_language_conditions: default_tts_language_conditions(),
             tts_method: default_tts_method(),
+            edge_tts_settings: super::types::default_edge_tts_settings(),
             // Favorite bubble defaults
             show_favorite_bubble: false,
             favorite_bubble_position: None,

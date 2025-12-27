@@ -578,6 +578,10 @@ fn render_tts_settings_modal(
                     }
                     changed = true;
                 }
+                if ui.selectable_label(config.tts_method == TtsMethod::EdgeTTS, "Edge TTS").clicked() {
+                    config.tts_method = TtsMethod::EdgeTTS;
+                    changed = true;
+                }
             });
             ui.add_space(10.0);
             ui.separator();
@@ -786,7 +790,7 @@ fn render_tts_settings_modal(
                         }
                     });
                 });
-            } else {
+            } else if config.tts_method == TtsMethod::GoogleTranslate {
                 // Simplified UI for Google Translate
                 ui.vertical_centered(|ui| {
                     ui.add_space(20.0);
@@ -805,6 +809,156 @@ fn render_tts_settings_modal(
                     ui.add_space(20.0);
                     ui.label("Note: Voice and language-specific instructions are disabled in Fast mode.");
                 });
+            } else if config.tts_method == TtsMethod::EdgeTTS {
+                // Trigger voice list loading on first render
+                crate::api::tts::edge_voices::load_edge_voices_async();
+                
+                // Edge TTS Settings
+                ui.vertical_centered(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(egui::RichText::new("Microsoft Edge TTS (Neural)").size(18.0).strong());
+                    ui.add_space(5.0);
+                    ui.label("High-quality neural voices. Free, no API key required.");
+                    ui.add_space(15.0);
+                });
+                
+                // Pitch and Rate sliders
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Pitch:").strong());
+                    if ui.add(egui::Slider::new(&mut config.edge_tts_settings.pitch, -50..=50).suffix(" Hz")).changed() {
+                        changed = true;
+                    }
+                });
+                
+                ui.add_space(5.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Rate:").strong());
+                    if ui.add(egui::Slider::new(&mut config.edge_tts_settings.rate, -50..=100).suffix("%")).changed() {
+                        changed = true;
+                    }
+                });
+                
+                ui.add_space(15.0);
+                ui.separator();
+                ui.add_space(10.0);
+                
+                // Per-language voice configuration
+                ui.label(egui::RichText::new("Voice per Language:").strong());
+                ui.add_space(5.0);
+                
+                // Check voice cache status
+                let cache_status = {
+                    let cache = crate::api::tts::edge_voices::EDGE_VOICE_CACHE.lock().unwrap();
+                    (cache.loaded, cache.loading, cache.error.clone())
+                };
+                
+                if cache_status.1 {
+                    // Loading
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Loading voice list...");
+                    });
+                } else if let Some(ref error) = cache_status.2 {
+                    // Error
+                    ui.colored_label(egui::Color32::RED, format!("Failed to load voices: {}", error));
+                    if ui.button("Retry").clicked() {
+                        // Reset cache and retry
+                        let mut cache = crate::api::tts::edge_voices::EDGE_VOICE_CACHE.lock().unwrap();
+                        cache.loaded = false;
+                        cache.loading = false;
+                        cache.error = None;
+                    }
+                } else if cache_status.0 {
+                    // Loaded - show voice configuration
+                    egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                        let mut to_remove: Option<usize> = None;
+                        
+                        for (idx, voice_config) in config.edge_tts_settings.voice_configs.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                // Language name (read-only)
+                                ui.label(egui::RichText::new(&voice_config.language_name).strong().color(egui::Color32::from_rgb(100, 180, 100)));
+                                ui.label("→");
+                                
+                                // Voice dropdown for this language
+                                let voices = crate::api::tts::edge_voices::get_voices_for_language(&voice_config.language_code);
+                                
+                                egui::ComboBox::from_id_salt(format!("edge_voice_{}", idx))
+                                    .selected_text(&voice_config.voice_name)
+                                    .width(220.0)
+                                    .show_ui(ui, |ui| {
+                                        for voice in &voices {
+                                            let display = format!("{} ({})", voice.short_name, voice.gender);
+                                            if ui.selectable_label(voice_config.voice_name == voice.short_name, &display).clicked() {
+                                                voice_config.voice_name = voice.short_name.clone();
+                                                changed = true;
+                                            }
+                                        }
+                                    });
+                                
+                                // Remove button
+                                if icon_button(ui, Icon::Close).on_hover_text("Remove").clicked() {
+                                    to_remove = Some(idx);
+                                }
+                            });
+                        }
+                        
+                        if let Some(idx) = to_remove {
+                            config.edge_tts_settings.voice_configs.remove(idx);
+                            changed = true;
+                        }
+                    });
+                    
+                    ui.add_space(10.0);
+                    
+                    // Add language dropdown
+                    ui.horizontal(|ui| {
+                        let used_codes: Vec<_> = config.edge_tts_settings.voice_configs.iter()
+                            .map(|c| c.language_code.as_str())
+                            .collect();
+                        
+                        let available_langs = crate::api::tts::edge_voices::get_available_languages();
+                        let available: Vec<_> = available_langs.iter()
+                            .filter(|(code, _)| !used_codes.contains(&code.as_str()))
+                            .collect();
+                        
+                        if !available.is_empty() {
+                            egui::ComboBox::from_id_salt("edge_add_language")
+                                .selected_text("+ Add Language")
+                                .width(150.0)
+                                .show_ui(ui, |ui| {
+                                    for (code, name) in &available {
+                                        if ui.selectable_label(false, name).clicked() {
+                                            // Get first voice for this language as default
+                                            let voices = crate::api::tts::edge_voices::get_voices_for_language(code);
+                                            let default_voice = voices.first()
+                                                .map(|v| v.short_name.clone())
+                                                .unwrap_or_else(|| format!("{}-??-??Neural", code));
+                                            
+                                            config.edge_tts_settings.voice_configs.push(
+                                                crate::config::EdgeTtsVoiceConfig {
+                                                    language_code: code.clone(),
+                                                    language_name: name.clone(),
+                                                    voice_name: default_voice,
+                                                }
+                                            );
+                                            changed = true;
+                                        }
+                                    }
+                                });
+                        }
+                        
+                        if ui.button("Reset to Defaults").clicked() {
+                            config.edge_tts_settings = crate::config::EdgeTtsSettings::default();
+                            changed = true;
+                        }
+                    });
+                } else {
+                    // Not loaded yet, show loading message
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Initializing voice list...");
+                    });
+                }
             }
         });
         

@@ -23,4 +23,7 @@ mod types;
 pub use config_struct::Config;
 pub use io::{get_all_languages, load_config, save_config};
 pub use preset::Preset;
-pub use types::{Hotkey, ProcessingBlock, ThemeMode, TtsLanguageCondition, TtsMethod};
+pub use types::{
+    EdgeTtsSettings, EdgeTtsVoiceConfig, Hotkey, ProcessingBlock, ThemeMode, TtsLanguageCondition,
+    TtsMethod,
+};

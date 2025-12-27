@@ -19,6 +19,76 @@ pub enum ThemeMode {
 pub enum TtsMethod {
     GeminiLive,      // Chuẩn (Gemini Live)
     GoogleTranslate, // Nhanh (Google Translate)
+    EdgeTTS,         // Microsoft Edge TTS (Neural, free)
+}
+
+/// Edge TTS voice configuration for a specific language
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EdgeTtsVoiceConfig {
+    /// ISO 639-1 language code (e.g., "en", "vi", "ko")
+    pub language_code: String,
+    /// Human-readable language name
+    pub language_name: String,
+    /// Edge TTS voice name (e.g., "en-US-AriaNeural", "vi-VN-HoaiMyNeural")
+    pub voice_name: String,
+}
+
+/// Edge TTS settings
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct EdgeTtsSettings {
+    /// Pitch adjustment (-50 to +50 Hz, 0 = default)
+    pub pitch: i32,
+    /// Rate adjustment (-50 to +100 percent, 0 = default)  
+    pub rate: i32,
+    /// Volume adjustment (-50 to +50 percent, 0 = default)
+    pub volume: i32,
+    /// Per-language voice configuration
+    pub voice_configs: Vec<EdgeTtsVoiceConfig>,
+}
+
+impl Default for EdgeTtsSettings {
+    fn default() -> Self {
+        Self {
+            pitch: 0,
+            rate: 0,
+            volume: 0,
+            voice_configs: default_edge_tts_voice_configs(),
+        }
+    }
+}
+
+pub fn default_edge_tts_voice_configs() -> Vec<EdgeTtsVoiceConfig> {
+    vec![
+        EdgeTtsVoiceConfig {
+            language_code: "en".to_string(),
+            language_name: "English".to_string(),
+            voice_name: "en-US-AriaNeural".to_string(),
+        },
+        EdgeTtsVoiceConfig {
+            language_code: "vi".to_string(),
+            language_name: "Vietnamese".to_string(),
+            voice_name: "vi-VN-HoaiMyNeural".to_string(),
+        },
+        EdgeTtsVoiceConfig {
+            language_code: "ko".to_string(),
+            language_name: "Korean".to_string(),
+            voice_name: "ko-KR-SunHiNeural".to_string(),
+        },
+        EdgeTtsVoiceConfig {
+            language_code: "ja".to_string(),
+            language_name: "Japanese".to_string(),
+            voice_name: "ja-JP-NanamiNeural".to_string(),
+        },
+        EdgeTtsVoiceConfig {
+            language_code: "zh".to_string(),
+            language_name: "Chinese".to_string(),
+            voice_name: "zh-CN-XiaoxiaoNeural".to_string(),
+        },
+    ]
+}
+
+pub fn default_edge_tts_settings() -> EdgeTtsSettings {
+    EdgeTtsSettings::default()
 }
 
 pub fn get_system_ui_language() -> String {

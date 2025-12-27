@@ -4,19 +4,20 @@
 //! audio model. The WebSocket connection is maintained at app startup
 //! for instant speech synthesis with minimal latency.
 
-pub mod types;
-pub mod wsola;
-pub mod utils;
-pub mod websocket;
+pub mod edge_voices;
+pub mod instance;
 pub mod manager;
 pub mod player;
+pub mod types;
+pub mod utils;
+pub mod websocket;
 pub mod worker;
-pub mod instance;
+pub mod wsola;
 
 // Re-export public API for backward compatibility
-pub use types::TtsRequest;
-pub use manager::TtsManager;
 pub use instance::TTS_MANAGER;
+pub use manager::TtsManager;
+pub use types::TtsRequest;
 
 /// Initialize the TTS system - call this at app startup
 pub fn init_tts() {
