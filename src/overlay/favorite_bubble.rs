@@ -35,7 +35,7 @@ thread_local! {
     static PANEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
 }
 
-const BUBBLE_SIZE: i32 = 52;
+const BUBBLE_SIZE: i32 = 40;
 const PANEL_WIDTH: i32 = 220;
 const PANEL_MAX_HEIGHT: i32 = 350;
 const OPACITY_INACTIVE: u8 = 80; // ~31% opacity when not hovered
@@ -109,6 +109,11 @@ fn get_favorite_presets_html() -> String {
     let mut text_items = String::new();
     let mut audio_items = String::new();
 
+    // SVG Icons
+    let icon_text = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>"#;
+    let icon_audio = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zM17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>"#;
+    let icon_image = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>"#;
+
     if let Ok(app) = APP.lock() {
         let lang = &app.config.ui_language;
         for (idx, preset) in app.config.presets.iter().enumerate() {
@@ -120,13 +125,13 @@ fn get_favorite_presets_html() -> String {
                 };
 
                 let icon = match preset.preset_type.as_str() {
-                    "text" => "📝",
-                    "audio" => "🎤",
-                    _ => "📷",
+                    "text" => icon_text,
+                    "audio" => icon_audio,
+                    _ => icon_image,
                 };
 
                 let item = format!(
-                    r#"<div class="preset-item" onclick="trigger({})">{} {}</div>"#,
+                    r#"<div class="preset-item" onclick="trigger({})"><span class="icon">{}</span><span class="name">{}</span></div>"#,
                     idx,
                     icon,
                     html_escape(&name)
@@ -141,25 +146,25 @@ fn get_favorite_presets_html() -> String {
         }
     }
 
-    // Build grouped HTML
+    // Build grouped HTML without headers if possible, or very subtle ones
     if !image_items.is_empty() {
-        html_items.push_str(r#"<div class="group"><div class="group-header">📷 Image</div>"#);
+        html_items.push_str(r#"<div class="group">"#);
         html_items.push_str(&image_items);
         html_items.push_str("</div>");
     }
     if !text_items.is_empty() {
-        html_items.push_str(r#"<div class="group"><div class="group-header">📝 Text</div>"#);
+        html_items.push_str(r#"<div class="group">"#);
         html_items.push_str(&text_items);
         html_items.push_str("</div>");
     }
     if !audio_items.is_empty() {
-        html_items.push_str(r#"<div class="group"><div class="group-header">🎤 Audio</div>"#);
+        html_items.push_str(r#"<div class="group">"#);
         html_items.push_str(&audio_items);
         html_items.push_str("</div>");
     }
 
     if html_items.is_empty() {
-        html_items = r#"<div class="empty">No favorites yet<br><small>Click ⭐ on presets to add them</small></div>"#.to_string();
+        html_items = r#"<div class="empty">No favorites</div>"#.to_string();
     }
 
     html_items
@@ -186,7 +191,7 @@ html, body {{
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background: #1e1e28;
+    background: transparent;
     font-family: 'Segoe UI', system-ui, sans-serif;
     user-select: none;
 }}
@@ -194,83 +199,69 @@ html, body {{
 .container {{
     display: flex;
     flex-direction: column;
-    height: 100%;
+    padding: 0;
 }}
-
-.header {{
-    padding: 10px 14px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    cursor: grab;
-}}
-
-.header:active {{ cursor: grabbing; }}
-
-.title {{
-    color: white;
-    font-size: 13px;
-    font-weight: 600;
-}}
-
-.close-btn {{
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.2);
-    border: none;
-    color: white;
-    font-size: 14px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}}
-
-.close-btn:hover {{ background: rgba(255,255,255,0.3); }}
 
 .list {{
-    flex: 1;
-    overflow-y: auto;
-    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }}
 
-.list::-webkit-scrollbar {{ width: 5px; }}
-.list::-webkit-scrollbar-thumb {{ background: rgba(255,255,255,0.2); border-radius: 3px; }}
-
-.group {{ margin-bottom: 6px; }}
-
-.group-header {{
-    color: rgba(255,255,255,0.4);
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    padding: 4px 8px;
+.group {{
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 4px;
 }}
 
 .preset-item {{
-    padding: 9px 12px;
-    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 12px;
     cursor: pointer;
-    color: white;
-    font-size: 12px;
-    margin-bottom: 3px;
-    background: rgba(255,255,255,0.05);
-    transition: all 0.15s ease;
+    color: #eeeeee;
+    font-size: 13px;
+    font-weight: 500;
+    background: rgba(20, 20, 30, 0.85);
+    backdrop-filter: blur(12px);
+    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }}
 
 .preset-item:hover {{
-    background: rgba(102, 126, 234, 0.4);
-    padding-left: 16px;
+    background: rgba(40, 40, 55, 0.95);
+    border-color: rgba(255, 255, 255, 0.25);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}}
+
+.preset-item:active {{
+    transform: scale(0.98);
+}}
+
+.icon {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    opacity: 0.9;
+}}
+
+.name {{
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }}
 
 .empty {{
-    color: rgba(255,255,255,0.4);
+    color: rgba(255,255,255,0.6);
     text-align: center;
-    padding: 30px 15px;
+    padding: 12px;
     font-size: 12px;
-    line-height: 1.6;
+    background: rgba(20, 20, 30, 0.85);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }}
 </style>
 </head>
@@ -890,18 +881,39 @@ fn show_panel(bubble_hwnd: HWND) {
         let mut bubble_rect = RECT::default();
         let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
 
-        let fav_count = APP
-            .lock()
-            .map(|app| {
-                app.config
-                    .presets
-                    .iter()
-                    .filter(|p| p.is_favorite && !p.is_upcoming && !p.is_master)
-                    .count()
-            })
-            .unwrap_or(0);
+        // Adjusted height calculation for compactness
+        let height_per_item = 48;
+        let spacing_per_group = 8;
 
-        let panel_height = (70 + fav_count as i32 * 36).min(PANEL_MAX_HEIGHT).max(100);
+        let (fav_count, group_count) = if let Ok(app) = APP.lock() {
+            let presets = &app.config.presets;
+            let favs: Vec<_> = presets
+                .iter()
+                .filter(|p| p.is_favorite && !p.is_upcoming && !p.is_master)
+                .collect();
+
+            let count = favs.len();
+
+            let has_image = favs
+                .iter()
+                .any(|p| p.preset_type != "text" && p.preset_type != "audio");
+            let has_text = favs.iter().any(|p| p.preset_type == "text");
+            let has_audio = favs.iter().any(|p| p.preset_type == "audio");
+
+            let g_count = (if has_image { 1 } else { 0 })
+                + (if has_text { 1 } else { 0 })
+                + (if has_audio { 1 } else { 0 });
+
+            (count, g_count)
+        } else {
+            (0, 0)
+        };
+
+        // Calculate total height: items + spacing between groups + minimal padding
+        let panel_height =
+            (fav_count as i32 * height_per_item) + (group_count as i32 * spacing_per_group) + 12;
+        let panel_height = panel_height.max(60);
+
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
 
         let (panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
@@ -916,7 +928,18 @@ fn show_panel(bubble_hwnd: HWND) {
             )
         };
 
-        // Resize WebView as well
+        // Show and Move Window FIRST to correct size
+        let _ = SetWindowPos(
+            panel_hwnd,
+            None,
+            panel_x,
+            panel_y.max(10),
+            PANEL_WIDTH,
+            panel_height,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        );
+
+        // Resize WebView content to match new window size
         PANEL_WEBVIEW.with(|wv| {
             if let Some(webview) = wv.borrow().as_ref() {
                 let _ = webview.set_bounds(Rect {
@@ -928,17 +951,6 @@ fn show_panel(bubble_hwnd: HWND) {
                 });
             }
         });
-
-        // Show and Move
-        let _ = SetWindowPos(
-            panel_hwnd,
-            None,
-            panel_x,
-            panel_y.max(10),
-            PANEL_WIDTH,
-            panel_height,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
-        );
 
         IS_EXPANDED.store(true, Ordering::SeqCst);
         update_bubble_visual(bubble_hwnd);
@@ -964,11 +976,13 @@ fn create_panel_window_internal(bubble_hwnd: HWND) {
 
         // Initial creation (using default size, will be resized on show)
         // Hidden by default (no WS_VISIBLE)
+        // Initial creation (using default size, will be resized on show)
+        // Hidden by default (no WS_VISIBLE)
         let panel_hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
             w!("FavPanel"),
-            WS_POPUP, // Removed WS_VISIBLE
+            WS_POPUP, // Strictly popup for no border
             0,
             0,
             PANEL_WIDTH,
@@ -981,14 +995,8 @@ fn create_panel_window_internal(bubble_hwnd: HWND) {
         .unwrap_or_default();
 
         if !panel_hwnd.is_invalid() {
-            // Rounded corners
-            let corner_pref = DWMWCP_ROUND;
-            let _ = DwmSetWindowAttribute(
-                panel_hwnd,
-                DWMWA_WINDOW_CORNER_PREFERENCE,
-                &corner_pref as *const _ as *const std::ffi::c_void,
-                std::mem::size_of_val(&corner_pref) as u32,
-            );
+            // Removed DwmSetWindowAttribute to prevent native border/frame artifacts.
+            // Transparency and rounding will be handled by CSS and WebView2.
 
             PANEL_HWND.store(panel_hwnd.0 as isize, Ordering::SeqCst);
             create_panel_webview(panel_hwnd);
@@ -1109,7 +1117,7 @@ fn create_panel_webview(panel_hwnd: HWND) {
             )),
         })
         .with_html(&html)
-        .with_transparent(false)
+        .with_transparent(true)
         .with_ipc_handler(move |msg: wry::http::Request<String>| {
             let body = msg.body();
 
@@ -1157,6 +1165,17 @@ unsafe extern "system" fn panel_wnd_proc(
         WM_KILLFOCUS => {
             // Don't close immediately - check if focus went to bubble
             LRESULT(0)
+        }
+
+        WM_NCCALCSIZE => {
+            // Remove standard window frame and border area
+            if wparam.0 != 0 {
+                // If wparam is TRUE, we just return 0 to preserve the entire client area
+                // without OS-imposed non-client areas (borders, captions).
+                LRESULT(0)
+            } else {
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
         }
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
