@@ -193,22 +193,13 @@ pub fn render_sidebar(
         let is_dark = ui.visuals().dark_mode;
 
         // Theme Switcher
-        let theme_bg = if is_dark {
-            egui::Color32::from_rgb(50, 55, 70)
-        } else {
-            egui::Color32::from_rgb(230, 235, 245)
+        let (theme_icon, tooltip) = match config.theme_mode {
+            ThemeMode::Dark => (Icon::Moon, "Theme: Dark"),
+            ThemeMode::Light => (Icon::Sun, "Theme: Light"),
+            ThemeMode::System => (Icon::Device, "Theme: System (Auto)"),
         };
-        let (theme_text, tooltip) = match config.theme_mode {
-            ThemeMode::Dark => ("🌙", "Theme: Dark"),
-            ThemeMode::Light => ("☀", "Theme: Light"),
-            ThemeMode::System => ("💻", "Theme: System (Auto)"),
-        };
-        if ui
-            .add(
-                egui::Button::new(egui::RichText::new(theme_text).size(14.0))
-                    .fill(theme_bg)
-                    .corner_radius(6.0),
-            )
+
+        if icon_button_sized(ui, theme_icon, 20.0)
             .on_hover_text(tooltip)
             .clicked()
         {
