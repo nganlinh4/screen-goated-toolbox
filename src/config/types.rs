@@ -17,9 +17,9 @@ pub enum ThemeMode {
 // --- TTS METHOD ENUM ---
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum TtsMethod {
-    GeminiLive,      // Chuẩn (Gemini Live)
+    GeminiLive,      // Xịn (Gemini Live)
     GoogleTranslate, // Nhanh (Google Translate)
-    EdgeTTS,         // Microsoft Edge TTS (Neural, free)
+    EdgeTTS,         // Tốt (Edge TTS)
 }
 
 /// Edge TTS voice configuration for a specific language
