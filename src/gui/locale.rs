@@ -158,6 +158,8 @@ pub struct LocaleText {
      pub tray_quit: &'static str,
      pub tray_favorite_bubble: &'static str,
      pub tray_favorite_bubble_disabled: &'static str,
+     // --- FAVORITE BUBBLE ---
+     pub favorites_empty: &'static str,
      }
 
 impl LocaleText {
@@ -348,6 +350,8 @@ impl LocaleText {
                 tray_quit: "Thoát",
                 tray_favorite_bubble: "Hiện bong bóng yêu thích",
                 tray_favorite_bubble_disabled: "Hiện bong bóng yêu thích (Chưa có mục yêu thích)",
+                // --- FAVORITE BUBBLE VI ---
+                favorites_empty: "Vui lòng đưa ít nhất một cấu hình vào ưa thích",
                 },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -534,6 +538,8 @@ impl LocaleText {
                 tray_quit: "종료",
                 tray_favorite_bubble: "즐겨찾기 버블 표시",
                 tray_favorite_bubble_disabled: "즐겨찾기 버블 표시 (즐겨찾기 없음)",
+                // --- FAVORITE BUBBLE KO ---
+                favorites_empty: "즐겨찾기에 최소한 하나의 프리셋을 추가해주세요",
                 },
                 _ => Self {
                  history_btn: "History",
@@ -720,6 +726,8 @@ impl LocaleText {
                 tray_quit: "Quit",
                 tray_favorite_bubble: "Show favorite bubble",
                 tray_favorite_bubble_disabled: "Show favorite bubble (No favorites set yet)",
+                // --- FAVORITE BUBBLE EN ---
+                favorites_empty: "Please add at least one configuration to favorites",
                 },
                 }
                 }
