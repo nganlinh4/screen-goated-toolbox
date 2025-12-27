@@ -593,20 +593,24 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             // 5-pointed star filled with gold color
             let outer_r = 8.0 * scale;
             let inner_r = 3.5 * scale;
-            let mut points = Vec::new();
+            let center_pt = center;
+            
+            // Draw as a triangle fan from center
+            let gold = egui::Color32::from_rgb(255, 193, 7); // Bright gold/amber
             
             for i in 0..10 {
-                let angle = (i as f32 * PI / 5.0) - PI / 2.0; // Start from top
-                let r = if i % 2 == 0 { outer_r } else { inner_r };
-                points.push(egui::pos2(
-                    center.x + r * angle.cos(),
-                    center.y + r * angle.sin()
-                ));
+                let angle1 = (i as f32 * PI / 5.0) - PI / 2.0;
+                let angle2 = ((i + 1) as f32 * PI / 5.0) - PI / 2.0;
+                
+                let r1 = if i % 2 == 0 { outer_r } else { inner_r };
+                let r2 = if (i + 1) % 2 == 0 { outer_r } else { inner_r };
+                
+                let p1 = egui::pos2(center.x + r1 * angle1.cos(), center.y + r1 * angle1.sin());
+                let p2 = egui::pos2(center.x + r2 * angle2.cos(), center.y + r2 * angle2.sin());
+                
+                // Add triangle (Center, P1, P2)
+                painter.add(egui::Shape::convex_polygon(vec![center_pt, p1, p2], gold, egui::Stroke::NONE));
             }
-            
-            // Gold color for filled star
-            let gold = egui::Color32::from_rgb(255, 193, 7); // Bright gold/amber
-            painter.add(egui::Shape::convex_polygon(points, gold, egui::Stroke::NONE));
         }
     }
 }

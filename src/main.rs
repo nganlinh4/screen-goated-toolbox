@@ -251,6 +251,10 @@ fn main() -> eframe::Result<()> {
         
         // 4. Warmup markdown WebView
         overlay::result::markdown_view::warmup();
+        
+        // 5. Warmup tray popup WebView (so it appears fast on first right-click)
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        overlay::tray_popup::warmup_tray_popup();
     });
 
     // 1. Load config early to get theme setting and language for tray i18n

@@ -552,7 +552,7 @@ fn render_preset_item(
                 "ko" => if preset.is_favorite { "즐겨찾기 해제" } else { "즐겨찾기" },
                 _ => if preset.is_favorite { "Remove from favorites" } else { "Add to favorites" },
             };
-            if icon_button_sized(ui, star_icon, 22.0).on_hover_text(star_tooltip).clicked() {
+            if icon_button_sized(ui, star_icon, 18.0).on_hover_text(star_tooltip).clicked() {
                 *preset_idx_to_toggle_favorite = Some(idx);
             }
 
