@@ -59,6 +59,11 @@ impl Default for Config {
             .find(|p| p.id == "preset_ocr_read")
             .cloned()
             .unwrap();
+        let p6c = image_presets
+            .iter()
+            .find(|p| p.id == "preset_quick_screenshot")
+            .cloned()
+            .unwrap();
         let p8 = image_presets
             .iter()
             .find(|p| p.id == "preset_summarize")
@@ -232,7 +237,7 @@ impl Default for Config {
             openrouter_api_key: "".to_string(),
             presets: vec![
                 // Column 1: Image presets
-                p1, p7, p2, p3g, p4, p4b, p6, p6b, p8, p9, p10, p14b, p14c, pm1,
+                p1, p7, p2, p3g, p4, p4b, p6, p6b, p6c, p8, p9, p10, p14b, p14c, pm1,
                 // Column 2: Text presets (Bôi MASTER after Giải thích code, Gõ MASTER after Internet search)
                 p2b, p3, p3h, p3b, p3c, p3d, p3e, p3f, p3f2, p3f3, pm2, p5, p5a, p5b, p5c, pm3,
                 // Column 3: Audio presets (Mic presets first, then device audio presets at end)

@@ -1,4 +1,7 @@
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Gdi::{
+    CreateDIBitmap, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, CBM_INIT, DIB_RGB_COLORS,
+};
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::*;
 use windows::Win32::System::Threading::*;
@@ -90,10 +93,51 @@ pub fn copy_image_to_clipboard(image_bytes: &[u8]) {
                                 // Set CF_DIB (8)
                                 let h_mem_handle = HANDLE(h_mem.0);
                                 let _ = SetClipboardData(8, Some(h_mem_handle));
-                            }
 
-                            let _ = CloseClipboard();
-                            return;
+                                // ALSO set CF_BITMAP (2) to ensure Windows Clipboard History picks it up.
+                                // Many modern Windows apps/features prefer having a GDI handle or both formats.
+                                unsafe {
+                                    let hdc = GetDC(None);
+                                    if !hdc.is_invalid() {
+                                        // Read header size (first 4 bytes of DIB data)
+                                        if dib_data.len() >= 4 {
+                                            let header_size = u32::from_le_bytes(
+                                                dib_data[0..4].try_into().unwrap_or([0; 4]),
+                                            );
+                                            // The bits usually start after the header.
+                                            // Make sure we don't go out of bounds.
+                                            if (header_size as usize) < dib_data.len() {
+                                                let bits_ptr =
+                                                    dib_data.as_ptr().add(header_size as usize);
+                                                let pbmih =
+                                                    dib_data.as_ptr() as *const BITMAPINFOHEADER;
+                                                let pbmi = dib_data.as_ptr() as *const BITMAPINFO;
+
+                                                let hbitmap = CreateDIBitmap(
+                                                    hdc,
+                                                    Some(pbmih),
+                                                    CBM_INIT as u32,
+                                                    Some(bits_ptr as *const std::ffi::c_void),
+                                                    Some(pbmi),
+                                                    DIB_RGB_COLORS,
+                                                );
+
+                                                if !hbitmap.is_invalid() {
+                                                    // ownership transferred to system
+                                                    let _ = SetClipboardData(
+                                                        2, // CF_BITMAP
+                                                        Some(HANDLE(hbitmap.0 as *mut _)),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        ReleaseDC(None, hdc);
+                                    }
+                                }
+
+                                let _ = CloseClipboard();
+                                return;
+                            }
                         }
                         if attempt < 4 {
                             std::thread::sleep(std::time::Duration::from_millis(10));

@@ -6,7 +6,6 @@ use crate::overlay::result::{
     WindowType, WINDOW_STATES,
 };
 use crate::overlay::text_input;
-use crate::overlay::utils::copy_to_clipboard;
 use crate::win_types::SendHwnd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -492,19 +491,26 @@ pub fn run_chain_step(
                 std::thread::spawn(move || {
                     crate::overlay::utils::copy_image_to_clipboard(&img_data_clone);
                 });
-                // We returned early or we can just proceed.
-                // If we have image context, we assume we copied the image and don't need to copy empty text.
-                // So we can return or ensure the next block doesn't run if it was text-only logic.
-                // But wait, what if the user wants to copy text too? (Unlikely for image input)
             }
         }
 
-        // CASE 2: Text Content (Result or Source Text)
+        // CASE 2: Text Content (Result or Source Text) OR Image Content (Source Copy)
         // Only copy text if it is NOT empty.
-        // Also avoid double-copying if we just copied an image (though clipboard race is harmless usually)
+        // For paste logic: we proceed if EITHER we have text content OR we just copied an image (is_input_adapter && image context).
+        let image_copied = is_input_adapter && matches!(context, RefineContext::Image(_));
+
         if has_content {
             let txt_c = result_text.clone();
+            std::thread::spawn(move || {
+                crate::overlay::utils::copy_to_clipboard(&txt_c, HWND::default());
+            });
+        }
+
+        if has_content || image_copied {
+            // Re-clone for the paste thread
+            let txt_c = result_text.clone();
             let preset_id_clone = preset_id.clone();
+
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -536,35 +542,51 @@ pub fn run_chain_step(
                     }
                 };
 
-                // Append newline if setting is enabled
-                let final_text = if should_add_newline {
-                    format!("{}\n", txt_c)
+                // If strictly image copied (no text content), we ignore newline logic and just paste (Ctrl+V)
+                // If text content exists, we do the full text logic.
+                let final_text = if !txt_c.trim().is_empty() {
+                    if should_add_newline {
+                        format!("{}\n", txt_c)
+                    } else {
+                        txt_c.clone()
+                    }
                 } else {
-                    txt_c
+                    String::new() // No text to modify/inject
                 };
 
-                copy_to_clipboard(&final_text, HWND::default());
+                // NOTE: We ALREADY copied to clipboard above (Text or Image).
+                // Now we just handle the PASTE action.
 
                 if should_paste {
-                    // Check if text input window is active - if so, set text directly
-                    if text_input::is_active() {
-                        // Use set_editor_text to inject text into the webview editor
-                        text_input::set_editor_text(&final_text);
-                        text_input::refocus_editor();
-                    }
-                    // Check if refine input is active - if so, set text there
-                    else if crate::overlay::result::refine_input::is_any_refine_active() {
-                        if let Some(parent) =
-                            crate::overlay::result::refine_input::get_active_refine_parent()
-                        {
-                            crate::overlay::result::refine_input::set_refine_text(
-                                parent,
-                                &final_text,
-                            );
+                    // Special Case: If it's pure image copy (no text), we MUST use generic Ctrl+V paste.
+                    // We cannot use text injection or set_editor_text.
+                    if txt_c.trim().is_empty() {
+                        // Image-only paste path
+                        if let Some(target) = target_window {
+                            crate::overlay::utils::force_focus_and_paste(target.0);
                         }
-                    } else if let Some(target) = target_window {
-                        // Normal paste to last active window
-                        crate::overlay::utils::force_focus_and_paste(target.0);
+                    } else {
+                        // Text paste path (supports injection)
+                        // Check if text input window is active - if so, set text directly
+                        if text_input::is_active() {
+                            // Use set_editor_text to inject text into the webview editor
+                            text_input::set_editor_text(&final_text);
+                            text_input::refocus_editor();
+                        }
+                        // Check if refine input is active - if so, set text there
+                        else if crate::overlay::result::refine_input::is_any_refine_active() {
+                            if let Some(parent) =
+                                crate::overlay::result::refine_input::get_active_refine_parent()
+                            {
+                                crate::overlay::result::refine_input::set_refine_text(
+                                    parent,
+                                    &final_text,
+                                );
+                            }
+                        } else if let Some(target) = target_window {
+                            // Normal paste to last active window
+                            crate::overlay::utils::force_focus_and_paste(target.0);
+                        }
                     }
                 }
             });
