@@ -6,7 +6,7 @@ use super::types::{Hotkey, ProcessingBlock};
 /// Create image-based default presets
 pub fn create_image_presets() -> Vec<Preset> {
     let mut presets = Vec::new();
-    
+
     // 1. Standard Translate Preset (Image -> Text)
     let mut p1 = Preset::default();
     p1.id = "preset_translate".to_string();
@@ -104,7 +104,8 @@ pub fn create_image_presets() -> Vec<Preset> {
         ProcessingBlock {
             block_type: "image".to_string(),
             model: "maverick".to_string(),
-            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text."
+                .to_string(),
             selected_language: "English".to_string(),
             streaming_enabled: false,
             show_overlay: false,
@@ -130,7 +131,7 @@ pub fn create_image_presets() -> Vec<Preset> {
             show_overlay: true,
             auto_copy: false,
             ..Default::default()
-        }
+        },
     ];
     presets.push(p4b);
 
@@ -139,19 +140,30 @@ pub fn create_image_presets() -> Vec<Preset> {
     p6.id = "preset_ocr".to_string();
     p6.name = "Extract text".to_string();
     p6.preset_type = "image".to_string();
-    p6.blocks = vec![
-        ProcessingBlock {
-            block_type: "image".to_string(),
-            model: "scout".to_string(),
-            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
-            selected_language: "English".to_string(),
-            streaming_enabled: false,
-            show_overlay: false,
-            auto_copy: true,
-            ..Default::default()
-        }
-    ];
+    p6.blocks = vec![ProcessingBlock {
+        block_type: "image".to_string(),
+        model: "scout".to_string(),
+        prompt: "Extract all text from this image exactly as it appears. Output ONLY the text."
+            .to_string(),
+        selected_language: "English".to_string(),
+        streaming_enabled: false,
+        show_overlay: false,
+        auto_copy: true,
+        ..Default::default()
+    }];
     presets.push(p6);
+
+    // 6c. Quick Screenshot
+    let mut p6c = Preset::default();
+    p6c.id = "preset_quick_screenshot".to_string();
+    p6c.name = "Quick Screenshot".to_string();
+    p6c.preset_type = "image".to_string();
+    p6c.blocks = vec![ProcessingBlock {
+        block_type: "input_adapter".to_string(), // Explicit input adapter for single-node graph
+        auto_copy: true,
+        ..Default::default()
+    }];
+    presets.push(p6c);
 
     // 7. Translate (High accuracy)
     let mut p7 = Preset::default();
@@ -162,7 +174,8 @@ pub fn create_image_presets() -> Vec<Preset> {
         ProcessingBlock {
             block_type: "image".to_string(),
             model: "maverick".to_string(),
-            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
+            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text."
+                .to_string(),
             selected_language: "English".to_string(),
             streaming_enabled: false,
             show_overlay: false,
@@ -178,9 +191,13 @@ pub fn create_image_presets() -> Vec<Preset> {
             show_overlay: true,
             auto_copy: false,
             ..Default::default()
-        }
+        },
     ];
-    p7.hotkeys.push(Hotkey { code: 192, name: "` / ~".to_string(), modifiers: 0 });
+    p7.hotkeys.push(Hotkey {
+        code: 192,
+        name: "` / ~".to_string(),
+        modifiers: 0,
+    });
     presets.push(p7);
 
     // 6b. OCR Read (Đọc vùng này)
@@ -188,19 +205,18 @@ pub fn create_image_presets() -> Vec<Preset> {
     p6b.id = "preset_ocr_read".to_string();
     p6b.name = "Read this region".to_string();
     p6b.preset_type = "image".to_string();
-    p6b.blocks = vec![
-        ProcessingBlock {
-            block_type: "image".to_string(),
-            model: "maverick".to_string(),
-            prompt: "Extract all text from this image exactly as it appears. Output ONLY the text.".to_string(),
-            selected_language: "English".to_string(),
-            streaming_enabled: false,
-            show_overlay: false,
-            auto_copy: false,
-            auto_speak: true,
-            ..Default::default()
-        }
-    ];
+    p6b.blocks = vec![ProcessingBlock {
+        block_type: "image".to_string(),
+        model: "maverick".to_string(),
+        prompt: "Extract all text from this image exactly as it appears. Output ONLY the text."
+            .to_string(),
+        selected_language: "English".to_string(),
+        streaming_enabled: false,
+        show_overlay: false,
+        auto_copy: false,
+        auto_speak: true,
+        ..Default::default()
+    }];
     presets.push(p6b);
 
     // 8. Summarize Preset
@@ -249,19 +265,17 @@ pub fn create_image_presets() -> Vec<Preset> {
     p10.name = "Ask about image".to_string();
     p10.preset_type = "image".to_string();
     p10.prompt_mode = "dynamic".to_string();
-    p10.blocks = vec![
-        ProcessingBlock {
-            block_type: "image".to_string(),
-            model: "gemini-pro".to_string(),
-            prompt: "".to_string(),
-            selected_language: "Vietnamese".to_string(),
-            streaming_enabled: true,
-            render_mode: "markdown".to_string(),
-            show_overlay: true,
-            auto_copy: false,
-            ..Default::default()
-        }
-    ];
+    p10.blocks = vec![ProcessingBlock {
+        block_type: "image".to_string(),
+        model: "gemini-pro".to_string(),
+        prompt: "".to_string(),
+        selected_language: "Vietnamese".to_string(),
+        streaming_enabled: true,
+        render_mode: "markdown".to_string(),
+        show_overlay: true,
+        auto_copy: false,
+        ..Default::default()
+    }];
     presets.push(p10);
 
     // 14b. Kiểm chứng thông tin (Fact Check) - IMAGE preset with chain

@@ -255,7 +255,19 @@ pub fn render_preset_editor(
             if ui.checkbox(&mut preset.auto_paste, text.auto_paste_label).clicked() { changed = true; }
             
             // Auto Newline: visible when any block has auto_copy
-            if ui.checkbox(&mut preset.auto_paste_newline, text.auto_paste_newline_label).clicked() { changed = true; }
+            // BUT hide it if the ONLY auto-copy block is an image block (input_adapter with image type or block_type="image")
+            // We iterate to find the auto-copy block and check its type.
+            let auto_copy_block = preset.blocks.iter().find(|b| b.auto_copy);
+            let is_image_only_copy = if let Some(block) = auto_copy_block {
+                 // Check if it's an image block or input adapter for image preset
+                 block.block_type == "image" || (block.block_type == "input_adapter" && preset.preset_type == "image")
+            } else {
+                false
+            };
+
+            if !is_image_only_copy {
+                 if ui.checkbox(&mut preset.auto_paste_newline, text.auto_paste_newline_label).clicked() { changed = true; }
+            }
         });
     } else if !has_any_auto_copy {
         // No auto_copy means auto_paste must be off
