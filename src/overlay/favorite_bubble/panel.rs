@@ -11,9 +11,22 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebViewBuilder};
 
+// For focus restoration
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+
 pub fn show_panel(bubble_hwnd: HWND) {
     if IS_EXPANDED.load(Ordering::SeqCst) {
         return;
+    }
+
+    // CRITICAL: Save the current foreground window BEFORE showing the panel.
+    // The WebView will steal focus when clicked, but we need to restore focus
+    // to the original window for text-select presets to work (they send Ctrl+C).
+    unsafe {
+        let fg = GetForegroundWindow();
+        if !fg.is_invalid() {
+            LAST_FOREGROUND_HWND.store(fg.0 as isize, Ordering::SeqCst);
+        }
     }
 
     // Ensure window exists
@@ -151,7 +164,7 @@ fn create_panel_window_internal(_bubble_hwnd: HWND) {
         });
 
         let panel_hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
             w!("FavPanel"),
             WS_POPUP,
@@ -336,6 +349,23 @@ unsafe extern "system" fn panel_wnd_proc(
 
 fn trigger_preset(preset_idx: usize) {
     unsafe {
+        // CRITICAL: Restore focus to the original foreground window before triggering.
+        // This ensures that text-select presets can send Ctrl+C to the correct window
+        // (the one that had text selected before the user clicked on the bubble panel).
+        let saved_fg = LAST_FOREGROUND_HWND.load(Ordering::SeqCst);
+        if saved_fg != 0 {
+            let fg_hwnd = HWND(saved_fg as *mut std::ffi::c_void);
+            if !fg_hwnd.is_invalid() {
+                // SetForegroundWindow may not always work due to Windows focus stealing prevention,
+                // but SetFocus on a window that's already visible should work.
+                // We use a combination approach for best results.
+                let _ = SetForegroundWindow(fg_hwnd);
+                let _ = SetFocus(Some(fg_hwnd));
+                // Small delay to allow focus to settle before triggering the preset
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+        }
+
         let class = w!("HotkeyListenerClass");
         let title = w!("Listener");
         let hwnd = FindWindowW(class, title).unwrap_or_default();

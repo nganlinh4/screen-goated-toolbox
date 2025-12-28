@@ -80,9 +80,9 @@ fn create_bubble_window() {
             (100, 100)
         };
 
-        // Create layered window for transparency
+        // Create layered window for transparency (NOACTIVATE prevents focus stealing)
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
             class_name,
             w!("FavBubble"),
             WS_POPUP,

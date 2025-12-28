@@ -35,6 +35,10 @@ pub static DRAG_START_Y: AtomicIsize = AtomicIsize::new(0);
 pub static CURRENT_OPACITY: AtomicU8 = AtomicU8::new(80); // Start at inactive opacity
 pub static BLINK_STATE: AtomicU8 = AtomicU8::new(0); // 0=None, 1..4=Blink Phases
 
+// Focus restoration: Track the foreground window before any bubble interaction
+// This is critical for text-select presets, which need to send Ctrl+C to the original window
+pub static LAST_FOREGROUND_HWND: AtomicIsize = AtomicIsize::new(0);
+
 // Thread Locals
 thread_local! {
     pub static PANEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
