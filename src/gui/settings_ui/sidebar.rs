@@ -15,6 +15,8 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_extract_retrans_retrans", "vi") => "D.vùng (CHUẨN)+D.lại".to_string(),
         ("preset_ocr", "vi") => "Lấy text từ ảnh".to_string(),
         ("preset_quick_screenshot", "vi") => "Chụp MH nhanh".to_string(),
+        ("preset_quick_screenshot", "ko") => "빠른 스크린샷".to_string(),
+        ("preset_quick_screenshot", _) => "Quick screenshot".to_string(),
         ("preset_ocr_read", "vi") => "Đọc vùng này".to_string(),
         ("preset_summarize", "vi") => "Tóm tắt vùng".to_string(),
         ("preset_desc", "vi") => "Mô tả ảnh".to_string(),
