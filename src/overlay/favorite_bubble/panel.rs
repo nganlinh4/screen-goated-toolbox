@@ -29,8 +29,8 @@ pub fn show_panel(bubble_hwnd: HWND) {
         }
     }
 
-    // Ensure window exists
-    ensure_panel_created(bubble_hwnd);
+    // Ensure window AND webview exist (webview creation is deferred to here to avoid focus steal)
+    ensure_panel_created(bubble_hwnd, true);
 
     let panel_val = PANEL_HWND.load(Ordering::SeqCst);
     if panel_val == 0 {
@@ -61,11 +61,26 @@ pub fn update_favorites_panel() {
     }
 }
 
-pub fn ensure_panel_created(bubble_hwnd: HWND) {
-    if PANEL_HWND.load(Ordering::SeqCst) != 0 {
-        return;
+/// Ensure the panel window exists.
+/// If `with_webview` is true, also create the WebView2 (deferred to avoid focus stealing during warmup).
+pub fn ensure_panel_created(bubble_hwnd: HWND, with_webview: bool) {
+    let panel_exists = PANEL_HWND.load(Ordering::SeqCst) != 0;
+
+    if !panel_exists {
+        create_panel_window_internal(bubble_hwnd);
     }
-    create_panel_window_internal(bubble_hwnd);
+
+    // Create WebView2 only when requested AND it doesn't exist yet
+    if with_webview {
+        let has_webview = PANEL_WEBVIEW.with(|wv| wv.borrow().is_some());
+        if !has_webview {
+            let panel_val = PANEL_HWND.load(Ordering::SeqCst);
+            if panel_val != 0 {
+                let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
+                create_panel_webview(panel_hwnd);
+            }
+        }
+    }
 }
 
 // Hides the panel but keeps it alive (warm)
@@ -181,7 +196,7 @@ fn create_panel_window_internal(_bubble_hwnd: HWND) {
 
         if !panel_hwnd.is_invalid() {
             PANEL_HWND.store(panel_hwnd.0 as isize, Ordering::SeqCst);
-            create_panel_webview(panel_hwnd);
+            // NOTE: WebView2 creation is deferred to show_panel() to avoid focus stealing
         }
     }
 }
