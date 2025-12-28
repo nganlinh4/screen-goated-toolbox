@@ -109,8 +109,8 @@ fn create_bubble_window() {
 
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
 
-        // Warmup: Create panel hidden immediately
-        ensure_panel_created(hwnd);
+        // Warmup: Create panel window shell only (NOT WebView2, to avoid focus stealing)
+        ensure_panel_created(hwnd, false);
 
         // Message loop
         let mut msg = MSG::default();
