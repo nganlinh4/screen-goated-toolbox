@@ -5,6 +5,8 @@ use std::sync::{
 };
 use windows::core::*;
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Dwm::*;
+
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::LibraryLoader::*;
@@ -23,6 +25,7 @@ struct TextSelectionState {
     cached_bits: *mut u32,
     cached_font: HFONT,
     cached_lang: Option<String>,
+    hook_handle: HHOOK,
 }
 unsafe impl Send for TextSelectionState {}
 
@@ -37,6 +40,7 @@ static SELECTION_STATE: Mutex<TextSelectionState> = Mutex::new(TextSelectionStat
     cached_bits: std::ptr::null_mut(),
     cached_font: HFONT(std::ptr::null_mut()),
     cached_lang: None,
+    hook_handle: HHOOK(std::ptr::null_mut()),
 });
 
 static REGISTER_TAG_CLASS: Once = Once::new();
@@ -221,6 +225,19 @@ pub fn cancel_selection() {
     }
 }
 
+unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION as i32 {
+        let kbd_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
+            if kbd_struct.vkCode == VK_ESCAPE.0 as u32 {
+                TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+                return LRESULT(1);
+            }
+        }
+    }
+    CallNextHookEx(None, code, wparam, lparam)
+}
+
 pub fn show_text_selection_tag(preset_idx: usize) {
     unsafe {
         // Scope 1: Check and Init
@@ -277,52 +294,63 @@ pub fn show_text_selection_tag(preset_idx: usize) {
             None,
         )
         .unwrap_or_default();
-        SELECTION_STATE.lock().unwrap().hwnd = hwnd;
-        SetTimer(Some(hwnd), 1, 16, None);
+
+        {
+            SELECTION_STATE.lock().unwrap().hwnd = hwnd;
+        }
+
+        // Install Keyboard Hook to swallow ESC
+        let hook = SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(keyboard_hook_proc),
+            Some(GetModuleHandleW(None).unwrap().into()),
+            0,
+        );
+        if let Ok(h) = hook {
+            SELECTION_STATE.lock().unwrap().hook_handle = h;
+        }
+
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).into() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+
+        // "Game Loop" for smooth window movement
+        loop {
+            // 1. Process all pending messages
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).into() {
+                if msg.message == WM_QUIT {
+                    break;
+                }
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
             if msg.message == WM_QUIT {
                 break;
             }
-        }
 
-        // Cleanup cache on exit
-        {
-            let mut state = SELECTION_STATE.lock().unwrap();
-            if !state.cached_bitmap.is_invalid() {
-                let _ = DeleteObject(state.cached_bitmap.into());
-                state.cached_bitmap = HBITMAP::default();
-            }
-            if !state.cached_font.is_invalid() {
-                let _ = DeleteObject(state.cached_font.into());
-                state.cached_font = HFONT(std::ptr::null_mut());
-            }
-            state.cached_bits = std::ptr::null_mut();
-            state.hwnd = HWND::default();
-        }
-    }
-}
-
-unsafe extern "system" fn tag_wnd_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    match msg {
-        WM_TIMER => {
+            // 2. Check Abort Signal
             if TAG_ABORT_SIGNAL.load(Ordering::SeqCst) {
+                // Unhook before destroying window
+                let mut state = SELECTION_STATE.lock().unwrap();
+                if !state.hook_handle.is_invalid() {
+                    let _ = UnhookWindowsHookEx(state.hook_handle);
+                    state.hook_handle = HHOOK::default();
+                }
                 let _ = DestroyWindow(hwnd);
-                PostQuitMessage(0);
-                return LRESULT(0);
+                break;
             }
+
+            // 3. Update Logic (Movement & Animation)
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let target_x = pt.x - 30;
+            let target_y = pt.y - 60;
+
             let lbutton_down = (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0;
 
             let mut should_spawn_thread = false;
             let mut preset_idx_for_thread = 0;
+
             let (is_selecting, current_alpha) = {
                 let mut state = SELECTION_STATE.lock().unwrap();
 
@@ -334,23 +362,12 @@ unsafe extern "system" fn tag_wnd_proc(
                     preset_idx_for_thread = state.preset_idx;
                 }
 
-                let mut pt = POINT::default();
-                let _ = GetCursorPos(&mut pt);
-                let _ = SetWindowPos(
-                    hwnd,
-                    Some(HWND_TOPMOST),
-                    pt.x - 30,
-                    pt.y - 60,
-                    0,
-                    0,
-                    SWP_NOSIZE | SWP_NOACTIVATE,
-                );
-
                 if state.is_selecting {
-                    state.animation_offset -= 15.0;
+                    state.animation_offset -= 7.5;
                 } else {
-                    state.animation_offset += 5.0;
+                    state.animation_offset += 2.5;
                 }
+
                 if state.animation_offset > 3600.0 {
                     state.animation_offset -= 3600.0;
                 }
@@ -375,6 +392,7 @@ unsafe extern "system" fn tag_wnd_proc(
                 (state.is_selecting, state.current_alpha as u8)
             };
 
+            // 4. Handle Thread Spawn
             if should_spawn_thread {
                 let hwnd_val = hwnd.0 as usize;
                 std::thread::spawn(move || {
@@ -432,19 +450,60 @@ unsafe extern "system" fn tag_wnd_proc(
                             process_selected_text(preset_idx_for_thread, clipboard_text);
                             let _ = PostMessageW(Some(hwnd_copy), WM_CLOSE, WPARAM(0), LPARAM(0));
                         } else {
-                            // Reset state logic - scope the lock
                             let mut state = SELECTION_STATE.lock().unwrap();
                             state.is_selecting = false;
                             state.is_processing = false;
                         }
                     }
                 });
-                return LRESULT(0);
             }
 
-            paint_tag_window(hwnd, 200, 40, current_alpha, is_selecting);
-            LRESULT(0)
+            // 5. Render & Move
+            paint_tag_window(
+                hwnd,
+                200,
+                40,
+                current_alpha,
+                is_selecting,
+                target_x,
+                target_y,
+            );
+
+            // 6. Sync with DWM for smoothness
+            let _ = DwmFlush();
         }
+
+        // Cleanup cache on exit
+        {
+            let mut state = SELECTION_STATE.lock().unwrap();
+
+            // Unhook
+            if !state.hook_handle.is_invalid() {
+                let _ = UnhookWindowsHookEx(state.hook_handle);
+                state.hook_handle = HHOOK::default();
+            }
+
+            if !state.cached_bitmap.is_invalid() {
+                let _ = DeleteObject(state.cached_bitmap.into());
+                state.cached_bitmap = HBITMAP::default();
+            }
+            if !state.cached_font.is_invalid() {
+                let _ = DeleteObject(state.cached_font.into());
+                state.cached_font = HFONT(std::ptr::null_mut());
+            }
+            state.cached_bits = std::ptr::null_mut();
+            state.hwnd = HWND::default();
+        }
+    }
+}
+
+unsafe extern "system" fn tag_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
         WM_CLOSE => {
             TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
             let _ = DestroyWindow(hwnd);
@@ -455,7 +514,15 @@ unsafe extern "system" fn tag_wnd_proc(
     }
 }
 
-unsafe fn paint_tag_window(hwnd: HWND, width: i32, height: i32, alpha: u8, is_selecting: bool) {
+unsafe fn paint_tag_window(
+    hwnd: HWND,
+    width: i32,
+    height: i32,
+    alpha: u8,
+    is_selecting: bool,
+    x: i32,
+    y: i32,
+) {
     if alpha == 0 {
         return;
     }
@@ -496,7 +563,7 @@ unsafe fn paint_tag_window(hwnd: HWND, width: i32, height: i32, alpha: u8, is_se
 
     if state.cached_font.is_invalid() {
         state.cached_font = CreateFontW(
-            15,
+            22,
             0,
             0,
             0,
@@ -649,6 +716,9 @@ unsafe fn paint_tag_window(hwnd: HWND, width: i32, height: i32, alpha: u8, is_se
     }
 
     let pt_src = POINT { x: 0, y: 0 };
+    // Update destination position with current mouse following coordinates
+    let pt_dst = POINT { x, y };
+
     let size = SIZE {
         cx: width,
         cy: height,
@@ -660,7 +730,7 @@ unsafe fn paint_tag_window(hwnd: HWND, width: i32, height: i32, alpha: u8, is_se
     let _ = UpdateLayeredWindow(
         hwnd,
         None,
-        None,
+        Some(&pt_dst),
         Some(&size),
         Some(mem_dc),
         Some(&pt_src),
