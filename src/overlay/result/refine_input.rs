@@ -1,33 +1,35 @@
 //! WebView-based refine input that floats above the markdown view
 //! This replaces the native EDIT control for a consistent UI experience
 
-use windows::Win32::Foundation::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::System::LibraryLoader::*;
-use std::sync::Mutex;
+use raw_window_handle::{
+    HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
+};
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
-use wry::{WebViewBuilder, Rect};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle, WindowHandle, Win32WindowHandle, HandleError};
+use std::sync::Mutex;
 use windows::core::w;
+use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::LibraryLoader::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+use wry::{Rect, WebContext, WebViewBuilder};
 
 const WM_APP_SET_TEXT: u32 = WM_USER + 200; // Custom message for cross-thread text injection
 
 lazy_static::lazy_static! {
     /// Track which parent windows have refine input active
     static ref REFINE_STATES: Mutex<HashMap<isize, RefineInputState>> = Mutex::new(HashMap::new());
-    
+
     /// Cross-thread text injection: (parent_key, text_to_insert)
     static ref PENDING_TEXT: Mutex<Option<(isize, String)>> = Mutex::new(None);
 }
 
 /// State for a refine input instance
 struct RefineInputState {
-    pub hwnd: HWND,       // Child window handle
-    pub submitted: bool,  // Has user submitted?
-    pub cancelled: bool,  // Has user cancelled?
-    pub text: String,     // Submitted text
+    pub hwnd: HWND,      // Child window handle
+    pub submitted: bool, // Has user submitted?
+    pub cancelled: bool, // Has user cancelled?
+    pub text: String,    // Submitted text
 }
 
 unsafe impl Send for RefineInputState {}
@@ -35,6 +37,8 @@ unsafe impl Send for RefineInputState {}
 // Thread-local storage for WebViews (not Send)
 thread_local! {
     static REFINE_WEBVIEWS: std::cell::RefCell<HashMap<isize, wry::WebView>> = std::cell::RefCell::new(HashMap::new());
+    // Shared WebContext for this thread using common data directory
+    static REFINE_WEB_CONTEXT: std::cell::RefCell<Option<WebContext>> = std::cell::RefCell::new(None);
 }
 
 /// Wrapper for HWND to implement HasWindowHandle
@@ -42,7 +46,7 @@ struct HwndWrapper(HWND);
 
 impl HasWindowHandle for HwndWrapper {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0.0 as isize;
+        let hwnd = self.0 .0 as isize;
         if let Some(non_zero) = NonZeroIsize::new(hwnd) {
             let mut handle = Win32WindowHandle::new(non_zero);
             handle.hinstance = None;
@@ -55,7 +59,12 @@ impl HasWindowHandle for HwndWrapper {
 }
 
 /// Window procedure for the refine input child window
-unsafe extern "system" fn refine_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn refine_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     match msg {
         _ if msg == WM_APP_SET_TEXT => {
             // Apply pending text from cross-thread call
@@ -63,7 +72,7 @@ unsafe extern "system" fn refine_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, 
             LRESULT(0)
         }
 
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam)
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
 
@@ -77,7 +86,7 @@ fn apply_pending_text() {
             .replace("${", "\\${")
             .replace('\n', " ") // Refine input is single line
             .replace('\r', "");
-        
+
         REFINE_WEBVIEWS.with(|webviews| {
             if let Some(wv) = webviews.borrow().get(&parent_key) {
                 // Insert at cursor position instead of replacing all text
@@ -221,7 +230,8 @@ const REFINE_CSS: &str = r#"
 /// Generate HTML for the refine input
 fn get_refine_html(placeholder: &str) -> String {
     let escaped = placeholder.replace('\'', "\\'");
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -284,35 +294,35 @@ fn get_refine_html(placeholder: &str) -> String {
         document.addEventListener('contextmenu', e => e.preventDefault());
     </script>
 </body>
-</html>"#, REFINE_CSS, escaped)
+</html>"#,
+        REFINE_CSS, escaped
+    )
 }
 
 /// Show the refine input above the markdown view
 /// Returns the child window handle for positioning
 pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
     let parent_key = parent_hwnd.0 as isize;
-    
+
     // Check if already exists
-    let exists = REFINE_WEBVIEWS.with(|webviews| {
-        webviews.borrow().contains_key(&parent_key)
-    });
-    
+    let exists = REFINE_WEBVIEWS.with(|webviews| webviews.borrow().contains_key(&parent_key));
+
     if exists {
         // Just focus existing
         focus_refine_input(parent_hwnd);
         return true;
     }
-    
+
     unsafe {
         let mut parent_rect = RECT::default();
         let _ = GetClientRect(parent_hwnd, &mut parent_rect);
-        
+
         let input_height = 40i32;
         let width = parent_rect.right - 4; // 2px margin each side
-        
+
         // Create the child window for the WebView
         let instance = GetModuleHandleW(None).unwrap();
-        
+
         // Use a simple static child window class
         static mut CLASS_ATOM: u16 = 0;
         if CLASS_ATOM == 0 {
@@ -324,74 +334,104 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
             wc.hbrBackground = HBRUSH::default();
             CLASS_ATOM = RegisterClassW(&wc);
         }
-        
+
         let child_hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             w!("SGT_RefineInput"),
             w!(""),
             WS_CHILD | WS_VISIBLE,
-            2, 2, width, input_height, // Position at top with small margin
+            2,
+            2,
+            width,
+            input_height, // Position at top with small margin
             Some(parent_hwnd),
-            None, Some(instance.into()), None
+            None,
+            Some(instance.into()),
+            None,
         );
-        
+
         if child_hwnd.is_err() {
             return false;
         }
-        
+
         // Create WebView inside the child window
         let html = get_refine_html(placeholder);
         let child_hwnd = child_hwnd.unwrap();
         let wrapper = HwndWrapper(child_hwnd);
-        
+
+        // Initialize shared WebContext if needed (uses same data dir as other modules)
+        REFINE_WEB_CONTEXT.with(|ctx| {
+            if ctx.borrow().is_none() {
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+            }
+        });
+
         let parent_key_for_ipc = parent_key;
-        let result = WebViewBuilder::new()
-            .with_bounds(Rect {
-                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(width as u32, input_height as u32)),
-            })
-            .with_html(&html)
-            .with_transparent(false)
-            .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                let body = msg.body();
-                let mut states = REFINE_STATES.lock().unwrap();
-                if let Some(state) = states.get_mut(&parent_key_for_ipc) {
-                    if body.starts_with("submit:") {
-                        state.text = body.strip_prefix("submit:").unwrap_or("").to_string();
-                        state.submitted = true;
-                    } else if body == "cancel" {
-                        state.cancelled = true;
-                    } else if body == "mic" {
-                        // Trigger transcription preset
-                        let transcribe_idx = {
-                            let app = crate::APP.lock().unwrap();
-                            app.config.presets.iter().position(|p| p.id == "preset_transcribe")
-                        };
-                        
-                        if let Some(preset_idx) = transcribe_idx {
-                            std::thread::spawn(move || {
-                                crate::overlay::recording::show_recording_overlay(preset_idx);
-                            });
+        let result = REFINE_WEB_CONTEXT.with(|ctx| {
+            let mut ctx_ref = ctx.borrow_mut();
+            let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
+                WebViewBuilder::new_with_web_context(web_ctx)
+            } else {
+                WebViewBuilder::new()
+            };
+            builder
+                .with_bounds(Rect {
+                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        width as u32,
+                        input_height as u32,
+                    )),
+                })
+                .with_html(&html)
+                .with_transparent(false)
+                .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                    let body = msg.body();
+                    let mut states = REFINE_STATES.lock().unwrap();
+                    if let Some(state) = states.get_mut(&parent_key_for_ipc) {
+                        if body.starts_with("submit:") {
+                            state.text = body.strip_prefix("submit:").unwrap_or("").to_string();
+                            state.submitted = true;
+                        } else if body == "cancel" {
+                            state.cancelled = true;
+                        } else if body == "mic" {
+                            // Trigger transcription preset
+                            let transcribe_idx = {
+                                let app = crate::APP.lock().unwrap();
+                                app.config
+                                    .presets
+                                    .iter()
+                                    .position(|p| p.id == "preset_transcribe")
+                            };
+
+                            if let Some(preset_idx) = transcribe_idx {
+                                std::thread::spawn(move || {
+                                    crate::overlay::recording::show_recording_overlay(preset_idx);
+                                });
+                            }
                         }
                     }
-                }
-            })
-            .build_as_child(&wrapper);
-        
+                })
+                .build_as_child(&wrapper)
+        });
+
         match result {
             Ok(webview) => {
                 REFINE_WEBVIEWS.with(|webviews| {
                     webviews.borrow_mut().insert(parent_key, webview);
                 });
-                
+
                 let mut states = REFINE_STATES.lock().unwrap();
-                states.insert(parent_key, RefineInputState {
-                    hwnd: child_hwnd,
-                    submitted: false,
-                    cancelled: false,
-                    text: String::new(),
-                });
-                
+                states.insert(
+                    parent_key,
+                    RefineInputState {
+                        hwnd: child_hwnd,
+                        submitted: false,
+                        cancelled: false,
+                        text: String::new(),
+                    },
+                );
+
                 true
             }
             Err(_) => {
@@ -405,7 +445,7 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
 /// Focus the refine input WebView
 pub fn focus_refine_input(parent_hwnd: HWND) {
     let parent_key = parent_hwnd.0 as isize;
-    
+
     REFINE_WEBVIEWS.with(|webviews| {
         if let Some(webview) = webviews.borrow().get(&parent_key) {
             let _ = webview.focus();
@@ -418,7 +458,7 @@ pub fn focus_refine_input(parent_hwnd: HWND) {
 /// Returns: (submitted, cancelled, text)
 pub fn poll_refine_input(parent_hwnd: HWND) -> (bool, bool, String) {
     let parent_key = parent_hwnd.0 as isize;
-    
+
     let mut states = REFINE_STATES.lock().unwrap();
     if let Some(state) = states.get_mut(&parent_key) {
         let result = (state.submitted, state.cancelled, state.text.clone());
@@ -437,12 +477,12 @@ pub fn poll_refine_input(parent_hwnd: HWND) -> (bool, bool, String) {
 /// Hide and destroy the refine input
 pub fn hide_refine_input(parent_hwnd: HWND) {
     let parent_key = parent_hwnd.0 as isize;
-    
+
     // Remove WebView first
     REFINE_WEBVIEWS.with(|webviews| {
         webviews.borrow_mut().remove(&parent_key);
     });
-    
+
     // Remove state and destroy window
     let mut states = REFINE_STATES.lock().unwrap();
     if let Some(state) = states.remove(&parent_key) {
@@ -466,8 +506,15 @@ pub fn bring_to_top(parent_hwnd: HWND) {
     let states = REFINE_STATES.lock().unwrap();
     if let Some(state) = states.get(&parent_key) {
         unsafe {
-            let _ = SetWindowPos(state.hwnd, Some(HWND_TOP), 0, 0, 0, 0, 
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            let _ = SetWindowPos(
+                state.hwnd,
+                Some(HWND_TOP),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
         }
     }
 }
@@ -482,24 +529,27 @@ pub fn is_any_refine_active() -> bool {
 /// Get the parent HWND of any active refine input
 pub fn get_active_refine_parent() -> Option<HWND> {
     let states = REFINE_STATES.lock().unwrap();
-    states.keys().next().map(|&k| HWND(k as *mut std::ffi::c_void))
+    states
+        .keys()
+        .next()
+        .map(|&k| HWND(k as *mut std::ffi::c_void))
 }
 
 /// Set text in the refine input (cross-thread safe)
 /// Inserts at cursor position instead of replacing all text
 pub fn set_refine_text(parent_hwnd: HWND, text: &str) {
     let parent_key = parent_hwnd.0 as isize;
-    
+
     // Get the child window handle for this refine input
     let child_hwnd = {
         let states = REFINE_STATES.lock().unwrap();
         states.get(&parent_key).map(|s| s.hwnd)
     };
-    
+
     if let Some(hwnd) = child_hwnd {
         // Store the text and parent key in the mutex
         *PENDING_TEXT.lock().unwrap() = Some((parent_key, text.to_string()));
-        
+
         // Post message to the child window to trigger the injection
         unsafe {
             let _ = PostMessageW(Some(hwnd), WM_APP_SET_TEXT, WPARAM(0), LPARAM(0));
@@ -511,35 +561,43 @@ pub fn set_refine_text(parent_hwnd: HWND, text: &str) {
 /// Call this when the parent window is resized
 pub fn resize_refine_input(parent_hwnd: HWND) {
     let parent_key = parent_hwnd.0 as isize;
-    
+
     // Get the child window handle
     let child_hwnd = {
         let states = REFINE_STATES.lock().unwrap();
         states.get(&parent_key).map(|s| s.hwnd)
     };
-    
+
     if let Some(hwnd) = child_hwnd {
         unsafe {
             let mut parent_rect = RECT::default();
             let _ = GetClientRect(parent_hwnd, &mut parent_rect);
-            
+
             let input_height = 40i32;
             let width = parent_rect.right - 4; // 2px margin each side
-            
+
             // Resize the child window
             let _ = SetWindowPos(
-                hwnd, 
-                Some(HWND::default()), 
-                2, 2, width, input_height,
-                SWP_NOZORDER | SWP_NOACTIVATE
+                hwnd,
+                Some(HWND::default()),
+                2,
+                2,
+                width,
+                input_height,
+                SWP_NOZORDER | SWP_NOACTIVATE,
             );
-            
+
             // Resize the WebView inside
             REFINE_WEBVIEWS.with(|webviews| {
                 if let Some(webview) = webviews.borrow().get(&parent_key) {
                     let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(width as u32, input_height as u32)),
+                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
+                            0, 0,
+                        )),
+                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                            width as u32,
+                            input_height as u32,
+                        )),
                     });
                 }
             });

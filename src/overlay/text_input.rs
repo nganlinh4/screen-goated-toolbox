@@ -11,7 +11,7 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebViewBuilder};
+use wry::{Rect, WebContext, WebViewBuilder};
 
 use crate::win_types::SendHwnd;
 
@@ -43,6 +43,8 @@ const WM_APP_SET_TEXT: u32 = WM_USER + 100; // New: trigger text injection from 
 // Thread-local storage for WebView (not Send)
 thread_local! {
     static TEXT_INPUT_WEBVIEW: RefCell<Option<wry::WebView>> = RefCell::new(None);
+    // Shared WebContext for this thread using common data directory
+    static TEXT_INPUT_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
 }
 
 /// Wrapper for HWND to implement HasWindowHandle
@@ -546,46 +548,62 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
     let html = get_editor_html(placeholder);
     let wrapper = HwndWrapper(hwnd);
 
-    let result = WebViewBuilder::new()
-        .with_bounds(Rect {
-            position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                webview_x, webview_y,
-            )),
-            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                webview_w as u32,
-                webview_h as u32,
-            )),
-        })
-        .with_html(&html)
-        .with_transparent(false)
-        .with_ipc_handler(move |msg: wry::http::Request<String>| {
-            let body = msg.body();
-            if body.starts_with("submit:") {
-                let text = body.strip_prefix("submit:").unwrap_or("").to_string();
-                if !text.trim().is_empty() {
-                    *SUBMITTED_TEXT.lock().unwrap() = Some(text);
-                    *SHOULD_CLOSE.lock().unwrap() = true;
-                }
-            } else if body == "cancel" {
-                *SHOULD_CLOSE.lock().unwrap() = true;
-            } else if body == "mic" {
-                // Trigger transcription preset
-                let transcribe_idx = {
-                    let app = crate::APP.lock().unwrap();
-                    app.config
-                        .presets
-                        .iter()
-                        .position(|p| p.id == "preset_transcribe")
-                };
+    // Initialize shared WebContext if needed (uses same data dir as other modules)
+    TEXT_INPUT_WEB_CONTEXT.with(|ctx| {
+        if ctx.borrow().is_none() {
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+        }
+    });
 
-                if let Some(preset_idx) = transcribe_idx {
-                    std::thread::spawn(move || {
-                        crate::overlay::recording::show_recording_overlay(preset_idx);
-                    });
+    let result = TEXT_INPUT_WEB_CONTEXT.with(|ctx| {
+        let mut ctx_ref = ctx.borrow_mut();
+        let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
+            WebViewBuilder::new_with_web_context(web_ctx)
+        } else {
+            WebViewBuilder::new()
+        };
+        builder
+            .with_bounds(Rect {
+                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
+                    webview_x, webview_y,
+                )),
+                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                    webview_w as u32,
+                    webview_h as u32,
+                )),
+            })
+            .with_html(&html)
+            .with_transparent(false)
+            .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                let body = msg.body();
+                if body.starts_with("submit:") {
+                    let text = body.strip_prefix("submit:").unwrap_or("").to_string();
+                    if !text.trim().is_empty() {
+                        *SUBMITTED_TEXT.lock().unwrap() = Some(text);
+                        *SHOULD_CLOSE.lock().unwrap() = true;
+                    }
+                } else if body == "cancel" {
+                    *SHOULD_CLOSE.lock().unwrap() = true;
+                } else if body == "mic" {
+                    // Trigger transcription preset
+                    let transcribe_idx = {
+                        let app = crate::APP.lock().unwrap();
+                        app.config
+                            .presets
+                            .iter()
+                            .position(|p| p.id == "preset_transcribe")
+                    };
+
+                    if let Some(preset_idx) = transcribe_idx {
+                        std::thread::spawn(move || {
+                            crate::overlay::recording::show_recording_overlay(preset_idx);
+                        });
+                    }
                 }
-            }
-        })
-        .build_as_child(&wrapper);
+            })
+            .build_as_child(&wrapper)
+    });
 
     if let Ok(webview) = result {
         TEXT_INPUT_WEBVIEW.with(|wv| {

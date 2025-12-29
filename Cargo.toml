@@ -51,7 +51,7 @@ minimp3 = "0.5"
 
 # Markdown Rendering
 pulldown-cmark = "0.10"
-wry = "0.53"
+wry = "0.53.3"
 raw-window-handle = "0.6"
 windows-core = "0.62"
 

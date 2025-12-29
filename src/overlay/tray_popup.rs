@@ -15,7 +15,7 @@ use windows::Win32::Graphics::Dwm::{
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebView, WebViewBuilder};
+use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
 static REGISTER_POPUP_CLASS: Once = Once::new();
 // 0=Closed, 1=Warmup, 2=Open, 3=PendingCancel
@@ -24,6 +24,8 @@ static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
 
 thread_local! {
     static POPUP_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
+    // Shared WebContext for this thread using common data directory
+    static POPUP_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
 }
 
 const POPUP_WIDTH: i32 = 250;
@@ -438,99 +440,115 @@ fn create_popup_window(is_warmup: bool) {
             std::mem::size_of_val(&corner_pref) as u32,
         );
 
-        // Create WebView
+        // Create WebView using shared context for RAM efficiency
         let wrapper = HwndWrapper(hwnd);
         let html = generate_popup_html();
 
-        let webview = WebViewBuilder::new()
-            .with_bounds(Rect {
-                position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    POPUP_WIDTH as u32,
-                    popup_height as u32,
-                )),
-            })
-            .with_transparent(true)
-            .with_html(&html)
-            .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                let body = msg.body();
-                match body.as_str() {
-                    "settings" => {
-                        // Restore main window
-                        let h = POPUP_HWND.load(Ordering::SeqCst);
-                        if h != 0 {
-                            let _ = PostMessageW(
-                                Some(HWND(h as *mut _)),
-                                WM_CLOSE,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
-                        }
-                        // Signal to open settings
-                        crate::gui::signal_restore_window();
-                    }
-                    "bubble" => {
-                        // Toggle bubble - don't close popup, just update the checkmark
-                        let new_state = if let Ok(mut app) = APP.lock() {
-                            app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
-                            let enabled = app.config.show_favorite_bubble;
-                            crate::config::save_config(&app.config);
+        // Initialize shared WebContext if needed (uses same data dir as other modules)
+        POPUP_WEB_CONTEXT.with(|ctx| {
+            if ctx.borrow().is_none() {
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+            }
+        });
 
-                            if enabled {
-                                crate::overlay::favorite_bubble::show_favorite_bubble();
-                            } else {
-                                crate::overlay::favorite_bubble::hide_favorite_bubble();
-                            }
-                            enabled
-                        } else {
-                            false
-                        };
-
-                        // Update checkmark in popup via JavaScript (keep popup open)
-                        POPUP_WEBVIEW.with(|cell| {
-                            if let Some(webview) = cell.borrow().as_ref() {
-                                let js = format!(
-                                    "document.getElementById('bubble-check-container').innerHTML = '{}';",
-                                    if new_state { 
-                                        r#"<svg class="check-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13.86 3.66a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.6 9.03a.75.75 0 1 1 1.06-1.06l2.42 2.42 6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>"#
-                                    } else { "" }
+        let webview = POPUP_WEB_CONTEXT.with(|ctx| {
+            let mut ctx_ref = ctx.borrow_mut();
+            let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
+                WebViewBuilder::new_with_web_context(web_ctx)
+            } else {
+                WebViewBuilder::new()
+            };
+            builder
+                .with_bounds(Rect {
+                    position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        POPUP_WIDTH as u32,
+                        popup_height as u32,
+                    )),
+                })
+                .with_transparent(true)
+                .with_html(&html)
+                .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                    let body = msg.body();
+                    match body.as_str() {
+                        "settings" => {
+                            // Restore main window
+                            let h = POPUP_HWND.load(Ordering::SeqCst);
+                            if h != 0 {
+                                let _ = PostMessageW(
+                                    Some(HWND(h as *mut _)),
+                                    WM_CLOSE,
+                                    WPARAM(0),
+                                    LPARAM(0),
                                 );
-                                let _ = webview.evaluate_script(&js);
                             }
-                        });
-                    }
-                    "quit" => {
-                        // Close popup first
-                        let h = POPUP_HWND.load(Ordering::SeqCst);
-                        if h != 0 {
-                            let _ = PostMessageW(
-                                Some(HWND(h as *mut _)),
-                                WM_CLOSE,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
+                            // Signal to open settings
+                            crate::gui::signal_restore_window();
                         }
-                        // Small delay to let window close, then exit
-                        std::thread::spawn(|| {
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                            std::process::exit(0);
-                        });
-                    }
-                    "close" => {
-                        let h = POPUP_HWND.load(Ordering::SeqCst);
-                        if h != 0 {
-                            let _ = PostMessageW(
-                                Some(HWND(h as *mut _)),
-                                WM_CLOSE,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
+                        "bubble" => {
+                            // Toggle bubble - don't close popup, just update the checkmark
+                            let new_state = if let Ok(mut app) = APP.lock() {
+                                app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
+                                let enabled = app.config.show_favorite_bubble;
+                                crate::config::save_config(&app.config);
+
+                                if enabled {
+                                    crate::overlay::favorite_bubble::show_favorite_bubble();
+                                } else {
+                                    crate::overlay::favorite_bubble::hide_favorite_bubble();
+                                }
+                                enabled
+                            } else {
+                                false
+                            };
+
+                            // Update checkmark in popup via JavaScript (keep popup open)
+                            POPUP_WEBVIEW.with(|cell| {
+                                if let Some(webview) = cell.borrow().as_ref() {
+                                    let js = format!(
+                                        "document.getElementById('bubble-check-container').innerHTML = '{}';",
+                                        if new_state { 
+                                            r#"<svg class="check-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13.86 3.66a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.6 9.03a.75.75 0 1 1 1.06-1.06l2.42 2.42 6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>"#
+                                        } else { "" }
+                                    );
+                                    let _ = webview.evaluate_script(&js);
+                                }
+                            });
                         }
+                        "quit" => {
+                            // Close popup first
+                            let h = POPUP_HWND.load(Ordering::SeqCst);
+                            if h != 0 {
+                                let _ = PostMessageW(
+                                    Some(HWND(h as *mut _)),
+                                    WM_CLOSE,
+                                    WPARAM(0),
+                                    LPARAM(0),
+                                );
+                            }
+                            // Small delay to let window close, then exit
+                            std::thread::spawn(|| {
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                                std::process::exit(0);
+                            });
+                        }
+                        "close" => {
+                            let h = POPUP_HWND.load(Ordering::SeqCst);
+                            if h != 0 {
+                                let _ = PostMessageW(
+                                    Some(HWND(h as *mut _)),
+                                    WM_CLOSE,
+                                    WPARAM(0),
+                                    LPARAM(0),
+                                );
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                }
-            })
-            .build(&wrapper);
+                })
+                .build(&wrapper)
+        });
 
         if let Ok(wv) = webview {
             POPUP_WEBVIEW.with(|cell| {

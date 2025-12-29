@@ -9,7 +9,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebViewBuilder};
+use wry::{Rect, WebContext, WebViewBuilder};
 
 // For focus restoration
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
@@ -297,40 +297,56 @@ fn create_panel_webview(panel_hwnd: HWND) {
 
     let wrapper = HwndWrapper(panel_hwnd);
 
-    let result = WebViewBuilder::new()
-        .with_bounds(Rect {
-            position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                (rect.right - rect.left) as u32,
-                (rect.bottom - rect.top) as u32,
-            )),
-        })
-        .with_html(&html)
-        .with_transparent(true)
-        .with_ipc_handler(move |msg: wry::http::Request<String>| {
-            let body = msg.body();
+    // Initialize shared WebContext if needed (uses same data dir as other modules)
+    PANEL_WEB_CONTEXT.with(|ctx| {
+        if ctx.borrow().is_none() {
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+        }
+    });
 
-            if body == "drag" {
-                unsafe {
-                    use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-                    let _ = ReleaseCapture();
-                    SendMessageW(
-                        panel_hwnd,
-                        WM_NCLBUTTONDOWN,
-                        Some(WPARAM(HTCAPTION as usize)),
-                        Some(LPARAM(0)),
-                    );
-                }
-            } else if body == "close" {
-                close_panel();
-            } else if body.starts_with("trigger:") {
-                if let Ok(idx) = body[8..].parse::<usize>() {
+    let result = PANEL_WEB_CONTEXT.with(|ctx| {
+        let mut ctx_ref = ctx.borrow_mut();
+        let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
+            WebViewBuilder::new_with_web_context(web_ctx)
+        } else {
+            WebViewBuilder::new()
+        };
+        builder
+            .with_bounds(Rect {
+                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                    (rect.right - rect.left) as u32,
+                    (rect.bottom - rect.top) as u32,
+                )),
+            })
+            .with_html(&html)
+            .with_transparent(true)
+            .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                let body = msg.body();
+
+                if body == "drag" {
+                    unsafe {
+                        use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+                        let _ = ReleaseCapture();
+                        SendMessageW(
+                            panel_hwnd,
+                            WM_NCLBUTTONDOWN,
+                            Some(WPARAM(HTCAPTION as usize)),
+                            Some(LPARAM(0)),
+                        );
+                    }
+                } else if body == "close" {
                     close_panel();
-                    trigger_preset(idx);
+                } else if body.starts_with("trigger:") {
+                    if let Ok(idx) = body[8..].parse::<usize>() {
+                        close_panel();
+                        trigger_preset(idx);
+                    }
                 }
-            }
-        })
-        .build_as_child(&wrapper);
+            })
+            .build_as_child(&wrapper)
+    });
 
     if let Ok(webview) = result {
         PANEL_WEBVIEW.with(|wv| {
