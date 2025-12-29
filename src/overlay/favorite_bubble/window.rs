@@ -109,8 +109,14 @@ fn create_bubble_window() {
 
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
 
-        // Warmup: Create panel window shell only (NOT WebView2, to avoid focus stealing)
-        ensure_panel_created(hwnd, false);
+        // Warmup: Create panel window AND WebView2 process immediately.
+        // We do this here (hidden) so the first click shows the panel instantly.
+        // HOWEVER: If the tray popup is currently open, skip the warmup to avoid
+        // focus conflicts that would close the popup. The warmup will happen
+        // on first panel open instead.
+        if !crate::overlay::tray_popup::is_popup_open() {
+            ensure_panel_created(hwnd, true);
+        }
 
         // Message loop
         let mut msg = MSG::default();

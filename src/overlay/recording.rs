@@ -172,8 +172,9 @@ pub fn show_recording_overlay(preset_idx: usize) {
         }
 
         // Uninstall Hook
-        if !RECORDING_HOOK.is_invalid() {
-            let _ = UnhookWindowsHookEx(RECORDING_HOOK);
+        let hook = std::ptr::addr_of!(RECORDING_HOOK).read();
+        if !hook.is_invalid() {
+            let _ = UnhookWindowsHookEx(hook);
             RECORDING_HOOK = HHOOK(std::ptr::null_mut());
         }
 
@@ -191,7 +192,9 @@ unsafe extern "system" fn recording_hook_proc(
         let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
             if kbd.vkCode == VK_ESCAPE.0 as u32 {
-                if IS_RECORDING && !RECORDING_HWND.0.is_invalid() {
+                let is_rec = std::ptr::addr_of!(IS_RECORDING).read();
+                let hwnd = std::ptr::addr_of!(RECORDING_HWND).read();
+                if is_rec && !hwnd.0.is_invalid() {
                     // ESC concludes/stops the recording (as requested by user)
                     stop_recording_and_submit();
                     return LRESULT(1);

@@ -21,6 +21,8 @@ static REGISTER_POPUP_CLASS: Once = Once::new();
 // 0=Closed, 1=Warmup, 2=Open, 3=PendingCancel
 static POPUP_STATE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
+static IGNORE_FOCUS_LOSS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 
 thread_local! {
     static POPUP_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
@@ -337,11 +339,14 @@ svg {{
     </div>
 </div>
 <script>
+window.ignoreBlur = false;
 function action(cmd) {{
     if (cmd === 'bubble') {{
+        // Temporarily ignore blur events during bubble toggle
+        window.ignoreBlur = true;
+        setTimeout(function() {{ window.ignoreBlur = false; }}, 1200);
         const el = document.querySelector('.bubble-item');
         if (el) {{
-            // Toggle active class instantly for live animation
             if (el.classList.contains('active')) {{
                 el.classList.remove('active');
             }} else {{
@@ -353,6 +358,7 @@ function action(cmd) {{
 }}
 // Close on click outside (detect blur)
 window.addEventListener('blur', function() {{
+    if (window.ignoreBlur) return;
     window.ipc.postMessage('close');
 }});
 </script>
@@ -440,7 +446,7 @@ fn create_popup_window(is_warmup: bool) {
         };
 
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
             w!("TrayPopup"),
             WS_POPUP,
@@ -520,7 +526,7 @@ fn create_popup_window(is_warmup: bool) {
                             crate::gui::signal_restore_window();
                         }
                         "bubble" => {
-                            // Toggle bubble - don't close popup, just update the checkmark
+                            // Toggle bubble state
                             let new_state = if let Ok(mut app) = APP.lock() {
                                 app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
                                 let enabled = app.config.show_favorite_bubble;
@@ -605,8 +611,11 @@ fn create_popup_window(is_warmup: bool) {
                 
                 let _ = SetWindowPos(hwnd, None, popup_x, popup_y, POPUP_WIDTH, popup_height, SWP_NOZORDER);
                 
-                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                let _ = ShowWindow(hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(hwnd);
+                
+                // Start focus-polling timer (more reliable than blur events for WebView2)
+                let _ = SetTimer(Some(hwnd), 888, 100, None);
             } else {
                 // State is 1 (Warmup) or 3 (Cancelled) -> Close immediately
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -636,12 +645,32 @@ unsafe extern "system" fn popup_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_ACTIVATE => {
-            // We rely on JS 'blur' to close the window, because WM_ACTIVATE is too aggressive
-            // and often closes the popup when clicking a toggle (which might briefly steal focus)
+            LRESULT(0)
+        }
+
+        WM_TIMER => {
+            if wparam.0 == 888 {
+                // Focus polling: check if we're still the active window
+                let fg = GetForegroundWindow();
+                let root = GetAncestor(fg, GA_ROOT);
+                
+                // If focus is on this popup or its children (WebView2), stay open
+                if fg == hwnd || root == hwnd {
+                    return LRESULT(0);
+                }
+                
+                // Focus is elsewhere - check grace period
+                let now = windows::Win32::System::SystemInformation::GetTickCount64();
+                if now > IGNORE_FOCUS_LOSS_UNTIL.load(Ordering::SeqCst) {
+                    let _ = KillTimer(Some(hwnd), 888);
+                    hide_tray_popup();
+                }
+            }
             LRESULT(0)
         }
 
         WM_CLOSE => {
+            let _ = KillTimer(Some(hwnd), 888);
             let _ = DestroyWindow(hwnd);
             LRESULT(0)
         }
