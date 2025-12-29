@@ -8,9 +8,11 @@ use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 static mut RECORDING_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
+static mut RECORDING_HOOK: HHOOK = HHOOK(std::ptr::null_mut());
 static mut IS_RECORDING: bool = false;
 static mut IS_PAUSED: bool = false;
 static mut ANIMATION_OFFSET: f32 = 0.0;
@@ -128,6 +130,17 @@ pub fn show_recording_overlay(preset_idx: usize) {
 
         RECORDING_HWND = SendHwnd(hwnd);
 
+        // Install Hook for ESC
+        let hook = SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(recording_hook_proc),
+            Some(GetModuleHandleW(None).unwrap().into()),
+            0,
+        );
+        if let Ok(h) = hook {
+            RECORDING_HOOK = h;
+        }
+
         SetTimer(Some(hwnd), 1, 16, None);
 
         if !preset.hide_recording_ui {
@@ -158,9 +171,35 @@ pub fn show_recording_overlay(preset_idx: usize) {
             }
         }
 
+        // Uninstall Hook
+        if !RECORDING_HOOK.is_invalid() {
+            let _ = UnhookWindowsHookEx(RECORDING_HOOK);
+            RECORDING_HOOK = HHOOK(std::ptr::null_mut());
+        }
+
         IS_RECORDING = false;
         RECORDING_HWND = SendHwnd::default();
     }
+}
+
+unsafe extern "system" fn recording_hook_proc(
+    code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if code == HC_ACTION as i32 {
+        let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
+            if kbd.vkCode == VK_ESCAPE.0 as u32 {
+                if IS_RECORDING && !RECORDING_HWND.0.is_invalid() {
+                    // ESC concludes/stops the recording (as requested by user)
+                    stop_recording_and_submit();
+                    return LRESULT(1);
+                }
+            }
+        }
+    }
+    CallNextHookEx(None, code, wparam, lparam)
 }
 
 unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
@@ -552,7 +591,10 @@ unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
         SelectObject(mem_dc, hfont_sub.into());
         SetTextColor(mem_dc, COLORREF(0x00DDDDDD));
 
-        let sub_text = "Bấm hotkey lần nữa để xử lý âm thanh";
+        let sub_text = {
+            let app = crate::APP.lock().unwrap();
+            crate::gui::locale::LocaleText::get(&app.config.ui_language).recording_subtext
+        };
         let mut sub_text_w = crate::overlay::utils::to_wstring(sub_text);
         let mut tr_sub = RECT {
             left: 0,
