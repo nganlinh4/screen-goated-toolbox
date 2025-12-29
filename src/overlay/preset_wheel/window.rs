@@ -123,9 +123,17 @@ pub fn show_preset_wheel(
         };
         let rows = (preset_count + cols - 1) / cols;
 
+        // Get DPI (default to 96 if failed)
+        let dpi = windows::Win32::UI::HiDpi::GetDpiForSystem();
+        let scale_factor = dpi as f32 / 96.0;
+
         // Larger window with extra padding for hover scaling room
-        let wheel_width = (cols as i32 * 145 + 80).max(350);
-        let wheel_height = (rows as i32 * 52 + 120).max(180);
+        // Apply DPI scaling to ensure the window is large enough for the WebView content
+        let base_width = (cols as f32 * 150.0 + 90.0).max(360.0);
+        let base_height = (rows as f32 * 56.0 + 130.0).max(190.0);
+
+        let wheel_width = (base_width * scale_factor) as i32;
+        let wheel_height = (base_height * scale_factor) as i32;
 
         // Calculate window position
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
