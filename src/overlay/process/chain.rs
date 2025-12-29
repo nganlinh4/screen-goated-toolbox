@@ -502,17 +502,30 @@ pub fn run_chain_step(
         if has_content {
             let txt_c = result_text.clone();
             let txt_for_badge = result_text.clone();
+            // Only show badge for actual processed results, NOT for input_adapter blocks
+            // because input_adapter just passes through text that was already copied to clipboard
+            // by text_selection.rs (the "bất đắc dĩ" copy for processing)
+            let should_show_badge = !is_input_adapter;
             std::thread::spawn(move || {
                 crate::overlay::utils::copy_to_clipboard(&txt_c, HWND::default());
-                // Show auto-copy badge notification with text snippet
-                crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&txt_for_badge);
+                // Show auto-copy badge notification with text snippet (skip for input_adapter)
+                if should_show_badge {
+                    crate::overlay::auto_copy_badge::show_auto_copy_badge_text(&txt_for_badge);
+                }
             });
         } else if image_copied {
             // For image-only copy, show the badge with image message
+            // (this is intentional - image wasn't in clipboard before)
             crate::overlay::auto_copy_badge::show_auto_copy_badge_image();
         }
 
-        if has_content || image_copied {
+        // Only trigger paste for:
+        // 1. Non-input_adapter blocks with text content (actual processed results)
+        // 2. Image copies from input_adapter (intentional image copy)
+        // This prevents double-paste when input_adapter has auto_copy enabled alongside a processing block
+        let should_trigger_paste = (has_content && !is_input_adapter) || image_copied;
+
+        if should_trigger_paste {
             // Re-clone for the paste thread
             let txt_c = result_text.clone();
             let preset_id_clone = preset_id.clone();
