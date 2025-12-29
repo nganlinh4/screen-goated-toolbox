@@ -40,6 +40,9 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
         if let Some((rx, hwnd, _req_id, generation, is_realtime)) = playback_job {
             let mut loading_cleared = false;
 
+            // Mark that we're now playing audio
+            manager.is_playing.store(true, Ordering::SeqCst);
+
             // Loop reading chunks from this channel
             loop {
                 match rx.recv() {
@@ -80,6 +83,7 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                 }
 
                 if manager.shutdown.load(Ordering::SeqCst) {
+                    manager.is_playing.store(false, Ordering::SeqCst);
                     return;
                 }
 
@@ -90,6 +94,9 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                     break;
                 }
             }
+
+            // Mark that we're done playing this job
+            manager.is_playing.store(false, Ordering::SeqCst);
         }
     }
 }
