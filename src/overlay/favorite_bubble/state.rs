@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicIsize, AtomicU8},
     Once,
 };
-use wry::WebView;
+use wry::{WebContext, WebView};
 
 // Constants
 pub const BUBBLE_SIZE: i32 = 40;
@@ -43,6 +43,8 @@ pub static LAST_FOREGROUND_HWND: AtomicIsize = AtomicIsize::new(0);
 thread_local! {
     pub static PANEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
     pub static PHYSICS_STATE: RefCell<(f32, f32)> = RefCell::new((0.0, 0.0));
+    // Shared WebContext for this thread using common data directory
+    pub static PANEL_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
 }
 
 // App icon embedded at compile time

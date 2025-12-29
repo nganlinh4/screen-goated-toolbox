@@ -564,11 +564,15 @@ pub fn show_app_selection_popup() {
                 std::mem::size_of::<u32>() as u32,
             );
 
-            // Create WebView2
+            // Create WebView2 with shared context for RAM efficiency
             let html_clone = html.clone();
             let hwnd_val = hwnd.0 as isize;
 
-            let result = wry::WebViewBuilder::new()
+            // Create a WebContext using the shared data directory
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            let mut web_context = wry::WebContext::new(Some(shared_data_dir));
+
+            let result = wry::WebViewBuilder::new_with_web_context(&mut web_context)
                 .with_bounds(wry::Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
