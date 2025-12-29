@@ -227,6 +227,7 @@ html, body {{
     overflow: hidden;
     background: var(--bg-color);
     font-family: 'Google Sans Flex', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    font-variation-settings: 'ROND' 100;
     user-select: none;
     color: var(--text-color);
     border: 1px solid var(--border-color);
@@ -296,10 +297,10 @@ svg {{
 
 .bubble-item .label {{
     transition: font-variation-settings 0.4s cubic-bezier(0.33, 1, 0.68, 1);
-    font-variation-settings: 'wght' 400, 'wdth' 100;
+    font-variation-settings: 'wght' 400, 'wdth' 100, 'ROND' 100;
 }}
 .bubble-item.active .label {{
-    font-variation-settings: 'wght' 700, 'wdth' 110;
+    font-variation-settings: 'wght' 700, 'wdth' 110, 'ROND' 100;
     color: var(--text-color);
 }}
 </style>

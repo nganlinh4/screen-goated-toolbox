@@ -6,6 +6,7 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::{Mutex, Once};
+use windows::Win32::Graphics::Gdi::AddFontMemResourceEx;
 use wry::WebViewBuilder;
 
 /// Google Sans Flex variable font - bundled at compile time (~5MB)
@@ -19,6 +20,25 @@ lazy_static::lazy_static! {
 
 pub fn warmup_fonts() {
     start_font_server();
+    load_gdi_font();
+}
+
+fn load_gdi_font() {
+    unsafe {
+        let mut num_fonts = 0;
+        let len = GOOGLE_SANS_FLEX_TTF.len() as u32;
+        // AddFontMemResourceEx installs the fonts from the memory image
+        let handle = AddFontMemResourceEx(
+            GOOGLE_SANS_FLEX_TTF.as_ptr() as *mut _,
+            len,
+            None,
+            &mut num_fonts,
+        );
+
+        if handle.is_invalid() {
+            eprintln!("Failed to load Google Sans Flex into GDI");
+        }
+    }
 }
 
 /// Helper to configure WebViewBuilder (legacy pass-through)

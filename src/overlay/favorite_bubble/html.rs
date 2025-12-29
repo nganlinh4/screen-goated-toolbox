@@ -41,7 +41,7 @@ html, body {{
     cursor: pointer;
     color: #eeeeee;
     font-size: 13px;
-    font-variation-settings: 'wght' 500, 'wdth' 100;
+    font-variation-settings: 'wght' 500, 'wdth' 100, 'ROND' 100;
     background: rgba(20, 20, 30, 0.85);
     backdrop-filter: blur(12px);
     transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
@@ -55,7 +55,7 @@ html, body {{
     background: rgba(40, 40, 55, 0.95);
     border-color: rgba(255, 255, 255, 0.25);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    font-variation-settings: 'wght' 650, 'wdth' 105;
+    font-variation-settings: 'wght' 650, 'wdth' 105, 'ROND' 100;
 }}
 
 .preset-item:active {{
