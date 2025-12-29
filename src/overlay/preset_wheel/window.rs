@@ -1,10 +1,10 @@
-// Preset Wheel Window - WebView2 with transparent overlay for outside click detection
+// Preset Wheel Window - Persistent Hidden Window for Instant Appearance
 
-use super::html::generate_wheel_html;
+use super::html::{generate_items_html, get_wheel_template};
 use crate::config::Preset;
 use crate::APP;
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use std::sync::{Mutex, Once};
 use windows::core::w;
 use windows::Win32::Foundation::*;
@@ -16,19 +16,36 @@ use wry::{Rect, WebContext, WebView, WebViewBuilder};
 static REGISTER_WHEEL_CLASS: Once = Once::new();
 static REGISTER_OVERLAY_CLASS: Once = Once::new();
 
+// Custom Messages
+const WM_APP_SHOW: u32 = WM_USER + 10;
+const WM_APP_HIDE: u32 = WM_USER + 11;
+
+// Fixed dimensions for the wheel window to avoid resizing artifacts
+// 800x600 is large enough to contain even the largest wheel configuration
+const WHEEL_WIDTH: i32 = 800;
+const WHEEL_HEIGHT: i32 = 600;
+
 // Result communication
 pub static WHEEL_RESULT: AtomicI32 = AtomicI32::new(-1); // -1 = pending, -2 = dismissed, >=0 = preset index
 pub static WHEEL_ACTIVE: AtomicBool = AtomicBool::new(false);
-static WHEEL_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
-static OVERLAY_HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+// Thread-safe handles for the persistent windows - Using Atomics to satisfy Rust 2024
+// 0 means invalid/null
+static WHEEL_HWND: AtomicIsize = AtomicIsize::new(0);
+static OVERLAY_HWND: AtomicIsize = AtomicIsize::new(0);
+
+// Shared data for showing the wheel
+lazy_static::lazy_static! {
+    static ref PENDING_ITEMS_HTML: Mutex<String> = Mutex::new(String::new());
+    static ref PENDING_DISMISS_LABEL: Mutex<String> = Mutex::new(String::new());
+    static ref PENDING_POS: Mutex<(i32, i32)> = Mutex::new((0, 0)); // x, y
+    static ref SELECTED_PRESET: Mutex<Option<usize>> = Mutex::new(None);
+}
 
 thread_local! {
     static WHEEL_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
     static WHEEL_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
 }
-
-// Selected result stored here
-static SELECTED_PRESET: Mutex<Option<usize>> = Mutex::new(None);
 
 // HWND wrapper for wry
 struct HwndWrapper(HWND);
@@ -44,6 +61,13 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
         let handle = raw_window_handle::RawWindowHandle::Win32(raw);
         unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
     }
+}
+
+/// Pre-initialize the persistent window thread
+pub fn warmup() {
+    std::thread::spawn(|| {
+        internal_create_window_loop();
+    });
 }
 
 /// Show preset wheel and return selected preset index (or None if dismissed)
@@ -114,42 +138,91 @@ pub fn show_preset_wheel(
             _ => "CANCEL",
         };
 
-        // Calculate window size based on preset count - generous sizing for fisheye effect
-        let preset_count = filtered.len();
-        let cols = if preset_count <= 3 {
-            preset_count
-        } else {
-            ((preset_count as f32).sqrt().ceil() as usize).max(3).min(4)
-        };
-        let rows = (preset_count + cols - 1) / cols;
-
-        // Get DPI (default to 96 if failed)
-        let dpi = windows::Win32::UI::HiDpi::GetDpiForSystem();
-        let scale_factor = dpi as f32 / 96.0;
-
-        // Larger window with extra padding for hover scaling room
-        // Apply DPI scaling to ensure the window is large enough for the WebView content
-        let base_width = (cols as f32 * 150.0 + 90.0).max(360.0);
-        let base_height = (rows as f32 * 56.0 + 130.0).max(190.0);
-
-        let wheel_width = (base_width * scale_factor) as i32;
-        let wheel_height = (base_height * scale_factor) as i32;
-
-        // Calculate window position
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
-        let win_x = (center_pos.x - wheel_width / 2)
-            .max(10)
-            .min(screen_w - wheel_width - 10);
-        let win_y = (center_pos.y - wheel_height / 2)
-            .max(10)
-            .min(screen_h - wheel_height - 10);
+        // Center the 800x600 window on the cursor/center_pos
+        let win_x = (center_pos.x - WHEEL_WIDTH / 2)
+            .max(0)
+            .min(screen_w - WHEEL_WIDTH);
+        let win_y = (center_pos.y - WHEEL_HEIGHT / 2)
+            .max(0)
+            .min(screen_h - WHEEL_HEIGHT);
 
+        // Prepare content
+        let items_html = generate_items_html(&filtered, &ui_lang);
+
+        // Store data for the UI thread
+        *PENDING_ITEMS_HTML.lock().unwrap() = items_html;
+        *PENDING_DISMISS_LABEL.lock().unwrap() = dismiss_label.to_string();
+        *PENDING_POS.lock().unwrap() = (win_x, win_y);
+
+        // Wake up the persistent window
+        let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+        let wheel_hwnd = HWND(hwnd_val as *mut _);
+
+        if !wheel_hwnd.is_invalid() {
+            let _ = PostMessageW(Some(wheel_hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+        } else {
+            // Cold start fallback
+            warmup();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            // Check again
+            let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+            let wheel_hwnd = HWND(hwnd_val as *mut _);
+            if !wheel_hwnd.is_invalid() {
+                let _ = PostMessageW(Some(wheel_hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+            }
+        }
+
+        // Message loop waiting for selection (blocking the caller)
+        let mut msg = MSG::default();
+        loop {
+            // We must pump messages allow IPC/other stuff
+            let res = WHEEL_RESULT.load(Ordering::SeqCst);
+            if res != -1 {
+                break;
+            }
+            if PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        WHEEL_ACTIVE.store(false, Ordering::SeqCst);
+        let res = WHEEL_RESULT.load(Ordering::SeqCst);
+        if res >= 0 {
+            Some(res as usize)
+        } else {
+            None
+        }
+    }
+}
+
+pub fn dismiss_wheel() {
+    unsafe {
+        let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+        let wheel_hwnd = HWND(hwnd_val as *mut _);
+        if !wheel_hwnd.is_invalid() {
+            let _ = PostMessageW(Some(wheel_hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+        }
+    }
+    WHEEL_RESULT.store(-2, Ordering::SeqCst);
+}
+
+pub fn is_wheel_active() -> bool {
+    WHEEL_ACTIVE.load(Ordering::SeqCst)
+}
+
+fn internal_create_window_loop() {
+    unsafe {
         let instance = GetModuleHandleW(None).unwrap_or_default();
+        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
-        // === Create transparent full-screen overlay to catch outside clicks ===
-        let overlay_class = w!("SGTWheelOverlay");
+        // --- 1. Create Overlay Window ---
+        let overlay_class = w!("SGTWheelOverlayPersistent");
         REGISTER_OVERLAY_CLASS.call_once(|| {
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(overlay_wnd_proc),
@@ -166,7 +239,7 @@ pub fn show_preset_wheel(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE,
             overlay_class,
             w!("WheelOverlay"),
-            WS_POPUP,
+            WS_POPUP, // Initially hidden
             0,
             0,
             screen_w,
@@ -178,14 +251,11 @@ pub fn show_preset_wheel(
         )
         .unwrap_or_default();
 
-        if !overlay_hwnd.is_invalid() {
-            // Make it almost completely transparent but still clickable
-            let _ = SetLayeredWindowAttributes(overlay_hwnd, COLORREF(0), 1, LWA_ALPHA);
-            OVERLAY_HWND.store(overlay_hwnd.0 as isize, Ordering::SeqCst);
-        }
+        OVERLAY_HWND.store(overlay_hwnd.0 as isize, Ordering::SeqCst);
+        let _ = SetLayeredWindowAttributes(overlay_hwnd, COLORREF(0), 1, LWA_ALPHA);
 
-        // === Create the actual wheel window ===
-        let class_name = w!("SGTPresetWheelWV");
+        // --- 2. Create Wheel Window (Fixed Size) ---
+        let class_name = w!("SGTPresetWheelPersistent");
         REGISTER_WHEEL_CLASS.call_once(|| {
             let wc = WNDCLASSW {
                 lpfnWndProc: Some(wheel_wnd_proc),
@@ -198,15 +268,16 @@ pub fn show_preset_wheel(
             RegisterClassW(&wc);
         });
 
+        // Create initially VISIBLE but OFF-SCREEN to ensure GPU context is happy for transparency
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, // Reverted: Removed WS_EX_NOACTIVATE
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
             class_name,
             w!("PresetWheel"),
-            WS_POPUP,
-            win_x,
-            win_y,
-            wheel_width,
-            wheel_height,
+            WS_POPUP | WS_VISIBLE,
+            -4000,
+            -4000,
+            WHEEL_WIDTH,
+            WHEEL_HEIGHT,
             None,
             None,
             Some(instance.into()),
@@ -214,20 +285,11 @@ pub fn show_preset_wheel(
         )
         .unwrap_or_default();
 
-        if hwnd.is_invalid() {
-            if !overlay_hwnd.is_invalid() {
-                let _ = DestroyWindow(overlay_hwnd);
-            }
-            WHEEL_ACTIVE.store(false, Ordering::SeqCst);
-            return None;
-        }
-
         WHEEL_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
 
-        // Create WebView
+        // --- 3. Initialize WebView ---
         let wrapper = HwndWrapper(hwnd);
-        let html = generate_wheel_html(&filtered, dismiss_label, &ui_lang);
 
         WHEEL_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
@@ -236,7 +298,7 @@ pub fn show_preset_wheel(
             }
         });
 
-        let webview = WHEEL_WEB_CONTEXT.with(|ctx| {
+        let webview_res = WHEEL_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
                 WebViewBuilder::new_with_web_context(web_ctx)
@@ -244,65 +306,65 @@ pub fn show_preset_wheel(
                 WebViewBuilder::new()
             };
             let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+
+            // Generate STATIC template once
+            let template_html = get_wheel_template();
+
             builder
+                .with_transparent(true)
+                .with_background_color((0, 0, 0, 0)) // Explicit transparent background
+                .with_html(template_html) // Load skeleton ONCE at startup
                 .with_bounds(Rect {
-                    position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        wheel_width as u32,
-                        wheel_height as u32,
+                        WHEEL_WIDTH as u32,
+                        WHEEL_HEIGHT as u32,
                     )),
                 })
-                .with_transparent(true)
-                .with_html(&html)
                 .with_ipc_handler(move |msg: wry::http::Request<String>| {
                     let body = msg.body();
                     if body == "dismiss" {
+                        let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+                        let wheel_hwnd = HWND(hwnd_val as *mut _);
+                        if !wheel_hwnd.is_invalid() {
+                            let _ =
+                                PostMessageW(Some(wheel_hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                        }
                         *SELECTED_PRESET.lock().unwrap() = None;
                         WHEEL_RESULT.store(-2, Ordering::SeqCst);
-                        close_wheel_windows();
                     } else if let Some(idx_str) = body.strip_prefix("select:") {
                         if let Ok(idx) = idx_str.parse::<usize>() {
+                            let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+                            let wheel_hwnd = HWND(hwnd_val as *mut _);
+                            if !wheel_hwnd.is_invalid() {
+                                let _ = PostMessageW(
+                                    Some(wheel_hwnd),
+                                    WM_APP_HIDE,
+                                    WPARAM(0),
+                                    LPARAM(0),
+                                );
+                            }
                             *SELECTED_PRESET.lock().unwrap() = Some(idx);
                             WHEEL_RESULT.store(idx as i32, Ordering::SeqCst);
-                            close_wheel_windows();
                         }
                     }
                 })
                 .build(&wrapper)
         });
 
-        if let Ok(wv) = webview {
+        if let Ok(wv) = webview_res {
             WHEEL_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });
+            // HIDE the window now that WebView is ready
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
 
-            // Show overlay first (behind), then wheel (in front)
-            if !overlay_hwnd.is_invalid() {
-                let _ = ShowWindow(overlay_hwnd, SW_SHOWNOACTIVATE);
-            }
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-
-            // Make sure wheel is above overlay
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
-
-            // Message loop
-            let mut msg = MSG::default();
-            while GetMessageW(&mut msg, None, 0, 0).into() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-
-                if WHEEL_RESULT.load(Ordering::SeqCst) != -1 {
-                    break;
-                }
-            }
+        // --- 4. Message Loop ---
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).into() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
         }
 
         // Cleanup
@@ -311,26 +373,9 @@ pub fn show_preset_wheel(
         });
         WHEEL_HWND.store(0, Ordering::SeqCst);
         OVERLAY_HWND.store(0, Ordering::SeqCst);
-        WHEEL_ACTIVE.store(false, Ordering::SeqCst);
-
-        SELECTED_PRESET.lock().unwrap().take()
     }
 }
 
-fn close_wheel_windows() {
-    unsafe {
-        let h = WHEEL_HWND.load(Ordering::SeqCst);
-        let o = OVERLAY_HWND.load(Ordering::SeqCst);
-        if h != 0 {
-            let _ = PostMessageW(Some(HWND(h as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-        if o != 0 {
-            let _ = PostMessageW(Some(HWND(o as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-    }
-}
-
-// Overlay window proc - catches clicks outside the wheel
 unsafe extern "system" fn overlay_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -339,23 +384,20 @@ unsafe extern "system" fn overlay_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_LBUTTONDOWN | WM_RBUTTONDOWN => {
-            // Any click on the overlay = outside click = dismiss
-            *SELECTED_PRESET.lock().unwrap() = None;
+            // Click on overlay = dismiss
+            let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+            let wheel_hwnd = HWND(hwnd_val as *mut _);
+            if !wheel_hwnd.is_invalid() {
+                let _ = PostMessageW(Some(wheel_hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+            }
             WHEEL_RESULT.store(-2, Ordering::SeqCst);
-            close_wheel_windows();
             LRESULT(0)
         }
-
-        WM_CLOSE => {
-            let _ = DestroyWindow(hwnd);
-            LRESULT(0)
-        }
-
+        WM_CLOSE => LRESULT(0), // Ignore close, we hide instead
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
 
-// Wheel window proc
 unsafe extern "system" fn wheel_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -363,40 +405,100 @@ unsafe extern "system" fn wheel_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
-        WM_KEYDOWN => {
-            if wparam.0 as u32 == 0x1B {
-                *SELECTED_PRESET.lock().unwrap() = None;
-                WHEEL_RESULT.store(-2, Ordering::SeqCst);
-                close_wheel_windows();
+        WM_APP_SHOW => {
+            // 1. Get parameters
+            let (x, y) = *PENDING_POS.lock().unwrap();
+            let items_html = PENDING_ITEMS_HTML.lock().unwrap().clone();
+            let dismiss_label = PENDING_DISMISS_LABEL.lock().unwrap().clone();
+
+            // 2. Move Wheel (NO SIZE CHANGE)
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                x,
+                y,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOSIZE, // Important: NOSIZE
+            );
+
+            // 3. Update WebView Content via JS Injection without resizing
+            WHEEL_WEBVIEW.with(|wv| {
+                if let Some(webview) = wv.borrow().as_ref() {
+                    // Just update content
+                    let script = format!(
+                        "window.updateContent(`{}`, `{}`);",
+                        items_html
+                            .replace("\\", "\\\\")
+                            .replace("`", "\\`")
+                            .replace("$", "\\$"),
+                        dismiss_label.replace("`", "\\`").replace("$", "\\$")
+                    );
+                    let _ = webview.evaluate_script(&script);
+                }
+            });
+
+            // 4. Force repaint (optional since size didn't change, but good hygiene)
+            let _ = InvalidateRect(Some(hwnd), None, true);
+
+            // 5. Show Windows
+            let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
+            let overlay = HWND(overlay_val as *mut _);
+            if !overlay.is_invalid() {
+                let _ = ShowWindow(overlay, SW_SHOWNOACTIVATE);
+                // Overlay covers full screen
+                let screen_w = GetSystemMetrics(SM_CXSCREEN);
+                let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                let _ = SetWindowPos(
+                    overlay,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    screen_w,
+                    screen_h,
+                    SWP_NOACTIVATE | SWP_NOMOVE,
+                );
+            }
+
+            // Show wheel
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE,
+            );
+
+            LRESULT(0)
+        }
+
+        WM_APP_HIDE => {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+            let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
+            let overlay = HWND(overlay_val as *mut _);
+            if !overlay.is_invalid() {
+                let _ = ShowWindow(overlay, SW_HIDE);
             }
             LRESULT(0)
         }
 
-        WM_CLOSE => {
-            let _ = DestroyWindow(hwnd);
-            // Also close overlay
-            let o = OVERLAY_HWND.load(Ordering::SeqCst);
-            if o != 0 {
-                let _ = DestroyWindow(HWND(o as *mut _));
+        WM_KEYDOWN => {
+            if wparam.0 as u32 == 0x1B {
+                // Escape
+                let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                WHEEL_RESULT.store(-2, Ordering::SeqCst);
             }
             LRESULT(0)
         }
 
         WM_DESTROY => {
-            // Do NOT call PostQuitMessage here because we share the thread with text_input!
-            // PostQuitMessage(0);
+            PostQuitMessage(0);
             LRESULT(0)
         }
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
-
-pub fn is_wheel_active() -> bool {
-    WHEEL_ACTIVE.load(Ordering::SeqCst)
-}
-
-pub fn dismiss_wheel() {
-    WHEEL_RESULT.store(-2, Ordering::SeqCst);
-    close_wheel_windows();
 }

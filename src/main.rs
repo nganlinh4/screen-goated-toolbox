@@ -272,6 +272,9 @@ fn main() -> eframe::Result<()> {
         wait_for_popup_close();
         overlay::tray_popup::warmup_tray_popup();
 
+        // 1.5 Warmup preset wheel (persistent hidden window)
+        overlay::preset_wheel::warmup();
+
         // 2. Wait for splash screen / main box to appear and settle
         std::thread::sleep(std::time::Duration::from_millis(1500));
 
