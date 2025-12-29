@@ -466,6 +466,25 @@ pub fn run_chain_step(
                     Some(&model_name_for_error),
                 );
                 if let Some(h) = my_hwnd {
+                    // CRITICAL: For image blocks, the window may still be hidden if on_chunk was never called
+                    // We must show it now to display the error message
+                    {
+                        let mut shown = window_shown.lock().unwrap();
+                        if !*shown {
+                            *shown = true;
+                            unsafe {
+                                let _ = ShowWindow(h, SW_SHOW);
+                            }
+                            // Also close the processing indicator
+                            let mut proc_hwnd = processing_hwnd_shared.lock().unwrap();
+                            if let Some(ph) = proc_hwnd.take() {
+                                unsafe {
+                                    let _ =
+                                        PostMessageW(Some(ph.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+                                }
+                            }
+                        }
+                    }
                     update_window_text(h, &err);
                 }
                 String::new()
