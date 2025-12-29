@@ -242,6 +242,12 @@ pub fn handle_paste(ctx: &egui::Context) -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_V};
 
+    // Only process if our window has focus
+    let has_focus = ctx.input(|i| i.focused);
+    if !has_focus {
+        return false;
+    }
+
     // Debounce: prevent multiple triggers per key press
     static LAST_V_STATE: AtomicBool = AtomicBool::new(false);
 
