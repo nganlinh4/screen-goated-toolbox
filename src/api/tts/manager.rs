@@ -27,6 +27,9 @@ pub struct TtsManager {
     /// Generation counter for interrupts (incrementing this invalidates old jobs)
     pub interrupt_generation: AtomicU64,
 
+    /// Flag to indicate if audio is currently playing (set by player thread)
+    pub is_playing: AtomicBool,
+
     /// Flag to shutdown the manager
     pub shutdown: AtomicBool,
 }
@@ -40,6 +43,7 @@ impl TtsManager {
             playback_queue: Mutex::new(VecDeque::new()),
             playback_signal: Condvar::new(),
             interrupt_generation: AtomicU64::new(0),
+            is_playing: AtomicBool::new(false),
             shutdown: AtomicBool::new(false),
         }
     }
@@ -171,8 +175,12 @@ impl TtsManager {
         false
     }
 
-    /// Check if there's any pending TTS audio (in work queue or playback queue)
+    /// Check if there's any pending TTS audio (in work queue, playback queue, or currently playing)
     pub fn has_pending_audio(&self) -> bool {
+        // Check if actively playing first (most common case when user wants to stop)
+        if self.is_playing.load(Ordering::SeqCst) {
+            return true;
+        }
         let wq_has = self
             .work_queue
             .lock()
