@@ -30,16 +30,17 @@ thread_local! {
     static POPUP_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
 }
 
-const POPUP_WIDTH: i32 = 250;
+const BASE_POPUP_WIDTH: i32 = 220;
 const BASE_POPUP_HEIGHT: i32 = 152; // Base height at 100% scaling (96 DPI) - includes stop TTS row
 
-/// Get DPI-scaled popup height
-fn get_scaled_popup_height() -> i32 {
+/// Get DPI-scaled dimension
+fn get_scaled_dimension(base: i32) -> i32 {
     let dpi = unsafe {
         windows::Win32::UI::HiDpi::GetDpiForSystem()
     };
     // Scale: 96 DPI = 100%, 120 DPI = 125%, 144 DPI = 150%, etc.
-    (BASE_POPUP_HEIGHT * dpi as i32) / 93
+    // Using 93 instead of 96 provides a small buffer (~3%) to ensure content fits comfortably
+    (base * dpi as i32) / 93
 }
 
 // HWND wrapper for wry
@@ -163,12 +164,12 @@ fn generate_popup_html() -> String {
             _ => "Settings",
         };
         let bubble = match lang.as_str() {
-            "vi" => "Hiển thị bong bóng",
+            "vi" => "Hiện bong bóng",
             "ko" => "즐겨찾기 버블",
             _ => "Favorite Bubble",
         };
         let stop_tts = match lang.as_str() {
-            "vi" => "Dừng tất cả giọng đang đọc",
+            "vi" => "Dừng đọc",
             "ko" => "재생 중인 모든 음성 중지",
             _ => "Stop All Playing TTS",
         };
@@ -448,8 +449,9 @@ fn create_popup_window(is_warmup: bool) {
             RegisterClassW(&wc);
         });
 
-        // Get DPI-scaled height once
-        let popup_height = get_scaled_popup_height();
+        // Get DPI-scaled dimensions
+        let popup_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
+        let popup_width = get_scaled_dimension(BASE_POPUP_WIDTH);
 
         // Get cursor position for placement (calculated later if warming up)
         let (popup_x, popup_y) = if is_warmup {
@@ -462,7 +464,7 @@ fn create_popup_window(is_warmup: bool) {
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
-            let popup_x = (pt.x - POPUP_WIDTH / 2).max(0).min(screen_w - POPUP_WIDTH);
+            let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
             let popup_y = (pt.y - popup_height - 10)
                 .max(0)
                 .min(screen_h - popup_height);
@@ -477,7 +479,7 @@ fn create_popup_window(is_warmup: bool) {
             WS_POPUP,
             popup_x,
             popup_y,
-            POPUP_WIDTH,
+            popup_width,
             popup_height,
             None,
             None,
@@ -527,7 +529,7 @@ fn create_popup_window(is_warmup: bool) {
                 .with_bounds(Rect {
                     position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        POPUP_WIDTH as u32,
+                        popup_width as u32,
                         popup_height as u32,
                     )),
                 })
@@ -650,10 +652,10 @@ fn create_popup_window(is_warmup: bool) {
                 let screen_w = GetSystemMetrics(SM_CXSCREEN);
                 let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
-                let popup_x = (pt.x - POPUP_WIDTH / 2).max(0).min(screen_w - POPUP_WIDTH);
+                let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
                 let popup_y = (pt.y - popup_height - 10).max(0).min(screen_h - popup_height);
                 
-                let _ = SetWindowPos(hwnd, None, popup_x, popup_y, POPUP_WIDTH, popup_height, SWP_NOZORDER);
+                let _ = SetWindowPos(hwnd, None, popup_x, popup_y, popup_width, popup_height, SWP_NOZORDER);
                 
                 let _ = ShowWindow(hwnd, SW_SHOW);
                 let _ = SetForegroundWindow(hwnd);
