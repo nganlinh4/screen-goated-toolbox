@@ -25,15 +25,15 @@ html, body {{
 .container {{
     display: flex;
     flex-direction: column;
-    padding: 0;
+    padding: 30px 20px; /* Breathing room for hover and bounce */
 }}
 
 .list {{
     display: block;
-    column-gap: 4px;
+    column-gap: 8px;
 }}
 
-.preset-item {{
+.preset-item, .empty {{
     display: flex;
     align-items: center;
     padding: 8px 12px;
@@ -44,22 +44,48 @@ html, body {{
     font-variation-settings: 'wght' 500, 'wdth' 100, 'ROND' 100;
     background: rgba(20, 20, 30, 0.85);
     backdrop-filter: blur(12px);
-    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     margin-bottom: 4px;
     break-inside: avoid;
     page-break-inside: avoid;
+    
+    /* Animation state */
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.1);
+    transition: 
+        transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+        opacity 0.4s ease,
+        background 0.2s ease,
+        box-shadow 0.2s ease,
+        font-variation-settings 0.2s ease;
+    will-change: transform, opacity;
 }}
 
-.preset-item:hover {{
+.preset-item.visible, .empty.visible {{
+    opacity: 1;
+    transform: scale(1) translate(0px, 0px);
+    pointer-events: auto;
+}}
+
+.preset-item.visible:hover {{
     background: rgba(40, 40, 55, 0.95);
     border-color: rgba(255, 255, 255, 0.25);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     font-variation-settings: 'wght' 650, 'wdth' 105, 'ROND' 100;
+    /* !important to override any lingering inline styles from bloom animation */
+    transform: scale(1.05) translate(0px, 0px) !important;
+    /* Fast hover-in for snappy response */
+    transition: 
+        transform 0.08s cubic-bezier(0.34, 1.2, 0.64, 1),
+        background 0.05s ease,
+        box-shadow 0.05s ease,
+        font-variation-settings 0.08s ease,
+        border-color 0.05s ease;
 }}
 
-.preset-item:active {{
-    transform: scale(0.98);
+.preset-item.visible:active {{
+    transform: scale(0.98) translate(0px, 0px) !important;
 }}
 
 .icon {{
@@ -116,12 +142,96 @@ window.onload = fitText;
 function startDrag(e) {{
     if (e.button === 0) window.ipc.postMessage('drag');
 }}
-function closePanel() {{
-    window.ipc.postMessage('close');
-}}
+
 function trigger(idx) {{
+    closePanel();
     window.ipc.postMessage('trigger:' + idx);
 }}
+
+let currentTimeout = null;
+let currentSide = 'right';
+let lastBubblePos = {{ x: 0, y: 0 }};
+
+function animateIn(bx, by) {{
+    if (currentTimeout) {{
+        clearTimeout(currentTimeout);
+        currentTimeout = null;
+    }}
+    lastBubblePos = {{ x: bx, y: by }};
+    
+    const items = document.querySelectorAll('.preset-item, .empty');
+    if (items.length === 0) return;
+
+    items.forEach((item, i) => {{
+        const rect = item.getBoundingClientRect();
+        if (rect.width === 0) return; // Not rendered yet?
+
+        // Target center
+        const iy = rect.top + rect.height / 2;
+        const ix = rect.left + rect.width / 2;
+        
+        // Offset TO move item TO bubble center
+        const dx = bx - ix;
+        const dy = by - iy;
+
+        // 1. Force initial state (at bubble, invisible)
+        item.style.transition = 'none';
+        item.style.opacity = '0';
+        item.style.transform = `translate(${{dx}}px, ${{dy}}px) scale(0.1)`;
+        item.classList.remove('visible');
+        
+        item.offsetHeight; // Flush
+        
+        // 2. Set transition and target state
+        item.style.transition = ''; 
+        item.style.transitionDelay = `${{i * 25}}ms`;
+        
+        requestAnimationFrame(() => {{
+            // Add class and set target state explicitly
+            item.classList.add('visible');
+            item.style.opacity = '1';
+            item.style.transform = 'translate(0px, 0px) scale(1)';
+            
+            // Cleanup: remove inline styles after animation finishes to let CSS hover work
+            setTimeout(() => {{
+                if (item.classList.contains('visible')) {{
+                    item.style.opacity = '';
+                    item.style.transform = '';
+                    item.style.transition = '';
+                    item.style.transitionDelay = '';
+                }}
+            }}, 500 + (i * 25));
+        }});
+    }});
+}}
+
+function closePanel() {{
+    if (currentTimeout) clearTimeout(currentTimeout);
+    
+    const items = Array.from(document.querySelectorAll('.preset-item, .empty'));
+    const {{ x: bx, y: by }} = lastBubblePos;
+
+    items.forEach((item, i) => {{
+        const rect = item.getBoundingClientRect();
+        const iy = rect.top + rect.height / 2;
+        const ix = rect.left + rect.width / 2;
+        
+        const dx = bx - ix;
+        const dy = by - iy;
+
+        // Animate back to bubble
+        item.style.transitionDelay = `${{(items.length - 1 - i) * 15}}ms`;
+        item.classList.remove('visible');
+        item.style.transform = `translate(${{dx}}px, ${{dy}}px) scale(0.1)`;
+    }});
+
+    currentTimeout = setTimeout(() => {{
+        window.ipc.postMessage('close_now');
+        currentTimeout = null;
+    }}, items.length * 15 + 450);
+}}
+
+window.setSide = (side) => {{ currentSide = side; }};
 </script>
 </body>
 </html>"#,

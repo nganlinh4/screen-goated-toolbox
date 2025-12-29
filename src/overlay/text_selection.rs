@@ -397,7 +397,7 @@ pub fn show_text_selection_tag(preset_idx: usize) {
                 let hwnd_val = hwnd.0 as usize;
                 std::thread::spawn(move || {
                     let hwnd_copy = HWND(hwnd_val as *mut std::ffi::c_void);
-                    unsafe {
+                    {
                         if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) {
                             return;
                         }

@@ -72,6 +72,7 @@ features = [
     "Win32_System_DataExchange",
     "Win32_System_Memory",
     "Win32_Media_Audio",
+    "Win32_System_SystemInformation",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
 ]

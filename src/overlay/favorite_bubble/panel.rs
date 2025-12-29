@@ -40,6 +40,11 @@ pub fn show_panel(bubble_hwnd: HWND) {
     unsafe {
         let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
 
+        // CRITICAL: Set state to true BEFORE refreshing or showing,
+        // so that any incoming 'close_now' IPC messages (from a previous close)
+        // will see that we are now EXPANDED and ignore the hide command.
+        IS_EXPANDED.store(true, Ordering::SeqCst);
+
         if let Ok(app) = APP.lock() {
             refresh_panel_layout_and_content(
                 bubble_hwnd,
@@ -49,7 +54,6 @@ pub fn show_panel(bubble_hwnd: HWND) {
             );
         }
 
-        IS_EXPANDED.store(true, Ordering::SeqCst);
         update_bubble_visual(bubble_hwnd);
     }
 }
@@ -83,9 +87,32 @@ pub fn ensure_panel_created(bubble_hwnd: HWND, with_webview: bool) {
     }
 }
 
-// Hides the panel but keeps it alive (warm)
+// Triggers the animation-based close
 pub fn close_panel() {
+    // Set expanded to false immediately to allow re-opening
     if !IS_EXPANDED.swap(false, Ordering::SeqCst) {
+        return;
+    }
+
+    let webview_exists = PANEL_WEBVIEW.with(|wv| {
+        if let Some(webview) = wv.borrow().as_ref() {
+            let _ = webview.evaluate_script("if(window.closePanel) window.closePanel();");
+            true
+        } else {
+            false
+        }
+    });
+
+    if !webview_exists {
+        close_panel_internal();
+    }
+}
+
+// Actually hides the window
+fn close_panel_internal() {
+    // CRITICAL: If IS_EXPANDED was set to true (e.g. by a quick click to re-open),
+    // do NOT hide the window.
+    if IS_EXPANDED.load(Ordering::SeqCst) {
         return;
     }
 
@@ -230,30 +257,36 @@ unsafe fn refresh_panel_layout_and_content(
         0
     };
 
+    // Buffer for bloom bounce and hover scaling
+    let buffer_x = 40;
+    let buffer_y = 60;
+
     let panel_width = if fav_count == 0 {
         (PANEL_WIDTH as i32 * 2).max(320)
     } else {
-        (PANEL_WIDTH as usize * num_cols) as i32
+        (PANEL_WIDTH as usize * num_cols) as i32 + buffer_x
     };
 
     let panel_height = if fav_count == 0 {
-        80
+        80 + buffer_y
     } else {
-        (items_per_col as i32 * height_per_item) + 24
+        (items_per_col as i32 * height_per_item) + 24 + buffer_y
     };
     let panel_height = panel_height.max(50);
 
     let screen_w = GetSystemMetrics(SM_CXSCREEN);
 
-    let (panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
+    let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
         (
-            bubble_rect.left - panel_width - 8,
+            bubble_rect.left - panel_width - 4, // Closer to bubble
             bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
+            "right",
         )
     } else {
         (
-            bubble_rect.right + 8,
+            bubble_rect.right + 4,
             bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
+            "left",
         )
     };
 
@@ -264,8 +297,13 @@ unsafe fn refresh_panel_layout_and_content(
         panel_y.max(10),
         panel_width,
         panel_height,
-        SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOCOPYBITS,
+        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
     );
+
+    // Explicitly show the window to ensure it's visible after a SW_HIDE
+    unsafe {
+        let _ = ShowWindow(panel_hwnd, SW_SHOWNOACTIVATE);
+    }
 
     PANEL_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
@@ -281,6 +319,24 @@ unsafe fn refresh_panel_layout_and_content(
 
     let favorites_html = get_favorite_presets_html(presets, lang);
     update_panel_content(&favorites_html, num_cols);
+
+    // Pass side and bubble center relative to panel to JS
+    let bx = if side == "left" {
+        -(BUBBLE_SIZE as i32 / 2) - 4
+    } else {
+        panel_width + (BUBBLE_SIZE as i32 / 2) + 4
+    };
+    let by = (bubble_rect.top + BUBBLE_SIZE as i32 / 2) - panel_y;
+
+    PANEL_WEBVIEW.with(|wv| {
+        if let Some(webview) = wv.borrow().as_ref() {
+            let script = format!(
+                "if(window.setSide) window.setSide('{}'); if(window.animateIn) window.animateIn({}, {});",
+                side, bx, by
+            );
+            let _ = webview.evaluate_script(&script);
+        }
+    });
 }
 
 fn create_panel_webview(panel_hwnd: HWND) {
@@ -339,9 +395,13 @@ fn create_panel_webview(panel_hwnd: HWND) {
                     }
                 } else if body == "close" {
                     close_panel();
+                } else if body == "close_now" {
+                    close_panel_internal();
                 } else if body.starts_with("trigger:") {
                     if let Ok(idx) = body[8..].parse::<usize>() {
-                        close_panel();
+                        // trigger() in JS already calls closePanel() which leads to close_now
+                        // so we don't necessarily need to close here, but let's be safe
+                        close_panel_internal();
                         trigger_preset(idx);
                     }
                 }

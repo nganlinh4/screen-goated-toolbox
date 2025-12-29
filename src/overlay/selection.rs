@@ -215,8 +215,9 @@ pub fn show_selection_overlay(preset_idx: usize) {
         }
 
         // Uninstall Hook
-        if !SELECTION_HOOK.is_invalid() {
-            let _ = UnhookWindowsHookEx(SELECTION_HOOK);
+        let hook = std::ptr::addr_of!(SELECTION_HOOK).read();
+        if !hook.is_invalid() {
+            let _ = UnhookWindowsHookEx(hook);
             SELECTION_HOOK = HHOOK(std::ptr::null_mut());
         }
 
@@ -235,14 +236,10 @@ unsafe extern "system" fn selection_hook_proc(
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
             if kbd.vkCode == VK_ESCAPE.0 as u32 {
                 SELECTION_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-                if !SELECTION_OVERLAY_HWND.0.is_invalid() {
+                let hwnd = std::ptr::addr_of!(SELECTION_OVERLAY_HWND).read().0;
+                if !hwnd.is_invalid() {
                     // Wake the message loop
-                    let _ = PostMessageW(
-                        Some(SELECTION_OVERLAY_HWND.0),
-                        WM_NULL,
-                        WPARAM(0),
-                        LPARAM(0),
-                    );
+                    let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
                 }
                 return LRESULT(1);
             }
