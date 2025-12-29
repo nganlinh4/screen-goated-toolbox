@@ -74,7 +74,7 @@ fn get_editor_css() -> &'static str {
         height: 100%;
         overflow: hidden;
         background: #F0F0F0;
-        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
     .editor-container {
@@ -97,7 +97,7 @@ fn get_editor_css() -> &'static str {
         border: none;
         outline: none;
         resize: none;
-        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
         font-size: 15px;
         line-height: 1.55;
         color: #1a1a1a;
@@ -216,6 +216,7 @@ fn get_editor_css() -> &'static str {
 /// Generate HTML for the text input webview
 fn get_editor_html(placeholder: &str) -> String {
     let css = get_editor_css();
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
     let escaped_placeholder = placeholder
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -227,7 +228,7 @@ fn get_editor_html(placeholder: &str) -> String {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>{css}</style>
+    <style>{font_css}{css}</style>
 </head>
 <body>
     <div class="editor-container">
@@ -563,6 +564,7 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
         } else {
             WebViewBuilder::new()
         };
+        let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder
             .with_bounds(Rect {
                 position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(

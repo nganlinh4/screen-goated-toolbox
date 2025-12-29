@@ -65,6 +65,7 @@ pub fn create_realtime_webview(
         } else {
             WebViewBuilder::new()
         };
+        let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder
             .with_bounds(Rect {
                 position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),

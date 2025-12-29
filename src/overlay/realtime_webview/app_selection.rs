@@ -286,6 +286,9 @@ pub fn show_app_selection_popup() {
         return;
     }
 
+    let music_note_svg = crate::overlay::html_components::icons::get_icon_svg("music_note");
+    let headphones_svg = crate::overlay::html_components::icons::get_icon_svg("headphones");
+
     // Build HTML for app list
     let app_items: Vec<String> = apps
         .iter()
@@ -310,8 +313,10 @@ pub fn show_app_selection_popup() {
                     base64_icon
                 )
             } else {
-                r#"<span class="material-symbols-rounded app-icon-fallback">music_note</span>"#
-                    .to_string()
+                format!(
+                    r#"<span class="material-symbols-rounded app-icon-fallback">{}</span>"#,
+                    music_note_svg
+                )
             };
 
             format!(
@@ -333,16 +338,16 @@ pub fn show_app_selection_popup() {
         })
         .collect();
 
+    // Get local font CSS (cached fonts, no network loading)
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
+
     let html = format!(
         r##"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" />
     <style>
+        {font_css}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
             font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
@@ -352,45 +357,21 @@ pub fn show_app_selection_popup() {
             height: 100vh;
             overflow: hidden;
         }}
-        /* Loading overlay - covers content until fonts load, then fades out */
-        #loading-overlay {{
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgb(20, 20, 30);
-            z-index: 9999;
-            pointer-events: none;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            animation: fadeOut 0.4s ease-out 0.9s forwards;
-        }}
-        .loading-svg {{
-            width: 72px;
-            height: 72px;
-            filter: drop-shadow(0 0 12px #00c8ff90);
-            animation: breathe 2.5s ease-in-out infinite;
-        }}
-        @keyframes breathe {{
-            0%, 100% {{ 
-                transform: scale(1); 
-                opacity: 0.85;
-                filter: drop-shadow(0 0 8px #00c8ff60);
-            }}
-            50% {{ 
-                transform: scale(1.08); 
-                opacity: 1;
-                filter: drop-shadow(0 0 20px #00c8ff);
-            }}
-        }}
-        @keyframes fadeOut {{
-            from {{ opacity: 1; }}
-            to {{ opacity: 0; }}
-        }}
+
         .material-symbols-rounded {{
-            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1em;
+            height: 1em;
+            font-size: 24px;
+            vertical-align: middle;
+        }}
+        .material-symbols-rounded svg {{
+            width: 100%;
+            height: 100%;
+            fill: currentColor;
+            display: block;
         }}
         h1 {{
             font-size: 18px;
@@ -482,12 +463,8 @@ pub fn show_app_selection_popup() {
     </style>
 </head>
 <body>
-    <div id="loading-overlay">
-        <svg class="loading-svg" viewBox="0 0 24 24" fill="none" stroke="#00c8ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path>
-        </svg>
-    </div>
-    <h1><span class="material-symbols-rounded">headphones</span> {app_title}</h1>
+
+    <h1><span class="material-symbols-rounded">{headphones_svg}</span> {app_title}</h1>
     <p class="hint">{app_hint}</p>
     <div class="app-list">
         {app_list}
@@ -499,9 +476,11 @@ pub fn show_app_selection_popup() {
     </script>
 </body>
 </html>"##,
+        font_css = font_css,
         app_title = locale_text.app_select_title,
         app_hint = locale_text.app_select_hint,
-        app_list = app_items.join("\n")
+        app_list = app_items.join("\n"),
+        headphones_svg = headphones_svg
     );
 
     // Create popup window
@@ -572,7 +551,8 @@ pub fn show_app_selection_popup() {
             let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
             let mut web_context = wry::WebContext::new(Some(shared_data_dir));
 
-            let result = wry::WebViewBuilder::new_with_web_context(&mut web_context)
+            let builder = wry::WebViewBuilder::new_with_web_context(&mut web_context);
+            let result = crate::overlay::html_components::font_manager::configure_webview(builder)
                 .with_bounds(wry::Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(

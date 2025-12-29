@@ -117,7 +117,7 @@ const REFINE_CSS: &str = r#"
         height: 100%;
         overflow: hidden;
         background: #2a2a2a;
-        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
     .container {
@@ -138,7 +138,7 @@ const REFINE_CSS: &str = r#"
         border: none;
         outline: none;
         border-radius: 6px;
-        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
         font-size: 13px;
         color: #fff;
         background: #1a1a1a;
@@ -229,13 +229,14 @@ const REFINE_CSS: &str = r#"
 
 /// Generate HTML for the refine input
 fn get_refine_html(placeholder: &str) -> String {
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
     let escaped = placeholder.replace('\'', "\\'");
     format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <style>{}</style>
+    <style>{}{}</style>
 </head>
 <body>
     <div class="container">
@@ -295,7 +296,7 @@ fn get_refine_html(placeholder: &str) -> String {
     </script>
 </body>
 </html>"#,
-        REFINE_CSS, escaped
+        font_css, REFINE_CSS, escaped
     )
 }
 
@@ -375,6 +376,7 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
             } else {
                 WebViewBuilder::new()
             };
+            let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             builder
                 .with_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),

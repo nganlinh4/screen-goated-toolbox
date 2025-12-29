@@ -108,32 +108,57 @@ fn warmup_internal() {
         });
 
         // Create a WebView to warm up WebView2 infrastructure using shared context
+        // Include font CSS AND render text in those fonts to force browser to download them
+        let warmup_html = format!(
+            r#"<html>
+<head>
+<style>
+{}
+body {{ font-family: 'Google Sans Flex', sans-serif; }}
+.icons {{ font-family: 'Material Symbols Rounded'; font-size: 24px; }}
+</style>
+</head>
+<body>
+    <span style="font-weight: 100">Thin</span>
+    <span style="font-weight: 300">Light</span>
+    <span style="font-weight: 400">Regular</span>
+    <span style="font-weight: 500">Medium</span>
+    <span style="font-weight: 700">Bold</span>
+    <span class="icons">pause stop mic</span>
+</body>
+</html>"#,
+            crate::overlay::html_components::font_manager::get_font_css()
+        );
         let wrapper = HwndWrapper(hwnd);
 
         let result = SHARED_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             if let Some(web_ctx) = ctx_ref.as_mut() {
-                WebViewBuilder::new_with_web_context(web_ctx)
+                let builder = WebViewBuilder::new_with_web_context(web_ctx)
                     .with_bounds(Rect {
                         position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
                             0, 0,
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
-                    .with_html("<html><body>Warmup</body></html>")
-                    .with_transparent(false)
+                    .with_html(&warmup_html)
+                    .with_transparent(false);
+
+                crate::overlay::html_components::font_manager::configure_webview(builder)
                     .build_as_child(&wrapper)
             } else {
                 // Fallback without context
-                WebViewBuilder::new()
+                let builder = WebViewBuilder::new()
                     .with_bounds(Rect {
                         position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
                             0, 0,
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
-                    .with_html("<html><body>Warmup</body></html>")
-                    .with_transparent(false)
+                    .with_html(&warmup_html)
+                    .with_transparent(false);
+
+                crate::overlay::html_components::font_manager::configure_webview(builder)
                     .build_as_child(&wrapper)
             }
         });
@@ -171,13 +196,13 @@ unsafe extern "system" fn warmup_wnd_proc(
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-/// Google Fonts link for Google Sans Flex with rounded aesthetics
-const GOOGLE_FONTS_LINK: &str = r#"
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" as="style" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" />
-"#;
+/// Get font CSS for markdown view (uses locally cached fonts)
+fn get_font_style() -> String {
+    format!(
+        "<style>{}</style>",
+        crate::overlay::html_components::font_manager::get_font_css()
+    )
+}
 
 /// CSS styling for the markdown content
 const MARKDOWN_CSS: &str = r#"
@@ -464,7 +489,9 @@ pub fn markdown_to_html(
 </head>
 <body>{}</body>
 </html>"#,
-            GOOGLE_FONTS_LINK, MARKDOWN_CSS, quote
+            get_font_style(),
+            MARKDOWN_CSS,
+            quote
         );
     }
 
@@ -495,7 +522,9 @@ pub fn markdown_to_html(
 </head>
 <body>{}</body>
 </html>"#,
-        GOOGLE_FONTS_LINK, MARKDOWN_CSS, html_output
+        get_font_style(),
+        MARKDOWN_CSS,
+        html_output
     )
 }
 
