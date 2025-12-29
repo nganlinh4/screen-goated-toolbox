@@ -369,10 +369,10 @@ unsafe fn paint_badge_window(hwnd: HWND, width: i32, height: i32, alpha: u8, x: 
                     corner_radius,
                 );
 
-                let mut final_r: f32;
-                let mut final_g: f32;
-                let mut final_b: f32;
-                let mut final_alpha: f32;
+                let final_r: f32;
+                let final_g: f32;
+                let final_b: f32;
+                let final_alpha: f32;
 
                 if d < -1.0 {
                     // Inside the badge - green background

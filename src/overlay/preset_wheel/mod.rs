@@ -4,4 +4,4 @@
 mod html;
 mod window;
 
-pub use window::{dismiss_wheel, is_wheel_active, show_preset_wheel};
+pub use window::{dismiss_wheel, is_wheel_active, show_preset_wheel, warmup};
