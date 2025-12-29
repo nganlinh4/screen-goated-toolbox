@@ -197,12 +197,16 @@ fn generate_popup_html() -> String {
         ""
     };
 
+    // Get font CSS to preload fonts into WebView2 cache (tray popup warms up first)
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
+
     format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <style>
+{font_css}
 :root {{
     --bg-color: {bg};
     --text-color: {text};
@@ -459,6 +463,7 @@ fn create_popup_window(is_warmup: bool) {
             } else {
                 WebViewBuilder::new()
             };
+            let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
             builder
                 .with_bounds(Rect {
                     position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),

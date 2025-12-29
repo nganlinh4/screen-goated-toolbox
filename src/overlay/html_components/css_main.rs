@@ -1,4 +1,6 @@
-pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+pub fn get(glow_color: &str, font_size: u32) -> String {
+    format!(
+        r###"        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         html, body {{
             height: 100%;
             overflow: hidden;
@@ -9,8 +11,9 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             border: 1px solid {glow_color}40;
             box-shadow: 0 0 20px {glow_color}30;
         }}
-        /* Loading overlay - covers content until fonts load, then fades out */
+        /* Loading overlay - TEMPORARILY DISABLED FOR TESTING */
         #loading-overlay {{
+            display: none; /* TEMP: Remove this line to re-enable overlay */
             position: fixed;
             top: 0;
             left: 0;
@@ -19,7 +22,6 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             background: rgb(26, 26, 26);
             z-index: 9999;
             pointer-events: none;
-            display: flex;
             justify-content: center;
             align-items: center;
             animation: fadeOut 0.4s ease-out 0.9s forwards;
@@ -47,18 +49,30 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             to {{ opacity: 0; }}
         }}
         .material-symbols-rounded {{
-            font-family: 'Material Symbols Rounded';
+            font-family: 'Material Symbols Rounded'; /* Fallback */
             font-weight: normal;
             font-style: normal;
-            font-size: 18px;
+            font-size: 24px;
             line-height: 1;
             letter-spacing: normal;
             text-transform: none;
-            display: inline-block;
+            display: inline-flex; /* Center SVG */
+            align-items: center;
+            justify-content: center;
             white-space: nowrap;
             word-wrap: normal;
             direction: ltr;
             vertical-align: middle;
+            
+            /* SVG container sizing */
+            width: 1em;
+            height: 1em;
+        }}
+        .material-symbols-rounded svg {{
+            width: 100%;
+            height: 100%;
+            fill: currentColor;
+            display: block;
         }}
         #container {{
             display: flex;
@@ -163,10 +177,10 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             align-items: center;
         }}
         .ctrl-btn {{
-            font-size: 14px;
+            font-size: 20px;
             color: #888;
             cursor: pointer;
-            padding: 4px 8px;
+            padding: 2px;
             border-radius: 50%;
             background: rgba(30,30,30,0.8);
             border: 1px solid rgba(255,255,255,0.1);
@@ -214,7 +228,7 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             box-shadow: none;
         }}
         .vis-btn {{
-            font-size: 14px;
+            font-size: 20px;
             cursor: pointer;
             padding: 2px;
             border-radius: 4px;
@@ -390,8 +404,8 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             color: {glow_color};
         }}
         .audio-icon {{
-            font-size: 16px;
-            padding: 2px;
+            font-size: 22px;
+            padding: 0;
             cursor: pointer;
             color: #555;
             transition: all 0.2s;
@@ -405,8 +419,8 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             color: #00c8ff;
         }}
         .model-icon {{
-            font-size: 16px;
-            padding: 2px;
+            font-size: 22px;
+            padding: 0;
             cursor: pointer;
             color: #555;
             transition: all 0.2s;
@@ -481,4 +495,8 @@ pub fn get(glow_color: &str, font_size: u32) -> String { format!(r###"        * 
             0%, 100% {{ opacity: 1; }}
             50% {{ opacity: 0.5; }}
         }}
-        "###, glow_color=glow_color, font_size=font_size) }
+        "###,
+        glow_color = glow_color,
+        font_size = font_size
+    )
+}

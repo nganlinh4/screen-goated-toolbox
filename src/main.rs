@@ -252,6 +252,10 @@ fn main() -> eframe::Result<()> {
 
     // Offload warmups to a sequenced thread to prevent splash screen lag
     std::thread::spawn(|| {
+        // 0. Warmup fonts first (download/cache for instant display)
+        // This runs in background and should complete before first WebView loads
+        overlay::html_components::font_manager::warmup_fonts();
+
         // Helper: Wait for tray popup to close before proceeding
         // This prevents WebView2 focus stealing from closing the popup
         let wait_for_popup_close = || {
@@ -260,7 +264,7 @@ fn main() -> eframe::Result<()> {
             }
         };
 
-        // 0. Wait briefly for main window to initialize and show
+        // 1. Wait briefly for main window to initialize and show
         // This prevents the warmup window from interfering with main window visibility
         std::thread::sleep(std::time::Duration::from_millis(500));
 

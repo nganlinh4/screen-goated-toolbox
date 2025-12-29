@@ -96,7 +96,7 @@ pub fn copy_image_to_clipboard(image_bytes: &[u8]) {
 
                                 // ALSO set CF_BITMAP (2) to ensure Windows Clipboard History picks it up.
                                 // Many modern Windows apps/features prefer having a GDI handle or both formats.
-                                unsafe {
+                                {
                                     let hdc = GetDC(None);
                                     if !hdc.is_invalid() {
                                         // Read header size (first 4 bytes of DIB data)

@@ -1,4 +1,6 @@
-pub fn get(font_size: u32) -> String { format!(r###"        const container = document.getElementById('container');
+pub fn get(font_size: u32) -> String {
+    format!(
+        r###"        const container = document.getElementById('container');
         const viewport = document.getElementById('viewport');
         const content = document.getElementById('content');
         const header = document.getElementById('header');
@@ -100,10 +102,10 @@ pub fn get(font_size: u32) -> String { format!(r###"        const container = do
                     // Show success feedback
                     copyBtn.classList.add('copied');
                     const icon = copyBtn.querySelector('.material-symbols-rounded');
-                    if (icon) icon.textContent = 'check_circle';
+                    if (icon) icon.innerHTML = '{check_svg}';
                     setTimeout(() => {{
                         copyBtn.classList.remove('copied');
-                        if (icon) icon.textContent = 'content_copy';
+                        if (icon) icon.innerHTML = '{copy_svg}';
                     }}, 1500);
                 }}
             }});
@@ -387,4 +389,9 @@ pub fn get(font_size: u32) -> String { format!(r###"        const container = do
         
         let currentOldTextLength = 0;
         let previousNewText = '';
-"###, font_size=font_size) }
+"###,
+        font_size = font_size,
+        check_svg = crate::overlay::html_components::icons::get_icon_svg("check"),
+        copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy")
+    )
+}

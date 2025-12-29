@@ -1,10 +1,26 @@
 use crate::gui::locale::LocaleText;
 
-pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[String], current_language: &str, translation_model: &str, font_size: u32, text: &LocaleText) -> String {
-    let _title_icon = if is_translation { "translate" } else { "graphic_eq" };
-    let title_text = if is_translation { text.realtime_translation } else { text.realtime_listening };
+pub fn get_realtime_html(
+    is_translation: bool,
+    audio_source: &str,
+    languages: &[String],
+    current_language: &str,
+    translation_model: &str,
+    font_size: u32,
+    text: &LocaleText,
+) -> String {
+    let _title_icon = if is_translation {
+        "translate"
+    } else {
+        "graphic_eq"
+    };
+    let title_text = if is_translation {
+        text.realtime_translation
+    } else {
+        text.realtime_listening
+    };
     let glow_color = if is_translation { "#ff9633" } else { "#00c8ff" };
-    
+
     // Title content: volume bars for transcription, text for translation
     let title_content = if is_translation {
         format!("{}", title_text)
@@ -12,50 +28,74 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
         // Canvas-based volume visualizer for smooth 60fps animation
         r#"<canvas id="volume-canvas" width="90" height="24"></canvas>"#.to_string()
     };
-    
+
     let _mic_text = text.realtime_mic;
     let _device_text = text.realtime_device;
     let placeholder_text = text.realtime_waiting;
-    
+
     // Build language options HTML - show full name in dropdown, but store code for display
-    let lang_options: String = languages.iter()
+    let lang_options: String = languages
+        .iter()
         .map(|lang| {
-            let selected = if lang == current_language { "selected" } else { "" };
+            let selected = if lang == current_language {
+                "selected"
+            } else {
+                ""
+            };
             // Get 2-letter ISO 639-1 code
             let lang_code = isolang::Language::from_name(lang)
                 .and_then(|l| l.to_639_1())
                 .map(|c| c.to_uppercase())
                 .unwrap_or_else(|| lang.chars().take(2).collect::<String>().to_uppercase());
             // Option shows full name, but we store code as data attribute for selected display
-            format!(r#"<option value="{}" data-code="{}" {}>{}</option>"#, lang, lang_code, selected, lang)
+            format!(
+                r#"<option value="{}" data-code="{}" {}>{}</option>"#,
+                lang, lang_code, selected, lang
+            )
         })
         .collect::<Vec<_>>()
         .join("\n");
-    
+
     // Audio source selector (only for transcription window) - simple mic/device toggle
     let audio_selector = if !is_translation {
         let is_device = audio_source == "device";
-        format!(r#"
+        format!(
+            r#"
             <div class="btn-group">
-                <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone Input">mic</span>
-                <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">speaker_group</span>
+                <span class="material-symbols-rounded audio-icon {mic_active}" id="mic-btn" data-value="mic" title="Microphone Input">{mic_svg}</span>
+                <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">{device_svg}</span>
             </div>
-        "#, 
+        "#,
             mic_active = if !is_device { "active" } else { "" },
-            device_active = if is_device { "active" } else { "" }
+            device_active = if is_device { "active" } else { "" },
+            mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
+            device_svg = crate::overlay::html_components::icons::get_icon_svg("speaker_group")
         )
     } else {
         // Language selector and model toggle for translation window
-        let gemma_active = if translation_model == "google-gemma" { "active" } else { "" };
-        let groq_active = if translation_model == "groq-llama" { "active" } else { "" };
-        let gtx_active = if translation_model == "google-gtx" { "active" } else { "" };
+        let gemma_active = if translation_model == "google-gemma" {
+            "active"
+        } else {
+            ""
+        };
+        let groq_active = if translation_model == "groq-llama" {
+            "active"
+        } else {
+            ""
+        };
+        let gtx_active = if translation_model == "google-gtx" {
+            "active"
+        } else {
+            ""
+        };
 
-        format!(r#"
-            <span class="ctrl-btn speak-btn" id="speak-btn" title="Text-to-Speech Settings"><span class="material-symbols-rounded">volume_up</span></span>
+        format!(
+            r#"
+            <span class="ctrl-btn speak-btn" id="speak-btn" title="Text-to-Speech Settings"><span class="material-symbols-rounded">{volume_up_svg}</span></span>
             <div class="btn-group">
-                <span class="material-symbols-rounded model-icon {gemma_active}" data-value="google-gemma" title="AI Translation (Gemma)">auto_awesome</span>
-                <span class="material-symbols-rounded model-icon {groq_active}" data-value="groq-llama" title="Fast Translation (Groq)">speed</span>
-                <span class="material-symbols-rounded model-icon {gtx_active}" data-value="google-gtx" title="Unlimited Translation (Google)">language</span>
+                <span class="material-symbols-rounded model-icon {gemma_active}" data-value="google-gemma" title="AI Translation (Gemma)">{auto_awesome_svg}</span>
+                <span class="material-symbols-rounded model-icon {groq_active}" data-value="groq-llama" title="Fast Translation (Groq)">{speed_svg}</span>
+                <span class="material-symbols-rounded model-icon {gtx_active}" data-value="google-gtx" title="Unlimited Translation (Google)">{language_svg}</span>
             </div>
             <select id="language-select" title="Target Language">
                 {lang_options}
@@ -64,10 +104,14 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
             lang_options = lang_options,
             gemma_active = gemma_active,
             groq_active = groq_active,
-            gtx_active = gtx_active
+            gtx_active = gtx_active,
+            volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
+            auto_awesome_svg = crate::overlay::html_components::icons::get_icon_svg("auto_awesome"),
+            speed_svg = crate::overlay::html_components::icons::get_icon_svg("speed"),
+            language_svg = crate::overlay::html_components::icons::get_icon_svg("language")
         )
     };
-    
+
     let loading_icon = if is_translation {
         r##"<svg class="loading-svg" viewBox="0 -6 24 36" fill="none" stroke="#ff9633" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><g class="trans-part-1"><path d="m5 8 6 6"></path><path d="m4 14 6-6 2-3"></path><path d="M2 5h12"></path><path d="M7 2h1"></path></g><g class="trans-part-2"><path d="m22 22-5-10-5 10"></path><path d="M14 18h6"></path></g></svg>"##
     } else {
@@ -75,26 +119,27 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
     };
 
     // Construct CSS and JS from components
-    let css = format!("{}{}", 
+    let css = format!(
+        "{}{}",
         crate::overlay::html_components::css_main::get(glow_color, font_size),
         crate::overlay::html_components::css_modals::get()
     );
-    let js = format!("{}{}", 
+    let js = format!(
+        "{}{}",
         crate::overlay::html_components::js_main::get(font_size),
         crate::overlay::html_components::js_logic::get(placeholder_text)
     );
 
-    format!(r#"<!DOCTYPE html>
+    // Get local font CSS (cached fonts, no network loading)
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
+
+    format!(
+        r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" as="style" />
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" as="style" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0&display=swap" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,slnt,wdth,wght,ROND@6..144,-10..0,25..151,100..1000,100&display=swap" />
     <style>
+        {font_css}
         {css_content}
     </style>
 </head>
@@ -105,30 +150,30 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
             <div id="title">{title_content}</div>
             <div id="controls">
                 {audio_selector}
-                <span class="ctrl-btn" id="copy-btn" title="Copy text"><span class="material-symbols-rounded">content_copy</span></span>
+                <span class="ctrl-btn" id="copy-btn" title="Copy text"><span class="material-symbols-rounded">{content_copy_svg}</span></span>
                 <div class="pill-group">
-                    <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">remove</span></span>
-                    <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">add</span></span>
+                    <span class="ctrl-btn" id="font-decrease" title="Decrease font size"><span class="material-symbols-rounded">{remove_svg}</span></span>
+                    <span class="ctrl-btn" id="font-increase" title="Increase font size"><span class="material-symbols-rounded">{add_svg}</span></span>
                 </div>
                 <div class="btn-group">
-                    <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription"><span class="material-symbols-rounded">subtitles</span></span>
-                    <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation"><span class="material-symbols-rounded">translate</span></span>
+                    <span class="vis-btn mic active" id="toggle-mic" title="Toggle Transcription"><span class="material-symbols-rounded">{subtitles_svg}</span></span>
+                    <span class="vis-btn trans active" id="toggle-trans" title="Toggle Translation"><span class="material-symbols-rounded">{translate_svg}</span></span>
                 </div>
             </div>
         </div>
-        <div id="header-toggle" title="Toggle header"><span class="material-symbols-rounded">expand_less</span></div>
+        <div id="header-toggle" title="Toggle header"><span class="material-symbols-rounded">{expand_less_svg}</span></div>
         <div id="viewport">
             <div id="content">
                 <span class="placeholder">{placeholder_text}</span>
             </div>
         </div>
-        <div id="resize-hint"><span class="material-symbols-rounded" style="font-size: 14px;">picture_in_picture_small</span></div>
+        <div id="resize-hint"><span class="material-symbols-rounded" style="font-size: 20px;">{pip_svg}</span></div>
     </div>
     <!-- TTS Settings Modal -->
     <div id="tts-modal-overlay"></div>
     <div id="tts-modal">
         <div class="tts-modal-title">
-            <span class="material-symbols-rounded">volume_up</span>
+            <span class="material-symbols-rounded">{volume_up_svg}</span>
             {tts_title}
             <div class="toggle-switch" id="tts-toggle" style="margin-left: auto;"></div>
         </div>
@@ -144,7 +189,7 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
     <div id="app-modal-overlay"></div>
     <div id="app-modal">
         <div class="app-modal-title">
-            <span class="material-symbols-rounded">apps</span>
+            <span class="material-symbols-rounded">{apps_svg}</span>
             {app_select_title}
         </div>
         <div class="app-modal-hint">{app_select_hint}</div>
@@ -168,5 +213,14 @@ pub fn get_realtime_html(is_translation: bool, audio_source: &str, languages: &[
         tts_auto = text.realtime_tts_auto,
         app_select_title = text.app_select_title,
         app_select_hint = text.app_select_hint,
+        content_copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy"),
+        remove_svg = crate::overlay::html_components::icons::get_icon_svg("remove"),
+        add_svg = crate::overlay::html_components::icons::get_icon_svg("add"),
+        subtitles_svg = crate::overlay::html_components::icons::get_icon_svg("subtitles"),
+        translate_svg = crate::overlay::html_components::icons::get_icon_svg("translate"),
+        expand_less_svg = crate::overlay::html_components::icons::get_icon_svg("expand_less"),
+        pip_svg = crate::overlay::html_components::icons::get_icon_svg("picture_in_picture_small"),
+        volume_up_svg = crate::overlay::html_components::icons::get_icon_svg("volume_up"),
+        apps_svg = crate::overlay::html_components::icons::get_icon_svg("apps"),
     )
 }
