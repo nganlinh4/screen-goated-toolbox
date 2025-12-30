@@ -23,33 +23,33 @@ pub struct ModelConfig {
 }
 
 impl ModelConfig {
-     pub fn new(
-         id: &str,
-         provider: &str,
-         name_vi: &str,
-         name_ko: &str,
-         name_en: &str,
-         full_name: &str,
-         model_type: ModelType,
-         enabled: bool,
-         quota_limit_vi: &str,
-         quota_limit_ko: &str,
-         quota_limit_en: &str,
-     ) -> Self {
-         Self {
-             id: id.to_string(),
-             provider: provider.to_string(),
-             name_vi: name_vi.to_string(),
-             name_ko: name_ko.to_string(),
-             name_en: name_en.to_string(),
-             full_name: full_name.to_string(),
-             model_type,
-             enabled,
-             quota_limit_vi: quota_limit_vi.to_string(),
-             quota_limit_ko: quota_limit_ko.to_string(),
-             quota_limit_en: quota_limit_en.to_string(),
-         }
-     }
+    pub fn new(
+        id: &str,
+        provider: &str,
+        name_vi: &str,
+        name_ko: &str,
+        name_en: &str,
+        full_name: &str,
+        model_type: ModelType,
+        enabled: bool,
+        quota_limit_vi: &str,
+        quota_limit_ko: &str,
+        quota_limit_en: &str,
+    ) -> Self {
+        Self {
+            id: id.to_string(),
+            provider: provider.to_string(),
+            name_vi: name_vi.to_string(),
+            name_ko: name_ko.to_string(),
+            name_en: name_en.to_string(),
+            full_name: full_name.to_string(),
+            model_type,
+            enabled,
+            quota_limit_vi: quota_limit_vi.to_string(),
+            quota_limit_ko: quota_limit_ko.to_string(),
+            quota_limit_en: quota_limit_en.to_string(),
+        }
+    }
 }
 
 lazy_static::lazy_static! {
@@ -144,6 +144,20 @@ lazy_static::lazy_static! {
             "50 lượt chung/ngày",
             "50 공유 요청/일",
             "50 shared requests/day"
+        ),
+        // Non-LLM QR Code Scanner (like Whisper for Audio)
+        ModelConfig::new(
+            "qr-scanner",
+            "qrserver",
+            "Quét mã QR",
+            "QR 스캔",
+            "QR Scanner",
+            "api.qrserver.com/read-qr-code",
+            ModelType::Vision,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
         ),
         ModelConfig::new(
             "fast_text",
@@ -261,6 +275,20 @@ lazy_static::lazy_static! {
             "20 lượt/ngày",
             "20 요청/일",
             "20 requests/day"
+        ),
+        // Non-LLM translation model (like Whisper for Audio)
+        ModelConfig::new(
+            "google-gtx",
+            "google-gtx",
+            "Google Dịch",
+            "Google 번역",
+            "Google Translate",
+            "translate.googleapis.com/gtx",
+            ModelType::Text,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
         ),
         ModelConfig::new(
             "or-nemotron-text",
@@ -407,27 +435,30 @@ pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
 /// This combines static models with Ollama models (if Ollama is enabled)
 pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     let mut models: Vec<ModelConfig> = ALL_MODELS.iter().cloned().collect();
-    
+
     // Add cached Ollama models
     let cached = OLLAMA_MODEL_CACHE.lock().unwrap();
     for ollama_model in cached.iter() {
         models.push(ollama_model.clone());
     }
-    
+
     models
 }
 
 // === OLLAMA MODEL CACHE ===
 
-use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 lazy_static::lazy_static! {
     /// Cached Ollama models (populated by background scan)
     static ref OLLAMA_MODEL_CACHE: Mutex<Vec<ModelConfig>> = Mutex::new(Vec::new());
-    
+
     /// Whether a scan is currently in progress
     static ref OLLAMA_SCAN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
-    
+
     /// Last scan time (for debouncing) - initialized to 10s ago so first scan works immediately
     static ref OLLAMA_LAST_SCAN: Mutex<std::time::Instant> = Mutex::new(
         std::time::Instant::now().checked_sub(std::time::Duration::from_secs(10)).unwrap_or_else(std::time::Instant::now)
@@ -448,11 +479,11 @@ pub fn trigger_ollama_model_scan() {
     } else {
         return;
     };
-    
+
     if !use_ollama {
         return;
     }
-    
+
     // Debounce: don't scan more than once per 5 seconds
     {
         let last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
@@ -460,30 +491,33 @@ pub fn trigger_ollama_model_scan() {
             return;
         }
     }
-    
+
     // Check if already scanning
     if OLLAMA_SCAN_IN_PROGRESS.swap(true, Ordering::SeqCst) {
         return; // Already scanning
     }
-    
+
     // Update last scan time
     {
         let mut last_scan = OLLAMA_LAST_SCAN.lock().unwrap();
         *last_scan = std::time::Instant::now();
     }
-    
+
     // Spawn background thread to scan
     std::thread::spawn(move || {
         let result = crate::api::ollama::fetch_ollama_models_with_caps(&base_url);
-        
+
         if let Ok(ollama_models) = result {
             let mut new_models = Vec::new();
-            
+
             for ollama_model in ollama_models {
                 // Create model ID from name (e.g., "qwen3-vl:2b" -> "ollama-qwen3-vl-2b")
-                let model_id = format!("ollama-{}", ollama_model.name.replace(":", "-").replace("/", "-"));
+                let model_id = format!(
+                    "ollama-{}",
+                    ollama_model.name.replace(":", "-").replace("/", "-")
+                );
                 let display_name = format!("{} (Local)", ollama_model.name);
-                
+
                 // Vision models can do BOTH vision and text, so we add them to both
                 // Text-only models just get Text type
                 if ollama_model.has_vision {
@@ -501,7 +535,7 @@ pub fn trigger_ollama_model_scan() {
                         quota_limit_ko: "무제한".to_string(),
                         quota_limit_en: "Unlimited".to_string(),
                     });
-                    
+
                     // Also add as Text model (vision models can do text too)
                     new_models.push(ModelConfig {
                         id: model_id,
@@ -533,12 +567,12 @@ pub fn trigger_ollama_model_scan() {
                     });
                 }
             }
-            
+
             // Update cache
             let mut cache = OLLAMA_MODEL_CACHE.lock().unwrap();
             *cache = new_models;
         }
-        
+
         OLLAMA_SCAN_IN_PROGRESS.store(false, Ordering::SeqCst);
     });
 }

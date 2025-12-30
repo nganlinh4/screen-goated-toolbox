@@ -1,5 +1,7 @@
 use super::node::ChainNode;
-use super::utils::{insert_next_language_tag, model_supports_search, show_language_vars};
+use super::utils::{
+    insert_next_language_tag, model_is_non_llm, model_supports_search, show_language_vars,
+};
 use super::viewer::ChainViewer;
 use crate::gui::icons::{icon_button, Icon};
 use crate::model_config::{
@@ -206,64 +208,67 @@ pub fn show_body(
                             });
                         });
 
-                        // Row 2: Prompt Label + Add Tag Button
-                        ui.horizontal(|ui| {
-                            let prompt_label = match viewer.ui_language.as_str() {
-                                "vi" => "Lệnh:",
-                                "ko" => "프롬프트:",
-                                _ => "Prompt:",
-                            };
-                            ui.label(prompt_label);
+                        // Only show prompt UI for LLM models (not QR scanner, GTX, Whisper, etc.)
+                        if !model_is_non_llm(model) {
+                            // Row 2: Prompt Label + Add Tag Button
+                            ui.horizontal(|ui| {
+                                let prompt_label = match viewer.ui_language.as_str() {
+                                    "vi" => "Lệnh:",
+                                    "ko" => "프롬프트:",
+                                    _ => "Prompt:",
+                                };
+                                ui.label(prompt_label);
 
-                            let btn_label = match viewer.ui_language.as_str() {
-                                "vi" => "+ Ngôn ngữ",
-                                "ko" => "+ 언어",
-                                _ => "+ Language",
-                            };
-                            let is_dark = ui.visuals().dark_mode;
-                            let lang_btn_bg = if is_dark {
-                                egui::Color32::from_rgb(50, 100, 110)
-                            } else {
-                                egui::Color32::from_rgb(100, 160, 170)
-                            };
+                                let btn_label = match viewer.ui_language.as_str() {
+                                    "vi" => "+ Ngôn ngữ",
+                                    "ko" => "+ 언어",
+                                    _ => "+ Language",
+                                };
+                                let is_dark = ui.visuals().dark_mode;
+                                let lang_btn_bg = if is_dark {
+                                    egui::Color32::from_rgb(50, 100, 110)
+                                } else {
+                                    egui::Color32::from_rgb(100, 160, 170)
+                                };
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new(btn_label)
+                                                .small()
+                                                .color(egui::Color32::WHITE),
+                                        )
+                                        .fill(lang_btn_bg)
+                                        .corner_radius(8.0),
+                                    )
+                                    .clicked()
+                                {
+                                    insert_next_language_tag(prompt, language_vars);
+                                    viewer.changed = true;
+                                }
+                            });
+
+                            // Row 3: Prompt TextEdit
                             if ui
                                 .add(
-                                    egui::Button::new(
-                                        egui::RichText::new(btn_label)
-                                            .small()
-                                            .color(egui::Color32::WHITE),
-                                    )
-                                    .fill(lang_btn_bg)
-                                    .corner_radius(8.0),
+                                    egui::TextEdit::multiline(prompt)
+                                        .desired_width(152.0)
+                                        .desired_rows(2),
                                 )
-                                .clicked()
+                                .changed()
                             {
-                                insert_next_language_tag(prompt, language_vars);
                                 viewer.changed = true;
                             }
-                        });
 
-                        // Row 3: Prompt TextEdit
-                        if ui
-                            .add(
-                                egui::TextEdit::multiline(prompt)
-                                    .desired_width(152.0)
-                                    .desired_rows(2),
-                            )
-                            .changed()
-                        {
-                            viewer.changed = true;
+                            // Row 4+: Language Variables
+                            show_language_vars(
+                                ui,
+                                &viewer.ui_language,
+                                prompt,
+                                language_vars,
+                                &mut viewer.changed,
+                                &mut viewer.language_search,
+                            );
                         }
-
-                        // Row 4+: Language Variables
-                        show_language_vars(
-                            ui,
-                            &viewer.ui_language,
-                            prompt,
-                            language_vars,
-                            &mut viewer.changed,
-                            &mut viewer.language_search,
-                        );
 
                         // Bottom Row: Settings
                         ui.horizontal(|ui| {
@@ -490,64 +495,67 @@ pub fn show_body(
                             });
                         });
 
-                        // Row 2: Prompt Label + Add Tag Button
-                        ui.horizontal(|ui| {
-                            let prompt_label = match viewer.ui_language.as_str() {
-                                "vi" => "Lệnh:",
-                                "ko" => "프롬프트:",
-                                _ => "Prompt:",
-                            };
-                            ui.label(prompt_label);
+                        // Only show prompt UI for LLM models (not GTX, etc.)
+                        if !model_is_non_llm(model) {
+                            // Row 2: Prompt Label + Add Tag Button
+                            ui.horizontal(|ui| {
+                                let prompt_label = match viewer.ui_language.as_str() {
+                                    "vi" => "Lệnh:",
+                                    "ko" => "프롬프트:",
+                                    _ => "Prompt:",
+                                };
+                                ui.label(prompt_label);
 
-                            let btn_label = match viewer.ui_language.as_str() {
-                                "vi" => "+ Ngôn ngữ",
-                                "ko" => "+ 언어",
-                                _ => "+ Language",
-                            };
-                            let is_dark = ui.visuals().dark_mode;
-                            let lang_btn_bg = if is_dark {
-                                egui::Color32::from_rgb(50, 100, 110)
-                            } else {
-                                egui::Color32::from_rgb(100, 160, 170)
-                            };
+                                let btn_label = match viewer.ui_language.as_str() {
+                                    "vi" => "+ Ngôn ngữ",
+                                    "ko" => "+ 언어",
+                                    _ => "+ Language",
+                                };
+                                let is_dark = ui.visuals().dark_mode;
+                                let lang_btn_bg = if is_dark {
+                                    egui::Color32::from_rgb(50, 100, 110)
+                                } else {
+                                    egui::Color32::from_rgb(100, 160, 170)
+                                };
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new(btn_label)
+                                                .small()
+                                                .color(egui::Color32::WHITE),
+                                        )
+                                        .fill(lang_btn_bg)
+                                        .corner_radius(8.0),
+                                    )
+                                    .clicked()
+                                {
+                                    insert_next_language_tag(prompt, language_vars);
+                                    viewer.changed = true;
+                                }
+                            });
+
+                            // Row 3: Prompt TextEdit
                             if ui
                                 .add(
-                                    egui::Button::new(
-                                        egui::RichText::new(btn_label)
-                                            .small()
-                                            .color(egui::Color32::WHITE),
-                                    )
-                                    .fill(lang_btn_bg)
-                                    .corner_radius(8.0),
+                                    egui::TextEdit::multiline(prompt)
+                                        .desired_width(152.0)
+                                        .desired_rows(2),
                                 )
-                                .clicked()
+                                .changed()
                             {
-                                insert_next_language_tag(prompt, language_vars);
                                 viewer.changed = true;
                             }
-                        });
 
-                        // Row 3: Prompt TextEdit
-                        if ui
-                            .add(
-                                egui::TextEdit::multiline(prompt)
-                                    .desired_width(152.0)
-                                    .desired_rows(2),
-                            )
-                            .changed()
-                        {
-                            viewer.changed = true;
+                            // Row 4+: Language Variables
+                            show_language_vars(
+                                ui,
+                                &viewer.ui_language,
+                                prompt,
+                                language_vars,
+                                &mut viewer.changed,
+                                &mut viewer.language_search,
+                            );
                         }
-
-                        // Row 4+: Language Variables
-                        show_language_vars(
-                            ui,
-                            &viewer.ui_language,
-                            prompt,
-                            language_vars,
-                            &mut viewer.changed,
-                            &mut viewer.language_search,
-                        );
 
                         // Bottom Row: Settings
                         ui.horizontal(|ui| {

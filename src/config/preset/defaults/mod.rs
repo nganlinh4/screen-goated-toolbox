@@ -45,6 +45,7 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&image, "preset_ocr"),
         find(&image, "preset_ocr_read"),
         find(&image, "preset_quick_screenshot"),
+        find(&image, "preset_qr_scanner"),
         find(&image, "preset_summarize"),
         find(&image, "preset_desc"),
         find(&image, "preset_ask_image"),

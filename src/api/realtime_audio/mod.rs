@@ -1,24 +1,24 @@
 //! Real-time audio transcription using Gemini Live API
-//! 
+//!
 //! This module handles streaming audio to Gemini's native audio model
 //! and receives real-time transcriptions via WebSocket.
-//! 
+//!
 //! Translation is handled separately via Groq's llama-3.1-8b-instant model
 //! every 2 seconds for new sentence chunks.
 
-mod state;
-mod websocket;
 mod capture;
+mod state;
 mod transcription;
 mod translation;
 mod utils;
+mod websocket;
 
 use windows::Win32::UI::WindowsAndMessaging::WM_APP;
 
 // Re-export public items
 pub use state::{RealtimeState, SharedRealtimeState};
 pub use transcription::start_realtime_transcription;
-
+pub use translation::translate_with_google_gtx;
 
 /// Interval for triggering translation (milliseconds)
 pub const TRANSLATION_INTERVAL_MS: u64 = 1500;

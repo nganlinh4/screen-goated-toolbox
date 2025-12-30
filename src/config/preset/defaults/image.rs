@@ -147,6 +147,33 @@ pub fn create_image_presets() -> Vec<Preset> {
             ])
             .build(),
 
+        // QR Scanner - Scan and format QR code content
+        PresetBuilder::new("preset_qr_scanner", "QR Scanner")
+            .image()
+            .blocks(vec![
+                // Node 0: QR Scanner (non-LLM, extracts raw content)
+                BlockBuilder::image("qr-scanner")
+                    .prompt("") // QR scanner doesn't need a prompt
+                    .show_overlay(false)
+                    .auto_copy()
+                    .build(),
+                // Node 1: Format the QR content nicely
+                BlockBuilder::text("text_accurate_kimi")
+                    .prompt("Format this QR code content for display. Rules:\n\
+                        - If URL: Make it a clickable markdown link [URL](URL) and describe what this link points to\n\
+                        - If vCard/contact: Format as a readable contact card with name, phone, email, address\n\
+                        - If WiFi (WIFI:S:...): Extract and display SSID, password, and security type clearly\n\
+                        - If plain text: Display as-is, translate if not in {language1}\n\
+                        - If calendar event: Format as readable event with date/time/location\n\
+                        - If email/SMS: Format with recipient and content clearly\n\
+                        Output clean markdown. DO NOT include code blocks or backticks.")
+                    .language("Vietnamese")
+                    .streaming(false)
+                    .markdown()
+                    .build(),
+            ])
+            .build(),
+
         // =====================================================================
         // ANALYSIS PRESETS
         // =====================================================================

@@ -22,6 +22,20 @@ pub fn model_supports_search(model_id: &str) -> bool {
     false
 }
 
+/// Check if a model is a non-LLM model (doesn't use prompts)
+/// These are specialized models that process input directly without instructions.
+pub fn model_is_non_llm(model_id: &str) -> bool {
+    match model_id {
+        // QR Scanner - just decodes QR codes
+        "qr-scanner" => true,
+        // Google Translate (GTX) - translation only, language from instruction
+        "google-gtx" => true,
+        // Whisper models - speech-to-text only
+        "whisper-fast" | "whisper-accurate" => true,
+        _ => false,
+    }
+}
+
 /// Request a node graph view reset (scale=1.0, centered)
 /// This sets a flag that the patched egui-snarl library will check
 pub fn request_node_graph_view_reset(ctx: &egui::Context) {
