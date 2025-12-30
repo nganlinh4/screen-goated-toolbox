@@ -58,6 +58,7 @@ pub fn get_default_presets() -> Vec<Preset> {
         // Text-Select section
         find(&text, "preset_read_aloud"),
         find(&text, "preset_translate_select"),
+        find(&text, "preset_translate_arena"),
         find(&text, "preset_trans_retrans_select"),
         find(&text, "preset_select_translate_replace"),
         find(&text, "preset_fix_grammar"),

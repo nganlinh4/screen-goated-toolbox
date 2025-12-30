@@ -32,6 +32,36 @@ pub fn create_text_presets() -> Vec<Preset> {
             ])
             .build(),
 
+        // Dịch (Arena) - Compare 3 translation models in parallel
+        PresetBuilder::new("preset_translate_arena", "Dịch (Arena)")
+            .text_select()
+            .blocks(vec![
+                // Node 0: Input adapter (text selection)
+                BlockBuilder::input_adapter()
+                    .build(),
+                // Node 1: Google Translate (GTX) - fast, non-LLM
+                BlockBuilder::text("google-gtx")
+                    .prompt("Translate to {language1}. Output ONLY the translation.")
+                    .language("Vietnamese")
+                    .streaming(false)
+                    .build(),
+                // Node 2: Groq Kimi - accurate LLM
+                BlockBuilder::text("text_accurate_kimi")
+                    .prompt("Translate the following text to {language1}. Output ONLY the translation.")
+                    .language("Vietnamese")
+                    .auto_copy()
+                    .build(),
+                // Node 3: Gemini Flash Lite - Google's fast LLM
+                BlockBuilder::text("text_gemini_flash_lite")
+                    .prompt("Translate the following text to {language1}. Output ONLY the translation.")
+                    .language("Vietnamese")
+                    .streaming(false)
+                    .build(),
+            ])
+            // All 3 translation nodes branch from input (0 -> 1, 0 -> 2, 0 -> 3)
+            .connections(vec![(0, 1), (0, 2), (0, 3)])
+            .build(),
+
         // Trans+Retrans (Select) - Korean then Vietnamese
         PresetBuilder::new("preset_trans_retrans_select", "Trans+Retrans (Select)")
             .text_select()
