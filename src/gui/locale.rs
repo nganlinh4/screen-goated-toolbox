@@ -7,6 +7,7 @@ pub struct LocaleText {
     pub clear_all_history_btn: &'static str,
     pub view_image_btn: &'static str,
     pub listen_audio_btn: &'static str,
+    pub view_text_btn: &'static str, // NEW
 
     pub prompt_mode_fixed: &'static str,
     pub prompt_mode_dynamic: &'static str,
@@ -209,6 +210,7 @@ impl LocaleText {
                  clear_all_history_btn: "Dọn tất cả", 
                  view_image_btn: "Xem ảnh",
                  listen_audio_btn: "Nghe audio",
+                 view_text_btn: "Xem text",
 
                  prompt_mode_fixed: "Làm theo lệnh sẵn",
                  prompt_mode_dynamic: "Viết lệnh tại chỗ",
@@ -442,6 +444,7 @@ impl LocaleText {
                  clear_all_history_btn: "모두 삭제",
                  view_image_btn: "이미지 보기",
                  listen_audio_btn: "오디오 듣기",
+                 view_text_btn: "텍스트 보기",
 
                  prompt_mode_fixed: "사전 정의된 프롬프트",
                  prompt_mode_dynamic: "즉석에서 작성",
@@ -675,6 +678,7 @@ impl LocaleText {
                  clear_all_history_btn: "Clear All",
                  view_image_btn: "View Image",
                  listen_audio_btn: "Listen Audio",
+                 view_text_btn: "View Text",
 
                  prompt_mode_fixed: "Predefined Prompt",
                  prompt_mode_dynamic: "Write on the spot",
