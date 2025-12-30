@@ -80,48 +80,52 @@ pub fn show_language_vars(
             }
 
             let popup_layer_id = button_response.id;
-            egui::Popup::from_toggle_button_response(&button_response).show(|ui| {
-                ui.set_min_width(120.0);
+            egui::Popup::from_toggle_button_response(&button_response)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    ui.set_min_width(120.0);
 
-                // Get or create search state for this popup from temp data
-                let mut search_text: String =
-                    ui.data_mut(|d| d.get_temp(search_id).unwrap_or_default());
+                    // Get or create search state for this popup from temp data
+                    let mut search_text: String =
+                        ui.data_mut(|d| d.get_temp(search_id).unwrap_or_default());
 
-                // Search box
-                let _search_response = ui.add(
-                    egui::TextEdit::singleline(&mut search_text)
-                        .hint_text("Search...")
-                        .desired_width(110.0),
-                );
+                    // Search box
+                    let _search_response = ui.add(
+                        egui::TextEdit::singleline(&mut search_text)
+                            .hint_text("Search...")
+                            .desired_width(110.0),
+                    );
 
-                // Store search state back
-                ui.data_mut(|d| d.insert_temp(search_id, search_text.clone()));
+                    // Store search state back
+                    ui.data_mut(|d| d.insert_temp(search_id, search_text.clone()));
 
-                ui.separator();
+                    ui.separator();
 
-                // Language list in scroll area
-                egui::ScrollArea::vertical()
-                    .max_height(200.0)
-                    .show(ui, |ui| {
-                        ui.set_width(120.0); // Ensure scrollbar stays on the right edge
-                        for lang in get_all_languages() {
-                            let matches_search = search_text.is_empty()
-                                || lang.to_lowercase().contains(&search_text.to_lowercase());
-                            if matches_search {
-                                let is_selected = current_val == *lang;
-                                if ui.selectable_label(is_selected, lang).clicked() {
-                                    language_vars.insert(key.clone(), lang.clone());
-                                    *changed = true;
-                                    // Clear search and close popup
-                                    ui.data_mut(|d| {
-                                        d.insert_temp::<String>(search_id, String::new())
-                                    });
-                                    egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
+                    // Language list in scroll area
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .min_scrolled_height(200.0)
+                        .auto_shrink([true, false])
+                        .show(ui, |ui| {
+                            ui.set_width(120.0); // Ensure scrollbar stays on the right edge
+                            for lang in get_all_languages() {
+                                let matches_search = search_text.is_empty()
+                                    || lang.to_lowercase().contains(&search_text.to_lowercase());
+                                if matches_search {
+                                    let is_selected = current_val == *lang;
+                                    if ui.selectable_label(is_selected, lang).clicked() {
+                                        language_vars.insert(key.clone(), lang.clone());
+                                        *changed = true;
+                                        // Clear search and close popup
+                                        ui.data_mut(|d| {
+                                            d.insert_temp::<String>(search_id, String::new())
+                                        });
+                                        egui::Popup::toggle_id(ui.ctx(), popup_layer_id);
+                                    }
                                 }
                             }
-                        }
-                    });
-            });
+                        });
+                });
         });
     }
 }
