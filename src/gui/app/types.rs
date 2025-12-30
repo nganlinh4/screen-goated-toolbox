@@ -84,6 +84,8 @@ pub struct SettingsApp {
 
     // --- USAGE MODAL STATE ---
     pub(crate) show_usage_modal: bool,
+    // --- DROP OVERLAY STATE ---
+    pub(crate) drop_overlay_fade: f32,
     // --- TTS SETTINGS MODAL STATE ---
     pub(crate) show_tts_modal: bool,
     // --------------------

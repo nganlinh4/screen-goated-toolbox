@@ -186,6 +186,8 @@ pub struct LocaleText {
     // --- AUTO COPY BADGE ---
     pub auto_copied_badge: &'static str,
     pub auto_copied_image_badge: &'static str,
+    // --- DROP OVERLAY ---
+    pub drop_overlay_text: &'static str,
 }
 
 impl LocaleText {
@@ -413,6 +415,8 @@ impl LocaleText {
                  // --- AUTO COPY BADGE VI ---
                  auto_copied_badge: "Đã tự động copy",
                  auto_copied_image_badge: "🖼️ Ảnh đã được sao chép",
+                 // --- DROP OVERLAY VI ---
+                 drop_overlay_text: "Thả vào đây để xử lý",
                  },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -636,6 +640,8 @@ impl LocaleText {
                  // --- AUTO COPY BADGE KO ---
                  auto_copied_badge: "자동으로 복사됨",
                  auto_copied_image_badge: "🖼️ 이미지가 복사됨",
+                 // --- DROP OVERLAY KO ---
+                 drop_overlay_text: "여기에 드롭하여 처리",
                  },
                 _ => Self {
                  history_btn: "History",
@@ -859,6 +865,8 @@ impl LocaleText {
                  // --- AUTO COPY BADGE EN ---
                  auto_copied_badge: "Auto-copied",
                  auto_copied_image_badge: "🖼️ Image copied",
+                 // --- DROP OVERLAY EN ---
+                 drop_overlay_text: "Drop here to process",
                  },
                 }
     }

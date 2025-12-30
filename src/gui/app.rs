@@ -64,6 +64,9 @@ impl eframe::App for SettingsApp {
         if let Some(splash) = &self.splash {
             splash.paint(ctx);
         }
+
+        // Render Drop Overlay when dragging files (Very Last)
+        self.render_drop_overlay(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

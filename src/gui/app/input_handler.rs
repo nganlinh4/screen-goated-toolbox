@@ -196,6 +196,11 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
     false
 }
 
+/// Check if files are currently being dragged over the window (not yet dropped)
+pub fn is_files_hovered(ctx: &egui::Context) -> bool {
+    ctx.input(|i| !i.raw.hovered_files.is_empty())
+}
+
 /// Get text from Windows clipboard
 fn get_clipboard_text() -> Option<String> {
     use windows::Win32::Foundation::HGLOBAL;

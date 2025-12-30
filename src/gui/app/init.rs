@@ -275,6 +275,7 @@ impl SettingsApp {
 
             // --- USAGE MODAL INIT ---
             show_usage_modal: false,
+            drop_overlay_fade: 0.0,
             // --- TTS SETTINGS MODAL INIT ---
             show_tts_modal: false,
             // -----------------------
