@@ -462,14 +462,12 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
                                 drop(states); // Release lock before posting
                                 *PENDING_HISTORY_TEXT.lock().unwrap() =
                                     Some((parent_key_for_ipc, text));
-                                unsafe {
-                                    let _ = PostMessageW(
-                                        Some(child_hwnd),
-                                        WM_APP_HISTORY_SET,
-                                        WPARAM(0),
-                                        LPARAM(0),
-                                    );
-                                }
+                                let _ = PostMessageW(
+                                    Some(child_hwnd),
+                                    WM_APP_HISTORY_SET,
+                                    WPARAM(0),
+                                    LPARAM(0),
+                                );
                                 return;
                             }
                         } else if body.starts_with("history_down:") {
@@ -481,14 +479,12 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
                                 drop(states);
                                 *PENDING_HISTORY_TEXT.lock().unwrap() =
                                     Some((parent_key_for_ipc, text));
-                                unsafe {
-                                    let _ = PostMessageW(
-                                        Some(child_hwnd),
-                                        WM_APP_HISTORY_SET,
-                                        WPARAM(0),
-                                        LPARAM(0),
-                                    );
-                                }
+                                let _ = PostMessageW(
+                                    Some(child_hwnd),
+                                    WM_APP_HISTORY_SET,
+                                    WPARAM(0),
+                                    LPARAM(0),
+                                );
                                 return;
                             }
                         } else if body == "mic" {

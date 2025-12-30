@@ -1,29 +1,60 @@
 //! Configuration module for screen-goated-toolbox.
 //!
-//! This module is split into several sub-modules:
-//! - `types`: Core types, enums, and helper functions
-//! - `preset`: Preset struct definition
-//! - `config_struct`: Config struct definition
-//! - `defaults`: Config Default implementation
-//! - `defaults_image`: Image-based default presets
-//! - `defaults_text`: Text-based default presets
-//! - `defaults_audio`: Audio and master default presets
-//! - `io`: Config loading, saving, and language utilities
+//! This module provides a comprehensive, organized configuration system:
+//!
+//! ## Structure
+//! - `config`: Main Config struct
+//! - `preset`: Preset and ProcessingBlock with builder patterns
+//! - `types`: Core types (enums, TTS settings, hotkeys)
+//! - `io`: Load/save operations
+//!
+//! ## Usage
+//! ```rust
+//! use crate::config::{Config, Preset, ProcessingBlock, load_config, save_config};
+//!
+//! // Load config from disk
+//! let config = load_config();
+//!
+//! // Create a new preset using the builder pattern
+//! use crate::config::preset::{PresetBuilder, BlockBuilder};
+//! let preset = PresetBuilder::new("my_preset", "My Preset")
+//!     .image()
+//!     .blocks(vec![
+//!         BlockBuilder::image("maverick")
+//!             .prompt("Extract text.")
+//!             .language("Vietnamese")
+//!             .build()
+//!     ])
+//!     .build();
+//! ```
 
-mod config_struct;
-mod defaults;
-mod defaults_audio;
-mod defaults_image;
-mod defaults_text;
+mod config;
 mod io;
-mod preset;
-mod types;
+pub mod preset;
+pub mod types;
 
-// Re-export public types for external use
-pub use config_struct::Config;
+// ============================================================================
+// RE-EXPORTS - Primary API
+// ============================================================================
+
+// Config struct
+pub use config::Config;
+
+// Preset and ProcessingBlock
+pub use preset::{Preset, ProcessingBlock};
+
+// I/O functions
 pub use io::{get_all_languages, load_config, save_config};
-pub use preset::Preset;
-pub use types::{
-    EdgeTtsSettings, EdgeTtsVoiceConfig, Hotkey, ProcessingBlock, ThemeMode, TtsLanguageCondition,
-    TtsMethod,
-};
+
+// ============================================================================
+// RE-EXPORTS - Types (only what's actually used externally)
+// ============================================================================
+
+// Core enums
+pub use types::ThemeMode;
+
+// Hotkey
+pub use types::Hotkey;
+
+// TTS types
+pub use types::{EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod};
