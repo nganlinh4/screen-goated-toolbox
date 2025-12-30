@@ -310,6 +310,7 @@ pub fn run_chain_step(
 
     // 4. Execution (API Call)
     // 4. Execution (API Call)
+    let input_text_for_history = input_text.clone();
     let result_text = if block.block_type == "input_adapter" {
         // Pass-through: return input as-is
         input_text.clone()
@@ -662,9 +663,10 @@ pub fn run_chain_step(
         let text_for_history = result_text.clone();
 
         if block.block_type == "text" {
+            let input_text_clone = input_text_for_history.clone();
             std::thread::spawn(move || {
                 if let Ok(app) = crate::APP.lock() {
-                    app.history.save_text(text_for_history);
+                    app.history.save_text(text_for_history, input_text_clone);
                 }
             });
         } else if block.block_type == "image" {

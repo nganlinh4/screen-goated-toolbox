@@ -1,11 +1,11 @@
 use chrono::Local;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::thread;
 use image::{ImageBuffer, Rgba};
+use serde::{Deserialize, Serialize};
 use std::fs;
-use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum HistoryType {
@@ -24,9 +24,18 @@ pub struct HistoryItem {
 }
 
 pub enum HistoryAction {
-    SaveImage { img: ImageBuffer<Rgba<u8>, Vec<u8>>, text: String },
-    SaveAudio { wav_data: Vec<u8>, text: String },
-    SaveText { text: String }, // NEW: Save text-only entry
+    SaveImage {
+        img: ImageBuffer<Rgba<u8>, Vec<u8>>,
+        text: String,
+    },
+    SaveAudio {
+        wav_data: Vec<u8>,
+        text: String,
+    },
+    SaveText {
+        result_text: String,
+        input_text: String,
+    }, // NEW: Save text-only entry
     Delete(i64),
     ClearAll,
     Prune(usize),
@@ -46,7 +55,9 @@ impl HistoryManager {
             let file = fs::File::open(&db_path).ok();
             if let Some(f) = file {
                 serde_json::from_reader(f).unwrap_or_default()
-            } else { Vec::new() }
+            } else {
+                Vec::new()
+            }
         } else {
             Vec::new()
         };
@@ -69,10 +80,12 @@ impl HistoryManager {
         let _ = self.tx.send(HistoryAction::SaveAudio { wav_data, text });
     }
 
-    /// Save text-only history entry (no media file)
-    pub fn save_text(&self, text: String) {
-        if !text.trim().is_empty() {
-            let _ = self.tx.send(HistoryAction::SaveText { text });
+    pub fn save_text(&self, result_text: String, input_text: String) {
+        if !result_text.trim().is_empty() {
+            let _ = self.tx.send(HistoryAction::SaveText {
+                result_text,
+                input_text,
+            });
         }
     }
 
@@ -96,7 +109,9 @@ impl HistoryManager {
 }
 
 fn get_paths() -> (PathBuf, PathBuf, PathBuf) {
-    let config_dir = dirs::config_dir().unwrap_or_default().join("screen-goated-toolbox");
+    let config_dir = dirs::config_dir()
+        .unwrap_or_default()
+        .join("screen-goated-toolbox");
     let media_dir = config_dir.join("history_media");
     let db_path = config_dir.join("history.json");
     let _ = fs::create_dir_all(&media_dir);
@@ -111,9 +126,9 @@ fn save_db(items: &Vec<HistoryItem>) {
 }
 
 fn process_queue(
-    rx: Receiver<HistoryAction>, 
+    rx: Receiver<HistoryAction>,
     cache: Arc<Mutex<Vec<HistoryItem>>>,
-    mut max_items: usize
+    mut max_items: usize,
 ) {
     let (_, _, media_dir) = get_paths();
 
@@ -128,57 +143,73 @@ fn process_queue(
                 let filename = format!("img_{}.png", now.format("%Y%m%d_%H%M%S_%f"));
                 let path = media_dir.join(&filename);
                 let id = now.timestamp_nanos_opt().unwrap_or(0);
-                
+
                 if img.save(&path).is_ok() {
-                    items.insert(0, HistoryItem {
-                        id,
-                        timestamp,
-                        item_type: HistoryType::Image,
-                        text,
-                        media_path: filename,
-                    });
+                    items.insert(
+                        0,
+                        HistoryItem {
+                            id,
+                            timestamp,
+                            item_type: HistoryType::Image,
+                            text,
+                            media_path: filename,
+                        },
+                    );
                     should_save = true;
                 }
-            },
+            }
             HistoryAction::SaveAudio { wav_data, text } => {
                 let now = Local::now();
                 let timestamp = now.format("%Y-%m-%d %H:%M:%S").to_string();
                 let filename = format!("audio_{}.wav", now.format("%Y%m%d_%H%M%S_%f"));
                 let path = media_dir.join(&filename);
                 let id = now.timestamp_nanos_opt().unwrap_or(0);
-                
+
                 if fs::write(&path, wav_data).is_ok() {
-                    items.insert(0, HistoryItem {
-                        id,
-                        timestamp,
-                        item_type: HistoryType::Audio,
-                        text,
-                        media_path: filename,
-                    });
+                    items.insert(
+                        0,
+                        HistoryItem {
+                            id,
+                            timestamp,
+                            item_type: HistoryType::Audio,
+                            text,
+                            media_path: filename,
+                        },
+                    );
                     should_save = true;
                 }
-            },
-            HistoryAction::SaveText { text } => {
+            }
+            HistoryAction::SaveText {
+                result_text,
+                input_text,
+            } => {
                 let now = Local::now();
                 let timestamp = now.format("%Y-%m-%d %H:%M:%S").to_string();
+                let filename = format!("text_{}.txt", now.format("%Y%m%d_%H%M%S_%f"));
+                let path = media_dir.join(&filename);
                 let id = now.timestamp_nanos_opt().unwrap_or(0);
-                
-                items.insert(0, HistoryItem {
-                    id,
-                    timestamp,
-                    item_type: HistoryType::Text,
-                    text,
-                    media_path: String::new(), // No media for text entries
-                });
-                should_save = true;
-            },
+
+                if fs::write(&path, &input_text).is_ok() {
+                    items.insert(
+                        0,
+                        HistoryItem {
+                            id,
+                            timestamp,
+                            item_type: HistoryType::Text,
+                            text: result_text,
+                            media_path: filename,
+                        },
+                    );
+                    should_save = true;
+                }
+            }
             HistoryAction::Delete(id) => {
                 if let Some(pos) = items.iter().position(|x| x.id == id) {
                     let item = items.remove(pos);
                     let _ = fs::remove_file(media_dir.join(item.media_path));
                     should_save = true;
                 }
-            },
+            }
             HistoryAction::ClearAll => {
                 if let Ok(entries) = fs::read_dir(&media_dir) {
                     for entry in entries.flatten() {
@@ -187,28 +218,28 @@ fn process_queue(
                 }
                 items.clear();
                 should_save = true;
-            },
+            }
             HistoryAction::Prune(new_limit) => {
                 max_items = new_limit;
                 if items.len() > max_items {
                     while items.len() > max_items {
                         if let Some(item) = items.pop() {
-                             let _ = fs::remove_file(media_dir.join(item.media_path));
+                            let _ = fs::remove_file(media_dir.join(item.media_path));
                         }
                     }
                     should_save = true;
                 }
             }
         }
-        
+
         // Handle pruning after saves
         if items.len() > max_items {
-             while items.len() > max_items {
-                 if let Some(item) = items.pop() {
-                      let _ = fs::remove_file(media_dir.join(item.media_path));
-                 }
-             }
-             should_save = true;
+            while items.len() > max_items {
+                if let Some(item) = items.pop() {
+                    let _ = fs::remove_file(media_dir.join(item.media_path));
+                }
+            }
+            should_save = true;
         }
 
         if should_save {
