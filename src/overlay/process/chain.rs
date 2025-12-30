@@ -335,6 +335,13 @@ pub fn run_chain_step(
         let accumulated = Arc::new(Mutex::new(String::new()));
         let acc_clone = accumulated.clone();
 
+        // Identify if this is the first block in the chain that actually processes input (skipping adapters)
+        let is_first_processing_block = blocks
+            .iter()
+            .position(|b| b.block_type != "input_adapter")
+            .map(|pos| pos == block_idx)
+            .unwrap_or(false);
+
         // Clone model name for use in error handling (original gets moved to API functions)
         let model_name_for_error = model_full_name.clone();
 
@@ -344,12 +351,21 @@ pub fn run_chain_step(
         let processing_hwnd_shared = Arc::new(Mutex::new(processing_indicator_hwnd));
         let processing_hwnd_clone = processing_hwnd_shared.clone();
 
-        let res = if block_idx == 0 && matches!(context, RefineContext::Image(_)) {
-            // Image Block
+        let res = if is_first_processing_block
+            && block.block_type == "image"
+            && matches!(context, RefineContext::Image(_))
+        {
+            // Image Block (first processing block in chain)
             if let RefineContext::Image(img_data) = context.clone() {
                 let img = image::load_from_memory(&img_data)
                     .expect("Failed to load png")
                     .to_rgba8();
+
+                let acc_clone_inner = acc_clone.clone();
+                let my_hwnd_inner = my_hwnd;
+                let window_shown_inner = window_shown_clone.clone();
+                let proc_hwnd_inner = processing_hwnd_clone.clone();
+
                 translate_image_streaming(
                     &groq_key,
                     &gemini_key,
@@ -359,8 +375,8 @@ pub fn run_chain_step(
                     img,
                     actual_streaming_enabled,
                     use_json,
-                    |chunk| {
-                        let mut t = acc_clone.lock().unwrap();
+                    move |chunk| {
+                        let mut t = acc_clone_inner.lock().unwrap();
                         // Handle WIPE_SIGNAL - clear accumulator and use content after signal
                         if chunk.starts_with(crate::api::WIPE_SIGNAL) {
                             t.clear();
@@ -368,17 +384,18 @@ pub fn run_chain_step(
                         } else {
                             t.push_str(chunk);
                         }
-                        if let Some(h) = my_hwnd {
+
+                        if let Some(h) = my_hwnd_inner {
                             // On first chunk for image blocks: show window and close processing indicator
                             {
-                                let mut shown = window_shown_clone.lock().unwrap();
+                                let mut shown = window_shown_inner.lock().unwrap();
                                 if !*shown {
                                     *shown = true;
                                     unsafe {
                                         let _ = ShowWindow(h, SW_SHOW);
                                     }
                                     // Close processing indicator
-                                    let mut proc_hwnd = processing_hwnd_clone.lock().unwrap();
+                                    let mut proc_hwnd = proc_hwnd_inner.lock().unwrap();
                                     if let Some(ph) = proc_hwnd.take() {
                                         unsafe {
                                             let _ = PostMessageW(
@@ -412,7 +429,7 @@ pub fn run_chain_step(
                 &groq_key,
                 &gemini_key,
                 input_text,
-                final_prompt, // CHANGED: Pass final_prompt instead of selected_language
+                final_prompt,
                 model_full_name,
                 provider,
                 actual_streaming_enabled,
@@ -679,7 +696,11 @@ pub fn run_chain_step(
         return;
     }
 
-    if !result_text.trim().is_empty() {
+    // For input_adapter blocks, ALWAYS continue to downstream blocks even if result_text is empty
+    // This is critical for image presets where the image data is in context, not input_text
+    let should_continue = !result_text.trim().is_empty() || block.block_type == "input_adapter";
+
+    if should_continue {
         // Find all downstream blocks from connections
         let downstream_indices: Vec<usize> = connections
             .iter()
@@ -736,6 +757,14 @@ pub fn run_chain_step(
             RefineContext::None
         };
 
+        let next_skip_execution = if skip_execution {
+            // Continue skipping if current block didn't "consume" the skipped output
+            // Input adapter never consumes/displays, so we keep skipping until we hit the actual source block
+            block.block_type == "input_adapter"
+        } else {
+            false
+        };
+
         let _s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
         let _s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
 
@@ -779,7 +808,7 @@ pub fn run_chain_step(
                     config_clone,
                     parent_clone,
                     branch_context, // Pass the captured context
-                    false,
+                    next_skip_execution,
                     None, // No processing indicator for parallel branches
                     cancel_clone,
                     preset_id_clone,
@@ -797,7 +826,7 @@ pub fn run_chain_step(
             config,
             next_parent,
             next_context, // Pass the context
-            false,
+            next_skip_execution,
             processing_indicator_hwnd, // Pass it along (might be None or Some)
             cancel_token,              // Pass the same token through the chain
             preset_id,

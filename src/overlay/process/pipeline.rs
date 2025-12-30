@@ -347,14 +347,18 @@ pub fn start_processing_pipeline(
                     let _ = PostMessageW(Some(input_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
 
-                // Clone preset and modify the first block's prompt with user's input
+                // Clone preset and modify the first actual processing block's prompt with user's input
                 let mut modified_preset = (*preset).clone();
-                if let Some(block0) = modified_preset.blocks.get_mut(0) {
-                    if block0.prompt.is_empty() {
-                        block0.prompt = user_prompt.clone();
+                if let Some(target_block) = modified_preset
+                    .blocks
+                    .iter_mut()
+                    .find(|b| b.block_type != "input_adapter")
+                {
+                    if target_block.prompt.is_empty() {
+                        target_block.prompt = user_prompt.clone();
                     } else {
-                        block0.prompt =
-                            format!("{}\n\nUser request: {}", block0.prompt, user_prompt);
+                        target_block.prompt =
+                            format!("{}\n\nUser request: {}", target_block.prompt, user_prompt);
                     }
                 }
 

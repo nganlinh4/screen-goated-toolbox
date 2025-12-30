@@ -52,6 +52,20 @@ impl ModelConfig {
     }
 }
 
+/// Check if a model is a non-LLM model (doesn't use prompts)
+/// These are specialized models that process input directly without instructions.
+pub fn model_is_non_llm(model_id: &str) -> bool {
+    match model_id {
+        // QR Scanner - just decodes QR codes
+        "qr-scanner" => true,
+        // Google Translate (GTX) - translation only, language from instruction
+        "google-gtx" => true,
+        // Whisper models - speech-to-text only
+        "whisper-fast" | "whisper-accurate" => true,
+        _ => false,
+    }
+}
+
 lazy_static::lazy_static! {
     static ref ALL_MODELS: Vec<ModelConfig> = vec![
         ModelConfig::new(
