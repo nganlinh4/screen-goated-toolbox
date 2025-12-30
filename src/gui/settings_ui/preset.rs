@@ -204,9 +204,48 @@ pub fn render_preset_editor(
                                 if ui.selectable_value(&mut preset.audio_processing_mode, "record_then_process".to_string(), mode_record).clicked() { changed = true; }
                                 if ui.selectable_value(&mut preset.audio_processing_mode, "realtime".to_string(), mode_realtime).clicked() { changed = true; }
                             });
+
+
                     }
                 }
             });
+
+            // Row 2.5: Realtime Interface
+            if preset.preset_type == "audio" && preset.audio_processing_mode == "realtime" && !preset.show_controller_ui {
+                 ui.add_space(8.0);
+                 ui.horizontal(|ui| {
+                      let window_mode_label = match config.ui_language.as_str() {
+                          "vi" => "Giao diện:",
+                          "ko" => "인터페이스:",
+                          _ => "Interface:",
+                      };
+                      ui.label(window_mode_label);
+
+                      let mode_standard = match config.ui_language.as_str() {
+                          "vi" => "Tiêu chuẩn",
+                          "ko" => "표준",
+                          _ => "Standard",
+                      };
+                      let mode_minimal = match config.ui_language.as_str() {
+                          "vi" => "Tối giản (Win10/máy yếu)",
+                          "ko" => "최소 (Win10/저사양 PC)",
+                          _ => "Minimal (Win10/Low spec PC)",
+                      };
+
+                      let selected_window_mode = if preset.realtime_window_mode == "minimal" {
+                          mode_minimal
+                      } else {
+                          mode_standard
+                      };
+
+                      egui::ComboBox::from_id_salt("realtime_window_mode_combo")
+                          .selected_text(selected_window_mode)
+                          .show_ui(ui, |ui| {
+                              if ui.selectable_value(&mut preset.realtime_window_mode, "standard".to_string(), mode_standard).clicked() { changed = true; }
+                              if ui.selectable_value(&mut preset.realtime_window_mode, "minimal".to_string(), mode_minimal).clicked() { changed = true; }
+                          });
+                 });
+            }
 
             // Row 3: Audio source (if applicable) - Hide if Realtime mode
             if preset.preset_type == "audio" && preset.audio_processing_mode != "realtime" {
