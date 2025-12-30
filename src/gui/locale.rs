@@ -188,6 +188,14 @@ pub struct LocaleText {
     pub auto_copied_image_badge: &'static str,
     // --- DROP OVERLAY ---
     pub drop_overlay_text: &'static str,
+    // --- REALTIME EGUI SPECIFIC ---
+    pub device_mode_warning: &'static str,
+    pub select_app_btn: &'static str,
+    pub toggle_translation_tooltip: &'static str,
+    pub toggle_transcription_tooltip: &'static str,
+    pub font_minus_tooltip: &'static str,
+    pub font_plus_tooltip: &'static str,
+    pub google_gtx_label: &'static str,
 }
 
 impl LocaleText {
@@ -417,6 +425,14 @@ impl LocaleText {
                  auto_copied_image_badge: "🖼️ Ảnh đã được sao chép",
                  // --- DROP OVERLAY VI ---
                  drop_overlay_text: "Thả vào đây để xử lý",
+                 // --- REALTIME EGUI SPECIFIC VI ---
+                 device_mode_warning: "⚠ Đã chọn âm thanh thiết bị nhưng chưa chọn ứng dụng",
+                 select_app_btn: "Chọn ứng dụng",
+                 toggle_translation_tooltip: "Tắt/Mở dịch",
+                 toggle_transcription_tooltip: "Tắt/Mở phụ đề",
+                 font_minus_tooltip: "Giảm cỡ chữ",
+                 font_plus_tooltip: "Tăng cỡ chữ",
+                 google_gtx_label: "Google Dịch",
                  },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -642,6 +658,14 @@ impl LocaleText {
                  auto_copied_image_badge: "🖼️ 이미지가 복사됨",
                  // --- DROP OVERLAY KO ---
                  drop_overlay_text: "여기에 드롭하여 처리",
+                 // --- REALTIME EGUI SPECIFIC KO ---
+                 device_mode_warning: "⚠ 장치 오디오가 선택되었지만 앱이 선택되지 않았습니다",
+                 select_app_btn: "앱 선택",
+                 toggle_translation_tooltip: "번역 켜기/끄기",
+                 toggle_transcription_tooltip: "자막 켜기/끄기",
+                 font_minus_tooltip: "글꼴 축소",
+                 font_plus_tooltip: "글꼴 확대",
+                 google_gtx_label: "Google 번역",
                  },
                 _ => Self {
                  history_btn: "History",
@@ -867,6 +891,14 @@ impl LocaleText {
                  auto_copied_image_badge: "🖼️ Image copied",
                  // --- DROP OVERLAY EN ---
                  drop_overlay_text: "Drop here to process",
+                 // --- REALTIME EGUI SPECIFIC EN ---
+                 device_mode_warning: "⚠ Device audio selected but no app chosen",
+                 select_app_btn: "Select App",
+                 toggle_translation_tooltip: "Toggle Translation",
+                 toggle_transcription_tooltip: "Toggle Transcription",
+                 font_minus_tooltip: "Font -",
+                 font_plus_tooltip: "Font +",
+                 google_gtx_label: "Google Translate",
                  },
                 }
     }

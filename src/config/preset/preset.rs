@@ -55,6 +55,10 @@ pub struct Preset {
     #[serde(default = "default_audio_processing_mode")]
     pub audio_processing_mode: String,
 
+    /// Realtime window mode: "standard" (webview) or "minimal" (egui)
+    #[serde(default = "default_realtime_window_mode")]
+    pub realtime_window_mode: String,
+
     /// Video capture method
     #[serde(default)]
     pub video_capture_method: String,
@@ -139,6 +143,10 @@ fn default_audio_processing_mode() -> String {
     "record_then_process".to_string()
 }
 
+fn default_realtime_window_mode() -> String {
+    "standard".to_string()
+}
+
 fn default_true() -> bool {
     true
 }
@@ -159,6 +167,7 @@ impl Default for Preset {
             text_input_mode: "select".to_string(),
             audio_source: "mic".to_string(),
             audio_processing_mode: "record_then_process".to_string(),
+            realtime_window_mode: "standard".to_string(),
             video_capture_method: "region".to_string(),
             auto_paste: false,
             auto_paste_newline: false,
@@ -293,6 +302,13 @@ impl PresetBuilder {
     /// Enable realtime audio processing
     pub fn realtime(mut self) -> Self {
         self.preset.audio_processing_mode = "realtime".to_string();
+        self
+    }
+
+    /// Set realtime window mode to minimal
+    #[allow(dead_code)]
+    pub fn minimal_mode(mut self) -> Self {
+        self.preset.realtime_window_mode = "minimal".to_string();
         self
     }
 

@@ -60,6 +60,9 @@ impl eframe::App for SettingsApp {
         // Fade In Overlay (Last)
         self.render_fade_overlay(ctx);
 
+        // Render Minimal Mode Overlay (Realtime)
+        crate::overlay::realtime_egui::render_minimal_overlay(ctx);
+
         // Render Splash Overlay (Last Last)
         if let Some(splash) = &self.splash {
             splash.paint(ctx);

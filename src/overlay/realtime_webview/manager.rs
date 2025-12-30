@@ -23,6 +23,10 @@ pub fn stop_realtime_overlay() {
     // Stop any playing TTS immediately
     crate::api::tts::TTS_MANAGER.stop();
 
+    // Stop Minimal Mode if active
+    crate::overlay::realtime_egui::MINIMAL_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+    REALTIME_STOP_SIGNAL.store(true, Ordering::SeqCst);
+
     unsafe {
         // Close app selection popup if open
         let popup_val = APP_SELECTION_HWND.load(std::sync::atomic::Ordering::SeqCst);
@@ -45,6 +49,12 @@ pub fn show_realtime_overlay(preset_idx: usize) {
         }
 
         let mut preset = APP.lock().unwrap().config.presets[preset_idx].clone();
+
+        // Check if Minimal Mode is requested
+        if preset.realtime_window_mode == "minimal" {
+            crate::overlay::realtime_egui::show_realtime_egui_overlay(preset_idx);
+            return;
+        }
 
         // Reset state
         IS_ACTIVE = true;

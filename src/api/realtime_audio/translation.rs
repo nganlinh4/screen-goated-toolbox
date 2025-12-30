@@ -1,19 +1,22 @@
 //! Translation loop for realtime audio
 
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use std::time::{Duration, Instant};
+use isolang;
 use std::io::BufRead;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::time::{Duration, Instant};
+use urlencoding;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use isolang;
-use urlencoding;
 
+use crate::api::client::UREQ_AGENT;
 use crate::config::Preset;
 use crate::APP;
-use crate::api::client::UREQ_AGENT;
 
 use super::state::SharedRealtimeState;
-use super::utils::{update_translation_text, refresh_transcription_window};
+use super::utils::{refresh_transcription_window, update_translation_text};
 use super::{TRANSLATION_INTERVAL_MS, WM_MODEL_SWITCH};
 
 /// Translation loop using Groq's llama-3.1-8b-instant model
@@ -26,46 +29,61 @@ pub fn run_translation_loop(
     let translation_hwnd = translation_hwnd_send.0;
     let interval = Duration::from_millis(TRANSLATION_INTERVAL_MS);
     let mut last_run = Instant::now();
-    
+
     let translation_block = match preset.blocks.get(1) {
         Some(b) => b.clone(),
         None => return,
     };
-    
+
     let mut target_language = {
-        let from_ui = crate::overlay::realtime_webview::NEW_TARGET_LANGUAGE.lock()
+        let from_ui = crate::overlay::realtime_webview::NEW_TARGET_LANGUAGE
+            .lock()
             .ok()
-            .and_then(|lang| if lang.is_empty() { None } else { Some(lang.clone()) });
-        
+            .and_then(|lang| {
+                if lang.is_empty() {
+                    None
+                } else {
+                    Some(lang.clone())
+                }
+            });
+
         from_ui.unwrap_or_else(|| {
             if !translation_block.selected_language.is_empty() {
                 translation_block.selected_language.clone()
             } else {
-                translation_block.language_vars.get("language").cloned()
+                translation_block
+                    .language_vars
+                    .get("language")
+                    .cloned()
                     .or_else(|| translation_block.language_vars.get("language1").cloned())
                     .unwrap_or_else(|| "English".to_string())
             }
         })
     };
-    
+
     while !stop_signal.load(Ordering::Relaxed) {
-        if !unsafe { IsWindow(Some(translation_hwnd)).as_bool() } { break; }
-        
+        if translation_hwnd.0 != 0 as _ && !unsafe { IsWindow(Some(translation_hwnd)).as_bool() } {
+            break;
+        }
+
         // Check for language change
         if crate::overlay::realtime_webview::LANGUAGE_CHANGE.load(Ordering::SeqCst) {
             if let Ok(new_lang) = crate::overlay::realtime_webview::NEW_TARGET_LANGUAGE.lock() {
                 if !new_lang.is_empty() {
                     target_language = new_lang.clone();
-                    if let Ok(mut s) = state.lock() { s.translation_history.clear(); }
+                    if let Ok(mut s) = state.lock() {
+                        s.translation_history.clear();
+                    }
                 }
             }
             crate::overlay::realtime_webview::LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
         }
-        
+
         if crate::overlay::realtime_webview::TRANSLATION_MODEL_CHANGE.load(Ordering::SeqCst) {
-            crate::overlay::realtime_webview::TRANSLATION_MODEL_CHANGE.store(false, Ordering::SeqCst);
+            crate::overlay::realtime_webview::TRANSLATION_MODEL_CHANGE
+                .store(false, Ordering::SeqCst);
         }
-        
+
         // Check timeout-based commit
         {
             let should_force = { state.lock().unwrap().should_force_commit_on_timeout() };
@@ -78,7 +96,7 @@ pub fn run_translation_loop(
                 }
             }
         }
-        
+
         if last_run.elapsed() >= interval {
             if !crate::overlay::realtime_webview::TRANS_VISIBLE.load(Ordering::SeqCst) {
                 last_run = Instant::now();
@@ -93,30 +111,38 @@ pub fn run_translation_loop(
                 } else {
                     match s.get_translation_chunk() {
                         Some((text, has_finished)) => (Some(text), has_finished, false),
-                        None => (None, false, true)
+                        None => (None, false, true),
                     }
                 }
             };
-            
+
             if is_unchanged {
                 last_run = Instant::now();
                 std::thread::sleep(Duration::from_millis(100));
                 continue;
             }
-            
+
             if let Some(chunk) = chunk {
-                { let mut s = state.lock().unwrap(); s.update_last_processed_len(); s.start_new_translation(); }
-                
+                {
+                    let mut s = state.lock().unwrap();
+                    s.update_last_processed_len();
+                    s.start_new_translation();
+                }
+
                 let (groq_key, gemini_key, translation_model, history_messages) = {
                     let app = APP.lock().unwrap();
                     let groq = app.config.api_key.clone();
                     let gemini = app.config.gemini_api_key.clone();
                     let model = app.config.realtime_translation_model.clone();
                     drop(app);
-                    let history = if let Ok(s) = state.lock() { s.get_history_messages(&target_language) } else { Vec::new() };
+                    let history = if let Ok(s) = state.lock() {
+                        s.get_history_messages(&target_language)
+                    } else {
+                        Vec::new()
+                    };
                     (groq, gemini, model, history)
                 };
-                
+
                 let current_model = translation_model.as_str();
                 let mut primary_failed = false;
 
@@ -126,15 +152,23 @@ pub fn run_translation_loop(
                             s.append_translation(&text);
                             let display = s.display_translation.clone();
                             update_translation_text(translation_hwnd, &display);
-                            if has_finished && s.commit_finished_sentences() { refresh_transcription_window(); }
+                            if has_finished && s.commit_finished_sentences() {
+                                refresh_transcription_window();
+                            }
                         }
-                    } else { primary_failed = true; }
+                    } else {
+                        primary_failed = true;
+                    }
                 } else {
                     let is_google = current_model == "google-gemma";
                     let (url, model_name, api_key) = if is_google {
                         ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string(), "gemma-3-27b-it".to_string(), gemini_key.clone())
                     } else {
-                        ("https://api.groq.com/openai/v1/chat/completions".to_string(), "llama-3.1-8b-instant".to_string(), groq_key.clone())
+                        (
+                            "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                            "llama-3.1-8b-instant".to_string(),
+                            groq_key.clone(),
+                        )
                     };
 
                     let mut messages: Vec<serde_json::Value> = Vec::new();
@@ -144,51 +178,102 @@ pub fn run_translation_loop(
                         messages.extend(history_messages.clone());
                         messages.push(serde_json::json!({"role": "user", "content": format!("{}\n\nTranslate to {}:\n{}", system_instruction, target_language, chunk)}));
                     } else {
-                        messages.push(serde_json::json!({"role": "system", "content": system_instruction}));
+                        messages.push(
+                            serde_json::json!({"role": "system", "content": system_instruction}),
+                        );
                         messages.extend(history_messages.clone());
                         messages.push(serde_json::json!({"role": "user", "content": format!("Translate to {}:\n{}", target_language, chunk)}));
                     }
 
                     if !api_key.is_empty() {
                         let payload = serde_json::json!({"model": model_name, "messages": messages, "stream": true, "max_tokens": 512});
-                        match UREQ_AGENT.post(&url).set("Authorization", &format!("Bearer {}", api_key)).set("Content-Type", "application/json").send_json(payload) {
+                        match UREQ_AGENT
+                            .post(&url)
+                            .set("Authorization", &format!("Bearer {}", api_key))
+                            .set("Content-Type", "application/json")
+                            .send_json(payload)
+                        {
                             Ok(resp) => {
                                 if !is_google {
-                                    if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                                        let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
-                                        if let Ok(mut app) = APP.lock() { app.model_usage_stats.insert("llama-3.1-8b-instant".to_string(), format!("{} / {}", remaining, limit)); }
+                                    if let Some(remaining) =
+                                        resp.header("x-ratelimit-remaining-requests")
+                                    {
+                                        let limit = resp
+                                            .header("x-ratelimit-limit-requests")
+                                            .unwrap_or("?");
+                                        if let Ok(mut app) = APP.lock() {
+                                            app.model_usage_stats.insert(
+                                                "llama-3.1-8b-instant".to_string(),
+                                                format!("{} / {}", remaining, limit),
+                                            );
+                                        }
                                     }
                                 }
                                 let reader = std::io::BufReader::new(resp.into_reader());
                                 let mut full_translation = String::new();
                                 for line in reader.lines().flatten() {
-                                    if stop_signal.load(Ordering::Relaxed) { break; }
+                                    if stop_signal.load(Ordering::Relaxed) {
+                                        break;
+                                    }
                                     if line.starts_with("data: ") {
                                         let json_str = &line["data: ".len()..];
-                                        if json_str.trim() == "[DONE]" { break; }
-                                        if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str) {
-                                            if let Some(content) = chunk_resp.get("choices").and_then(|c| c.as_array()).and_then(|a| a.first()).and_then(|f| f.get("delta")).and_then(|d| d.get("content")).and_then(|t| t.as_str()) {
+                                        if json_str.trim() == "[DONE]" {
+                                            break;
+                                        }
+                                        if let Ok(chunk_resp) =
+                                            serde_json::from_str::<serde_json::Value>(json_str)
+                                        {
+                                            if let Some(content) = chunk_resp
+                                                .get("choices")
+                                                .and_then(|c| c.as_array())
+                                                .and_then(|a| a.first())
+                                                .and_then(|f| f.get("delta"))
+                                                .and_then(|d| d.get("content"))
+                                                .and_then(|t| t.as_str())
+                                            {
                                                 full_translation.push_str(content);
                                                 if let Ok(mut s) = state.lock() {
                                                     s.append_translation(content);
                                                     let display = s.display_translation.clone();
-                                                    update_translation_text(translation_hwnd, &display);
+                                                    update_translation_text(
+                                                        translation_hwnd,
+                                                        &display,
+                                                    );
                                                 }
                                             }
                                         }
                                     }
                                 }
                                 if has_finished && !full_translation.is_empty() {
-                                    if let Ok(mut s) = state.lock() { if s.commit_finished_sentences() { refresh_transcription_window(); } }
+                                    if let Ok(mut s) = state.lock() {
+                                        if s.commit_finished_sentences() {
+                                            refresh_transcription_window();
+                                        }
+                                    }
                                 }
                             }
-                            Err(_) => { primary_failed = true; }
+                            Err(_) => {
+                                primary_failed = true;
+                            }
                         }
-                    } else { primary_failed = true; }
+                    } else {
+                        primary_failed = true;
+                    }
                 }
 
                 if primary_failed {
-                    handle_fallback_translation(&chunk, &target_language, current_model, &groq_key, &gemini_key, &history_messages, has_finished, translation_hwnd, &state, &stop_signal);
+                    handle_fallback_translation(
+                        &chunk,
+                        &target_language,
+                        current_model,
+                        &groq_key,
+                        &gemini_key,
+                        &history_messages,
+                        has_finished,
+                        translation_hwnd,
+                        &state,
+                        &stop_signal,
+                    );
                 }
             }
             last_run = Instant::now();
@@ -198,16 +283,48 @@ pub fn run_translation_loop(
 }
 
 fn handle_fallback_translation(
-    chunk: &str, target_language: &str, current_model: &str, groq_key: &str, gemini_key: &str,
-    history_messages: &[serde_json::Value], has_finished: bool, translation_hwnd: HWND,
-    state: &SharedRealtimeState, stop_signal: &Arc<AtomicBool>,
+    chunk: &str,
+    target_language: &str,
+    current_model: &str,
+    groq_key: &str,
+    gemini_key: &str,
+    history_messages: &[serde_json::Value],
+    has_finished: bool,
+    translation_hwnd: HWND,
+    state: &SharedRealtimeState,
+    stop_signal: &Arc<AtomicBool>,
 ) {
-    let alt_model = if current_model == "groq-llama" { "google-gtx" }
-        else if current_model == "google-gtx" { "groq-llama" }
-        else { let pool = ["groq-llama", "google-gtx"]; let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(); pool[(nanos as usize) % pool.len()] };
-    
-    { let mut app = APP.lock().unwrap(); app.config.realtime_translation_model = alt_model.to_string(); crate::config::save_config(&app.config); }
-    unsafe { let flag = match alt_model { "google-gemma" => 1, "google-gtx" => 2, _ => 0 }; let _ = PostMessageW(Some(translation_hwnd), WM_MODEL_SWITCH, WPARAM(flag), LPARAM(0)); }
+    let alt_model = if current_model == "groq-llama" {
+        "google-gtx"
+    } else if current_model == "google-gtx" {
+        "groq-llama"
+    } else {
+        let pool = ["groq-llama", "google-gtx"];
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        pool[(nanos as usize) % pool.len()]
+    };
+
+    {
+        let mut app = APP.lock().unwrap();
+        app.config.realtime_translation_model = alt_model.to_string();
+        crate::config::save_config(&app.config);
+    }
+    unsafe {
+        let flag = match alt_model {
+            "google-gemma" => 1,
+            "google-gtx" => 2,
+            _ => 0,
+        };
+        let _ = PostMessageW(
+            Some(translation_hwnd),
+            WM_MODEL_SWITCH,
+            WPARAM(flag),
+            LPARAM(0),
+        );
+    }
 
     if alt_model == "google-gtx" {
         if let Some(text) = translate_with_google_gtx(chunk, target_language) {
@@ -215,15 +332,26 @@ fn handle_fallback_translation(
                 s.append_translation(&text);
                 let display = s.display_translation.clone();
                 update_translation_text(translation_hwnd, &display);
-                if has_finished && s.commit_finished_sentences() { refresh_transcription_window(); }
+                if has_finished && s.commit_finished_sentences() {
+                    refresh_transcription_window();
+                }
             }
         }
     } else {
         let alt_is_google = alt_model == "google-gemma";
         let (alt_url, alt_model_name, alt_key) = if alt_is_google {
-            ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string(), "gemma-3-27b-it".to_string(), gemini_key.to_string())
+            (
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                    .to_string(),
+                "gemma-3-27b-it".to_string(),
+                gemini_key.to_string(),
+            )
         } else {
-            ("https://api.groq.com/openai/v1/chat/completions".to_string(), "llama-3.1-8b-instant".to_string(), groq_key.to_string())
+            (
+                "https://api.groq.com/openai/v1/chat/completions".to_string(),
+                "llama-3.1-8b-instant".to_string(),
+                groq_key.to_string(),
+            )
         };
 
         if !alt_key.is_empty() {
@@ -238,30 +366,59 @@ fn handle_fallback_translation(
                 alt_msgs.push(serde_json::json!({"role": "user", "content": format!("Translate to {}:\n{}", target_language, chunk)}));
             }
             let payload = serde_json::json!({"model": alt_model_name, "messages": alt_msgs, "stream": true, "max_tokens": 512});
-            if let Ok(resp) = UREQ_AGENT.post(&alt_url).set("Authorization", &format!("Bearer {}", alt_key)).set("Content-Type", "application/json").send_json(payload) {
+            if let Ok(resp) = UREQ_AGENT
+                .post(&alt_url)
+                .set("Authorization", &format!("Bearer {}", alt_key))
+                .set("Content-Type", "application/json")
+                .send_json(payload)
+            {
                 if !alt_is_google {
                     if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
                         let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
-                        if let Ok(mut app) = APP.lock() { app.model_usage_stats.insert("llama-3.1-8b-instant".to_string(), format!("{} / {}", remaining, limit)); }
+                        if let Ok(mut app) = APP.lock() {
+                            app.model_usage_stats.insert(
+                                "llama-3.1-8b-instant".to_string(),
+                                format!("{} / {}", remaining, limit),
+                            );
+                        }
                     }
                 }
                 let reader = std::io::BufReader::new(resp.into_reader());
                 let mut full_t = String::new();
                 for line in reader.lines().flatten() {
-                    if stop_signal.load(Ordering::Relaxed) { break; }
+                    if stop_signal.load(Ordering::Relaxed) {
+                        break;
+                    }
                     if line.starts_with("data: ") {
                         let json_str = &line["data: ".len()..];
-                        if json_str.trim() == "[DONE]" { break; }
+                        if json_str.trim() == "[DONE]" {
+                            break;
+                        }
                         if let Ok(c) = serde_json::from_str::<serde_json::Value>(json_str) {
-                            if let Some(txt) = c.get("choices").and_then(|a| a.as_array()).and_then(|v| v.first()).and_then(|f| f.get("delta")).and_then(|d| d.get("content")).and_then(|s| s.as_str()) {
+                            if let Some(txt) = c
+                                .get("choices")
+                                .and_then(|a| a.as_array())
+                                .and_then(|v| v.first())
+                                .and_then(|f| f.get("delta"))
+                                .and_then(|d| d.get("content"))
+                                .and_then(|s| s.as_str())
+                            {
                                 full_t.push_str(txt);
-                                if let Ok(mut s) = state.lock() { s.append_translation(txt); let d = s.display_translation.clone(); update_translation_text(translation_hwnd, &d); }
+                                if let Ok(mut s) = state.lock() {
+                                    s.append_translation(txt);
+                                    let d = s.display_translation.clone();
+                                    update_translation_text(translation_hwnd, &d);
+                                }
                             }
                         }
                     }
                 }
                 if has_finished && !full_t.is_empty() {
-                    if let Ok(mut s) = state.lock() { if s.commit_finished_sentences() { refresh_transcription_window(); } }
+                    if let Ok(mut s) = state.lock() {
+                        if s.commit_finished_sentences() {
+                            refresh_transcription_window();
+                        }
+                    }
                 }
             }
         }
@@ -276,17 +433,29 @@ pub fn translate_with_google_gtx(text: &str, target_lang: &str) -> Option<String
         .unwrap_or_else(|| "en".to_string());
 
     let encoded_text = urlencoding::encode(text);
-    let url = format!("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={}&dt=t&q={}", target_code, encoded_text);
+    let url = format!(
+        "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={}&dt=t&q={}",
+        target_code, encoded_text
+    );
 
-    match UREQ_AGENT.get(&url).set("User-Agent", "Mozilla/5.0").timeout(std::time::Duration::from_secs(10)).call() {
+    match UREQ_AGENT
+        .get(&url)
+        .set("User-Agent", "Mozilla/5.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .call()
+    {
         Ok(resp) => {
             if let Ok(json) = resp.into_json::<serde_json::Value>() {
                 if let Some(sentences) = json.get(0).and_then(|v| v.as_array()) {
                     let mut full_text = String::new();
                     for sentence_node in sentences {
-                        if let Some(segment) = sentence_node.get(0).and_then(|s| s.as_str()) { full_text.push_str(segment); }
+                        if let Some(segment) = sentence_node.get(0).and_then(|s| s.as_str()) {
+                            full_text.push_str(segment);
+                        }
                     }
-                    if !full_text.is_empty() { return Some(full_text); }
+                    if !full_text.is_empty() {
+                        return Some(full_text);
+                    }
                 }
             }
         }

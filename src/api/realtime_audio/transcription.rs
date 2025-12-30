@@ -267,7 +267,7 @@ fn run_main_loop(
     const EMPTY_READ_CHECK_COUNT: u32 = 50;
 
     while !stop_signal.load(Ordering::Relaxed) {
-        if !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
+        if overlay_hwnd.0 != 0 as _ && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
             stop_signal.store(true, Ordering::SeqCst);
             break;
         }

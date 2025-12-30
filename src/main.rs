@@ -2,7 +2,7 @@
 
 mod api;
 mod config;
-mod gui;
+pub mod gui;
 mod history;
 mod icon_gen;
 mod model_config;
@@ -351,6 +351,9 @@ fn main() -> eframe::Result<()> {
         Box::new(move |cc| {
             gui::configure_fonts(&cc.egui_ctx);
 
+            // Store global context for background threads
+            *gui::GUI_CONTEXT.lock().unwrap() = Some(cc.egui_ctx.clone());
+
             // 5. Set Initial Visuals Explicitly
             if effective_dark {
                 cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
@@ -655,10 +658,19 @@ unsafe extern "system" fn hotkey_proc(
 
                     if is_realtime {
                         // Realtime mode - toggle realtime overlay
-                        if overlay::is_realtime_overlay_active() {
-                            // Already active - stop it (toggle off)
+                        // Check if minimal or webview is active
+                        let is_minimal_active = overlay::realtime_egui::MINIMAL_ACTIVE
+                            .load(std::sync::atomic::Ordering::SeqCst);
+                        let is_webview_active = overlay::is_realtime_overlay_active();
+
+                        if is_webview_active {
+                            // WebView active - stop it (toggle off)
                             overlay::stop_realtime_overlay();
+                        } else if is_minimal_active {
+                            // Minimal egui active - do NOT allow hotkey to close (user must use window X)
+                            // This prevents buggy behavior
                         } else {
+                            // Nothing active - Start
                             std::thread::spawn(move || {
                                 overlay::show_realtime_overlay(preset_idx);
                             });
