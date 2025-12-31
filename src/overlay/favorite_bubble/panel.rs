@@ -464,9 +464,10 @@ fn create_panel_webview(panel_hwnd: HWND) {
                     close_panel_internal();
                 } else if body.starts_with("trigger:") {
                     if let Ok(idx) = body[8..].parse::<usize>() {
-                        // trigger() in JS already calls closePanel() which leads to close_now
-                        // so we don't necessarily need to close here, but let's be safe
-                        close_panel_internal();
+                        // trigger() in JS starts the close animation and will send close_now when done.
+                        // We must set IS_EXPANDED to false so close_panel_internal (called by close_now)
+                        // actually hides the window. We DON'T call close_panel_internal here to allow animation.
+                        IS_EXPANDED.store(false, Ordering::SeqCst);
                         trigger_preset(idx);
                     }
                 } else if body.starts_with("trigger_only:") {
