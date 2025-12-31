@@ -8,8 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use std::sync::{Mutex, Once};
 use windows::core::w;
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
@@ -250,10 +252,10 @@ fn internal_create_window_loop() {
         });
 
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
             w!("PresetWheel"),
-            WS_POPUP | WS_VISIBLE,
+            WS_POPUP, // Removed WS_VISIBLE to prevent initial flash/artifacts
             -4000,
             -4000,
             WHEEL_WIDTH,
@@ -266,7 +268,16 @@ fn internal_create_window_loop() {
         .unwrap_or_default();
 
         WHEEL_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
-        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+        // Use DWM to extend the "glass" frame into the entire client area for transparency
+        let margins = MARGINS {
+            cxLeftWidth: -1,
+            cxRightWidth: -1,
+            cyTopHeight: -1,
+            cyBottomHeight: -1,
+        };
+        unsafe {
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+        }
 
         let wrapper = HwndWrapper(hwnd);
 
@@ -379,6 +390,7 @@ unsafe extern "system" fn overlay_wnd_proc(
             LRESULT(0)
         }
         WM_CLOSE => LRESULT(0),
+        WM_ERASEBKGND => LRESULT(1), // Prevent GDI from clearing background to black/white
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
@@ -406,6 +418,15 @@ unsafe extern "system" fn wheel_wnd_proc(
                 SWP_NOACTIVATE | SWP_NOSIZE | SWP_SHOWWINDOW,
             );
 
+            // Re-apply glass effect to ensure it's active
+            let margins = MARGINS {
+                cxLeftWidth: -1,
+                cxRightWidth: -1,
+                cyTopHeight: -1,
+                cyBottomHeight: -1,
+            };
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
             // 2. Update Content via JS
             WHEEL_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
@@ -418,6 +439,17 @@ unsafe extern "system" fn wheel_wnd_proc(
                         dismiss_label.replace("`", "\\`").replace("$", "\\$")
                     );
                     let _ = webview.evaluate_script(&script);
+
+                    // Force bounds update to ensure WebView syncs with window size
+                    let _ = webview.set_bounds(Rect {
+                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
+                            0, 0,
+                        )),
+                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                            WHEEL_WIDTH as u32,
+                            WHEEL_HEIGHT as u32,
+                        )),
+                    });
                 }
             });
 
@@ -495,6 +527,23 @@ unsafe extern "system" fn wheel_wnd_proc(
                 let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
                 WHEEL_RESULT.store(-2, Ordering::SeqCst);
             }
+            LRESULT(0)
+        }
+
+        // Handle DPI changes to maintain correct size
+        WM_DPICHANGED => {
+            let rect = &*(lparam.0 as *const RECT);
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            // WebView bounds will be updated on next SHOW or we could enforce it here if active
+            // For now, next JS check/show will resync.
             LRESULT(0)
         }
 
