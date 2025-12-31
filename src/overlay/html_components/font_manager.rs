@@ -60,7 +60,6 @@ fn start_font_server() {
 
             let addr = listener.local_addr().unwrap();
             let url = format!("http://{}:{}/GoogleSansFlex.ttf", addr.ip(), addr.port());
-            println!("Font server running at {}", url);
 
             {
                 let mut url_guard = FONT_SERVER_URL.lock().unwrap();
