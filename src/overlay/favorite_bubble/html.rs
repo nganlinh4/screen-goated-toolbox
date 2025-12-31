@@ -269,7 +269,7 @@ pub fn get_favorite_presets_html(presets: &[Preset], lang: &str) -> String {
     let icon_realtime = r#"<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3 l1.5-3 l2 10 l3.5-14 l3.5 10 l2-3 h4.5"/></svg>"#;
 
     for (idx, preset) in presets.iter().enumerate() {
-        if preset.is_favorite && !preset.is_upcoming && !preset.is_master {
+        if preset.is_favorite && !preset.is_upcoming {
             let name = if preset.id.starts_with("preset_") {
                 get_localized_preset_name(&preset.id, lang)
             } else {
