@@ -11,11 +11,15 @@ pub fn render_update_section_content(
     match status {
         UpdateStatus::Idle => {
             ui.horizontal(|ui| {
-                ui.label(format!(
+                let mut ver_string = format!(
                     "{} v{}",
                     text.current_version_label,
                     env!("CARGO_PKG_VERSION")
-                ));
+                );
+                if cfg!(nopack) {
+                    ver_string.push_str(" (NoPack)");
+                }
+                ui.label(ver_string);
                 if ui.button(text.check_for_updates_btn).clicked() {
                     if let Some(u) = updater {
                         u.check_for_updates();
@@ -96,11 +100,44 @@ pub fn render_update_section_content(
                                 })
                                 .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
                             {
-                                let _ = std::process::Command::new(newest_exe.path()).spawn();
+                                let path = newest_exe.path();
+                                println!("Attempting to spawn with delay: {:?}", path);
+
+                                // Create a temporary batch file to handle the delayed restart reliably
+                                // This avoids complex escaping issues with cmd /C inline commands
+                                let kill_mutex_cmd = format!("timeout /t 2 /nobreak > NUL");
+                                let start_cmd =
+                                    format!("start \"\" \"{}\"", path.to_string_lossy());
+                                let self_del_cmd = "(goto) 2>nul & del \"%~f0\"";
+
+                                let batch_content = format!(
+                                    "@echo off\r\n{}\r\n{}\r\n{}",
+                                    kill_mutex_cmd, start_cmd, self_del_cmd
+                                );
+
+                                let temp_dir = std::env::temp_dir();
+                                let bat_path = temp_dir
+                                    .join(format!("sgt_restart_{}.bat", std::process::id()));
+
+                                println!("Writing batch file to: {:?}", bat_path);
+                                if let Ok(_) = std::fs::write(&bat_path, batch_content) {
+                                    // Spawn the batch file hidden via cmd /C
+                                    let status = std::process::Command::new("cmd")
+                                        .args(["/C", &bat_path.to_string_lossy()])
+                                        .spawn();
+
+                                    match status {
+                                        Ok(_) => std::process::exit(0),
+                                        Err(e) => {
+                                            eprintln!("Failed to spawn batch file: {}", e);
+                                        }
+                                    }
+                                } else {
+                                    eprintln!("Failed to write batch file");
+                                }
                             }
                         }
                     }
-                    std::process::exit(0);
                 }
             }
         }
