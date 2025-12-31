@@ -492,92 +492,103 @@ pub fn record_audio_and_transcribe(
     };
 
     // Find the first block that is specifically an "audio" processing block
-    let audio_block = match working_preset
+    // OR allow input_adapter if no audio block exists (for raw audio overlay)
+    let (audio_block, is_raw_input_adapter) = match working_preset
         .blocks
         .iter()
         .find(|b| b.block_type == "audio")
     {
-        Some(b) => b.clone(),
-        None => {
-            eprintln!(
-                "DEBUG [Audio]: No 'audio' blocks found in preset. Block types present: {:?}",
-                working_preset
-                    .blocks
-                    .iter()
-                    .map(|b| &b.block_type)
-                    .collect::<Vec<_>>()
-            );
-            eprintln!("Error: Audio preset has no 'audio' processing blocks configured");
-            unsafe {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        Some(b) => (b.clone(), false),
+        None => match working_preset
+            .blocks
+            .iter()
+            .find(|b| b.block_type == "input_adapter")
+        {
+            Some(b) => (b.clone(), true),
+            None => {
+                eprintln!(
+                    "DEBUG [Audio]: No 'audio' blocks found in preset. Block types present: {:?}",
+                    working_preset
+                        .blocks
+                        .iter()
+                        .map(|b| &b.block_type)
+                        .collect::<Vec<_>>()
+                );
+                eprintln!("Error: Audio preset has no 'audio' processing blocks configured");
+                unsafe {
+                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+                return;
             }
-            return;
-        }
+        },
     };
-
-    let model_config = get_model_by_id(&audio_block.model);
-    let model_config = match model_config {
-        Some(c) => c,
-        None => {
-            eprintln!(
-                "Error: Model config not found for audio model: {}",
-                audio_block.model
-            );
-            unsafe {
-                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-            return;
-        }
-    };
-    let model_name = model_config.full_name.clone();
-    let provider = model_config.provider.clone();
-
-    let (groq_api_key, gemini_api_key) = {
-        let app = crate::APP.lock().unwrap();
-        (
-            app.config.api_key.clone(),
-            app.config.gemini_api_key.clone(),
-        )
-    };
-
-    // Use block's prompt and language settings
-    let mut final_prompt = if model_is_non_llm(&audio_block.model) {
-        // For non-LLM models (like Whisper), the prompt is ignored/cleared to prevent 400 errors
-        String::new()
-    } else {
-        audio_block.prompt.clone()
-    };
-
-    for (key, value) in &audio_block.language_vars {
-        let pattern = format!("{{{}}}", key);
-        final_prompt = final_prompt.replace(&pattern, value);
-    }
-
-    // Fallback: if {language1} is still in prompt but not in language_vars, use selected_language
-    if final_prompt.contains("{language1}") && !audio_block.language_vars.contains_key("language1")
-    {
-        final_prompt = final_prompt.replace("{language1}", &audio_block.selected_language);
-    }
-
-    final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
 
     // Clone wav_data for history saving
     let wav_data_for_history = wav_data.clone();
 
-    let transcription_result = if provider == "groq" {
-        if groq_api_key.trim().is_empty() {
-            Err(anyhow::anyhow!("NO_API_KEY:groq"))
-        } else {
-            upload_audio_to_whisper(&groq_api_key, &model_name, wav_data)
-        }
-    } else if provider == "google" {
-        if gemini_api_key.trim().is_empty() {
-            Err(anyhow::anyhow!("NO_API_KEY:google"))
-        } else {
-            transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
-        }
+    let transcription_result = if is_raw_input_adapter {
+        Ok(String::new())
     } else {
-        Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
+        let model_config = get_model_by_id(&audio_block.model);
+        let model_config = match model_config {
+            Some(c) => c,
+            None => {
+                eprintln!(
+                    "Error: Model config not found for audio model: {}",
+                    audio_block.model
+                );
+                unsafe {
+                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+                return;
+            }
+        };
+        let model_name = model_config.full_name.clone();
+        let provider = model_config.provider.clone();
+
+        let (groq_api_key, gemini_api_key) = {
+            let app = crate::APP.lock().unwrap();
+            (
+                app.config.api_key.clone(),
+                app.config.gemini_api_key.clone(),
+            )
+        };
+
+        // Use block's prompt and language settings
+        let mut final_prompt = if model_is_non_llm(&audio_block.model) {
+            String::new()
+        } else {
+            audio_block.prompt.clone()
+        };
+
+        for (key, value) in &audio_block.language_vars {
+            let pattern = format!("{{{}}}", key);
+            final_prompt = final_prompt.replace(&pattern, value);
+        }
+
+        if final_prompt.contains("{language1}")
+            && !audio_block.language_vars.contains_key("language1")
+        {
+            final_prompt = final_prompt.replace("{language1}", &audio_block.selected_language);
+        }
+
+        final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
+
+        if provider == "groq" {
+            if groq_api_key.trim().is_empty() {
+                Err(anyhow::anyhow!("NO_API_KEY:groq"))
+            } else {
+                upload_audio_to_whisper(&groq_api_key, &model_name, wav_data)
+            }
+        } else if provider == "google" {
+            if gemini_api_key.trim().is_empty() {
+                Err(anyhow::anyhow!("NO_API_KEY:google"))
+            } else {
+                transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
+            }
+        } else {
+            Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
+        }
     };
 
     // DON'T close overlay here - pass it to chain processing instead

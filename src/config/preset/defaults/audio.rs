@@ -108,6 +108,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .blocks(vec![
                 BlockBuilder::input_adapter()
                     .show_overlay(true)
+                    .markdown()
                     .build(),
             ])
             .build(),
@@ -150,6 +151,7 @@ pub fn create_audio_presets() -> Vec<Preset> {
             .blocks(vec![
                 BlockBuilder::input_adapter()
                     .show_overlay(true)
+                    .markdown()
                     .build(),
             ])
             .build(),
