@@ -183,6 +183,7 @@ pub struct LocaleText {
     pub tray_favorite_bubble_disabled: &'static str,
     // --- FAVORITE BUBBLE ---
     pub favorites_empty: &'static str,
+    pub favorites_keep_open: &'static str,
     pub recording_subtext: &'static str,
     // --- AUTO COPY BADGE ---
     pub auto_copied_badge: &'static str,
@@ -421,6 +422,7 @@ impl LocaleText {
                 tray_favorite_bubble_disabled: "Hiện bong bóng yêu thích (Chưa có mục yêu thích)",
                 // --- FAVORITE BUBBLE VI ---
                  favorites_empty: "Vui lòng đưa ít nhất một cấu hình vào ưa thích",
+                 favorites_keep_open: "Giữ mở",
                  recording_subtext: "Bấm hotkey lần nữa hoặc ESC để xử lý âm thanh",
                  // --- AUTO COPY BADGE VI ---
                  auto_copied_badge: "Đã tự động copy",
@@ -655,6 +657,7 @@ impl LocaleText {
                 tray_favorite_bubble_disabled: "즐겨찾기 버블 표시 (즐겨찾기 없음)",
                 // --- FAVORITE BUBBLE KO ---
                  favorites_empty: "즐겨찾기에 최소한 하나의 프리셋을 추가해주세요",
+                 favorites_keep_open: "열린 상태 유지",
                  recording_subtext: "단축키를 다시 누르거나 ESC를 눌러 오디오 처리",
                  // --- AUTO COPY BADGE KO ---
                  auto_copied_badge: "자동으로 복사됨",
@@ -889,6 +892,7 @@ impl LocaleText {
                 tray_favorite_bubble_disabled: "Show favorite bubble (No favorites set yet)",
                 // --- FAVORITE BUBBLE EN ---
                  favorites_empty: "Please add at least one configuration to favorites",
+                 favorites_keep_open: "Keep Open",
                  recording_subtext: "Press hotkey again or ESC to process audio",
                  // --- AUTO COPY BADGE EN ---
                  auto_copied_badge: "Auto-copied",

@@ -128,10 +128,90 @@ html, body {{
 
 .condense {{ letter-spacing: -0.5px; }}
 .condense-more {{ letter-spacing: -1px; }}
+
+/* Keep Open Toggle Row */
+.keep-open-row {{
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    /* Animation state - similar to preset-item */
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.01);
+    transition: 
+        transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.25s ease-out;
+    will-change: transform, opacity;
+}}
+.keep-open-row.visible {{
+    opacity: 0;
+    transform: scale(1) translate(0px, 0px);
+    pointer-events: auto;
+    transition: opacity 0.2s ease;
+}}
+
+/* Show keep-open row when hovering the container */
+.container:hover .keep-open-row.visible {{
+    opacity: 1;
+}}
+
+/* Keep Open Label */
+.keep-open-label {{
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    font-variation-settings: 'wght' 500, 'wdth' 100, 'ROND' 100;
+    letter-spacing: 0px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    transition: 
+        font-variation-settings 0.25s cubic-bezier(0.34, 1.2, 0.64, 1),
+        letter-spacing 0.25s ease,
+        color 0.2s ease;
+}}
+.keep-open-label.active {{
+    color: rgba(255, 255, 255, 0.95);
+    font-variation-settings: 'wght' 800, 'wdth' 150, 'ROND' 100;
+    letter-spacing: 1px;
+}}
+
+/* Toggle Switch */
+.toggle-switch {{
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: rgba(60, 60, 70, 0.8);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}}
+.toggle-switch.active {{
+    background: rgba(80, 180, 120, 0.9);
+}}
+.toggle-switch::after {{
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}}
+.toggle-switch.active::after {{
+    transform: translateX(16px);
+}}
 </style>
 </head>
 <body>
 <div class="container">
+    <div class="keep-open-row visible" id="keepOpenRow">
+        <div class="toggle-switch" id="keepOpenToggle" onclick="toggleKeepOpen()"></div>
+        <span class="keep-open-label" id="keepOpenLabel">{keep_open_label}</span>
+    </div>
     <div class="list">{favorites}</div>
 </div>
 <script>
@@ -155,9 +235,24 @@ function startDrag(e) {{
     if (e.button === 0) window.ipc.postMessage('drag');
 }}
 
+let keepOpen = false;
+
+function toggleKeepOpen() {{
+    keepOpen = !keepOpen;
+    const toggle = document.getElementById('keepOpenToggle');
+    const label = document.getElementById('keepOpenLabel');
+    toggle.classList.toggle('active', keepOpen);
+    label.classList.toggle('active', keepOpen);
+}}
+
 function trigger(idx) {{
-    closePanel();
-    window.ipc.postMessage('trigger:' + idx);
+    if (keepOpen) {{
+        // Keep panel open, just trigger the preset
+        window.ipc.postMessage('trigger_only:' + idx);
+    }} else {{
+        closePanel();
+        window.ipc.postMessage('trigger:' + idx);
+    }}
 }}
 
 let currentTimeout = null;
@@ -254,7 +349,8 @@ window.setSide = (side) => {{
 </body>
 </html>"#,
         font_css = font_css,
-        favorites = favorites_html
+        favorites = favorites_html,
+        keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open
     )
 }
 

@@ -241,7 +241,7 @@ unsafe fn refresh_panel_layout_and_content(
 
     let favs: Vec<_> = presets
         .iter()
-        .filter(|p| p.is_favorite && !p.is_upcoming && !p.is_master)
+        .filter(|p| p.is_favorite && !p.is_upcoming)
         .collect();
 
     let fav_count = favs.len();
@@ -267,10 +267,13 @@ unsafe fn refresh_panel_layout_and_content(
         (PANEL_WIDTH as usize * num_cols) as i32 + buffer_x
     };
 
+    // Height for the keep-open toggle row
+    let keep_open_row_height = 40;
+
     let panel_height = if fav_count == 0 {
-        80 + buffer_y
+        80 + buffer_y + keep_open_row_height
     } else {
-        (items_per_col as i32 * height_per_item) + 24 + buffer_y
+        (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height
     };
     let panel_height = panel_height.max(50);
 
@@ -406,6 +409,11 @@ fn create_panel_webview(panel_hwnd: HWND) {
                         // trigger() in JS already calls closePanel() which leads to close_now
                         // so we don't necessarily need to close here, but let's be safe
                         close_panel_internal();
+                        trigger_preset(idx);
+                    }
+                } else if body.starts_with("trigger_only:") {
+                    // Keep Open mode: trigger preset without closing panel
+                    if let Ok(idx) = body[13..].parse::<usize>() {
                         trigger_preset(idx);
                     }
                 }
