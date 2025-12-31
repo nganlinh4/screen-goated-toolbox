@@ -262,6 +262,7 @@ pub fn start_text_processing(
 pub fn show_audio_result(
     preset: Preset,
     transcription_text: String,
+    wav_data: Vec<u8>, // Audio data for input overlay
     rect: RECT,
     _unused_rect: Option<RECT>,
     recording_hwnd: HWND, // Recording overlay window - keep alive until first visible block
@@ -296,7 +297,7 @@ pub fn show_audio_result(
         preset.block_connections.clone(), // Graph connections
         config,
         Arc::new(Mutex::new(None)),
-        RefineContext::None,
+        RefineContext::Audio(wav_data), // Pass audio data for input overlay
         true, // skip_execution: audio already done, just display and chain forward
         processing_hwnd.map(SendHwnd), // Pass recording overlay - will close when first visible block appears
         Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false

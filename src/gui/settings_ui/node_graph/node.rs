@@ -10,7 +10,8 @@ pub enum ChainNode {
         block_type: String, // "audio", "image", "text", "input_adapter"
         auto_copy: bool,
         auto_speak: bool,
-        // Removed processing fields
+        show_overlay: bool,
+        render_mode: String,
     },
     /// Special Processing Node (First level processor, Presets)
     Special {
@@ -80,6 +81,8 @@ impl ChainNode {
                 block_type: _,
                 auto_copy,
                 auto_speak,
+                show_overlay,
+                render_mode,
             } => {
                 ProcessingBlock {
                     id: id.clone(),
@@ -88,9 +91,9 @@ impl ChainNode {
                     prompt: String::new(),
                     selected_language: String::new(),
                     language_vars: HashMap::new(),
-                    show_overlay: false,
+                    show_overlay: *show_overlay,
                     streaming_enabled: false,
-                    render_mode: "plain".to_string(),
+                    render_mode: render_mode.clone(),
                     auto_copy: *auto_copy,
                     auto_speak: *auto_speak,
                 }
@@ -145,12 +148,26 @@ impl ChainNode {
         }
 
         match role {
-            "input" => ChainNode::Input {
-                id: block.id.clone(),
-                block_type: block.block_type.clone(),
-                auto_copy: block.auto_copy,
-                auto_speak: block.auto_speak,
-            },
+            "input" => {
+                // For input_adapter blocks: respect the saved show_overlay value
+                // For other block types used as input (legacy/virtual): default to false
+                // Note: Old presets without explicit show_overlay may show overlay unexpectedly
+                // (serde defaults to true), but users can easily disable it via the eye button
+                let show_overlay = if block.block_type == "input_adapter" {
+                    block.show_overlay
+                } else {
+                    false
+                };
+
+                ChainNode::Input {
+                    id: block.id.clone(),
+                    block_type: block.block_type.clone(),
+                    auto_copy: block.auto_copy,
+                    auto_speak: block.auto_speak,
+                    show_overlay,
+                    render_mode: block.render_mode.clone(),
+                }
+            }
             "special" => ChainNode::Special {
                 id: block.id.clone(),
                 block_type: block.block_type.clone(),

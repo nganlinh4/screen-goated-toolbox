@@ -1,4 +1,4 @@
-use crate::api::{translate_image_streaming, translate_text_streaming};
+﻿use crate::api::{translate_image_streaming, translate_text_streaming};
 use crate::config::{Config, Preset, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{
@@ -186,12 +186,15 @@ pub fn run_chain_step(
     let mut my_hwnd: Option<HWND> = None;
 
     // 3. Create Window (if visible)
-    // 3. Create Window (if visible)
-    if block.block_type == "input_adapter" {
-        // Input adapter is invisible and instant
+    // All blocks (including input_adapter) can show overlay if show_overlay is enabled
+    let should_create_window = block.show_overlay;
+
+    if block.block_type == "input_adapter" && !block.show_overlay {
+        // Input adapter without overlay - invisible and instant pass-through
         // Do nothing here, skipping window creation
-    } else if block.show_overlay {
-        let ctx_clone = if block_idx == 0 {
+    } else if should_create_window {
+        // For input_adapter with show_overlay: use the input context for display
+        let ctx_clone = if block.block_type == "input_adapter" || block_idx == 0 {
             context.clone()
         } else {
             RefineContext::None
@@ -210,10 +213,450 @@ pub fn run_chain_step(
 
         let parent_clone = parent_hwnd.clone();
         let (tx_hwnd, rx_hwnd) = std::sync::mpsc::channel();
-
-        // For image blocks, we defer showing the window until first data arrives
+        // For image blocks (processing), we defer showing until data arrives.
+        // For input_adapter (display), we show immediately (handled by initial_content).
         let is_image_block = block.block_type == "image";
 
+        // Check if we need to set full opacity (input adapter with image context)
+        let is_input_adapter_image =
+            block.block_type == "input_adapter" && matches!(context, RefineContext::Image(_));
+
+        let locale = crate::gui::locale::LocaleText::get(&config.ui_language);
+
+        // Generate initial content (HTML/Text) for the window immediately
+        // This decouples content generation from window display loop
+        let initial_content = if block.block_type == "input_adapter" {
+            match &context {
+                RefineContext::Image(png_data) => {
+                    use base64::Engine;
+                    let base64_img = base64::engine::general_purpose::STANDARD.encode(png_data);
+                    format!(
+                        r#"<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500&display=swap">
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    min-height: 100vh;
+    background: transparent;
+    font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
+}}
+::-webkit-scrollbar {{ display: none; }}
+.container {{
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}}
+.image {{
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    border-radius: 8px;
+    transition: opacity 0.15s ease;
+}}
+.slider-container {{
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 30, 0.95);
+    padding: 10px 16px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+}}
+.container:hover .slider-container {{
+    opacity: 1;
+}}
+.slider-label {{
+    color: #e0e0e0;
+    font-size: 12px;
+    white-space: nowrap;
+}}
+.slider {{
+    -webkit-appearance: none;
+    width: 120px;
+    height: 4px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}}
+.slider::-webkit-slider-thumb {{
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    background: #8ab4f8;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transition: transform 0.15s ease;
+}}
+.slider::-webkit-slider-thumb:hover {{
+    transform: scale(1.15);
+}}
+.value {{
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+    min-width: 36px;
+    text-align: right;
+}}
+</style>
+</head>
+<body>
+<div class="container">
+    <img class="image" id="img" src="data:image/png;base64,{}" />
+    <div class="slider-container">
+        <span class="slider-label">{}</span>
+        <input type="range" class="slider" id="opacity" min="0" max="100" value="100" />
+        <span class="value" id="val">100%</span>
+    </div>
+</div>
+<script>
+const slider = document.getElementById('opacity');
+const val = document.getElementById('val');
+slider.oninput = function() {{
+    val.textContent = this.value + '%';
+    if (window.ipc) {{
+        window.ipc.postMessage('opacity:' + this.value);
+    }}
+}};
+</script>
+</body>
+</html>"#,
+                        base64_img, locale.opacity_label
+                    )
+                }
+                RefineContext::Audio(wav_data) => {
+                    use base64::Engine;
+                    let base64_audio = base64::engine::general_purpose::STANDARD.encode(wav_data);
+                    format!(
+                        r#"<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500&display=swap">
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+body {{ 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    min-height: 100vh; 
+    background: transparent;
+    font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
+}}
+::-webkit-scrollbar {{ display: none; }}
+.audio-player {{
+    background: #1e1e1e;
+    border-radius: 12px;
+    padding: 20px 24px;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    position: relative;
+}}
+.waveform {{
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 60px;
+    margin-bottom: 16px;
+    justify-content: center;
+}}
+.wave-bar {{
+    width: 3px;
+    min-height: 4px;
+    background: #8ab4f8;
+    border-radius: 2px;
+    transition: height 0.05s ease-out;
+}}
+.controls {{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}}
+.play-btn {{
+    width: 44px;
+    height: 44px;
+    background: #8ab4f8;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s, background-color 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    flex-shrink: 0;
+}}
+.play-btn:hover {{
+    transform: scale(1.05);
+    background: #aecbfa;
+}}
+.play-btn svg {{
+    fill: #1e1e1e;
+    width: 18px;
+    height: 18px;
+    margin-left: 2px;
+}}
+.play-btn.playing svg {{
+    margin-left: 0;
+}}
+.download-btn {{
+    width: 36px;
+    height: 36px;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    margin-left: 4px;
+}}
+.download-btn:hover {{
+    background: rgba(255, 255, 255, 0.1);
+}}
+.download-btn svg {{
+    fill: #9aa0a6;
+    width: 20px;
+    height: 20px;
+    transition: fill 0.2s;
+}}
+.download-btn:hover svg {{
+    fill: #fff;
+}}
+.download-btn.success svg {{
+    fill: #4CAF50;
+}}
+.download-btn.success:hover {{
+    background: rgba(76, 175, 80, 0.15);
+}}
+.progress-container {{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}}
+.progress-bar {{
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+    cursor: pointer;
+}}
+.progress-fill {{
+    height: 100%;
+    background: #8ab4f8;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.1s;
+}}
+.time-display {{
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #9aa0a6;
+}}
+.toast {{
+    position: absolute;
+    bottom: 74px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 30, 35, 0.95);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    white-space: nowrap;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+}}
+.toast.show {{
+    opacity: 1;
+}}
+audio {{ display: none; }}
+</style>
+</head>
+<body>
+<div class="audio-player">
+    <div class="toast" id="toast">{}</div>
+    <div class="waveform" id="waveform"></div>
+    <div class="controls">
+        <button class="play-btn" id="playBtn">
+            <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progress"></div>
+            </div>
+            <div class="time-display">
+                <span id="current">0:00</span>
+                <span id="duration">0:00</span>
+            </div>
+        </div>
+        <button class="download-btn" id="downloadBtn" title="{}">
+            <svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+        </button>
+    </div>
+</div>
+<audio id="audio">
+    <source src="data:audio/wav;base64,{}" type="audio/wav">
+</audio>
+<script>
+const audio = document.getElementById('audio');
+const progress = document.getElementById('progress');
+const playIcon = document.getElementById('playIcon');
+const playBtn = document.getElementById('playBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const toast = document.getElementById('toast');
+const currentTimeEl = document.getElementById('current');
+const durationEl = document.getElementById('duration');
+const waveformEl = document.getElementById('waveform');
+const progressBar = document.getElementById('progressBar');
+
+// Create waveform bars
+const BAR_COUNT = 32;
+for (let i = 0; i < BAR_COUNT; i++) {{
+    const bar = document.createElement('div');
+    bar.className = 'wave-bar';
+    bar.style.height = '4px';
+    waveformEl.appendChild(bar);
+}}
+const bars = waveformEl.querySelectorAll('.wave-bar');
+
+// Web Audio API setup
+let audioContext, analyser, source, dataArray;
+let isSetup = false;
+
+function setupAudio() {{
+    if (isSetup) return;
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 64;
+    source = audioContext.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(audioContext.destination);
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    isSetup = true;
+}}
+
+function formatTime(s) {{
+    if (isNaN(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return m + ':' + (sec < 10 ? '0' : '') + sec;
+}}
+
+function visualize() {{
+    if (!analyser || audio.paused) return;
+    analyser.getByteFrequencyData(dataArray);
+    for (let i = 0; i < BAR_COUNT; i++) {{
+        const idx = Math.floor(i * dataArray.length / BAR_COUNT);
+        const value = dataArray[idx];
+        const height = Math.max(4, (value / 255) * 56);
+        bars[i].style.height = height + 'px';
+    }}
+    requestAnimationFrame(visualize);
+}}
+
+audio.onloadedmetadata = () => {{
+    durationEl.textContent = formatTime(audio.duration);
+}};
+
+audio.ontimeupdate = () => {{
+    const pct = (audio.currentTime / audio.duration) * 100;
+    progress.style.width = pct + '%';
+    currentTimeEl.textContent = formatTime(audio.currentTime);
+}};
+
+audio.onended = () => {{
+    playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+    playBtn.classList.remove('playing');
+    bars.forEach(b => b.style.height = '4px');
+}};
+
+playBtn.onclick = () => {{
+    setupAudio();
+    if (audio.paused) {{
+        audio.play();
+        playIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+        playBtn.classList.add('playing');
+        visualize();
+    }} else {{
+        audio.pause();
+        playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+        playBtn.classList.remove('playing');
+    }}
+}};
+
+downloadBtn.onclick = () => {{
+    const link = document.createElement('a');
+    link.href = audio.querySelector('source').src;
+    const date = new Date();
+    const ts = date.getFullYear() + '-' + (date.getMonth()+1) + '-' + date.getDate() + '_' + date.getHours() + '-' + date.getMinutes() + '-' + date.getSeconds();
+    link.download = 'recording_' + ts + '.wav';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Visual Feedback
+    const originalIcon = downloadBtn.innerHTML;
+    // Checkmark
+    downloadBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+    downloadBtn.classList.add('success');
+    toast.classList.add('show');
+
+    setTimeout(() => {{
+        downloadBtn.innerHTML = originalIcon;
+        downloadBtn.classList.remove('success');
+        toast.classList.remove('show');
+    }}, 2500);
+}};
+
+progressBar.onclick = (e) => {{
+    const rect = progressBar.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = pct * audio.duration;
+}};
+</script>
+</body>
+</html>"#,
+                        locale.downloaded_successfully,
+                        locale.download_recording_tooltip,
+                        base64_audio
+                    )
+                }
+                RefineContext::None => input_text.clone(),
+            }
+        } else {
+            String::new()
+        };
+        let initial_content_clone = initial_content.clone();
+
+        let cancel_token_thread = cancel_token.clone();
         std::thread::spawn(move || {
             // NOTE: wry handles COM internally, explicit initialization may interfere
 
@@ -228,7 +671,17 @@ pub fn run_chain_step(
                 prompt_c,
                 bg_color,
                 &render_md,
+                initial_content_clone,
             );
+
+            // Assign cancellation token immediately for linking/grouping
+            // This is critical for input adapters since we don't wait for them in main thread
+            {
+                let mut s = WINDOW_STATES.lock().unwrap();
+                if let Some(st) = s.get_mut(&(hwnd.0 as isize)) {
+                    st.cancellation_token = Some(cancel_token_thread.clone());
+                }
+            }
 
             if let Ok(p_guard) = parent_clone.lock() {
                 if let Some(ph) = *p_guard {
@@ -247,6 +700,17 @@ pub fn run_chain_step(
             let _ = tx_hwnd.send(SendHwnd(hwnd));
 
             unsafe {
+                // If it's an image input adapter, set opacity to 255 (full opaque)
+                // This allows the image itself to be fully visible, while the slider controls the image opacity
+                if is_input_adapter_image {
+                    // Import SetLayeredWindowAttributes locally if needed, or assume it's available via windows crate
+                    use windows::Win32::Foundation::COLORREF;
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        SetLayeredWindowAttributes, LWA_ALPHA,
+                    };
+                    let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+                }
+
                 let mut m = MSG::default();
                 while GetMessageW(&mut m, None, 0, 0).into() {
                     let _ = TranslateMessage(&m);
@@ -258,7 +722,12 @@ pub fn run_chain_step(
             }
         });
 
-        my_hwnd = rx_hwnd.recv().ok().map(|h| h.0);
+        if block.block_type == "input_adapter" {
+            // Decoupled: don't wait for input adapter window
+            my_hwnd = None;
+        } else {
+            my_hwnd = rx_hwnd.recv().ok().map(|h| h.0);
+        }
 
         // Associate cancellation token with this window so destruction stops the chain
         if let Some(h) = my_hwnd {
@@ -271,8 +740,17 @@ pub fn run_chain_step(
         // Show loading state in the new window
         // For TEXT blocks: use the refining rainbow edge animation
         // For IMAGE blocks: keep using the gradient glow/laser processing window
+        // For input_adapter: show the input content immediately (no refining animation)
         if !skip_execution && my_hwnd.is_some() {
-            if block.block_type != "image" {
+            if block.block_type == "input_adapter" {
+                // Input adapter: show input content immediately, no refining animation
+                let mut s = WINDOW_STATES.lock().unwrap();
+                if let Some(st) = s.get_mut(&(my_hwnd.unwrap().0 as isize)) {
+                    st.is_refining = false;
+                    st.is_streaming_active = false; // Show buttons immediately
+                    st.font_cache_dirty = true;
+                }
+            } else if block.block_type != "image" {
                 // Text block: use rainbow edge refining animation
                 let mut s = WINDOW_STATES.lock().unwrap();
                 if let Some(st) = s.get_mut(&(my_hwnd.unwrap().0 as isize)) {
@@ -290,9 +768,9 @@ pub fn run_chain_step(
             }
         }
 
-        // CRITICAL: Close the old "Processing..." overlay ONLY for text blocks
+        // CRITICAL: Close the old "Processing..." overlay ONLY for text blocks (not input_adapter)
         // For image blocks, we want to keep the beautiful gradient glow animation alive
-        if block.block_type != "image" {
+        if block.block_type != "image" && block.block_type != "input_adapter" {
             if let Some(h) = processing_indicator_hwnd {
                 unsafe {
                     let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -312,7 +790,7 @@ pub fn run_chain_step(
     // 4. Execution (API Call)
     let input_text_for_history = input_text.clone();
     let result_text = if block.block_type == "input_adapter" {
-        // Pass-through: return input as-is
+        // Pass-through: return input as-is immediately
         input_text.clone()
     } else if skip_execution {
         if let Some(h) = my_hwnd {
@@ -541,7 +1019,7 @@ pub fn run_chain_step(
             let txt_for_badge = result_text.clone();
             // Only show badge for actual processed results, NOT for input_adapter blocks
             // because input_adapter just passes through text that was already copied to clipboard
-            // by text_selection.rs (the "bất đắc dĩ" copy for processing)
+            // by text_selection.rs (the "b梳쩿 휃梳칌 d칫" copy for processing)
             let should_show_badge = !is_input_adapter;
             std::thread::spawn(move || {
                 crate::overlay::utils::copy_to_clipboard(&txt_c, HWND::default());
@@ -823,7 +1301,7 @@ pub fn run_chain_step(
             first_next,
             result_text,
             base_rect,
-            blocks,
+            blocks.clone(),
             connections,
             config,
             next_parent,

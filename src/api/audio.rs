@@ -595,6 +595,9 @@ pub fn record_audio_and_transcribe(
 
     match transcription_result {
         Ok(transcription_text) => {
+            // Clone wav_data for the input overlay BEFORE saving to history
+            let wav_data_for_overlay = wav_data_for_history.clone();
+
             // SAVE HISTORY
             {
                 let app = crate::APP.lock().unwrap();
@@ -650,6 +653,7 @@ pub fn record_audio_and_transcribe(
             crate::overlay::process::show_audio_result(
                 working_preset,
                 transcription_text,
+                wav_data_for_overlay,
                 rect,
                 retranslate_rect,
                 overlay_hwnd,

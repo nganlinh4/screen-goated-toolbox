@@ -35,11 +35,109 @@ pub fn show_body(
                         block_type,
                         auto_copy,
                         auto_speak,
+                        show_overlay,
+                        render_mode,
                         ..
                     } => {
                         ui.set_min_width(173.0);
                         // Input settings (Simplified) - Label removed to avoid duplication with header
                         // ui.separator() removed for compact look
+
+                        // Determine actual input type
+                        let actual_type = if block_type == "input_adapter" {
+                            viewer.preset_type.as_str()
+                        } else {
+                            block_type.as_str()
+                        };
+
+                        // Eye button + Display mode row for Input nodes
+                        ui.horizontal(|ui| {
+                            // Eye icon toggle
+                            let icon = if *show_overlay {
+                                Icon::EyeOpen
+                            } else {
+                                Icon::EyeClosed
+                            };
+                            if icon_button(ui, icon).clicked() {
+                                *show_overlay = !*show_overlay;
+                                viewer.changed = true;
+
+                                // When turning ON, auto-set render_mode based on input type
+                                // Image/Audio: "markdown" (đẹp), Text: "plain" (thường)
+                                if *show_overlay {
+                                    *render_mode = if actual_type == "text" {
+                                        "plain".to_string()
+                                    } else {
+                                        "markdown".to_string()
+                                    };
+                                }
+                            }
+
+                            if *show_overlay {
+                                // Render Mode Dropdown for input display
+                                // Text: Normal only (no streaming for input)
+                                // Image/Audio: Normal or Markdown (đẹp)
+                                let current_mode_label = if render_mode == "markdown" {
+                                    match viewer.ui_language.as_str() {
+                                        "vi" => "Đẹp",
+                                        "ko" => "마크다운",
+                                        _ => "Markdown",
+                                    }
+                                } else {
+                                    match viewer.ui_language.as_str() {
+                                        "vi" => "Thường",
+                                        "ko" => "일반",
+                                        _ => "Normal",
+                                    }
+                                };
+
+                                let popup_id = ui.make_persistent_id(format!(
+                                    "input_render_mode_popup_{:?}",
+                                    node_id
+                                ));
+                                let btn = ui.add(
+                                    egui::Button::new(current_mode_label)
+                                        .fill(egui::Color32::from_rgba_unmultiplied(
+                                            80, 80, 80, 180,
+                                        ))
+                                        .corner_radius(4.0),
+                                );
+                                if btn.clicked() {
+                                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                                }
+                                egui::popup_below_widget(
+                                    ui,
+                                    popup_id,
+                                    &btn,
+                                    egui::PopupCloseBehavior::CloseOnClickOutside,
+                                    |ui| {
+                                        ui.set_min_width(60.0);
+                                        let (lbl_norm, lbl_md) = match viewer.ui_language.as_str() {
+                                            "vi" => ("Thường", "Đẹp"),
+                                            "ko" => ("일반", "마크다운"),
+                                            _ => ("Normal", "Markdown"),
+                                        };
+
+                                        if ui
+                                            .selectable_label(render_mode == "plain", lbl_norm)
+                                            .clicked()
+                                        {
+                                            *render_mode = "plain".to_string();
+                                            viewer.changed = true;
+                                            ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                        }
+                                        if ui
+                                            .selectable_label(render_mode == "markdown", lbl_md)
+                                            .clicked()
+                                        {
+                                            *render_mode = "markdown".to_string();
+                                            viewer.changed = true;
+                                            ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                        }
+                                    },
+                                );
+                            }
+                        });
 
                         // Copy/Speak toggles for Input - Conditional based on Type
                         ui.horizontal(|ui| {
@@ -47,12 +145,6 @@ pub fn show_body(
                             // Text Input: Show Both
                             // Image Input: Show Copy, Hide Speak
                             // Audio Input: Hide Both
-
-                            let actual_type = if block_type == "input_adapter" {
-                                viewer.preset_type.as_str()
-                            } else {
-                                block_type.as_str()
-                            };
 
                             let show_copy = actual_type != "audio"; // Hide for audio
                             let show_speak = actual_type == "text"; // Show only for text

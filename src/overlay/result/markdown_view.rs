@@ -216,8 +216,8 @@ const MARKDOWN_CSS: &str = r#"
         background: #1a1a1a;
         min-height: 100vh;
         color: #e0e0e0;
-        padding: 8px;
         margin: 0;
+        padding: 8px;
         overflow-x: hidden;
         word-wrap: break-word;
     }
@@ -309,11 +309,8 @@ const MARKDOWN_CSS: &str = r#"
     hr { border: none; border-top: 1px solid #444; margin: 1.5em 0; }
     img { max-width: 100%; border-radius: 8px; }
     
-    /* Scrollbar styling */
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #1a1a1a; }
-    ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
-    ::-webkit-scrollbar-thumb:hover { background: #555; }
+    /* Scrollbar styling - Hidden but scrollable */
+    ::-webkit-scrollbar { display: none; }
 "#;
 
 /// Check if content is already HTML (rather than Markdown)
@@ -758,6 +755,25 @@ pub fn create_markdown_webview_ex(
 
             // Allow all navigation
             true
+        })
+        .with_ipc_handler(move |msg: wry::http::Request<String>| {
+            // Handle IPC messages from the WebView
+            let body = msg.body();
+            if body.starts_with("opacity:") {
+                if let Ok(opacity_percent) = body["opacity:".len()..].parse::<f32>() {
+                    // Opacity comes in as 0-100 from the slider
+                    let alpha = ((opacity_percent / 100.0) * 255.0) as u8;
+                    unsafe {
+                        use windows::Win32::Foundation::COLORREF;
+                        use windows::Win32::UI::WindowsAndMessaging::{
+                            SetLayeredWindowAttributes, LWA_ALPHA,
+                        };
+                        // Set the actual WINDOW opacity
+                        let _ =
+                            SetLayeredWindowAttributes(parent_hwnd, COLORREF(0), alpha, LWA_ALPHA);
+                    }
+                }
+            }
         })
         .build_as_child(&wrapper);
 
