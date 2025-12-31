@@ -313,7 +313,7 @@ pub fn render_sidebar(
 
     let grid_response = egui::Grid::new(grid_id)
         .num_columns(6)
-        .spacing([8.0, 8.0])
+        .spacing([8.0, 4.0])
         .min_col_width(67.0)
         .show(ui, |ui| {
             // ROW 1: Add Buttons
