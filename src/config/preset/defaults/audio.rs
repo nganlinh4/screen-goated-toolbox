@@ -101,6 +101,17 @@ pub fn create_audio_presets() -> Vec<Preset> {
             ])
             .build(),
 
+        // Thu âm nhanh - Input Adapter Only
+        PresetBuilder::new("preset_quick_record", "Quick Record")
+            .audio_mic()
+            .auto_stop()
+            .blocks(vec![
+                BlockBuilder::input_adapter()
+                    .show_overlay(true)
+                    .build(),
+            ])
+            .build(),
+
         // =====================================================================
         // DEVICE AUDIO PRESETS
         // =====================================================================
@@ -128,6 +139,17 @@ pub fn create_audio_presets() -> Vec<Preset> {
                     .build(),
                 BlockBuilder::text("google-gemma")
                     .language("Vietnamese")
+                    .build(),
+            ])
+            .build(),
+
+        // Thu âm máy - Input Adapter Only
+        PresetBuilder::new("preset_record_device", "Record Device")
+            .audio_device()
+            .auto_stop()
+            .blocks(vec![
+                BlockBuilder::input_adapter()
+                    .show_overlay(true)
                     .build(),
             ])
             .build(),
