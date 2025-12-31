@@ -227,9 +227,9 @@ pub fn render_preset_editor(
                           _ => "Standard",
                       };
                       let mode_minimal = match config.ui_language.as_str() {
-                          "vi" => "Tối giản (Win10/máy yếu)",
-                          "ko" => "최소 (Win10/저사양 PC)",
-                          _ => "Minimal (Win10/Low spec PC)",
+                          "vi" => "Tối giản",
+                          "ko" => "최소",
+                          _ => "Minimal",
                       };
 
                       let selected_window_mode = if preset.realtime_window_mode == "minimal" {
