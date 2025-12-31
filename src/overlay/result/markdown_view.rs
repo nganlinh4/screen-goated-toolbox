@@ -450,6 +450,49 @@ fn inject_storage_polyfill(html: &str) -> String {
     }
 }
 
+/// Inject Grid.js into raw HTML if tables are present
+fn inject_gridjs(html: &str) -> String {
+    if !html.contains("<table") {
+        return html.to_string();
+    }
+
+    let (css_url, js_url) = crate::overlay::html_components::grid_js::get_lib_urls();
+    let gridjs_head = format!(
+        r#"<link href="{}" rel="stylesheet" />
+        <script src="{}"></script>
+        <style>{}</style>"#,
+        css_url,
+        js_url,
+        crate::overlay::html_components::grid_js::get_css()
+    );
+    let gridjs_body = format!(
+        r#"<script>{}</script>"#,
+        crate::overlay::html_components::grid_js::get_init_script()
+    );
+
+    let lower = html.to_lowercase();
+    let mut result = html.to_string();
+
+    // Inject CSS/JS into <head>
+    if let Some(pos) = lower.find("</head>") {
+        result.insert_str(pos, &gridjs_head);
+    } else if let Some(pos) = lower.find("<body>") {
+        result.insert_str(pos, &gridjs_head);
+    } else {
+        result.insert_str(0, &gridjs_head);
+    }
+
+    // Inject init script into <body>
+    let lower_updated = result.to_lowercase();
+    if let Some(pos) = lower_updated.find("</body>") {
+        result.insert_str(pos, &gridjs_body);
+    } else {
+        result.push_str(&gridjs_body);
+    }
+
+    result
+}
+
 /// Convert markdown text to styled HTML, or pass through raw HTML
 pub fn markdown_to_html(
     markdown: &str,
@@ -495,13 +538,12 @@ pub fn markdown_to_html(
         );
     }
 
-    // If input is already HTML, inject localStorage polyfill for WebView2 compatibility
-    // WebView2's with_html() runs in a sandboxed context that denies localStorage access
+    // If input is already HTML, inject localStorage polyfill and Grid.js
     if is_html_content(markdown) {
-        return inject_storage_polyfill(markdown);
+        let with_storage = inject_storage_polyfill(markdown);
+        return inject_gridjs(&with_storage);
     }
 
-    // Otherwise, parse as Markdown
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
@@ -511,6 +553,31 @@ pub fn markdown_to_html(
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
 
+    // Grid.js Integration
+    let has_table = html_output.contains("<table");
+    let gridjs_head = if has_table {
+        let (css_url, js_url) = crate::overlay::html_components::grid_js::get_lib_urls();
+        format!(
+            r#"<link href="{}" rel="stylesheet" />
+            <script src="{}"></script>
+            <style>{}</style>"#,
+            css_url,
+            js_url,
+            crate::overlay::html_components::grid_js::get_css()
+        )
+    } else {
+        String::new()
+    };
+
+    let gridjs_body = if has_table {
+        format!(
+            r#"<script>{}</script>"#,
+            crate::overlay::html_components::grid_js::get_init_script()
+        )
+    } else {
+        String::new()
+    };
+
     format!(
         r#"<!DOCTYPE html>
 <html>
@@ -519,12 +586,18 @@ pub fn markdown_to_html(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {}
     <style>{}</style>
+    {}
 </head>
-<body>{}</body>
+<body>
+    {}
+    {}
+</body>
 </html>"#,
         get_font_style(),
         MARKDOWN_CSS,
-        html_output
+        gridjs_head,
+        html_output,
+        gridjs_body
     )
 }
 
@@ -818,12 +891,12 @@ fn content_needs_recreation(html: &str) -> bool {
     // If content has <script> tags that might use storage APIs, it needs recreation
     // to get a proper origin instead of the sandboxed document.write context
     lower.contains("<script")
-        && (lower.contains("localstorage") || 
-     lower.contains("sessionstorage") || 
-     lower.contains("indexeddb") ||
-     lower.contains("const ") ||  // Variable declarations can conflict  
-     lower.contains("let ") ||
-     lower.contains("var "))
+        && (lower.contains("localstorage")
+            || lower.contains("sessionstorage")
+            || lower.contains("indexeddb")
+            || lower.contains("const ") // Variable declarations can conflict
+            || lower.contains("let ")
+            || lower.contains("var "))
 }
 
 /// Update the markdown content in an existing WebView (Raw version, does not fetch state)
