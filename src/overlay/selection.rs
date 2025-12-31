@@ -420,6 +420,54 @@ unsafe extern "system" fn selection_wnd_proc(
                 let width = (rect.right - rect.left).abs();
                 let height = (rect.bottom - rect.top).abs();
 
+                if width <= 10 && height <= 10 {
+                    // COLOR PICKER: Clicking without dragging copies the pixel color
+                    unsafe {
+                        let mut pt = POINT::default();
+                        let _ = GetCursorPos(&mut pt);
+
+                        let guard = APP.lock().unwrap();
+                        if let Some(capture) = &guard.screenshot_handle {
+                            let hdc_screen = GetDC(None);
+                            let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
+                            let old_bmp = SelectObject(hdc_mem, capture.hbitmap.into());
+
+                            // Convert global screen cursor to bitmap-local coordinates
+                            let sx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                            let sy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                            let local_x = pt.x - sx;
+                            let local_y = pt.y - sy;
+
+                            let color = GetPixel(hdc_mem, local_x, local_y);
+
+                            SelectObject(hdc_mem, old_bmp);
+                            let _ = DeleteDC(hdc_mem);
+                            let _ = ReleaseDC(None, hdc_screen);
+
+                            // COLORREF is 0x00BBGGRR
+                            let r = (color.0 & 0x000000FF) as u8;
+                            let g = ((color.0 & 0x0000FF00) >> 8) as u8;
+                            let b = ((color.0 & 0x00FF0000) >> 16) as u8;
+
+                            let hex_color = format!("#{:02X}{:02X}{:02X}", r, g, b);
+                            super::utils::copy_to_clipboard(&hex_color, hwnd);
+                            super::auto_copy_badge::show_auto_copy_badge_text(&hex_color);
+                        }
+                    }
+
+                    // Force fade out session immediately after picking color
+                    unsafe {
+                        IS_FADING_OUT = true;
+                        if MAG_INITIALIZED {
+                            if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+                                let _ = transform_fn(1.0, 0, 0);
+                            }
+                        }
+                    }
+                    let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+                    return LRESULT(0);
+                }
+
                 if width > 10 && height > 10 {
                     // Check if this is a MASTER preset
                     let is_master = {
