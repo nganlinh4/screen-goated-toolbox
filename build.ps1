@@ -50,7 +50,9 @@ $exePathSafe = "target/release-safe/screen-goated-toolbox.exe"
 Write-Host ""
 Write-Host "=== Building AV-SAFE version (v$version) ===" -ForegroundColor Cyan
 Write-Host "Using 'release-safe' profile with debug symbols for better AV trust..." -ForegroundColor Gray
+$env:RUSTFLAGS="--cfg nopack"
 cargo build --profile release-safe
+$env:RUSTFLAGS=""
 
 if (Test-Path $exePathSafe) {
     if (Test-Path $outputPathNoPack) {
