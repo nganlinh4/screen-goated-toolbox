@@ -51,6 +51,7 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&image, "preset_ask_image"),
         find(&image, "preset_fact_check"),
         find(&image, "preset_omniscient_god"),
+        find(&image, "preset_hang_image"),
         find(&masters, "preset_image_master"),
         // =====================================================================
         // COLUMN 2: TEXT PRESETS
@@ -67,12 +68,14 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&text, "preset_explain"),
         find(&text, "preset_ask_text"),
         find(&text, "preset_edit_as_follows"),
+        find(&text, "preset_hang_text"),
         find(&masters, "preset_text_select_master"),
         // Text-Type section
         find(&text, "preset_trans_retrans_typing"),
         find(&text, "preset_ask_ai"),
         find(&text, "preset_internet_search"),
         find(&text, "preset_make_game"),
+        find(&text, "preset_quick_note"),
         find(&masters, "preset_text_type_master"),
         // =====================================================================
         // COLUMN 3: AUDIO PRESETS
@@ -84,9 +87,11 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&audio, "preset_quicker_foreigner_reply"),
         find(&audio, "preset_quick_ai_question"),
         find(&audio, "preset_voice_search"),
+        find(&audio, "preset_quick_record"),
         find(&masters, "preset_audio_mic_master"),
         // Device audio section
         find(&audio, "preset_study_language"),
+        find(&audio, "preset_record_device"),
         find(&masters, "preset_audio_device_master"),
         find(&audio, "preset_realtime_audio_translate"),
     ]

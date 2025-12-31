@@ -272,5 +272,15 @@ pub fn create_image_presets() -> Vec<Preset> {
             ])
             .connections(vec![(0, 3), (0, 1), (3, 4), (3, 2)])
             .build(),
+
+        // Treo ảnh - Input Adapter Only
+        PresetBuilder::new("preset_hang_image", "Input Overlay (Image)")
+            .image()
+            .blocks(vec![
+                BlockBuilder::input_adapter()
+                    .show_overlay(true)
+                    .build(),
+            ])
+            .build(),
     ]
 }
