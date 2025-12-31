@@ -1217,6 +1217,10 @@ where
                 )
             }
         }
+        RefineContext::Audio(_) => {
+            // Audio refinement uses text-only processing (transcription already done)
+            exec_text_only(target_id_or_name, target_provider)
+        }
         RefineContext::None => exec_text_only(target_id_or_name, target_provider),
     }
 }

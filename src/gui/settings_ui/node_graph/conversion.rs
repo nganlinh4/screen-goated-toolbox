@@ -107,6 +107,7 @@ pub fn blocks_to_snarl(
         let input_block = ProcessingBlock {
             block_type: preset_type.to_string(), // Use preset_type for the virtual input node
             // "input_adapter" is generic, but using preset_type helps with UI logic
+            show_overlay: false, // Input adapters should be hidden by default
             ..Default::default()
         };
         let node = ChainNode::from_block(&input_block, "input");

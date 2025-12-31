@@ -198,6 +198,9 @@ pub struct LocaleText {
     pub font_minus_tooltip: &'static str,
     pub font_plus_tooltip: &'static str,
     pub google_gtx_label: &'static str,
+    pub opacity_label: &'static str,
+    pub downloaded_successfully: &'static str,
+    pub download_recording_tooltip: &'static str,
 }
 
 impl LocaleText {
@@ -437,6 +440,9 @@ impl LocaleText {
                  font_minus_tooltip: "Giảm cỡ chữ",
                  font_plus_tooltip: "Tăng cỡ chữ",
                  google_gtx_label: "Google Dịch",
+                 opacity_label: "Độ mờ",
+                 downloaded_successfully: "Đã tải về!",
+                 download_recording_tooltip: "Tải bản ghi âm",
                  },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -672,6 +678,9 @@ impl LocaleText {
                  font_minus_tooltip: "글꼴 축소",
                  font_plus_tooltip: "글꼴 확대",
                  google_gtx_label: "Google 번역",
+                 opacity_label: "불투명도",
+                 downloaded_successfully: "다운로드 완료!",
+                 download_recording_tooltip: "녹음 다운로드",
                  },
                 _ => Self {
                  history_btn: "History",
@@ -907,6 +916,9 @@ impl LocaleText {
                  font_minus_tooltip: "Font -",
                  font_plus_tooltip: "Font +",
                  google_gtx_label: "Google Translate",
+                 opacity_label: "Opacity",
+                 downloaded_successfully: "Downloaded!",
+                 download_recording_tooltip: "Download Recording",
                  },
                 }
     }
