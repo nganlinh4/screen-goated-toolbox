@@ -1,102 +1,187 @@
-use crate::win_types::SendHwnd;
+// use crate::win_types::SendHwnd; // Removed
 use crate::APP;
+use std::cell::RefCell;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, Ordering},
+    atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering},
     Arc, Mutex, Once,
 };
 use windows::core::*;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+};
+use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::*;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
-static mut RECORDING_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
-static mut RECORDING_HOOK: HHOOK = HHOOK(std::ptr::null_mut());
-static mut IS_RECORDING: bool = false;
-static mut IS_PAUSED: bool = false;
-static mut ANIMATION_OFFSET: f32 = 0.0;
-static mut CURRENT_PRESET_IDX: usize = 0;
-static mut CURRENT_ALPHA: i32 = 0; // For fade-in
-
-// Audio Viz
+// --- GLOBAL SIGNALS (Preserving existing logic usage) ---
 lazy_static::lazy_static! {
+    pub static ref AUDIO_STOP_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    pub static ref AUDIO_PAUSE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    pub static ref AUDIO_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    pub static ref AUDIO_WARMUP_COMPLETE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
     static ref VISUALIZATION_BUFFER: Mutex<[f32; 40]> = Mutex::new([0.0; 40]);
 }
-static mut VIS_HEAD: usize = 0;
-pub static CURRENT_RMS: AtomicU32 = AtomicU32::new(0);
 
-// --- UI CONSTANTS ---
-const UI_WIDTH: i32 = 350; // More compact width
-const UI_HEIGHT: i32 = 80; // Reduced height
-const BTN_OFFSET: i32 = 40; // Distance from edge to icon center
-const HIT_RADIUS: i32 = 25; // Clickable radius around buttons
+static LAST_SHOW_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub static CURRENT_RMS: AtomicU32 = AtomicU32::new(0);
 
 pub fn update_audio_viz(rms: f32) {
     let bits = rms.to_bits();
     CURRENT_RMS.store(bits, Ordering::Relaxed);
 }
 
-// Shared flag for the audio thread
-lazy_static::lazy_static! {
-    pub static ref AUDIO_STOP_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    pub static ref AUDIO_PAUSE_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    // FIX: New signal to explicitly abort/discard recording
-    pub static ref AUDIO_ABORT_SIGNAL: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    // NEW: Signal set by audio thread when first data arrives (mic is ready)
-    pub static ref AUDIO_WARMUP_COMPLETE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-}
-
-// Warmup frames counter - how many frames to wait before showing waveform (~25 frames @ 16ms = 400ms)
-const WARMUP_FRAMES: i32 = 25;
-static mut WARMUP_COUNTER: i32 = 0;
-
-// OPTIMIZATION: Thread-safe one-time window class registration
+// --- STATE MANAGEMENT ---
+// 0=Not Created, 1=Hidden/Warmup, 2=Visible/Recording
+static RECORDING_STATE: AtomicI32 = AtomicI32::new(0);
+static RECORDING_HWND_VAL: AtomicIsize = AtomicIsize::new(0);
 static REGISTER_RECORDING_CLASS: Once = Once::new();
 
+thread_local! {
+    static RECORDING_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
+    static RECORDING_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
+}
+
+// --- CONSTANTS ---
+const UI_WIDTH: i32 = 360;
+const UI_HEIGHT: i32 = 140;
+
+const WM_APP_SHOW: u32 = WM_USER + 20;
+const WM_APP_HIDE: u32 = WM_USER + 21;
+const WM_APP_REAL_SHOW: u32 = WM_USER + 22;
+const WM_APP_UPDATE_STATE: u32 = WM_USER + 23;
+
+// --- PUBLIC API ---
+
 pub fn is_recording_overlay_active() -> bool {
-    unsafe { IS_RECORDING && !std::ptr::addr_of!(RECORDING_HWND).read().is_invalid() }
+    RECORDING_STATE.load(Ordering::SeqCst) == 2
 }
 
 pub fn stop_recording_and_submit() {
-    unsafe {
-        if IS_RECORDING && !std::ptr::addr_of!(RECORDING_HWND).read().is_invalid() {
+    // Check if we are already active
+    if is_recording_overlay_active() {
+        let was_stopped = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+
+        // If already stopped (processing) or aborted, hitting this again should FORCE CLOSE
+        if was_stopped {
+            AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+            let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
+            if hwnd_val != 0 {
+                let hwnd = HWND(hwnd_val as *mut _);
+                unsafe {
+                    let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                }
+            }
+        } else {
+            // First time: Just stop and let it process
             AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
-            // Force immediate update to show "Processing"
-            let _ = PostMessageW(Some(RECORDING_HWND.0), WM_TIMER, WPARAM(0), LPARAM(0));
+            // Force update UI to "Processing"
+            let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
+            if hwnd_val != 0 {
+                let hwnd = HWND(hwnd_val as *mut _);
+                unsafe {
+                    let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_STATE, WPARAM(0), LPARAM(0));
+                }
+            }
         }
     }
 }
 
+pub fn warmup_recording_overlay() {
+    // Transition 0 -> 1
+    if RECORDING_STATE
+        .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        std::thread::spawn(|| {
+            internal_create_recording_window();
+        });
+    }
+}
+
 pub fn show_recording_overlay(preset_idx: usize) {
-    unsafe {
-        if IS_RECORDING {
-            return;
+    // Check current state
+    let mut current = RECORDING_STATE.load(Ordering::SeqCst);
+
+    // If state is 0, start the thread and waiting loop
+    if current == 0 {
+        warmup_recording_overlay();
+        // Spin briefly to let thread start
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            current = RECORDING_STATE.load(Ordering::SeqCst);
+            if current != 0 {
+                break;
+            }
         }
+    }
 
-        let preset = APP.lock().unwrap().config.presets[preset_idx].clone();
+    // Now we expect state to be 1 (Hidden) or 2 (already visible? technically we shouldn't show if visible, but let's handle re-trigger)
+    // Wait for HWND
+    let mut hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
 
-        IS_RECORDING = true;
-        IS_PAUSED = false;
-        CURRENT_PRESET_IDX = preset_idx;
-        ANIMATION_OFFSET = 0.0;
-        CURRENT_ALPHA = 0; // Start invisible
-        WARMUP_COUNTER = 0; // Reset warmup counter
+    // Safety wait for HWND creation if still 0
+    if hwnd_val == 0 {
+        for _ in 0..50 {
+            // ~1 second timeout
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
+            if hwnd_val != 0 {
+                break;
+            }
+        }
+    }
+
+    if hwnd_val != 0 {
+        // Reset Signals
         AUDIO_STOP_SIGNAL.store(false, Ordering::SeqCst);
         AUDIO_PAUSE_SIGNAL.store(false, Ordering::SeqCst);
-        AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst); // Reset abort signal
-        AUDIO_WARMUP_COMPLETE.store(false, Ordering::SeqCst); // Reset warmup signal
+        AUDIO_ABORT_SIGNAL.store(false, Ordering::SeqCst);
+        AUDIO_WARMUP_COMPLETE.store(false, Ordering::SeqCst);
+        CURRENT_RMS.store(0, Ordering::Relaxed);
 
-        // Reset viz
-        VIS_HEAD = 0;
-        if let Ok(mut buffer) = VISUALIZATION_BUFFER.lock() {
-            buffer.fill(0.0);
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(hwnd_val as *mut _)),
+                WM_APP_SHOW,
+                WPARAM(preset_idx),
+                LPARAM(0),
+            );
         }
+    } else {
+        println!("Error: Failed to initialize recording window");
+    }
+}
 
+// --- INTERNAL IMPLEMENTATION ---
+
+struct HwndWrapper(HWND);
+unsafe impl Send for HwndWrapper {}
+unsafe impl Sync for HwndWrapper {}
+impl raw_window_handle::HasWindowHandle for HwndWrapper {
+    fn window_handle(
+        &self,
+    ) -> std::result::Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError>
+    {
+        let raw = raw_window_handle::Win32WindowHandle::new(
+            std::num::NonZeroIsize::new(self.0 .0 as isize).expect("HWND cannot be null"),
+        );
+        let handle = raw_window_handle::RawWindowHandle::Win32(raw);
+        unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
+    }
+}
+
+fn internal_create_recording_window() {
+    unsafe {
+        let _ = CoInitialize(None); // Required for WebView
         let instance = GetModuleHandleW(None).unwrap();
-        let class_name = w!("RecordingOverlay");
+        let class_name = w!("SGT_Recording_Persistent");
 
-        // OPTIMIZATION: Register class only once, thread-safely
         REGISTER_RECORDING_CLASS.call_once(|| {
             let mut wc = WNDCLASSW::default();
             wc.lpfnWndProc = Some(recording_wnd_proc);
@@ -104,21 +189,19 @@ pub fn show_recording_overlay(preset_idx: usize) {
             wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
             wc.lpszClassName = class_name;
             wc.style = CS_HREDRAW | CS_VREDRAW;
-            let _ = RegisterClassW(&wc);
+            RegisterClassW(&wc);
         });
 
-        let screen_x = GetSystemMetrics(SM_CXSCREEN);
-        let screen_y = GetSystemMetrics(SM_CYSCREEN);
-        let x = (screen_x - UI_WIDTH) / 2;
-        let y = (screen_y - UI_HEIGHT) / 2;
-
+        // Create window OFF-SCREEN initially (-4000, -4000)
+        // WS_POPUP | WS_VISIBLE (so WebView renders) but off-screen.
+        // Using Layered window for transparency
         let hwnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
-            w!("SGT Recording"),
-            WS_POPUP,
-            x,
-            y,
+            w!("SGT Recording Web"),
+            WS_POPUP | WS_VISIBLE,
+            -4000,
+            -4000,
             UI_WIDTH,
             UI_HEIGHT,
             None,
@@ -126,60 +209,335 @@ pub fn show_recording_overlay(preset_idx: usize) {
             Some(instance.into()),
             None,
         )
-        .unwrap_or_default();
+        .unwrap();
 
-        RECORDING_HWND = SendHwnd(hwnd);
+        RECORDING_HWND_VAL.store(hwnd.0 as isize, Ordering::SeqCst);
 
-        // Install Hook for ESC
-        let hook = SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(recording_hook_proc),
-            Some(GetModuleHandleW(None).unwrap().into()),
-            0,
+        // Windows 11 Rounded Corners - Disable native rounding to hide native border/shadow
+        // We rely on CSS for rounded corners + transparency
+        let corner_pref = 1u32; // DWMWCP_DONOTROUND
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            std::ptr::addr_of!(corner_pref) as *const _,
+            std::mem::size_of_val(&corner_pref) as u32,
         );
-        if let Ok(h) = hook {
-            RECORDING_HOOK = h;
-        }
 
-        SetTimer(Some(hwnd), 1, 16, None);
+        // Glass Frame Extension (critical for per-pixel alpha with WebView)
+        let margins = MARGINS {
+            cxLeftWidth: -1,
+            cxRightWidth: -1,
+            cyTopHeight: -1,
+            cyBottomHeight: -1,
+        };
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
 
-        if !preset.hide_recording_ui {
-            // Initially 0 alpha, will fade in via timer
-            paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, 0);
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-        }
+        // --- WEBVIEW CREATION ---
+        let wrapper = HwndWrapper(hwnd);
+        let html = generate_html();
 
-        let hwnd_val = hwnd.0 as usize;
-        std::thread::spawn(move || {
-            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-            // FIX: Pass AUDIO_ABORT_SIGNAL to the worker thread
-            crate::api::record_audio_and_transcribe(
-                preset,
-                AUDIO_STOP_SIGNAL.clone(),
-                AUDIO_PAUSE_SIGNAL.clone(),
-                AUDIO_ABORT_SIGNAL.clone(),
-                hwnd,
-            );
+        RECORDING_WEB_CONTEXT.with(|ctx| {
+            if ctx.borrow().is_none() {
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+            }
         });
 
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            let _ = DispatchMessageW(&msg);
-            if msg.message == WM_QUIT {
-                break;
+        let ipc_hwnd_val = hwnd.0 as usize;
+        let webview_res = RECORDING_WEB_CONTEXT.with(|ctx| {
+            let mut ctx_ref = ctx.borrow_mut();
+            let mut builder = if let Some(web_ctx) = ctx_ref.as_mut() {
+                WebViewBuilder::new_with_web_context(web_ctx)
+            } else {
+                WebViewBuilder::new()
+            };
+
+            builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+
+            builder
+                .with_bounds(Rect {
+                    position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        UI_WIDTH as u32,
+                        UI_HEIGHT as u32,
+                    )),
+                })
+                .with_transparent(true)
+                .with_background_color((0, 0, 0, 0)) // Fully transparent background
+                .with_html(&html)
+                .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                    let hwnd = HWND(ipc_hwnd_val as *mut std::ffi::c_void);
+                    let body = msg.body().as_str();
+                    match body {
+                        "pause_toggle" => {
+                            let paused = AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst);
+                            AUDIO_PAUSE_SIGNAL.store(!paused, Ordering::SeqCst);
+                        }
+                        "cancel" | "close" => {
+                            AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+                            AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
+                            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                        }
+                        "ready" => {
+                            // Handshake: WebView is ready (from resetState), so now we can REAL_SHOW
+                            // Kill fallback timer 99
+                            let _ = KillTimer(Some(hwnd), 99);
+                            // Add a tiny delay to ensure paint catch-up
+                            let _ = SetTimer(Some(hwnd), 2, 20, None);
+                        }
+                        "drag_window" => {
+                            unsafe {
+                                let _ = ReleaseCapture();
+                                let _ = PostMessageW(
+                                    Some(hwnd),
+                                    WM_NCLBUTTONDOWN,
+                                    WPARAM(2 as usize), // HTCAPTION = 2
+                                    LPARAM(0 as isize),
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .build(&wrapper)
+        });
+
+        if let Ok(wv) = webview_res {
+            RECORDING_WEBVIEW.with(|cell| *cell.borrow_mut() = Some(wv));
+
+            // Setup Global Key Hook for ESC (This needs to be persistent or installed/uninstalled on show/hide)
+            // Better to install once and check `is_recording_overlay_active()` inside hook.
+            let hook = SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(recording_hook_proc),
+                Some(GetModuleHandleW(None).unwrap().into()),
+                0,
+            );
+
+            // Message Loop
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
+                let _ = DispatchMessageW(&msg);
+            }
+
+            if let Ok(h) = hook {
+                UnhookWindowsHookEx(h);
             }
         }
 
-        // Uninstall Hook
-        let hook = std::ptr::addr_of!(RECORDING_HOOK).read();
-        if !hook.is_invalid() {
-            let _ = UnhookWindowsHookEx(hook);
-            RECORDING_HOOK = HHOOK(std::ptr::null_mut());
+        // Cleanup on FULL EXIT
+        RECORDING_WEBVIEW.with(|cell| *cell.borrow_mut() = None);
+        RECORDING_STATE.store(0, Ordering::SeqCst);
+
+        let _ = CoUninitialize();
+    }
+}
+
+fn start_audio_thread(hwnd: HWND, preset_idx: usize) {
+    let preset = APP.lock().unwrap().config.presets[preset_idx].clone();
+    let hwnd_val = hwnd.0 as usize;
+
+    std::thread::spawn(move || {
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        crate::api::record_audio_and_transcribe(
+            preset,
+            AUDIO_STOP_SIGNAL.clone(),
+            AUDIO_PAUSE_SIGNAL.clone(),
+            AUDIO_ABORT_SIGNAL.clone(),
+            hwnd,
+        );
+    });
+}
+
+unsafe extern "system" fn recording_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    match msg {
+        WM_APP_SHOW => {
+            // 1. Prepare Content (while still off-screen)
+            let preset_idx = wparam.0;
+
+            // Reset JS state
+            RECORDING_WEBVIEW.with(|cell| {
+                if let Some(wv) = cell.borrow().as_ref() {
+                    let _ = wv.evaluate_script("resetState();");
+                }
+            });
+
+            // 2. Start Audio Logic
+            start_audio_thread(hwnd, preset_idx);
+
+            // 3. Mark state as Active (Visible)
+            RECORDING_STATE.store(2, Ordering::SeqCst);
+
+            // 5. Fallback Timer (99) - If IPC ready signal doesn't come in 500ms, show anyway
+            SetTimer(Some(hwnd), 99, 500, None);
+
+            // 5. REMOVED Timer 2 here. We now confirm via IPC "ready" signal to trigger the show.
+            // This ensures we never show a blank window on first load.
+
+            // Record Show Time to prevent race with old threads closing
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            LAST_SHOW_TIME.store(now, Ordering::SeqCst);
+
+            LRESULT(0)
         }
 
-        IS_RECORDING = false;
-        RECORDING_HWND = SendHwnd::default();
+        WM_TIMER => {
+            if wparam.0 == 2 {
+                // REAL SHOW TIMER (from IPC "ready")
+                KillTimer(Some(hwnd), 2);
+                let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
+            } else if wparam.0 == 99 {
+                // FALLBACK TIMER (IPC timed out)
+                KillTimer(Some(hwnd), 99);
+                println!("Warning: Recording overlay IPC timed out, forcing show");
+                let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
+            } else if wparam.0 == 1 {
+                // VIZ UPDATE TIMER
+                let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+                let is_paused = AUDIO_PAUSE_SIGNAL.load(Ordering::SeqCst);
+                let warming_up = !AUDIO_WARMUP_COMPLETE.load(Ordering::SeqCst);
+
+                let rms_bits = CURRENT_RMS.load(Ordering::Relaxed);
+                let rms = f32::from_bits(rms_bits);
+
+                let state_str = if is_processing {
+                    "processing"
+                } else if is_paused {
+                    "paused"
+                } else if warming_up {
+                    "warmup"
+                } else {
+                    "recording"
+                };
+
+                let script = format!("updateState('{}', {});", state_str, rms);
+
+                RECORDING_WEBVIEW.with(|cell| {
+                    if let Some(wv) = cell.borrow().as_ref() {
+                        let _ = wv.evaluate_script(&script);
+                    }
+                });
+            }
+            LRESULT(0)
+        }
+
+        WM_APP_REAL_SHOW => {
+            // Move to Center Screen
+            let screen_x = GetSystemMetrics(SM_CXSCREEN);
+            let screen_y = GetSystemMetrics(SM_CYSCREEN);
+            let center_x = (screen_x - UI_WIDTH) / 2;
+            let center_y = (screen_y - UI_HEIGHT) / 2 + 100;
+
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                center_x,
+                center_y,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+
+            // Set Foreground/Focus
+            // let _ = SetForegroundWindow(hwnd);
+            // let _ = SetFocus(Some(hwnd));
+
+            // Start Visualization Updates NOW that we are visible and ready
+            // Only needing one timer start here
+            let _ = SetTimer(Some(hwnd), 1, 16, None);
+
+            // Trigger Fade In - window is now in position
+            RECORDING_WEBVIEW.with(|cell| {
+                if let Some(wv) = cell.borrow().as_ref() {
+                    let _ = wv.evaluate_script(
+                        "setTimeout(() => document.body.classList.add('visible'), 50);",
+                    );
+                }
+            });
+
+            LRESULT(0)
+        }
+
+        WM_APP_HIDE => {
+            // Stop logic
+            let _ = KillTimer(Some(hwnd), 1);
+            let _ = KillTimer(Some(hwnd), 2);
+            let _ = KillTimer(Some(hwnd), 99);
+
+            // Reset opacity immediately so it's ready for next time
+            RECORDING_WEBVIEW.with(|cell| {
+                if let Some(wv) = cell.borrow().as_ref() {
+                    // Use hideState() which DOES NOT trigger 'ready' signal
+                    // This prevents the recursion where hide -> reset -> ready -> show -> hide
+                    let _ = wv.evaluate_script("hideState();");
+                }
+            });
+
+            // Move Off-screen
+            let _ = SetWindowPos(
+                hwnd,
+                Some(HWND_TOPMOST),
+                -4000,
+                -4000,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+
+            RECORDING_STATE.store(1, Ordering::SeqCst); // Back to Warmup/Hidden
+
+            LRESULT(0)
+        }
+
+        WM_APP_UPDATE_STATE => {
+            // Just force an immediate update cycle if needed (e.g. for processing state)
+            // Timer handles this mostly, but this can be used for instant response
+            LRESULT(0)
+        }
+
+        WM_CLOSE => {
+            // "Close" means Hide in this persistent model
+            // LOGIC FIX: Check if this is a 'stale' close from a previous thread
+            let is_stop = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+            let is_abort = AUDIO_ABORT_SIGNAL.load(Ordering::SeqCst);
+
+            if is_stop || is_abort {
+                // User requested stop/abort, so this close is valid
+                let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+            } else {
+                // Natural close (error or finish?)
+                // Check if we JUST started. If so, it's likely the old thread dying.
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let last = LAST_SHOW_TIME.load(Ordering::SeqCst);
+                if now > last && (now - last) < 2000 {
+                    // Ignore Close during first 2 seconds if not explicitly stopped
+                    // This prevents race condition where previous aborted thread sends WM_CLOSE late
+                } else {
+                    let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                }
+            }
+            LRESULT(0)
+        }
+
+        WM_USER_FULL_CLOSE => {
+            let _ = DestroyWindow(hwnd);
+            PostQuitMessage(0);
+            LRESULT(0)
+        }
+
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }
 
@@ -192,10 +550,7 @@ unsafe extern "system" fn recording_hook_proc(
         let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
             if kbd.vkCode == VK_ESCAPE.0 as u32 {
-                let is_rec = std::ptr::addr_of!(IS_RECORDING).read();
-                let hwnd = std::ptr::addr_of!(RECORDING_HWND).read();
-                if is_rec && !hwnd.0.is_invalid() {
-                    // ESC concludes/stops the recording (as requested by user)
+                if is_recording_overlay_active() {
                     stop_recording_and_submit();
                     return LRESULT(1);
                 }
@@ -205,597 +560,291 @@ unsafe extern "system" fn recording_hook_proc(
     CallNextHookEx(None, code, wparam, lparam)
 }
 
-unsafe fn paint_layered_window(hwnd: HWND, width: i32, height: i32, alpha: u8) {
-    let screen_dc = GetDC(None);
+const WM_USER_FULL_CLOSE: u32 = WM_USER + 99;
 
-    let bmi = windows::Win32::Graphics::Gdi::BITMAPINFO {
-        bmiHeader: windows::Win32::Graphics::Gdi::BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<windows::Win32::Graphics::Gdi::BITMAPINFOHEADER>() as u32,
-            biWidth: width,
-            biHeight: -height,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: windows::Win32::Graphics::Gdi::BI_RGB.0 as u32,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let mut p_bits: *mut core::ffi::c_void = std::ptr::null_mut();
-    let bitmap = CreateDIBSection(
-        Some(screen_dc),
-        &bmi,
-        windows::Win32::Graphics::Gdi::DIB_RGB_COLORS,
-        &mut p_bits,
-        None,
-        0,
-    )
-    .unwrap();
-
-    let mem_dc = CreateCompatibleDC(Some(screen_dc));
-    let old_bitmap = SelectObject(mem_dc, bitmap.into());
-
-    let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst); // API processing after stop
-    let warmup_complete = AUDIO_WARMUP_COMPLETE.load(Ordering::SeqCst);
-
-    // Warming up = counter hasn't reached threshold yet OR audio hasn't signaled ready
-    // Once WARMUP_COUNTER hits WARMUP_FRAMES, we're done warming up regardless of signal
-    let is_warming_up = WARMUP_COUNTER < WARMUP_FRAMES && !warmup_complete;
-
-    // "is_waiting" used for the spinning/pulsing glow effect (either warming up OR processing)
-    let is_waiting = is_processing || is_warming_up;
-    let should_animate = !IS_PAUSED || is_waiting;
-
-    if !p_bits.is_null() {
-        let pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (width * height) as usize);
-
-        let bx = (width as f32) / 2.0;
-        let by = (height as f32) / 2.0;
-        let center_x = bx;
-        let center_y = by;
-
-        let time_rad = ANIMATION_OFFSET.to_radians();
-
-        // 1. Draw Background (SDF)
-        for y in 0..height {
-            for x in 0..width {
-                let idx = (y * width + x) as usize;
-                let px = (x as f32) - center_x;
-                let py = (y as f32) - center_y;
-
-                // Rounded Box SDF
-                // FIX: Use consistent corner radius with proper inset compensation
-                // Inner box is inset by 4px from edges, corner radius is 14px
-                // This ensures the glow (which extends outward) follows the same curvature
-                // and doesn't "peek out" at the diagonal corners due to radius mismatch
-                let corner_radius = 14.0;
-                let inset = 4.0;
-                let d = super::paint_utils::sd_rounded_box(
-                    px,
-                    py,
-                    bx - inset,
-                    by - inset,
-                    corner_radius,
-                );
-
-                let mut final_col = 0x000000;
-                let mut final_alpha = 0.0f32;
-
-                if should_animate {
-                    // PROPER SDF ANTI-ALIASING:
-                    // - Fully inside (d < -1): solid fill
-                    // - Edge zone (-1 <= d <= 1): smooth blend
-                    // - Outside (d > 0): glow
-
-                    let aa_half = 0.75; // Half-width of AA zone (~1.5px total)
-
-                    if d < -aa_half {
-                        // Fully inside - solid fill, NO gradient
-                        final_alpha = 0.40;
-                        final_col = 0x00050505;
-                    } else if d < aa_half {
-                        // Edge zone - anti-alias by blending fill with glow
-                        // Map d from [-aa_half, aa_half] to [0, 1]
-                        let t = (d + aa_half) / (aa_half * 2.0);
-                        // Smoothstep for sub-pixel curve
-                        let blend = t * t * (3.0 - 2.0 * t);
-
-                        // Calculate glow color/intensity at this point
-                        let angle = py.atan2(px);
-                        let noise = if is_waiting {
-                            (angle * 10.0 - time_rad * 8.0).sin() * 0.5
-                        } else {
-                            (angle * 2.0 + time_rad * 3.0).sin() * 0.2
-                        };
-                        let glow_width = if is_waiting { 14.0 } else { 8.0 } + (noise * 5.0);
-                        let glow_t = (d.max(0.0) / glow_width).clamp(0.0, 1.0);
-                        let glow_intensity = (1.0 - glow_t).powi(2);
-
-                        let hue_offset = if is_waiting {
-                            ANIMATION_OFFSET * 4.0
-                        } else {
-                            ANIMATION_OFFSET * 2.0
-                        };
-                        // Use rem_euclid to handle negative values correctly (Rust % preserves sign)
-                        let hue = (angle.to_degrees() + hue_offset).rem_euclid(360.0);
-                        let sat = if is_waiting { 1.0 } else { 0.85 };
-                        let glow_rgb = super::paint_utils::hsv_to_rgb(hue, sat, 1.0);
-
-                        // Blend: (1-blend) * fill + blend * glow
-                        let fill_alpha = 0.40 * (1.0 - blend);
-                        let glow_alpha = glow_intensity * blend;
-                        final_alpha = fill_alpha + glow_alpha;
-
-                        // Color blend (premultiplied)
-                        let fill_r = 0x05 as f32 * (1.0 - blend);
-                        let fill_g = 0x05 as f32 * (1.0 - blend);
-                        let fill_b = 0x05 as f32 * (1.0 - blend);
-                        let glow_r = ((glow_rgb >> 16) & 0xFF) as f32 * blend * glow_intensity;
-                        let glow_g = ((glow_rgb >> 8) & 0xFF) as f32 * blend * glow_intensity;
-                        let glow_b = (glow_rgb & 0xFF) as f32 * blend * glow_intensity;
-
-                        if final_alpha > 0.001 {
-                            let r = ((fill_r + glow_r) / final_alpha * 0.40).min(255.0) as u32;
-                            let g = ((fill_g + glow_g) / final_alpha * 0.40).min(255.0) as u32;
-                            let b = ((fill_b + glow_b) / final_alpha * 0.40).min(255.0) as u32;
-                            final_col = (r << 16) | (g << 8) | b;
-                        }
-                    } else {
-                        // Outside - pure glow with OUTER CORNER CLIPPING
-                        let angle = py.atan2(px);
-
-                        let noise = if is_waiting {
-                            (angle * 10.0 - time_rad * 8.0).sin() * 0.5
-                        } else {
-                            (angle * 2.0 + time_rad * 3.0).sin() * 0.2
-                        };
-
-                        let glow_width = if is_waiting { 14.0 } else { 8.0 } + (noise * 5.0);
-
-                        // Calculate outer boundary SDF for corner clipping
-                        // Use full window bounds with appropriately scaled corner radius
-                        // Outer corner radius grows with glow but capped to avoid over-clipping
-                        let outer_corner_radius = (corner_radius + glow_width * 0.5).min(by - 2.0);
-                        let d_outer =
-                            super::paint_utils::sd_rounded_box(px, py, bx, by, outer_corner_radius);
-
-                        // Fade glow based on distance from inner shape
-                        let t = (d / glow_width).clamp(0.0, 1.0);
-                        let mut glow_intensity = (1.0 - t).powi(2);
-
-                        // Clip glow at outer rounded boundary (anti-aliased)
-                        if d_outer > -1.5 {
-                            let outer_fade = ((-d_outer) / 1.5).clamp(0.0, 1.0);
-                            glow_intensity *= outer_fade;
-                        }
-
-                        if glow_intensity > 0.01 {
-                            let hue_offset = if is_waiting {
-                                ANIMATION_OFFSET * 4.0
-                            } else {
-                                ANIMATION_OFFSET * 2.0
-                            };
-                            // Use rem_euclid to handle negative values correctly
-                            let hue = (angle.to_degrees() + hue_offset).rem_euclid(360.0);
-                            let sat = if is_waiting { 1.0 } else { 0.85 };
-                            let rgb = super::paint_utils::hsv_to_rgb(hue, sat, 1.0);
-                            final_col = rgb;
-                            final_alpha = glow_intensity;
-                        }
-                    }
-                } else {
-                    // PAUSED STATE - with proper SDF anti-aliasing
-                    let aa_half = 0.75;
-
-                    if d < -aa_half {
-                        // Fully inside - solid fill
-                        final_alpha = 0.40;
-                        final_col = 0x00050505;
-                    } else if d < aa_half {
-                        // Edge zone - anti-alias
-                        let t = (d + aa_half) / (aa_half * 2.0);
-                        let blend = t * t * (3.0 - 2.0 * t);
-                        // Blend fill to border
-                        final_alpha = 0.40 * (1.0 - blend) + 0.8 * blend;
-                        // Color blend from dark fill to gray border
-                        let r = (0x05 as f32 * (1.0 - blend) + 0xAA as f32 * blend) as u32;
-                        let g = r;
-                        let b = r;
-                        final_col = (r << 16) | (g << 8) | b;
-                    } else if d < 2.0 {
-                        // Outer border with AA fade-out
-                        let t = ((d - aa_half) / (2.0 - aa_half)).clamp(0.0, 1.0);
-                        let aa = 1.0 - t * t * (3.0 - 2.0 * t);
-                        final_alpha = 0.8 * aa;
-                        final_col = 0x00AAAAAA;
-                    }
-                }
-
-                let a = (final_alpha * 255.0) as u32;
-                let r = ((final_col >> 16) & 0xFF) * a / 255;
-                let g = ((final_col >> 8) & 0xFF) * a / 255;
-                let b = (final_col & 0xFF) * a / 255;
-
-                pixels[idx] = (a << 24) | (r << 16) | (g << 8) | b;
-            }
-        }
-
-        // 2. Draw Viz Bars (if valid)
-        if !is_waiting && !IS_PAUSED {
-            let viz_w = 220.0;
-            let bar_w = 3.0;
-            let spacing = 2.0;
-            let start_x = (width as f32 - viz_w) / 2.0;
-            let center_y = (height as f32) / 2.0;
-
-            for i in 0..40 {
-                let idx = (VIS_HEAD + 40 - i) % 40;
-                let amp = {
-                    let buffer = VISUALIZATION_BUFFER.lock().unwrap();
-                    buffer[idx]
-                };
-                let h = (amp * 400.0).clamp(4.0, 40.0); // Height scaling
-
-                let x = start_x + (i as f32 * (bar_w + spacing));
-                let y_top = center_y - h / 2.0;
-                let y_bot = center_y + h / 2.0;
-
-                // Draw bar
-                for py in y_top as i32..y_bot as i32 {
-                    for px in x as i32..(x + bar_w) as i32 {
-                        let p_idx = (py * width + px) as usize;
-                        if p_idx < (width * height) as usize {
-                            // Use a solid neon color (Cyan)
-                            // Premultiplied alpha: If alpha is 255, values are straight.
-                            pixels[p_idx] = (255 << 24) | (0 << 16) | (200 << 8) | 255;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Draw Icons directly to pixels
-        let white_pixel = 0xFFFFFFFF;
-
-        // -- PAUSE / PLAY BUTTON (Left) --
-        // Only show pause/play if NOT processing
-        if !is_waiting {
-            let p_cx = BTN_OFFSET;
-            let p_cy = height / 2;
-
-            if IS_PAUSED {
-                // Draw Play Triangle
-                for y in (p_cy - 12)..(p_cy + 12) {
-                    for x in (p_cx - 8)..(p_cx + 12) {
-                        if x >= 0 && x < width && y >= 0 && y < height {
-                            let dx = x - p_cx;
-                            let dy = y - p_cy;
-                            if dx >= -6 && dx <= 10 {
-                                let max_y = (10.0 - dx as f32) * 0.625;
-                                if (dy as f32).abs() <= max_y + 0.8 {
-                                    pixels[(y * width + x) as usize] = white_pixel;
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Draw Pause Bars (||)
-                for y in (p_cy - 10)..=(p_cy + 10) {
-                    for x in (p_cx - 8)..=(p_cx + 8) {
-                        if x > p_cx - 2 && x < p_cx + 2 {
-                            continue;
-                        } // Gap
-                        if x >= 0 && x < width && y >= 0 && y < height {
-                            pixels[(y * width + x) as usize] = white_pixel;
-                        }
-                    }
-                }
-            }
-        }
-
-        // -- CLOSE BUTTON (X) (Right) --
-        // ALWAYS show close button
-        let c_cx = width - BTN_OFFSET;
-        let c_cy = height / 2;
-        let thickness = 2.0;
-
-        for y in (c_cy - 10)..(c_cy + 10) {
-            for x in (c_cx - 10)..(c_cx + 10) {
-                if x >= 0 && x < width && y >= 0 && y < height {
-                    let dx = (x - c_cx) as f32;
-                    let dy = (y - c_cy) as f32;
-                    let dist1 = (dx - dy).abs() * 0.7071;
-                    let dist2 = (dx + dy).abs() * 0.7071;
-                    if dist1 < thickness || dist2 < thickness {
-                        pixels[(y * width + x) as usize] = white_pixel;
-                    }
-                }
-            }
-        }
-    }
-
-    SetBkMode(mem_dc, TRANSPARENT);
-    SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
-
-    // --- MAIN STATUS TEXT ---
-    // Moved up significantly to be optically centered in top half
-    let hfont_main = CreateFontW(
-        26,
-        0,
-        0,
-        0,
-        FW_BOLD.0 as i32,
-        0,
-        0,
-        0,
-        DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS,
-        CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY,
-        (VARIABLE_PITCH.0 | FF_SWISS.0) as u32,
-        w!("Google Sans Flex"),
-    );
-    let old_font = SelectObject(mem_dc, hfont_main.into());
-
-    let src_text = {
-        let app = crate::APP.lock().unwrap();
+// --- HTML GENERATOR ---
+fn generate_html() -> String {
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
+    let (text_rec, text_proc, text_wait, subtext) = {
+        let app = APP.lock().unwrap();
         let lang = app.config.ui_language.as_str();
-        if is_processing {
-            match lang {
-                "vi" => "Đang xử lý...",
-                "ko" => "처리 중...",
-                _ => "Processing...",
-            }
-        } else {
-            match lang {
-                "vi" => "Đang ghi...",
-                "ko" => "녹음 중...",
-                _ => "Recording...",
-            }
+
+        match lang {
+            "vi" => (
+                "Đang ghi âm...",
+                "Đang xử lý...",
+                "Chuẩn bị...",
+                "Nhấn ESC để dừng",
+            ),
+            "ko" => ("녹음 중...", "처리 중...", "준비 중...", "중지하려면 ESC"),
+            _ => (
+                "Recording...",
+                "Processing...",
+                "Starting...",
+                "Press ESC to Stop",
+            ),
         }
     };
 
-    let mut text_w = crate::overlay::utils::to_wstring(src_text);
-    let mut tr = RECT {
-        left: 0,
-        top: 0,
-        right: width,
-        bottom: 45,
-    };
-    DrawTextW(
-        mem_dc,
-        &mut text_w,
-        &mut tr,
-        DT_CENTER | DT_BOTTOM | DT_SINGLELINE,
-    );
+    format!(
+        r#"
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    {font_css}
+    
+    * {{ box-sizing: border-box; user-select: none; }}
+    
+    body {{
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: transparent;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        opacity: 0;
+        transition: opacity 0.15s ease-out; 
+    }}
+    
+    body.visible {{
+        opacity: 1;
+    }}
 
-    let _ = SelectObject(mem_dc, old_font);
-    let _ = DeleteObject(hfont_main.into());
+    .container {{
+        width: {width}px;
+        height: {height}px;
+        background: rgba(18, 18, 18, 0.85);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        color: white;
+        font-family: 'Google Sans Flex', sans-serif;
+    }}
 
-    // Only show sub-text if not processing
-    if !is_waiting {
-        let hfont_sub = CreateFontW(
-            18,
-            0,
-            0,
-            0,
-            FW_NORMAL.0 as i32,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY,
-            (VARIABLE_PITCH.0 | FF_SWISS.0) as u32,
-            w!("Google Sans Flex"),
-        );
-        SelectObject(mem_dc, hfont_sub.into());
-        SetTextColor(mem_dc, COLORREF(0x00DDDDDD));
+    .status-text {{
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 4px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }}
+    
+    .sub-text {{
+        font-size: 12px;
+        color: rgba(255,255,255,0.6);
+        margin-bottom: 12px;
+    }}
 
-        let sub_text = {
-            let app = crate::APP.lock().unwrap();
-            crate::gui::locale::LocaleText::get(&app.config.ui_language).recording_subtext
-        };
-        let mut sub_text_w = crate::overlay::utils::to_wstring(sub_text);
-        let mut tr_sub = RECT {
-            left: 0,
-            top: 47,
-            right: width,
-            bottom: height,
-        };
-        DrawTextW(
-            mem_dc,
-            &mut sub_text_w,
-            &mut tr_sub,
-            DT_CENTER | DT_TOP | DT_SINGLELINE,
-        );
+    /* Volume Canvas Styling */
+    #volume-canvas {{
+        height: 24px;
+        width: 120px;
+        border-radius: 2px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        margin-bottom: 5px;
+    }}
 
-        let _ = SelectObject(mem_dc, old_font);
-        let _ = DeleteObject(hfont_sub.into());
-    }
+    /* Waveform Animation */
+    .wave-line {{
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(180deg, #00C6FF 0%, #0072FF 100%);
+        border-radius: 10px;
+        transform-box: fill-box;
+        transform-origin: center;
+        transform: scaleY(0.2);
+        transition: transform 0.05s linear;
+        box-shadow: 0 0 8px rgba(0, 198, 255, 0.6);
+    }}
+    
+    .dancing .wave-line {{
+        animation: wave-animation 1.2s ease-in-out infinite;
+    }}
 
-    // --- TEXT ALPHA FIX ---
-    // GDI DrawText doesn't properly handle alpha for layered windows (it writes RGB but ignores Dest Alpha).
-    // This causes white text on semi-transparent backgrounds to have RGB > Alpha, which looks "bloomed" or "washed out".
-    // We iterate the buffer and force Alpha to be at least the max of R,G,B (Premultiplied constraint).
-    if !p_bits.is_null() {
-        let _ = GdiFlush(); // Ensure GDI drawing is committed to bits
-        let pixels = std::slice::from_raw_parts_mut(p_bits as *mut u32, (width * height) as usize);
-        for px in pixels.iter_mut() {
-            let val = *px;
-            let a = (val >> 24) & 0xFF;
-            let r = (val >> 16) & 0xFF;
-            let g = (val >> 8) & 0xFF;
-            let b = val & 0xFF;
+    .wave-line.delay-1 {{ animation-delay: 0s; }}
+    .wave-line.delay-2 {{ animation-delay: 0.15s; }}
+    .wave-line.delay-3 {{ animation-delay: 0.3s; }}
+    .wave-line.delay-4 {{ animation-delay: 0.1s; }}
 
-            let max_c = r.max(g).max(b);
-            if max_c > a {
-                // Fix alpha to support valid premultiplied rendering for the text
-                *px = (max_c << 24) | (r << 16) | (g << 8) | b;
-            }
-        }
-    }
+    @keyframes wave-animation {{
+        0%, 100% {{ transform: scaleY(0.3); }}
+        50% {{ transform: scaleY(0.8); }}
+    }}
 
-    let pt_src = POINT { x: 0, y: 0 };
-    let size = SIZE {
-        cx: width,
-        cy: height,
-    };
-    let mut blend = BLENDFUNCTION::default();
-    blend.BlendOp = AC_SRC_OVER as u8;
-    blend.SourceConstantAlpha = alpha; // Use the fading alpha
-    blend.AlphaFormat = AC_SRC_ALPHA as u8;
+    .controls {{
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+    }}
 
-    let _ = UpdateLayeredWindow(
-        hwnd,
-        Some(HDC::default()),
-        None,
-        Some(&size),
-        Some(mem_dc),
-        Some(&pt_src),
-        COLORREF(0),
-        Some(&blend),
-        ULW_ALPHA,
-    );
+    .btn {{
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.05);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        pointer-events: auto;
+        transition: background 0.2s, transform 0.1s;
+        color: rgba(255,255,255,0.8);
+    }}
+    
+    .btn:hover {{
+        background: rgba(255,255,255,0.15);
+    }}
+    .btn:active {{
+        transform: translateY(-50%) scale(0.95);
+    }}
 
-    let _ = SelectObject(mem_dc, old_bitmap);
-    let _ = DeleteObject(bitmap.into());
-    let _ = DeleteDC(mem_dc);
-    let _ = ReleaseDC(None, screen_dc);
-}
+    .btn-close {{ right: 15px; }}
+    .btn-pause {{ left: 15px; }}
+    
+    .btn svg {{
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+    }}
+    
+    .hidden {{ display: none; }}
 
-unsafe extern "system" fn recording_wnd_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    match msg {
-        WM_SETCURSOR => {
-            let hit_test = (lparam.0 & 0xFFFF) as i16 as i32;
-            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+</style>
+</head>
+<body>
+    <div class="container">
+        
+        <div class="status-text" id="status">{tx_rec}</div>
+        <div class="sub-text">{tx_sub}</div>
+        
+        <div id="volume-canvas">
+             <div class="wave-line delay-1"></div>
+             <div class="wave-line delay-2"></div>
+             <div class="wave-line delay-3"></div>
+             <div class="wave-line delay-4"></div>
+             <div class="wave-line delay-1"></div>
+             <div class="wave-line delay-2"></div>
+             <div class="wave-line delay-3"></div>
+             <div class="wave-line delay-4"></div>
+             <div class="wave-line delay-1"></div>
+        </div>
 
-            if hit_test == HTCLIENT as i32 {
-                if is_processing {
-                    SetCursor(Some(LoadCursorW(None, IDC_APPSTARTING).unwrap()));
-                } else {
-                    SetCursor(Some(LoadCursorW(None, IDC_HAND).unwrap()));
-                }
-                LRESULT(1)
-            } else {
-                DefWindowProcW(hwnd, msg, wparam, lparam)
-            }
-        }
-        WM_NCHITTEST => {
-            let x = (lparam.0 & 0xFFFF) as i16 as i32;
+        <div class="controls">
+            <div class="btn btn-pause" onclick="togglePause()" id="btn-pause">
+                 <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                 <svg id="icon-play" class="hidden" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+            
+            <div class="btn btn-close" onclick="closeApp()">
+                <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </div>
+        </div>
+    </div>
 
-            let mut rect = RECT::default();
-            let _ = GetWindowRect(hwnd, &mut rect);
-            let local_x = x - rect.left;
+<script>
+    const statusEl = document.getElementById('status');
+    const pauseBtn = document.getElementById('btn-pause');
+    const iconPause = document.getElementById('icon-pause');
+    const iconPlay = document.getElementById('icon-play');
+    const volumeCanvas = document.getElementById('volume-canvas');
+    const bars = document.querySelectorAll('.wave-line');
+    
+    let currentState = "warmup"; 
+    
+    function updateState(state, rms) {{
+        currentState = state;
+        
+        if (state === 'processing') {{
+             statusEl.innerText = "{tx_proc}";
+             volumeCanvas.classList.add('dancing');
+             pauseBtn.style.display = 'none';
+        }} else if (state === 'paused') {{
+             statusEl.innerText = "Paused";
+             volumeCanvas.classList.add('dancing');
+             pauseBtn.style.display = 'flex';
+             iconPause.classList.add('hidden');
+             iconPlay.classList.remove('hidden');
+        }} else if (state === 'warmup') {{
+             statusEl.innerText = "{tx_wait}";
+             volumeCanvas.classList.add('dancing');
+        }} else {{
+             statusEl.innerText = "{tx_rec}";
+             volumeCanvas.classList.remove('dancing');
+             pauseBtn.style.display = 'flex';
+             iconPause.classList.remove('hidden');
+             iconPlay.classList.add('hidden');
+        }}
+        
+        if (state === 'recording') {{
+             let amp = Math.min(rms * 15.0, 1.0);
+             bars.forEach((bar, i) => {{
+                 let factor = 1.0;
+                 if (i === 0 || i === 8) factor = 0.6;
+                 if (i === 1 || i === 7) factor = 0.8;
+                 let h = 0.2 + (amp * factor * 1.5);
+                 if (h > 1.8) h = 1.8;
+                 bar.style.transform = `scaleY(${{h}})`;
+             }});
+        }}
+    }}
 
-            let center_left = BTN_OFFSET;
-            let center_right = UI_WIDTH - BTN_OFFSET;
+    function togglePause() {{
+        window.ipc.postMessage('pause_toggle');
+    }}
+    
+    function closeApp() {{
+        window.ipc.postMessage('cancel');
+    }}
+    
+    function resetState() {{
+        hideState();
+        // Small timeout to allow DOM to process class removal before signaling ready
+        // This ensures the opacity transition (to 0) is registered
+        setTimeout(() => {{
+             window.ipc.postMessage('ready');
+        }}, 10);
+    }}
 
-            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
+    // Drag Logic
+    const container = document.querySelector('.container');
+    container.addEventListener('mousedown', (e) => {{
+        // Prevent dragging if clicking buttons
+        if (e.target.closest('.btn')) return;
+        window.ipc.postMessage('drag_window');
+    }});
 
-            // ALWAYS allow Close button to be hit, even during processing
-            if (local_x - center_right).abs() < HIT_RADIUS {
-                return LRESULT(HTCLIENT as isize);
-            }
+    function hideState() {{
+        document.body.classList.remove('visible');
+    }}
 
-            // Only allow Pause button if not processing
-            if !is_processing {
-                if (local_x - center_left).abs() < HIT_RADIUS {
-                    return LRESULT(HTCLIENT as isize);
-                }
-            }
-
-            LRESULT(HTCAPTION as isize)
-        }
-        WM_LBUTTONDOWN => {
-            let x = (lparam.0 & 0xFFFF) as i16 as i32;
-            // Note: lparam coords are relative to client area (top-left 0,0)
-
-            let center_left = BTN_OFFSET;
-            let center_right = UI_WIDTH - BTN_OFFSET;
-            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
-
-            // Always check Close Button first
-            if (x - center_right).abs() < HIT_RADIUS {
-                // FIX: Clicked "X" button -> ABORT, NOT SUBMIT
-                AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-                AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst); // Stop loop
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-            // Only allow Pause button if not processing
-            else if !is_processing {
-                if (x - center_left).abs() < HIT_RADIUS {
-                    IS_PAUSED = !IS_PAUSED;
-                    AUDIO_PAUSE_SIGNAL.store(IS_PAUSED, Ordering::SeqCst);
-                    paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
-                }
-            }
-            LRESULT(0)
-        }
-        WM_TIMER => {
-            let is_processing = AUDIO_STOP_SIGNAL.load(Ordering::SeqCst);
-            let warmup_complete = AUDIO_WARMUP_COMPLETE.load(Ordering::SeqCst);
-            let is_warming_up =
-                WARMUP_COUNTER < WARMUP_FRAMES && !warmup_complete && !is_processing;
-
-            // Increment warmup counter each frame
-            if is_warming_up {
-                WARMUP_COUNTER += 1;
-            }
-
-            if is_processing || is_warming_up {
-                // Rapid Clockwise Animation for Processing/Warmup
-                // Warmup uses slightly faster spin to show activity
-                let speed = if is_warming_up { 12.0 } else { 8.0 };
-                ANIMATION_OFFSET -= speed;
-            } else if !IS_PAUSED {
-                // Standard Counter-Clockwise Animation
-                ANIMATION_OFFSET += 5.0;
-            }
-
-            // Keep offset bounded to prevent float precision issues over long runs
-            if ANIMATION_OFFSET > 3600.0 {
-                ANIMATION_OFFSET -= 3600.0;
-            }
-            if ANIMATION_OFFSET < -3600.0 {
-                ANIMATION_OFFSET += 3600.0;
-            }
-
-            if CURRENT_ALPHA < 255 {
-                CURRENT_ALPHA += 15;
-                if CURRENT_ALPHA > 255 {
-                    CURRENT_ALPHA = 255;
-                }
-            }
-
-            // UPDATE VIZ BUFFER
-            let rms_bits = CURRENT_RMS.load(Ordering::Relaxed);
-            let rms = f32::from_bits(rms_bits);
-            unsafe {
-                VIS_HEAD = (VIS_HEAD + 1) % 40;
-            }
-            if let Ok(mut buffer) = VISUALIZATION_BUFFER.lock() {
-                buffer[VIS_HEAD] = rms;
-            }
-
-            paint_layered_window(hwnd, UI_WIDTH, UI_HEIGHT, CURRENT_ALPHA as u8);
-            LRESULT(0)
-        }
-        WM_CLOSE => {
-            // FIX: Ensure clean stop even if Alt+F4
-            AUDIO_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-            AUDIO_STOP_SIGNAL.store(true, Ordering::SeqCst);
-            let _ = DestroyWindow(hwnd);
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-    }
+</script>
+</body>
+</html>
+    "#,
+        width = UI_WIDTH - 20,
+        height = UI_HEIGHT - 20,
+        tx_rec = text_rec,
+        tx_proc = text_proc,
+        tx_wait = text_wait,
+        tx_sub = subtext
+    )
 }

@@ -418,7 +418,6 @@ pub fn record_audio_and_transcribe(
     drop(stream);
 
     if abort_signal.load(Ordering::SeqCst) {
-        println!("Audio recording aborted by user.");
         unsafe {
             if IsWindow(Some(overlay_hwnd)).as_bool() {
                 let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
