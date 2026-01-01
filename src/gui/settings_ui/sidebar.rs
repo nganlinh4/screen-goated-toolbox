@@ -152,7 +152,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_hang_text", _) => "Text Overlay".to_string(),
         ("preset_quick_note", _) => "Quick Note".to_string(),
         ("preset_quick_record", _) => "Quick Record".to_string(),
-        ("preset_record_device", _) => "Device Audio Record".to_string(),
+        ("preset_record_device", _) => "Device Record".to_string(),
         // MASTER presets - English (default)
         ("preset_image_master", _) => "Image MASTER".to_string(),
         ("preset_text_select_master", _) => "Select MASTER".to_string(),
@@ -621,6 +621,7 @@ fn render_preset_item_parts(
 
     // --- Column X: Content ---
     ui.horizontal(|ui| {
+        ui.set_min_height(22.0);
         ui.spacing_mut().item_spacing.x = 4.0;
         if has_hotkey && !preset.is_upcoming {
             let rect = ui.available_rect_before_wrap();
