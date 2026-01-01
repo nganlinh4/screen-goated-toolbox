@@ -52,9 +52,21 @@ static mut CACHED_H: i32 = 0;
 const ZOOM_STEP: f32 = 0.25;
 const MIN_ZOOM: f32 = 1.0;
 const MAX_ZOOM: f32 = 4.0;
-static mut ZOOM_LEVEL: f32 = 1.0;
-static mut ZOOM_CENTER_X: i32 = 0;
-static mut ZOOM_CENTER_Y: i32 = 0;
+const ZOOM_TIMER_ID: usize = 3;
+
+static mut ZOOM_LEVEL: f32 = 1.0; // Target Zoom
+static mut ZOOM_CENTER_X: f32 = 0.0; // Target Center X
+static mut ZOOM_CENTER_Y: f32 = 0.0; // Target Center Y
+
+// --- SMOOTH ZOOM STATE ---
+static mut RENDER_ZOOM: f32 = 1.0;
+static mut RENDER_CENTER_X: f32 = 0.0;
+static mut RENDER_CENTER_Y: f32 = 0.0;
+
+// --- PANNING STATE ---
+static mut IS_RIGHT_DRAGGING: bool = false;
+static mut LAST_PAN_POS: POINT = POINT { x: 0, y: 0 }; // Last cursor pos for panning
+
 // Alpha override when zoomed (0 = fully transparent dim)
 static mut ZOOM_ALPHA_OVERRIDE: Option<u8> = None;
 // Track if Windows Magnification API is initialized
@@ -198,8 +210,12 @@ pub fn show_selection_overlay(preset_idx: usize) {
 
         // Reset zoom state
         ZOOM_LEVEL = 1.0;
-        ZOOM_CENTER_X = 0;
-        ZOOM_CENTER_Y = 0;
+        ZOOM_CENTER_X = 0.0;
+        ZOOM_CENTER_Y = 0.0;
+        RENDER_ZOOM = 1.0;
+        RENDER_CENTER_X = 0.0;
+        RENDER_CENTER_Y = 0.0;
+        IS_RIGHT_DRAGGING = false;
         ZOOM_ALPHA_OVERRIDE = None;
 
         SELECTION_ABORT_SIGNAL.store(false, Ordering::SeqCst);
@@ -330,11 +346,47 @@ unsafe extern "system" fn selection_wnd_proc(
             }
             LRESULT(0)
         }
+        WM_RBUTTONDOWN => {
+            if !IS_FADING_OUT && ZOOM_LEVEL > 1.0 {
+                IS_RIGHT_DRAGGING = true;
+                let _ = GetCursorPos(std::ptr::addr_of_mut!(LAST_PAN_POS));
+                SetCapture(hwnd);
+                // Start timer ensuring smooth updates while dragging
+                let _ = SetTimer(Some(hwnd), ZOOM_TIMER_ID, 16, None);
+            }
+            LRESULT(0)
+        }
+        WM_RBUTTONUP => {
+            if IS_RIGHT_DRAGGING {
+                IS_RIGHT_DRAGGING = false;
+                let _ = ReleaseCapture();
+            }
+            LRESULT(0)
+        }
         WM_MOUSEMOVE => {
             if IS_DRAGGING {
                 let _ = GetCursorPos(std::ptr::addr_of_mut!(CURR_POS));
                 // Force immediate repaint for smoothness
                 sync_layered_window_contents(hwnd);
+            } else if IS_RIGHT_DRAGGING {
+                let mut curr_pan = POINT::default();
+                let _ = GetCursorPos(&mut curr_pan);
+
+                let dx_screen = curr_pan.x - LAST_PAN_POS.x;
+                let dy_screen = curr_pan.y - LAST_PAN_POS.y;
+                LAST_PAN_POS = curr_pan;
+
+                // Dragging right -> moves viewport left -> center x decreases
+                // Scale by RENDER_ZOOM to map screen pixels to source pixels
+                if RENDER_ZOOM > 0.1 {
+                    // Boost sensitivity by 2.0x for faster traversal
+                    let sensitivity = 2.0;
+                    let dx_source = (dx_screen as f32 / RENDER_ZOOM) * sensitivity;
+                    let dy_source = (dy_screen as f32 / RENDER_ZOOM) * sensitivity;
+
+                    ZOOM_CENTER_X -= dx_source;
+                    ZOOM_CENTER_Y -= dy_source;
+                }
             }
             LRESULT(0)
         }
@@ -347,61 +399,38 @@ unsafe extern "system" fn selection_wnd_proc(
                 let mut cursor = POINT::default();
                 let _ = GetCursorPos(&mut cursor);
 
-                let old_zoom = ZOOM_LEVEL;
-
                 if delta > 0 {
                     // Scroll up = zoom in
                     ZOOM_LEVEL = (ZOOM_LEVEL + ZOOM_STEP).min(MAX_ZOOM);
-                    ZOOM_CENTER_X = cursor.x;
-                    ZOOM_CENTER_Y = cursor.y;
+                    // Update center to cursor on zoom in
+                    ZOOM_CENTER_X = cursor.x as f32;
+                    ZOOM_CENTER_Y = cursor.y as f32;
                 } else if delta < 0 {
                     // Scroll down = zoom out
                     ZOOM_LEVEL = (ZOOM_LEVEL - ZOOM_STEP).max(MIN_ZOOM);
+                    // On zoom out, we keep the current center to prevent jumping around
+                    // unless we are reset to 1.0, then it matters less
                 }
 
-                // Apply Windows Magnification API for real screen zoom
-                if (ZOOM_LEVEL - old_zoom).abs() > 0.001 {
-                    // Initialize magnification if not already done
-                    if !MAG_INITIALIZED {
-                        if load_magnification_api() {
-                            if let Some(init_fn) = MAG_INITIALIZE {
-                                if init_fn().as_bool() {
-                                    MAG_INITIALIZED = true;
-                                }
+                // Initialize panning targets if this is the first move
+                if RENDER_CENTER_X == 0.0 && RENDER_CENTER_Y == 0.0 {
+                    RENDER_CENTER_X = ZOOM_CENTER_X;
+                    RENDER_CENTER_Y = ZOOM_CENTER_Y;
+                }
+
+                // Initialize magnification API instantly if needed
+                if !MAG_INITIALIZED && ZOOM_LEVEL > 1.0 {
+                    if load_magnification_api() {
+                        if let Some(init_fn) = MAG_INITIALIZE {
+                            if init_fn().as_bool() {
+                                MAG_INITIALIZED = true;
                             }
                         }
                     }
-
-                    if MAG_INITIALIZED {
-                        // Apply full-screen magnification centered on cursor
-                        if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
-                            if ZOOM_LEVEL > 1.0 {
-                                let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-                                let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-                                let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                                let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-
-                                // Calculate the top-left offset to center the magnified view on the cursor
-                                let view_w = (screen_w as f32 / ZOOM_LEVEL) as i32;
-                                let view_h = (screen_h as f32 / ZOOM_LEVEL) as i32;
-
-                                let mut off_x = ZOOM_CENTER_X - view_w / 2;
-                                let mut off_y = ZOOM_CENTER_Y - view_h / 2;
-
-                                // Clamp to virtual screen bounds
-                                off_x = off_x.max(screen_x).min(screen_x + screen_w - view_w);
-                                off_y = off_y.max(screen_y).min(screen_y + screen_h - view_h);
-
-                                let _ = transform_fn(ZOOM_LEVEL, off_x, off_y);
-                            } else {
-                                // Reset screen transform completely at 1.0 zoom
-                                let _ = transform_fn(1.0, 0, 0);
-                            }
-                        }
-                    }
-
-                    sync_layered_window_contents(hwnd);
                 }
+
+                // Start animation timer
+                let _ = SetTimer(Some(hwnd), ZOOM_TIMER_ID, 16, None);
             }
             LRESULT(0)
         }
@@ -556,7 +585,75 @@ unsafe extern "system" fn selection_wnd_proc(
             LRESULT(0)
         }
         WM_TIMER => {
-            if wparam.0 == FADE_TIMER_ID {
+            if wparam.0 == ZOOM_TIMER_ID {
+                // Lerp factor - increased for responsiveness
+                let t = 0.4;
+                let mut changed = false;
+
+                // 1. Interpolate Zoom
+                let diff_zoom = ZOOM_LEVEL - RENDER_ZOOM;
+                if diff_zoom.abs() > 0.001 {
+                    RENDER_ZOOM += diff_zoom * t;
+                    changed = true;
+                } else {
+                    RENDER_ZOOM = ZOOM_LEVEL;
+                }
+
+                // 2. Interpolate Center
+                let target_cx = ZOOM_CENTER_X;
+                let target_cy = ZOOM_CENTER_Y;
+
+                let dx = target_cx - RENDER_CENTER_X;
+                let dy = target_cy - RENDER_CENTER_Y;
+
+                if dx.abs() > 0.1 || dy.abs() > 0.1 {
+                    RENDER_CENTER_X += dx * t;
+                    RENDER_CENTER_Y += dy * t;
+                    changed = true;
+                } else {
+                    RENDER_CENTER_X = target_cx;
+                    RENDER_CENTER_Y = target_cy;
+                }
+
+                // 3. Apply Transform if Changed or Dragging
+                if changed || IS_RIGHT_DRAGGING {
+                    if MAG_INITIALIZED {
+                        if let Some(transform_fn) = MAG_SET_FULLSCREEN_TRANSFORM {
+                            if RENDER_ZOOM > 1.01 {
+                                let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                                let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                                let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                                let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+
+                                // View dimensions at current interpolated zoom
+                                let view_w = screen_w as f32 / RENDER_ZOOM;
+                                let view_h = screen_h as f32 / RENDER_ZOOM;
+
+                                // Calculate top-left offset
+                                let mut off_x = RENDER_CENTER_X - view_w / 2.0;
+                                let mut off_y = RENDER_CENTER_Y - view_h / 2.0;
+
+                                // Clamp
+                                off_x = off_x
+                                    .max(screen_x as f32)
+                                    .min((screen_x + screen_w) as f32 - view_w);
+                                off_y = off_y
+                                    .max(screen_y as f32)
+                                    .min((screen_y + screen_h) as f32 - view_h);
+
+                                let _ = transform_fn(RENDER_ZOOM, off_x as i32, off_y as i32);
+                            } else {
+                                // Reset
+                                let _ = transform_fn(1.0, 0, 0);
+                            }
+                        }
+                    }
+                    sync_layered_window_contents(hwnd);
+                } else if !changed && !IS_RIGHT_DRAGGING {
+                    // Stop timer if settled and not dragging
+                    let _ = KillTimer(Some(hwnd), ZOOM_TIMER_ID);
+                }
+            } else if wparam.0 == FADE_TIMER_ID {
                 let mut changed = false;
                 if IS_FADING_OUT {
                     if CURRENT_ALPHA > FADE_STEP {
@@ -606,6 +703,7 @@ unsafe extern "system" fn selection_wnd_proc(
                     }
                 }
                 let _ = KillTimer(Some(hwnd), FADE_TIMER_ID);
+                let _ = KillTimer(Some(hwnd), ZOOM_TIMER_ID);
                 SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
             }
             LRESULT(0)
