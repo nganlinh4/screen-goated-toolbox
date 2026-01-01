@@ -23,9 +23,10 @@ const WM_APP_SHOW: u32 = WM_USER + 10;
 const WM_APP_HIDE: u32 = WM_USER + 11;
 const WM_APP_REAL_SHOW: u32 = WM_USER + 12;
 
-// Fixed dimensions for the wheel window to avoid resizing artifacts
-const WHEEL_WIDTH: i32 = 800;
-const WHEEL_HEIGHT: i32 = 600;
+// Large dimensions for wheel window - transparent so no visual impact
+// Must fit on common screens (1366x768 minimum)
+const WHEEL_WIDTH: i32 = 1200;
+const WHEEL_HEIGHT: i32 = 700;
 
 // Result communication
 pub static WHEEL_RESULT: AtomicI32 = AtomicI32::new(-1);

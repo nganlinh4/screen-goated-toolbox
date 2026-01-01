@@ -11,21 +11,76 @@ pub fn escape_html(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+/// Calculate balanced row distribution using ratio-based "square-squeeze" algorithm
+/// Pills are ~3x wider than tall, so we use sqrt(n/2) for columns to get more rows than columns
+/// This creates visually square/rectangular clumps: 5→[3,2], 10→[4,3,3], 25→[5,5,5,5,5]
+fn calculate_row_distribution(n: usize) -> Vec<usize> {
+    if n == 0 {
+        return vec![];
+    }
+
+    if n == 1 {
+        return vec![1];
+    }
+
+    // Ratio-based: pills are ~130px wide, ~40px tall (ratio ~3:1)
+    // For a visually square clump, use fewer columns than pure sqrt would give
+    // cols = ceil(sqrt(n / squish_factor)) where squish_factor accounts for aspect ratio
+    let squish_factor = 1.5; // Balance between rows and columns
+    let cols = ((n as f64 / squish_factor).sqrt().ceil() as usize).max(1);
+
+    // Calculate number of rows needed
+    let num_rows = (n + cols - 1) / cols;
+
+    // Calculate base items per row and remainder
+    let base = n / num_rows;
+    let remainder = n % num_rows;
+
+    // Distribute evenly: first 'remainder' rows get base+1
+    let mut rows = Vec::with_capacity(num_rows);
+    for i in 0..num_rows {
+        if i < remainder {
+            rows.push(base + 1);
+        } else {
+            rows.push(base);
+        }
+    }
+
+    rows
+}
+
 /// Helper to generate just the items HTML (used for dynamic updates)
+/// Uses fixed row layout to prevent reflow during animations
 pub fn generate_items_html(presets: &[(usize, Preset)], ui_lang: &str) -> String {
-    presets
-        .iter()
-        .enumerate()
-        .map(|(i, (idx, preset))| {
-            let name = escape_html(&get_localized_preset_name(&preset.id, ui_lang));
-            let color_class = format!("color-{}", i % 12);
-            format!(
-                r#"<div class="preset-item {}" data-idx="{}" onclick="select({})">{}</div>"#,
-                color_class, idx, idx, name
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let n = presets.len();
+    let row_distribution = calculate_row_distribution(n);
+
+    let mut html = String::new();
+    let mut item_idx = 0;
+
+    for (row_idx, &items_in_row) in row_distribution.iter().enumerate() {
+        html.push_str(&format!(
+            r#"<div class="preset-row" data-row="{}">"#,
+            row_idx
+        ));
+
+        for _ in 0..items_in_row {
+            if item_idx < presets.len() {
+                let (idx, preset) = &presets[item_idx];
+                let name = escape_html(&get_localized_preset_name(&preset.id, ui_lang));
+                let color_class = format!("color-{}", item_idx % 12);
+                html.push_str(&format!(
+                    r#"<div class="preset-item {}" data-idx="{}" data-item="{}" onclick="select({})">{}</div>"#,
+                    color_class, idx, item_idx, idx, name
+                ));
+                item_idx += 1;
+            }
+        }
+
+        html.push_str("</div>");
+    }
+
+    html
 }
 
 /// Returns the static HTML skeleton with CSS and JS (loaded once)
@@ -79,7 +134,7 @@ html, body {
     align-items: center;
     justify-content: center;
     min-height: 100%;
-    padding: 20px;
+    padding: 40px;
     gap: 10px;
 }
 
@@ -125,19 +180,29 @@ html, body {
     transform: scale(0.92) !important;
 }
 
-/* Flexbox grid - natural brick-like centered clump layout */
+/* Fixed row-based layout - prevents reflow during animations */
 .presets-grid {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
-    align-content: center;
-    gap: 8px;
-    max-width: 560px;
-    padding: 16px;
+    gap: 10px;
+    padding: 20px;
+}
+
+/* Each row is a flex container with fixed item count */
+.preset-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    /* Ensure row doesn't collapse when children are transitioning */
+    min-height: 40px;
 }
 
 .preset-item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 9px 14px;
@@ -150,13 +215,13 @@ html, body {
     white-space: nowrap;
     letter-spacing: 0;
     
-    /* Base state */
+    /* Start hidden - JS animates in with ripple effect from center */
     opacity: 0;
-    transform: scale(0.5);
+    transform: scale(0.8);
     
     /* Smooth transitions */
     transition: 
-        transform 0.1s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.15s cubic-bezier(0.22, 1, 0.36, 1),
         opacity 0.15s ease-out,
         background 0.1s ease,
         box-shadow 0.1s ease,
@@ -399,13 +464,13 @@ window.updateContent = function(itemsHtml, dismissLabel) {
     grid.innerHTML = itemsHtml;
     dismissBtn.innerText = dismissLabel;
     
-    // Re-query items
+    // Re-query items - now nested in .preset-row divs
     items = Array.from(document.querySelectorAll('.preset-item'));
     
     // Clear cached positions
     itemCenters.clear();
     
-    // IMPORTANT: Reset visibility state BEFORE window becomes visible
+    // Reset visibility state BEFORE window becomes visible
     dismissBtn.classList.remove('visible');
     items.forEach(item => item.classList.remove('visible'));
     
@@ -414,6 +479,12 @@ window.updateContent = function(itemsHtml, dismissLabel) {
         window.ipc.postMessage('ready_to_show');
         // Start animation after a tiny delay to ensure window is shown
         setTimeout(() => requestAnimationFrame(animateIn), 16);
+        
+        // Fallback: force visible after 300ms if animation didn't work
+        setTimeout(() => {
+            dismissBtn.classList.add('visible');
+            items.forEach(item => item.classList.add('visible'));
+        }, 300);
     }, 0);
 };
 
