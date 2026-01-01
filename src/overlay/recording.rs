@@ -286,15 +286,13 @@ fn internal_create_recording_window() {
                             let _ = SetTimer(Some(hwnd), 2, 20, None);
                         }
                         "drag_window" => {
-                            unsafe {
-                                let _ = ReleaseCapture();
-                                let _ = PostMessageW(
-                                    Some(hwnd),
-                                    WM_NCLBUTTONDOWN,
-                                    WPARAM(2 as usize), // HTCAPTION = 2
-                                    LPARAM(0 as isize),
-                                );
-                            }
+                            let _ = ReleaseCapture();
+                            let _ = PostMessageW(
+                                Some(hwnd),
+                                WM_NCLBUTTONDOWN,
+                                WPARAM(2 as usize), // HTCAPTION = 2
+                                LPARAM(0 as isize),
+                            );
                         }
                         _ => {}
                     }
@@ -565,6 +563,9 @@ const WM_USER_FULL_CLOSE: u32 = WM_USER + 99;
 // --- HTML GENERATOR ---
 fn generate_html() -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
+    let icon_pause = crate::overlay::html_components::icons::get_icon_svg("pause");
+    let icon_play = crate::overlay::html_components::icons::get_icon_svg("play_arrow");
+    let icon_close = crate::overlay::html_components::icons::get_icon_svg("close");
     let (text_rec, text_proc, text_wait, subtext) = {
         let app = APP.lock().unwrap();
         let lang = app.config.ui_language.as_str();
@@ -721,12 +722,26 @@ fn generate_html() -> String {
     .btn-pause {{ left: 15px; }}
     
     .btn svg {{
-        width: 20px;
-        height: 20px;
+        width: 24px;
+        height: 24px;
         fill: currentColor;
+        display: block;
     }}
     
-    .hidden {{ display: none; }}
+    .btn-close svg {{
+        width: 36px;
+        height: 36px;
+    }}
+    
+    #icon-pause, #icon-play {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+    }}
+    
+    .hidden {{ display: none !important; }}
 
 </style>
 </head>
@@ -750,12 +765,12 @@ fn generate_html() -> String {
 
         <div class="controls">
             <div class="btn btn-pause" onclick="togglePause()" id="btn-pause">
-                 <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                 <svg id="icon-play" class="hidden" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                 <div id="icon-pause">{icon_pause}</div>
+                 <div id="icon-play" class="hidden">{icon_play}</div>
             </div>
             
             <div class="btn btn-close" onclick="closeApp()">
-                <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                {icon_close}
             </div>
         </div>
     </div>
@@ -842,9 +857,13 @@ fn generate_html() -> String {
     "#,
         width = UI_WIDTH - 20,
         height = UI_HEIGHT - 20,
+        font_css = font_css,
         tx_rec = text_rec,
         tx_proc = text_proc,
         tx_wait = text_wait,
-        tx_sub = subtext
+        tx_sub = subtext,
+        icon_pause = icon_pause,
+        icon_play = icon_play,
+        icon_close = icon_close
     )
 }
