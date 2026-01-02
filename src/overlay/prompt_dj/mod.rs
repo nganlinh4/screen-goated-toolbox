@@ -20,6 +20,7 @@ use crate::win_types::SendHwnd;
 static REGISTER_PDJ_CLASS: Once = Once::new();
 static mut PDJ_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
 const WM_APP_SHOW: u32 = WM_USER + 101;
+const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 102;
 
 // Thread-local storage for WebView
 thread_local! {
@@ -57,7 +58,13 @@ unsafe extern "system" fn pdj_wnd_proc(
             let theme_str = match theme_mode {
                 crate::config::ThemeMode::Dark => "dark",
                 crate::config::ThemeMode::Light => "light",
-                crate::config::ThemeMode::System => "dark",
+                crate::config::ThemeMode::System => {
+                    if crate::gui::utils::is_system_in_dark_mode() {
+                        "dark"
+                    } else {
+                        "light"
+                    }
+                }
             };
 
             PDJ_WEBVIEW.with(|wv| {
@@ -78,6 +85,45 @@ unsafe extern "system" fn pdj_wnd_proc(
             let _ = ShowWindow(hwnd, SW_SHOW);
             let _ = SetForegroundWindow(hwnd);
             let _ = SetFocus(Some(hwnd));
+            LRESULT(0)
+        }
+        WM_APP_UPDATE_SETTINGS => {
+            // Update lang and theme immediately even if hidden
+            let (api_key, lang, theme_mode) = {
+                let app = crate::APP.lock().unwrap();
+                (
+                    app.config.gemini_api_key.clone(),
+                    app.config.ui_language.clone(),
+                    app.config.theme_mode.clone(),
+                )
+            };
+
+            let theme_str = match theme_mode {
+                crate::config::ThemeMode::Dark => "dark",
+                crate::config::ThemeMode::Light => "light",
+                crate::config::ThemeMode::System => {
+                    if crate::gui::utils::is_system_in_dark_mode() {
+                        "dark"
+                    } else {
+                        "light"
+                    }
+                }
+            };
+
+            PDJ_WEBVIEW.with(|wv| {
+                if let Some(webview) = wv.borrow().as_ref() {
+                    let script = format!(
+                        r#"
+                        if (window.postMessage) {{
+                            window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
+                            window.postMessage({{ type: 'pm-dj-set-theme', theme: '{}' }}, '*');
+                        }}
+                        "#,
+                        api_key, lang, theme_str
+                    );
+                    let _ = webview.evaluate_script(&script);
+                }
+            });
             LRESULT(0)
         }
         WM_CLOSE => {
@@ -179,6 +225,19 @@ pub fn show_prompt_dj() {
     }
 }
 
+pub fn update_settings() {
+    unsafe {
+        if !std::ptr::addr_of!(PDJ_HWND).read().is_invalid() {
+            let _ = PostMessageW(
+                Some(PDJ_HWND.0),
+                WM_APP_UPDATE_SETTINGS,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
+}
+
 unsafe fn internal_create_pdj_loop() {
     // 1. Create Window
     let instance = GetModuleHandleW(None).unwrap();
@@ -215,10 +274,10 @@ unsafe fn internal_create_pdj_loop() {
     let title_wide = windows::core::HSTRING::from(title_str);
 
     let hwnd = CreateWindowExW(
-        WS_EX_TOPMOST,
+        WS_EX_APPWINDOW,
         class_name,
         PCWSTR(title_wide.as_ptr()),
-        WS_POPUP | WS_THICKFRAME, // Start hidden (no WS_VISIBLE)
+        WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_SYSMENU, // Start hidden (no WS_VISIBLE)
         x,
         y,
         width,
@@ -344,13 +403,18 @@ unsafe fn internal_create_pdj_loop() {
             }};
             header.appendChild(closeBtn);
 
-            header.addEventListener('mousedown', (e) => {{
-                if (e.target !== closeBtn && e.target !== minBtn) {{
+            document.body.appendChild(header);
+
+            // Global drag handler for non-interactive areas
+            document.addEventListener('mousedown', (e) => {{
+                // Ignore if clicking buttons, inputs, or other interactive elements
+                const interactiveTags = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A', 'LABEL'];
+                const isInteractive = e.target.closest('button, input, textarea, select, a, label, [role="button"]');
+                
+                if (!isInteractive && !interactiveTags.includes(e.target.tagName)) {{
                     if (window.ipc) window.ipc.postMessage('drag_window');
                 }}
             }});
-
-            document.body.appendChild(header);
 
             setTimeout(() => {{
                 window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
