@@ -14,3 +14,9 @@ screen-goated-toolbox-*.exe
 
 # Patched dependencies (cloned by scripts/setup-egui-snarl.ps1)
 libs/egui-snarl/
+
+# PromptDJ artifacts
+src/overlay/prompt_dj/dist/
+
+# Agent specific files
+.agent/

@@ -4,6 +4,7 @@ pub mod input_history; // Persistent input history for arrow up/down navigation
 pub mod paint_utils;
 pub mod preset_wheel;
 pub mod process;
+pub mod prompt_dj;
 pub mod recording;
 pub mod result;
 mod selection;

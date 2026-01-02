@@ -275,10 +275,27 @@ pub fn render_sidebar(
             should_set_history = true;
         }
 
+        ui.add_space(8.0);
+
+        // Góc chill chill Button
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new(format!("🎵 {}", text.prompt_dj_btn))
+                        .color(egui::Color32::WHITE),
+                )
+                .fill(egui::Color32::from_rgb(100, 100, 200))
+                .corner_radius(8.0),
+            )
+            .clicked()
+        {
+            crate::overlay::prompt_dj::show_prompt_dj();
+        }
+
         // Push remaining items to the right side
 
         let remaining = (ui.available_width()).max(0.0);
-        ui.add_space(remaining * 0.95);
+        ui.add_space(remaining * 0.9);
 
         // Help Assistant Button
         let help_bg = if is_dark {

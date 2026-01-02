@@ -211,6 +211,10 @@ pub struct LocaleText {
     pub help_assistant_loading: &'static str,
     pub help_assistant_answer_label: &'static str,
     pub help_assistant_hint: &'static str,
+
+    // --- PROMPT DJ ---
+    pub prompt_dj_btn: &'static str,
+    pub prompt_dj_title: &'static str,
 }
 
 impl LocaleText {
@@ -472,6 +476,8 @@ impl LocaleText {
                  help_assistant_loading: "Đang tìm câu trả lời...",
                  help_assistant_answer_label: "Trả lời:",
                  help_assistant_hint: "Nhập câu hỏi về cách sử dụng SGT và nhấn Enter hoặc nút Hỏi",
+                  prompt_dj_btn: "Góc chill chill",
+                  prompt_dj_title: "PromptDJ - Góc chill chill",
                  },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -729,6 +735,8 @@ impl LocaleText {
                  help_assistant_loading: "답변을 찾는 중...",
                  help_assistant_answer_label: "답변:",
                  help_assistant_hint: "SGT 사용법에 대한 질문을 입력하고 Enter 또는 질문 버튼을 누르세요",
+                  prompt_dj_btn: "힐링 공간",
+                  prompt_dj_title: "PromptDJ - 힐링 공간",
                  },
                 _ => Self {
                  history_btn: "History",
@@ -986,6 +994,8 @@ impl LocaleText {
                  help_assistant_loading: "Finding answer...",
                  help_assistant_answer_label: "Answer:",
                  help_assistant_hint: "Enter a question about using SGT and press Enter or click Ask",
+                  prompt_dj_btn: "Chill Corner",
+                  prompt_dj_title: "PromptDJ - Chill Corner",
                  },
                 }
     }

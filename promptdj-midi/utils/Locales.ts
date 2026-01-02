@@ -1,0 +1,63 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+export const LOCALES = {
+    en: {
+        recording_ready: 'Recording Ready',
+        saved: 'Saved!',
+        download_btn: 'Download Recording',
+        downloaded_msg: 'Downloaded to Downloads folder',
+        record_tooltip: 'Record',
+        stop_tooltip: 'Stop Recording',
+        midi_tooltip: 'MIDI Settings',
+        reset_tooltip: 'Reset All Weights',
+        no_sound_toast: 'No sound detected in recording.',
+        too_short_toast: 'Recording too short or silent.',
+        api_key_toast: 'Please set your Gemini API key in the main app first.',
+        add_tooltip: 'Add',
+        edit_btn: 'edit',
+        edit_tooltip: 'Edit prompt',
+        clear_tooltip: 'Clear',
+        prompt_placeholder: 'Enter audio prompt...',
+    },
+    vi: {
+        recording_ready: 'Bản ghi đã sẵn sàng',
+        saved: 'Đã lưu!',
+        download_btn: 'Tải bản ghi xuống',
+        downloaded_msg: 'Đã tải vào thư mục Downloads',
+        record_tooltip: 'Ghi âm',
+        stop_tooltip: 'Dừng ghi',
+        midi_tooltip: 'Cài đặt MIDI',
+        reset_tooltip: 'Đặt lại tất cả',
+        no_sound_toast: 'Không phát hiện âm thanh trong bản ghi.',
+        too_short_toast: 'Bản ghi quá ngắn hoặc không có tiếng.',
+        api_key_toast: 'Vui lòng thiết lập Gemini API key trong ứng dụng chính.',
+        add_tooltip: 'Thêm',
+        edit_btn: 'sửa',
+        edit_tooltip: 'Sửa prompt',
+        clear_tooltip: 'Xóa',
+        prompt_placeholder: 'Nhập prompt âm thanh...',
+    },
+    ko: {
+        recording_ready: '녹음 완료',
+        saved: '저장됨!',
+        download_btn: '녹음 파일 다운로드',
+        downloaded_msg: '다운로드 폴더에 저장되었습니다',
+        record_tooltip: '녹음 시작',
+        stop_tooltip: '녹음 중지',
+        midi_tooltip: 'MIDI 설정',
+        reset_tooltip: '모든 가중치 초기화',
+        no_sound_toast: '녹음에서 소리가 감지되지 않았습니다.',
+        too_short_toast: '녹음이 너무 짧거나 소리가 없습니다.',
+        api_key_toast: '메인 앱에서 Gemini API 키를 먼저 설정해주세요.',
+        add_tooltip: '추가',
+        edit_btn: '편집',
+        edit_tooltip: '프롬프트 편집',
+        clear_tooltip: '지우기',
+        prompt_placeholder: '오디오 프롬프트 입력...',
+    }
+};
+
+export type Lang = keyof typeof LOCALES;
