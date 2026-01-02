@@ -41,6 +41,7 @@ pub fn update_audio_viz(rms: f32) {
 static RECORDING_STATE: AtomicI32 = AtomicI32::new(0);
 static RECORDING_HWND_VAL: AtomicIsize = AtomicIsize::new(0);
 static REGISTER_RECORDING_CLASS: Once = Once::new();
+static LAST_THEME_IS_DARK: AtomicBool = AtomicBool::new(true);
 
 thread_local! {
     static RECORDING_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
@@ -48,8 +49,8 @@ thread_local! {
 }
 
 // --- CONSTANTS ---
-const UI_WIDTH: i32 = 360;
-const UI_HEIGHT: i32 = 140;
+const UI_WIDTH: i32 = 450;
+const UI_HEIGHT: i32 = 70;
 
 const WM_APP_SHOW: u32 = WM_USER + 20;
 const WM_APP_HIDE: u32 = WM_USER + 21;
@@ -424,6 +425,67 @@ unsafe extern "system" fn recording_wnd_proc(
                         let _ = wv.evaluate_script(&script);
                     }
                 });
+
+                // Check for theme changes
+                if let Ok(app) = APP.try_lock() {
+                    let current_is_dark = match app.config.theme_mode {
+                        crate::config::ThemeMode::Dark => true,
+                        crate::config::ThemeMode::Light => false,
+                        crate::config::ThemeMode::System => {
+                            crate::gui::utils::is_system_in_dark_mode()
+                        }
+                    };
+                    let last_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
+
+                    if current_is_dark != last_dark {
+                        LAST_THEME_IS_DARK.store(current_is_dark, Ordering::SeqCst);
+
+                        // Generate new theme colors
+                        let (
+                            container_bg,
+                            container_border,
+                            text_color,
+                            subtext_color,
+                            btn_bg,
+                            btn_hover_bg,
+                            btn_color,
+                            text_shadow,
+                        ) = if current_is_dark {
+                            (
+                                "rgba(18, 18, 18, 0.85)",
+                                "rgba(255, 255, 255, 0.1)",
+                                "white",
+                                "rgba(255, 255, 255, 0.7)",
+                                "rgba(255, 255, 255, 0.05)",
+                                "rgba(255, 255, 255, 0.15)",
+                                "rgba(255, 255, 255, 0.8)",
+                                "0 1px 2px rgba(0, 0, 0, 0.3)",
+                            )
+                        } else {
+                            (
+                                "rgba(255, 255, 255, 0.92)",
+                                "rgba(0, 0, 0, 0.1)",
+                                "#222222",
+                                "rgba(0, 0, 0, 0.6)",
+                                "rgba(0, 0, 0, 0.05)",
+                                "rgba(0, 0, 0, 0.1)",
+                                "rgba(0, 0, 0, 0.7)",
+                                "0 1px 2px rgba(255, 255, 255, 0.3)",
+                            )
+                        };
+
+                        let theme_script = format!(
+                            "if(window.updateTheme) window.updateTheme({}, '{}', '{}', '{}', '{}', '{}', '{}', '{}', '{}');",
+                            current_is_dark, container_bg, container_border, text_color, subtext_color, btn_bg, btn_hover_bg, btn_color, text_shadow
+                        );
+
+                        RECORDING_WEBVIEW.with(|cell| {
+                            if let Some(wv) = cell.borrow().as_ref() {
+                                let _ = wv.evaluate_script(&theme_script);
+                            }
+                        });
+                    }
+                }
             }
             LRESULT(0)
         }
@@ -566,25 +628,73 @@ fn generate_html() -> String {
     let icon_pause = crate::overlay::html_components::icons::get_icon_svg("pause");
     let icon_play = crate::overlay::html_components::icons::get_icon_svg("play_arrow");
     let icon_close = crate::overlay::html_components::icons::get_icon_svg("close");
-    let (text_rec, text_proc, text_wait, subtext) = {
+    let (text_rec, text_proc, text_wait, subtext, text_paused, is_dark) = {
         let app = APP.lock().unwrap();
         let lang = app.config.ui_language.as_str();
+        let locale = crate::gui::locale::LocaleText::get(lang);
+        let is_dark = match app.config.theme_mode {
+            crate::config::ThemeMode::Dark => true,
+            crate::config::ThemeMode::Light => false,
+            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+        };
+        // Store initial theme state
+        LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
+        (
+            match lang {
+                "vi" => "Đang ghi âm...",
+                "ko" => "녹음 중...",
+                _ => "Recording...",
+            },
+            match lang {
+                "vi" => "Đang xử lý...",
+                "ko" => "처리 중...",
+                _ => "Processing...",
+            },
+            match lang {
+                "vi" => "Chuẩn bị...",
+                "ko" => "준비 중...",
+                _ => "Starting...",
+            },
+            locale.recording_subtext,
+            locale.recording_paused,
+            is_dark,
+        )
+    };
 
-        match lang {
-            "vi" => (
-                "Đang ghi âm...",
-                "Đang xử lý...",
-                "Chuẩn bị...",
-                "Nhấn ESC để dừng",
-            ),
-            "ko" => ("녹음 중...", "처리 중...", "준비 중...", "중지하려면 ESC"),
-            _ => (
-                "Recording...",
-                "Processing...",
-                "Starting...",
-                "Press ESC to Stop",
-            ),
-        }
+    // Theme-specific colors
+    let (
+        container_bg,
+        container_border,
+        text_color,
+        subtext_color,
+        btn_bg,
+        btn_hover_bg,
+        btn_color,
+        text_shadow,
+    ) = if is_dark {
+        // Dark mode
+        (
+            "rgba(18, 18, 18, 0.85)",
+            "rgba(255, 255, 255, 0.1)",
+            "white",
+            "rgba(255, 255, 255, 0.7)",
+            "rgba(255, 255, 255, 0.05)",
+            "rgba(255, 255, 255, 0.15)",
+            "rgba(255, 255, 255, 0.8)",
+            "0 1px 2px rgba(0, 0, 0, 0.3)",
+        )
+    } else {
+        // Light mode
+        (
+            "rgba(255, 255, 255, 0.92)",
+            "rgba(0, 0, 0, 0.1)",
+            "#222222",
+            "rgba(0, 0, 0, 0.6)",
+            "rgba(0, 0, 0, 0.05)",
+            "rgba(0, 0, 0, 0.1)",
+            "rgba(0, 0, 0, 0.7)",
+            "0 1px 2px rgba(255, 255, 255, 0.3)",
+        )
     };
 
     format!(
@@ -618,109 +728,81 @@ fn generate_html() -> String {
     .container {{
         width: {width}px;
         height: {height}px;
-        background: rgba(18, 18, 18, 0.85);
+        background: {container_bg};
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 20px;
+        border: 1px solid {container_border};
+        border-radius: 50px;
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         align-items: center;
-        justify-content: center;
+        justify-content: space-between;
+        padding: 0 3px;
+        gap: 6px;
         position: relative;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        color: white;
+        color: {text_color};
         font-family: 'Google Sans Flex', sans-serif;
     }}
 
+    .text-group {{
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        flex-grow: 1;
+        min-width: 0;
+        margin-left: 5px;
+    }}
+
     .status-text {{
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 4px;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        font-size: 15px;
+        font-weight: 700;
+        margin-bottom: 2px;
+        text-shadow: {text_shadow};
+        font-stretch: expanded;
+        white-space: nowrap;
     }}
     
     .sub-text {{
-        font-size: 12px;
-        color: rgba(255,255,255,0.6);
-        margin-bottom: 12px;
+        font-size: 10px;
+        color: {subtext_color};
+        margin-bottom: 0;
+        white-space: nowrap;
+        font-family: 'Google Sans Flex', sans-serif;
+        font-variation-settings: 'opsz' 14;
     }}
 
     /* Volume Canvas Styling */
     #volume-canvas {{
-        height: 24px;
-        width: 120px;
-        border-radius: 2px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 3px;
-        margin-bottom: 5px;
-    }}
-
-    /* Waveform Animation */
-    .wave-line {{
-        width: 4px;
-        height: 100%;
-        background: linear-gradient(180deg, #00C6FF 0%, #0072FF 100%);
-        border-radius: 10px;
-        transform-box: fill-box;
-        transform-origin: center;
-        transform: scaleY(0.2);
-        transition: transform 0.05s linear;
-        box-shadow: 0 0 8px rgba(0, 198, 255, 0.6);
-    }}
-    
-    .dancing .wave-line {{
-        animation: wave-animation 1.2s ease-in-out infinite;
-    }}
-
-    .wave-line.delay-1 {{ animation-delay: 0s; }}
-    .wave-line.delay-2 {{ animation-delay: 0.15s; }}
-    .wave-line.delay-3 {{ animation-delay: 0.3s; }}
-    .wave-line.delay-4 {{ animation-delay: 0.1s; }}
-
-    @keyframes wave-animation {{
-        0%, 100% {{ transform: scaleY(0.3); }}
-        50% {{ transform: scaleY(0.8); }}
-    }}
-
-    .controls {{
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        top: 0;
-        left: 0;
-        pointer-events: none;
+        height: 30px;
+        width: 100px;
+        margin-right: 5px;
     }}
 
     .btn {{
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 40px;
-        height: 40px;
+        position: relative;
+        width: 34px; 
+        height: 34px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.05);
+        background: {btn_bg};
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
         pointer-events: auto;
         transition: background 0.2s, transform 0.1s;
-        color: rgba(255,255,255,0.8);
+        color: {btn_color};
+        flex-shrink: 0;
+        margin: 0 2px;
     }}
     
     .btn:hover {{
-        background: rgba(255,255,255,0.15);
+        background: {btn_hover_bg};
     }}
     .btn:active {{
-        transform: translateY(-50%) scale(0.95);
+        transform: scale(0.95);
     }}
 
-    .btn-close {{ right: 15px; }}
-    .btn-pause {{ left: 15px; }}
-    
     .btn svg {{
         width: 24px;
         height: 24px;
@@ -747,111 +829,281 @@ fn generate_html() -> String {
 </head>
 <body>
     <div class="container">
-        
-        <div class="status-text" id="status">{tx_rec}</div>
-        <div class="sub-text">{tx_sub}</div>
-        
-        <div id="volume-canvas">
-             <div class="wave-line delay-1"></div>
-             <div class="wave-line delay-2"></div>
-             <div class="wave-line delay-3"></div>
-             <div class="wave-line delay-4"></div>
-             <div class="wave-line delay-1"></div>
-             <div class="wave-line delay-2"></div>
-             <div class="wave-line delay-3"></div>
-             <div class="wave-line delay-4"></div>
-             <div class="wave-line delay-1"></div>
+        <!-- 1. Play/Pause -->
+        <div class="btn btn-pause" onclick="togglePause()" id="btn-pause">
+             <div id="icon-pause">{icon_pause}</div>
+             <div id="icon-play" class="hidden">{icon_play}</div>
         </div>
 
-        <div class="controls">
-            <div class="btn btn-pause" onclick="togglePause()" id="btn-pause">
-                 <div id="icon-pause">{icon_pause}</div>
-                 <div id="icon-play" class="hidden">{icon_play}</div>
-            </div>
-            
-            <div class="btn btn-close" onclick="closeApp()">
-                {icon_close}
-            </div>
+        <!-- 2. Text -->
+        <div class="text-group">
+            <div class="status-text" id="status">{tx_rec}</div>
+            <div class="sub-text">{tx_sub}</div>
+        </div>
+        
+        <!-- 3. Waveform -->
+        <!-- 3. Waveform (Canvas) -->
+        <div style="display: flex; align-items: center;">
+            <canvas id="volume-canvas" width="200" height="60" style="width: 100px; height: 30px;"></canvas>
+        </div>
+
+        <!-- 4. Close -->
+        <div class="btn btn-close" onclick="closeApp()">
+            {icon_close}
         </div>
     </div>
 
-<script>
-    const statusEl = document.getElementById('status');
-    const pauseBtn = document.getElementById('btn-pause');
-    const iconPause = document.getElementById('icon-pause');
-    const iconPlay = document.getElementById('icon-play');
-    const volumeCanvas = document.getElementById('volume-canvas');
-    const bars = document.querySelectorAll('.wave-line');
-    
-    let currentState = "warmup"; 
-    
-    function updateState(state, rms) {{
-        currentState = state;
+    <script>
+        // const ipc = window.__TAURI__.ipc; // Removed - not using Tauri here, just Wry
+
         
-        if (state === 'processing') {{
-             statusEl.innerText = "{tx_proc}";
-             volumeCanvas.classList.add('dancing');
-             pauseBtn.style.display = 'none';
-        }} else if (state === 'paused') {{
-             statusEl.innerText = "Paused";
-             volumeCanvas.classList.add('dancing');
-             pauseBtn.style.display = 'flex';
-             iconPause.classList.add('hidden');
-             iconPlay.classList.remove('hidden');
-        }} else if (state === 'warmup') {{
-             statusEl.innerText = "{tx_wait}";
-             volumeCanvas.classList.add('dancing');
-        }} else {{
-             statusEl.innerText = "{tx_rec}";
-             volumeCanvas.classList.remove('dancing');
-             pauseBtn.style.display = 'flex';
-             iconPause.classList.remove('hidden');
-             iconPlay.classList.add('hidden');
+        // I18n constants
+        const TEXT_REC = "{tx_rec}";
+        const TEXT_PROC = "{tx_proc}";
+        const TEXT_WAIT = "{tx_wait}";
+        const TEXT_PAUSED = "{tx_paused}";
+
+        const statusEl = document.getElementById('status');
+        const pauseBtn = document.getElementById('btn-pause');
+        const iconPause = document.getElementById('icon-pause');
+        const iconPlay = document.getElementById('icon-play');
+        
+        let currentState = "warmup"; 
+        
+        // --- CANVAS WAVEFORM LOGIC ---
+        const volumeCanvas = document.getElementById('volume-canvas');
+        const volumeCtx = volumeCanvas ? volumeCanvas.getContext('2d') : null;
+        
+        const BAR_WIDTH = 8; 
+        const BAR_GAP = 6;
+        const BAR_SPACING = BAR_WIDTH + BAR_GAP;
+        const VISIBLE_BARS = 20; 
+        
+        const barHeights = new Array(VISIBLE_BARS + 2).fill(6);
+        let latestRMS = 0;
+        let scrollProgress = 0;
+        let lastTime = 0;
+        let animationFrame = null;
+        
+        // Theme state (passed from Rust)
+        let isDark = {is_dark};
+        
+        // Color Schemes for Dark Mode
+        const COLORS_DARK = {{
+            recording:  ['#00a8e0', '#00c8ff', '#40e0ff'], // Light Cyan
+            processing: ['#00FF00', '#32CD32', '#98FB98'], // Green (unused - rainbow)
+            warmup:     ['#FFD700', '#FFA500', '#FFDEAD'], // Gold/Orange
+            paused:     ['#888888', '#AAAAAA', '#CCCCCC']  // Grey
+        }};
+        
+        // Color Schemes for Light Mode (darker, more saturated)
+        const COLORS_LIGHT = {{
+            recording:  ['#0066cc', '#0088dd', '#00aaee'], // Deep Blue
+            processing: ['#00AA00', '#008800', '#006600'], // Dark Green (unused - rainbow)
+            warmup:     ['#cc6600', '#dd8800', '#ee9900'], // Dark Orange
+            paused:     ['#666666', '#888888', '#aaaaaa']  // Dark Grey
+        }};
+        
+        let COLORS = isDark ? COLORS_DARK : COLORS_LIGHT;
+        let currentColors = COLORS.warmup;
+
+        function updateState(state, rms) {{
+            currentState = state;
+            latestRMS = rms; 
+            
+            if (state === 'processing') {{
+                 statusEl.innerText = TEXT_PROC;
+                 currentColors = COLORS.processing;
+                 // Don't reset bars - let them transition smoothly from recording
+                 // New DNA-pattern bars will be added as old ones scroll off
+                 pauseBtn.style.visibility = 'hidden';
+                 pauseBtn.style.pointerEvents = 'none';
+            }} else if (state === 'paused') {{
+                 statusEl.innerText = TEXT_PAUSED;
+                 currentColors = COLORS.paused;
+                 // Reset bars to minimal when paused
+                 for (let i = 0; i < barHeights.length; i++) barHeights[i] = 6;
+                 pauseBtn.style.visibility = 'visible';
+                 pauseBtn.style.pointerEvents = 'auto';
+                 iconPause.classList.add('hidden');
+                 iconPlay.classList.remove('hidden');
+            }} else if (state === 'warmup') {{
+                 statusEl.innerText = TEXT_WAIT;
+                 currentColors = COLORS.warmup;
+                 // Reset bars to minimal when entering warmup to clear lingering full bars
+                 for (let i = 0; i < barHeights.length; i++) barHeights[i] = 6;
+                 // Hide pause button during warmup
+                 pauseBtn.style.visibility = 'hidden';
+                 pauseBtn.style.pointerEvents = 'none';
+            }} else {{
+                 statusEl.innerText = TEXT_REC;
+                 currentColors = COLORS.recording;
+                 pauseBtn.style.visibility = 'visible';
+                 pauseBtn.style.pointerEvents = 'auto';
+                 iconPause.classList.remove('hidden');
+                 iconPlay.classList.add('hidden');
+            }}
+        }}
+
+        function drawWaveform(timestamp) {{
+            if (!volumeCtx) return;
+            
+            const dt = lastTime ? (timestamp - lastTime) / 1000 : 0.016;
+            lastTime = timestamp;
+            
+            // Speed: faster for processing to create urgency effect
+            const speed = currentState === 'processing' ? 0.06 : 0.15;
+            scrollProgress += dt / speed;
+            
+            // When in processing, apply decay to existing bars for smooth transition
+            if (currentState === 'processing') {{
+                const decayFactor = 0.95; // Shrink old bars by 5% each frame
+                const minHeight = 15;
+                for (let i = 0; i < barHeights.length; i++) {{
+                    if (barHeights[i] > minHeight) {{
+                        barHeights[i] = Math.max(minHeight, barHeights[i] * decayFactor);
+                    }}
+                }}
+            }}
+            
+            while (scrollProgress >= 1) {{
+                scrollProgress -= 1;
+                barHeights.shift();
+                
+                const h = volumeCanvas.height;
+                let displayRMS = latestRMS;
+                if (currentState === 'processing') {{
+                    // DNA-like sine wave pattern for processing
+                    displayRMS = 0.12 + 0.2 * Math.abs(Math.sin(timestamp / 120));
+                }} else if (currentState === 'paused') {{
+                    displayRMS = 0.02; // Tiny dots
+                }} else if (currentState === 'warmup') {{
+                    displayRMS = 0.02; // Minimal - tiny orange dots
+                }}
+                
+                let v = Math.max(6, Math.min(h - 4, displayRMS * 250 + 6));
+                barHeights.push(v);
+            }}
+            
+            const w = volumeCanvas.width;
+            const h = volumeCanvas.height;
+            volumeCtx.clearRect(0, 0, w, h);
+            
+            const pixelOffset = scrollProgress * BAR_SPACING;
+            
+            // For processing: draw each bar with its own rainbow color AND DNA wave height
+            // For others: use a single gradient
+            if (currentState === 'processing') {{
+                const baseHue = (timestamp / 20) % 360; // Slower cycling base
+                const wavePhase = timestamp / 200; // Animation phase for wave movement
+                
+                for (let i = 0; i < barHeights.length; i++) {{
+                    // DNA wave: each bar height based on position + time for traveling wave
+                    const waveValue = Math.sin((i * 0.4) + wavePhase);
+                    const pillHeight = 12 + 35 * Math.abs(waveValue); // Range: 12 to 47
+                    
+                    const x = i * BAR_SPACING - pixelOffset;
+                    const y = (h - pillHeight) / 2;
+                    
+                    if (x > -BAR_WIDTH && x < w) {{
+                        // Each bar gets a different hue
+                        const barHue = (baseHue + i * 18) % 360;
+                        volumeCtx.fillStyle = `hsl(${{barHue}}, 100%, 55%)`;
+                        volumeCtx.beginPath();
+                        if (volumeCtx.roundRect) {{
+                            volumeCtx.roundRect(x, y, BAR_WIDTH, pillHeight, BAR_WIDTH / 2);
+                        }} else {{
+                            volumeCtx.rect(x, y, BAR_WIDTH, pillHeight);
+                        }}
+                        volumeCtx.fill();
+                    }}
+                }}
+            }} else {{
+                // Normal gradient for other states
+                const grad = volumeCtx.createLinearGradient(0, h, 0, 0);
+                grad.addColorStop(0, currentColors[0]);
+                grad.addColorStop(0.5, currentColors[1]);
+                grad.addColorStop(1, currentColors[2]);
+                volumeCtx.fillStyle = grad;
+                
+                for (let i = 0; i < barHeights.length; i++) {{
+                    const pillHeight = barHeights[i];
+                    const x = i * BAR_SPACING - pixelOffset;
+                    const y = (h - pillHeight) / 2;
+                    
+                    if (x > -BAR_WIDTH && x < w) {{
+                        volumeCtx.beginPath();
+                        if (volumeCtx.roundRect) {{
+                            volumeCtx.roundRect(x, y, BAR_WIDTH, pillHeight, BAR_WIDTH / 2);
+                        }} else {{
+                            volumeCtx.rect(x, y, BAR_WIDTH, pillHeight);
+                        }}
+                        volumeCtx.fill();
+                    }}
+                }}
+            }}
+            
+            animationFrame = requestAnimationFrame(drawWaveform);
+        }}
+
+        if (!animationFrame) {{
+            animationFrame = requestAnimationFrame(drawWaveform);
+        }}
+
+        function togglePause() {{
+            window.ipc.postMessage('pause_toggle');
         }}
         
-        if (state === 'recording') {{
-             let amp = Math.min(rms * 15.0, 1.0);
-             bars.forEach((bar, i) => {{
-                 let factor = 1.0;
-                 if (i === 0 || i === 8) factor = 0.6;
-                 if (i === 1 || i === 7) factor = 0.8;
-                 let h = 0.2 + (amp * factor * 1.5);
-                 if (h > 1.8) h = 1.8;
-                 bar.style.transform = `scaleY(${{h}})`;
-             }});
+        function closeApp() {{
+            window.ipc.postMessage('cancel');
         }}
-    }}
+        
+        function resetState() {{
+            hideState();
+            setTimeout(() => {{
+                 window.ipc.postMessage('ready');
+            }}, 10);
+        }}
 
-    function togglePause() {{
-        window.ipc.postMessage('pause_toggle');
-    }}
-    
-    function closeApp() {{
-        window.ipc.postMessage('cancel');
-    }}
-    
-    function resetState() {{
-        hideState();
-        // Small timeout to allow DOM to process class removal before signaling ready
-        // This ensures the opacity transition (to 0) is registered
-        setTimeout(() => {{
-             window.ipc.postMessage('ready');
-        }}, 10);
-    }}
+        const container = document.querySelector('.container');
+        container.addEventListener('mousedown', (e) => {{
+            if (e.target.closest('.btn')) return;
+            window.ipc.postMessage('drag_window');
+        }});
 
-    // Drag Logic
-    const container = document.querySelector('.container');
-    container.addEventListener('mousedown', (e) => {{
-        // Prevent dragging if clicking buttons
-        if (e.target.closest('.btn')) return;
-        window.ipc.postMessage('drag_window');
-    }});
-
-    function hideState() {{
-        document.body.classList.remove('visible');
-    }}
-
-</script>
+        function hideState() {{
+            document.body.classList.remove('visible');
+        }}
+        
+        // Dynamic theme update function (called from Rust)
+        window.updateTheme = function(newIsDark, containerBg, containerBorder, textColor, subtextColor, btnBg, btnHoverBg, btnColor, textShadow) {{
+            isDark = newIsDark;
+            COLORS = isDark ? COLORS_DARK : COLORS_LIGHT;
+            
+            // Update CSS
+            const container = document.querySelector('.container');
+            container.style.background = containerBg;
+            container.style.borderColor = containerBorder;
+            container.style.color = textColor;
+            
+            const subtext = document.querySelector('.sub-text');
+            if (subtext) subtext.style.color = subtextColor;
+            
+            const statusText = document.querySelector('.status-text');
+            if (statusText) statusText.style.textShadow = textShadow;
+            
+            document.querySelectorAll('.btn').forEach(btn => {{
+                btn.style.background = btnBg;
+                btn.style.color = btnColor;
+            }});
+            
+            // Update current colors based on current state
+            if (currentState === 'recording') currentColors = COLORS.recording;
+            else if (currentState === 'paused') currentColors = COLORS.paused;
+            else if (currentState === 'warmup') currentColors = COLORS.warmup;
+            else if (currentState === 'processing') currentColors = COLORS.processing;
+        }};
+    </script>
 </body>
 </html>
     "#,
@@ -862,8 +1114,18 @@ fn generate_html() -> String {
         tx_proc = text_proc,
         tx_wait = text_wait,
         tx_sub = subtext,
+        tx_paused = text_paused,
         icon_pause = icon_pause,
         icon_play = icon_play,
-        icon_close = icon_close
+        icon_close = icon_close,
+        container_bg = container_bg,
+        container_border = container_border,
+        text_color = text_color,
+        subtext_color = subtext_color,
+        btn_bg = btn_bg,
+        btn_hover_bg = btn_hover_bg,
+        btn_color = btn_color,
+        text_shadow = text_shadow,
+        is_dark = if is_dark { "true" } else { "false" }
     )
 }

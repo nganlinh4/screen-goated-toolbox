@@ -185,6 +185,7 @@ pub struct LocaleText {
     pub favorites_empty: &'static str,
     pub favorites_keep_open: &'static str,
     pub recording_subtext: &'static str,
+    pub recording_paused: &'static str,
     // --- AUTO COPY BADGE ---
     pub auto_copied_badge: &'static str,
     pub auto_copied_image_badge: &'static str,
@@ -444,7 +445,8 @@ impl LocaleText {
                 // --- FAVORITE BUBBLE VI ---
                  favorites_empty: "Vui lòng đưa ít nhất một cấu hình vào ưa thích",
                  favorites_keep_open: "Giữ mở",
-                 recording_subtext: "Bấm hotkey lần nữa hoặc ESC để xử lý âm thanh",
+                 recording_subtext: "Nhấn ESC/Hotkey để dừng",
+                 recording_paused: "Đã tạm dừng",
                  // --- AUTO COPY BADGE VI ---
                  auto_copied_badge: "Đã tự động copy",
                  auto_copied_image_badge: "🖼️ Ảnh đã được sao chép",
@@ -700,7 +702,8 @@ impl LocaleText {
                 // --- FAVORITE BUBBLE KO ---
                  favorites_empty: "즐겨찾기에 최소한 하나의 프리셋을 추가해주세요",
                  favorites_keep_open: "열린 상태 유지",
-                 recording_subtext: "단축키를 다시 누르거나 ESC를 눌러 오디오 처리",
+                 recording_subtext: "ESC/Hotkey를 눌러 중지",
+                 recording_paused: "일시 중지됨",
                  // --- AUTO COPY BADGE KO ---
                  auto_copied_badge: "자동으로 복사됨",
                  auto_copied_image_badge: "🖼️ 이미지가 복사됨",
@@ -956,7 +959,8 @@ impl LocaleText {
                 // --- FAVORITE BUBBLE EN ---
                  favorites_empty: "Please add at least one configuration to favorites",
                  favorites_keep_open: "Keep Open",
-                 recording_subtext: "Press hotkey again or ESC to process audio",
+                 recording_subtext: "Press ESC/Hotkey to stop",
+                 recording_paused: "Paused",
                  // --- AUTO COPY BADGE EN ---
                  auto_copied_badge: "Auto-copied",
                  auto_copied_image_badge: "🖼️ Image copied",
