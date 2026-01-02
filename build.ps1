@@ -6,6 +6,31 @@ if (Test-Path $snarlDir) {
 }
 & (Join-Path $PSScriptRoot "scripts\setup-egui-snarl.ps1")
 
+# --- Build PromptDJ Frontend ---
+Write-Host "Building PromptDJ Frontend..." -ForegroundColor Cyan
+$pdjDir = Join-Path $PSScriptRoot "promptdj-midi"
+$pdjDist = Join-Path $pdjDir "dist"
+$pdjTargetDist = Join-Path $PSScriptRoot "src\overlay\prompt_dj\dist"
+
+Push-Location $pdjDir
+try {
+    npm run build
+} finally {
+    Pop-Location
+}
+
+if (Test-Path $pdjDist) {
+    if (-not (Test-Path $pdjTargetDist)) {
+        New-Item -ItemType Directory -Path $pdjTargetDist -Force | Out-Null
+    }
+    Copy-Item -Path "$pdjDist\*" -Destination $pdjTargetDist -Recurse -Force
+    Write-Host "PromptDJ assets synchronized." -ForegroundColor Green
+} else {
+    Write-Host "FAILED: PromptDJ build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
+# --- Continue Main Build ---
 # Extract version from Cargo.toml
 $cargoContent = Get-Content "Cargo.toml" -Raw
 if ($cargoContent -match 'version\s*=\s*"([^"]+)"') {
