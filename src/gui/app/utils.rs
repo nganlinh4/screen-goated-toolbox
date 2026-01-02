@@ -38,6 +38,9 @@ impl SettingsApp {
         drop(state);
         save_config(&self.config);
 
+        // Sync PromptDJ settings if window is active
+        crate::overlay::prompt_dj::update_settings();
+
         unsafe {
             let class = w!("HotkeyListenerClass");
             let title = w!("Listener");
