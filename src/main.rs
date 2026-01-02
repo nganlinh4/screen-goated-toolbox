@@ -292,6 +292,10 @@ fn main() -> eframe::Result<()> {
         // 5. Warmup markdown WebView
         wait_for_popup_close();
         overlay::result::markdown_view::warmup();
+
+        // 6. Warmup PromptDJ (Chill Corner)
+        wait_for_popup_close();
+        overlay::prompt_dj::warmup();
     });
 
     // 1. Load config early to get theme setting and language for tray i18n
