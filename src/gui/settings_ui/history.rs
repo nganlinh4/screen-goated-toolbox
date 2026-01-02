@@ -59,11 +59,23 @@ pub fn render_history_panel(
 
             // Row 2: Search + Actions
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(search_query)
-                        .hint_text(text.search_placeholder)
-                        .desired_width(220.0),
-                );
+                ui.scope(|ui| {
+                    if !is_dark {
+                        let visuals = ui.visuals_mut();
+                        visuals.extreme_bg_color = egui::Color32::from_gray(242);
+                        visuals.widgets.inactive.bg_stroke =
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(220));
+                        visuals.widgets.hovered.bg_stroke =
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(200));
+                        visuals.widgets.active.bg_stroke =
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(180));
+                    }
+                    ui.add(
+                        egui::TextEdit::singleline(search_query)
+                            .hint_text(text.search_placeholder)
+                            .desired_width(220.0),
+                    );
+                });
 
                 if !search_query.is_empty() {
                     if icon_button(ui, Icon::Close)
