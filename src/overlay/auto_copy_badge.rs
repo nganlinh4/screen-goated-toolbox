@@ -41,7 +41,7 @@ thread_local! {
 
 // Dimensions
 const BADGE_WIDTH: i32 = 1200; // Super wide
-const BADGE_HEIGHT: i32 = 80; // Taller for nicer padding/shadows
+const BADGE_HEIGHT: i32 = 120; // Taller for nicer padding/shadows
 
 /// Wrapper for HWND to implement HasWindowHandle
 struct HwndWrapper(HWND);
@@ -157,8 +157,8 @@ fn get_badge_html() -> String {
         border-radius: 12px;
         
         /* Blooming / Glow Effect */
-        box-shadow: 0 0 20px var(--bloom-color), 
-                    0 8px 30px var(--shadow-color);
+        box-shadow: 0 0 12px var(--bloom-color), 
+                    0 4px 15px var(--shadow-color);
                     
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);

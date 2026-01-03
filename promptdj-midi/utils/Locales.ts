@@ -40,7 +40,7 @@ export const LOCALES = {
         edit_btn: 'sửa',
         edit_tooltip: 'Sửa prompt',
         clear_tooltip: 'Xóa',
-        prompt_placeholder: 'Nhập prompt âm thanh...',
+        prompt_placeholder: 'Nhập prompt âm thanh',
     },
     ko: {
         recording_ready: '녹음 완료',
