@@ -107,36 +107,19 @@ pub fn warmup_recording_overlay() {
 
 pub fn show_recording_overlay(preset_idx: usize) {
     // Check current state
-    let mut current = RECORDING_STATE.load(Ordering::SeqCst);
+    let current = RECORDING_STATE.load(Ordering::SeqCst);
 
-    // If state is 0, start the thread and waiting loop
+    // If state is 0, warmup hasn't started or completed - show notification
     if current == 0 {
-        warmup_recording_overlay();
-        // Spin briefly to let thread start
-        for _ in 0..10 {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            current = RECORDING_STATE.load(Ordering::SeqCst);
-            if current != 0 {
-                break;
-            }
-        }
+        // Get locale and show loading notification
+        let ui_lang = APP.lock().unwrap().config.ui_language.clone();
+        let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+        crate::overlay::auto_copy_badge::show_notification(locale.recording_loading);
+        return;
     }
 
-    // Now we expect state to be 1 (Hidden) or 2 (already visible? technically we shouldn't show if visible, but let's handle re-trigger)
-    // Wait for HWND
-    let mut hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
-
-    // Safety wait for HWND creation if still 0
-    if hwnd_val == 0 {
-        for _ in 0..50 {
-            // ~1 second timeout
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
-            if hwnd_val != 0 {
-                break;
-            }
-        }
-    }
+    // Wait for HWND to be valid (state is 1 or 2)
+    let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
 
     if hwnd_val != 0 {
         // Reset Signals
@@ -155,7 +138,10 @@ pub fn show_recording_overlay(preset_idx: usize) {
             );
         }
     } else {
-        println!("Error: Failed to initialize recording window");
+        // HWND not ready yet, show notification
+        let ui_lang = APP.lock().unwrap().config.ui_language.clone();
+        let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+        crate::overlay::auto_copy_badge::show_notification(locale.recording_loading);
     }
 }
 
@@ -231,7 +217,7 @@ fn internal_create_recording_window() {
             cyTopHeight: -1,
             cyBottomHeight: -1,
         };
-        DwmExtendFrameIntoClientArea(hwnd, &margins);
+        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
 
         // --- WEBVIEW CREATION ---
         let wrapper = HwndWrapper(hwnd);
@@ -321,7 +307,7 @@ fn internal_create_recording_window() {
             }
 
             if let Ok(h) = hook {
-                UnhookWindowsHookEx(h);
+                let _ = UnhookWindowsHookEx(h);
             }
         }
 
@@ -392,11 +378,11 @@ unsafe extern "system" fn recording_wnd_proc(
         WM_TIMER => {
             if wparam.0 == 2 {
                 // REAL SHOW TIMER (from IPC "ready")
-                KillTimer(Some(hwnd), 2);
+                let _ = KillTimer(Some(hwnd), 2);
                 let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
             } else if wparam.0 == 99 {
                 // FALLBACK TIMER (IPC timed out)
-                KillTimer(Some(hwnd), 99);
+                let _ = KillTimer(Some(hwnd), 99);
                 println!("Warning: Recording overlay IPC timed out, forcing show");
                 let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
             } else if wparam.0 == 1 {

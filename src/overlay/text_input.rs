@@ -17,6 +17,7 @@ use crate::win_types::SendHwnd;
 
 static REGISTER_INPUT_CLASS: Once = Once::new();
 static mut INPUT_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
+static mut IS_WARMED_UP: bool = false;
 // Colors
 const COL_DARK_BG: u32 = 0x202020; // RGB(32, 32, 32)
 
@@ -488,6 +489,14 @@ pub fn show(
     on_submit: impl Fn(String, HWND) + Send + 'static,
 ) {
     unsafe {
+        // Check if warmed up
+        if !IS_WARMED_UP {
+            // Show localized message that feature is not ready yet
+            let locale = LocaleText::get(&ui_language);
+            crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);
+            return;
+        }
+
         // Update shared state
         *CFG_TITLE.lock().unwrap() = prompt_guide;
         *CFG_LANG.lock().unwrap() = ui_language;
@@ -502,14 +511,6 @@ pub fn show(
         if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
             // Window exists, wake it up
             let _ = PostMessageW(Some(INPUT_HWND.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        } else {
-            // Fallback (should normally be warmed up)
-            warmup();
-            // Sleep a bit and retry (simple handling for race on first cold start)
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
-                let _ = PostMessageW(Some(INPUT_HWND.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-            }
         }
     }
 }
@@ -565,6 +566,9 @@ fn internal_create_window_loop() {
 
         // Create webview
         init_webview(hwnd, win_w, win_h);
+
+        // Mark as warmed up and ready
+        IS_WARMED_UP = true;
 
         // Message Loop
         let mut msg = MSG::default();

@@ -190,6 +190,13 @@ pub struct LocaleText {
     pub auto_copied_badge: &'static str,
     pub auto_copied_image_badge: &'static str,
     pub live_translate_loading: &'static str,
+    pub text_input_loading: &'static str,
+    pub recording_loading: &'static str,
+    pub markdown_view_loading: &'static str,
+    pub preset_wheel_loading: &'static str,
+    pub prompt_dj_loading: &'static str,
+    pub tray_popup_loading: &'static str,
+    pub update_available_notification: &'static str,
     // --- DROP OVERLAY ---
     pub drop_overlay_text: &'static str,
     // --- REALTIME EGUI SPECIFIC ---
@@ -458,6 +465,13 @@ impl LocaleText {
                  auto_copied_badge: "Đã tự động copy",
                  auto_copied_image_badge: "🖼️ Ảnh đã được sao chép",
                  live_translate_loading: "⏳ Đang khởi động Live Translate...",
+                 text_input_loading: "⏳ Đang khởi động nhập văn bản...",
+                 recording_loading: "⏳ Đang khởi động ghi âm...",
+                 markdown_view_loading: "⏳ Đang khởi động xem kết quả...",
+                 preset_wheel_loading: "⏳ Đang khởi động bảng chọn...",
+                 prompt_dj_loading: "⏳ Đang khởi động Chill Corner...",
+                 tray_popup_loading: "⏳ Đang khởi động menu...",
+                 update_available_notification: "🎉 Có bản cập nhật mới!",
                  // --- DROP OVERLAY VI ---
                  drop_overlay_text: "Thả vào đây để xử lý",
                  // --- REALTIME EGUI SPECIFIC VI ---
@@ -720,6 +734,13 @@ impl LocaleText {
                  auto_copied_badge: "자동으로 복사됨",
                  auto_copied_image_badge: "🖼️ 이미지가 복사됨",
                  live_translate_loading: "⏳ 실시간 번역 로딩 중...",
+                 text_input_loading: "⏳ 텍스트 입력 로딩 중...",
+                 recording_loading: "⏳ 녹음 로딩 중...",
+                 markdown_view_loading: "⏳ 결과 보기 로딩 중...",
+                 preset_wheel_loading: "⏳ 선택 휠 로딩 중...",
+                 prompt_dj_loading: "⏳ Chill Corner 로딩 중...",
+                 tray_popup_loading: "⏳ 메뉴 로딩 중...",
+                 update_available_notification: "🎉 새 업데이트 이용 가능!",
                  // --- DROP OVERLAY KO ---
                  drop_overlay_text: "여기에 드롭하여 처리",
                  // --- REALTIME EGUI SPECIFIC KO ---
@@ -982,6 +1003,13 @@ impl LocaleText {
                  auto_copied_badge: "Auto-copied",
                  auto_copied_image_badge: "🖼️ Image copied",
                  live_translate_loading: "⏳ Loading Live Translate...",
+                 text_input_loading: "⏳ Loading text input...",
+                 recording_loading: "⏳ Loading recording...",
+                 markdown_view_loading: "⏳ Loading result viewer...",
+                 preset_wheel_loading: "⏳ Loading preset selector...",
+                 prompt_dj_loading: "⏳ Loading Chill Corner...",
+                 tray_popup_loading: "⏳ Loading menu...",
+                 update_available_notification: "🎉 New update available!",
                  // --- DROP OVERLAY EN ---
                  drop_overlay_text: "Drop here to process",
                  // --- REALTIME EGUI SPECIFIC EN ---

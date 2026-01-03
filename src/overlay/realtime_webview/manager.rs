@@ -54,10 +54,6 @@ pub fn warmup() {
     });
 }
 
-pub fn is_warmed_up() -> bool {
-    unsafe { IS_WARMED_UP }
-}
-
 pub fn show_realtime_overlay(preset_idx: usize) {
     unsafe {
         // Check if warmed up

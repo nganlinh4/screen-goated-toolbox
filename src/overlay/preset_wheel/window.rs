@@ -37,6 +37,7 @@ pub static WHEEL_ACTIVE: AtomicBool = AtomicBool::new(false);
 static WHEEL_HWND: AtomicIsize = AtomicIsize::new(0);
 static OVERLAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
+static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 
 // Shared data
 lazy_static::lazy_static! {
@@ -85,6 +86,15 @@ pub fn show_preset_wheel(
     filter_mode: Option<&str>,
     center_pos: POINT,
 ) -> Option<usize> {
+    // Check if warmed up first
+    if !IS_WARMED_UP.load(Ordering::SeqCst) {
+        // Show localized message that feature is not ready yet
+        let ui_lang = APP.lock().unwrap().config.ui_language.clone();
+        let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+        crate::overlay::auto_copy_badge::show_notification(locale.preset_wheel_loading);
+        return None;
+    }
+
     unsafe {
         WHEEL_RESULT.store(-1, Ordering::SeqCst);
         WHEEL_ACTIVE.store(true, Ordering::SeqCst);
@@ -176,23 +186,6 @@ pub fn show_preset_wheel(
 
         if !wheel_hwnd.is_invalid() {
             let _ = PostMessageW(Some(wheel_hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        } else {
-            // Check if already warming up, if not, start it
-            if !IS_WARMING_UP.load(Ordering::SeqCst) {
-                warmup();
-            }
-
-            // Polling loop: Wait up to 2 seconds for initialization to complete
-            // This prevents "failing once then working" or "spinning cursor" issues
-            for _ in 0..40 {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
-                if hwnd_val != 0 {
-                    let wheel_hwnd = HWND(hwnd_val as *mut _);
-                    let _ = PostMessageW(Some(wheel_hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-                    break;
-                }
-            }
         }
 
         let mut msg = MSG::default();
@@ -396,6 +389,7 @@ fn internal_create_window_loop() {
             // Now that WebView is ready, publicize the HWND and mark warmup as done
             WHEEL_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
+            IS_WARMED_UP.store(true, Ordering::SeqCst);
         } else {
             // Initialization failed - cleanup and exit
             let _ = DestroyWindow(hwnd);

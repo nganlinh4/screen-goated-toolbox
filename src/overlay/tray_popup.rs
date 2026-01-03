@@ -61,13 +61,21 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 /// Show the tray popup at cursor position
 pub fn show_tray_popup() {
-
+    // Check if currently warming up (state 1) - show notification instead of blocking
+    let current = POPUP_STATE.load(Ordering::SeqCst);
+    
+    if current == 1 {
+        // Still warming up, show loading notification
+        let ui_lang = APP.lock().unwrap().config.ui_language.clone();
+        let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+        crate::overlay::auto_copy_badge::show_notification(locale.tray_popup_loading);
+        return;
+    }
     
     // CAS loop to handle state transitions atomically-ish or just check current state
     // We used swap previously which is good, but we need to handle State 2 differently based on HWND.
     // Let's check current state first.
     
-    let current = POPUP_STATE.load(Ordering::SeqCst);
     
     if current == 2 {
         // Already Open or Opening.
