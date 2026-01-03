@@ -311,7 +311,7 @@ export class PromptDjMidi extends LitElement {
       opacity: 1;
     }
     .volume-icon {
-      color: var(--md-on-surface);
+      color: #fff;
       font-size: 3vmin;
     }
     .volume-slider {
@@ -319,21 +319,20 @@ export class PromptDjMidi extends LitElement {
       -webkit-appearance: none;
       height: 0.6vmin;
       border-radius: 1vmin;
-      /* Full opacity track to match buttons */
-      background: #ffffff;
+      /* Background handled via inline style for active/inactive range opacity */
       outline: none;
       cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
     }
-    :host([data-theme="light"]) .volume-slider { background: #444444; }
     .volume-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 2vmin;
       height: 2vmin;
       border-radius: 50%;
-      background: var(--md-primary, #ffffff);
+      background: #ffffff;
       cursor: pointer;
       transition: transform 0.1s;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     }
     .volume-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
   `;
@@ -393,12 +392,12 @@ export class PromptDjMidi extends LitElement {
       this.basePrompts.set(k, { ...p });
       this.baseOrder.push(k);
     }
-    // Start with defaults, BUT leave the last 2 (Custom 1/2) as empty slots
-    // There are 24 slots total. We want 22 active, 2 empty.
+    // Start with defaults, BUT leave the last 3 (Custom) as empty slots
+    // There are 24 slots total. We want 21 active, 3 empty.
     this.prompts = new Map();
     let count = 0;
     for (const [k, p] of this.basePrompts.entries()) {
-      if (count < 22) {
+      if (count < 21) {
         this.prompts.set(k, { ...p });
       }
       count++;
@@ -749,7 +748,7 @@ export class PromptDjMidi extends LitElement {
     const newPrompts = new Map<string, Prompt>();
     let count = 0;
     for (const [k, p] of this.basePrompts.entries()) {
-      if (count < 22) {
+      if (count < 21) {
         newPrompts.set(k, { ...p });
       }
       count++;
@@ -920,6 +919,9 @@ export class PromptDjMidi extends LitElement {
               ${this.volume <= 0.001 ? 'volume_off' : this.volume < 0.5 ? 'volume_down' : 'volume_up'}
             </span>
             <input type="range" class="volume-slider" min="0" max="1" step="0.01"
+              style=${styleMap({
+      background: `linear-gradient(to right, #ffffff 0%, #ffffff ${this.volume * 100}%, rgba(255,255,255,0.3) ${this.volume * 100}%, rgba(255,255,255,0.3) 100%)`
+    })}
               .value=${this.volume.toString()}
               @input=${this.handleVolumeChange}>
           </div>

@@ -339,7 +339,7 @@ const DEFAULT_PROMPTS = [
   { color: '#00CED1', text: 'Cải Lương' },
   { color: '#FF0000', text: 'Nhạc Đỏ' },
   { color: '#D2691E', text: 'Ca Trù' },
-  { color: '#FF1493', text: 'Kpop' },
+  { color: '#cccccc', text: '' },
   { color: '#cccccc', text: '' },
   { color: '#cccccc', text: '' },
 ];
