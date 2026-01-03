@@ -18,10 +18,20 @@ static mut BADGE_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
 // Messages
 const WM_APP_SHOW_TEXT: u32 = WM_USER + 201;
 const WM_APP_SHOW_IMAGE: u32 = WM_USER + 202;
-const WM_APP_SHOW_NOTIFICATION: u32 = WM_USER + 203;
+const WM_APP_SHOW_NOTIFICATION: u32 = WM_USER + 203; // Yellow theme (loading/info)
+const WM_APP_SHOW_UPDATE: u32 = WM_USER + 204; // Blue theme (update available)
+
+/// Notification themes
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum NotificationType {
+    Success, // Green - auto copied
+    Info,    // Yellow - loading/warming up
+    Update,  // Blue - update available (longer duration)
+}
 
 lazy_static::lazy_static! {
     static ref PENDING_CONTENT: Mutex<String> = Mutex::new(String::new());
+    static ref PENDING_NOTIFICATION_TYPE: Mutex<NotificationType> = Mutex::new(NotificationType::Success);
 }
 
 thread_local! {
@@ -53,17 +63,27 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 pub fn show_auto_copy_badge_text(text: &str) {
     *PENDING_CONTENT.lock().unwrap() = text.to_string();
+    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Success;
     ensure_window_and_post(WM_APP_SHOW_TEXT);
 }
 
 pub fn show_auto_copy_badge_image() {
+    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Success;
     ensure_window_and_post(WM_APP_SHOW_IMAGE);
 }
 
-/// Show a notification with just a title (no snippet/auto-copy text)
+/// Show a loading/info notification with just a title (yellow theme)
 pub fn show_notification(title: &str) {
     *PENDING_CONTENT.lock().unwrap() = title.to_string();
+    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Info;
     ensure_window_and_post(WM_APP_SHOW_NOTIFICATION);
+}
+
+/// Show an update available notification (blue theme, longer duration)
+pub fn show_update_notification(title: &str) {
+    *PENDING_CONTENT.lock().unwrap() = title.to_string();
+    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Update;
+    ensure_window_and_post(WM_APP_SHOW_UPDATE);
 }
 
 fn ensure_window_and_post(msg: u32) {
@@ -256,28 +276,91 @@ fn get_badge_html() -> String {
     </div>
     <script>
         let hideTimer;
+        let currentType = 'success'; // success, info, update
+        
+        // Theme colors for each notification type
+        const themes = {{
+            success: {{
+                dark: {{
+                    bg: 'rgba(10, 24, 18, 0.95)',
+                    border: '#4ADE80',
+                    textPrio: '#ffffff',
+                    textSec: 'rgba(255, 255, 255, 0.9)',
+                    accent: '#4ADE80',
+                    bloom: 'rgba(74, 222, 128, 0.5)',
+                    shadow: 'rgba(0, 0, 0, 0.6)'
+                }},
+                light: {{
+                    bg: 'rgba(255, 255, 255, 0.95)',
+                    border: '#16a34a',
+                    textPrio: '#1a1a1a',
+                    textSec: '#333333',
+                    accent: '#16a34a',
+                    bloom: 'rgba(22, 163, 74, 0.3)',
+                    shadow: 'rgba(0, 0, 0, 0.2)'
+                }},
+                duration: 1000
+            }},
+            info: {{
+                dark: {{
+                    bg: 'rgba(30, 25, 10, 0.95)',
+                    border: '#FACC15',
+                    textPrio: '#ffffff',
+                    textSec: 'rgba(255, 255, 255, 0.9)',
+                    accent: '#FACC15',
+                    bloom: 'rgba(250, 204, 21, 0.5)',
+                    shadow: 'rgba(0, 0, 0, 0.6)'
+                }},
+                light: {{
+                    bg: 'rgba(255, 251, 235, 0.95)',
+                    border: '#CA8A04',
+                    textPrio: '#1a1a1a',
+                    textSec: '#333333',
+                    accent: '#CA8A04',
+                    bloom: 'rgba(202, 138, 4, 0.3)',
+                    shadow: 'rgba(0, 0, 0, 0.2)'
+                }},
+                duration: 1500
+            }},
+            update: {{
+                dark: {{
+                    bg: 'rgba(10, 18, 30, 0.95)',
+                    border: '#60A5FA',
+                    textPrio: '#ffffff',
+                    textSec: 'rgba(255, 255, 255, 0.9)',
+                    accent: '#60A5FA',
+                    bloom: 'rgba(96, 165, 250, 0.5)',
+                    shadow: 'rgba(0, 0, 0, 0.6)'
+                }},
+                light: {{
+                    bg: 'rgba(239, 246, 255, 0.95)',
+                    border: '#2563EB',
+                    textPrio: '#1a1a1a',
+                    textSec: '#333333',
+                    accent: '#2563EB',
+                    bloom: 'rgba(37, 99, 235, 0.3)',
+                    shadow: 'rgba(0, 0, 0, 0.2)'
+                }},
+                duration: 5000
+            }}
+        }};
+        
+        window.setNotificationType = (type) => {{
+            currentType = type || 'success';
+        }};
         
         window.setTheme = (isDark) => {{
             const root = document.documentElement;
-            if (isDark) {{
-                // Dark Mode: Deep Neon Green
-                root.style.setProperty('--bg-color', 'rgba(10, 24, 18, 0.95)');
-                root.style.setProperty('--border-color', '#4ADE80'); // Bright Green Border
-                root.style.setProperty('--text-prio-color', '#ffffff');
-                root.style.setProperty('--text-sec-color', 'rgba(255, 255, 255, 0.9)');
-                root.style.setProperty('--accent-color', '#4ADE80');
-                root.style.setProperty('--bloom-color', 'rgba(74, 222, 128, 0.5)'); // Strong bloom
-                root.style.setProperty('--shadow-color', 'rgba(0, 0, 0, 0.6)');
-            }} else {{
-                // Light Mode: Bright Neon (White + Green Glow)
-                root.style.setProperty('--bg-color', 'rgba(255, 255, 255, 0.95)');
-                root.style.setProperty('--border-color', '#16a34a'); // Solid Green Border
-                root.style.setProperty('--text-prio-color', '#1a1a1a');
-                root.style.setProperty('--text-sec-color', '#333333');
-                root.style.setProperty('--accent-color', '#16a34a'); 
-                root.style.setProperty('--bloom-color', 'rgba(22, 163, 74, 0.3)'); // Subtler bloom
-                root.style.setProperty('--shadow-color', 'rgba(0, 0, 0, 0.2)');
-            }}
+            const themeData = themes[currentType] || themes.success;
+            const colors = isDark ? themeData.dark : themeData.light;
+            
+            root.style.setProperty('--bg-color', colors.bg);
+            root.style.setProperty('--border-color', colors.border);
+            root.style.setProperty('--text-prio-color', colors.textPrio);
+            root.style.setProperty('--text-sec-color', colors.textSec);
+            root.style.setProperty('--accent-color', colors.accent);
+            root.style.setProperty('--bloom-color', colors.bloom);
+            root.style.setProperty('--shadow-color', colors.shadow);
         }};
 
         window.show = (title, snippet) => {{
@@ -309,12 +392,16 @@ fn get_badge_html() -> String {
             
             b.classList.add('visible');
             
+            // Get duration based on notification type
+            const themeData = themes[currentType] || themes.success;
+            const duration = themeData.duration;
+            
             clearTimeout(hideTimer);
             hideTimer = setTimeout(() => {{
                 b.classList.remove('visible');
                 // Tell Rust to hide window after fade out
                 setTimeout(() => window.ipc.postMessage('finished'), 400);
-            }}, 1000); 
+            }}, duration); 
         }};
     </script>
 </body>
@@ -465,7 +552,8 @@ unsafe extern "system" fn badge_wnd_proc(
 
             BADGE_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
-                    // 1. Update theme
+                    // 1. Set notification type and update theme
+                    let _ = webview.evaluate_script("window.setNotificationType('success');");
                     let theme_script = format!("window.setTheme({});", is_dark);
                     let _ = webview.evaluate_script(&theme_script);
 
@@ -486,7 +574,7 @@ unsafe extern "system" fn badge_wnd_proc(
 
             LRESULT(0)
         }
-        WM_APP_SHOW_NOTIFICATION => {
+        WM_APP_SHOW_NOTIFICATION | WM_APP_SHOW_UPDATE => {
             let app = APP.lock().unwrap();
             let is_dark = match app.config.theme_mode {
                 crate::config::ThemeMode::Dark => true,
@@ -496,6 +584,11 @@ unsafe extern "system" fn badge_wnd_proc(
             drop(app);
 
             let title = PENDING_CONTENT.lock().unwrap().clone();
+            let notification_type = if msg == WM_APP_SHOW_UPDATE {
+                "update"
+            } else {
+                "info"
+            };
 
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
@@ -514,6 +607,11 @@ unsafe extern "system" fn badge_wnd_proc(
 
             BADGE_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
+                    // Set notification type (info=yellow, update=blue)
+                    let type_script =
+                        format!("window.setNotificationType('{}');", notification_type);
+                    let _ = webview.evaluate_script(&type_script);
+
                     let theme_script = format!("window.setTheme({});", is_dark);
                     let _ = webview.evaluate_script(&theme_script);
 

@@ -303,6 +303,10 @@ fn main() -> eframe::Result<()> {
         // 8. Warmup Live Translate (Realtime Overlay)
         wait_for_popup_close();
         overlay::realtime_webview::warmup();
+
+        // 9. Warmup Recording Overlay
+        wait_for_popup_close();
+        overlay::recording::warmup_recording_overlay();
     });
 
     // 1. Load config early to get theme setting and language for tray i18n

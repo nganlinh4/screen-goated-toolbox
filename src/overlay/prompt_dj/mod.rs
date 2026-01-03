@@ -19,6 +19,7 @@ use crate::win_types::SendHwnd;
 
 static REGISTER_PDJ_CLASS: Once = Once::new();
 static mut PDJ_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
+static mut IS_WARMED_UP: bool = false;
 const WM_APP_SHOW: u32 = WM_USER + 101;
 const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 102;
 
@@ -212,15 +213,17 @@ pub fn warmup() {
 
 pub fn show_prompt_dj() {
     unsafe {
+        // Check if warmed up
+        if !IS_WARMED_UP {
+            // Show localized message that feature is not ready yet
+            let ui_lang = crate::APP.lock().unwrap().config.ui_language.clone();
+            let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+            crate::overlay::auto_copy_badge::show_notification(locale.prompt_dj_loading);
+            return;
+        }
+
         if !std::ptr::addr_of!(PDJ_HWND).read().is_invalid() {
             let _ = PostMessageW(Some(PDJ_HWND.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-        } else {
-            warmup();
-            // Sleep briefly to ensure window exists before message
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            if !std::ptr::addr_of!(PDJ_HWND).read().is_invalid() {
-                let _ = PostMessageW(Some(PDJ_HWND.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-            }
         }
     }
 }
@@ -520,6 +523,9 @@ unsafe fn internal_create_pdj_loop() {
     PDJ_WEBVIEW.with(|wv| {
         *wv.borrow_mut() = Some(webview_arc);
     });
+
+    // Mark as warmed up and ready
+    IS_WARMED_UP = true;
 
     // 3. Message Loop
     let mut msg = MSG::default();

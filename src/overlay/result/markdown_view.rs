@@ -601,6 +601,16 @@ pub fn markdown_to_html(
 /// Create a WebView child window for markdown rendering
 /// Must be called from the main thread!
 pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovered: bool) -> bool {
+    // Check if warmed up
+    let is_ready = WEBVIEW_READY.lock().map(|g| *g).unwrap_or(false);
+    if !is_ready {
+        // Show localized message that feature is not ready yet
+        let ui_lang = crate::APP.lock().unwrap().config.ui_language.clone();
+        let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+        crate::overlay::auto_copy_badge::show_notification(locale.markdown_view_loading);
+        return false;
+    }
+
     let hwnd_key = parent_hwnd.0 as isize;
     let (is_refining, preset_prompt, input_text) = {
         let states = super::state::WINDOW_STATES.lock().unwrap();

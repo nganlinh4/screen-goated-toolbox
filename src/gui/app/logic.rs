@@ -19,6 +19,15 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 impl SettingsApp {
     pub(crate) fn check_updater(&mut self) {
         while let Ok(status) = self.update_rx.try_recv() {
+            // Show popup notification when update is available
+            if let crate::updater::UpdateStatus::UpdateAvailable { ref version, .. } = status {
+                // Show blue-themed update notification with longer duration
+                let ui_lang = self.config.ui_language.clone();
+                let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+                let notification_text =
+                    format!("{} v{}", locale.update_available_notification, version);
+                crate::overlay::auto_copy_badge::show_update_notification(&notification_text);
+            }
             self.update_status = status;
         }
     }
