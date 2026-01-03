@@ -491,6 +491,9 @@ pub fn show(
     unsafe {
         // Check if warmed up
         if !IS_WARMED_UP {
+            // Trigger warmup for recovery
+            warmup();
+
             // Show localized message that feature is not ready yet
             let locale = LocaleText::get(&ui_language);
             crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);

@@ -604,6 +604,9 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
     // Check if warmed up
     let is_ready = WEBVIEW_READY.lock().map(|g| *g).unwrap_or(false);
     if !is_ready {
+        // Trigger warmup for recovery
+        warmup();
+
         // Show localized message that feature is not ready yet
         let ui_lang = crate::APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);

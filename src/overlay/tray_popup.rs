@@ -61,11 +61,15 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 /// Show the tray popup at cursor position
 pub fn show_tray_popup() {
-    // Check if currently warming up (state 1) - show notification instead of blocking
+    // Check if currently warming up (state 1) - try recovery
     let current = POPUP_STATE.load(Ordering::SeqCst);
     
     if current == 1 {
-        // Still warming up, show loading notification
+        // Still warming up - reset state to 0 and retry warmup
+        POPUP_STATE.store(0, Ordering::SeqCst);
+        warmup_tray_popup();
+        
+        // Show loading notification
         let ui_lang = APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
         crate::overlay::auto_copy_badge::show_notification(locale.tray_popup_loading);
