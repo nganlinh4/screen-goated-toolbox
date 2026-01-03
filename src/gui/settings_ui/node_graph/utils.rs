@@ -1,25 +1,11 @@
 use crate::config::get_all_languages;
-use crate::model_config::get_model_by_id;
+use crate::model_config::model_supports_search_by_id;
 use eframe::egui;
 use std::collections::HashMap;
 
 /// Check if a model supports search capabilities (grounding/web search)
 pub fn model_supports_search(model_id: &str) -> bool {
-    if let Some(model_config) = get_model_by_id(model_id) {
-        // gemma-3-27b-it model doesn't support grounding
-        if model_config.full_name.contains("gemma-3-27b-it") {
-            return false;
-        }
-        // Gemini models support search
-        if model_id.contains("gemini") || model_id.contains("gemma") {
-            return true;
-        }
-        // Groq compound models support search
-        if model_id.contains("compound") {
-            return true;
-        }
-    }
-    false
+    model_supports_search_by_id(model_id)
 }
 
 /// Request a node graph view reset (scale=1.0, centered)

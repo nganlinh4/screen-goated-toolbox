@@ -113,7 +113,7 @@ lazy_static::lazy_static! {
             "Chính xác hơn",
             "더 정확함",
             "More Accurate",
-            "gemini-flash-lite-latest",
+            "gemini-2.5-flash-lite",
             ModelType::Vision,
             true,
             "20 lượt/ngày",
@@ -126,7 +126,7 @@ lazy_static::lazy_static! {
             "Rất chính xác",
             "매우 정확함",
             "Very Accurate",
-            "gemini-flash-latest",
+            "gemini-2.5-flash",
             ModelType::Vision,
             true,
             "20 lượt/ngày",
@@ -140,6 +140,19 @@ lazy_static::lazy_static! {
             "초정밀, 느림",
             "Super Accurate, Slow",
             "gemini-robotics-er-1.5-preview",
+            ModelType::Vision,
+            true,
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
+        ),
+        ModelConfig::new(
+            "gemini-3-flash-preview",
+            "google",
+            "Siêu chính xác",
+            "초정밀",
+            "Super Accurate",
+            "gemini-3-flash-preview",
             ModelType::Vision,
             true,
             "20 lượt/ngày",
@@ -257,7 +270,7 @@ lazy_static::lazy_static! {
             "Chính xác hơn",
             "더 정확함",
             "More Accurate",
-            "gemini-flash-lite-latest",
+            "gemini-2.5-flash-lite",
             ModelType::Text,
             true,
             "20 lượt/ngày",
@@ -270,7 +283,7 @@ lazy_static::lazy_static! {
             "Rất chính xác",
             "매우 정확함",
             "Very Accurate",
-            "gemini-flash-latest",
+            "gemini-2.5-flash",
             ModelType::Text,
             true,
             "20 lượt/ngày",
@@ -284,6 +297,19 @@ lazy_static::lazy_static! {
             "초정밀, 느림",
             "Super Accurate, Slow",
             "gemini-robotics-er-1.5-preview",
+            ModelType::Text,
+            true,
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
+        ),
+        ModelConfig::new(
+            "text_gemini_3_0_flash",
+            "google",
+            "Siêu chính xác",
+            "초정밀",
+            "Super Accurate",
+            "gemini-3-flash-preview",
             ModelType::Text,
             true,
             "20 lượt/ngày",
@@ -401,7 +427,7 @@ lazy_static::lazy_static! {
             "Chính xác hơn",
             "더 정확함",
             "More Accurate",
-            "gemini-flash-lite-latest",
+            "gemini-2.5-flash-lite",
             ModelType::Audio,
             true,
             "20 lượt/ngày",
@@ -414,7 +440,7 @@ lazy_static::lazy_static! {
             "Rất chính xác",
             "매우 정확함",
             "Very Accurate",
-            "gemini-flash-latest",
+            "gemini-2.5-flash",
             ModelType::Audio,
             true,
             "20 lượt/ngày",
@@ -428,6 +454,19 @@ lazy_static::lazy_static! {
             "초정밀, 느림",
             "Super Accurate, Slow",
             "gemini-robotics-er-1.5-preview",
+            ModelType::Audio,
+            true,
+            "20 lượt/ngày",
+            "20 요청/일",
+            "20 requests/day"
+        ),
+        ModelConfig::new(
+            "gemini-audio-3.0-flash",
+            "google",
+            "Siêu chính xác",
+            "초정밀",
+            "Super Accurate",
+            "gemini-3-flash-preview",
             ModelType::Audio,
             true,
             "20 lượt/ngày",
@@ -457,6 +496,44 @@ pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
     }
 
     models
+}
+
+/// Check if a model supports search capabilities (grounding/web search) by its Full Name (API Name)
+pub fn model_supports_search_by_name(full_name: &str) -> bool {
+    // Exclusions
+    if full_name.contains("gemma-3-27b-it") {
+        return false;
+    }
+    if full_name.contains("gemini-3-flash-preview") {
+        return false;
+    }
+
+    // Inclusions
+    if full_name.contains("gemini") {
+        return true;
+    }
+    if full_name.contains("gemma") {
+        return true;
+    }
+    if full_name.contains("compound") {
+        return true;
+    }
+
+    false
+}
+
+/// Check if a model supports search capabilities (grounding/web search) by its Internal ID
+pub fn model_supports_search_by_id(id: &str) -> bool {
+    if let Some(conf) = get_model_by_id(id) {
+        return model_supports_search_by_name(&conf.full_name);
+    }
+
+    // Fallback logic for models not in static config (though currently most are)
+    if id.contains("compound") {
+        return true;
+    }
+
+    false
 }
 
 // === OLLAMA MODEL CACHE ===
