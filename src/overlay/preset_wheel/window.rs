@@ -88,6 +88,9 @@ pub fn show_preset_wheel(
 ) -> Option<usize> {
     // Check if warmed up first
     if !IS_WARMED_UP.load(Ordering::SeqCst) {
+        // Try to trigger warmup for recovery
+        warmup();
+
         // Show localized message that feature is not ready yet
         let ui_lang = APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);

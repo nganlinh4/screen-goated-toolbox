@@ -215,6 +215,9 @@ pub fn show_prompt_dj() {
     unsafe {
         // Check if warmed up
         if !IS_WARMED_UP {
+            // Trigger warmup for recovery
+            warmup();
+
             // Show localized message that feature is not ready yet
             let ui_lang = crate::APP.lock().unwrap().config.ui_language.clone();
             let locale = crate::gui::locale::LocaleText::get(&ui_lang);
@@ -356,6 +359,7 @@ unsafe fn internal_create_pdj_loop() {
                     align-items: center;
                     justify-content: center;
                     transition: background 0.2s, color 0.2s;
+                    -webkit-app-region: no-drag;
                 }}
                 #dj-close-btn:hover {{
                     background: rgba(255,0,0,0.5);
@@ -377,6 +381,7 @@ unsafe fn internal_create_pdj_loop() {
                     align-items: center;
                     justify-content: center;
                     transition: background 0.2s, color 0.2s;
+                    -webkit-app-region: no-drag;
                 }}
                 #dj-min-btn:hover {{
                     background: rgba(255,255,255,0.1);
@@ -407,17 +412,6 @@ unsafe fn internal_create_pdj_loop() {
             header.appendChild(closeBtn);
 
             document.body.appendChild(header);
-
-            // Global drag handler for non-interactive areas
-            document.addEventListener('mousedown', (e) => {{
-                // Ignore if clicking buttons, inputs, or other interactive elements
-                const interactiveTags = ['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'A', 'LABEL'];
-                const isInteractive = e.target.closest('button, input, textarea, select, a, label, [role="button"]');
-                
-                if (!isInteractive && !interactiveTags.includes(e.target.tagName)) {{
-                    if (window.ipc) window.ipc.postMessage('drag_window');
-                }}
-            }});
 
             setTimeout(() => {{
                 window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
