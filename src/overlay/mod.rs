@@ -40,3 +40,28 @@ pub fn get_shared_webview_data_dir() -> std::path::PathBuf {
     let _ = std::fs::create_dir_all(&path);
     path
 }
+
+/// Clear WebView permissions (MIDI, etc.) by removing the webview_data directory.
+/// The directory will be recreated on next WebView initialization.
+/// Returns true if successfully cleared, false otherwise.
+pub fn clear_webview_permissions() -> bool {
+    let mut path = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    path.push("SGT");
+    path.push("webview_data");
+
+    if path.exists() {
+        match std::fs::remove_dir_all(&path) {
+            Ok(_) => {
+                println!("WebView data cleared successfully at {:?}", path);
+                true
+            }
+            Err(e) => {
+                eprintln!("Failed to clear WebView data: {:?}", e);
+                false
+            }
+        }
+    } else {
+        // Already clean
+        true
+    }
+}

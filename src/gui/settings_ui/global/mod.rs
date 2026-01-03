@@ -508,6 +508,13 @@ pub fn render_global_settings(
                     config.ollama_base_url = saved_ollama_base_url;
                     // config.realtime_translation_model = saved_realtime_model;
                     request_node_graph_view_reset(ui.ctx());
+
+                    // Also clear WebView data (MIDI permissions, etc.)
+                    // If immediate clear fails, schedule for next startup
+                    if !crate::overlay::clear_webview_permissions() {
+                        config.clear_webview_on_startup = true;
+                    }
+
                     changed = true;
                 }
             });

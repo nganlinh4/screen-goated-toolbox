@@ -7,7 +7,15 @@ import type { ControlChange } from '../types';
 /** Simple class for dispatching MIDI CC messages as events. */
 export class MidiDispatcher extends EventTarget {
   private access: MIDIAccess | null = null;
+  private denied: boolean = false;
   activeMidiInputId: string | null = null;
+
+  /** Reset the MIDI state to allow retrying after denial */
+  reset() {
+    this.access = null;
+    this.denied = false;
+    this.activeMidiInputId = null;
+  }
 
   async getMidiAccess(): Promise<string[]> {
 
@@ -19,15 +27,24 @@ export class MidiDispatcher extends EventTarget {
       throw new Error('Your browser does not support the Web MIDI API. For a list of compatible browsers, see https://caniuse.com/midi');
     }
 
+    // If previously denied, give a more helpful message
+    if (this.denied) {
+      throw new Error('MIDI access was previously denied. Please restart the application to try again, or check that your MIDI device is connected.');
+    }
+
     try {
       this.access = await navigator.requestMIDIAccess({ sysex: false });
+      this.denied = false;
     } catch (e) {
       console.warn('MIDI Access refused or not available:', e);
       this.access = null;
+      this.denied = true;
+      throw new Error('MIDI access denied. Please connect a MIDI device and restart the application to try again.');
     }
 
     if (!this.access || !this.access.inputs) {
-      throw new Error('MIDI access denied or unavailable.');
+      this.denied = true;
+      throw new Error('MIDI access unavailable. Please ensure a MIDI device is connected and restart the application.');
     }
 
     const inputIds = [...this.access.inputs.keys()];
