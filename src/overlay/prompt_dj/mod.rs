@@ -68,6 +68,10 @@ unsafe extern "system" fn pdj_wnd_proc(
                 }
             };
 
+            // Update window icon based on theme
+            let is_dark = theme_str == "dark";
+            crate::gui::utils::set_window_icon(hwnd, is_dark);
+
             PDJ_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
                     let script = format!(
@@ -110,6 +114,9 @@ unsafe extern "system" fn pdj_wnd_proc(
                     }
                 }
             };
+
+            let is_dark = theme_str == "dark";
+            crate::gui::utils::set_window_icon(hwnd, is_dark);
 
             PDJ_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
@@ -306,6 +313,14 @@ unsafe fn internal_create_pdj_loop() {
         std::mem::size_of_val(&corner_pref) as u32,
     );
 
+    // Set Window Icon
+    let is_dark = match theme_mode {
+        crate::config::ThemeMode::Dark => true,
+        crate::config::ThemeMode::Light => false,
+        crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+    };
+    crate::gui::utils::set_window_icon(hwnd, is_dark);
+
     // 2. Create WebView
     let wrapper = HwndWrapper(hwnd);
 
@@ -336,9 +351,10 @@ unsafe fn internal_create_pdj_loop() {
                     width: 100%;
                     height: 32px;
                     background: transparent;
-                    z-index: 9999;
+                    z-index: 2147483647;
                     -webkit-app-region: drag; 
                     cursor: grab;
+                    pointer-events: auto;
                 }}
                 #dj-drag-header:active {{
                     cursor: grabbing;
