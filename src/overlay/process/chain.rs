@@ -227,9 +227,19 @@ pub fn run_chain_step(
         // This decouples content generation from window display loop
         let initial_content = if block.block_type == "input_adapter" {
             match &context {
-                RefineContext::Image(png_data) => {
+                RefineContext::Image(img_data) => {
                     use base64::Engine;
-                    let base64_img = base64::engine::general_purpose::STANDARD.encode(png_data);
+                    let base64_img = base64::engine::general_purpose::STANDARD.encode(img_data);
+
+                    // Simple magic byte detection for MIME type
+                    let mime_type = if img_data.starts_with(&[0xff, 0xd8, 0xff]) {
+                        "image/jpeg"
+                    } else if img_data.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
+                        "image/png"
+                    } else {
+                        "image/png" // Fallback
+                    };
+
                     format!(
                         r#"<!DOCTYPE html>
 <html>
@@ -318,7 +328,7 @@ body {{
 </head>
 <body>
 <div class="container">
-    <img class="image" id="img" src="data:image/png;base64,{}" />
+    <img class="image" id="img" src="data:{};base64,{}" />
     <div class="slider-container">
         <span class="slider-label">{}</span>
         <input type="range" class="slider" id="opacity" min="0" max="100" value="100" />
@@ -337,7 +347,7 @@ slider.oninput = function() {{
 </script>
 </body>
 </html>"#,
-                        base64_img, locale.opacity_label
+                        mime_type, base64_img, locale.opacity_label
                     )
                 }
                 RefineContext::Audio(wav_data) => {
@@ -852,6 +862,7 @@ progressBar.onclick = (e) => {{
                     model_full_name,
                     provider,
                     img,
+                    Some(img_data),
                     actual_streaming_enabled,
                     use_json,
                     move |chunk| {

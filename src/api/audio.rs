@@ -189,6 +189,94 @@ fn upload_audio_to_whisper(
     Ok(text.to_string())
 }
 
+/// Shared logic to process audio data based on a preset's configuration
+/// Returns the transcription/processing result text
+fn execute_audio_processing_logic(preset: &Preset, wav_data: Vec<u8>) -> anyhow::Result<String> {
+    // Find the first block that is specifically an "audio" processing block
+    // OR allow input_adapter if no audio block exists (for raw audio overlay)
+    let (audio_block, is_raw_input_adapter) =
+        match preset.blocks.iter().find(|b| b.block_type == "audio") {
+            Some(b) => (b.clone(), false),
+            None => match preset
+                .blocks
+                .iter()
+                .find(|b| b.block_type == "input_adapter")
+            {
+                Some(b) => (b.clone(), true),
+                None => {
+                    let debug_types: Vec<_> = preset.blocks.iter().map(|b| &b.block_type).collect();
+                    eprintln!(
+                    "DEBUG [Audio]: No 'audio' blocks found in preset. Block types present: {:?}",
+                    debug_types
+                );
+                    return Err(anyhow::anyhow!(
+                        "Audio preset has no 'audio' processing blocks configured"
+                    ));
+                }
+            },
+        };
+
+    if is_raw_input_adapter {
+        return Ok(String::new());
+    }
+
+    let model_config = get_model_by_id(&audio_block.model);
+    let model_config = match model_config {
+        Some(c) => c,
+        None => {
+            return Err(anyhow::anyhow!(
+                "Model config not found for audio model: {}",
+                audio_block.model
+            ));
+        }
+    };
+    let model_name = model_config.full_name.clone();
+    let provider = model_config.provider.clone();
+
+    let (groq_api_key, gemini_api_key) = {
+        let app = crate::APP.lock().unwrap();
+        (
+            app.config.api_key.clone(),
+            app.config.gemini_api_key.clone(),
+        )
+    };
+
+    // Use block's prompt and language settings
+    let mut final_prompt = if model_is_non_llm(&audio_block.model) {
+        String::new()
+    } else {
+        audio_block.prompt.clone()
+    };
+
+    for (key, value) in &audio_block.language_vars {
+        let pattern = format!("{{{}}}", key);
+        final_prompt = final_prompt.replace(&pattern, value);
+    }
+
+    if final_prompt.contains("{language1}") && !audio_block.language_vars.contains_key("language1")
+    {
+        final_prompt = final_prompt.replace("{language1}", &audio_block.selected_language);
+    }
+
+    final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
+
+    if provider == "groq" {
+        if groq_api_key.trim().is_empty() {
+            Err(anyhow::anyhow!("NO_API_KEY:groq"))
+        } else {
+            upload_audio_to_whisper(&groq_api_key, &model_name, wav_data)
+        }
+    } else if provider == "google" {
+        if gemini_api_key.trim().is_empty() {
+            Err(anyhow::anyhow!("NO_API_KEY:google"))
+        } else {
+            transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
+        }
+    } else {
+        Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
+    }
+}
+
 pub fn record_audio_and_transcribe(
     preset: Preset,
     stop_signal: Arc<AtomicBool>,
@@ -490,105 +578,11 @@ pub fn record_audio_and_transcribe(
         preset.clone()
     };
 
-    // Find the first block that is specifically an "audio" processing block
-    // OR allow input_adapter if no audio block exists (for raw audio overlay)
-    let (audio_block, is_raw_input_adapter) = match working_preset
-        .blocks
-        .iter()
-        .find(|b| b.block_type == "audio")
-    {
-        Some(b) => (b.clone(), false),
-        None => match working_preset
-            .blocks
-            .iter()
-            .find(|b| b.block_type == "input_adapter")
-        {
-            Some(b) => (b.clone(), true),
-            None => {
-                eprintln!(
-                    "DEBUG [Audio]: No 'audio' blocks found in preset. Block types present: {:?}",
-                    working_preset
-                        .blocks
-                        .iter()
-                        .map(|b| &b.block_type)
-                        .collect::<Vec<_>>()
-                );
-                eprintln!("Error: Audio preset has no 'audio' processing blocks configured");
-                unsafe {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-                return;
-            }
-        },
-    };
-
     // Clone wav_data for history saving
     let wav_data_for_history = wav_data.clone();
 
-    let transcription_result = if is_raw_input_adapter {
-        Ok(String::new())
-    } else {
-        let model_config = get_model_by_id(&audio_block.model);
-        let model_config = match model_config {
-            Some(c) => c,
-            None => {
-                eprintln!(
-                    "Error: Model config not found for audio model: {}",
-                    audio_block.model
-                );
-                unsafe {
-                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-                return;
-            }
-        };
-        let model_name = model_config.full_name.clone();
-        let provider = model_config.provider.clone();
-
-        let (groq_api_key, gemini_api_key) = {
-            let app = crate::APP.lock().unwrap();
-            (
-                app.config.api_key.clone(),
-                app.config.gemini_api_key.clone(),
-            )
-        };
-
-        // Use block's prompt and language settings
-        let mut final_prompt = if model_is_non_llm(&audio_block.model) {
-            String::new()
-        } else {
-            audio_block.prompt.clone()
-        };
-
-        for (key, value) in &audio_block.language_vars {
-            let pattern = format!("{{{}}}", key);
-            final_prompt = final_prompt.replace(&pattern, value);
-        }
-
-        if final_prompt.contains("{language1}")
-            && !audio_block.language_vars.contains_key("language1")
-        {
-            final_prompt = final_prompt.replace("{language1}", &audio_block.selected_language);
-        }
-
-        final_prompt = final_prompt.replace("{language}", &audio_block.selected_language);
-
-        if provider == "groq" {
-            if groq_api_key.trim().is_empty() {
-                Err(anyhow::anyhow!("NO_API_KEY:groq"))
-            } else {
-                upload_audio_to_whisper(&groq_api_key, &model_name, wav_data)
-            }
-        } else if provider == "google" {
-            if gemini_api_key.trim().is_empty() {
-                Err(anyhow::anyhow!("NO_API_KEY:google"))
-            } else {
-                transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
-            }
-        } else {
-            Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
-        }
-    };
+    // EXECUTE SHARED AUDIO PROCESSING LOGIC
+    let transcription_result = execute_audio_processing_logic(&working_preset, wav_data);
 
     // DON'T close overlay here - pass it to chain processing instead
     // The chain will keep the recording animation until the first visible block appears
@@ -677,6 +671,81 @@ pub fn record_audio_and_transcribe(
                     let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
             }
+        }
+    }
+}
+
+/// Process an existing audio file (WAV data) using a specific preset
+/// This is used for drag-and-drop audio file processing without recording
+pub fn process_audio_file_request(preset: Preset, wav_data: Vec<u8>) {
+    // EXECUTE SHARED AUDIO PROCESSING LOGIC
+    let processing_result = execute_audio_processing_logic(&preset, wav_data.clone());
+
+    match processing_result {
+        Ok(result_text) => {
+            // Save history
+            {
+                let app = crate::APP.lock().unwrap();
+                app.history
+                    .save_audio(wav_data.clone(), result_text.clone());
+            }
+
+            // Calculate centered position for result
+            let (screen_w, screen_h) =
+                unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+
+            // Layout logic same as recording flow
+            let has_multiple_blocks = preset.blocks.len() > 1;
+            let (rect, retranslate_rect) = if has_multiple_blocks {
+                let w = 600;
+                let h = 300;
+                let gap = 20;
+                let total_w = w * 2 + gap;
+                let start_x = (screen_w - total_w) / 2;
+                let y = (screen_h - h) / 2;
+
+                (
+                    RECT {
+                        left: start_x,
+                        top: y,
+                        right: start_x + w,
+                        bottom: y + h,
+                    },
+                    Some(RECT {
+                        left: start_x + w + gap,
+                        top: y,
+                        right: start_x + w + gap + w,
+                        bottom: y + h,
+                    }),
+                )
+            } else {
+                let w = 700;
+                let h = 300;
+                let x = (screen_w - w) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    None,
+                )
+            };
+
+            // Show result
+            crate::overlay::process::show_audio_result(
+                preset,
+                result_text,
+                wav_data,
+                rect,
+                retranslate_rect,
+                HWND(std::ptr::null_mut()), // No recording overlay handle needed
+            );
+        }
+        Err(e) => {
+            eprintln!("Audio file processing error: {}", e);
         }
     }
 }

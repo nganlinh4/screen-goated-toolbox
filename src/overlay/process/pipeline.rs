@@ -477,3 +477,81 @@ pub fn start_processing_pipeline(
         }
     }
 }
+
+pub fn start_processing_pipeline_parallel(
+    rx: std::sync::mpsc::Receiver<Option<(ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>)>>,
+    screen_rect: RECT,
+    config: Config,
+    preset: Preset,
+) {
+    // Dynamic prompt mode optimization is complex due to text input dependency
+    // Fallback to blocking wait for dynamic mode (usually user input is the bottleneck anyway)
+    if preset.prompt_mode == "dynamic" {
+        if let Ok(Some((img, _))) = rx.recv() {
+            start_processing_pipeline(img, screen_rect, config, preset);
+        }
+        return;
+    }
+
+    // STANDARD PIPELINE PARALLEL
+    // 1. Create Processing Window FIRST (instant, no delay)
+    let graphics_mode = config.graphics_mode.clone();
+    let processing_hwnd = unsafe { create_processing_window(screen_rect, graphics_mode) };
+    unsafe {
+        let _ = SendMessageW(processing_hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
+    }
+
+    // 2. Spawn background thread to wait for data, encode PNG and start chain execution
+    let conf_clone = config.clone();
+    let blocks = preset.blocks.clone();
+    let connections = preset.block_connections.clone();
+    let preset_id = preset.id.clone();
+    let processing_hwnd_val = processing_hwnd.0 as usize;
+
+    std::thread::spawn(move || {
+        let processing_hwnd = HWND(processing_hwnd_val as *mut std::ffi::c_void);
+
+        // WAIT FOR DATA - delays here won't freeze UI!
+        if let Ok(Some((_cropped_img, original_bytes))) = rx.recv() {
+            // Use original bytes directly (Zero-Copy/Zero-Encode)
+            // This preserves JPEG format if input was JPEG
+            let context = RefineContext::Image(original_bytes);
+
+            // Reset position queue for new chain
+            reset_window_position_queue();
+
+            // Start chain execution with the pre-created processing window
+            run_chain_step(
+                0,
+                String::new(),
+                screen_rect,
+                blocks,
+                connections,
+                conf_clone,
+                Arc::new(Mutex::new(None)),
+                context,
+                false,
+                Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
+                Arc::new(AtomicBool::new(false)),
+                preset_id,
+            );
+        } else {
+            // Load failed or cancelled -> Close window immediately
+            unsafe {
+                let _ = PostMessageW(Some(processing_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+    });
+
+    // 3. Keep the Processing Window alive on this thread until it is destroyed by the worker
+    unsafe {
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).into() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+            if !IsWindow(Some(processing_hwnd)).as_bool() {
+                break;
+            }
+        }
+    }
+}

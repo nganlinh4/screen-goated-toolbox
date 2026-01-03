@@ -14,6 +14,7 @@ pub fn translate_image_streaming<F>(
     model: String,
     provider: String,
     image: ImageBuffer<Rgba<u8>, Vec<u8>>,
+    original_bytes: Option<Vec<u8>>, // Zero-Copy support
     streaming_enabled: bool,
     use_json_format: bool,
     mut on_chunk: F,
@@ -34,9 +35,68 @@ where
         })
         .unwrap_or_default();
 
+    // Log image details
+    println!(
+        "DEBUG: Processing image for vision API. Original size: {}x{}",
+        image.width(),
+        image.height()
+    );
+
+    let mut b64_image = String::new();
     let mut image_data = Vec::new();
-    image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
-    let b64_image = general_purpose::STANDARD.encode(&image_data);
+    let mut mime_type = "image/png".to_string();
+
+    // Check for "Zero-Copy" path (Google provider + Original Bytes available)
+    if provider == "google" && original_bytes.is_some() {
+        println!("DEBUG: Zero-Copy optimization active for Google provider");
+        // Use original bytes directly (e.g. JPEG) - no resize, no conversion
+        let bytes = original_bytes.as_ref().unwrap();
+        b64_image = general_purpose::STANDARD.encode(bytes);
+
+        // Sniff mime type
+        if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+            mime_type = "image/jpeg".to_string();
+        } else if bytes.starts_with(&[0x89, 0x50, 0x4e, 0x47]) {
+            mime_type = "image/png".to_string();
+        } else if bytes.starts_with(&[0x52, 0x49, 0x46, 0x46])
+            && bytes[8..12] == [0x57, 0x45, 0x42, 0x50]
+        {
+            mime_type = "image/webp".to_string();
+        }
+        println!("DEBUG: Detected MIME type: {}", mime_type);
+    } else {
+        // Standard Processing Path (Resize + Convert to PNG)
+        let mut final_image = image;
+        let max_dim = 2048;
+
+        // Resize if too large (Skip for Google as they handle large images well if we fall back to this path)
+        if provider != "google" && (final_image.width() > max_dim || final_image.height() > max_dim)
+        {
+            println!("DEBUG: Image exceeds {}px, resizing...", max_dim);
+            let (n_w, n_h) = if final_image.width() > final_image.height() {
+                let ratio = max_dim as f32 / final_image.width() as f32;
+                (max_dim, (final_image.height() as f32 * ratio) as u32)
+            } else {
+                let ratio = max_dim as f32 / final_image.height() as f32;
+                ((final_image.width() as f32 * ratio) as u32, max_dim)
+            };
+            final_image = image::imageops::resize(
+                &final_image,
+                n_w,
+                n_h,
+                image::imageops::FilterType::Lanczos3,
+            );
+            println!(
+                "DEBUG: Resized to: {}x{}",
+                final_image.width(),
+                final_image.height()
+            );
+        }
+
+        final_image.write_to(&mut Cursor::new(&mut image_data), image::ImageFormat::Png)?;
+        b64_image = general_purpose::STANDARD.encode(&image_data);
+        mime_type = "image/png".to_string();
+    }
 
     let mut full_content = String::new();
 
@@ -178,7 +238,7 @@ where
                     { "text": prompt },
                     {
                         "inline_data": {
-                            "mime_type": "image/png",
+                            "mime_type": mime_type,
                             "data": b64_image
                         }
                     }
