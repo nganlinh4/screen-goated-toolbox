@@ -73,6 +73,31 @@ pub fn show_tray_popup() {
         let ui_lang = APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
         crate::overlay::auto_copy_badge::show_notification(locale.tray_popup_loading);
+        
+        // Spawn thread to wait for warmup completion
+        std::thread::spawn(move || {
+            for _ in 0..50 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                // Check if ready (State 2)
+                if POPUP_STATE.load(Ordering::SeqCst) == 2 {
+                     // Check HWND
+                     let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
+                     if hwnd_val != 0 {
+                         // Post Show Message or call show logic? 
+                         // Logic below shows use of WM_APP_SHOW or SetWindowPos. 
+                         // TrayPopup logic is complex, it calculates position.
+                         // But we can trigger the show by calling show_tray_popup() again?
+                         // Calling show_tray_popup() again from another thread is fine as it uses atomics.
+                         // However, show_tray_popup() calculates position based on cursor which might have moved.
+                         // Assume user wants it where the cursor NOW is (or was).
+                         // Let's just call show_tray_popup() again.
+                         show_tray_popup();
+                         return;
+                     }
+                }
+            }
+        });
+        
         return;
     }
     
