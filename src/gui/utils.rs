@@ -294,8 +294,7 @@ unsafe fn create_hicon_from_bytes(bytes: &[u8], target_w: i32, target_h: i32) ->
     }
 }
 
-pub fn update_window_icon_native(is_dark_mode: bool) {
-    // Fixed: Explicit type annotation &[u8] to handle different array sizes from include_bytes!
+pub fn set_window_icon(hwnd: HWND, is_dark_mode: bool) {
     let icon_bytes: &[u8] = if is_dark_mode {
         include_bytes!("../../assets/app-icon-small.png")
     } else {
@@ -303,15 +302,6 @@ pub fn update_window_icon_native(is_dark_mode: bool) {
     };
 
     unsafe {
-        let class_name = w!("eframe");
-        let title_name = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-
-        let mut hwnd = FindWindowW(class_name, title_name).unwrap_or_default();
-
-        if hwnd.is_invalid() {
-            hwnd = FindWindowW(None, title_name).unwrap_or_default();
-        }
-
         if !hwnd.is_invalid() {
             let small_w = GetSystemMetrics(SM_CXSMICON);
             let small_h = GetSystemMetrics(SM_CYSMICON);
@@ -337,5 +327,20 @@ pub fn update_window_icon_native(is_dark_mode: bool) {
                 );
             }
         }
+    }
+}
+
+pub fn update_window_icon_native(is_dark_mode: bool) {
+    unsafe {
+        let class_name = w!("eframe");
+        let title_name = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+
+        let mut hwnd = FindWindowW(class_name, title_name).unwrap_or_default();
+
+        if hwnd.is_invalid() {
+            hwnd = FindWindowW(None, title_name).unwrap_or_default();
+        }
+
+        set_window_icon(hwnd, is_dark_mode);
     }
 }
