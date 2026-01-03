@@ -10,7 +10,15 @@ use windows::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
 };
 use windows::Win32::Graphics::Gdi::HBRUSH;
+use windows::Win32::Media::Audio::{
+    eMultimedia, eRender, IAudioSessionControl, IAudioSessionControl2, IAudioSessionManager2,
+    IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
+};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebViewBuilder};
@@ -37,6 +45,101 @@ const ASSET_CUBIC_JS: &[u8] = include_bytes!("dist/assets/cubic.js");
 const ASSET_MORPH_JS: &[u8] = include_bytes!("dist/assets/morph-fixed.js");
 const ASSET_ROUNDED_JS: &[u8] = include_bytes!("dist/assets/roundedPolygon.js");
 const ASSET_UTILS_JS: &[u8] = include_bytes!("dist/assets/utils.js");
+
+lazy_static::lazy_static! {
+    static ref CHILD_PIDS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+}
+
+fn update_child_pids() {
+    let current_pid = unsafe { GetCurrentProcessId() };
+
+    // Use wmic to get all processes (PID, PPID) - fast and standard
+    let output = std::process::Command::new("wmic")
+        .args(&["process", "get", "ProcessId,ParentProcessId", "/format:csv"])
+        .output();
+
+    if let Ok(o) = output {
+        if let Ok(s) = String::from_utf8(o.stdout) {
+            let mut tree = std::collections::HashMap::new();
+
+            // Parse CSV output
+            for line in s.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let parts: Vec<&str> = line.split(',').collect();
+                // Format is: Node, ParentProcessId, ProcessId (usually)
+                // But wmic csv header is: Node,ParentProcessId,ProcessId
+                if parts.len() >= 3 {
+                    if let (Ok(ppid), Ok(pid)) = (
+                        parts[1].trim().parse::<u32>(),
+                        parts[2].trim().parse::<u32>(),
+                    ) {
+                        tree.entry(ppid).or_insert_with(Vec::new).push(pid);
+                    }
+                }
+            }
+
+            // Find all descendants recursively
+            let mut descendants = Vec::new();
+            let mut queue = vec![current_pid];
+            let mut visited = std::collections::HashSet::new();
+            visited.insert(current_pid);
+
+            while let Some(pid) = queue.pop() {
+                if let Some(children) = tree.get(&pid) {
+                    for &child in children {
+                        if visited.insert(child) {
+                            descendants.push(child);
+                            queue.push(child);
+                        }
+                    }
+                }
+            }
+
+            if let Ok(mut lock) = CHILD_PIDS.lock() {
+                *lock = descendants;
+                eprintln!(
+                    "Volume Control: Found {} descendant processes for audio control.",
+                    lock.len()
+                );
+            }
+        }
+    }
+}
+
+unsafe fn set_app_volume(volume: f32) -> Result<()> {
+    // Access cache
+    let current_pid = GetCurrentProcessId();
+    let child_pids = CHILD_PIDS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+
+    // We try to initialize COM, but ignore error if already initialized
+    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+
+    let device_enumerator: IMMDeviceEnumerator =
+        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+
+    let device = device_enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
+    let session_manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
+    let session_enumerator = session_manager.GetSessionEnumerator()?;
+    let count = session_enumerator.GetCount()?;
+
+    for i in 0..count {
+        if let Ok(session_control) = session_enumerator.GetSession(i) {
+            if let Ok(session_control2) = session_control.cast::<IAudioSessionControl2>() {
+                if let Ok(pid) = session_control2.GetProcessId() {
+                    // Match Main Process OR known Children
+                    if pid == current_pid || child_pids.contains(&pid) {
+                        if let Ok(simple_volume) = session_control.cast::<ISimpleAudioVolume>() {
+                            let _ = simple_volume.SetMasterVolume(volume, std::ptr::null());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 unsafe extern "system" fn pdj_wnd_proc(
     hwnd: HWND,
@@ -363,6 +466,34 @@ unsafe fn internal_create_pdj_loop() {
 
     let init_script = format!(
         r#"
+        // --- High-Priority Audio Hook ---
+        (function() {{
+            window._currentVolume = 1.0;
+            window._activeMasterGains = [];
+            
+            const OriginalAC = window.AudioContext || window.webkitAudioContext;
+            if (OriginalAC) {{
+                const proto = OriginalAC.prototype;
+                const desc = Object.getOwnPropertyDescriptor(proto, 'destination');
+                if (desc && desc.get) {{
+                    Object.defineProperty(proto, 'destination', {{
+                        configurable: true,
+                        enumerable: true,
+                        get: function() {{
+                            if (!this._masterGain) {{
+                                const realDest = desc.get.call(this);
+                                this._masterGain = this.createGain();
+                                this._masterGain.gain.value = window._currentVolume;
+                                this._masterGain.connect(realDest);
+                                window._activeMasterGains.push(this._masterGain);
+                            }}
+                            return this._masterGain;
+                        }}
+                    }});
+                }}
+            }}
+        }})();
+
         window.addEventListener('load', () => {{
             const style = document.createElement('style');
             style.innerHTML = `{}` + `
@@ -456,6 +587,141 @@ unsafe fn internal_create_pdj_loop() {
             }};
             header.appendChild(closeBtn);
 
+            // --- Volume Slider (UI & Logic) ---
+            
+            // UI Construction
+            const volContainer = document.createElement('div');
+            volContainer.id = 'dj-vol-container';
+            // Adjusted position: top 130px (Much higher)
+            volContainer.style.cssText = 'position: absolute; top: 130px; right: 50px; width: 180px; height: 40px; display: flex; align-items: center; justify-content: center; background: transparent; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 2000; padding: 0 16px; box-sizing: border-box;';
+            
+            const volIcon = document.createElement('div');
+            volIcon.className = 'material-symbols-rounded';
+            volIcon.innerText = 'volume_up';
+            volIcon.style.cssText = 'margin-right: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--vol-icon); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); user-select: none; transition: color 0.2s;';
+            volContainer.appendChild(volIcon);
+
+            const volInput = document.createElement('input');
+            volInput.type = 'range';
+            volInput.min = '0';
+            volInput.max = '1';
+            volInput.step = '0.01';
+            volInput.defaultValue = '1';
+            volInput.style.cssText = 'flex: 1; height: 4px; border-radius: 2px; -webkit-appearance: none; background: var(--vol-track, rgba(255,255,255,0.3)); outline: none; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.3);';
+            volContainer.appendChild(volInput);
+            
+            document.body.appendChild(volContainer);
+
+            // Styles
+            const volStyle = document.createElement('style');
+            volStyle.innerHTML = `
+                :root {{
+                    --vol-icon: rgba(255,255,255,0.9);
+                    --vol-track: rgba(255,255,255,0.3);
+                    --vol-thumb: #ffffff;
+                }}
+                [data-theme='light'] {{
+                    --vol-icon: rgba(0,0,0,0.7);
+                    --vol-track: rgba(0,0,0,0.2);
+                    --vol-thumb: #333333;
+                }}
+                #dj-vol-container input::-webkit-slider-thumb {{
+                    -webkit-appearance: none;
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 50%;
+                    background: var(--vol-thumb);
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+                    cursor: pointer;
+                    transition: transform 0.1s;
+                }}
+                #dj-vol-container input::-webkit-slider-thumb:hover {{
+                    transform: scale(1.3);
+                }}
+                .material-symbols-rounded {{
+                    font-family: 'Material Symbols Rounded';
+                    font-weight: normal;
+                    font-style: normal;
+                    font-size: 24px;
+                    display: inline-block;
+                    line-height: 1;
+                    text-transform: none;
+                    letter-spacing: normal;
+                    word-wrap: normal;
+                    white-space: nowrap;
+                    direction: ltr;
+                    -webkit-font-smoothing: antialiased;
+                    font-variation-settings: 'FILL' 1, 'wght' 400, 'grad' 0, 'opsz' 24;
+                }}
+            `;
+            document.head.appendChild(volStyle);
+
+            const updateTheme = (theme) => {{
+                if (theme === 'light') {{
+                    document.documentElement.setAttribute('data-theme', 'light');
+                }} else {{
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                }}
+            }};
+
+            window.addEventListener('message', (e) => {{
+                if (e.data && e.data.type === 'pm-dj-set-theme') {{
+                    updateTheme(e.data.theme);
+                }}
+            }});
+
+            const updateVolume = (val) => {{
+                // Update State
+                window._currentVolume = val;
+
+                // Update Icon
+                if (typeof volIcon !== 'undefined' && volIcon) {{
+                    if (val <= 0.001) volIcon.innerText = 'volume_off';
+                    else if (val < 0.5) volIcon.innerText = 'volume_down';
+                    else volIcon.innerText = 'volume_up';
+                }}
+
+                // 1. App Process Volume (The Hammer)
+                if (window.ipc) window.ipc.postMessage('set_volume:' + val);
+
+                // 2. Audio Tags (Legacy)
+                document.querySelectorAll('audio, video').forEach(a => a.volume = val);
+                
+                // 3. Captured Gains (JS) - Visual/Internal backup
+                if (window._activeMasterGains) {{
+                    window._activeMasterGains.forEach(g => {{
+                        try {{
+                            g.gain.setTargetAtTime(val, g.context.currentTime, 0.1);
+                        }} catch (e) {{
+                            g.gain.value = val;
+                        }}
+                    }});
+                }}
+            }};
+
+            volInput.addEventListener('input', (e) => updateVolume(e.target.value));
+            volInput.addEventListener('mousedown', (e) => e.stopPropagation());
+
+            // Hover Logic
+            document.addEventListener('mousemove', (e) => {{
+                const w = window.innerWidth;
+                const h = window.innerHeight;
+                const isRight = e.clientX > w - 350;
+                // Move area higher too
+                const isMiddle = e.clientY > 100 && e.clientY < h - 200;
+                
+                const rect = volContainer.getBoundingClientRect();
+                const isOver = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+
+                if ((isRight && isMiddle) || isOver) {{
+                    volContainer.style.opacity = '1';
+                    volContainer.style.pointerEvents = 'auto';
+                }} else {{
+                    volContainer.style.opacity = '0';
+                    volContainer.style.pointerEvents = 'none';
+                }}
+            }});
+
             document.body.appendChild(header);
 
             setTimeout(() => {{
@@ -529,6 +795,12 @@ unsafe fn internal_create_pdj_loop() {
                     unsafe {
                         let _ = ShowWindow(hwnd_ipc, SW_HIDE);
                     }
+                } else if body.starts_with("set_volume:") {
+                    if let Ok(val) = body.trim_start_matches("set_volume:").parse::<f32>() {
+                        unsafe {
+                            let _ = set_app_volume(val);
+                        }
+                    }
                 }
             })
             .with_url("promptdj://localhost/index.html");
@@ -565,6 +837,12 @@ unsafe fn internal_create_pdj_loop() {
 
     // Mark as warmed up and ready
     IS_WARMED_UP = true;
+
+    // Spawn thread to cache child PIDs for volume control
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        update_child_pids();
+    });
 
     // 3. Message Loop
     let mut msg = MSG::default();

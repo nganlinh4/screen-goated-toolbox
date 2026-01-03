@@ -6,6 +6,7 @@
 export const LOCALES = {
     en: {
         recording_ready: 'Recording Ready',
+        silence_removed: 'Silent audio parts have been removed',
         saved: 'Saved!',
         download_btn: 'Download Recording',
         downloaded_msg: 'Downloaded to Downloads folder',
@@ -24,6 +25,7 @@ export const LOCALES = {
     },
     vi: {
         recording_ready: 'Bản ghi đã sẵn sàng',
+        silence_removed: 'Những đoạn im lặng đã được loại bỏ',
         saved: 'Đã lưu!',
         download_btn: 'Tải bản ghi xuống',
         downloaded_msg: 'Đã tải vào thư mục Downloads',
@@ -42,6 +44,7 @@ export const LOCALES = {
     },
     ko: {
         recording_ready: '녹음 완료',
+        silence_removed: '무음 구간이 제거되었습니다',
         saved: '저장됨!',
         download_btn: '녹음 파일 다운로드',
         downloaded_msg: '다운로드 폴더에 저장되었습니다',

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import { css, html, LitElement } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { customElement, property, state, query } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
 
 import { throttle } from '../utils/throttle';
@@ -204,7 +204,7 @@ export class PromptDjMidi extends LitElement {
       color: var(--md-on-primary, #fff);
       border: none;
       padding: 1.5vmin 3vmin;
-      border-radius: 1vmin;
+      border-radius: 4vmin;
       font-size: 2vmin;
       cursor: pointer;
       display: flex;
@@ -276,6 +276,30 @@ export class PromptDjMidi extends LitElement {
     .mini-btn .material-symbols-rounded { font-size: 3.5vmin; }
     .pc-clear .material-symbols-rounded { font-size: 2.8vmin; }
     .add-slot .material-symbols-rounded { font-size: 10vmin; }
+
+    .rec-timer-container {
+      min-height: 5vmin;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-variant-numeric: tabular-nums;
+      margin-top: 1vmin;
+      pointer-events: none;
+    }
+    .rec-timer-elapsed {
+      font-size: 1.15em;
+      font-weight: 700;
+      color: var(--accent-color, #ff4444);
+      line-height: 1;
+      font-stretch: 125%;
+      font-variation-settings: 'wdth' 125;
+    }
+    .rec-timer-audio {
+      font-size: 0.75em; 
+      opacity: 0.7;
+      margin-top: 2px;
+    }
   `;
 
   private prompts: Map<string, Prompt>;
@@ -285,10 +309,13 @@ export class PromptDjMidi extends LitElement {
   @property({ type: String }) public playbackState: PlaybackState = 'stopped';
   @property({ type: String }) public lang: string = 'en';
   @property({ type: Boolean }) public apiKeySet = false;
-  @state() public audioLevel = 0;
+  @property({ type: Number }) public audioLevel = 0;
   private lastUserAction: 'play' | 'pause' | null = null;
 
   @state() private isRecording = false;
+  @state() private recordElapsed = 0;
+  @state() private recordAudioElapsed = 0;
+  private recordInterval: number | null = null;
 
   // Recording playback state
   @state() private recordingUrl: string | null = null;
@@ -390,7 +417,10 @@ export class PromptDjMidi extends LitElement {
       <div class="modal-overlay" @click=${this.closeModal}>
         <div class="modal-content" @click=${(e: Event) => e.stopPropagation()}>
           <div class="modal-header">
-            <span>${this.downloaded ? labels.saved : labels.recording_ready}</span>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;">
+              <span style="display: block;">${this.downloaded ? labels.saved : labels.recording_ready}</span>
+              <div style="font-size: 0.85em; opacity: 0.8;">${this.downloaded ? '' : labels.silence_removed}</div>
+            </div>
             <button class="close-modal" @click=${this.closeModal}>&times;</button>
           </div>
           <audio class="audio-player" src=${this.recordingUrl} controls></audio>
@@ -655,9 +685,39 @@ export class PromptDjMidi extends LitElement {
     this.dispatchEvent(new CustomEvent('prompts-changed', { detail: this.prompts }));
   }
 
+  private formatDuration(sec: number) {
+    if (!sec) return "0:00";
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
   private toggleRecording() {
+    if (this.recordInterval) {
+      clearInterval(this.recordInterval);
+      this.recordInterval = null;
+    }
+
     this.isRecording = !this.isRecording;
     if (this.isRecording) {
+      this.recordElapsed = 0;
+      this.recordAudioElapsed = 0;
+      const startTime = Date.now();
+      let lastTick = startTime;
+
+      this.recordInterval = window.setInterval(() => {
+        const now = Date.now();
+        const dt = (now - lastTick) / 1000;
+        lastTick = now;
+
+        this.recordElapsed = (now - startTime) / 1000;
+        // Sensitivity threshold bumped to 0.02
+        if (this.audioLevel > 0.02) {
+          this.recordAudioElapsed += dt;
+        }
+        this.requestUpdate();
+      }, 100);
+
       this.dispatchEvent(new CustomEvent('start-recording'));
     } else {
       this.dispatchEvent(new CustomEvent('stop-recording'));
@@ -775,6 +835,12 @@ export class PromptDjMidi extends LitElement {
              </button>
           </div>
 
+          <div class="rec-timer-container">
+            ${this.isRecording ? html`
+               <div class="rec-timer-elapsed">${this.formatDuration(this.recordElapsed)}</div>
+               <div class="rec-timer-audio">Audio: ${this.formatDuration(this.recordAudioElapsed)}</div>
+            ` : html``}
+          </div>
         </div>
       </div>`;
   }

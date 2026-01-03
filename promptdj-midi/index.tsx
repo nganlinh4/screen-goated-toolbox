@@ -108,7 +108,12 @@ function main() {
       currentPlaybackState = playbackState;
       pdjMidi.playbackState = playbackState;
       if (audioAnalyser) {
-        playbackState === 'playing' ? audioAnalyser.start() : audioAnalyser.stop();
+        if (playbackState === 'playing') {
+          audioAnalyser.start();
+        } else {
+          audioAnalyser.stop();
+          pdjMidi.audioLevel = 0;
+        }
       }
     }));
 
