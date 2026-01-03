@@ -1,17 +1,21 @@
 // Input Handler - Drag-and-Drop and Paste handling for the main app UI
 //
 // When files/images are dropped or pasted (Ctrl+V), this module:
-// 1. Detects the content type (image vs text)
+// 1. Detects the content type (image, text, or audio)
 // 2. Shows the appropriate preset wheel
 // 3. Triggers the processing pipeline with the selected preset
 
 use crate::overlay::preset_wheel::show_preset_wheel;
-use crate::overlay::process::pipeline::{start_processing_pipeline, start_text_processing};
+use crate::overlay::process::pipeline::{
+    start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
+};
 use crate::overlay::utils::get_clipboard_image_bytes;
 use crate::APP;
 use eframe::egui;
 use image::{ImageBuffer, Rgba};
+use std::io::Cursor;
 use std::path::Path;
+use std::sync::mpsc;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
@@ -19,6 +23,7 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 pub enum DroppedContent {
     Image(ImageBuffer<Rgba<u8>, Vec<u8>>),
     Text(String),
+    Audio(Vec<u8>), // WAV data
 }
 
 /// Image file extensions we support
@@ -33,6 +38,11 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "bat", "ps1", "swift", "kt",
 ];
 
+/// Audio file extensions we support (decoded via symphonia)
+const AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "mp3", "flac", "ogg", "m4a", "aac", "alac", "aiff", "aif", "wma", "opus",
+];
+
 /// Check if a file extension is an image type
 fn is_image_extension(ext: &str) -> bool {
     IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str())
@@ -41,6 +51,11 @@ fn is_image_extension(ext: &str) -> bool {
 /// Check if a file extension is a text type
 fn is_text_extension(ext: &str) -> bool {
     TEXT_EXTENSIONS.contains(&ext.to_lowercase().as_str())
+}
+
+/// Check if a file extension is an audio type
+fn is_audio_extension(ext: &str) -> bool {
+    AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
 /// Load an image file and convert to ImageBuffer
@@ -54,12 +69,118 @@ fn load_text_file(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
-/// Try to load file as image first, then as text
+/// Load an audio file and convert to WAV format using symphonia
+/// Supports: WAV, MP3, FLAC, OGG, AAC, ALAC, AIFF, etc.
+fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
+    use symphonia::core::audio::SampleBuffer;
+    use symphonia::core::codecs::DecoderOptions;
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    // Open the file
+    let file = std::fs::File::open(path).ok()?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    // Create a hint using the file extension
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+
+    // Probe the media source
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .ok()?;
+
+    let mut format = probed.format;
+
+    // Find the first audio track
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)?;
+    let track_id = track.id;
+    let codec_params = track.codec_params.clone();
+
+    // Get sample rate and channels
+    let sample_rate = codec_params.sample_rate.unwrap_or(44100);
+    let channels = codec_params.channels.map(|c| c.count()).unwrap_or(2) as u16;
+
+    // Create decoder
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&codec_params, &DecoderOptions::default())
+        .ok()?;
+
+    // Decode all samples
+    let mut all_samples: Vec<i16> = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(symphonia::core::errors::Error::IoError(ref e))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                break
+            }
+            Err(_) => break,
+        };
+
+        if packet.track_id() != track_id {
+            continue;
+        }
+
+        let decoded = match decoder.decode(&packet) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        // Convert to interleaved i16 samples
+        let spec = *decoded.spec();
+        let duration = decoded.capacity() as u64;
+        let mut sample_buf = SampleBuffer::<i16>::new(duration, spec);
+        sample_buf.copy_interleaved_ref(decoded);
+        all_samples.extend(sample_buf.samples());
+    }
+
+    if all_samples.is_empty() {
+        return None;
+    }
+
+    // Write to WAV format in memory
+    let spec = hound::WavSpec {
+        channels,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let mut wav_cursor = Cursor::new(Vec::new());
+    {
+        let mut writer = hound::WavWriter::new(&mut wav_cursor, spec).ok()?;
+        for sample in &all_samples {
+            writer.write_sample(*sample).ok()?;
+        }
+        writer.finalize().ok()?;
+    }
+
+    Some(wav_cursor.into_inner())
+}
+
+/// Try to load file based on extension: image, audio, or text
 fn load_file_content(path: &Path) -> Option<DroppedContent> {
     let ext = path.extension()?.to_str()?;
 
     if is_image_extension(ext) {
         load_image_file(path).map(DroppedContent::Image)
+    } else if is_audio_extension(ext) {
+        load_audio_file(path).map(DroppedContent::Audio)
     } else if is_text_extension(ext) {
         load_text_file(path).map(DroppedContent::Text)
     } else {
@@ -144,6 +265,98 @@ fn process_text_content(text: String) {
     }
 }
 
+/// Process dropped audio file content
+/// Shows combined mic+device preset wheel (like text combines select+type)
+fn process_audio_content(wav_data: Vec<u8>) {
+    let cursor_pos = get_cursor_pos();
+
+    // Show audio preset wheel without mode filter (shows both mic and device presets)
+    // This is similar to how text shows both "select" and "type" presets
+    let selected = show_preset_wheel("audio", None, cursor_pos);
+
+    if let Some(preset_idx) = selected {
+        let preset = {
+            let mut app = APP.lock().unwrap();
+            // Update active preset for auto-paste to work correctly
+            app.config.active_preset_idx = preset_idx;
+            app.config.presets[preset_idx].clone()
+        };
+
+        // Process audio using proper pipeline
+        std::thread::spawn(move || {
+            crate::api::audio::process_audio_file_request(preset, wav_data);
+        });
+    }
+}
+
+/// Process image content in parallel (show wheel immediately, wait for load)
+fn process_image_parallel(rx: mpsc::Receiver<Option<(ImageBuffer<Rgba<u8>, Vec<u8>>, Vec<u8>)>>) {
+    let cursor_pos = get_cursor_pos();
+    let selected = show_preset_wheel("image", None, cursor_pos);
+
+    if let Some(preset_idx) = selected {
+        let (config, preset) = {
+            let mut app = APP.lock().unwrap();
+            app.config.active_preset_idx = preset_idx;
+            (app.config.clone(), app.config.presets[preset_idx].clone())
+        };
+        let rect = get_screen_rect_at_cursor();
+
+        // Use parallel pipeline to show window immediately while waiting for data
+        start_processing_pipeline_parallel(rx, rect, config, preset);
+    }
+}
+
+/// Process text content in parallel
+fn process_text_parallel(rx: mpsc::Receiver<Option<String>>) {
+    let cursor_pos = get_cursor_pos();
+    let selected = show_preset_wheel("text", None, cursor_pos);
+
+    if let Some(preset_idx) = selected {
+        let (config, preset) = {
+            let mut app = APP.lock().unwrap();
+            app.config.active_preset_idx = preset_idx;
+            (app.config.clone(), app.config.presets[preset_idx].clone())
+        };
+
+        let rect = get_screen_rect_at_cursor();
+        let ui_lang = config.ui_language.clone();
+        let localized_name =
+            crate::gui::settings_ui::get_localized_preset_name(&preset.id, &ui_lang);
+        let cancel_hotkey = preset
+            .hotkeys
+            .first()
+            .map(|h| h.name.clone())
+            .unwrap_or_default();
+
+        std::thread::spawn(move || {
+            if let Ok(Some(text)) = rx.recv() {
+                start_text_processing(text, rect, config, preset, localized_name, cancel_hotkey);
+            }
+        });
+    }
+}
+
+/// Process audio content in parallel
+fn process_audio_parallel(rx: mpsc::Receiver<Option<Vec<u8>>>) {
+    let cursor_pos = get_cursor_pos();
+    let selected = show_preset_wheel("audio", None, cursor_pos);
+
+    if let Some(preset_idx) = selected {
+        let preset = {
+            let mut app = APP.lock().unwrap();
+            app.config.active_preset_idx = preset_idx;
+            app.config.presets[preset_idx].clone()
+        };
+
+        std::thread::spawn(move || {
+            if let Ok(Some(wav_data)) = rx.recv() {
+                crate::api::audio::process_audio_file_request(preset, wav_data);
+            }
+        });
+    }
+}
+
 /// Handle dropped files from egui
 pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
     let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
@@ -156,40 +369,62 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
     if let Some(file) = dropped_files.first() {
         // Try to get the file path
         if let Some(path) = &file.path {
-            if let Some(content) = load_file_content(path) {
-                match content {
-                    DroppedContent::Image(img) => {
-                        std::thread::spawn(move || {
-                            process_image_content(img);
-                        });
-                        return true;
+            let path_clone = path.clone();
+
+            // Determine type by extension for immediate feedback
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            if is_image_extension(ext) {
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || {
+                    // Read file bytes directly (preserves original format e.g. JPEG)
+                    if let Ok(bytes) = std::fs::read(&path_clone) {
+                        if let Ok(img) = image::load_from_memory(&bytes) {
+                            let _ = tx.send(Some((img.to_rgba8(), bytes)));
+                            return;
+                        }
                     }
-                    DroppedContent::Text(text) => {
-                        std::thread::spawn(move || {
-                            process_text_content(text);
-                        });
-                        return true;
-                    }
-                }
+                    let _ = tx.send(None);
+                });
+                process_image_parallel(rx);
+                return true;
+            } else if is_audio_extension(ext) {
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(load_audio_file(&path_clone));
+                });
+                process_audio_parallel(rx);
+                return true;
+            } else {
+                // Default to Text (covers text files and unknown extensions)
+                let (tx, rx) = mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(load_text_file(&path_clone));
+                });
+                process_text_parallel(rx);
+                return true;
             }
         }
-        // If path is not available, check for bytes (e.g., from some drag sources)
+        // If path is not available, use existing byte handling (already threaded but serial load->process)
         else if let Some(bytes) = &file.bytes {
-            // Try to interpret as image first
-            if let Ok(img) = image::load_from_memory(bytes) {
-                let rgba = img.to_rgba8();
-                std::thread::spawn(move || {
-                    process_image_content(rgba);
-                });
-                return true;
-            }
-            // Try as text
-            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                std::thread::spawn(move || {
+            let bytes_clone = bytes.clone();
+            std::thread::spawn(move || {
+                // Try to interpret as image first
+                if let Ok(img) = image::load_from_memory(&bytes_clone) {
+                    let rgba = img.to_rgba8();
+                    // For direct bytes drop, we also pass the bytes as "original"
+                    process_image_content(rgba); // Fallback to serial for bytes-drop or update process_image_content?
+                                                 // NOTE: process_image_content expects just ImageBuffer.
+                                                 // To support zero-copy for bytes-drop too, we would need to update process_image_content.
+                                                 // But user specifically asked for "dragging job" (files).
+                                                 // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
+                }
+                // Try as text
+                else if let Ok(text) = String::from_utf8(bytes_clone.to_vec()) {
                     process_text_content(text);
-                });
-                return true;
-            }
+                }
+            });
+            return true;
         }
     }
 

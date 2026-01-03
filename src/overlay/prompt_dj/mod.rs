@@ -99,10 +99,6 @@ fn update_child_pids() {
 
             if let Ok(mut lock) = CHILD_PIDS.lock() {
                 *lock = descendants;
-                eprintln!(
-                    "Volume Control: Found {} descendant processes for audio control.",
-                    lock.len()
-                );
             }
         }
     }

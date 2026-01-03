@@ -20,8 +20,8 @@ base64 = "0.21"
 self_update = { version = "0.39", features = ["archive-zip", "compression-zip-deflate"] }
 zip = "0.6"
 
-# Image Processing (Only PNG feature to save space)
-image = { version = "0.24", default-features = false, features = ["png", "bmp"] }
+# Image Processing (Common formats for drag-and-drop)
+image = { version = "0.24", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -48,6 +48,8 @@ cpal = "0.15"
 hound = "3.5"
 wasapi = "0.22"
 minimp3 = "0.5"
+# Audio file decoding (MP3, FLAC, OGG, WAV, AAC, ALAC)
+symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm"] }
 
 # Markdown Rendering
 pulldown-cmark = "0.10"
