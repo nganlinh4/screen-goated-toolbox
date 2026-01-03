@@ -803,6 +803,10 @@ export class PromptDjMidi extends LitElement {
   }
 
   private toggleMidiPanel() {
+    // Reset MIDI state when toggling on to allow retry after denial
+    if (!this.showMidi) {
+      this.midiDispatcher.reset();
+    }
     this.setShowMidi(!this.showMidi);
   }
 

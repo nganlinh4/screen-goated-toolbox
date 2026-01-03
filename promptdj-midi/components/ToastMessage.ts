@@ -93,12 +93,31 @@ export class ToastMessage extends LitElement {
     </div>`;
   }
 
-  show(message: string) {
+  private dismissTimer: number | null = null;
+
+  show(message: string, duration: number = 4000) {
+    // Clear any existing timer
+    if (this.dismissTimer) {
+      clearTimeout(this.dismissTimer);
+      this.dismissTimer = null;
+    }
+
     this.showing = true;
     this.message = message;
+
+    // Auto-dismiss after duration
+    if (duration > 0) {
+      this.dismissTimer = window.setTimeout(() => {
+        this.hide();
+      }, duration);
+    }
   }
 
   hide() {
+    if (this.dismissTimer) {
+      clearTimeout(this.dismissTimer);
+      this.dismissTimer = null;
+    }
     this.showing = false;
   }
 

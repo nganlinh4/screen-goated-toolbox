@@ -563,6 +563,12 @@ unsafe fn internal_create_pdj_loop() {
                     background: rgba(255,255,255,0.1);
                     color: white;
                 }}
+                /* Light theme: keep white text with dark shadow for visibility */
+                [data-theme='light'] #dj-close-btn,
+                [data-theme='light'] #dj-min-btn {{
+                    color: rgba(255,255,255,0.9);
+                    text-shadow: 0 1px 3px rgba(0,0,0,0.5), 0 0 6px rgba(0,0,0,0.3);
+                }}
             `;
             document.head.appendChild(style);
 

@@ -219,6 +219,13 @@ pub struct Config {
     /// Keep the favorites panel open after selecting a preset
     #[serde(default)]
     pub favorites_keep_open: bool,
+
+    // -------------------------------------------------------------------------
+    // Maintenance Flags
+    // -------------------------------------------------------------------------
+    /// Clear WebView data on next startup (for MIDI permission reset)
+    #[serde(default)]
+    pub clear_webview_on_startup: bool,
 }
 
 // ============================================================================
@@ -278,6 +285,9 @@ impl Default for Config {
             show_favorite_bubble: false,
             favorite_bubble_position: None,
             favorites_keep_open: false,
+
+            // Maintenance
+            clear_webview_on_startup: false,
         }
     }
 }

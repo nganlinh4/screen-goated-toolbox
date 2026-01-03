@@ -250,6 +250,19 @@ fn main() -> eframe::Result<()> {
     // Initialize TTS for instant speech synthesis
     api::tts::init_tts();
 
+    // --- CLEAR WEBVIEW DATA IF SCHEDULED (before any WebViews are created) ---
+    {
+        let mut config = APP.lock().unwrap();
+        if config.config.clear_webview_on_startup {
+            // Clear WebView data - should succeed since no WebViews exist yet
+            overlay::clear_webview_permissions();
+            // Reset the flag
+            config.config.clear_webview_on_startup = false;
+            // Save immediately
+            config::save_config(&config.config);
+        }
+    }
+
     // Offload warmups to a sequenced thread to prevent splash screen lag
     std::thread::spawn(|| {
         // 0. Warmup fonts first (download/cache for instant display)
