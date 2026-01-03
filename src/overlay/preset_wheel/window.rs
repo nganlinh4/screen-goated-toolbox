@@ -87,6 +87,7 @@ pub fn show_preset_wheel(
     center_pos: POINT,
 ) -> Option<usize> {
     // Check if warmed up first
+    // Check if warmed up first
     if !IS_WARMED_UP.load(Ordering::SeqCst) {
         // Try to trigger warmup for recovery
         warmup();
@@ -95,7 +96,20 @@ pub fn show_preset_wheel(
         let ui_lang = APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
         crate::overlay::auto_copy_badge::show_notification(locale.preset_wheel_loading);
-        return None;
+
+        // Wait up to 5 seconds for it to become ready
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if IS_WARMED_UP.load(Ordering::SeqCst) {
+                // It's ready! Proceed to show logic (fall through)
+                break;
+            }
+        }
+
+        // Check again
+        if !IS_WARMED_UP.load(Ordering::SeqCst) {
+            return None;
+        }
     }
 
     unsafe {

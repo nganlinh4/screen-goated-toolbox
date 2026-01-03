@@ -110,30 +110,39 @@ pub fn show_recording_overlay(preset_idx: usize) {
     let current = RECORDING_STATE.load(Ordering::SeqCst);
 
     // If state is 0, warmup hasn't started - trigger it and show notification
-    if current == 0 {
-        // Try to start warmup
+    // If state is 0 (not started) or 1 (stuck warming up), trigger recovery and auto-show
+    if current == 0 || (current == 1 && RECORDING_HWND_VAL.load(Ordering::SeqCst) == 0) {
+        // Reset state if stuck
+        if current == 1 {
+            RECORDING_STATE.store(0, Ordering::SeqCst);
+        }
+
+        // Start warmup
         warmup_recording_overlay();
 
-        // Get locale and show loading notification
+        // Show loading notification
         let ui_lang = APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
         crate::overlay::auto_copy_badge::show_notification(locale.recording_loading);
+
+        // Spawn a thread to wait for warmup completion and then trigger show
+        std::thread::spawn(move || {
+            // Poll for up to 5 seconds
+            for _ in 0..50 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if RECORDING_HWND_VAL.load(Ordering::SeqCst) != 0 {
+                    // Ready! Trigger show
+                    unsafe {
+                        let hwnd = HWND(RECORDING_HWND_VAL.load(Ordering::SeqCst) as *mut _);
+                        let _ =
+                            PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(preset_idx), LPARAM(0));
+                    }
+                    return;
+                }
+            }
+        });
+
         return;
-    }
-
-    // If state is 1 (warming up), check if HWND is ready - if not after warmup started, retry warmup
-    if current == 1 {
-        let hwnd_val = RECORDING_HWND_VAL.load(Ordering::SeqCst);
-        if hwnd_val == 0 {
-            // Still waiting for HWND - reset state to 0 and retry warmup
-            RECORDING_STATE.store(0, Ordering::SeqCst);
-            warmup_recording_overlay();
-
-            let ui_lang = APP.lock().unwrap().config.ui_language.clone();
-            let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-            crate::overlay::auto_copy_badge::show_notification(locale.recording_loading);
-            return;
-        }
     }
 
     // Wait for HWND to be valid (state is 1 or 2)

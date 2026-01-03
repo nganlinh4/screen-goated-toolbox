@@ -611,7 +611,18 @@ pub fn create_markdown_webview(parent_hwnd: HWND, markdown_text: &str, is_hovere
         let ui_lang = crate::APP.lock().unwrap().config.ui_language.clone();
         let locale = crate::gui::locale::LocaleText::get(&ui_lang);
         crate::overlay::auto_copy_badge::show_notification(locale.markdown_view_loading);
-        return false;
+
+        // Wait up to 5 seconds
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if WEBVIEW_READY.lock().map(|g| *g).unwrap_or(false) {
+                break;
+            }
+        }
+
+        if !WEBVIEW_READY.lock().map(|g| *g).unwrap_or(false) {
+            return false;
+        }
     }
 
     let hwnd_key = parent_hwnd.0 as isize;

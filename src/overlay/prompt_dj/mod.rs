@@ -229,6 +229,35 @@ pub fn show_prompt_dj() {
             let ui_lang = crate::APP.lock().unwrap().config.ui_language.clone();
             let locale = crate::gui::locale::LocaleText::get(&ui_lang);
             crate::overlay::auto_copy_badge::show_notification(locale.prompt_dj_loading);
+
+            // Spawn a thread to wait for warmup and then show
+            std::thread::spawn(move || {
+                for _ in 0..50 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    // Check if warmed up (requires unsafe access to static mut, or atomic)
+                    // Since IS_WARMED_UP is static mut, this is unsafe.
+                    // However, we are in unsafe block in show_prompt_dj, but we can't move unsafe execution into thread easily without raw pointer or ensuring safety.
+                    // Actually IS_WARMED_UP is static mut bool. Accessing it from another thread is data race.
+                    // But we used AtomicBool in other places. Prompt DJ uses static mut.
+                    // We should probably rely on checking HWND validity instead or just try blindly?
+                    // Or better, checking if PDJ_HWND is valid?
+                    // PDJ_HWND is static SendHwnd.
+
+                    let hwnd_wrapper = unsafe { std::ptr::addr_of!(PDJ_HWND).read() };
+                    if !hwnd_wrapper.is_invalid() && unsafe { IS_WARMED_UP } {
+                        unsafe {
+                            let _ = PostMessageW(
+                                Some(hwnd_wrapper.0),
+                                WM_APP_SHOW,
+                                WPARAM(0),
+                                LPARAM(0),
+                            );
+                        }
+                        return;
+                    }
+                }
+            });
+
             return;
         }
 

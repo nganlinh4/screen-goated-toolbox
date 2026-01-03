@@ -489,18 +489,10 @@ pub fn show(
     on_submit: impl Fn(String, HWND) + Send + 'static,
 ) {
     unsafe {
-        // Check if warmed up
-        if !IS_WARMED_UP {
-            // Trigger warmup for recovery
-            warmup();
+        // Clone lang for locale notification before moving/consuming it
+        let lang_for_locale = ui_language.clone();
 
-            // Show localized message that feature is not ready yet
-            let locale = LocaleText::get(&ui_language);
-            crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);
-            return;
-        }
-
-        // Update shared state
+        // Update shared state FIRST so it's ready when window shows up
         *CFG_TITLE.lock().unwrap() = prompt_guide;
         *CFG_LANG.lock().unwrap() = ui_language;
         *CFG_CANCEL.lock().unwrap() = cancel_hotkey_name;
@@ -510,6 +502,40 @@ pub fn show(
         *SUBMITTED_TEXT.lock().unwrap() = None;
         *SHOULD_CLOSE.lock().unwrap() = false;
         *SHOULD_CLEAR_ONLY.lock().unwrap() = false;
+
+        // Check if warmed up
+        if !IS_WARMED_UP {
+            // Trigger warmup for recovery
+            warmup();
+
+            // Show localized message that feature is not ready yet
+            let locale = LocaleText::get(&lang_for_locale);
+            crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);
+
+            // Spawn thread to wait and auto-show
+            std::thread::spawn(move || {
+                for _ in 0..50 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    // Check if ready (unsafe access to static mut IS_WARMED_UP/INPUT_HWND)
+                    // Using unsafe block inside thread
+                    if unsafe {
+                        !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() && IS_WARMED_UP
+                    } {
+                        unsafe {
+                            let hwnd_wrapper = std::ptr::addr_of!(INPUT_HWND).read();
+                            let _ = PostMessageW(
+                                Some(hwnd_wrapper.0),
+                                WM_APP_SHOW,
+                                WPARAM(0),
+                                LPARAM(0),
+                            );
+                        }
+                        return;
+                    }
+                }
+            });
+            return;
+        }
 
         if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
             // Window exists, wake it up
