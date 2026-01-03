@@ -32,7 +32,7 @@ fn ask_gemini(gemini_api_key: &str, question: &str, context_xml: &str) -> Result
     }
 
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-robotics-er-1.5-preview:generateContent?key={}",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={}",
         gemini_api_key
     );
 
@@ -148,8 +148,8 @@ pub fn show_help_input() {
                     center_rect,
                     crate::overlay::result::WindowType::Primary,
                     crate::overlay::result::RefineContext::None,
-                    "gemini-2.0-flash-exp".to_string(),
-                    "gemini".to_string(),
+                    "gemini-2.5-flash".to_string(),
+                    "google".to_string(),
                     false,
                     false,
                     "Ask SGT".to_string(),

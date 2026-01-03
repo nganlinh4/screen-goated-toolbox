@@ -133,9 +133,11 @@ where
             }]
         });
 
-        // Enable thinking for Gemini 2.5+ models (gemini-flash-latest and gemini-robotics-er)
-        let supports_thinking =
-            model.contains("gemini-flash-latest") || model.contains("gemini-robotics");
+        // Enable thinking for Gemini 2.5+ models (gemini-2.5-flash and gemini-robotics-er)
+        // Enable thinking for Gemini 2.5+ models (gemini-2.5-flash, 3.0-flash, and gemini-robotics-er)
+        let supports_thinking = (model.contains("gemini-2.5-flash") && !model.contains("lite"))
+            || model.contains("gemini-3-flash-preview")
+            || model.contains("gemini-robotics");
         if supports_thinking {
             payload["generationConfig"] = serde_json::json!({
                 "thinkingConfig": {
@@ -144,7 +146,7 @@ where
             });
         }
 
-        if !model.contains("gemma-3-27b-it") {
+        if crate::model_config::model_supports_search_by_name(&model) {
             payload["tools"] = serde_json::json!([
                 { "url_context": {} },
                 { "google_search": {} }
@@ -776,8 +778,10 @@ where
             });
 
             // Enable thinking for Gemini 2.5+ models
-            let supports_thinking =
-                p_model.contains("gemini-flash-latest") || p_model.contains("gemini-robotics");
+            let supports_thinking = (p_model.contains("gemini-2.5-flash")
+                && !p_model.contains("lite"))
+                || p_model.contains("gemini-3-flash-preview")
+                || p_model.contains("gemini-robotics");
             if supports_thinking {
                 payload["generationConfig"] = serde_json::json!({
                     "thinkingConfig": {
@@ -786,7 +790,7 @@ where
                 });
             }
 
-            if !p_model.contains("gemma-3-27b-it") {
+            if crate::model_config::model_supports_search_by_name(&p_model) {
                 payload["tools"] = serde_json::json!([
                     { "url_context": {} },
                     { "google_search": {} }
