@@ -73,14 +73,14 @@ pub fn load_edge_voices_async() {
         let url = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 
         match ureq::get(url)
-            .set(
+            .header(
                 "User-Agent",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             )
             .call()
         {
             Ok(response) => {
-                match response.into_string() {
+                match response.into_body().read_to_string() {
                     Ok(body) => {
                         match serde_json::from_str::<Vec<EdgeVoice>>(&body) {
                             Ok(voices) => {

@@ -1,8 +1,11 @@
 use lazy_static::lazy_static;
+use std::time::Duration;
 
 lazy_static! {
-    pub static ref UREQ_AGENT: ureq::Agent = ureq::AgentBuilder::new()
-        .timeout_read(std::time::Duration::from_secs(120))
-        .timeout_write(std::time::Duration::from_secs(120))
-        .build();
+    pub static ref UREQ_AGENT: ureq::Agent = {
+        let config = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(120)))
+            .build();
+        config.into()
+    };
 }

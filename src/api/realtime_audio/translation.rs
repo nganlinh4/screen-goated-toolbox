@@ -189,17 +189,17 @@ pub fn run_translation_loop(
                         let payload = serde_json::json!({"model": model_name, "messages": messages, "stream": true, "max_tokens": 512});
                         match UREQ_AGENT
                             .post(&url)
-                            .set("Authorization", &format!("Bearer {}", api_key))
-                            .set("Content-Type", "application/json")
+                            .header("Authorization", &format!("Bearer {}", api_key))
+                            .header("Content-Type", "application/json")
                             .send_json(payload)
                         {
                             Ok(resp) => {
                                 if !is_google {
                                     if let Some(remaining) =
-                                        resp.header("x-ratelimit-remaining-requests")
+                                        resp.headers().get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok())
                                     {
                                         let limit = resp
-                                            .header("x-ratelimit-limit-requests")
+                                            .headers().get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok())
                                             .unwrap_or("?");
                                         if let Ok(mut app) = APP.lock() {
                                             app.model_usage_stats.insert(
@@ -209,7 +209,7 @@ pub fn run_translation_loop(
                                         }
                                     }
                                 }
-                                let reader = std::io::BufReader::new(resp.into_reader());
+                                let reader = std::io::BufReader::new(resp.into_body().into_reader());
                                 let mut full_translation = String::new();
                                 for line in reader.lines().flatten() {
                                     if stop_signal.load(Ordering::Relaxed) {
@@ -368,13 +368,13 @@ fn handle_fallback_translation(
             let payload = serde_json::json!({"model": alt_model_name, "messages": alt_msgs, "stream": true, "max_tokens": 512});
             if let Ok(resp) = UREQ_AGENT
                 .post(&alt_url)
-                .set("Authorization", &format!("Bearer {}", alt_key))
-                .set("Content-Type", "application/json")
+                .header("Authorization", &format!("Bearer {}", alt_key))
+                .header("Content-Type", "application/json")
                 .send_json(payload)
             {
                 if !alt_is_google {
-                    if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                        let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                    if let Some(remaining) = resp.headers().get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()) {
+                        let limit = resp.headers().get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()).unwrap_or("?");
                         if let Ok(mut app) = APP.lock() {
                             app.model_usage_stats.insert(
                                 "llama-3.1-8b-instant".to_string(),
@@ -383,7 +383,7 @@ fn handle_fallback_translation(
                         }
                     }
                 }
-                let reader = std::io::BufReader::new(resp.into_reader());
+                let reader = std::io::BufReader::new(resp.into_body().into_reader());
                 let mut full_t = String::new();
                 for line in reader.lines().flatten() {
                     if stop_signal.load(Ordering::Relaxed) {
@@ -440,12 +440,12 @@ pub fn translate_with_google_gtx(text: &str, target_lang: &str) -> Option<String
 
     match UREQ_AGENT
         .get(&url)
-        .set("User-Agent", "Mozilla/5.0")
-        .timeout(std::time::Duration::from_secs(10))
-        .call()
+        .header("User-Agent", "Mozilla/5.0")
+        
+                .call()
     {
         Ok(resp) => {
-            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+            if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
                 if let Some(sentences) = json.get(0).and_then(|v| v.as_array()) {
                     let mut full_text = String::new();
                     for sentence_node in sentences {

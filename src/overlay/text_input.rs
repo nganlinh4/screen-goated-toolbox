@@ -94,7 +94,7 @@ fn get_editor_css() -> &'static str {
         flex: 1;
         width: 100%;
         padding: 12px 14px;
-        padding-right: 95px; /* Space for mic + send buttons */
+        padding-right: 70px; /* Space for mic + send buttons */
         border: none;
         outline: none;
         resize: none;

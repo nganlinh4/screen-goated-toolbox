@@ -67,11 +67,11 @@ pub fn fetch_ollama_models(base_url: &str) -> Result<Vec<OllamaModel>> {
     let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
     
     let resp = UREQ_AGENT.get(&url)
-        .timeout(std::time::Duration::from_secs(5))
-        .call()
+        
+                .call()
         .map_err(|e| anyhow::anyhow!("Failed to connect to Ollama: {}", e))?;
     
-    let tags: OllamaTagsResponse = resp.into_json()
+    let tags: OllamaTagsResponse = resp.into_body().read_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {}", e))?;
     
     Ok(tags.models)
@@ -86,13 +86,13 @@ fn check_model_has_vision(base_url: &str, model_name: &str) -> bool {
     });
     
     let resp = match UREQ_AGENT.post(&url)
-        .timeout(std::time::Duration::from_secs(3))
-        .send_json(&payload) {
+        
+                .send_json(&payload) {
             Ok(r) => r,
             Err(_) => return false,
         };
     
-    if let Ok(show_resp) = resp.into_json::<OllamaShowResponse>() {
+    if let Ok(show_resp) = resp.into_body().read_json::<OllamaShowResponse>() {
         // Check families for vision-related names
         let families_str = show_resp.details.families.join(" ").to_lowercase();
         if families_str.contains("clip") || families_str.contains("vision") {
@@ -155,14 +155,14 @@ where
     });
     
     let resp = UREQ_AGENT.post(&url)
-        .timeout(std::time::Duration::from_secs(300))
-        .send_json(&payload)
+        
+                .send_json(&payload)
         .map_err(|e| anyhow::anyhow!("Ollama API Error: {}", e))?;
     
     let mut full_content = String::new();
     
     if streaming_enabled {
-        let reader = BufReader::new(resp.into_reader());
+        let reader = BufReader::new(resp.into_body().into_reader());
         let mut thinking_shown = false;
         let mut content_started = false;
         let locale = LocaleText::get(ui_language);
@@ -204,7 +204,7 @@ where
             }
         }
     } else {
-        let ollama_resp: OllamaGenerateResponse = resp.into_json()
+        let ollama_resp: OllamaGenerateResponse = resp.into_body().read_json()
             .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {}", e))?;
         
         full_content = ollama_resp.response;
@@ -242,14 +242,14 @@ where
     });
     
     let resp = UREQ_AGENT.post(&url)
-        .timeout(std::time::Duration::from_secs(300))
-        .send_json(&payload)
+        
+                .send_json(&payload)
         .map_err(|e| anyhow::anyhow!("Ollama Vision API Error: {}", e))?;
     
     let mut full_content = String::new();
     
     if streaming_enabled {
-        let reader = BufReader::new(resp.into_reader());
+        let reader = BufReader::new(resp.into_body().into_reader());
         let mut thinking_shown = false;
         let mut content_started = false;
         let locale = LocaleText::get(ui_language);
@@ -290,7 +290,7 @@ where
             }
         }
     } else {
-        let ollama_resp: OllamaGenerateResponse = resp.into_json()
+        let ollama_resp: OllamaGenerateResponse = resp.into_body().read_json()
             .map_err(|e| anyhow::anyhow!("Failed to parse Ollama response: {}", e))?;
         
         full_content = ollama_resp.response;

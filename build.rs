@@ -107,7 +107,7 @@ fn create_multi_size_ico(png_path: &Path, ico_path: &Path) {
             let resized = img.resize(size, size, image::imageops::FilterType::Lanczos3);
             let mut buffer = Cursor::new(Vec::new());
             resized
-                .write_to(&mut buffer, image::ImageOutputFormat::Png)
+                .write_to(&mut buffer, image::ImageFormat::Png)
                 .unwrap();
             data = buffer.into_inner();
         } else {

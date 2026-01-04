@@ -35,13 +35,6 @@ where
         })
         .unwrap_or_default();
 
-    // Log image details
-    println!(
-        "DEBUG: Processing image for vision API. Original size: {}x{}",
-        image.width(),
-        image.height()
-    );
-
     let b64_image: String;
     let mut image_data = Vec::new();
     let mut mime_type = "image/png".to_string();
@@ -173,15 +166,16 @@ where
 
         let resp = UREQ_AGENT
             .post("http://api.qrserver.com/v1/read-qr-code/")
-            .set(
+            .header(
                 "Content-Type",
                 &format!("multipart/form-data; boundary={}", boundary),
             )
-            .send_bytes(&body)
+            .send(&body)
             .map_err(|e| anyhow::anyhow!("QR Server API Error: {}", e))?;
 
         let json: serde_json::Value = resp
-            .into_json()
+            .into_body()
+            .read_json()
             .map_err(|e| anyhow::anyhow!("Failed to parse QR response: {}", e))?;
 
         // Response format: [{"type":"qrcode","symbol":[{"seq":0,"data":"content","error":null}]}]
@@ -268,7 +262,7 @@ where
 
         let resp = UREQ_AGENT
             .post(&url)
-            .set("x-goog-api-key", gemini_api_key)
+            .header("x-goog-api-key", gemini_api_key)
             .send_json(payload)
             .map_err(|e| {
                 let err_str = e.to_string();
@@ -280,7 +274,7 @@ where
             })?;
 
         if streaming_enabled {
-            let reader = BufReader::new(resp.into_reader());
+            let reader = BufReader::new(resp.into_body().into_reader());
             let mut thinking_shown = false;
             let mut content_started = false;
 
@@ -352,7 +346,8 @@ where
             }
         } else {
             let chat_resp: serde_json::Value = resp
-                .into_json()
+                .into_body()
+                .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
 
             if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array()) {
@@ -398,8 +393,8 @@ where
 
         let resp = UREQ_AGENT
             .post("https://openrouter.ai/api/v1/chat/completions")
-            .set("Authorization", &format!("Bearer {}", openrouter_api_key))
-            .set("Content-Type", "application/json")
+            .header("Authorization", &format!("Bearer {}", openrouter_api_key))
+            .header("Content-Type", "application/json")
             .send_json(payload)
             .map_err(|e| {
                 let err_str = e.to_string();
@@ -411,7 +406,7 @@ where
             })?;
 
         if streaming_enabled {
-            let reader = BufReader::new(resp.into_reader());
+            let reader = BufReader::new(resp.into_body().into_reader());
             let mut thinking_shown = false;
             let mut content_started = false;
 
@@ -473,7 +468,8 @@ where
             }
         } else {
             let chat_resp: ChatCompletionResponse = resp
-                .into_json()
+                .into_body()
+                .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
 
             if let Some(choice) = chat_resp.choices.first() {
@@ -524,7 +520,7 @@ where
         };
 
         let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
-            .set("Authorization", &format!("Bearer {}", groq_api_key))
+            .header("Authorization", &format!("Bearer {}", groq_api_key))
             .send_json(payload)
             .map_err(|e| {
                 let err_str = e.to_string();
@@ -537,8 +533,16 @@ where
                 }
             })?;
 
-        if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-            let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+        if let Some(remaining) = resp
+            .headers()
+            .get("x-ratelimit-remaining-requests")
+            .and_then(|v| v.to_str().ok())
+        {
+            let limit = resp
+                .headers()
+                .get("x-ratelimit-limit-requests")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("?");
             let usage_str = format!("{} / {}", remaining, limit);
 
             if let Ok(mut app) = APP.lock() {
@@ -547,7 +551,7 @@ where
         }
 
         if streaming_enabled {
-            let reader = BufReader::new(resp.into_reader());
+            let reader = BufReader::new(resp.into_body().into_reader());
             for line in reader.lines() {
                 let line = line?;
 
@@ -573,7 +577,8 @@ where
             }
         } else {
             let chat_resp: ChatCompletionResponse = resp
-                .into_json()
+                .into_body()
+                .read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
 
             if let Some(choice) = chat_resp.choices.first() {

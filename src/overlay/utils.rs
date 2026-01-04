@@ -69,10 +69,7 @@ pub fn copy_image_to_clipboard(image_bytes: &[u8]) {
     if let Ok(img) = image::load_from_memory(image_bytes) {
         let mut bmp_data = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut bmp_data);
-        if img
-            .write_to(&mut cursor, image::ImageOutputFormat::Bmp)
-            .is_ok()
-        {
+        if img.write_to(&mut cursor, image::ImageFormat::Bmp).is_ok() {
             // Check if valid BMP (starts with BM)
             if bmp_data.len() > 14 && bmp_data[0] == 0x42 && bmp_data[1] == 0x4D {
                 // Skip the 14-byte BITMAPFILEHEADER to get BITMAPINFOHEADER + Pixels (DIB)
@@ -251,10 +248,7 @@ pub fn get_clipboard_image_bytes() -> Option<Vec<u8>> {
                                             let mut png_data = Vec::new();
                                             let mut cursor = std::io::Cursor::new(&mut png_data);
                                             if img
-                                                .write_to(
-                                                    &mut cursor,
-                                                    image::ImageOutputFormat::Png,
-                                                )
+                                                .write_to(&mut cursor, image::ImageFormat::Png)
                                                 .is_ok()
                                             {
                                                 return Some(png_data);

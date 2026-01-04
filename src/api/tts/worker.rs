@@ -143,6 +143,7 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
 
             match socket.read() {
                 Ok(Message::Text(msg)) => {
+                    let msg = msg.as_str();
                     if msg.contains("setupComplete") {
                         setup_complete = true;
                         break;
@@ -156,7 +157,7 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
                     break;
                 }
                 Ok(Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data) {
+                    if let Ok(text) = String::from_utf8(data.to_vec()) {
                         if text.contains("setupComplete") {
                             setup_complete = true;
                             break;
@@ -208,16 +209,17 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
 
             match socket.read() {
                 Ok(Message::Text(msg)) => {
-                    if let Some(audio_data) = parse_audio_data(&msg) {
+                    let msg = msg.as_str();
+                    if let Some(audio_data) = parse_audio_data(msg) {
                         let _ = tx.send(AudioEvent::Data(audio_data));
                     }
-                    if is_turn_complete(&msg) {
+                    if is_turn_complete(msg) {
                         let _ = tx.send(AudioEvent::End);
                         break;
                     }
                 }
                 Ok(Message::Binary(data)) => {
-                    if let Ok(text) = String::from_utf8(data) {
+                    if let Ok(text) = String::from_utf8(data.to_vec()) {
                         if let Some(audio_data) = parse_audio_data(&text) {
                             let _ = tx.send(AudioEvent::Data(audio_data));
                         }
@@ -285,7 +287,12 @@ fn handle_google_tts(
     };
 
     let mut mp3_data = Vec::new();
-    if resp.into_reader().read_to_end(&mut mp3_data).is_err() {
+    if resp
+        .into_body()
+        .into_reader()
+        .read_to_end(&mut mp3_data)
+        .is_err()
+    {
         let _ = tx.send(AudioEvent::End);
         clear_tts_state(request.req.hwnd);
         return;
@@ -463,7 +470,7 @@ fn handle_edge_tts(
         chrono::Utc::now().format("%a %b %d %Y %H:%M:%S GMT+0000 (Coordinated Universal Time)")
     );
 
-    if socket.send(Message::Text(config_msg)).is_err() {
+    if socket.send(Message::Text(config_msg.into())).is_err() {
         let _ = tx.send(AudioEvent::End);
         clear_tts_state(request.req.hwnd);
         return;
@@ -502,7 +509,7 @@ fn handle_edge_tts(
         ssml
     );
 
-    if socket.send(Message::Text(ssml_msg)).is_err() {
+    if socket.send(Message::Text(ssml_msg.into())).is_err() {
         let _ = tx.send(AudioEvent::End);
         clear_tts_state(request.req.hwnd);
         return;
@@ -531,6 +538,7 @@ fn handle_edge_tts(
                 }
             }
             Ok(Message::Text(text)) => {
+                let text = text.as_str();
                 if text.contains("Path:turn.end") {
                     break;
                 }

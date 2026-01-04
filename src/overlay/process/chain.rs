@@ -1,4 +1,4 @@
-﻿use crate::api::{translate_image_streaming, translate_text_streaming};
+use crate::api::{translate_image_streaming, translate_text_streaming};
 use crate::config::{Config, Preset, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
 use crate::overlay::result::{
@@ -1030,7 +1030,7 @@ progressBar.onclick = (e) => {{
             let txt_for_badge = result_text.clone();
             // Only show badge for actual processed results, NOT for input_adapter blocks
             // because input_adapter just passes through text that was already copied to clipboard
-            // by text_selection.rs (the "b梳쩿 휃梳칌 d칫" copy for processing)
+            // by text_selection.rs (the "b?? ??? d?" copy for processing)
             let should_show_badge = !is_input_adapter;
             std::thread::spawn(move || {
                 crate::overlay::utils::copy_to_clipboard(&txt_c, HWND::default());

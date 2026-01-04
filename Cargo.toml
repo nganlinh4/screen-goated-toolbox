@@ -1,59 +1,59 @@
 [package]
 name = "screen-goated-toolbox"
-version = "3.9.0"
+version = "4.0.0"
 edition = "2021"
 
 [build-dependencies]
 winres = "0.1"
-image = { version = "0.24", default-features = false, features = ["png", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
 
 [dependencies]
 # Network & Serialization
-ureq = { version = "2.9", features = ["json"] }
-tungstenite = { version = "0.21", features = ["native-tls"] }
+ureq = { version = "3.1", features = ["json"] }
+tungstenite = { version = "0.28", features = ["native-tls"] }
 native-tls = "0.2"
 url = "2.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-base64 = "0.21"
-self_update = { version = "0.39", features = ["archive-zip", "compression-zip-deflate"] }
-zip = "0.6"
+base64 = "0.22"
+self_update = { version = "0.42", features = ["archive-zip", "compression-zip-deflate"] }
+zip = "7.0"
 
 # Image Processing (Common formats for drag-and-drop)
-image = { version = "0.24", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
+image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
 # System
-dirs = "5.0"
-lazy_static = "1.4"
+dirs = "6.0"
+lazy_static = "1.5"
 textwrap = "0.16"
-open = "5.0"
+open = "5.3"
 sys-locale = "0.3"
-winreg = "0.50"
+winreg = "0.55"
 auto-launch = "0.5"
 urlencoding = "2.1"
 
 # Language Data (Kept as requested)
-isolang = { version = "2.0", features = ["serde", "english_names"] }
+isolang = { version = "2.4", features = ["serde", "english_names"] }
 whatlang = "0.18"
 
 # GUI & Media
 eframe = { version = "0.33", default-features = false, features = ["glow"] }
 egui-snarl = { path = "libs/egui-snarl", features = ["serde"] }
-tray-icon = "0.19.1"
-cpal = "0.15"
+tray-icon = "0.21.3"
+cpal = "0.17"
 hound = "3.5"
 wasapi = "0.22"
-minimp3 = "0.5"
+minimp3 = "0.6"
 # Audio file decoding (MP3, FLAC, OGG, WAV, AAC, ALAC)
 symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm"] }
 
 # Markdown Rendering
-pulldown-cmark = "0.10"
-wry = "0.53.3"
+pulldown-cmark = "0.13"
+wry = "0.53.5"
 raw-window-handle = "0.6"
 windows-core = "0.62"
 

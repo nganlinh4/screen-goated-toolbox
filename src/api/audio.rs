@@ -58,7 +58,7 @@ where
 
     let resp = UREQ_AGENT
         .post(&url)
-        .set("x-goog-api-key", gemini_api_key)
+        .header("x-goog-api-key", gemini_api_key)
         .send_json(payload)
         .map_err(|e| {
             let err_str = e.to_string();
@@ -70,7 +70,7 @@ where
         })?;
 
     let mut full_content = String::new();
-    let reader = BufReader::new(resp.into_reader());
+    let reader = BufReader::new(resp.into_body().into_reader());
 
     for line in reader.lines() {
         let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
@@ -146,29 +146,32 @@ fn upload_audio_to_whisper(
     // Make API request
     let response = UREQ_AGENT
         .post("https://api.groq.com/openai/v1/audio/transcriptions")
-        .set("Authorization", &format!("Bearer {}", api_key))
-        .set(
+        .header("Authorization", &format!("Bearer {}", api_key))
+        .header(
             "Content-Type",
             &format!("multipart/form-data; boundary={}", boundary),
         )
-        .send_bytes(&body);
+        .send(&body);
 
     let response = match response {
         Ok(resp) => resp,
-        Err(e) => match e {
-            ureq::Error::Status(code, resp) => {
-                let body = resp.into_string().unwrap_or_default();
-                return Err(anyhow::anyhow!("Groq API Error {}: {}", code, body));
-            }
-            _ => {
-                return Err(anyhow::anyhow!("API request failed: {}", e));
-            }
-        },
+        Err(e) => {
+            let err_str = e.to_string();
+            return Err(anyhow::anyhow!("API request failed: {}", err_str));
+        }
     };
 
     // --- CAPTURE RATE LIMITS ---
-    if let Some(remaining) = response.header("x-ratelimit-remaining-requests") {
-        let limit = response.header("x-ratelimit-limit-requests").unwrap_or("?");
+    if let Some(remaining) = response
+        .headers()
+        .get("x-ratelimit-remaining-requests")
+        .and_then(|v| v.to_str().ok())
+    {
+        let limit = response
+            .headers()
+            .get("x-ratelimit-limit-requests")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("?");
         let usage_str = format!("{} / {}", remaining, limit);
         if let Ok(mut app) = APP.lock() {
             app.model_usage_stats.insert(model.to_string(), usage_str);
@@ -178,7 +181,8 @@ fn upload_audio_to_whisper(
 
     // Parse response
     let json: serde_json::Value = response
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
 
     let text = json
@@ -356,7 +360,7 @@ pub fn record_audio_and_transcribe(
         }
     };
 
-    let sample_rate = config.sample_rate().0;
+    let sample_rate = config.sample_rate();
     let channels = config.channels();
 
     let spec = hound::WavSpec {

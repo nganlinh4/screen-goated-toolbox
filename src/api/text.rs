@@ -155,7 +155,7 @@ where
 
         let resp = UREQ_AGENT
             .post(&url)
-            .set("x-goog-api-key", gemini_api_key)
+            .header("x-goog-api-key", gemini_api_key)
             .send_json(payload)
             .map_err(|e| {
                 let err_str = e.to_string();
@@ -167,7 +167,7 @@ where
             })?;
 
         if streaming_enabled {
-            let reader = BufReader::new(resp.into_reader());
+            let reader = BufReader::new(resp.into_body().into_reader());
             let mut thinking_shown = false;
             let mut content_started = false;
             let locale = LocaleText::get(ui_language);
@@ -234,7 +234,7 @@ where
             }
         } else {
             let chat_resp: serde_json::Value = resp
-                .into_json()
+                .into_body().read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
 
             if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array()) {
@@ -273,8 +273,8 @@ where
 
         let resp = UREQ_AGENT
             .post("https://openrouter.ai/api/v1/chat/completions")
-            .set("Authorization", &format!("Bearer {}", openrouter_api_key))
-            .set("Content-Type", "application/json")
+            .header("Authorization", &format!("Bearer {}", openrouter_api_key))
+            .header("Content-Type", "application/json")
             .send_json(payload)
             .map_err(|e| {
                 let err_str = e.to_string();
@@ -286,7 +286,7 @@ where
             })?;
 
         if streaming_enabled {
-            let reader = BufReader::new(resp.into_reader());
+            let reader = BufReader::new(resp.into_body().into_reader());
             let mut thinking_shown = false;
             let mut content_started = false;
             let locale = LocaleText::get(ui_language);
@@ -344,7 +344,7 @@ where
             }
         } else {
             let chat_resp: ChatCompletionResponse = resp
-                .into_json()
+                .into_body().read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse non-streaming response: {}", e))?;
 
             if let Some(choice) = chat_resp.choices.first() {
@@ -397,8 +397,8 @@ where
 
             let resp = UREQ_AGENT
                 .post("https://api.groq.com/openai/v1/chat/completions")
-                .set("Authorization", &format!("Bearer {}", groq_api_key))
-                .timeout(std::time::Duration::from_secs(60))
+                .header("Authorization", &format!("Bearer {}", groq_api_key))
+                
                 .send_json(payload)
                 .map_err(|e| {
                     let err_str = e.to_string();
@@ -409,8 +409,8 @@ where
                     }
                 })?;
 
-            if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+            if let Some(remaining) = resp.headers().get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()) {
+                let limit = resp.headers().get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()).unwrap_or("?");
                 let usage_str = format!("{} / {}", remaining, limit);
 
                 if let Ok(mut app) = APP.lock() {
@@ -419,7 +419,7 @@ where
             }
 
             let json: serde_json::Value = resp
-                .into_json()
+                .into_body().read_json()
                 .map_err(|e| anyhow::anyhow!("Failed to parse compound response: {}", e))?;
 
             if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
@@ -615,7 +615,7 @@ where
 
             let resp = UREQ_AGENT
                 .post("https://api.groq.com/openai/v1/chat/completions")
-                .set("Authorization", &format!("Bearer {}", groq_api_key))
+                .header("Authorization", &format!("Bearer {}", groq_api_key))
                 .send_json(payload)
                 .map_err(|e| {
                     let err_str = e.to_string();
@@ -626,8 +626,8 @@ where
                     }
                 })?;
 
-            if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+            if let Some(remaining) = resp.headers().get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()) {
+                let limit = resp.headers().get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()).unwrap_or("?");
                 let usage_str = format!("{} / {}", remaining, limit);
 
                 if let Ok(mut app) = APP.lock() {
@@ -636,7 +636,7 @@ where
             }
 
             if streaming_enabled {
-                let reader = BufReader::new(resp.into_reader());
+                let reader = BufReader::new(resp.into_body().into_reader());
 
                 for line in reader.lines() {
                     let line = line?;
@@ -660,7 +660,7 @@ where
                     }
                 }
             } else {
-                let chat_resp: ChatCompletionResponse = resp.into_json().map_err(|e| {
+                let chat_resp: ChatCompletionResponse = resp.into_body().read_json().map_err(|e| {
                     anyhow::anyhow!("Failed to parse non-streaming response: {}", e)
                 })?;
 
@@ -799,12 +799,12 @@ where
 
             let resp = UREQ_AGENT
                 .post(&url)
-                .set("x-goog-api-key", gemini_api_key)
+                .header("x-goog-api-key", gemini_api_key)
                 .send_json(payload)
                 .map_err(|e| anyhow::anyhow!("Gemini Refine Error: {}", e))?;
 
             if streaming_enabled {
-                let reader = BufReader::new(resp.into_reader());
+                let reader = BufReader::new(resp.into_body().into_reader());
                 let mut thinking_shown = false;
                 let mut content_started = false;
                 let locale = LocaleText::get(ui_language);
@@ -866,7 +866,7 @@ where
                     }
                 }
             } else {
-                let json: serde_json::Value = resp.into_json()?;
+                let json: serde_json::Value = resp.into_body().read_json()?;
                 if let Some(candidates) = json.get("candidates").and_then(|c| c.as_array()) {
                     if let Some(first) = candidates.first() {
                         if let Some(parts) = first
@@ -902,13 +902,13 @@ where
 
             let resp = UREQ_AGENT
                 .post("https://openrouter.ai/api/v1/chat/completions")
-                .set("Authorization", &format!("Bearer {}", openrouter_api_key))
-                .set("Content-Type", "application/json")
+                .header("Authorization", &format!("Bearer {}", openrouter_api_key))
+                .header("Content-Type", "application/json")
                 .send_json(payload)
                 .map_err(|e| anyhow::anyhow!("OpenRouter Refine Error: {}", e))?;
 
             if streaming_enabled {
-                let reader = BufReader::new(resp.into_reader());
+                let reader = BufReader::new(resp.into_body().into_reader());
                 let mut thinking_shown = false;
                 let mut content_started = false;
                 let locale = LocaleText::get(ui_language);
@@ -962,7 +962,7 @@ where
                     }
                 }
             } else {
-                let json: ChatCompletionResponse = resp.into_json()?;
+                let json: ChatCompletionResponse = resp.into_body().read_json()?;
                 if let Some(choice) = json.choices.first() {
                     full_content = choice.message.content.clone();
                     on_chunk(&full_content);
@@ -1004,20 +1004,20 @@ where
 
                 let resp = UREQ_AGENT
                     .post("https://api.groq.com/openai/v1/chat/completions")
-                    .set("Authorization", &format!("Bearer {}", groq_api_key))
-                    .timeout(std::time::Duration::from_secs(60))
-                    .send_json(payload)
+                    .header("Authorization", &format!("Bearer {}", groq_api_key))
+                    
+                .send_json(payload)
                     .map_err(|e| anyhow::anyhow!("Groq Compound Refine Error: {}", e))?;
 
-                if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                    let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                if let Some(remaining) = resp.headers().get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()) {
+                    let limit = resp.headers().get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()).unwrap_or("?");
                     let usage_str = format!("{} / {}", remaining, limit);
                     if let Ok(mut app) = APP.lock() {
                         app.model_usage_stats.insert(p_model.clone(), usage_str);
                     }
                 }
 
-                let json: serde_json::Value = resp.into_json()?;
+                let json: serde_json::Value = resp.into_body().read_json()?;
 
                 if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
                     if let Some(first_choice) = choices.first() {
@@ -1141,12 +1141,12 @@ where
 
                 let resp = UREQ_AGENT
                     .post("https://api.groq.com/openai/v1/chat/completions")
-                    .set("Authorization", &format!("Bearer {}", groq_api_key))
+                    .header("Authorization", &format!("Bearer {}", groq_api_key))
                     .send_json(payload)
                     .map_err(|e| anyhow::anyhow!("Groq Refine Error: {}", e))?;
 
-                if let Some(remaining) = resp.header("x-ratelimit-remaining-requests") {
-                    let limit = resp.header("x-ratelimit-limit-requests").unwrap_or("?");
+                if let Some(remaining) = resp.headers().get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()) {
+                    let limit = resp.headers().get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()).unwrap_or("?");
                     let usage_str = format!("{} / {}", remaining, limit);
                     if let Ok(mut app) = APP.lock() {
                         app.model_usage_stats.insert(p_model.clone(), usage_str);
@@ -1154,7 +1154,7 @@ where
                 }
 
                 if streaming_enabled {
-                    let reader = BufReader::new(resp.into_reader());
+                    let reader = BufReader::new(resp.into_body().into_reader());
                     for line in reader.lines() {
                         let line = line?;
                         if line.starts_with("data: ") {
@@ -1173,7 +1173,7 @@ where
                         }
                     }
                 } else {
-                    let json: ChatCompletionResponse = resp.into_json()?;
+                    let json: ChatCompletionResponse = resp.into_body().read_json()?;
                     if let Some(choice) = json.choices.first() {
                         full_content = choice.message.content.clone();
                         on_chunk(&full_content);

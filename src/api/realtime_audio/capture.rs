@@ -182,7 +182,7 @@ pub fn start_device_loopback_capture(
         .ok_or_else(|| anyhow::anyhow!("No output device available"))?;
     let config = device.default_output_config()?;
 
-    let sample_rate = config.sample_rate().0;
+    let sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
 
     let audio_buffer_clone = audio_buffer.clone();
@@ -317,7 +317,7 @@ pub fn start_mic_capture(
         .ok_or_else(|| anyhow::anyhow!("No microphone available. Please connect a microphone."))?;
     let config = device.default_input_config()?;
 
-    let sample_rate = config.sample_rate().0;
+    let sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
     let audio_buffer_clone = audio_buffer.clone();
     let target_rate = 16000u32;

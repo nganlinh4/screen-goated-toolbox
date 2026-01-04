@@ -30,18 +30,20 @@ impl Updater {
             // GitHub API requires a User-Agent, and self_update's default might be blocked or rate-limited.
             let url = "https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false";
 
-            let agent = ureq::builder()
-                .timeout(std::time::Duration::from_secs(10))
+            // Use ureq 3.x API - create agent with config
+            let config = ureq::Agent::config_builder()
+                .timeout_global(Some(std::time::Duration::from_secs(10)))
                 .build();
+            let agent: ureq::Agent = config.into();
 
             let response = agent
                 .get(url)
-                .set("User-Agent", "screen-goated-toolbox-checker")
+                .header("User-Agent", "screen-goated-toolbox-checker")
                 .call();
 
             match response {
-                Ok(resp) => {
-                    let release_json: String = match resp.into_string() {
+                Ok(mut resp) => {
+                    let release_json: String = match resp.body_mut().read_to_string() {
                         Ok(s) => s,
                         Err(e) => {
                             let _ = tx.send(UpdateStatus::Error(format!(
@@ -88,11 +90,13 @@ impl Updater {
                     }
                 }
                 Err(e) => {
-                    let error_msg = match e {
-                        ureq::Error::Status(code, _) if code == 403 => {
+                    let error_msg = {
+                        let err_str = e.to_string();
+                        if err_str.contains("403") {
                             "Status 403: GitHub API rate limit reached or access forbidden. Please try again later or check your network/VPN.".to_string()
+                        } else {
+                            format!("Network error: {}", e)
                         }
-                        _ => format!("Network error: {}", e)
                     };
                     let _ = tx.send(UpdateStatus::Error(format!(
                         "Failed to fetch info: {}",
@@ -131,11 +135,11 @@ impl Updater {
 
             // Use a custom HTTP request to get the latest release (the one marked as "Latest" on GitHub)
             let release_json = match ureq::get("https://api.github.com/repos/nganlinh4/screen-goated-toolbox/releases?per_page=1&prerelease=false")
-                .set("User-Agent", "screen-goated-toolbox-updater")
+                .header("User-Agent", "screen-goated-toolbox-updater")
                 .call()
             {
-                Ok(response) => {
-                    match response.into_string() {
+                Ok(mut response) => {
+                    match response.body_mut().read_to_string() {
                         Ok(s) => s,
                         Err(e) => {
                             let _ = tx.send(UpdateStatus::Error(format!("Failed to parse response: {}", e)));
@@ -144,11 +148,13 @@ impl Updater {
                     }
                 }
                 Err(e) => {
-                    let error_msg = match e {
-                        ureq::Error::Status(code, _) if code == 403 => {
+                    let error_msg = {
+                        let err_str = e.to_string();
+                        if err_str.contains("403") {
                             "Status 403: GitHub API rate limit reached or access forbidden. Please try again later.".to_string()
+                        } else {
+                            format!("Failed to fetch release list: {}", e)
                         }
-                        _ => format!("Failed to fetch release list: {}", e)
                     };
                     let _ = tx.send(UpdateStatus::Error(error_msg));
                     return;
@@ -266,7 +272,8 @@ impl Updater {
 
             match ureq::get(&asset.download_url).call() {
                 Ok(response) => {
-                    if let Err(e) = std::io::copy(&mut response.into_reader(), &mut file) {
+                    let mut reader = response.into_body().into_reader();
+                    if let Err(e) = std::io::copy(&mut reader, &mut file) {
                         let _ = tx.send(UpdateStatus::Error(format!("Download failed: {}", e)));
                         let _ = std::fs::remove_file(&temp_path);
                         return;

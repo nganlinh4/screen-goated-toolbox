@@ -1122,11 +1122,11 @@ fn generate_filename(content: &str) -> String {
 
     match crate::api::client::UREQ_AGENT
         .post("https://api.groq.com/openai/v1/chat/completions")
-        .set("Authorization", &format!("Bearer {}", groq_key))
+        .header("Authorization", &format!("Bearer {}", groq_key))
         .send_json(payload)
     {
         Ok(resp) => {
-            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+            if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
                 if let Some(choice) = json
                     .get("choices")
                     .and_then(|c| c.as_array())

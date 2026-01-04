@@ -19,7 +19,7 @@ fn fetch_repomix_xml() -> Result<String, String> {
 
     match UREQ_AGENT.get(url).call() {
         Ok(response) => response
-            .into_string()
+            .into_body().read_to_string()
             .map_err(|e| format!("Failed to read response: {}", e)),
         Err(e) => Err(format!("Failed to fetch XML: {}", e)),
     }
@@ -58,12 +58,12 @@ Answer the user in a helpful, concise and easy to understand way in the question
 
     let response = UREQ_AGENT
         .post(&url)
-        .set("Content-Type", "application/json")
-        .send_string(&body.to_string())
+        .header("Content-Type", "application/json")
+        .send(&body.to_string())
         .map_err(|e| format!("API request failed: {}", e))?;
 
     let json: serde_json::Value = response
-        .into_json()
+        .into_body().read_json()
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     // Extract text from response

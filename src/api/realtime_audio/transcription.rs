@@ -134,6 +134,7 @@ fn run_realtime_transcription(
     loop {
         match socket.read() {
             Ok(tungstenite::Message::Text(msg)) => {
+                let msg = msg.as_str();
                 if msg.contains("setupComplete") {
                     break;
                 }
@@ -151,7 +152,7 @@ fn run_realtime_transcription(
                 ));
             }
             Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.clone()) {
+                if let Ok(text) = String::from_utf8(data.to_vec()) {
                     if text.contains("setupComplete") {
                         break;
                     }
@@ -350,7 +351,8 @@ fn run_main_loop(
         // Receive transcriptions
         match socket.read() {
             Ok(tungstenite::Message::Text(msg)) => {
-                if let Some(transcript) = parse_input_transcription(&msg) {
+                let msg = msg.as_str();
+                if let Some(transcript) = parse_input_transcription(msg) {
                     if !transcript.is_empty() {
                         last_transcription_time = Instant::now();
                         consecutive_empty_reads = 0;
@@ -367,7 +369,7 @@ fn run_main_loop(
                 }
             }
             Ok(tungstenite::Message::Binary(data)) => {
-                if let Ok(text) = String::from_utf8(data.clone()) {
+                if let Ok(text) = String::from_utf8(data.to_vec()) {
                     if let Some(transcript) = parse_input_transcription(&text) {
                         if !transcript.is_empty() {
                             last_transcription_time = Instant::now();
