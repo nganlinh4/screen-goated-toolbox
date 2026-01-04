@@ -234,6 +234,12 @@ unsafe extern "system" fn pdj_wnd_proc(
             LRESULT(0)
         }
         WM_CLOSE => {
+            PDJ_WEBVIEW.with(|wv| {
+                if let Some(webview) = wv.borrow().as_ref() {
+                    let _ = webview
+                        .evaluate_script("window.postMessage({ type: 'pm-dj-stop-audio' }, '*')");
+                }
+            });
             let _ = ShowWindow(hwnd, SW_HIDE);
             LRESULT(0)
         }
@@ -581,6 +587,7 @@ unsafe fn internal_create_pdj_loop() {
             closeBtn.innerHTML = '✕';
             closeBtn.onclick = (e) => {{
                 e.stopPropagation(); 
+                window.postMessage({{ type: 'pm-dj-stop-audio' }}, '*');
                 if (window.ipc) window.ipc.postMessage('close_window');
             }};
             header.appendChild(closeBtn);
