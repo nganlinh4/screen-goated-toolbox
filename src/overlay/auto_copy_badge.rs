@@ -1,19 +1,23 @@
 use crate::APP;
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, Once};
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
-use crate::win_types::SendHwnd;
-
 static REGISTER_BADGE_CLASS: Once = Once::new();
-static mut BADGE_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
+
+// Thread-safe handle using atomic (like preset_wheel)
+static BADGE_HWND: AtomicIsize = AtomicIsize::new(0);
+static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
+static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 
 // Messages
 const WM_APP_SHOW_TEXT: u32 = WM_USER + 201;
@@ -87,28 +91,45 @@ pub fn show_update_notification(title: &str) {
 }
 
 fn ensure_window_and_post(msg: u32) {
-    unsafe {
-        if std::ptr::addr_of!(BADGE_HWND).read().is_invalid() {
-            warmup();
-            // Wait longer for WebView to initialize
-            std::thread::sleep(std::time::Duration::from_millis(500));
+    // Check if already warmed up
+    if !IS_WARMED_UP.load(Ordering::SeqCst) {
+        // Trigger warmup if not started yet
+        warmup();
+
+        // Poll for ready state (up to 3 seconds)
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if IS_WARMED_UP.load(Ordering::SeqCst) {
+                break;
+            }
         }
 
-        let hwnd = std::ptr::addr_of!(BADGE_HWND).read().0;
-        if !hwnd.is_invalid() {
+        // If still not ready, give up this notification
+        if !IS_WARMED_UP.load(Ordering::SeqCst) {
+            return;
+        }
+    }
+
+    let hwnd_val = BADGE_HWND.load(Ordering::SeqCst);
+    let hwnd = HWND(hwnd_val as *mut _);
+    if hwnd_val != 0 && !hwnd.is_invalid() {
+        unsafe {
             let _ = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
         }
     }
 }
 
 pub fn warmup() {
-    unsafe {
-        if std::ptr::addr_of!(BADGE_HWND).read().is_invalid() {
-            std::thread::spawn(|| {
-                internal_create_window_loop();
-            });
-        }
+    // Prevent multiple warmup threads from spawning (like preset_wheel)
+    if IS_WARMING_UP
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
     }
+    std::thread::spawn(|| {
+        internal_create_window_loop();
+    });
 }
 
 fn get_badge_html() -> String {
@@ -411,14 +432,17 @@ fn get_badge_html() -> String {
 
 fn internal_create_window_loop() {
     unsafe {
-        let instance = GetModuleHandleW(None).unwrap();
+        // Initialize COM for the thread (Critical for WebView2/Wry)
+        let _ = CoInitialize(None);
+
+        let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGT_AutoCopyBadgeWebView");
 
         REGISTER_BADGE_CLASS.call_once(|| {
             let mut wc = WNDCLASSW::default();
             wc.lpfnWndProc = Some(badge_wnd_proc);
             wc.hInstance = instance.into();
-            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
+            wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap_or_default();
             wc.lpszClassName = class_name;
             wc.style = CS_HREDRAW | CS_VREDRAW;
             wc.hbrBackground = HBRUSH(std::ptr::null_mut());
@@ -441,8 +465,7 @@ fn internal_create_window_loop() {
         )
         .unwrap_or_default();
 
-        BADGE_HWND = SendHwnd(hwnd);
-
+        // Don't store HWND yet - wait until WebView is ready
         let margins = MARGINS {
             cxLeftWidth: -1,
             cxRightWidth: -1,
@@ -493,6 +516,18 @@ fn internal_create_window_loop() {
             BADGE_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });
+
+            // Now that WebView is ready, publicize the HWND and mark as ready
+            BADGE_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
+            IS_WARMED_UP.store(true, Ordering::SeqCst);
+        } else {
+            // Initialization failed - cleanup and exit
+            let _ = DestroyWindow(hwnd);
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
+            BADGE_HWND.store(0, Ordering::SeqCst);
+            let _ = CoUninitialize();
+            return;
         }
 
         let mut msg = MSG::default();
@@ -501,7 +536,14 @@ fn internal_create_window_loop() {
             DispatchMessageW(&msg);
         }
 
-        BADGE_HWND = SendHwnd(HWND(std::ptr::null_mut()));
+        // Cleanup on exit - reset all state so warmup can be retriggered
+        BADGE_WEBVIEW.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+        BADGE_HWND.store(0, Ordering::SeqCst);
+        IS_WARMING_UP.store(false, Ordering::SeqCst);
+        IS_WARMED_UP.store(false, Ordering::SeqCst);
+        let _ = CoUninitialize();
     }
 }
 
