@@ -163,6 +163,11 @@ impl SettingsApp {
 
             self.startup_stage = 3;
 
+            // Trigger auto-update check at startup
+            if let Some(updater) = &self.updater {
+                updater.check_for_updates();
+            }
+
             // Start favorite bubble if enabled and has favorites
             let has_favorites = self.config.presets.iter().any(|p| p.is_favorite);
             if self.config.show_favorite_bubble && has_favorites {
