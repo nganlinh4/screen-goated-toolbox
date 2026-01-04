@@ -19,23 +19,9 @@ use std::sync::mpsc;
 use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-/// Content types we can handle
-pub enum DroppedContent {
-    Image(ImageBuffer<Rgba<u8>, Vec<u8>>),
-    Text(String),
-    Audio(Vec<u8>), // WAV data
-}
-
 /// Image file extensions we support
 const IMAGE_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "webp", "ico", "tiff", "tif",
-];
-
-/// Text file extensions we support
-const TEXT_EXTENSIONS: &[&str] = &[
-    "txt", "md", "json", "xml", "csv", "log", "ini", "cfg", "yaml", "yml", "toml", "html", "htm",
-    "css", "js", "ts", "rs", "py", "java", "c", "cpp", "h", "hpp", "go", "rb", "php", "sql", "sh",
-    "bat", "ps1", "swift", "kt",
 ];
 
 /// Audio file extensions we support (decoded via symphonia)
@@ -48,20 +34,9 @@ fn is_image_extension(ext: &str) -> bool {
     IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
-/// Check if a file extension is a text type
-fn is_text_extension(ext: &str) -> bool {
-    TEXT_EXTENSIONS.contains(&ext.to_lowercase().as_str())
-}
-
 /// Check if a file extension is an audio type
 fn is_audio_extension(ext: &str) -> bool {
     AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str())
-}
-
-/// Load an image file and convert to ImageBuffer
-fn load_image_file(path: &Path) -> Option<ImageBuffer<Rgba<u8>, Vec<u8>>> {
-    let img = image::open(path).ok()?;
-    Some(img.to_rgba8())
 }
 
 /// Load a text file content
@@ -173,22 +148,6 @@ fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
     Some(wav_cursor.into_inner())
 }
 
-/// Try to load file based on extension: image, audio, or text
-fn load_file_content(path: &Path) -> Option<DroppedContent> {
-    let ext = path.extension()?.to_str()?;
-
-    if is_image_extension(ext) {
-        load_image_file(path).map(DroppedContent::Image)
-    } else if is_audio_extension(ext) {
-        load_audio_file(path).map(DroppedContent::Audio)
-    } else if is_text_extension(ext) {
-        load_text_file(path).map(DroppedContent::Text)
-    } else {
-        // Try to load as text anyway for unknown extensions
-        load_text_file(path).map(DroppedContent::Text)
-    }
-}
-
 /// Get cursor position for wheel placement
 fn get_cursor_pos() -> POINT {
     let mut pos = POINT::default();
@@ -261,30 +220,6 @@ fn process_text_content(text: String) {
         // Spawn processing in background thread
         std::thread::spawn(move || {
             start_text_processing(text, rect, config, preset, localized_name, cancel_hotkey);
-        });
-    }
-}
-
-/// Process dropped audio file content
-/// Shows combined mic+device preset wheel (like text combines select+type)
-fn process_audio_content(wav_data: Vec<u8>) {
-    let cursor_pos = get_cursor_pos();
-
-    // Show audio preset wheel without mode filter (shows both mic and device presets)
-    // This is similar to how text shows both "select" and "type" presets
-    let selected = show_preset_wheel("audio", None, cursor_pos);
-
-    if let Some(preset_idx) = selected {
-        let preset = {
-            let mut app = APP.lock().unwrap();
-            // Update active preset for auto-paste to work correctly
-            app.config.active_preset_idx = preset_idx;
-            app.config.presets[preset_idx].clone()
-        };
-
-        // Process audio using proper pipeline
-        std::thread::spawn(move || {
-            crate::api::audio::process_audio_file_request(preset, wav_data);
         });
     }
 }

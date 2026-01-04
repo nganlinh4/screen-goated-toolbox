@@ -42,7 +42,7 @@ where
         image.height()
     );
 
-    let mut b64_image = String::new();
+    let b64_image: String;
     let mut image_data = Vec::new();
     let mut mime_type = "image/png".to_string();
 

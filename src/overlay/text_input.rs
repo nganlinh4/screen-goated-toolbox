@@ -516,20 +516,12 @@ pub fn show(
             std::thread::spawn(move || {
                 for _ in 0..50 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
-                    // Check if ready (unsafe access to static mut IS_WARMED_UP/INPUT_HWND)
-                    // Using unsafe block inside thread
-                    if unsafe {
-                        !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() && IS_WARMED_UP
-                    } {
-                        unsafe {
-                            let hwnd_wrapper = std::ptr::addr_of!(INPUT_HWND).read();
-                            let _ = PostMessageW(
-                                Some(hwnd_wrapper.0),
-                                WM_APP_SHOW,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
-                        }
+                    // SAFETY: Accessing static muts INPUT_HWND and IS_WARMED_UP (lexically inside unsafe block)
+                    let ready = !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() && IS_WARMED_UP;
+                    if ready {
+                        let hwnd_wrapper = std::ptr::addr_of!(INPUT_HWND).read();
+                        let _ =
+                            PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
                         return;
                     }
                 }

@@ -11,8 +11,8 @@ use windows::Win32::Graphics::Dwm::{
 };
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::Media::Audio::{
-    eMultimedia, eRender, IAudioSessionControl, IAudioSessionControl2, IAudioSessionManager2,
-    IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
+    eMultimedia, eRender, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator,
+    ISimpleAudioVolume, MMDeviceEnumerator,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
@@ -342,16 +342,12 @@ pub fn show_prompt_dj() {
                     // Or better, checking if PDJ_HWND is valid?
                     // PDJ_HWND is static SendHwnd.
 
-                    let hwnd_wrapper = unsafe { std::ptr::addr_of!(PDJ_HWND).read() };
-                    if !hwnd_wrapper.is_invalid() && unsafe { IS_WARMED_UP } {
-                        unsafe {
-                            let _ = PostMessageW(
-                                Some(hwnd_wrapper.0),
-                                WM_APP_SHOW,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
-                        }
+                    // SAFETY: Accessing static mut PDJ_HWND and IS_WARMED_UP (lexically inside unsafe block)
+                    let hwnd_wrapper = std::ptr::addr_of!(PDJ_HWND).read();
+                    let is_warmed = IS_WARMED_UP;
+                    if !hwnd_wrapper.is_invalid() && is_warmed {
+                        let _ =
+                            PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
                         return;
                     }
                 }
