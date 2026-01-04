@@ -289,6 +289,10 @@ function main() {
     if (data.type === 'pm-dj-reset') {
       (pdjMidi as any).resetAll?.();
     }
+    if (data.type === 'pm-dj-stop-audio') {
+      liveMusicHelper?.stop();
+      if (pdjMidi) pdjMidi.playbackState = 'stopped';
+    }
   });
 
 }
