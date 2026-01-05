@@ -28,6 +28,9 @@ export class LiveMusicHelper extends EventTarget {
   private playbackState: PlaybackState = 'stopped';
   private loadingTimer: number | null = null;
   private bufferTimer: number | null = null;
+  private retryTimer: number | null = null;
+  private retryCount = 0;
+  private readonly maxRetries = 3;
 
   private prompts: Map<string, Prompt>;
   private sessionSeq: number = 0; // increments to invalidate stale callbacks
@@ -65,6 +68,7 @@ export class LiveMusicHelper extends EventTarget {
           if (e.setupComplete) {
             this.debug('setupComplete received');
             this.connectionError = false;
+            this.retryCount = 0;
             if (this.loadingTimer) { clearTimeout(this.loadingTimer); this.loadingTimer = null; }
           }
           if (e.filteredPrompt) {
@@ -91,6 +95,18 @@ export class LiveMusicHelper extends EventTarget {
           if (mySeq !== this.sessionSeq) { this.debug('onclose ignored (stale seq)'); return; }
           this.debug('onclose');
           this.connectionError = true;
+          
+          if (this.retryCount < this.maxRetries) {
+            this.retryCount++;
+            this.debug(`onclose: retrying connection (${this.retryCount}/${this.maxRetries}) in 1s...`);
+            this.stop();
+            this.retryTimer = (setTimeout(() => {
+              this.retryTimer = null;
+              this.play(false);
+            }, 1000) as unknown) as number;
+            return;
+          }
+
           if (this.loadingTimer) { clearTimeout(this.loadingTimer); this.loadingTimer = null; }
           this.stop();
           this.dispatchEvent(new CustomEvent('error', { detail: 'Connection error, please restart audio.' }));
@@ -179,8 +195,11 @@ export class LiveMusicHelper extends EventTarget {
     }
   }, 200);
 
-  public async play() {
+  public async play(resetRetries = true) {
     this.debug('play() called');
+    if (resetRetries) {
+      this.retryCount = 0;
+    }
     this.setPlaybackState('loading');
     // Start a safety timer: if no audio or setupComplete within 12s, abort and show error
     if (this.loadingTimer) { clearTimeout(this.loadingTimer); this.loadingTimer = null; }
@@ -219,6 +238,7 @@ export class LiveMusicHelper extends EventTarget {
   public stop() {
     // Invalidate any in-flight callbacks from previous connection
     this.sessionSeq++;
+    if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
     try { this.session?.stop(); } catch {}
     // Hard mute and disconnect
     try { this.outputNode.disconnect(); } catch {}
