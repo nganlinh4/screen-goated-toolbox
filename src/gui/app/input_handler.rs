@@ -429,6 +429,22 @@ pub fn handle_paste(ctx: &egui::Context) -> bool {
         return false;
     }
 
+    // skip paste handling if any of the api key fields are focused
+    // this prevents the wheel from appearing when the user paste their api key
+    let focused_id = ctx.memory(|mem| mem.focused());
+    if let Some(id) = focused_id {
+        let api_key_ids = [
+            egui::Id::new("settings_api_key_groq"),
+            egui::Id::new("settings_api_key_cerebras"),
+            egui::Id::new("settings_api_key_gemini"),
+            egui::Id::new("settings_api_key_openrouter"),
+            egui::Id::new("settings_api_key_ollama_url"),
+        ];
+        if api_key_ids.contains(&id) {
+            return false;
+        }
+    }
+
     // Debounce: prevent multiple triggers per key press
     static LAST_V_STATE: AtomicBool = AtomicBool::new(false);
 

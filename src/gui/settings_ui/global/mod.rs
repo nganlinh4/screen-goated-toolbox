@@ -109,6 +109,7 @@ pub fn render_global_settings(
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut config.api_key)
+                                .id(egui::Id::new("settings_api_key_groq"))
                                 .password(!*show_api_key)
                                 .desired_width(API_KEY_FIELD_WIDTH),
                         )
@@ -140,6 +141,7 @@ pub fn render_global_settings(
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut config.cerebras_api_key)
+                                .id(egui::Id::new("settings_api_key_cerebras"))
                                 .password(!*show_cerebras_api_key)
                                 .desired_width(API_KEY_FIELD_WIDTH),
                         )
@@ -171,6 +173,7 @@ pub fn render_global_settings(
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut config.gemini_api_key)
+                                .id(egui::Id::new("settings_api_key_gemini"))
                                 .password(!*show_gemini_api_key)
                                 .desired_width(API_KEY_FIELD_WIDTH),
                         )
@@ -202,6 +205,7 @@ pub fn render_global_settings(
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut config.openrouter_api_key)
+                                .id(egui::Id::new("settings_api_key_openrouter"))
                                 .password(!*show_openrouter_api_key)
                                 .desired_width(API_KEY_FIELD_WIDTH),
                         )
@@ -233,6 +237,7 @@ pub fn render_global_settings(
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut config.ollama_base_url)
+                                .id(egui::Id::new("settings_api_key_ollama_url"))
                                 .desired_width(API_KEY_FIELD_WIDTH),
                         )
                         .changed()
