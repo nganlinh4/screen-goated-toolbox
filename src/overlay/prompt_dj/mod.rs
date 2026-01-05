@@ -404,11 +404,20 @@ unsafe fn internal_create_pdj_loop() {
         let _ = RegisterClassW(&wc);
     });
 
-    let width = 1350;
-    let height = 775;
-
     let screen_w = GetSystemMetrics(SM_CXSCREEN);
     let screen_h = GetSystemMetrics(SM_CYSCREEN);
+
+    // Adaptive sizing based on screen aspect ratio:
+    // - Width: Use 70% of screen width, capped between 1200 and 1600 pixels
+    // - Height: Scales inversely with aspect ratio for consistent UI appearance
+    //   - At 16:9 (1.78:1): ~72% of screen height → 775px on 1080p
+    //   - At 21:9 (2.37:1): ~60% of screen height → 650px on 1080p ultrawide
+    let aspect_ratio = screen_w as f64 / screen_h as f64;
+    let base_aspect = 16.0 / 9.0; // 1.778
+    let height_pct = (0.72 - (aspect_ratio - base_aspect) * 0.20).clamp(0.50, 0.80);
+
+    let width = ((screen_w as f64 * 0.70) as i32).clamp(1200, 1600);
+    let height = ((screen_h as f64 * height_pct) as i32).clamp(550, 900);
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
 
