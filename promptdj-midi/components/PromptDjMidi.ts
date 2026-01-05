@@ -10,6 +10,7 @@ import { throttle } from '../utils/throttle';
 
 import './PromptController';
 import './PlayPauseMorphWrapper';
+import './OnboardingPopup';
 import type { PlaybackState, Prompt } from '../types';
 import { MidiDispatcher } from '../utils/MidiDispatcher';
 import { LOCALES, Lang } from '../utils/Locales';
@@ -913,6 +914,7 @@ export class PromptDjMidi extends LitElement {
     const loadingProp = this.optimisticLoading || this.playbackState === 'loading';
 
     return html`<div id="background" style=${bg}></div>
+      <onboarding-popup lang=${this.lang}></onboarding-popup>
       ${this.renderModal()}
       <div id="content">
         <div id="gridWrap">

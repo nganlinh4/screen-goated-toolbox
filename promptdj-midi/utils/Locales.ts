@@ -22,6 +22,9 @@ export const LOCALES = {
         edit_tooltip: 'Edit prompt',
         clear_tooltip: 'Clear',
         prompt_placeholder: 'Enter audio prompt...',
+        onboarding_title: 'Note',
+        onboarding_msg: 'Playback may be interrupted due to Gemini, but recording will not be interrupted as silence removal is in place.',
+        onboarding_btn: 'Got it',
     },
     vi: {
         recording_ready: 'Bản ghi đã sẵn sàng',
@@ -41,6 +44,9 @@ export const LOCALES = {
         edit_tooltip: 'Sửa prompt',
         clear_tooltip: 'Xóa',
         prompt_placeholder: 'Nhập prompt âm thanh',
+        onboarding_title: 'Lưu ý',
+        onboarding_msg: 'Lúc nghe có thể gián đoạn do phía Gemini, nhưng lúc thu âm sẽ không bị gián đoạn do đã có cơ chế loại bỏ tĩnh lặng.',
+        onboarding_btn: 'Đã hiểu',
     },
     ko: {
         recording_ready: '녹음 완료',
@@ -60,6 +66,9 @@ export const LOCALES = {
         edit_tooltip: '프롬프트 편집',
         clear_tooltip: '지우기',
         prompt_placeholder: '오디오 프롬프트 입력...',
+        onboarding_title: '알림',
+        onboarding_msg: 'Gemini 측 문제로 재생이 중단될 수 있으나, 녹음 시에는 무음 제거 기능이 있어 중단되지 않습니다.',
+        onboarding_btn: '확인',
     }
 };
 
