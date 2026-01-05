@@ -78,7 +78,7 @@ pub fn get_realtime_html(
                 <span class="material-symbols-rounded audio-icon {device_active}" id="device-btn" data-value="device" title="Device Audio">{device_svg}</span>
             </div>
             <div class="btn-group">
-                <span class="material-symbols-rounded trans-model-icon {gemini_active}" data-value="gemini" title="Gemini 2.0 (Cloud)">{auto_awesome_svg}</span>
+                <span class="material-symbols-rounded trans-model-icon {gemini_active}" data-value="gemini" title="Gemini Live (Cloud)">{auto_awesome_svg}</span>
                 <span class="material-symbols-rounded trans-model-icon {parakeet_active}" data-value="parakeet" title="Parakeet (Local)">{speed_svg}</span>
             </div>
         "#,

@@ -56,6 +56,17 @@ pub fn set_socket_nonblocking(
     Ok(())
 }
 
+/// Set a short timeout for the setup phase so we can check for model changes frequently
+pub fn set_socket_short_timeout(
+    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,
+) -> Result<()> {
+    let stream = socket.get_mut();
+    let tcp_stream = stream.get_mut();
+    // 200ms timeout allows checking for model changes 5 times per second
+    tcp_stream.set_read_timeout(Some(Duration::from_millis(200)))?;
+    Ok(())
+}
+
 /// Send session setup message to configure transcription mode
 pub fn send_setup_message(
     socket: &mut tungstenite::WebSocket<native_tls::TlsStream<TcpStream>>,

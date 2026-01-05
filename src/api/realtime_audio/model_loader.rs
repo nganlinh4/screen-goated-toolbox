@@ -102,11 +102,16 @@ pub fn download_parakeet_model(
 ) -> Result<()> {
     let dir = get_parakeet_model_dir();
 
+    let locale = {
+        let app = crate::APP.lock().unwrap();
+        crate::gui::locale::LocaleText::get(&app.config.ui_language)
+    };
+
     use crate::overlay::realtime_webview::state::REALTIME_STATE;
     if let Ok(mut state) = REALTIME_STATE.lock() {
         state.is_downloading = true;
-        state.download_title = "Downloading Parakeet (0.6 GB)".to_string();
-        state.download_message = "Please wait...".to_string();
+        state.download_title = locale.parakeet_downloading_title.to_string();
+        state.download_message = locale.parakeet_downloading_message.to_string();
         state.download_progress = 0.0;
     }
 
@@ -115,15 +120,24 @@ pub fn download_parakeet_model(
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-    unsafe {
-        if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
-            let _ = PostMessageW(
-                Some(REALTIME_HWND),
-                WM_DOWNLOAD_PROGRESS,
-                WPARAM(0),
-                LPARAM(0),
-            );
+    println!("Parakeet model not found, starting download. Modal should appear now...");
+
+    // Small delay to ensure WebView is ready to receive the message
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Send the message multiple times initially to ensure WebView receives it
+    for _ in 0..3 {
+        unsafe {
+            if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
+                let _ = PostMessageW(
+                    Some(REALTIME_HWND),
+                    WM_DOWNLOAD_PROGRESS,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            }
         }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
     let result = (|| {
@@ -135,7 +149,7 @@ pub fn download_parakeet_model(
 
         for (filename, url) in files_to_download {
             if let Ok(mut state) = REALTIME_STATE.lock() {
-                state.download_message = format!("Downloading {}...", filename);
+                state.download_message = locale.parakeet_downloading_file.replace("{}", filename);
             }
             unsafe {
                 if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {

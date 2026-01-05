@@ -226,6 +226,10 @@ pub struct LocaleText {
     // --- PROMPT DJ ---
     pub prompt_dj_btn: &'static str,
     pub prompt_dj_title: &'static str,
+    // --- PARAKEET DOWNLOAD MODAL ---
+    pub parakeet_downloading_title: &'static str,
+    pub parakeet_downloading_message: &'static str,
+    pub parakeet_downloading_file: &'static str, // "Downloading {}..."
 }
 
 impl LocaleText {
@@ -502,6 +506,10 @@ impl LocaleText {
                  help_assistant_hint: "Nhập câu hỏi về cách sử dụng SGT và nhấn Enter hoặc nút Hỏi",
                   prompt_dj_btn: "Góc chill chill",
                   prompt_dj_title: "PromptDJ - Góc chill chill",
+                  // --- PARAKEET DOWNLOAD MODAL VI ---
+                  parakeet_downloading_title: "Đang tải mô hình Parakeet (0.6 GB)",
+                  parakeet_downloading_message: "Vui lòng đợi...",
+                  parakeet_downloading_file: "Đang tải {}...",
                  },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -774,6 +782,10 @@ impl LocaleText {
                  help_assistant_hint: "SGT 사용법에 대한 질문을 입력하고 Enter 또는 질문 버튼을 누르세요",
                   prompt_dj_btn: "힐링 공간",
                   prompt_dj_title: "PromptDJ - 힐링 공간",
+                  // --- PARAKEET DOWNLOAD MODAL KO ---
+                  parakeet_downloading_title: "Parakeet 모델 다운로드 중 (0.6 GB)",
+                  parakeet_downloading_message: "잠시만 기다려주세요...",
+                  parakeet_downloading_file: "{} 다운로드 중...",
                  },
                 _ => Self {
                  history_btn: "History",
@@ -1045,6 +1057,10 @@ impl LocaleText {
                  help_assistant_hint: "Enter a question about using SGT and press Enter or click Ask",
                   prompt_dj_btn: "Chill Corner",
                   prompt_dj_title: "PromptDJ - Chill Corner",
+                  // --- PARAKEET DOWNLOAD MODAL EN ---
+                  parakeet_downloading_title: "Downloading Parakeet (0.6 GB)",
+                  parakeet_downloading_message: "Please wait...",
+                  parakeet_downloading_file: "Downloading {}...",
                  },
                 }
     }
