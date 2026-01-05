@@ -64,6 +64,14 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 
 The executable will be located in `target/release/`.
 
+### Quick Development Build
+
+To rebuild and run during development (builds PromptDJ frontend, then runs the app):
+
+```powershell
+cd promptdj-midi; npm install; npm run build; cd ..; New-Item -ItemType Directory -Path src\overlay\prompt_dj\dist -Force | Out-Null; Copy-Item promptdj-midi\dist\* -Destination src\overlay\prompt_dj\dist -Recurse -Force; cargo run
+```
+
 ## Getting Started
 
 1. **Launch SGT:** Run the executable.

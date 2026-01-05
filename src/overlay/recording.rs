@@ -48,9 +48,25 @@ thread_local! {
     static RECORDING_WEB_CONTEXT: RefCell<Option<WebContext>> = RefCell::new(None);
 }
 
-// --- CONSTANTS ---
-const UI_WIDTH: i32 = 450;
-const UI_HEIGHT: i32 = 70;
+// --- ADAPTIVE UI SIZE ---
+fn get_ui_dimensions() -> (i32, i32) {
+    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+
+    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+
+    // Width scales inversely with aspect ratio for consistent UI appearance
+    // At 16:9 (1.78:1): 450px width
+    // At 21:9 (2.37:1): 375px width (narrower on ultrawide)
+    let aspect_ratio = screen_w as f64 / screen_h as f64;
+    let base_aspect = 16.0 / 9.0; // 1.778
+    let width = (450.0 - (aspect_ratio - base_aspect) * 127.0).clamp(350.0, 500.0) as i32;
+
+    // Height stays constant at 70px
+    let height = 70;
+
+    (width, height)
+}
 
 const WM_APP_SHOW: u32 = WM_USER + 20;
 const WM_APP_HIDE: u32 = WM_USER + 21;
@@ -209,6 +225,9 @@ fn internal_create_recording_window() {
             RegisterClassW(&wc);
         });
 
+        // Get adaptive UI dimensions
+        let (ui_width, ui_height) = get_ui_dimensions();
+
         // Create window OFF-SCREEN initially (-4000, -4000)
         // WS_POPUP | WS_VISIBLE (so WebView renders) but off-screen.
         // Using Layered window for transparency
@@ -219,8 +238,8 @@ fn internal_create_recording_window() {
             WS_POPUP | WS_VISIBLE,
             -4000,
             -4000,
-            UI_WIDTH,
-            UI_HEIGHT,
+            ui_width,
+            ui_height,
             None,
             None,
             Some(instance.into()),
@@ -271,12 +290,13 @@ fn internal_create_recording_window() {
 
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
 
+            let (ui_width, ui_height) = get_ui_dimensions();
             builder
                 .with_bounds(Rect {
                     position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                        UI_WIDTH as u32,
-                        UI_HEIGHT as u32,
+                        ui_width as u32,
+                        ui_height as u32,
                     )),
                 })
                 .with_transparent(true)
@@ -508,10 +528,11 @@ unsafe extern "system" fn recording_wnd_proc(
 
         WM_APP_REAL_SHOW => {
             // Move to Center Screen
+            let (ui_width, ui_height) = get_ui_dimensions();
             let screen_x = GetSystemMetrics(SM_CXSCREEN);
             let screen_y = GetSystemMetrics(SM_CYSCREEN);
-            let center_x = (screen_x - UI_WIDTH) / 2;
-            let center_y = (screen_y - UI_HEIGHT) / 2 + 100;
+            let center_x = (screen_x - ui_width) / 2;
+            let center_y = (screen_y - ui_height) / 2 + 100;
 
             let _ = SetWindowPos(
                 hwnd,
@@ -1123,8 +1144,8 @@ fn generate_html() -> String {
 </body>
 </html>
     "#,
-        width = UI_WIDTH - 20,
-        height = UI_HEIGHT - 20,
+        width = get_ui_dimensions().0 - 20,
+        height = get_ui_dimensions().1 - 20,
         font_css = font_css,
         tx_rec = text_rec,
         tx_proc = text_proc,
