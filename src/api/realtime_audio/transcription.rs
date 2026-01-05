@@ -19,7 +19,7 @@ use super::translation::run_translation_loop;
 use super::utils::update_overlay_text;
 use super::websocket::{
     connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
-    set_socket_nonblocking,
+    set_socket_nonblocking, set_socket_short_timeout,
 };
 use super::WM_VOLUME_UPDATE;
 
@@ -72,7 +72,14 @@ fn transcription_thread_entry(
             app.config.realtime_transcription_model.clone()
         };
 
+        println!(
+            "Transcription model from config: '{}', will use parakeet: {}",
+            trans_model,
+            trans_model == "parakeet"
+        );
+
         let result = if trans_model == "parakeet" {
+            println!(">>> Starting Parakeet transcription");
             super::parakeet::run_parakeet_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
@@ -80,6 +87,7 @@ fn transcription_thread_entry(
                 state.clone(),
             )
         } else {
+            println!(">>> Starting Gemini Live transcription");
             run_realtime_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
@@ -165,8 +173,14 @@ fn run_realtime_transcription(
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
 
+    println!("Gemini: Connecting to WebSocket...");
     let mut socket = connect_websocket(&gemini_api_key)?;
+    println!("Gemini: Connected! Sending setup...");
     send_setup_message(&mut socket)?;
+    println!("Gemini: Setup sent, waiting for acknowledgment...");
+
+    // Set short timeout so we can check for model changes during setup
+    set_socket_short_timeout(&mut socket)?;
 
     // Wait for setup acknowledgment
     let setup_start = Instant::now();
@@ -175,6 +189,7 @@ fn run_realtime_transcription(
             Ok(tungstenite::Message::Text(msg)) => {
                 let msg = msg.as_str();
                 if msg.contains("setupComplete") {
+                    println!("Gemini: Setup complete!");
                     break;
                 }
                 if msg.contains("error") || msg.contains("Error") {
@@ -193,6 +208,7 @@ fn run_realtime_transcription(
             Ok(tungstenite::Message::Binary(data)) => {
                 if let Ok(text) = String::from_utf8(data.to_vec()) {
                     if text.contains("setupComplete") {
+                        println!("Gemini: Setup complete!");
                         break;
                     }
                 } else if data.len() < 100 {
@@ -213,8 +229,17 @@ fn run_realtime_transcription(
                 return Err(e.into());
             }
         }
+        // Check for stop signal
         if stop_signal.load(Ordering::Relaxed) {
             return Ok(());
+        }
+        // Check for model change or audio source change signals
+        use crate::overlay::realtime_webview::{AUDIO_SOURCE_CHANGE, TRANSCRIPTION_MODEL_CHANGE};
+        if TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+            || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+        {
+            println!("Gemini: Model/source change detected during setup, aborting...");
+            return Ok(()); // Return cleanly to allow the outer loop to handle the change
         }
     }
 
@@ -313,8 +338,13 @@ fn run_main_loop(
         }
 
         {
-            use crate::overlay::realtime_webview::AUDIO_SOURCE_CHANGE;
-            if AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst) {
+            use crate::overlay::realtime_webview::{
+                AUDIO_SOURCE_CHANGE, TRANSCRIPTION_MODEL_CHANGE,
+            };
+            if AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
+                || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
+            {
+                println!("Gemini: Model/source change detected, exiting main loop...");
                 break;
             }
         }

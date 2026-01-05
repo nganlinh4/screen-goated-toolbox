@@ -266,9 +266,10 @@ pub fn get() -> String {
             background: rgba(30, 30, 30, 0.98);
             border: 1px solid #00c8ff80;
             border-radius: 12px;
-            padding: 20px 24px;
+            padding: 16px 20px;
             z-index: 2147483647 !important;
-            min-width: 250px;
+            min-width: 380px;
+            max-width: 90vw;
             box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px #00c8ff30;
             text-align: center;
         }
@@ -298,17 +299,28 @@ pub fn get() -> String {
             align-items: center;
             justify-content: center;
             gap: 8px;
+            line-height: 1.2;
+        }
+        .download-modal-title .material-symbols-rounded {
+            font-size: 20px;
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
         }
         .download-modal-msg {
-            font-size: 12px;
-            color: #ccc;
-            margin-bottom: 16px;
+            font-size: 13px;
+            color: #ddd;
+            margin-bottom: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
         .download-progress-bar {
             width: 100%;
-            height: 6px;
+            height: 8px;
             background: #444;
-            border-radius: 3px;
+            border-radius: 4px;
             overflow: hidden;
         }
         .download-progress-fill {
