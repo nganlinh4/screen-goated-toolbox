@@ -490,6 +490,22 @@ fn inject_gridjs(html: &str) -> String {
     result
 }
 
+/// Inject CSS to hide scrollbars while preserving scrolling functionality
+fn inject_scrollbar_css(html: &str) -> String {
+    let css = "<style>::-webkit-scrollbar { display: none; }</style>";
+    let lower = html.to_lowercase();
+    let mut result = html.to_string();
+
+    if let Some(pos) = lower.find("</head>") {
+        result.insert_str(pos, css);
+    } else if let Some(pos) = lower.find("<body>") {
+        result.insert_str(pos, css);
+    } else {
+        result.insert_str(0, css);
+    }
+    result
+}
+
 /// Convert markdown text to styled HTML, or pass through raw HTML
 pub fn markdown_to_html(
     markdown: &str,
@@ -535,10 +551,11 @@ pub fn markdown_to_html(
         );
     }
 
-    // If input is already HTML, inject localStorage polyfill and Grid.js
+    // If input is already HTML, inject localStorage polyfill, Grid.js, and hidden scrollbar styles
     if is_html_content(markdown) {
         let with_storage = inject_storage_polyfill(markdown);
-        return inject_gridjs(&with_storage);
+        let with_grid = inject_gridjs(&with_storage);
+        return inject_scrollbar_css(&with_grid);
     }
 
     let mut options = Options::empty();
