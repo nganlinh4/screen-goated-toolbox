@@ -42,6 +42,19 @@ pub fn start_realtime_transcription(
     let overlay_send = crate::win_types::SendHwnd(overlay_hwnd);
     let translation_send = translation_hwnd.map(crate::win_types::SendHwnd);
 
+    // Spawn translation thread if needed (Independent of transcription model)
+    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;
+    if has_translation {
+        let t_send = translation_send.clone().unwrap();
+        let t_state = state.clone();
+        let t_stop = stop_signal.clone();
+        let t_preset = preset.clone();
+
+        std::thread::spawn(move || {
+            run_translation_loop(t_preset, t_stop, t_send, t_state);
+        });
+    }
+
     std::thread::spawn(move || {
         transcription_thread_entry(preset, stop_signal, overlay_send, translation_send, state);
     });
@@ -77,6 +90,15 @@ fn transcription_thread_entry(
             trans_model,
             trans_model == "parakeet"
         );
+
+        // Update state with selected method immediately (before potentially slow model loading)
+        if let Ok(mut s) = state.lock() {
+            if trans_model == "parakeet" {
+                s.set_transcription_method(super::state::TranscriptionMethod::Parakeet);
+            } else {
+                s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
+            }
+        }
 
         let result = if trans_model == "parakeet" {
             println!(">>> Starting Parakeet transcription");
@@ -171,7 +193,7 @@ fn run_realtime_transcription(
     preset: Preset,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
-    translation_hwnd: Option<HWND>,
+    _translation_hwnd: Option<HWND>,
     state: SharedRealtimeState,
 ) -> Result<()> {
     let gemini_api_key = {
@@ -292,21 +314,8 @@ fn run_realtime_transcription(
     }
 
     // Start translation thread if needed
-    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;
-    if has_translation {
-        let translation_send = crate::win_types::SendHwnd(translation_hwnd.unwrap());
-        let translation_state = state.clone();
-        let translation_stop = stop_signal.clone();
-        let translation_preset = preset.clone();
-        std::thread::spawn(move || {
-            run_translation_loop(
-                translation_preset,
-                translation_stop,
-                translation_send,
-                translation_state,
-            );
-        });
-    }
+    // NOTE: Translation thread is now spawned in `start_realtime_transcription`
+    // to ensure it runs independent of the transcription model (Parakeet/Gemini).
 
     // Main loop
     run_main_loop(
