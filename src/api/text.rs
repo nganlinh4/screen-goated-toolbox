@@ -81,6 +81,17 @@ where
             ui_language,
             on_chunk,
         );
+    } else if provider == "gemini-live" {
+        // --- GEMINI LIVE API (WebSocket-based low-latency streaming) ---
+        return super::gemini_live::gemini_live_generate(
+            text,
+            instruction,
+            None, // No image for text-only
+            None, // No audio for text-only
+            streaming_enabled,
+            ui_language,
+            on_chunk,
+        );
     } else if provider == "google-gtx" {
         // --- GOOGLE TRANSLATE (GTX) API ---
         // Non-LLM translation model - no API key required

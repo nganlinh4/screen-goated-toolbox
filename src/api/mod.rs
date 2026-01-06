@@ -1,15 +1,16 @@
-pub mod types;
-pub mod client;
-pub mod vision;
 pub mod audio;
-pub mod text;
-pub mod realtime_audio;
+pub mod client;
+pub mod gemini_live;
 pub mod ollama;
+pub mod realtime_audio;
+pub mod text;
 pub mod tts;
+pub mod types;
+pub mod vision;
 
-pub use vision::translate_image_streaming;
-pub use text::{translate_text_streaming, refine_text_streaming};
 pub use audio::record_audio_and_transcribe;
+pub use text::{refine_text_streaming, translate_text_streaming};
+pub use vision::translate_image_streaming;
 // realtime_audio types/functions are used directly where needed via crate::api::realtime_audio::
 
 /// Special prefix signal that tells callbacks to clear their accumulator before processing

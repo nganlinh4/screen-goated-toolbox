@@ -511,6 +511,47 @@ lazy_static::lazy_static! {
             "20 요청/일",
             "20 requests/day"
         ),
+
+        // Gemini Live LLM - Uses WebSocket for low-latency streaming
+        ModelConfig::new(
+            "gemini-live-text",
+            "gemini-live",
+            "⚡ Realtime",
+            "⚡ 실시간",
+            "⚡ Realtime",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Text,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
+            "gemini-live-vision",
+            "gemini-live",
+            "⚡ Realtime",
+            "⚡ 실시간",
+            "⚡ Realtime",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Vision,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
+            "gemini-live-audio",
+            "gemini-live",
+            "⚡ Realtime",
+            "⚡ 실시간",
+            "⚡ Realtime",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Audio,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
     ];
 }
 

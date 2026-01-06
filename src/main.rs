@@ -250,6 +250,9 @@ fn main() -> eframe::Result<()> {
     // Initialize TTS for instant speech synthesis
     api::tts::init_tts();
 
+    // Initialize Gemini Live LLM connection pool
+    api::gemini_live::init_gemini_live();
+
     // --- CLEAR WEBVIEW DATA IF SCHEDULED (before any WebViews are created) ---
     {
         let mut config = APP.lock().unwrap();
