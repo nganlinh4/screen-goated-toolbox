@@ -1,17 +1,27 @@
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub mod misc;
-pub mod timer_tasks;
-pub mod mouse_input;
 pub mod click_actions;
+pub mod misc;
+pub mod mouse_input;
+pub mod timer_tasks;
 
-pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+/// Minimum window size to prevent rendering issues when resizing too small.
+/// Below these dimensions, GDI operations can fail or cause system errors.
+pub const MIN_WINDOW_WIDTH: i32 = 40;
+pub const MIN_WINDOW_HEIGHT: i32 = 40;
+
+pub unsafe extern "system" fn result_wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     match msg {
         WM_ERASEBKGND => misc::handle_erase_bkgnd(hwnd, wparam),
-        
+
         WM_CTLCOLOREDIT => misc::handle_ctl_color_edit(wparam),
-        
+
         WM_SETCURSOR => mouse_input::handle_set_cursor(hwnd),
 
         WM_LBUTTONDOWN => mouse_input::handle_lbutton_down(hwnd, lparam),
@@ -23,7 +33,7 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         0x02A3 => mouse_input::handle_mouse_leave(hwnd), // WM_MOUSELEAVE
 
         WM_LBUTTONUP => click_actions::handle_lbutton_up(hwnd),
-        
+
         WM_RBUTTONUP => click_actions::handle_rbutton_up(hwnd),
 
         WM_MBUTTONUP => click_actions::handle_mbutton_up(),
@@ -33,12 +43,22 @@ pub unsafe extern "system" fn result_wnd_proc(hwnd: HWND, msg: u32, wparam: WPAR
         WM_DESTROY => misc::handle_destroy(hwnd),
 
         WM_PAINT => misc::handle_paint(hwnd),
-        
+
         WM_KEYDOWN => misc::handle_keydown(),
-        
+
+        // Enforce minimum window size to prevent rendering issues
+        WM_GETMINMAXINFO => {
+            let mmi = lparam.0 as *mut MINMAXINFO;
+            if !mmi.is_null() {
+                (*mmi).ptMinTrackSize.x = MIN_WINDOW_WIDTH;
+                (*mmi).ptMinTrackSize.y = MIN_WINDOW_HEIGHT;
+            }
+            LRESULT(0)
+        }
+
         // Deferred WebView2 creation - handles the WM_CREATE_WEBVIEW we posted
         msg if msg == misc::WM_CREATE_WEBVIEW => misc::handle_create_webview(hwnd),
-        
+
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
 }

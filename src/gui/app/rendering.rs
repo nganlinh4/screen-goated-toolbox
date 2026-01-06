@@ -152,7 +152,7 @@ impl SettingsApp {
 
                 // Right Detail View
                 ui.allocate_ui_with_layout(
-                    egui::vec2(right_width - 20.0, ui.available_height()),
+                    egui::vec2((right_width - 20.0).max(0.0), ui.available_height()),
                     egui::Layout::top_down(egui::Align::Min),
                     |ui| {
                         match self.view_mode {
