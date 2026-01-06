@@ -225,6 +225,14 @@ pub unsafe extern "system" fn translation_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_COPY_TEXT => {
+            let ptr = lparam.0 as *mut String;
+            if !ptr.is_null() {
+                let text = Box::from_raw(ptr);
+                crate::overlay::utils::copy_to_clipboard(&text, hwnd);
+            }
+            LRESULT(0)
+        }
         WM_TRANSLATION_UPDATE => {
             // Get old (committed) and new (uncommitted) translation from state
             let (old_text, new_text): (String, String) = {
