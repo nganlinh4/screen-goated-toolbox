@@ -189,6 +189,11 @@ fn run_realtime_transcription(
     send_setup_message(&mut socket)?;
     println!("Gemini: Setup sent, waiting for acknowledgment...");
 
+    // Set transcription method to GeminiLive (uses delimiter-based segmentation)
+    if let Ok(mut s) = state.lock() {
+        s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
+    }
+
     // Set short timeout so we can check for model changes during setup
     set_socket_short_timeout(&mut socket)?;
 

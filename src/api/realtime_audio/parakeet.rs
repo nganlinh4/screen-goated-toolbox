@@ -53,6 +53,11 @@ pub fn run_parakeet_transcription(
 
     println!("Parakeet model loaded successfully!");
 
+    // Set transcription method to Parakeet for timeout-based segmentation
+    if let Ok(mut s) = state.lock() {
+        s.set_transcription_method(super::state::TranscriptionMethod::Parakeet);
+    }
+
     // 3. Audio Setup - use the same capture functions as Gemini transcription
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
 
