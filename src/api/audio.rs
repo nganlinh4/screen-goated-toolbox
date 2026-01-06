@@ -276,6 +276,27 @@ fn execute_audio_processing_logic(preset: &Preset, wav_data: Vec<u8>) -> anyhow:
         } else {
             transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
         }
+    } else if provider == "gemini-live" {
+        // Gemini Live API (WebSocket-based low-latency with audio input)
+        if gemini_api_key.trim().is_empty() {
+            Err(anyhow::anyhow!("NO_API_KEY:gemini"))
+        } else {
+            let ui_language = crate::APP
+                .lock()
+                .ok()
+                .map(|app| app.config.ui_language.clone())
+                .unwrap_or_else(|| "en".to_string());
+
+            crate::api::gemini_live::gemini_live_generate(
+                String::new(),  // No text - audio only
+                final_prompt,   // System instruction
+                None,           // No image
+                Some(wav_data), // Audio data
+                true,           // Streaming enabled
+                &ui_language,
+                |_| {}, // Callback (we collect full result)
+            )
+        }
     } else {
         Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
     }
