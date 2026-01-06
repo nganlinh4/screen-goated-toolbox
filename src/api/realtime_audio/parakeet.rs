@@ -3,7 +3,7 @@
 use crate::api::realtime_audio::SharedRealtimeState;
 use crate::config::Preset;
 use anyhow::Result;
-use parakeet_rs::ParakeetEOU;
+use parakeet_rs::{ExecutionConfig, ExecutionProvider, ParakeetEOU};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::HWND;
@@ -48,7 +48,10 @@ pub fn run_parakeet_transcription(
     let model_dir = super::model_loader::get_parakeet_model_dir();
     // println!("Loading Parakeet model from: {:?}", model_dir);
 
-    let mut parakeet = ParakeetEOU::from_pretrained(&model_dir, None)
+    // Configure DirectML for GPU acceleration (falls back to CPU if unavailable)
+    let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::DirectML);
+
+    let mut parakeet = ParakeetEOU::from_pretrained(&model_dir, Some(config))
         .map_err(|e| anyhow::anyhow!("Failed to load Parakeet model: {:?}", e))?;
 
     // println!("Parakeet model loaded successfully!");
