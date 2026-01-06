@@ -300,20 +300,32 @@ where
             })?;
 
         // Extract rate limit info
-        if let Some(remaining) = resp
+        // Extract rate limit info
+        let remaining = resp
             .headers()
             .get("x-ratelimit-remaining-requests-day")
             .or_else(|| resp.headers().get("x-ratelimit-remaining-requests"))
             .and_then(|v| v.to_str().ok())
-        {
-            let limit = resp
-                .headers()
-                .get("x-ratelimit-limit-requests-day")
-                .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("?");
-            let usage_str = format!("{} / {}", remaining, limit);
+            .unwrap_or("?");
 
+        let mut limit = resp
+            .headers()
+            .get("x-ratelimit-limit-requests-day")
+            .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("?")
+            .to_string();
+
+        if limit == "?" {
+            if let Some(conf) = crate::model_config::get_model_by_id(&model) {
+                if let Some(val) = conf.quota_limit_en.split_whitespace().next() {
+                    limit = val.to_string();
+                }
+            }
+        }
+
+        if remaining != "?" || limit != "?" {
+            let usage_str = format!("{} / {}", remaining, limit);
             if let Ok(mut app) = APP.lock() {
                 app.model_usage_stats.insert(model.clone(), usage_str);
             }
@@ -1081,20 +1093,32 @@ where
                 .map_err(|e| anyhow::anyhow!("Cerebras Refine Error: {}", e))?;
 
             // Extract rate limit info
-            if let Some(remaining) = resp
+            // Extract rate limit info
+            let remaining = resp
                 .headers()
                 .get("x-ratelimit-remaining-requests-day")
                 .or_else(|| resp.headers().get("x-ratelimit-remaining-requests"))
                 .and_then(|v| v.to_str().ok())
-            {
-                let limit = resp
-                    .headers()
-                    .get("x-ratelimit-limit-requests-day")
-                    .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("?");
-                let usage_str = format!("{} / {}", remaining, limit);
+                .unwrap_or("?");
 
+            let mut limit = resp
+                .headers()
+                .get("x-ratelimit-limit-requests-day")
+                .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("?")
+                .to_string();
+
+            if limit == "?" {
+                if let Some(conf) = crate::model_config::get_model_by_id(&p_model) {
+                    if let Some(val) = conf.quota_limit_en.split_whitespace().next() {
+                        limit = val.to_string();
+                    }
+                }
+            }
+
+            if remaining != "?" || limit != "?" {
+                let usage_str = format!("{} / {}", remaining, limit);
                 if let Ok(mut app) = APP.lock() {
                     app.model_usage_stats.insert(p_model.clone(), usage_str);
                 }
