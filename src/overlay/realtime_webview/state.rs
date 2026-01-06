@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::num::NonZeroIsize;
 use std::sync::{atomic::AtomicBool, Arc, Mutex, Once};
 use windows::Win32::Foundation::*;
-pub const WM_CLOSE_TTS_MODAL: u32 = 0x0400 + 400; // WM_USER + 400
 pub const WM_UPDATE_TTS_SPEED: u32 = 0x0400 + 401; // WM_USER + 401
 pub const WM_APP_REALTIME_START: u32 = 0x0400 + 500; // WM_USER + 500
 pub const WM_APP_REALTIME_HIDE: u32 = 0x0400 + 501; // WM_USER + 501
@@ -61,6 +60,8 @@ lazy_static::lazy_static! {
     pub static ref LAST_SPOKEN_LENGTH: Arc<std::sync::atomic::AtomicUsize> = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     /// Current effective TTS speed (including auto-speed boost) for UI display
     pub static ref CURRENT_TTS_SPEED: Arc<std::sync::atomic::AtomicU32> = Arc::new(std::sync::atomic::AtomicU32::new(100));
+    /// Signal to close TTS modal (shared between app selection and main window)
+    pub static ref CLOSE_TTS_MODAL_REQUEST: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
 pub static mut REALTIME_HWND: HWND = HWND(std::ptr::null_mut());

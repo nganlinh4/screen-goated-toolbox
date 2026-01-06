@@ -46,12 +46,12 @@ pub fn run_parakeet_transcription(
 
     // 2. Load Model
     let model_dir = super::model_loader::get_parakeet_model_dir();
-    println!("Loading Parakeet model from: {:?}", model_dir);
+    // println!("Loading Parakeet model from: {:?}", model_dir);
 
     let mut parakeet = ParakeetEOU::from_pretrained(&model_dir, None)
         .map_err(|e| anyhow::anyhow!("Failed to load Parakeet model: {:?}", e))?;
 
-    println!("Parakeet model loaded successfully!");
+    // println!("Parakeet model loaded successfully!");
 
     // Set transcription method to Parakeet for timeout-based segmentation
     if let Ok(mut s) = state.lock() {
@@ -71,11 +71,6 @@ pub fn run_parakeet_transcription(
     let selected_pid = SELECTED_APP_PID.load(Ordering::SeqCst);
 
     let using_per_app_capture = audio_source == "device" && tts_enabled && selected_pid > 0;
-
-    println!(
-        "Parakeet: Setting up audio capture (source: {}, per-app: {})...",
-        audio_source, using_per_app_capture
-    );
 
     let _stream = if using_per_app_capture {
         #[cfg(target_os = "windows")]
@@ -100,7 +95,7 @@ pub fn run_parakeet_transcription(
     } else if audio_source == "device" && tts_enabled && selected_pid == 0 {
         // Edge case: TTS enabled (Isolation mode) but no app selected yet.
         // We MUST NOT fall back to full loopback because that would record the TTS and echo.
-        println!("Parakeet: TTS enabled but no app selected - pausing capture to avoid echo.");
+        // println!("Parakeet: TTS enabled but no app selected - pausing capture to avoid echo.");
         None
     } else {
         Some(super::capture::start_device_loopback_capture(
@@ -108,7 +103,7 @@ pub fn run_parakeet_transcription(
             stop_signal.clone(),
         )?)
     };
-    println!("Parakeet: Audio capture started, entering processing loop...");
+    // println!("Parakeet: Audio capture started, entering processing loop...");
 
     // Buffer for accumulating samples to reach chunk size
     let mut sample_accumulator: Vec<f32> = Vec::with_capacity(CHUNK_SIZE * 2);
@@ -208,7 +203,7 @@ pub fn run_parakeet_transcription(
     }
 
     // Flush: send silence chunks to get any remaining text
-    println!("Flushing Parakeet decoder...");
+    // println!("Flushing Parakeet decoder...");
     let silence = vec![0.0f32; CHUNK_SIZE];
     for _ in 0..3 {
         if let Ok(text) = parakeet.transcribe(&silence, false) {

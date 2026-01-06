@@ -85,12 +85,6 @@ fn transcription_thread_entry(
             app.config.realtime_transcription_model.clone()
         };
 
-        println!(
-            "Transcription model from config: '{}', will use parakeet: {}",
-            trans_model,
-            trans_model == "parakeet"
-        );
-
         // Update state with selected method immediately (before potentially slow model loading)
         if let Ok(mut s) = state.lock() {
             if trans_model == "parakeet" {
@@ -101,7 +95,7 @@ fn transcription_thread_entry(
         }
 
         let result = if trans_model == "parakeet" {
-            println!(">>> Starting Parakeet transcription");
+            // println!(">>> Starting Parakeet transcription");
             super::parakeet::run_parakeet_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
@@ -109,7 +103,7 @@ fn transcription_thread_entry(
                 state.clone(),
             )
         } else {
-            println!(">>> Starting Gemini Live transcription");
+            // println!(">>> Starting Gemini Live transcription");
             run_realtime_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
@@ -153,7 +147,7 @@ fn transcription_thread_entry(
         if restart_source {
             if let Ok(new_source) = NEW_AUDIO_SOURCE.lock() {
                 if !new_source.is_empty() {
-                    println!("Changing audio source to: {}", new_source);
+                    // println!("Changing audio source to: {}", new_source);
                     let mut app = APP.lock().unwrap();
                     app.config.realtime_audio_source = new_source.clone();
                     // Save config? Optional, but UI should sync.
@@ -164,7 +158,7 @@ fn transcription_thread_entry(
         if restart_model {
             if let Ok(new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
                 if !new_model.is_empty() {
-                    println!("Changing transcription model to: {}", new_model);
+                    // println!("Changing transcription model to: {}", new_model);
                     let mut app = APP.lock().unwrap();
                     app.config.realtime_transcription_model = new_model.clone();
                 }
@@ -205,11 +199,11 @@ fn run_realtime_transcription(
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
 
-    println!("Gemini: Connecting to WebSocket...");
+    // println!("Gemini: Connecting to WebSocket...");
     let mut socket = connect_websocket(&gemini_api_key)?;
-    println!("Gemini: Connected! Sending setup...");
+    // println!("Gemini: Connected! Sending setup...");
     send_setup_message(&mut socket)?;
-    println!("Gemini: Setup sent, waiting for acknowledgment...");
+    // println!("Gemini: Setup sent, waiting for acknowledgment...");
 
     // Set transcription method to GeminiLive (uses delimiter-based segmentation)
     if let Ok(mut s) = state.lock() {
@@ -226,7 +220,6 @@ fn run_realtime_transcription(
             Ok(tungstenite::Message::Text(msg)) => {
                 let msg = msg.as_str();
                 if msg.contains("setupComplete") {
-                    println!("Gemini: Setup complete!");
                     break;
                 }
                 if msg.contains("error") || msg.contains("Error") {
@@ -245,7 +238,6 @@ fn run_realtime_transcription(
             Ok(tungstenite::Message::Binary(data)) => {
                 if let Ok(text) = String::from_utf8(data.to_vec()) {
                     if text.contains("setupComplete") {
-                        println!("Gemini: Setup complete!");
                         break;
                     }
                 } else if data.len() < 100 {
@@ -275,7 +267,7 @@ fn run_realtime_transcription(
         if TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
             || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
         {
-            println!("Gemini: Model/source change detected during setup, aborting...");
+            // println!("Gemini: Model/source change detected during setup, aborting...");
             return Ok(()); // Return cleanly to allow the outer loop to handle the change
         }
     }
@@ -368,7 +360,6 @@ fn run_main_loop(
             if AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
             {
-                println!("Gemini: Model/source change detected, exiting main loop...");
                 break;
             }
         }

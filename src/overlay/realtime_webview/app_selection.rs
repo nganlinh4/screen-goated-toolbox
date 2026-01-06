@@ -585,15 +585,32 @@ pub fn show_app_selection_popup() {
                                 let _ = ShowWindow(hwnd, SW_HIDE);
                                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
 
-                                // Close TTS Modal in translation window (if exists)
-                                if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
+                                // Close TTS Modal using shared flag (more robust)
+                                CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
+
+                                // Trigger updates on both windows to ensure the flag is checked immediately
+                                let trans_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
+                                let real_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+
+                                if !trans_hwnd.is_invalid() {
                                     let _ = PostMessageW(
-                                        Some(TRANSLATION_HWND),
-                                        WM_CLOSE_TTS_MODAL,
+                                        Some(trans_hwnd),
+                                        crate::api::realtime_audio::WM_TRANSLATION_UPDATE,
                                         WPARAM(0),
                                         LPARAM(0),
                                     );
                                 }
+
+                                if !real_hwnd.is_invalid() {
+                                    let _ = PostMessageW(
+                                        Some(real_hwnd),
+                                        crate::api::realtime_audio::WM_REALTIME_UPDATE,
+                                        WPARAM(0),
+                                        LPARAM(0),
+                                    );
+                                }
+                            } else {
+                                eprintln!("App Selection: Failed to parse PID from '{}'", pid_str);
                             }
                         }
                     }
