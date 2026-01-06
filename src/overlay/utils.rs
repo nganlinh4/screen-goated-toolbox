@@ -605,3 +605,34 @@ fn format_http_error(
         },
     }
 }
+
+pub fn is_retryable_error(error: &str) -> bool {
+    // 1. Check for explicit Auth errors (Never retry)
+    if error.contains("NO_API_KEY") || error.contains("INVALID_API_KEY") {
+        return false;
+    }
+
+    // 2. Check HTTP status if present
+    if let Some(code) = extract_http_status_code(error) {
+        // 429: Rate Limit (Retry!)
+        if code == 429 {
+            return true;
+        }
+        // 5xx: Server Errors (Retry!)
+        if code >= 500 && code <= 599 {
+            return true;
+        }
+        return false;
+    }
+
+    // 3. Fallback text checks
+    let lower_err = error.to_lowercase();
+    if lower_err.contains("rate limit")
+        || lower_err.contains("too many requests")
+        || lower_err.contains("quota exceeded")
+    {
+        return true;
+    }
+
+    false
+}

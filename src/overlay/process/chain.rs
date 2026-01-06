@@ -831,8 +831,16 @@ progressBar.onclick = (e) => {{
             .map(|pos| pos == block_idx)
             .unwrap_or(false);
 
-        // Clone model name for use in error handling (original gets moved to API functions)
-        let model_name_for_error = model_full_name.clone();
+        // SETUP RETRY VARIABLES
+        let mut current_model_id = model_id.clone();
+        let mut current_provider = provider.clone();
+        let mut current_model_full_name = model_full_name.clone();
+        // Variable to hold the model name for error reporting (must survive loop)
+        let mut model_name_for_error = model_full_name.clone();
+
+        let mut failed_model_ids: Vec<String> = Vec::new();
+        let mut retry_count = 0;
+        const MAX_RETRIES: usize = 2;
 
         // For image blocks: track if window has been shown and share processing_hwnd
         let window_shown = Arc::new(Mutex::new(block.block_type != "image")); // true for text, false for image
@@ -840,32 +848,126 @@ progressBar.onclick = (e) => {{
         let processing_hwnd_shared = Arc::new(Mutex::new(processing_indicator_hwnd));
         let processing_hwnd_clone = processing_hwnd_shared.clone();
 
-        let res = if is_first_processing_block
-            && block.block_type == "image"
-            && matches!(context, RefineContext::Image(_))
-        {
-            // Image Block (first processing block in chain)
-            if let RefineContext::Image(img_data) = context.clone() {
-                let img = image::load_from_memory(&img_data)
-                    .expect("Failed to load png")
-                    .to_rgba8();
+        // RETRY LOOP
+        let res = loop {
+            // Update model_name_for_error to current attempt
+            model_name_for_error = current_model_full_name.clone();
+
+            let res_inner = if is_first_processing_block
+                && block.block_type == "image"
+                && matches!(context, RefineContext::Image(_))
+            {
+                // Image Block (first processing block in chain)
+                if let RefineContext::Image(img_data) = context.clone() {
+                    let img = image::load_from_memory(&img_data)
+                        .expect("Failed to load png")
+                        .to_rgba8();
+
+                    let acc_clone_inner = acc_clone.clone();
+                    let my_hwnd_inner = my_hwnd;
+                    let window_shown_inner = window_shown_clone.clone();
+                    let proc_hwnd_inner = processing_hwnd_clone.clone();
+
+                    // CLEAR ACCUMULATOR ON RETRY
+                    if retry_count > 0 {
+                        if let Ok(mut lock) = acc_clone.lock() {
+                            lock.clear();
+                        }
+                    }
+
+                    translate_image_streaming(
+                        &groq_key,
+                        &gemini_key,
+                        final_prompt.clone(),
+                        current_model_full_name.clone(),
+                        current_provider.clone(),
+                        img,
+                        Some(img_data),
+                        actual_streaming_enabled,
+                        use_json,
+                        move |chunk| {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u32)
+                                .unwrap_or(0);
+
+                            let mut t = acc_clone_inner.lock().unwrap();
+                            // Handle WIPE_SIGNAL - clear accumulator and use content after signal
+                            if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+                                t.clear();
+                                t.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+                            } else {
+                                t.push_str(chunk);
+                            }
+
+                            if let Some(h) = my_hwnd_inner {
+                                // On first chunk for image blocks: show window and close processing indicator
+                                {
+                                    let mut shown = window_shown_inner.lock().unwrap();
+                                    if !*shown {
+                                        *shown = true;
+                                        unsafe {
+                                            let _ = ShowWindow(h, SW_SHOW);
+                                        }
+                                        // Close processing indicator
+                                        let mut proc_hwnd = proc_hwnd_inner.lock().unwrap();
+                                        if let Some(ph) = proc_hwnd.take() {
+                                            unsafe {
+                                                let _ = PostMessageW(
+                                                    Some(ph.0),
+                                                    WM_CLOSE,
+                                                    WPARAM(0),
+                                                    LPARAM(0),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                {
+                                    let mut s = WINDOW_STATES.lock().unwrap();
+                                    if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                                        st.is_refining = false;
+
+                                        st.font_cache_dirty = true;
+                                    }
+                                }
+                                update_window_text(h, &t);
+                            }
+                        },
+                    )
+                } else {
+                    Err(anyhow::anyhow!("Missing image context"))
+                }
+            } else {
+                // Text Block
+                // Compute search label for compound models
+                let search_label = Some(get_localized_preset_name(&preset_id, &config.ui_language));
+
+                // CLEAR ACCUMULATOR ON RETRY
+                if retry_count > 0 {
+                    if let Ok(mut lock) = acc_clone.lock() {
+                        lock.clear();
+                    }
+                }
 
                 let acc_clone_inner = acc_clone.clone();
-                let my_hwnd_inner = my_hwnd;
-                let window_shown_inner = window_shown_clone.clone();
-                let proc_hwnd_inner = processing_hwnd_clone.clone();
-
-                translate_image_streaming(
+                translate_text_streaming(
                     &groq_key,
                     &gemini_key,
-                    final_prompt,
-                    model_full_name,
-                    provider,
-                    img,
-                    Some(img_data),
+                    input_text.clone(),
+                    final_prompt.clone(),
+                    current_model_full_name.clone(),
+                    current_provider.clone(),
                     actual_streaming_enabled,
-                    use_json,
+                    false,
+                    search_label,
+                    &config.ui_language,
                     move |chunk| {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u32)
+                            .unwrap_or(0);
+
                         let mut t = acc_clone_inner.lock().unwrap();
                         // Handle WIPE_SIGNAL - clear accumulator and use content after signal
                         if chunk.starts_with(crate::api::WIPE_SIGNAL) {
@@ -875,78 +977,72 @@ progressBar.onclick = (e) => {{
                             t.push_str(chunk);
                         }
 
-                        if let Some(h) = my_hwnd_inner {
-                            // On first chunk for image blocks: show window and close processing indicator
-                            {
-                                let mut shown = window_shown_inner.lock().unwrap();
-                                if !*shown {
-                                    *shown = true;
-                                    unsafe {
-                                        let _ = ShowWindow(h, SW_SHOW);
-                                    }
-                                    // Close processing indicator
-                                    let mut proc_hwnd = proc_hwnd_inner.lock().unwrap();
-                                    if let Some(ph) = proc_hwnd.take() {
-                                        unsafe {
-                                            let _ = PostMessageW(
-                                                Some(ph.0),
-                                                WM_CLOSE,
-                                                WPARAM(0),
-                                                LPARAM(0),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
+                        if let Some(h) = my_hwnd {
                             {
                                 let mut s = WINDOW_STATES.lock().unwrap();
                                 if let Some(st) = s.get_mut(&(h.0 as isize)) {
                                     st.is_refining = false;
+
+                                    st.font_cache_dirty = true;
                                 }
                             }
                             update_window_text(h, &t);
                         }
                     },
                 )
-            } else {
-                Err(anyhow::anyhow!("Missing image context"))
-            }
-        } else {
-            // Text Block
-            // Compute search label for compound models
-            let search_label = Some(get_localized_preset_name(&preset_id, &config.ui_language));
-            translate_text_streaming(
-                &groq_key,
-                &gemini_key,
-                input_text,
-                final_prompt,
-                model_full_name,
-                provider,
-                actual_streaming_enabled,
-                false,
-                search_label,
-                &config.ui_language,
-                |chunk| {
-                    let mut t = acc_clone.lock().unwrap();
-                    // Handle WIPE_SIGNAL - clear accumulator and use content after signal
-                    if chunk.starts_with(crate::api::WIPE_SIGNAL) {
-                        t.clear();
-                        t.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
-                    } else {
-                        t.push_str(chunk);
-                    }
-                    if let Some(h) = my_hwnd {
-                        {
-                            let mut s = WINDOW_STATES.lock().unwrap();
-                            if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                                st.is_refining = false;
-                                st.font_cache_dirty = true;
+            };
+
+            // CHECK RESULT AND RETRY IF NEEDED
+            match res_inner {
+                Ok(val) => break Ok(val),
+                Err(e) => {
+                    // Check if retryable
+                    if retry_count < MAX_RETRIES
+                        && crate::overlay::utils::is_retryable_error(&e.to_string())
+                    {
+                        retry_count += 1;
+                        failed_model_ids.push(current_model_id.clone());
+
+                        // Determine fallback
+                        let current_type = if block.block_type == "image" {
+                            crate::model_config::ModelType::Vision
+                        } else {
+                            crate::model_config::ModelType::Text
+                        };
+
+                        // Try to get next model
+                        if let Some(next_model) = crate::model_config::resolve_fallback_model(
+                            &current_model_id,
+                            &failed_model_ids,
+                            &current_type,
+                            &config,
+                        ) {
+                            current_model_id = next_model.id;
+                            current_provider = next_model.provider;
+                            current_model_full_name = next_model.full_name;
+
+                            // Notify via Window Text
+                            if let Some(h) = my_hwnd {
+                                let lang = config.ui_language.clone();
+                                let retry_msg = match lang.as_str() {
+                                    "vi" => {
+                                        format!("(Đang thử lại {}...)", current_model_full_name)
+                                    }
+                                    "ko" => format!("({} 재시도 중...)", current_model_full_name),
+                                    "ja" => format!("({} 再試行中...)", current_model_full_name),
+                                    "zh" => format!("(正在重试 {}...)", current_model_full_name),
+                                    _ => format!("(Retrying {}...)", current_model_full_name),
+                                };
+                                update_window_text(h, &retry_msg);
                             }
+
+                            continue; // Retry Loop
                         }
-                        update_window_text(h, &t);
                     }
-                },
-            )
+                    // Not retryable or max retries exceeded
+                    break Err(e);
+                }
+            }
         };
 
         if let Some(h) = my_hwnd {

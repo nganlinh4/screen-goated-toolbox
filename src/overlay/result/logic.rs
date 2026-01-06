@@ -1,7 +1,7 @@
+use super::state::{AnimationMode, DustParticle, WINDOW_STATES};
 use windows::Win32::Foundation::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::Graphics::Gdi::*;
-use super::state::{WINDOW_STATES, AnimationMode, DustParticle};
+use windows::Win32::UI::WindowsAndMessaging::*;
 
 fn rand_float(min: f32, max: f32) -> f32 {
     static mut SEED: u32 = 12345;
@@ -14,9 +14,10 @@ fn rand_float(min: f32, max: f32) -> f32 {
 
 pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
     unsafe {
-        if wparam.0 == 3 { // 60 FPS Physics Loop
+        if wparam.0 == 3 {
+            // 60 FPS Physics Loop
             let should_close = false;
-            
+
             {
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -26,11 +27,11 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                     // Hooke's Law for Handle Tilt:
                     // Force = -k * x - c * v
                     // k = stiffness, c = damping
-                    
+
                     // Natural wobble rest point is 0.0
                     let spring_stiffness = 0.15;
                     let damping = 0.85;
-                    
+
                     p.tilt_velocity += (0.0 - p.current_tilt) * spring_stiffness;
                     p.tilt_velocity *= damping;
                     p.current_tilt += p.tilt_velocity;
@@ -41,10 +42,9 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                     // --- 2. ANIMATION STATE MACHINE ---
                     match p.mode {
                         AnimationMode::Idle => {
-                            p.squish_factor = p.squish_factor * 0.9 + 1.0 * 0.1; // Return to 1.0
-                        },
-
-
+                            p.squish_factor = p.squish_factor * 0.9 + 1.0 * 0.1;
+                            // Return to 1.0
+                        }
                     }
 
                     // --- 3. PARTICLE PHYSICS ---
@@ -55,9 +55,25 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                         pt.vy += 0.5; // Gravity
                         pt.vx *= 0.92; // Air resistance
                         pt.life -= 0.03;
-                        if pt.life > 0.0 { keep.push(pt); }
+                        if pt.life > 0.0 {
+                            keep.push(pt);
+                        }
                     }
                     p.particles = keep;
+
+                    // --- 4. RESIZE DEBOUNCE CHECK ---
+                    // After resize stops for 100ms, trigger font recalculation
+                    if state.last_resize_time != 0 && !state.is_markdown_mode {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u32)
+                            .unwrap_or(0);
+                        let time_since_resize = now.wrapping_sub(state.last_resize_time);
+                        if time_since_resize > 100 && time_since_resize < 200 {
+                            // Just crossed the 100ms threshold, trigger font recalculation
+                            state.font_cache_dirty = true;
+                        }
+                    }
 
                     // PERFORMANCE FIX: Skip repaints during DragOut EXCEPT for the cleanup repaint
                     // The cleanup repaint clears the broom/particles from the visual
@@ -71,11 +87,11 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                         if state.is_editing {
                             let mut client_rect = RECT::default();
                             let _ = GetClientRect(hwnd, &mut client_rect);
-                            
+
                             // Edit control is at (10, 10) with width = client_w - 20, height = 40
                             // Invalidate: bottom region (below edit), left margin, right margin
                             let edit_bottom = 10 + 40 + 5; // Edit Y + Height + padding
-                            
+
                             // Bottom region (main content area)
                             let bottom_region = RECT {
                                 left: 0,
@@ -84,7 +100,7 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                                 bottom: client_rect.bottom,
                             };
                             let _ = InvalidateRect(Some(hwnd), Some(&bottom_region), false);
-                            
+
                             // Left margin
                             let left_margin = RECT {
                                 left: 0,
@@ -93,8 +109,8 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
                                 bottom: edit_bottom,
                             };
                             let _ = InvalidateRect(Some(hwnd), Some(&left_margin), false);
-                            
-                            // Right margin  
+
+                            // Right margin
                             let right_margin = RECT {
                                 left: client_rect.right - 10,
                                 top: 0,
@@ -112,33 +128,36 @@ pub fn handle_timer(hwnd: HWND, wparam: WPARAM) {
             if should_close {
                 // CRITICAL: Set alpha to 0 BEFORE closing to prevent last frame freeze
                 let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
-                
+
                 let linked_hwnd = {
                     let states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get(&(hwnd.0 as isize)) { state.linked_window } else { None }
+                    if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                        state.linked_window
+                    } else {
+                        None
+                    }
                 };
                 if let Some(linked) = linked_hwnd {
                     let linked = crate::win_types::SendHwnd(linked).0;
-                    if IsWindow(Some(linked)).as_bool() { 
+                    if IsWindow(Some(linked)).as_bool() {
                         // Also set linked window to invisible
                         let _ = SetLayeredWindowAttributes(linked, COLORREF(0), 0, LWA_ALPHA);
-                        let _ = PostMessageW(Some(linked), WM_CLOSE, WPARAM(0), LPARAM(0)); 
+                        let _ = PostMessageW(Some(linked), WM_CLOSE, WPARAM(0), LPARAM(0));
                     }
                 }
                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
-        } 
-        else if wparam.0 == 1 {
+        } else if wparam.0 == 1 {
             // Revert Copy Icon
             let _ = KillTimer(Some(hwnd), 1);
             let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) { 
-                state.copy_success = false; 
-                
+            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+                state.copy_success = false;
+
                 // Spawn sparkles for success
-                 let cx = state.physics.x;
-                 let cy = state.physics.y;
-                 for _ in 0..8 {
+                let cx = state.physics.x;
+                let cy = state.physics.y;
+                for _ in 0..8 {
                     state.physics.particles.push(DustParticle {
                         x: cx + rand_float(-10.0, 10.0),
                         y: cy,

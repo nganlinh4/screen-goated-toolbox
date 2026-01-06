@@ -213,6 +213,8 @@ pub fn create_result_window(
                     last_h: 0,
                     pending_text: Some(initial_text),
                     last_text_update_time: 0,
+                    last_resize_time: 0,
+                    last_font_calc_time: 0,
                     bg_bitmap: HBITMAP::default(),
                     bg_w: 0,
                     bg_h: 0,

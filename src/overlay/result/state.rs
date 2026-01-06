@@ -150,6 +150,12 @@ pub struct WindowState {
     // Timestamp for throttling text updates (in milliseconds)
     pub last_text_update_time: u32,
 
+    // Resize debounce: timestamp of last resize to skip expensive font calculations during active resize
+    pub last_resize_time: u32,
+
+    // Font recalc throttling: timestamp of last font recalculation (for 200ms streaming throttle)
+    pub last_font_calc_time: u32,
+
     // BACKGROUND CACHING
     pub bg_bitmap: HBITMAP,
     pub bg_w: i32,

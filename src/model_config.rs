@@ -522,6 +522,90 @@ pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
     get_all_models().iter().find(|m| m.id == id).cloned()
 }
 
+/// Resolve a fallback model for retry logic
+/// Prioritizes:
+/// 1. Same provider, same type (Prioritize based on list order - treating list as priority queue)
+/// 2. Different provider, same type
+use crate::config::Config;
+
+/// Resolve a fallback model for retry logic
+/// Prioritizes:
+/// 1. Same provider, same type (Prioritize based on list order - treating list as priority queue)
+/// 2. Different provider, same type
+/// Checks if the provider is actually configured (has API key) before suggesting it.
+pub fn resolve_fallback_model(
+    failed_model_id: &str,
+    failed_model_ids: &[String],
+    current_model_type: &ModelType,
+    config: &Config,
+) -> Option<ModelConfig> {
+    let all_models = get_all_models_with_ollama();
+    let current_model_opt = get_model_by_id(failed_model_id);
+    let current_provider = current_model_opt
+        .as_ref()
+        .map(|m| m.provider.as_str())
+        .unwrap_or("");
+
+    // Helper to check if a provider is configured
+    let is_provider_configured = |provider: &str| -> bool {
+        match provider {
+            "groq" => !config.api_key.is_empty(),
+            "google" => !config.gemini_api_key.is_empty(),
+            "openai" => false, // We don't have openai_api_key in config struct (only openrouter/cerebras) - wait, checking Config struct..
+            // Ah, standard OpenAI is not in the Config struct I saw.
+            "openrouter" => !config.openrouter_api_key.is_empty(),
+            "cerebras" => !config.cerebras_api_key.is_empty(),
+            "ollama" => config.use_ollama, // No key needed, just enabled
+            _ => true, // Assume others (like internal ones) are "configured" or we can't check
+        }
+    };
+
+    // 1. Try Same Provider
+    if !current_provider.is_empty() {
+        // If the current provider itself isn't configured (e.g. key removed during run?), we shouldn't retry same provider
+        // but likely it WAS configured if we just failed a request.
+
+        let same_provider_candidates: Vec<&ModelConfig> = all_models
+            .iter()
+            .filter(|m| {
+                m.provider == current_provider
+                    && m.model_type == *current_model_type
+                    && m.id != failed_model_id
+                    && !failed_model_ids.contains(&m.id)
+            })
+            .collect();
+
+        if !same_provider_candidates.is_empty() {
+            return Some((*same_provider_candidates[0]).clone());
+        }
+    }
+
+    // 2. Try Different Provider
+    let diff_provider_candidates: Vec<&ModelConfig> = all_models
+        .iter()
+        .filter(|m| {
+            m.provider != current_provider
+                && m.model_type == *current_model_type
+                && !failed_model_ids.contains(&m.id)
+                && is_provider_configured(&m.provider)
+        })
+        .collect();
+
+    if !diff_provider_candidates.is_empty() {
+        // Preference for "Google" as a reliable fallback for Text/Vision
+        if let Some(google_model) = diff_provider_candidates
+            .iter()
+            .find(|m| m.provider == "google")
+        {
+            return Some((**google_model).clone());
+        }
+        // Fallback to first available
+        return Some((*diff_provider_candidates[0]).clone());
+    }
+
+    None
+}
+
 /// Get all models including dynamically fetched Ollama models
 /// This combines static models with Ollama models (if Ollama is enabled)
 pub fn get_all_models_with_ollama() -> Vec<ModelConfig> {
