@@ -46,7 +46,7 @@ impl<'a> ChainViewer<'a> {
     pub fn is_provider_enabled(&self, provider: &str) -> bool {
         match provider {
             "groq" => self.use_groq,
-            "google" => self.use_gemini,
+            "google" | "gemini-live" => self.use_gemini,
             "openrouter" => self.use_openrouter,
             "ollama" => self.use_ollama,
             _ => true, // Unknown providers are enabled by default

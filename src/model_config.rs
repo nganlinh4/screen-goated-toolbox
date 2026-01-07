@@ -121,6 +121,19 @@ lazy_static::lazy_static! {
             "1000 requests/day"
         ),
         ModelConfig::new(
+            "gemini-live-vision",
+            "gemini-live",
+            "Thử nghiệm",
+            "실험적",
+            "Experimental",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Vision,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
             "gemma-3-27b-vision",
             "google",
             "Cân bằng, chậm",
@@ -303,6 +316,19 @@ lazy_static::lazy_static! {
             "100 requests/day"
         ),
         ModelConfig::new(
+            "gemini-live-text",
+            "gemini-live",
+            "Thử nghiệm",
+            "실험적",
+            "Experimental",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Text,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
             "gemma-3-27b",
             "google",
             "Cân bằng, chậm",
@@ -460,6 +486,19 @@ lazy_static::lazy_static! {
             "8 hours audio/day"
         ),
         ModelConfig::new(
+            "gemini-live-audio",
+            "gemini-live",
+            "Thử nghiệm",
+            "실험적",
+            "Experimental",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Audio,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
             "gemini-audio",
             "google",
             "Chính xác hơn",
@@ -512,46 +551,6 @@ lazy_static::lazy_static! {
             "20 requests/day"
         ),
 
-        // Gemini Live LLM - Uses WebSocket for low-latency streaming
-        ModelConfig::new(
-            "gemini-live-text",
-            "gemini-live",
-            "⚡ Realtime",
-            "⚡ 실시간",
-            "⚡ Realtime",
-            "gemini-2.5-flash-native-audio-preview-12-2025",
-            ModelType::Text,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "gemini-live-vision",
-            "gemini-live",
-            "⚡ Realtime",
-            "⚡ 실시간",
-            "⚡ Realtime",
-            "gemini-2.5-flash-native-audio-preview-12-2025",
-            ModelType::Vision,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
-        ModelConfig::new(
-            "gemini-live-audio",
-            "gemini-live",
-            "⚡ Realtime",
-            "⚡ 실시간",
-            "⚡ Realtime",
-            "gemini-2.5-flash-native-audio-preview-12-2025",
-            ModelType::Audio,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
     ];
 }
 
