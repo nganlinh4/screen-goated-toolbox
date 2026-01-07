@@ -62,6 +62,8 @@ pub fn model_is_non_llm(model_id: &str) -> bool {
         "google-gtx" => true,
         // Whisper models - speech-to-text only
         "whisper-fast" | "whisper-accurate" => true,
+        // Streaming audio models - process input directly
+        "gemini-live-audio" | "parakeet-local" => true,
         _ => false,
     }
 }

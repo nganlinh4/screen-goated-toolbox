@@ -82,6 +82,7 @@ pub fn get_default_presets() -> Vec<Preset> {
         // =====================================================================
         // Mic section
         find(&audio, "preset_transcribe"),
+        find(&audio, "preset_continuous_writing_online"),
         find(&audio, "preset_fix_pronunciation"),
         find(&audio, "preset_transcribe_retranslate"),
         find(&audio, "preset_quicker_foreigner_reply"),
@@ -92,6 +93,7 @@ pub fn get_default_presets() -> Vec<Preset> {
         // Device audio section
         find(&audio, "preset_study_language"),
         find(&audio, "preset_record_device"),
+        find(&audio, "preset_transcribe_english_offline"),
         find(&masters, "preset_audio_device_master"),
         find(&audio, "preset_realtime_audio_translate"),
     ]

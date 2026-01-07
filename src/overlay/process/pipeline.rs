@@ -5,6 +5,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::config::{Config, Preset};
+use crate::model_config::model_is_non_llm;
 use crate::overlay::preset_wheel;
 use crate::overlay::result::{self, RefineContext};
 use crate::overlay::text_input;
@@ -31,7 +32,14 @@ pub fn start_text_processing(
             .map(|b| b.prompt.as_str())
             .unwrap_or("");
 
-        let guide_text = if first_block_prompt.is_empty() {
+        // Also check if model is non-LLM (doesn't use prompts)
+        let first_block_model = preset
+            .blocks
+            .first()
+            .map(|b| b.model.as_str())
+            .unwrap_or("");
+
+        let guide_text = if first_block_prompt.is_empty() || model_is_non_llm(first_block_model) {
             String::new()
         } else {
             format!("{}...", localized_preset_name)
