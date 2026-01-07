@@ -53,6 +53,8 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quick_note", "vi") => "Note nhanh".to_string(),
         ("preset_quick_record", "vi") => "Thu âm nhanh".to_string(),
         ("preset_record_device", "vi") => "Thu âm máy".to_string(),
+        ("preset_continuous_writing_online", "vi") => "Viết liên tục".to_string(),
+        ("preset_transcribe_english_offline", "vi") => "Chép lời TA".to_string(),
         // MASTER presets - Vietnamese
         ("preset_image_master", "vi") => "Ảnh MASTER".to_string(),
         ("preset_text_select_master", "vi") => "Bôi MASTER".to_string(),
@@ -103,6 +105,8 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quick_note", "ko") => "빠른 메모".to_string(),
         ("preset_quick_record", "ko") => "빠른 녹음".to_string(),
         ("preset_record_device", "ko") => "시스템 녹음".to_string(),
+        ("preset_continuous_writing_online", "ko") => "연속 입력".to_string(),
+        ("preset_transcribe_english_offline", "ko") => "영어 받아쓰기".to_string(),
         // MASTER presets - Korean
         ("preset_image_master", "ko") => "이미지 마스터".to_string(),
         ("preset_text_select_master", "ko") => "선택 마스터".to_string(),
@@ -153,6 +157,8 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quick_note", _) => "Quick Note".to_string(),
         ("preset_quick_record", _) => "Quick Record".to_string(),
         ("preset_record_device", _) => "Device Record".to_string(),
+        ("preset_continuous_writing_online", _) => "Continuous Writing".to_string(),
+        ("preset_transcribe_english_offline", _) => "Transcribe English".to_string(),
         // MASTER presets - English (default)
         ("preset_image_master", _) => "Image MASTER".to_string(),
         ("preset_text_select_master", _) => "Select MASTER".to_string(),
@@ -607,16 +613,7 @@ fn render_preset_item_parts(
 
     let icon_type = match preset.preset_type.as_str() {
         "audio" => {
-            // Check if using Parakeet model
-            let is_parakeet = preset
-                .blocks
-                .first()
-                .map(|b| b.model.contains("parakeet"))
-                .unwrap_or(false);
-
-            if is_parakeet {
-                Icon::Parakeet
-            } else if preset.audio_processing_mode == "realtime" {
+            if preset.audio_processing_mode == "realtime" {
                 Icon::Realtime
             } else if preset.audio_source == "device" {
                 Icon::Speaker

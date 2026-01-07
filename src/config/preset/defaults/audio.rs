@@ -24,6 +24,20 @@ pub fn create_audio_presets() -> Vec<Preset> {
             ])
             .build(),
 
+        // Viết liên tục - Continuous writing (Online)
+        PresetBuilder::new("preset_continuous_writing_online", "Viết liên tục")
+            .audio_mic()
+            .auto_paste()
+            // No auto_stop
+            .blocks(vec![
+                BlockBuilder::audio("gemini-live-audio")
+                    .language("Vietnamese")
+                    .show_overlay(false)
+                    .auto_copy()
+                    .build(),
+            ])
+            .build(),
+
         // Fix pronunciation - Transcribe then speak back
         PresetBuilder::new("preset_fix_pronunciation", "Fix pronunciation")
             .audio_mic()
@@ -152,6 +166,20 @@ pub fn create_audio_presets() -> Vec<Preset> {
                 BlockBuilder::input_adapter()
                     .show_overlay(true)
                     .markdown()
+                    .build(),
+            ])
+            .build(),
+
+        // Chép lời TA - Transcribe English (Offline)
+        PresetBuilder::new("preset_transcribe_english_offline", "Chép lời TA")
+            .audio_device()
+            .auto_paste()
+            // No auto_stop
+            .blocks(vec![
+                BlockBuilder::audio("parakeet-local")
+                    .language("English")
+                    .show_overlay(false)
+                    .auto_copy()
                     .build(),
             ])
             .build(),

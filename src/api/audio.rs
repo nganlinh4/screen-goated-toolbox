@@ -457,10 +457,15 @@ pub fn record_and_stream_gemini_live(
 
     // Check if streaming is enabled
     // Enable if explicit flag is set OR render_mode is "stream"
-    let streaming_enabled = preset
+    // Find the relevant audio block for streaming settings
+    let audio_block = preset
         .blocks
-        .first()
-        .map(|b| b.streaming_enabled || b.render_mode == "stream")
+        .iter()
+        .find(|b| b.block_type == "audio")
+        .or_else(|| preset.blocks.first());
+
+    let streaming_enabled = audio_block
+        .map(|b| b.show_overlay && (b.streaming_enabled || b.render_mode == "stream"))
         .unwrap_or(false);
     let mut streaming_hwnd: Option<HWND> = None;
 
@@ -518,9 +523,14 @@ pub fn record_and_stream_gemini_live(
                 )
             };
 
-            let first_block = preset_for_thread.blocks.first();
-            let model_id = first_block.map(|b| b.model.clone()).unwrap_or_default();
-            let render_mode = first_block
+            let active_block = preset_for_thread
+                .blocks
+                .iter()
+                .find(|b| b.block_type == "audio")
+                .or_else(|| preset_for_thread.blocks.first());
+
+            let model_id = active_block.map(|b| b.model.clone()).unwrap_or_default();
+            let render_mode = active_block
                 .map(|b| b.render_mode.clone())
                 .unwrap_or_default();
 
@@ -1054,10 +1064,15 @@ pub fn record_and_stream_parakeet(
 
     // Check if streaming is enabled in the first block (Audio block)
     // Enable if explicit flag is set OR render_mode is "stream"
-    let streaming_enabled = preset
+    // Find the relevant audio block for streaming settings
+    let audio_block = preset
         .blocks
-        .first()
-        .map(|b| b.streaming_enabled || b.render_mode == "stream")
+        .iter()
+        .find(|b| b.block_type == "audio")
+        .or_else(|| preset.blocks.first());
+
+    let streaming_enabled = audio_block
+        .map(|b| b.show_overlay && (b.streaming_enabled || b.render_mode == "stream"))
         .unwrap_or(false);
     let mut streaming_hwnd: Option<HWND> = None;
 
