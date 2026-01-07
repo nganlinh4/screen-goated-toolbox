@@ -1083,6 +1083,17 @@ where
                     }
                 }
             }
+        } else if p_provider == "gemini-live" {
+            // --- GEMINI LIVE REFINE ---
+            return super::gemini_live::gemini_live_generate(
+                final_prompt.clone(),
+                String::new(), // instruction part of prompt for now
+                None,
+                None,
+                streaming_enabled,
+                ui_language,
+                &mut on_chunk,
+            );
         } else if p_provider == "cerebras" {
             if cerebras_api_key.trim().is_empty() {
                 return Err(anyhow::anyhow!("NO_API_KEY:cerebras"));
@@ -1533,6 +1544,18 @@ where
                     streaming_enabled,
                     false,
                     on_chunk,
+                )
+            } else if target_provider == "gemini-live" {
+                // Determine mime type (default to jpeg as per common usage)
+                let mime = "image/jpeg".to_string();
+                super::gemini_live::gemini_live_generate(
+                    final_prompt,
+                    String::new(),
+                    Some((img_bytes.clone(), mime)),
+                    None,
+                    streaming_enabled,
+                    ui_language,
+                    &mut on_chunk,
                 )
             } else {
                 if groq_api_key.trim().is_empty() {
