@@ -18,10 +18,14 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
 static REGISTER_POPUP_CLASS: Once = Once::new();
-// 0=Closed, 1=Warmup, 2=Open, 3=PendingCancel
-static POPUP_STATE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
 static IGNORE_FOCUS_LOSS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+// Warmup flag - tracks if the window has been created and is ready for instant display
+static mut IS_WARMED_UP: bool = false;
+
+// Custom window messages
+const WM_APP_SHOW: u32 = WM_APP + 1;
 
 
 thread_local! {
@@ -61,133 +65,95 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 /// Show the tray popup at cursor position
 pub fn show_tray_popup() {
-    // Check if currently warming up (state 1) - try recovery
-    let current = POPUP_STATE.load(Ordering::SeqCst);
-    
-    if current == 1 {
-        // Still warming up - reset state to 0 and retry warmup
-        POPUP_STATE.store(0, Ordering::SeqCst);
-        warmup_tray_popup();
-        
-        // Show loading notification
-        let ui_lang = APP.lock().unwrap().config.ui_language.clone();
-        let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-        crate::overlay::auto_copy_badge::show_notification(locale.tray_popup_loading);
-        
-        // Spawn thread to wait for warmup completion
-        std::thread::spawn(move || {
-            for _ in 0..50 {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                // Check if ready (State 2)
-                if POPUP_STATE.load(Ordering::SeqCst) == 2 {
-                     // Check HWND
-                     let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
-                     if hwnd_val != 0 {
-                         // Post Show Message or call show logic? 
-                         // Logic below shows use of WM_APP_SHOW or SetWindowPos. 
-                         // TrayPopup logic is complex, it calculates position.
-                         // But we can trigger the show by calling show_tray_popup() again?
-                         // Calling show_tray_popup() again from another thread is fine as it uses atomics.
-                         // However, show_tray_popup() calculates position based on cursor which might have moved.
-                         // Assume user wants it where the cursor NOW is (or was).
-                         // Let's just call show_tray_popup() again.
-                         show_tray_popup();
-                         return;
-                     }
+    unsafe {
+        // Check if warmed up and window exists
+        if !IS_WARMED_UP {
+            // Not ready yet - trigger warmup and show notification
+            warmup_tray_popup();
+            
+            let ui_lang = APP.lock().unwrap().config.ui_language.clone();
+            let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+            crate::overlay::auto_copy_badge::show_notification(locale.tray_popup_loading);
+            
+            // Spawn thread to wait for warmup completion and auto-show
+            std::thread::spawn(move || {
+                for _ in 0..50 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    // Check if ready
+                    let ready = IS_WARMED_UP && POPUP_HWND.load(Ordering::SeqCst) != 0;
+                    if ready {
+                        show_tray_popup();
+                        return;
+                    }
                 }
-            }
-        });
-        
-        return;
-    }
-    
-    // CAS loop to handle state transitions atomically-ish or just check current state
-    // We used swap previously which is good, but we need to handle State 2 differently based on HWND.
-    // Let's check current state first.
-    
-    
-    if current == 2 {
-        // Already Open or Opening.
-        let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
-        
-        // 1. Check if fully open (HWND != 0)
-        if hwnd_val == 0 {
-             return;
+            });
+            return;
         }
-
-        // 2. Validate HWND - Check for Zombie State
-        // If the window was destroyed externally or cleanup failed, we might be stuck in State 2
-        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-        let is_valid = unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() };
-
         
-        if !is_valid {
-
-            // Force reset state to 0 so we can respawn
-            POPUP_STATE.store(0, Ordering::SeqCst);
+        let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
+        if hwnd_val == 0 {
+            return;
+        }
+        
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        
+        // Check if window still valid
+        if !IsWindow(Some(hwnd)).as_bool() {
+            // Window was destroyed - reset and retry
+            IS_WARMED_UP = false;
             POPUP_HWND.store(0, Ordering::SeqCst);
-            // Fall through to respawn logic below
-        } else {
-
+            warmup_tray_popup();
+            return;
+        }
+        
+        // Check if already visible - if so, hide it (toggle behavior)
+        if IsWindowVisible(hwnd).as_bool() {
             hide_tray_popup();
             return;
         }
+        
+        // Post message to show the window (repositioning happens on the window's thread)
+        let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
     }
-    
-    // If current is 3 (PendingCancel), we want to "Resurrect" it to 2.
-    // If current is 0 (Closed), we want to go 0 -> 2 and spawn.
-    // If current is 1 (Warmup), we want to go 1 -> 2 and let existing thread handle it.
-    
-    let prev = POPUP_STATE.swap(2, Ordering::SeqCst);
-    
-    if prev == 0 {
-        // Was closed, start fresh
-        std::thread::spawn(|| {
-            create_popup_window(false);
-        });
-    } else if prev == 3 {
-        // Was pending cancel. We swapped it back to 2.
-        // The running thread will see 2 at checkpoint and SHOW the window.
-        // Resurrection successful!
-
-    }
-    // If prev == 1, the running warmup thread will see the state change to 2 and upgrade itself.
 }
 
-/// Hide the tray popup
+/// Hide the tray popup (preserves window for reuse)
 pub fn hide_tray_popup() {
-    if POPUP_STATE.load(Ordering::SeqCst) == 0 {
-        return;
-    }
-
-
     let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
     if hwnd_val != 0 {
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
         unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            // Just hide - don't destroy. Preserves WebView state for instant redisplay.
+            let _ = KillTimer(Some(hwnd), 888);
+            let _ = ShowWindow(hwnd, SW_HIDE);
         }
-
-    } else {
-        // Window creating but not ready (HWND=0). Signal Cancel (State 3).
-        POPUP_STATE.store(3, Ordering::SeqCst);
     }
 }
 
+/// Warmup the tray popup - creates hidden window with WebView for instant display later
 pub fn warmup_tray_popup() {
-    // Try to take lock 0 -> 1
-    if POPUP_STATE.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-         std::thread::spawn(|| {
-            create_popup_window(true);
-        });
-    } else {
+    // Only warmup once
+    unsafe {
+        if IS_WARMED_UP || POPUP_HWND.load(Ordering::SeqCst) != 0 {
+            return;
+        }
     }
+    
+    std::thread::spawn(|| {
+        create_popup_window();
+    });
 }
 
-/// Check if the tray popup is currently open (state 2)
+/// Check if the tray popup is currently visible
 /// Used by warmup logic to defer WebView2 initialization until popup closes
 pub fn is_popup_open() -> bool {
-    POPUP_STATE.load(Ordering::SeqCst) == 2
+    let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        unsafe { IsWindowVisible(hwnd).as_bool() }
+    } else {
+        false
+    }
 }
 
 fn generate_popup_html() -> String {
@@ -381,7 +347,7 @@ svg {{
         <div class="check" id="bubble-check-container">{check}</div>
     </div>
     
-    <div class="menu-item {stop_tts_disabled}" onclick="action('stop_tts')">
+    <div class="menu-item {stop_tts_disabled}" id="stop-tts-item" onclick="action('stop_tts')">
         <div class="icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
         </div>
@@ -403,7 +369,6 @@ svg {{
 window.ignoreBlur = false;
 function action(cmd) {{
     if (cmd === 'bubble') {{
-        // Temporarily ignore blur events during bubble toggle
         window.ignoreBlur = true;
         setTimeout(function() {{ window.ignoreBlur = false; }}, 1200);
         const el = document.querySelector('.bubble-item');
@@ -417,7 +382,39 @@ function action(cmd) {{
     }}
     window.ipc.postMessage(cmd);
 }}
-// Close on click outside (detect blur)
+
+// Update popup state without reloading (preserves font cache)
+window.updatePopupState = function(config) {{
+    // Update CSS variables for theme
+    document.documentElement.style.setProperty('--bg-color', config.bgColor);
+    document.documentElement.style.setProperty('--text-color', config.textColor);
+    document.documentElement.style.setProperty('--hover-bg', config.hoverColor);
+    document.documentElement.style.setProperty('--border-color', config.borderColor);
+    document.documentElement.style.setProperty('--separator-color', config.separatorColor);
+    
+    // Update bubble active state
+    const bubbleItem = document.querySelector('.bubble-item');
+    if (bubbleItem) {{
+        if (config.bubbleActive) {{
+            bubbleItem.classList.add('active');
+            document.getElementById('bubble-check-container').innerHTML = '<svg class="check-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13.86 3.66a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.6 9.03a.75.75 0 1 1 1.06-1.06l2.42 2.42 6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>';
+        }} else {{
+            bubbleItem.classList.remove('active');
+            document.getElementById('bubble-check-container').innerHTML = '';
+        }}
+    }}
+    
+    // Update stop TTS disabled state
+    const stopTtsItem = document.getElementById('stop-tts-item');
+    if (stopTtsItem) {{
+        if (config.ttsDisabled) {{
+            stopTtsItem.classList.add('disabled');
+        }} else {{
+            stopTtsItem.classList.remove('disabled');
+        }}
+    }}
+}};
+
 window.addEventListener('blur', function() {{
     if (window.ignoreBlur) return;
     window.ipc.postMessage('close');
@@ -439,37 +436,54 @@ window.addEventListener('blur', function() {{
     )
 }
 
-// RAII Guard to ensure state reset
-struct StateGuard;
-impl Drop for StateGuard {
-    fn drop(&mut self) {
-        POPUP_ACTIVE_REF.store(0, Ordering::SeqCst);
-        POPUP_HWND_REF.store(0, Ordering::SeqCst);
-        
-        // Also ensure WebView is dropped on thread exit which helps with cleanup
-        POPUP_WEBVIEW.with(|cell| {
-            *cell.borrow_mut() = None;
-        });
-    }
+/// Generate JavaScript to update popup state without reloading HTML
+fn generate_popup_update_script() -> String {
+    use crate::config::ThemeMode;
+    
+    let (bubble_checked, is_dark_mode) = if let Ok(app) = APP.lock() {
+        let is_dark = match app.config.theme_mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+        };
+        (app.config.show_favorite_bubble, is_dark)
+    } else {
+        (false, true)
+    };
+
+    let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
+
+    let (bg_color, text_color, hover_color, border_color, separator_color) = if is_dark_mode {
+        ("#2c2c2c", "#ffffff", "#3c3c3c", "#454545", "rgba(255,255,255,0.08)")
+    } else {
+        ("#f9f9f9", "#1a1a1a", "#eaeaea", "#dcdcdc", "rgba(0,0,0,0.06)")
+    };
+
+    format!(
+        r#"window.updatePopupState({{ 
+            bgColor: '{}', 
+            textColor: '{}', 
+            hoverColor: '{}', 
+            borderColor: '{}', 
+            separatorColor: '{}',
+            bubbleActive: {},
+            ttsDisabled: {}
+        }});"#,
+        bg_color,
+        text_color,
+        hover_color,
+        border_color,
+        separator_color,
+        bubble_checked,
+        !has_tts_pending
+    )
 }
 
-// Accessors for Guard since it can't capture statics directly easily in Drop if they aren't accessible
-// Actually statics are global so we can just use them.
-// But to be clean we'll just refer to the statics in the Drop impl logic (which refers to global names).
-// Wait, Drop implementation cannot capture 'self' context easily for statics unless I put them in a struct.
-// But POPUP_STATE is static. I can access it directly.
+// Cleanup guard removed - window persists for entire app lifetime
 
-// We need to define safe access or just use the statics.
-// Since `POPUP_STATE` is static, we can access it.
-
-lazy_static::lazy_static! {
-    static ref POPUP_ACTIVE_REF: &'static std::sync::atomic::AtomicI32 = &POPUP_STATE;
-    static ref POPUP_HWND_REF: &'static AtomicIsize = &POPUP_HWND;
-}
-
-fn create_popup_window(is_warmup: bool) {
-    let _guard = StateGuard; // Will reset state to 0 on exit/panic
-
+/// Creates the popup window and runs its message loop forever.
+/// This is called once during warmup - the window is kept alive hidden for reuse.
+fn create_popup_window() {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGTTrayPopup");
@@ -490,32 +504,14 @@ fn create_popup_window(is_warmup: bool) {
         let popup_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
         let popup_width = get_scaled_dimension(BASE_POPUP_WIDTH);
 
-        // Get cursor position for placement (calculated later if warming up)
-        let (popup_x, popup_y) = if is_warmup {
-            (-3000, -3000)
-        } else {
-            let mut pt = POINT::default();
-            let _ = GetCursorPos(&mut pt);
-
-            // Position popup above and to the left of cursor (typical tray menu behavior)
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
-
-            let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
-            let popup_y = (pt.y - popup_height - 10)
-                .max(0)
-                .min(screen_h - popup_height);
-
-            (popup_x, popup_y)
-        };
-
+        // Create hidden off-screen (will be repositioned when shown)
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
             class_name,
             w!("TrayPopup"),
             WS_POPUP,
-            popup_x,
-            popup_y,
+            -3000,
+            -3000,
             popup_width,
             popup_height,
             None,
@@ -526,12 +522,13 @@ fn create_popup_window(is_warmup: bool) {
         .unwrap_or_default();
 
         if hwnd.is_invalid() {
-            // Guard will clean up
             return;
         }
 
-
         POPUP_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+
+        // Make transparent initially (invisible)
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
 
         // Round corners
         let corner_pref = DWMWCP_ROUND;
@@ -576,17 +573,8 @@ fn create_popup_window(is_warmup: bool) {
                     let body = msg.body();
                     match body.as_str() {
                         "settings" => {
-                            // Restore main window
-                            let h = POPUP_HWND.load(Ordering::SeqCst);
-                            if h != 0 {
-                                let _ = PostMessageW(
-                                    Some(HWND(h as *mut _)),
-                                    WM_CLOSE,
-                                    WPARAM(0),
-                                    LPARAM(0),
-                                );
-                            }
-                            // Signal to open settings
+                            // Hide popup and restore main window
+                            hide_tray_popup();
                             crate::gui::signal_restore_window();
                         }
                         "bubble" => {
@@ -598,7 +586,6 @@ fn create_popup_window(is_warmup: bool) {
 
                                 if enabled {
                                     crate::overlay::favorite_bubble::show_favorite_bubble();
-                                    // Slight delay so the window is created before blinking
                                     std::thread::spawn(|| {
                                         std::thread::sleep(std::time::Duration::from_millis(150));
                                         crate::overlay::favorite_bubble::trigger_blink_animation();
@@ -627,44 +614,19 @@ fn create_popup_window(is_warmup: bool) {
                         "stop_tts" => {
                             // Stop all TTS playback and clear queues
                             crate::api::tts::TTS_MANAGER.stop();
-                            // Close popup after action
-                            let h = POPUP_HWND.load(Ordering::SeqCst);
-                            if h != 0 {
-                                let _ = PostMessageW(
-                                    Some(HWND(h as *mut _)),
-                                    WM_CLOSE,
-                                    WPARAM(0),
-                                    LPARAM(0),
-                                );
-                            }
+                            // Hide popup after action
+                            hide_tray_popup();
                         }
                         "quit" => {
-                            // Close popup first
-                            let h = POPUP_HWND.load(Ordering::SeqCst);
-                            if h != 0 {
-                                let _ = PostMessageW(
-                                    Some(HWND(h as *mut _)),
-                                    WM_CLOSE,
-                                    WPARAM(0),
-                                    LPARAM(0),
-                                );
-                            }
-                            // Small delay to let window close, then exit
+                            // Hide popup first, then exit
+                            hide_tray_popup();
                             std::thread::spawn(|| {
                                 std::thread::sleep(std::time::Duration::from_millis(50));
                                 std::process::exit(0);
                             });
                         }
                         "close" => {
-                            let h = POPUP_HWND.load(Ordering::SeqCst);
-                            if h != 0 {
-                                let _ = PostMessageW(
-                                    Some(HWND(h as *mut _)),
-                                    WM_CLOSE,
-                                    WPARAM(0),
-                                    LPARAM(0),
-                                );
-                            }
+                            hide_tray_popup();
                         }
                         _ => {}
                     }
@@ -677,46 +639,26 @@ fn create_popup_window(is_warmup: bool) {
                 *cell.borrow_mut() = Some(wv);
             });
 
-            // CHECKPOINT: Only show if strictly Open (2)
-            let current_state = POPUP_STATE.load(Ordering::SeqCst);
-            
-            if current_state == 2 {
-                // Show it!
-                
-                // FORCE RESIZE/REPOSITION since we might be resurrecting a cancelled window
-                let mut pt = POINT::default();
-                let _ = GetCursorPos(&mut pt);
-                let screen_w = GetSystemMetrics(SM_CXSCREEN);
-                let screen_h = GetSystemMetrics(SM_CYSCREEN);
-
-                let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
-                let popup_y = (pt.y - popup_height - 10).max(0).min(screen_h - popup_height);
-                
-                let _ = SetWindowPos(hwnd, None, popup_x, popup_y, popup_width, popup_height, SWP_NOZORDER);
-                
-                let _ = ShowWindow(hwnd, SW_SHOW);
-                let _ = SetForegroundWindow(hwnd);
-                
-                // Start focus-polling timer (more reliable than blur events for WebView2)
-                let _ = SetTimer(Some(hwnd), 888, 100, None);
-            } else {
-                // State is 1 (Warmup) or 3 (Cancelled) -> Close immediately
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
+            // Mark as warmed up - ready for instant display
+            IS_WARMED_UP = true;
         } else {
-             // Failed to create webview? Close.
-             let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            // Failed to create webview
+            return;
         }
 
-        // Message loop
+        // Message loop runs forever to keep window alive
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
 
-        
-        // Guard will handle cleanup
+        // Clean up on thread exit
+        IS_WARMED_UP = false;
+        POPUP_HWND.store(0, Ordering::SeqCst);
+        POPUP_WEBVIEW.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
     }
 }
 
@@ -727,6 +669,56 @@ unsafe extern "system" fn popup_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_APP_SHOW => {
+            // Reposition window to cursor and show
+            let popup_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
+            let popup_width = get_scaled_dimension(BASE_POPUP_WIDTH);
+            
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let screen_w = GetSystemMetrics(SM_CXSCREEN);
+            let screen_h = GetSystemMetrics(SM_CYSCREEN);
+
+            let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
+            let popup_y = (pt.y - popup_height - 10).max(0).min(screen_h - popup_height);
+            
+            // Update state via JavaScript (preserves font cache - no reload flash)
+            POPUP_WEBVIEW.with(|cell| {
+                if let Some(webview) = cell.borrow().as_ref() {
+                    let update_script = generate_popup_update_script();
+                    let _ = webview.evaluate_script(&update_script);
+                }
+            });
+            
+            // Resize WebView to current DPI
+            POPUP_WEBVIEW.with(|cell| {
+                if let Some(webview) = cell.borrow().as_ref() {
+                    let _ = webview.set_bounds(Rect {
+                        position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                            popup_width as u32,
+                            popup_height as u32,
+                        )),
+                    });
+                }
+            });
+            
+            // Reposition and resize window
+            let _ = SetWindowPos(hwnd, None, popup_x, popup_y, popup_width, popup_height, SWP_NOZORDER);
+            
+            // Make fully visible (undo the warmup transparency)
+            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+            
+            // Show and focus
+            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = SetForegroundWindow(hwnd);
+            
+            // Start focus-polling timer
+            let _ = SetTimer(Some(hwnd), 888, 100, None);
+            
+            LRESULT(0)
+        }
+        
         WM_ACTIVATE => {
             LRESULT(0)
         }
@@ -753,8 +745,9 @@ unsafe extern "system" fn popup_wnd_proc(
         }
 
         WM_CLOSE => {
+            // Just hide - don't destroy. Preserves WebView for instant redisplay.
             let _ = KillTimer(Some(hwnd), 888);
-            let _ = DestroyWindow(hwnd);
+            let _ = ShowWindow(hwnd, SW_HIDE);
             LRESULT(0)
         }
 
