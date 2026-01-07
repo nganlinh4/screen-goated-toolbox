@@ -101,6 +101,7 @@ fn transcription_thread_entry(
                 current_preset.clone(),
                 stop_signal.clone(),
                 dummy_pause,
+                None, // No full audio buffer for standard realtime
                 hwnd_overlay,
                 state.clone(),
             )

@@ -22,6 +22,7 @@ pub fn run_parakeet_transcription(
     _preset: Preset,
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
+    full_audio_buffer: Option<Arc<Mutex<Vec<i16>>>>,
     overlay_hwnd: HWND,
     state: SharedRealtimeState,
 ) -> Result<()> {
@@ -33,6 +34,7 @@ pub fn run_parakeet_transcription(
     run_parakeet_session(
         stop_signal,
         pause_signal,
+        full_audio_buffer,
         Some(overlay_hwnd), // Send volume updates to overlay
         false,              // Don't show download badge (webview handles its own modal)
         None,               // Use global config
@@ -57,6 +59,7 @@ pub fn run_parakeet_transcription(
 pub fn run_parakeet_session<F>(
     stop_signal: Arc<AtomicBool>,
     pause_signal: Arc<AtomicBool>,
+    full_audio_buffer: Option<Arc<Mutex<Vec<i16>>>>,
     overlay_hwnd_opt: Option<HWND>,
     use_badge: bool,
     audio_source_override: Option<String>,
@@ -202,6 +205,12 @@ where
                     if !hwnd.is_invalid() {
                         let _ = PostMessageW(Some(hwnd), WM_VOLUME_UPDATE, WPARAM(0), LPARAM(0));
                     }
+                }
+            }
+
+            if let Some(full_buf) = &full_audio_buffer {
+                if let Ok(mut full) = full_buf.lock() {
+                    full.extend(new_samples.iter().map(|&s| (s * 32768.0) as i16));
                 }
             }
 

@@ -17,6 +17,27 @@ use std::sync::{
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+fn encode_wav(samples: &[i16], sample_rate: u32, channels: u16) -> Vec<u8> {
+    let spec = hound::WavSpec {
+        channels,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut wav_cursor = Cursor::new(Vec::new());
+    {
+        let mut writer =
+            hound::WavWriter::new(&mut wav_cursor, spec).expect("Failed to create memory writer");
+        for sample in samples {
+            writer
+                .write_sample(*sample)
+                .expect("Failed to write sample");
+        }
+        writer.finalize().expect("Failed to finalize WAV");
+    }
+    wav_cursor.into_inner()
+}
+
 pub fn transcribe_audio_gemini<F>(
     gemini_api_key: &str,
     prompt: String,
@@ -730,8 +751,10 @@ pub fn record_and_stream_gemini_live(
     let sample_rate = config.sample_rate();
     let channels = config.channels() as usize;
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     let audio_buffer_clone = audio_buffer.clone();
+    let full_buffer_clone = full_audio_buffer.clone();
     let pause_clone = pause_signal.clone();
 
     let stream = match config.sample_format() {
@@ -758,7 +781,10 @@ pub fn record_and_stream_gemini_live(
                 };
                 let resampled = resample_to_16khz(&mono, sample_rate);
                 if let Ok(mut buf) = audio_buffer_clone.lock() {
-                    buf.extend(resampled);
+                    buf.extend(resampled.clone());
+                }
+                if let Ok(mut full) = full_buffer_clone.lock() {
+                    full.extend(resampled);
                 }
             },
             |e| eprintln!("Stream error: {}", e),
@@ -786,7 +812,10 @@ pub fn record_and_stream_gemini_live(
                 };
                 let resampled = resample_to_16khz(&mono, sample_rate);
                 if let Ok(mut buf) = audio_buffer_clone.lock() {
-                    buf.extend(resampled);
+                    buf.extend(resampled.clone());
+                }
+                if let Ok(mut full) = full_buffer_clone.lock() {
+                    full.extend(resampled);
                 }
             },
             |e| eprintln!("Stream error: {}", e),
@@ -1037,10 +1066,15 @@ pub fn record_and_stream_gemini_live(
         )
     };
 
+    let final_wav = {
+        let samples = full_audio_buffer.lock().unwrap();
+        encode_wav(&samples, 16000, 1)
+    };
+
     crate::overlay::process::show_audio_result(
         preset,
         final_text,
-        Vec::new(),
+        final_wav,
         rect,
         retrans,
         overlay_hwnd,
@@ -1057,8 +1091,10 @@ pub fn record_and_stream_parakeet(
     target_window: Option<HWND>,
 ) {
     use std::sync::Mutex;
-    let accumulated_text = Arc::new(Mutex::new(String::new()));
+    let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let acc_clone = accumulated_text.clone();
+    let full_buffer_clone = full_audio_buffer.clone();
     let preset_clone = preset.clone();
     let target_window_clone = target_window;
 
@@ -1198,6 +1234,7 @@ pub fn record_and_stream_parakeet(
     let res = crate::api::realtime_audio::parakeet::run_parakeet_session(
         stop_signal.clone(),
         pause_signal.clone(),
+        Some(full_audio_buffer.clone()),
         Some(overlay_hwnd), // Send volume updates to overlay
         true,               // Enable download badge
         Some(preset_clone.audio_source.clone()),
@@ -1238,10 +1275,16 @@ pub fn record_and_stream_parakeet(
         return;
     }
 
+    let final_wav = {
+        let samples = full_audio_buffer.lock().unwrap();
+        encode_wav(&samples, 16000, 1)
+    };
+
     // Save history
     {
         let app = crate::APP.lock().unwrap();
-        app.history.save_audio(Vec::new(), final_text.clone());
+        app.history
+            .save_audio(final_wav.clone(), final_text.clone());
     }
 
     let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
@@ -1286,7 +1329,7 @@ pub fn record_and_stream_parakeet(
     crate::overlay::process::show_audio_result(
         preset,
         final_text,
-        Vec::new(),
+        final_wav,
         rect,
         retrans,
         overlay_hwnd,
