@@ -207,7 +207,8 @@ pub fn run_chain_step(
         let prompt_c = final_prompt.clone();
         // CRITICAL: Override streaming to false if render_mode is markdown
         // Markdown + streaming doesn't work properly (causes missing content)
-        let stream_en = if block.render_mode == "markdown" {
+        // Also force false if skip_execution is true (static result display)
+        let stream_en = if block.render_mode == "markdown" || skip_execution {
             false
         } else {
             block.streaming_enabled

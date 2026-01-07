@@ -1,6 +1,10 @@
 use super::client::UREQ_AGENT;
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, model_is_non_llm};
+use crate::overlay::result::{
+    create_result_window, get_chain_color, update_window_text, RefineContext, WindowType,
+};
+use crate::win_types::SendHwnd;
 use crate::APP;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
@@ -451,6 +455,127 @@ pub fn record_and_stream_gemini_live(
 
     println!("[GeminiLiveStream] Starting real-time streaming...");
 
+    // Check if streaming is enabled
+    // Enable if explicit flag is set OR render_mode is "stream"
+    let streaming_enabled = preset
+        .blocks
+        .first()
+        .map(|b| b.streaming_enabled || b.render_mode == "stream")
+        .unwrap_or(false);
+    let mut streaming_hwnd: Option<HWND> = None;
+
+    struct WindowGuard(HWND);
+    impl Drop for WindowGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = PostMessageW(Some(self.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+
+    // Launch Result Overlay if streaming is enabled
+    if streaming_enabled {
+        let (tx, rx) = mpsc::channel();
+        let preset_for_thread = preset.clone();
+
+        std::thread::spawn(move || {
+            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+            let (rect, _) = if preset_for_thread.blocks.len() > 1 {
+                let w = 600;
+                let h = 300;
+                let gap = 20;
+                let total = w * 2 + gap;
+                let x = (screen_w - total) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    Some(RECT {
+                        left: x + w + gap,
+                        top: y,
+                        right: x + w + gap + w,
+                        bottom: y + h,
+                    }),
+                )
+            } else {
+                let w = 700;
+                let h = 300;
+                let x = (screen_w - w) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    None,
+                )
+            };
+
+            let first_block = preset_for_thread.blocks.first();
+            let model_id = first_block.map(|b| b.model.clone()).unwrap_or_default();
+            let render_mode = first_block
+                .map(|b| b.render_mode.clone())
+                .unwrap_or_default();
+
+            // Get provider
+            let model_conf = crate::model_config::get_model_by_id(&model_id);
+            let provider = model_conf
+                .map(|m| m.provider)
+                .unwrap_or("gemini".to_string());
+
+            let hwnd = create_result_window(
+                rect,
+                WindowType::Primary,
+                RefineContext::Audio(Vec::new()), // Audio context placeholder
+                model_id,
+                provider,
+                true,          // streaming_enabled
+                false,         // start_editing
+                String::new(), // preset_prompt
+                get_chain_color(0),
+                &render_mode,
+                "Listening...".to_string(),
+            );
+
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+
+            let _ = tx.send(SendHwnd(hwnd));
+
+            // Message Loop
+            unsafe {
+                let mut m = MSG::default();
+                while GetMessageW(&mut m, None, 0, 0).into() {
+                    let _ = TranslateMessage(&m);
+                    DispatchMessageW(&m);
+                    if !IsWindow(Some(hwnd)).as_bool() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        if let Ok(SendHwnd(h)) = rx.recv() {
+            streaming_hwnd = Some(h);
+        }
+    }
+
+    let _window_guard = streaming_hwnd.map(WindowGuard);
+
+    let update_stream_text = |text: &str| {
+        if let Some(h) = streaming_hwnd {
+            update_window_text(h, text);
+        }
+    };
+
     let gemini_api_key = {
         let app = APP.lock().unwrap();
         app.config.gemini_api_key.clone()
@@ -723,6 +848,7 @@ pub fn record_and_stream_gemini_live(
                         if !t.is_empty() {
                             if let Ok(mut txt) = accumulated_text.lock() {
                                 txt.push_str(&t);
+                                update_stream_text(&txt);
                             }
                             if preset.auto_paste {
                                 if let Some(target) = target_window {
@@ -738,6 +864,7 @@ pub fn record_and_stream_gemini_live(
                             if !t.is_empty() {
                                 if let Ok(mut txt) = accumulated_text.lock() {
                                     txt.push_str(&t);
+                                    update_stream_text(&txt);
                                 }
                                 if preset.auto_paste {
                                     if let Some(target) = target_window {
@@ -806,6 +933,7 @@ pub fn record_and_stream_gemini_live(
                         if !t.is_empty() {
                             if let Ok(mut txt) = accumulated_text.lock() {
                                 txt.push_str(&t);
+                                update_stream_text(&txt);
                             }
                             // Found data, extend wait
                             conclude_end = Instant::now() + extension;
@@ -924,10 +1052,121 @@ pub fn record_and_stream_parakeet(
     let preset_clone = preset.clone();
     let target_window_clone = target_window;
 
+    // Check if streaming is enabled in the first block (Audio block)
+    // Enable if explicit flag is set OR render_mode is "stream"
+    let streaming_enabled = preset
+        .blocks
+        .first()
+        .map(|b| b.streaming_enabled || b.render_mode == "stream")
+        .unwrap_or(false);
+    let mut streaming_hwnd: Option<HWND> = None;
+
+    // Launch Result Overlay if streaming is enabled
+    if streaming_enabled {
+        let (tx, rx) = mpsc::channel();
+        let preset_for_thread = preset.clone();
+
+        std::thread::spawn(move || {
+            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+            let (rect, _) = if preset_for_thread.blocks.len() > 1 {
+                let w = 600;
+                let h = 300;
+                let gap = 20;
+                let total = w * 2 + gap;
+                let x = (screen_w - total) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    Some(RECT {
+                        left: x + w + gap,
+                        top: y,
+                        right: x + w + gap + w,
+                        bottom: y + h,
+                    }),
+                )
+            } else {
+                let w = 700;
+                let h = 300;
+                let x = (screen_w - w) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    None,
+                )
+            };
+
+            let first_block = preset_for_thread.blocks.first();
+            let model_id = first_block.map(|b| b.model.clone()).unwrap_or_default();
+            let render_mode = first_block
+                .map(|b| b.render_mode.clone())
+                .unwrap_or_default();
+
+            // Get provider
+            let model_conf = crate::model_config::get_model_by_id(&model_id);
+            let provider = model_conf
+                .map(|m| m.provider)
+                .unwrap_or("parakeet".to_string());
+
+            let hwnd = create_result_window(
+                rect,
+                WindowType::Primary,
+                RefineContext::Audio(Vec::new()), // Audio context placeholder
+                model_id,
+                provider,
+                true,          // streaming_enabled
+                false,         // start_editing
+                String::new(), // preset_prompt (not used here)
+                get_chain_color(0),
+                &render_mode,
+                "Listening...".to_string(),
+            );
+
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+
+            let _ = tx.send(SendHwnd(hwnd));
+
+            // Message Loop
+            unsafe {
+                let mut m = MSG::default();
+                while GetMessageW(&mut m, None, 0, 0).into() {
+                    let _ = TranslateMessage(&m);
+                    DispatchMessageW(&m);
+                    if !IsWindow(Some(hwnd)).as_bool() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        if let Ok(SendHwnd(h)) = rx.recv() {
+            streaming_hwnd = Some(h);
+        }
+    }
+
+    let streaming_hwnd_clone = streaming_hwnd;
+
     let callback = move |text: String| {
         if !text.is_empty() {
             if let Ok(mut txt) = acc_clone.lock() {
                 txt.push_str(&text);
+
+                // Update streaming window if active
+                if let Some(h) = streaming_hwnd_clone {
+                    update_window_text(h, &txt);
+                }
             }
             // Real-time typing
             if preset_clone.auto_paste {
@@ -949,6 +1188,13 @@ pub fn record_and_stream_parakeet(
         preset_clone.auto_stop_recording,
         callback,
     );
+
+    // Close streaming window immediately after recording stops
+    if let Some(h) = streaming_hwnd {
+        unsafe {
+            let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+    }
 
     if let Err(e) = res {
         eprintln!("[ParakeetStream] Error: {:?}", e);

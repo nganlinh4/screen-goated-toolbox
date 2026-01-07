@@ -30,9 +30,11 @@ pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT {
     let _ = ScreenToClient(hwnd, &mut pt);
 
     let mut is_over_edit = false;
+    let mut is_streaming_active = false;
     {
         let states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get(&(hwnd.0 as isize)) {
+            is_streaming_active = state.is_streaming_active;
             if state.is_editing {
                 let edit_left = 10;
                 let edit_top = 10;
@@ -60,8 +62,8 @@ pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT {
         ResizeEdge::TopLeft | ResizeEdge::BottomRight => cursor_id = IDC_SIZENWSE,
         ResizeEdge::TopRight | ResizeEdge::BottomLeft => cursor_id = IDC_SIZENESW,
         ResizeEdge::None => {
-            // Only show hand cursor on buttons if overlay is large enough to display them
-            if should_show_buttons(rect.right, rect.bottom) {
+            // Only show hand cursor on buttons if overlay is large enough AND not streaming
+            if !is_streaming_active && should_show_buttons(rect.right, rect.bottom) {
                 let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
                 let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
                 let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
@@ -277,8 +279,8 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
             state.physics.x = x;
             state.physics.y = y;
 
-            // Only process button hover states if overlay is large enough to show buttons
-            if should_show_buttons(rect.right, rect.bottom) {
+            // Only process button hover states if overlay is large enough AND not streaming
+            if !state.is_streaming_active && should_show_buttons(rect.right, rect.bottom) {
                 let copy_rect = get_copy_btn_rect(rect.right, rect.bottom);
                 let edit_rect = get_edit_btn_rect(rect.right, rect.bottom);
                 let undo_rect = get_undo_btn_rect(rect.right, rect.bottom);
