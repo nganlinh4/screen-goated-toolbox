@@ -36,9 +36,9 @@ pub fn run_parakeet_transcription(
         full_audio_buffer,
         hwnd_overlay, // Send volume updates to overlay
         hide_recording_ui,
-        true, // Don't show download badge (webview handles its own modal)
-        None, // Use global config
-        true, // auto_stop_enabled
+        true,  // Don't show download badge (webview handles its own modal)
+        None,  // Use global config
+        false, // auto_stop_enabled - DISABLED for realtime mode to prevent killing the transcription thread on silence
         move |text| {
             // Callback for each text segment
             if let Ok(mut s) = state.lock() {

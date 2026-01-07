@@ -21,7 +21,7 @@ use super::websocket::{
     connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
     set_socket_nonblocking, set_socket_short_timeout,
 };
-use super::WM_VOLUME_UPDATE;
+use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 
 /// Audio mode state machine for silence injection
 #[derive(Clone, Copy, PartialEq)]
@@ -79,6 +79,9 @@ fn transcription_thread_entry(
     loop {
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
         TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
+
+        // Reset volume indicator to ensure fresh state when switching methods
+        REALTIME_RMS.store(0, Ordering::SeqCst);
 
         let trans_model = {
             let app = APP.lock().unwrap();
