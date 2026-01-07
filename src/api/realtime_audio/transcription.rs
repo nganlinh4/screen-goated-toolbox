@@ -74,7 +74,7 @@ fn transcription_thread_entry(
         AUDIO_SOURCE_CHANGE, NEW_AUDIO_SOURCE, NEW_TRANSCRIPTION_MODEL, TRANSCRIPTION_MODEL_CHANGE,
     };
 
-    let current_preset = preset;
+    let mut current_preset = preset;
 
     loop {
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
@@ -157,6 +157,7 @@ fn transcription_thread_entry(
                     // println!("Changing audio source to: {}", new_source);
                     let mut app = APP.lock().unwrap();
                     app.config.realtime_audio_source = new_source.clone();
+                    current_preset.audio_source = new_source.clone();
                     // Save config? Optional, but UI should sync.
                 }
             }
