@@ -1,5 +1,6 @@
 use super::panel::{
     close_panel, destroy_panel, ensure_panel_created, move_panel_to_bubble, show_panel,
+    WM_FORCE_SHOW_PANEL,
 };
 use super::render::update_bubble_visual;
 use super::state::*;
@@ -13,6 +14,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+// We need to access WM_REFRESH_PANEL too, but it's private in panel.rs.
+// However, we know it's WM_APP + 42. It's safe to use the constant here.
+const WM_REFRESH_PANEL: u32 = WM_APP + 42;
 
 // Show the favorite bubble overlay
 pub fn show_favorite_bubble() {
@@ -434,6 +439,22 @@ unsafe extern "system" fn bubble_wnd_proc(
 
         WM_DESTROY => {
             PostQuitMessage(0);
+            LRESULT(0)
+        }
+
+        WM_FORCE_SHOW_PANEL => {
+            // Received request from main thread to show/refresh update panel
+            if !IS_EXPANDED.load(Ordering::SeqCst) {
+                // Not open? Open it (this triggers refresh internally)
+                show_panel(hwnd);
+            } else {
+                // Already open? Force refresh manually
+                let panel_val = PANEL_HWND.load(Ordering::SeqCst);
+                if panel_val != 0 {
+                    let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
+                    let _ = PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
+                }
+            }
             LRESULT(0)
         }
 

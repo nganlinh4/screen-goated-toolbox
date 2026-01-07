@@ -8,6 +8,7 @@ use windows::core::w;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowW, GetClientRect,
     GetForegroundWindow, GetSystemMetrics, GetWindowRect, LoadCursorW, PostMessageW,
@@ -22,6 +23,7 @@ use wry::{Rect, WebContext, WebViewBuilder};
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 
 const WM_REFRESH_PANEL: u32 = WM_APP + 42;
+pub const WM_FORCE_SHOW_PANEL: u32 = WM_APP + 43;
 
 pub fn show_panel(bubble_hwnd: HWND) {
     if IS_EXPANDED.load(Ordering::SeqCst) {
@@ -75,21 +77,13 @@ pub fn show_panel(bubble_hwnd: HWND) {
 }
 
 pub fn update_favorites_panel() {
-    // Force a refresh of the panel and bubble visual (theme/content)
-    // We post a message to the panel window to handle this safely (locking APP in wndproc)
+    // Send a message to the Bubble Window (dedicated thread) to handle the update.
+    // This prevents creating a duplicate/desync'd WebView on the main thread.
     let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
     if bubble_val != 0 {
         let bubble_hwnd = HWND(bubble_val as *mut std::ffi::c_void);
-
-        // Ensure panel window exists so we can compel it to refresh
-        ensure_panel_created(bubble_hwnd, false);
-
-        let panel_val = PANEL_HWND.load(Ordering::SeqCst);
-        if panel_val != 0 {
-            let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
-            unsafe {
-                let _ = PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
-            }
+        unsafe {
+            let _ = PostMessageW(Some(bubble_hwnd), WM_FORCE_SHOW_PANEL, WPARAM(0), LPARAM(0));
         }
     }
 }
@@ -307,18 +301,25 @@ unsafe fn refresh_panel_layout_and_content(
     };
     let panel_height = panel_height.max(50);
 
+    // Get DPI scale
+    let dpi = unsafe { GetDpiForWindow(panel_hwnd) };
+    let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+
+    let panel_width_physical = (panel_width as f32 * scale).ceil() as i32;
+    let panel_height_physical = (panel_height as f32 * scale).ceil() as i32;
+
     let screen_w = GetSystemMetrics(SM_CXSCREEN);
 
     let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
         (
-            bubble_rect.left - panel_width - 4, // Closer to bubble
-            bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
+            bubble_rect.left - panel_width_physical - 4, // Closer to bubble
+            bubble_rect.top - panel_height_physical / 2 + BUBBLE_SIZE / 2,
             "right",
         )
     } else {
         (
             bubble_rect.right + 4,
-            bubble_rect.top - panel_height / 2 + BUBBLE_SIZE / 2,
+            bubble_rect.top - panel_height_physical / 2 + BUBBLE_SIZE / 2,
             "left",
         )
     };
@@ -331,8 +332,8 @@ unsafe fn refresh_panel_layout_and_content(
         None,
         panel_x,
         actual_panel_y,
-        panel_width,
-        panel_height,
+        panel_width_physical,
+        panel_height_physical,
         SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
     );
 
@@ -344,8 +345,8 @@ unsafe fn refresh_panel_layout_and_content(
             let _ = webview.set_bounds(Rect {
                 position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                 size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    panel_width as u32,
-                    panel_height as u32,
+                    panel_width_physical as u32,
+                    panel_height_physical as u32,
                 )),
             });
         }
@@ -379,7 +380,7 @@ unsafe fn refresh_panel_layout_and_content(
     let bx = if side == "left" {
         -(BUBBLE_SIZE as i32 / 2) - 4
     } else {
-        panel_width + (BUBBLE_SIZE as i32 / 2) + 4
+        (panel_width_physical / scale as i32) + (BUBBLE_SIZE as i32 / 2) + 4
     };
     let by = (bubble_rect.top + BUBBLE_SIZE as i32 / 2) - actual_panel_y;
 
@@ -489,6 +490,10 @@ fn create_panel_webview(panel_hwnd: HWND) {
                             crate::config::save_config(&app.config);
                         }
                     }
+                } else if body.starts_with("resize:") {
+                    if let Ok(h) = body[7..].parse::<i32>() {
+                        resize_panel_height(h);
+                    }
                 }
             })
             .build_as_child(&wrapper)
@@ -528,6 +533,9 @@ unsafe extern "system" fn panel_wnd_proc(
                 };
 
                 let bubble_hwnd = HWND(BUBBLE_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
+
+                // Set expanded to true so it moves with bubble
+                IS_EXPANDED.store(true, Ordering::SeqCst);
 
                 refresh_panel_layout_and_content(
                     bubble_hwnd,
@@ -597,6 +605,86 @@ fn save_bubble_position() {
             app.config.favorite_bubble_position = Some((rect.left, rect.top));
             crate::config::save_config(&app.config);
         }
+    }
+}
+
+fn resize_panel_height(content_height: i32) {
+    let panel_val = PANEL_HWND.load(Ordering::SeqCst);
+    if panel_val == 0 {
+        return;
+    }
+
+    // Add a small buffer to ensure no scrollbars appear
+    let new_height = content_height + 2;
+
+    unsafe {
+        let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
+
+        // Get DPI to scale the CSS pixels (content_height) to Physical pixels
+        let dpi = GetDpiForWindow(panel_hwnd);
+        let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+
+        let new_height_pixels = (content_height as f32 * scale).ceil() as i32 + 20;
+
+        let mut panel_rect = RECT::default();
+        let _ = GetWindowRect(panel_hwnd, &mut panel_rect);
+        let current_width = panel_rect.right - panel_rect.left;
+        let current_height = panel_rect.bottom - panel_rect.top;
+
+        // Only resize if significantly different to avoid jitter loops
+        if (current_height - new_height_pixels).abs() < 4 {
+            return;
+        }
+
+        let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
+        let bubble_hwnd = if bubble_val != 0 {
+            HWND(bubble_val as *mut std::ffi::c_void)
+        } else {
+            return;
+        };
+
+        let mut bubble_rect = RECT::default();
+        let _ = GetWindowRect(bubble_hwnd, &mut bubble_rect);
+
+        // Recalculate Y position to keep centered on bubble
+        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let (_panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
+            (
+                bubble_rect.left - current_width - 4,
+                bubble_rect.top - new_height_pixels / 2 + BUBBLE_SIZE / 2,
+            )
+        } else {
+            (
+                bubble_rect.right + 4,
+                bubble_rect.top - new_height_pixels / 2 + BUBBLE_SIZE / 2,
+            )
+        };
+
+        // Clamp Y
+        let actual_panel_y = panel_y.max(10);
+
+        let _ = SetWindowPos(
+            panel_hwnd,
+            None,
+            panel_rect.left, // Keep X
+            actual_panel_y,
+            current_width,
+            new_height_pixels,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
+        );
+
+        // Update WebView bounds
+        PANEL_WEBVIEW.with(|wv| {
+            if let Some(webview) = wv.borrow().as_ref() {
+                let _ = webview.set_bounds(Rect {
+                    position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+                    size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                        current_width as u32,
+                        new_height_pixels as u32,
+                    )),
+                });
+            }
+        });
     }
 }
 
