@@ -279,7 +279,7 @@ pub fn show_body(
                                             _ => &m.quota_limit_en,
                                         };
                                         let provider_icon = match m.provider.as_str() {
-                                            "google" => "✨ ",
+                                            "google" | "gemini-live" => "✨ ",
                                             "google-gtx" => "🌍 ",
                                             "groq" => "⚡ ",
                                             "cerebras" => "🔥 ",
@@ -577,7 +577,7 @@ pub fn show_body(
                                             _ => &m.quota_limit_en,
                                         };
                                         let provider_icon = match m.provider.as_str() {
-                                            "google" => "✨ ",
+                                            "google" | "gemini-live" => "✨ ",
                                             "google-gtx" => "🌍 ",
                                             "groq" => "⚡ ",
                                             "cerebras" => "🔥 ",
