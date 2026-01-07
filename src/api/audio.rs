@@ -464,7 +464,7 @@ pub fn record_and_stream_gemini_live(
     pause_signal: Arc<AtomicBool>,
     abort_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
-    target_window: Option<HWND>,
+    _target_window: Option<HWND>,
 ) {
     use crate::api::realtime_audio::websocket::{
         connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
@@ -1087,7 +1087,7 @@ pub fn record_and_stream_parakeet(
     let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let acc_clone = accumulated_text.clone();
     let preset_clone = preset.clone();
-    let target_window_clone = target_window;
+    let _target_window_clone = target_window;
 
     // Check if streaming is enabled in the first block (Audio block)
     // Enable if explicit flag is set OR render_mode is "stream"

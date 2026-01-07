@@ -47,26 +47,43 @@ pub fn connect_live_websocket(api_key: &str) -> Result<WebSocket<TlsStream<TcpSt
 pub fn send_live_setup(
     socket: &mut WebSocket<TlsStream<TcpStream>>,
     system_instruction: Option<&str>,
-    _enable_thinking: bool, // Thinking not supported on native audio model
+    enable_thinking: bool,
 ) -> Result<()> {
     // Native audio model requires AUDIO modality - we'll ignore the audio and extract text
     // We also request inputAudioTranscription to get text responses
+
+    // Base configuration
+    let mut generation_config = serde_json::json!({
+        "responseModalities": ["AUDIO"],  // Required for native audio model
+        "speechConfig": {
+            "voiceConfig": {
+                "prebuiltVoiceConfig": {
+                    "voiceName": "Aoede"  // Default voice
+                }
+            }
+        }
+    });
+
+    // Configure thinking
+    if enable_thinking {
+        // Explicitly enable thoughts to ensure they are streamed back
+        generation_config["thinkingConfig"] = serde_json::json!({
+             "includeThoughts": true
+        });
+    } else {
+        // Explicitly disable thinking
+        generation_config["thinkingConfig"] = serde_json::json!({
+            "thinkingBudget": 0
+        });
+    }
+
     let mut setup = serde_json::json!({
         "setup": {
             "model": format!("models/{}", GEMINI_LIVE_MODEL),
-            "generationConfig": {
-                "responseModalities": ["AUDIO"],  // Required for native audio model
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": "Aoede"  // Default voice (we'll ignore the audio)
-                        }
-                    }
-                },
-                "thinkingConfig": {
-                    "thinkingBudget": 0  // Disable thinking for lower latency
-                }
-            },
+            "tools": [
+                { "google_search": {} }
+            ],
+            "generationConfig": generation_config,
             "outputAudioTranscription": {}  // This gives us text transcription of the audio output
         }
     });
