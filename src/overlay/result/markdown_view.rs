@@ -1,9 +1,12 @@
+use base64;
+use base64::Engine;
 use pulldown_cmark::{html, Options, Parser};
 use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, Once};
 use windows::core::w;
 use windows::Win32::Foundation::*;
@@ -20,6 +23,8 @@ lazy_static::lazy_static! {
     // Flag to skip next navigation handler call (set before history.back())
     static ref SKIP_NEXT_NAVIGATION: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
 }
+
+static MARKDOWN_PAGE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // Global hidden window handle for WebView warmup
 static mut WARMUP_HWND: HWND = HWND(std::ptr::null_mut());
@@ -714,18 +719,45 @@ pub fn create_markdown_webview_ex(
 
     // Create WebView with small margins so resize handles remain accessible
     // Use Physical coordinates since GetClientRect returns physical pixels
-    let _hwnd_copy = parent_hwnd;
     let hwnd_key_for_nav = hwnd_key;
 
-    // SIMPLIFIED FOR DEBUGGING - minimal WebView creation
-    // CRITICAL: with_transparent(false) matches text_input's working config
+    // Use shared WebContext to match working realtime_webview behavior
+    // This ensures we share the same browser process/cache/state
+    let data_dir = crate::overlay::get_shared_webview_data_dir();
+    let mut web_context = WebContext::new(Some(data_dir));
 
-    // Store HTML in font server and get URL for same-origin font loading
-    let page_url =
-        crate::overlay::html_components::font_manager::store_html_page(html_content.clone())
-            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html_content)));
+    // Ensure HTML is a proper document with encoding
+    let full_html = format!(
+        "<!DOCTYPE html><html><head><meta charset='UTF-8'>{}</head><body>{}</body></html>",
+        get_font_style(), // Inject CSS in head
+        html_content
+    );
 
-    let mut builder = WebViewBuilder::new()
+    // Use store_html_page with reliable retry
+    let mut page_url = String::new();
+    for _ in 0..50 {
+        if let Some(url) =
+            crate::overlay::html_components::font_manager::store_html_page(full_html.clone())
+        {
+            page_url = url;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    if page_url.is_empty() {
+        eprintln!("Failed to store markdown page in font server!");
+        let error_html = "<html><body style='color:white'>Error: Could not connect to internal font server.</body></html>";
+        if let Some(url) =
+            crate::overlay::html_components::font_manager::store_html_page(error_html.to_string())
+        {
+            page_url = url;
+        } else {
+            page_url = "data:text/html,<html>Error</html>".to_string();
+        }
+    }
+
+    let mut builder = WebViewBuilder::new_with_web_context(&mut web_context)
         .with_bounds(Rect {
             position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
                 edge_margin as i32,
