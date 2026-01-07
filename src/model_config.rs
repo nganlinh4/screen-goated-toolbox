@@ -486,11 +486,24 @@ lazy_static::lazy_static! {
             "8 hours audio/day"
         ),
         ModelConfig::new(
+            "parakeet-local",
+            "parakeet",
+            "Stream offline",
+            "Stream offline",
+            "Stream offline",
+            "parakeet-120m-v1",
+            ModelType::Audio,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
             "gemini-live-audio",
             "gemini-live",
-            "Thử nghiệm",
-            "실험적",
-            "Experimental",
+            "Stream online",
+            "Stream online",
+            "Stream online",
             "gemini-2.5-flash-native-audio-preview-12-2025",
             ModelType::Audio,
             true,
@@ -550,19 +563,7 @@ lazy_static::lazy_static! {
             "20 요청/일",
             "20 requests/day"
         ),
-        ModelConfig::new(
-            "parakeet-local",
-            "parakeet",
-            "Offline (Nhanh)",
-            "오프라인 (빠름)",
-            "Offline (Fast)",
-            "parakeet-120m-v1",
-            ModelType::Audio,
-            true,
-            "Không giới hạn",
-            "무제한",
-            "Unlimited"
-        ),
+
 
     ];
 }

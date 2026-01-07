@@ -286,6 +286,7 @@ pub fn show_body(
                                             "openrouter" => "🌐 ",
                                             "ollama" => "🏠 ",
                                             "qrserver" => "🔳 ",
+                                            "parakeet" => "🐦 ",
                                             _ => "⚙️ ",
                                         };
                                         let search_suffix = if model_supports_search(&m.id) {
@@ -584,6 +585,7 @@ pub fn show_body(
                                             "openrouter" => "🌐 ",
                                             "ollama" => "🏠 ",
                                             "qrserver" => "🔳 ",
+                                            "parakeet" => "🐦 ",
                                             _ => "⚙️ ",
                                         };
                                         let search_suffix = if model_supports_search(&m.id) {

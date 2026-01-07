@@ -891,7 +891,7 @@ progressBar.onclick = (e) => {{
                         actual_streaming_enabled,
                         use_json,
                         move |chunk| {
-                            let now = std::time::SystemTime::now()
+                            let _now = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_millis() as u32)
                                 .unwrap_or(0);
@@ -968,7 +968,7 @@ progressBar.onclick = (e) => {{
                     search_label,
                     &config.ui_language,
                     move |chunk| {
-                        let now = std::time::SystemTime::now()
+                        let _now = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis() as u32)
                             .unwrap_or(0);

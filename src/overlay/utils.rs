@@ -441,6 +441,7 @@ pub fn type_text_to_window(hwnd_target: HWND, text: &str) {
                     },
                 };
                 SendInput(&[input_down, input_up], std::mem::size_of::<INPUT>() as i32);
+                std::thread::sleep(std::time::Duration::from_millis(8));
             }
         }
     }

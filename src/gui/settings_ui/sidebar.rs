@@ -607,7 +607,16 @@ fn render_preset_item_parts(
 
     let icon_type = match preset.preset_type.as_str() {
         "audio" => {
-            if preset.audio_processing_mode == "realtime" {
+            // Check if using Parakeet model
+            let is_parakeet = preset
+                .blocks
+                .first()
+                .map(|b| b.model.contains("parakeet"))
+                .unwrap_or(false);
+
+            if is_parakeet {
+                Icon::Parakeet
+            } else if preset.audio_processing_mode == "realtime" {
                 Icon::Realtime
             } else if preset.audio_source == "device" {
                 Icon::Speaker
