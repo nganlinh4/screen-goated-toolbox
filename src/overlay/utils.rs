@@ -392,22 +392,37 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
     }
 }
 
-pub fn type_text_to_window(hwnd_target: HWND, text: &str) {
+pub fn type_text_to_window(hwnd_target_opt: Option<HWND>, text: &str) {
     if text.is_empty() {
         return;
     }
     unsafe {
-        // Ensure target is foreground
+        // Determine the actual target window
         let fg_window = GetForegroundWindow();
-        if fg_window != hwnd_target {
+        let target_window = if let Some(hwnd) = hwnd_target_opt {
+            if IsWindow(Some(hwnd)).as_bool() {
+                hwnd
+            } else {
+                fg_window
+            }
+        } else {
+            fg_window
+        };
+
+        // Don't try to type into nothing
+        if target_window.is_invalid() {
+            return;
+        }
+
+        if fg_window != target_window {
             let cur_thread = GetCurrentThreadId();
-            let target_thread = GetWindowThreadProcessId(hwnd_target, None);
+            let target_thread = GetWindowThreadProcessId(target_window, None);
             if cur_thread != target_thread {
                 let _ = AttachThreadInput(cur_thread, target_thread, true);
-                let _ = SetForegroundWindow(hwnd_target);
+                let _ = SetForegroundWindow(target_window);
                 let _ = AttachThreadInput(cur_thread, target_thread, false);
             } else {
-                let _ = SetForegroundWindow(hwnd_target);
+                let _ = SetForegroundWindow(target_window);
             }
         }
 

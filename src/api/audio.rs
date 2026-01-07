@@ -887,9 +887,8 @@ pub fn record_and_stream_gemini_live(
                                 update_stream_text(&txt);
                             }
                             if preset.auto_paste {
-                                if let Some(target) = target_window {
-                                    crate::overlay::utils::type_text_to_window(target, &t);
-                                }
+                                // Dynamic window targeting
+                                crate::overlay::utils::type_text_to_window(None, &t);
                             }
                         }
                     }
@@ -903,9 +902,7 @@ pub fn record_and_stream_gemini_live(
                                     update_stream_text(&txt);
                                 }
                                 if preset.auto_paste {
-                                    if let Some(target) = target_window {
-                                        crate::overlay::utils::type_text_to_window(target, &t);
-                                    }
+                                    crate::overlay::utils::type_text_to_window(None, &t);
                                 }
                             }
                         }
@@ -984,9 +981,7 @@ pub fn record_and_stream_gemini_live(
                                     txt.push_str(&t);
                                 }
                                 if preset.auto_paste {
-                                    if let Some(target) = target_window {
-                                        crate::overlay::utils::type_text_to_window(target, &t);
-                                    }
+                                    crate::overlay::utils::type_text_to_window(None, &t);
                                 }
                                 // Found data, extend wait
                                 conclude_end = Instant::now() + extension;
@@ -1217,9 +1212,9 @@ pub fn record_and_stream_parakeet(
             }
             // Real-time typing
             if preset_clone.auto_paste {
-                if let Some(target) = target_window_clone {
-                    crate::overlay::utils::type_text_to_window(target, &text);
-                }
+                // Always use current foreground window (None) for continuous typing
+                // This allows user to switch windows while talking
+                crate::overlay::utils::type_text_to_window(None, &text);
             }
         }
     };
