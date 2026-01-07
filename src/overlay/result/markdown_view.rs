@@ -131,6 +131,11 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
         );
         let wrapper = HwndWrapper(hwnd);
 
+        // Store HTML in font server and get URL for same-origin font loading
+        let page_url =
+            crate::overlay::html_components::font_manager::store_html_page(warmup_html.clone())
+                .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&warmup_html)));
+
         let result = SHARED_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -141,7 +146,7 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
-                    .with_html(&warmup_html)
+                    .with_url(&page_url)
                     .with_transparent(false);
 
                 crate::overlay::html_components::font_manager::configure_webview(builder)
@@ -155,7 +160,7 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
-                    .with_html(&warmup_html)
+                    .with_url(&page_url)
                     .with_transparent(false);
 
                 crate::overlay::html_components::font_manager::configure_webview(builder)

@@ -551,6 +551,13 @@ pub fn show_app_selection_popup() {
             let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
             let mut web_context = wry::WebContext::new(Some(shared_data_dir));
 
+            // Store HTML in font server and get URL for same-origin font loading
+            let page_url =
+                crate::overlay::html_components::font_manager::store_html_page(html_clone.clone())
+                    .unwrap_or_else(|| {
+                        format!("data:text/html,{}", urlencoding::encode(&html_clone))
+                    });
+
             let builder = wry::WebViewBuilder::new_with_web_context(&mut web_context);
             let result = crate::overlay::html_components::font_manager::configure_webview(builder)
                 .with_bounds(wry::Rect {
@@ -560,7 +567,7 @@ pub fn show_app_selection_popup() {
                         win_height as u32,
                     )),
                 })
-                .with_html(&html_clone)
+                .with_url(&page_url)
                 .with_transparent(true)
                 .with_ipc_handler(move |req| {
                     let body = req.body();

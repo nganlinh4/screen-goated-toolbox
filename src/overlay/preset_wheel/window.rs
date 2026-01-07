@@ -344,10 +344,16 @@ fn internal_create_window_loop() {
 
             let template_html = get_wheel_template(true); // Default dark for warmup
 
+            // Store HTML in font server and get URL for same-origin font loading
+            let page_url = crate::overlay::html_components::font_manager::store_html_page(
+                template_html.clone(),
+            )
+            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&template_html)));
+
             builder
                 .with_transparent(true)
                 .with_background_color((0, 0, 0, 0))
-                .with_html(template_html)
+                .with_url(&page_url)
                 .with_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(

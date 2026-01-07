@@ -637,6 +637,11 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
             WebViewBuilder::new()
         };
         let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+
+        // Store HTML in font server and get URL for same-origin font loading
+        let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
+            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
+
         builder
             .with_bounds(Rect {
                 position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
@@ -647,7 +652,7 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
                     webview_h as u32,
                 )),
             })
-            .with_html(&html)
+            .with_url(&page_url)
             .with_transparent(false)
             .with_ipc_handler(move |msg: wry::http::Request<String>| {
                 let body = msg.body();

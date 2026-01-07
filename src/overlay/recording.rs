@@ -293,6 +293,11 @@ fn internal_create_recording_window() {
 
             builder = crate::overlay::html_components::font_manager::configure_webview(builder);
 
+            // Store HTML in font server and get URL for same-origin font loading
+            let page_url =
+                crate::overlay::html_components::font_manager::store_html_page(html.clone())
+                    .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
+
             let (ui_width, ui_height) = get_ui_dimensions();
             builder
                 .with_bounds(Rect {
@@ -304,7 +309,7 @@ fn internal_create_recording_window() {
                 })
                 .with_transparent(true)
                 .with_background_color((0, 0, 0, 0)) // Fully transparent background
-                .with_html(&html)
+                .with_url(&page_url)
                 .with_ipc_handler(move |msg: wry::http::Request<String>| {
                     let hwnd = HWND(ipc_hwnd_val as *mut std::ffi::c_void);
                     let body = msg.body().as_str();

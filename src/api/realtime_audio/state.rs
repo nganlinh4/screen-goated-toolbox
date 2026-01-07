@@ -13,16 +13,14 @@ pub const AI_SILENCE_TIMEOUT_MS: u64 = 2000;
 // ============================================
 // Parakeet doesn't produce punctuation, so we use time-based segmentation
 
-/// Base timeout for Parakeet segments (800ms)
+/// Base timeout for Parakeet segments (700ms)
 pub const PARAKEET_BASE_TIMEOUT_MS: u64 = 800;
 /// Minimum word count before allowing timeout-based commit for Parakeet
 pub const PARAKEET_MIN_WORDS: usize = 3;
-/// Maximum segment length (chars) beyond which we aggressively decrease timeout
-pub const PARAKEET_MAX_SEGMENT_CHARS: usize = 200;
 /// Minimum timeout (ms) - floor for the decreasing formula
-pub const PARAKEET_MIN_TIMEOUT_MS: u64 = 300;
-/// How fast timeout decreases per character beyond threshold (1ms per 5 chars)
-pub const PARAKEET_TIMEOUT_DECAY_RATE: f64 = 0.2;
+pub const PARAKEET_MIN_TIMEOUT_MS: u64 = 200;
+/// How fast timeout decreases per character beyond threshold (5ms per char)
+pub const PARAKEET_TIMEOUT_DECAY_RATE: f64 = 4.0;
 
 /// Transcription method being used
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

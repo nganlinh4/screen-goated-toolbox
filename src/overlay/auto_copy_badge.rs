@@ -493,6 +493,14 @@ fn internal_create_window_loop() {
 
             let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
 
+            // Store HTML in font server and get URL for same-origin font loading
+            let badge_html = get_badge_html();
+            let page_url =
+                crate::overlay::html_components::font_manager::store_html_page(badge_html.clone())
+                    .unwrap_or_else(|| {
+                        format!("data:text/html,{}", urlencoding::encode(&badge_html))
+                    });
+
             builder
                 .with_transparent(true)
                 .with_bounds(Rect {
@@ -502,7 +510,7 @@ fn internal_create_window_loop() {
                         BADGE_HEIGHT as u32,
                     )),
                 })
-                .with_html(&get_badge_html())
+                .with_url(&page_url)
                 .with_ipc_handler(move |msg: wry::http::Request<String>| {
                     let body = msg.body();
                     if body == "finished" {
