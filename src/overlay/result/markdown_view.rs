@@ -714,7 +714,13 @@ pub fn create_markdown_webview_ex(
 
     // SIMPLIFIED FOR DEBUGGING - minimal WebView creation
     // CRITICAL: with_transparent(false) matches text_input's working config
-    let result = WebViewBuilder::new()
+
+    // Store HTML in font server and get URL for same-origin font loading
+    let page_url =
+        crate::overlay::html_components::font_manager::store_html_page(html_content.clone())
+            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html_content)));
+
+    let mut builder = WebViewBuilder::new()
         .with_bounds(Rect {
             position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
                 edge_margin as i32,
@@ -725,8 +731,12 @@ pub fn create_markdown_webview_ex(
                 content_height as u32,
             )),
         })
-        .with_html(&html_content)
-        .with_transparent(false)
+        .with_url(&page_url)
+        .with_transparent(false);
+
+    builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+
+    let result = builder
         .with_navigation_handler(move |url: String| {
             // Check if we should skip this navigation (triggered by history.back())
             let should_skip = {
