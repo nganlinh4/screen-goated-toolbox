@@ -292,47 +292,77 @@ const MARKDOWN_CSS: &str = r#"
         font-variation-settings: 'wght' 500, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
 
-    p { margin: 0.5em 0; } /* Reduced form 0.8em */
+    p { margin: 0.5em 0; }
     
-    strong, b { 
-        font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
-        color: #fff; 
-    }
-    em, i { 
-        font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' -10, 'ROND' 100;
-        color: #cfd8dc; 
-    }
-    
-    blockquote { 
-        border-left: none;
+    /* Interactive Word Styling - Seamless Fisheye */
+    .word {
+        display: inline-block;
+        transition: font-variation-settings 0.2s ease-out, transform 0.2s ease-out, color 0.2s ease, text-shadow 0.2s ease;
+        cursor: text;
+        white-space: pre-wrap;
         position: relative;
-        background: linear-gradient(to right, rgba(79, 195, 247, 0.08), transparent);
-        padding: 8px 12px; /* Reduced from 12px 16px */
-        margin: 12px 0; /* Reduced from 16px */
-        border-radius: 6px;
-        border-left: 3px solid var(--primary);
-        color: #b0bec5;
-        font-style: italic;
-        font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100;
+        z-index: 1;
+        transform-origin: bottom center; /* Scale from baseline */
+    }
+
+    /* 1. Center (Hovered) */
+    .word:hover {
+        transform: scale(1.35);
+        font-variation-settings: 'wght' 800, 'wdth' 110, 'slnt' -5, 'ROND' 50;
+        color: var(--primary);
+        text-shadow: 0 0 12px rgba(79, 195, 247, 0.6);
+        z-index: 10;
+        margin: 0 1px; /* Slight push */
+    }
+
+    /* 2. Immediate Neighbors (Distance: 1) */
+    /* Next Sibling */
+    .word:hover + .word {
+        transform: scale(1.2);
+        font-variation-settings: 'wght' 700, 'wdth' 105, 'slnt' 0, 'ROND' 75;
+        color: #e1f5fe;
+        z-index: 5;
+    }
+    /* Previous Sibling (using :has) */
+    .word:has(+ .word:hover) {
+        transform: scale(1.2);
+        font-variation-settings: 'wght' 700, 'wdth' 105, 'slnt' 0, 'ROND' 75;
+        color: #e1f5fe;
+        z-index: 5;
+    }
+
+    /* 3. Secondary Neighbors (Distance: 2) */
+    /* Next Next Sibling */
+    .word:hover + .word + .word {
+        transform: scale(1.1);
+        font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 85;
+        color: #b3e5fc;
+    }
+    /* Previous Previous Sibling */
+    .word:has(+ .word + .word:hover) {
+        transform: scale(1.1);
+        font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 85;
+        color: #b3e5fc;
+    }
+
+    /* Headers need specific overriding to ensure the fisheye works on top of their base styles */
+    h1 .word:hover, h2 .word:hover, h3 .word:hover {
+        color: var(--primary);
     }
     
-    pre { 
-        background: #0a0a0a !important; 
-        padding: 12px !important; /* Reduced from 16px */
-        border-radius: 8px !important; 
-        border: 1px solid #222;
-        box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
-        overflow-x: auto;
-        margin: 12px 0; /* Reduced from 16px */
+    /* Ensure code blocks remain non-interactive */
+    pre .word {
+        display: inline;
+        transition: none;
     }
-    
-    code { 
-        font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
-        background: rgba(255,255,255,0.06); 
-        padding: 2px 5px; 
-        border-radius: 4px;
-        font-size: 0.9em;
-        color: #ffcc80;
+    pre .word:hover, 
+    pre .word:hover + .word,
+    pre .word:has(+ .word:hover) {
+        transform: none;
+        font-variation-settings: initial;
+        color: inherit;
+        text-shadow: none;
+        margin: 0;
     }
     
     pre code { 
@@ -341,7 +371,8 @@ const MARKDOWN_CSS: &str = r#"
         color: #d4d4d4;
     }
     
-    a { color: #82b1ff; text-decoration: none; transition: all 0.2s; }
+    a { color: #82b1ff; text-decoration: none; transition: all 0.2s; cursor: pointer; }
+    a .word { cursor: pointer; } /* Ensure link words show hand cursor */
     a:hover { color: #448aff; text-shadow: 0 0 10px rgba(68,138,255,0.4); text-decoration: none; }
     
     ul, ol { padding-left: 20px; margin: 0.5em 0; }
@@ -378,6 +409,17 @@ const MARKDOWN_CSS: &str = r#"
     
     ::-webkit-scrollbar { display: none; }
 "#;
+
+use pulldown_cmark::{Event, Tag, TagEnd};
+
+/// Minimal HTML escaping for text content
+fn escape_html_text(text: &str) -> String {
+    text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&#39;")
+}
 
 /// Check if content is already HTML (rather than Markdown)
 fn is_html_content(content: &str) -> bool {
@@ -611,11 +653,13 @@ pub fn markdown_to_html(
 </head>
 <body>
     {}
+    {}
 </body>
 </html>"#,
             get_font_style(),
             MARKDOWN_CSS,
-            quote
+            quote,
+            "" // No extra script
         );
     }
 
@@ -632,8 +676,63 @@ pub fn markdown_to_html(
     options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(markdown, options);
+
+    // Custom wrapper to enable word-level interaction
+    // We map text events to HTML events containing wrapped words
+    let mut in_code_block = false;
+    let mut in_table = false;
+
+    let wrapped_parser = parser.map(|event| {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => {
+                in_code_block = true;
+                event
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                in_code_block = false;
+                event
+            }
+            Event::Start(Tag::Table(_)) => {
+                in_table = true;
+                event
+            }
+            Event::End(TagEnd::Table) => {
+                in_table = false;
+                event
+            }
+            Event::Code(_) => {
+                // Inline code event - return as is
+                event
+            }
+            Event::Text(text) => {
+                if !in_code_block && !in_table {
+                    // Split text into words and wrap
+                    let mut output = String::with_capacity(text.len() * 2);
+                    let escaped = escape_html_text(&text);
+
+                    for (i, part) in escaped.split(' ').enumerate() {
+                        if i > 0 {
+                            output.push(' ');
+                        }
+                        if part.trim().is_empty() {
+                            output.push_str(part);
+                        } else {
+                            output.push_str("<span class=\"word\">");
+                            output.push_str(part);
+                            output.push_str("</span>");
+                        }
+                    }
+                    Event::Html(output.into())
+                } else {
+                    Event::Text(text)
+                }
+            }
+            _ => event,
+        }
+    });
+
     let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
+    html::push_html(&mut html_output, wrapped_parser);
 
     // Grid.js Integration
     let has_table = html_output.contains("<table");
