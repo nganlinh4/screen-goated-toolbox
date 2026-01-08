@@ -1735,37 +1735,8 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
         });
     }
 
-    // Re-fit font after resize - use streaming version if actively streaming
-    // Check if streaming is active via JavaScript
-    WEBVIEWS.with(|webviews| {
-        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
-            // Use streaming fit if content is short (likely still streaming)
-            // Otherwise use full fit_font_to_window
-            let _ = webview.evaluate_script(
-                r#"
-                (function() {
-                    var textLen = (document.body.innerText || '').trim().length;
-                    if (textLen < 300) {
-                        // Short content - use simpler streaming logic (shrink only)
-                        var body = document.body;
-                        var doc = document.documentElement;
-                        var winH = window.innerHeight;
-                        var hasOverflow = doc.scrollHeight > (winH + 2);
-                        
-                        if (hasOverflow) {
-                            var currentSize = parseFloat(body.style.fontSize) || 14;
-                            while (hasOverflow && currentSize > 8) {
-                                currentSize--;
-                                body.style.fontSize = currentSize + 'px';
-                                hasOverflow = doc.scrollHeight > (winH + 2);
-                            }
-                        }
-                    }
-                })();
-            "#,
-            );
-        }
-    });
+    // Re-fit font after resize to maintain optimal scaling
+    fit_font_to_window(parent_hwnd);
 }
 
 /// Hide the WebView (toggle back to plain text)
