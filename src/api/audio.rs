@@ -456,6 +456,88 @@ fn resample_to_16khz(samples: &[i16], source_rate: u32) -> Vec<i16> {
     resampled
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum AudioMode {
+    Normal,
+    Silence,
+    CatchUp,
+}
+
+fn try_reconnect(
+    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    api_key: &str,
+    audio_buffer: &Arc<std::sync::Mutex<Vec<i16>>>,
+    silence_buffer: &mut Vec<i16>,
+    audio_mode: &mut AudioMode,
+    mode_start: &mut std::time::Instant,
+    last_transcription_time: &mut std::time::Instant,
+    consecutive_empty_reads: &mut u32,
+    stop_signal: &Arc<std::sync::atomic::AtomicBool>,
+) -> bool {
+    use crate::api::realtime_audio::websocket::{
+        connect_websocket, send_setup_message, set_socket_nonblocking,
+    };
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    let mut reconnect_buffer: Vec<i16> = Vec::new();
+    let _ = socket.close(None);
+
+    println!("[GeminiLiveStream] Connection lost. Attempting to reconnect...");
+
+    // Retry indefinitely until success or user stop
+    loop {
+        // Check if user stopped the recording while we were trying to reconnect
+        if stop_signal.load(Ordering::Relaxed) {
+            println!("[GeminiLiveStream] Stop signal received during reconnection.");
+            return false;
+        }
+
+        {
+            let mut buf = audio_buffer.lock().unwrap();
+            reconnect_buffer.extend(std::mem::take(&mut *buf));
+        }
+
+        match connect_websocket(api_key) {
+            Ok(mut new_socket) => {
+                if send_setup_message(&mut new_socket).is_err() {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+                if set_socket_nonblocking(&mut new_socket).is_err() {
+                    let _ = new_socket.close(None);
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+
+                // Final flush of buffer before resuming
+                {
+                    let mut buf = audio_buffer.lock().unwrap();
+                    reconnect_buffer.extend(std::mem::take(&mut *buf));
+                }
+
+                silence_buffer.clear();
+                silence_buffer.extend(reconnect_buffer);
+                *audio_mode = AudioMode::CatchUp;
+                *mode_start = Instant::now();
+                *socket = new_socket;
+                *last_transcription_time = Instant::now();
+                *consecutive_empty_reads = 0;
+
+                println!("[GeminiLiveStream] Reconnected successfully!");
+                return true;
+            }
+            Err(e) => {
+                println!(
+                    "[GeminiLiveStream] Reconnection failed: {}. Retrying in 1s...",
+                    e
+                );
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
+    }
+}
+
 /// Real-time record and stream to Gemini Live WebSocket
 /// Connects WebSocket FIRST, then streams audio in real-time during recording
 pub fn record_and_stream_gemini_live(
@@ -857,20 +939,85 @@ pub fn record_and_stream_gemini_live(
     let mut first_speech: Option<Instant> = None;
     let mut last_active = Instant::now();
 
+    // Reconnection & CatchUp state
+    let mut audio_mode = AudioMode::Normal;
+    let mut mode_start = Instant::now();
+    let mut silence_buffer: Vec<i16> = Vec::new();
+    let mut last_transcription_time = Instant::now();
+    let mut consecutive_empty_reads: u32 = 0;
+
+    const NORMAL_DURATION: Duration = Duration::from_secs(20);
+    const SILENCE_DURATION: Duration = Duration::from_secs(2);
+    const SAMPLES_PER_100MS: usize = 1600;
+    const NO_RESULT_THRESHOLD_SECS: u64 = 8;
+    const EMPTY_READ_CHECK_COUNT: u32 = 50;
+
     while !stop_signal.load(Ordering::SeqCst) && !abort_signal.load(Ordering::SeqCst) {
         if !preset.hide_recording_ui && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
             break;
         }
 
+        // State machine transitions
+        match audio_mode {
+            AudioMode::Normal => {
+                if mode_start.elapsed() >= NORMAL_DURATION {
+                    audio_mode = AudioMode::Silence;
+                    mode_start = Instant::now();
+                    silence_buffer.clear();
+                }
+            }
+            AudioMode::Silence => {
+                if mode_start.elapsed() >= SILENCE_DURATION {
+                    audio_mode = AudioMode::CatchUp;
+                    mode_start = Instant::now();
+                }
+            }
+            AudioMode::CatchUp => {
+                if silence_buffer.is_empty() {
+                    audio_mode = AudioMode::Normal;
+                    mode_start = Instant::now();
+                }
+            }
+        }
+
         if last_send.elapsed() >= send_interval {
-            let all_samples: Vec<i16> = {
+            let real_audio: Vec<i16> = {
                 let mut buf = audio_buffer.lock().unwrap();
                 std::mem::take(&mut *buf)
             };
 
-            if !all_samples.is_empty() && !pause_signal.load(Ordering::Relaxed) {
-                for chunk in all_samples.chunks(chunk_size) {
-                    let _ = send_audio_chunk(&mut socket, chunk);
+            match audio_mode {
+                AudioMode::Normal => {
+                    if !real_audio.is_empty() && !pause_signal.load(Ordering::Relaxed) {
+                        for chunk in real_audio.chunks(chunk_size) {
+                            if send_audio_chunk(&mut socket, chunk).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                AudioMode::Silence => {
+                    silence_buffer.extend(real_audio);
+                    let silence: Vec<i16> = vec![0i16; SAMPLES_PER_100MS];
+                    if send_audio_chunk(&mut socket, &silence).is_err() {
+                        break;
+                    }
+                }
+                AudioMode::CatchUp => {
+                    silence_buffer.extend(real_audio);
+                    let double_chunk = SAMPLES_PER_100MS * 2;
+                    let to_send: Vec<i16> = if silence_buffer.len() >= double_chunk {
+                        silence_buffer.drain(..double_chunk).collect()
+                    } else if !silence_buffer.is_empty() {
+                        silence_buffer.drain(..).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    if !to_send.is_empty() {
+                        if send_audio_chunk(&mut socket, &to_send).is_err() {
+                            break;
+                        }
+                    }
                 }
             }
             last_send = Instant::now();
@@ -882,12 +1029,13 @@ pub fn record_and_stream_gemini_live(
                 Ok(tungstenite::Message::Text(msg)) => {
                     if let Some(t) = parse_input_transcription(msg.as_str()) {
                         if !t.is_empty() {
+                            last_transcription_time = Instant::now();
+                            consecutive_empty_reads = 0;
                             if let Ok(mut txt) = accumulated_text.lock() {
                                 txt.push_str(&t);
                                 update_stream_text(&txt);
                             }
                             if preset.auto_paste {
-                                // Dynamic window targeting
                                 crate::overlay::utils::type_text_to_window(None, &t);
                             }
                         }
@@ -897,6 +1045,8 @@ pub fn record_and_stream_gemini_live(
                     if let Ok(s) = String::from_utf8(data.to_vec()) {
                         if let Some(t) = parse_input_transcription(&s) {
                             if !t.is_empty() {
+                                last_transcription_time = Instant::now();
+                                consecutive_empty_reads = 0;
                                 if let Ok(mut txt) = accumulated_text.lock() {
                                     txt.push_str(&t);
                                     update_stream_text(&txt);
@@ -908,14 +1058,70 @@ pub fn record_and_stream_gemini_live(
                         }
                     }
                 }
+                Ok(tungstenite::Message::Close(_)) => {
+                    if !try_reconnect(
+                        &mut socket,
+                        &gemini_api_key,
+                        &audio_buffer,
+                        &mut silence_buffer,
+                        &mut audio_mode,
+                        &mut mode_start,
+                        &mut last_transcription_time,
+                        &mut consecutive_empty_reads,
+                        &stop_signal,
+                    ) {
+                        break;
+                    }
+                }
                 Ok(_) => {}
                 Err(tungstenite::Error::Io(ref e))
                     if e.kind() == std::io::ErrorKind::WouldBlock
                         || e.kind() == std::io::ErrorKind::TimedOut =>
                 {
-                    break
+                    consecutive_empty_reads += 1;
+                    if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
+                        && last_transcription_time.elapsed()
+                            > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
+                    {
+                        if !try_reconnect(
+                            &mut socket,
+                            &gemini_api_key,
+                            &audio_buffer,
+                            &mut silence_buffer,
+                            &mut audio_mode,
+                            &mut mode_start,
+                            &mut last_transcription_time,
+                            &mut consecutive_empty_reads,
+                            &stop_signal,
+                        ) {
+                            break;
+                        }
+                    }
+                    break;
                 }
-                Err(_) => break,
+                Err(e) => {
+                    let error_str = e.to_string();
+                    if error_str.contains("reset")
+                        || error_str.contains("closed")
+                        || error_str.contains("broken")
+                    {
+                        if !try_reconnect(
+                            &mut socket,
+                            &gemini_api_key,
+                            &audio_buffer,
+                            &mut silence_buffer,
+                            &mut audio_mode,
+                            &mut mode_start,
+                            &mut last_transcription_time,
+                            &mut consecutive_empty_reads,
+                            &stop_signal,
+                        ) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
             }
         }
 
