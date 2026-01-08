@@ -44,7 +44,12 @@ unsafe fn measure_text_bounds(
     };
 
     // DT_EDITCONTROL helps simulate multiline text box behavior
-    DrawTextW(hdc, text, &mut calc_rect, DT_CALCRECT | DT_WORDBREAK);
+    DrawTextW(
+        hdc,
+        text,
+        &mut calc_rect,
+        DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL,
+    );
 
     SelectObject(hdc, old_font);
     let _ = DeleteObject(hfont.into());
@@ -404,15 +409,13 @@ pub fn paint_window(hwnd: HWND) {
                             format!("{}\n\n{}", preset_prompt, input_text)
                         };
                         let quote = crate::overlay::utils::get_context_quote(&combined);
-                        quote
-                            .encode_utf16()
-                            .chain(std::iter::once(0))
-                            .collect::<Vec<u16>>()
+                        quote.encode_utf16().collect::<Vec<u16>>()
                     }
                 } else {
-                    let text_len = GetWindowTextLengthW(hwnd) + 1;
-                    let mut b = vec![0u16; text_len as usize];
-                    GetWindowTextW(hwnd, &mut b);
+                    let text_len = GetWindowTextLengthW(hwnd);
+                    let mut b = vec![0u16; text_len as usize + 1];
+                    let actual_len = GetWindowTextW(hwnd, &mut b);
+                    b.truncate(actual_len as usize);
                     b
                 };
 
@@ -421,32 +424,26 @@ pub fn paint_window(hwnd: HWND) {
                 let v_safety_margin = 0;
                 let available_h = (height - v_safety_margin).max(1);
 
-                let text_char_count = buf.len();
-
-                let mut low = if is_refining { 8 } else { 8 };
+                let mut low = if is_refining { 8 } else { 2 };
                 let max_possible = if is_refining {
                     18.min(available_h)
                 } else {
-                    available_h.min(100)
+                    available_h.max(2).min(150)
                 };
                 let mut high = max_possible;
-                let mut best_fit = 8;
+                let mut best_fit = low;
 
                 if high < low {
                     best_fit = low;
                 } else {
-                    // OPTIMIZATION: For large text, use coarser binary search steps
-                    // This reduces iterations without changing the final result
-                    let step_size = if text_char_count > 1000 { 2 } else { 1 };
-
                     while low <= high {
                         let mid = (low + high) / 2;
                         let (h, w) = measure_text_bounds(cache_dc, &mut buf, mid, available_w);
                         if h <= available_h && w <= available_w {
                             best_fit = mid;
-                            low = mid + step_size;
+                            low = mid + 1;
                         } else {
-                            high = mid - step_size;
+                            high = mid - 1;
                         }
                     }
                 }
@@ -481,7 +478,7 @@ pub fn paint_window(hwnd: HWND) {
                     cache_dc,
                     &mut buf,
                     &mut measure_rect,
-                    DT_CALCRECT | DT_WORDBREAK,
+                    DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL,
                 );
                 let text_h = measure_rect.bottom;
 
@@ -494,9 +491,9 @@ pub fn paint_window(hwnd: HWND) {
                 };
 
                 let draw_flags = if is_refining {
-                    DT_CENTER | DT_WORDBREAK
+                    DT_CENTER | DT_WORDBREAK | DT_EDITCONTROL
                 } else {
-                    DT_LEFT | DT_WORDBREAK
+                    DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL
                 };
                 DrawTextW(cache_dc, &mut buf, &mut draw_rect as *mut _, draw_flags);
 
