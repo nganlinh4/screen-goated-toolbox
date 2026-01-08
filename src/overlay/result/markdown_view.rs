@@ -1,12 +1,10 @@
-use base64;
-use base64::Engine;
 use pulldown_cmark::{html, Options, Parser};
 use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Mutex, Once};
 use windows::core::w;
 use windows::Win32::Foundation::*;
@@ -216,110 +214,168 @@ fn get_font_style() -> String {
 
 /// CSS styling for the markdown content
 const MARKDOWN_CSS: &str = r#"
+    :root {
+        --primary: #4fc3f7;
+        --secondary: #81d4fa;
+        --bg: #1a1a1a;
+        --bg-grad: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+        --glass: rgba(255, 255, 255, 0.03);
+        --glass-border: rgba(255, 255, 255, 0.05);
+    }
     * { box-sizing: border-box; }
+    
+    /* Animation definitions */
+    @keyframes shimmer {
+        0% { background-position: 100% 0; }
+        100% { background-position: -100% 0; }
+    }
+
     body { 
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, sans-serif;
         font-optical-sizing: auto;
-        font-variation-settings: 'wght' 400, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        /* wdth 90 for more compact text as requested */
+        font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100;
         font-size: 14px;
-        line-height: 1.6;
-        background: #1a1a1a;
+        line-height: 1.5; /* Reduced line height for compactness */
+        background: var(--bg);
+        background-image: var(--bg-grad);
+        background-attachment: fixed;
         min-height: 100vh;
         color: #e0e0e0;
         margin: 0;
-        padding: 8px;
+        padding: 10px; /* Reduced from 12px */
         overflow-x: hidden;
         word-wrap: break-word;
+        opacity: 1;
     }
+    
     body > *:first-child { margin-top: 0; }
+    
     h1 { 
         font-size: 1.8em; 
-        color: #4fc3f7; 
-        border-bottom: 1px solid #333; 
-        padding-bottom: 8px; 
+        color: var(--primary); 
         margin-top: 0;
-        font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        margin-bottom: 12px; /* Reduced from 16px */
+        padding: 0px;
+        border-radius: 42px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        
+        font-variation-settings: 'wght' 600, 'wdth' 110, 'slnt' 0, 'ROND' 100;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
     }
+
     h2 { 
-        font-size: 1.5em; 
-        color: #81d4fa; 
-        border-bottom: 1px solid #2a2a2a; 
-        padding-bottom: 6px; 
-        margin-top: 0.5em;
+        font-size: 1.4em; 
+        color: var(--secondary); 
+        /* Removed border-bottom */
+        padding-bottom: 4px; 
+        margin-top: 1.0em; /* Reduced from 1.2em */
+        margin-bottom: 0.5em;
         font-variation-settings: 'wght' 550, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
+
     h3 { 
         font-size: 1.2em; 
         color: #b3e5fc; 
-        margin-top: 0.5em;
+        margin-top: 0.8em; /* Reduced from 1.0em */
+        margin-bottom: 0.4em;
         font-variation-settings: 'wght' 500, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
+    
     h4, h5, h6 { 
         color: #e1f5fe; 
-        margin-top: 0.5em;
+        margin-top: 0.8em;
+        margin-bottom: 0.4em;
         font-variation-settings: 'wght' 500, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
-    p { margin: 0.5em 0; }
-    strong, b {
+
+    p { margin: 0.5em 0; } /* Reduced form 0.8em */
+    
+    strong, b { 
         font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        color: #fff; 
     }
-    em, i {
-        font-variation-settings: 'wght' 400, 'wdth' 100, 'slnt' -10, 'ROND' 100;
+    em, i { 
+        font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' -10, 'ROND' 100;
+        color: #cfd8dc; 
     }
+    
+    blockquote { 
+        border-left: none;
+        position: relative;
+        background: linear-gradient(to right, rgba(79, 195, 247, 0.08), transparent);
+        padding: 8px 12px; /* Reduced from 12px 16px */
+        margin: 12px 0; /* Reduced from 16px */
+        border-radius: 6px;
+        border-left: 3px solid var(--primary);
+        color: #b0bec5;
+        font-style: italic;
+        font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100;
+    }
+    
+    pre { 
+        background: #0a0a0a !important; 
+        padding: 12px !important; /* Reduced from 16px */
+        border-radius: 8px !important; 
+        border: 1px solid #222;
+        box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+        overflow-x: auto;
+        margin: 12px 0; /* Reduced from 16px */
+    }
+    
     code { 
         font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
-        background: #2d2d2d; 
-        padding: 2px 6px; 
+        background: rgba(255,255,255,0.06); 
+        padding: 2px 5px; 
         border-radius: 4px;
         font-size: 0.9em;
-        color: #ce9178;
+        color: #ffcc80;
     }
-    pre { 
-        background: #1a1a1a; 
-        padding: 12px 16px; 
-        border-radius: 8px; 
-        overflow-x: auto;
-        border: 1px solid #333;
-    }
+    
     pre code { 
         background: transparent; 
         padding: 0; 
         color: #d4d4d4;
     }
-    a { color: #81d4fa; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    blockquote { 
-        border-left: 4px solid #4fc3f7; 
-        padding-left: 16px; 
-        margin-left: 0;
-        color: #aaa; 
-        background: #1a1a1a;
-        padding: 8px 16px;
-        border-radius: 0 8px 8px 0;
-        font-variation-settings: 'wght' 300, 'wdth' 100, 'slnt' 0, 'ROND' 100;
-    }
-    ul, ol { padding-left: 24px; margin: 0.8em 0; }
-    li { margin: 4px 0; }
+    
+    a { color: #82b1ff; text-decoration: none; transition: all 0.2s; }
+    a:hover { color: #448aff; text-shadow: 0 0 10px rgba(68,138,255,0.4); text-decoration: none; }
+    
+    ul, ol { padding-left: 20px; margin: 0.5em 0; }
+    li { margin: 2px 0; } /* Reduced from 4px */
+    
     table { 
-        border-collapse: collapse; 
         width: 100%; 
-        margin: 1em 0;
-    }
-    th, td { 
-        border: 1px solid #444; 
-        padding: 8px 12px; 
-        text-align: left;
+        border-collapse: separate; 
+        border-spacing: 0; 
+        margin: 12px 0; /* Reduced from 16px */
+        border-radius: 8px; 
+        overflow: hidden; 
+        border: 1px solid #333; 
+        background: rgba(0,0,0,0.2);
     }
     th { 
-        background: #252525; 
-        color: #81d4fa;
+        background: #222; 
+        padding: 8px 10px; /* Reduced from 10px */
+        color: var(--primary); 
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 1px solid #333;
         font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
-    tr:nth-child(even) { background: #1a1a1a; }
-    hr { border: none; border-top: 1px solid #444; margin: 1.5em 0; }
-    img { max-width: 100%; border-radius: 8px; }
+    td { 
+        padding: 6px 10px; /* Reduced from 8px */
+        border-top: 1px solid #333;
+    }
+    tr:first-child td { border-top: none; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
     
-    /* Scrollbar styling - Hidden but scrollable */
+    hr { border: none; height: 1px; background: #333; margin: 16px 0; } /* Reduced from 24px */
+    img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    
     ::-webkit-scrollbar { display: none; }
 "#;
 
@@ -546,14 +602,16 @@ pub fn markdown_to_html(
             text-align: center; 
             height: 100vh; 
             margin: 0; 
-            padding: 24px;
+            padding: 12px;
             font-style: italic;
             color: #aaa;
             font-size: 16px;
         }}
     </style>
 </head>
-<body>{}</body>
+<body>
+    {}
+</body>
 </html>"#,
             get_font_style(),
             MARKDOWN_CSS,
@@ -726,12 +784,8 @@ pub fn create_markdown_webview_ex(
     let data_dir = crate::overlay::get_shared_webview_data_dir();
     let mut web_context = WebContext::new(Some(data_dir));
 
-    // Ensure HTML is a proper document with encoding
-    let full_html = format!(
-        "<!DOCTYPE html><html><head><meta charset='UTF-8'>{}</head><body>{}</body></html>",
-        get_font_style(), // Inject CSS in head
-        html_content
-    );
+    // html_content is already a full HTML document from markdown_to_html
+    let full_html = html_content;
 
     // Use store_html_page with reliable retry
     let mut page_url = String::new();

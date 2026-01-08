@@ -43,19 +43,16 @@ pub fn create_text_presets() -> Vec<Preset> {
                 BlockBuilder::text("google-gtx")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
-                    .streaming(false)
                     .build(),
                 // Node 2: Groq Kimi - accurate LLM
                 BlockBuilder::text("cerebras_qwen3")
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
-                    .auto_copy()
                     .build(),
                 // Node 3: Gemini Flash Lite - Google's fast LLM
                 BlockBuilder::text("text_gemini_flash_lite")
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
-                    .streaming(false)
                     .build(),
             ])
             // All 3 translation nodes branch from input (0 -> 1, 0 -> 2, 0 -> 3)
