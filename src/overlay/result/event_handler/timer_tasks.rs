@@ -253,6 +253,8 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     is_streaming, is_markdown_streaming
                 );
                 markdown_view::stream_markdown_content(hwnd, &md_text);
+                // Continuously scale font as content streams in (only shrinks, no delay)
+                markdown_view::fit_font_streaming(hwnd);
             } else if is_markdown_streaming && !is_streaming {
                 // Streaming just ended in markdown_stream mode
                 // Render the FINAL content first (in case last chunks weren't rendered due to throttling)

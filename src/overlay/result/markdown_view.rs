@@ -1415,7 +1415,10 @@ pub fn reset_stream_counter(parent_hwnd: HWND) {
 
     WEBVIEWS.with(|webviews| {
         if let Some(webview) = webviews.borrow().get(&hwnd_key) {
-            let _ = webview.evaluate_script("window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0;");
+            // Reset stream counters only - font will be reset at start of next session
+            let _ = webview.evaluate_script(
+                "window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0;"
+            );
         }
     });
 }
@@ -1575,6 +1578,61 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
     });
 }
 
+/// Fit font size during streaming - simpler version that only shrinks, no delay
+/// Call this during active streaming for continuous font adjustment
+pub fn fit_font_streaming(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    // Streaming font fit - immediate, no guard, only shrinks (never grows)
+    // Resets to default at start of new session (detected by low word count or short content)
+    let script = r#"
+    (function() {
+        var body = document.body;
+        var doc = document.documentElement;
+        var winH = window.innerHeight;
+        
+        // Detect new session: word count is 0/undefined OR content is very short (first chunk)
+        var textLen = (body.innerText || body.textContent || '').trim().length;
+        var isNewSession = (!window._streamWordCount || window._streamWordCount < 5 || textLen < 50);
+        
+        // At start of new session, reset font to default (start big - 32px)
+        if (isNewSession) {
+            body.style.fontSize = '32px';
+            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+        }
+        
+        var hasOverflow = doc.scrollHeight > (winH + 2);
+        
+        // Only shrink if overflow - never grow during streaming
+        if (hasOverflow) {
+            var currentSize = parseFloat(body.style.fontSize) || parseFloat(window.getComputedStyle(body).fontSize) || 14;
+            
+            // Shrink by 1px at a time until it fits or hits minimum
+            while (hasOverflow && currentSize > 8) {
+                currentSize = currentSize - 1;
+                body.style.fontSize = currentSize + 'px';
+                hasOverflow = doc.scrollHeight > (winH + 2);
+            }
+            
+            // If still overflowing at 8px, try width condensing
+            if (hasOverflow) {
+                var widths = [85, 80, 75, 70, 65, 62.5];
+                for (var w = 0; w < widths.length; w++) {
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
+                    if (doc.scrollHeight <= (winH + 2)) break;
+                }
+            }
+        }
+    })();
+    "#;
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script(script);
+        }
+    });
+}
+
 /// Trigger Grid.js initialization on any tables in the WebView
 /// Call this after streaming ends to convert tables to interactive Grid.js tables
 pub fn init_gridjs(parent_hwnd: HWND) {
@@ -1677,8 +1735,37 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
         });
     }
 
-    // Re-fit font after resize to maintain optimal scaling
-    fit_font_to_window(parent_hwnd);
+    // Re-fit font after resize - use streaming version if actively streaming
+    // Check if streaming is active via JavaScript
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            // Use streaming fit if content is short (likely still streaming)
+            // Otherwise use full fit_font_to_window
+            let _ = webview.evaluate_script(
+                r#"
+                (function() {
+                    var textLen = (document.body.innerText || '').trim().length;
+                    if (textLen < 300) {
+                        // Short content - use simpler streaming logic (shrink only)
+                        var body = document.body;
+                        var doc = document.documentElement;
+                        var winH = window.innerHeight;
+                        var hasOverflow = doc.scrollHeight > (winH + 2);
+                        
+                        if (hasOverflow) {
+                            var currentSize = parseFloat(body.style.fontSize) || 14;
+                            while (hasOverflow && currentSize > 8) {
+                                currentSize--;
+                                body.style.fontSize = currentSize + 'px';
+                                hasOverflow = doc.scrollHeight > (winH + 2);
+                            }
+                        }
+                    }
+                })();
+            "#,
+            );
+        }
+    });
 }
 
 /// Hide the WebView (toggle back to plain text)
