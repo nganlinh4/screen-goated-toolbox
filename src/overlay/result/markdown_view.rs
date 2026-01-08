@@ -253,7 +253,9 @@ const MARKDOWN_CSS: &str = r#"
         font-optical-sizing: auto;
         /* wdth 90 for more compact text as requested */
         font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100;
-        font-size: 14px;
+        /* Smart auto-scaling: min 14px, scales with viewport, max 28px */
+        /* Uses clamp() for native, crash-free scaling based on window height */
+        font-size: clamp(14px, 3.5vh, 28px);
         line-height: 1.5; /* Reduced line height for compactness */
         background: var(--bg);
         background-image: var(--bg-grad);
@@ -261,7 +263,7 @@ const MARKDOWN_CSS: &str = r#"
         min-height: 100vh;
         color: #e0e0e0;
         margin: 0;
-        padding: 10px; /* Reduced from 12px */
+        padding: 0; /* Padding now handled by WebView edge margin */
         overflow-x: hidden;
         word-wrap: break-word;
         /* Appearing animation */
@@ -670,6 +672,12 @@ fn inject_scrollbar_css(html: &str) -> String {
     result
 }
 
+/// Auto-scaling is now handled purely via CSS clamp() in MARKDOWN_CSS
+/// This function is kept as a no-op for compatibility
+fn inject_auto_scaling(html: &str) -> String {
+    html.to_string()
+}
+
 /// Convert markdown text to styled HTML, or pass through raw HTML
 pub fn markdown_to_html(
     markdown: &str,
@@ -815,7 +823,7 @@ pub fn markdown_to_html(
         String::new()
     };
 
-    format!(
+    let final_html = format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
@@ -835,7 +843,9 @@ pub fn markdown_to_html(
         gridjs_head,
         html_output,
         gridjs_body
-    )
+    );
+
+    inject_auto_scaling(&final_html)
 }
 
 /// Create a WebView child window for markdown rendering
@@ -922,13 +932,14 @@ pub fn create_markdown_webview_ex(
 
     let wrapper = HwndWrapper(parent_hwnd);
 
-    // Small margin on edges for resize handle accessibility (2px)
+    // Edge margins: 4px left/right for resize handles, 2px top/bottom
     // 52px at bottom for buttons (btn_size 28 + margin 12 * 2) if hovered
-    let edge_margin = 2.0;
+    let margin_x = 4.0;
+    let margin_y = 2.0;
     let button_area_height = if is_hovered { 52.0 } else { 0.0 };
-    let content_width = ((rect.right - rect.left) as f64 - edge_margin * 2.0).max(50.0);
+    let content_width = ((rect.right - rect.left) as f64 - margin_x * 2.0).max(50.0);
     let content_height =
-        ((rect.bottom - rect.top) as f64 - edge_margin - button_area_height).max(50.0);
+        ((rect.bottom - rect.top) as f64 - margin_y - button_area_height).max(50.0);
 
     // Create WebView with small margins so resize handles remain accessible
     // Use Physical coordinates since GetClientRect returns physical pixels
@@ -969,8 +980,8 @@ pub fn create_markdown_webview_ex(
     let mut builder = WebViewBuilder::new_with_web_context(&mut web_context)
         .with_bounds(Rect {
             position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                edge_margin as i32,
-                edge_margin as i32,
+                margin_x as i32,
+                margin_y as i32,
             )),
             size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
                 content_width as u32,
@@ -1364,16 +1375,26 @@ pub fn stream_markdown_content_ex(
     const newWordCount = words.length;
     
     // Animate only NEW words (beyond previous count)
+    // OPTIMIZED: Batch styling commands to avoid thousands of RAFs causing crashes
+    let newWords = [];
     for (let i = prevWordCount; i < newWordCount; i++) {{
-        const word = words[i];
-        word.style.opacity = '0';
-        word.style.filter = 'blur(2px)';
-        word.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
+        newWords.push(words[i]);
+    }}
+    
+    if (newWords.length > 0) {{
+        // Set initial state
+        newWords.forEach(w => {{
+            w.style.opacity = '0';
+            w.style.filter = 'blur(2px)';
+        }});
         
-        // Trigger animation after reflow
+        // Single RAF for all items
         requestAnimationFrame(() => {{
-            word.style.opacity = '1';
-            word.style.filter = 'blur(0)';
+             newWords.forEach(w => {{
+                w.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
+                w.style.opacity = '1';
+                w.style.filter = 'blur(0)';
+             }});
         }});
     }}
     
@@ -1397,6 +1418,132 @@ pub fn reset_stream_counter(parent_hwnd: HWND) {
     WEBVIEWS.with(|webviews| {
         if let Some(webview) = webviews.borrow().get(&hwnd_key) {
             let _ = webview.evaluate_script("window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0;");
+        }
+    });
+}
+
+/// Fit font size to window - call after streaming ends or on content update
+/// This runs a ONE-TIME font fit calculation (no loops, no observers, safe)
+/// Scales font UP if there's unfilled space, scales DOWN if overflow (but never below 8px)
+/// Also adjusts font width (wdth) to prevent text wrapping when possible
+pub fn fit_font_to_window(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    // One-time font fitting script - runs once, no loops, no observers
+    // 1. First fits font size (8px-32px)
+    // 2. If text would wrap (single line wider than container), condense wdth
+    let script = r#"
+    (function() {
+        if (window._sgtFitting) return;
+        window._sgtFitting = true;
+        
+        setTimeout(function() {
+            var body = document.body;
+            var doc = document.documentElement;
+            var winH = window.innerHeight;
+            var winW = body.clientWidth || window.innerWidth;
+            
+            // Reset wdth to default before measuring
+            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+            
+            var currentSize = parseFloat(window.getComputedStyle(body).fontSize) || 14;
+            currentSize = Math.round(currentSize);
+            
+            if (currentSize < 8) currentSize = 8;
+            
+            var hasOverflow = doc.scrollHeight > (winH + 2);
+            var minSize = 8;
+            var maxSize = 32;
+            
+            // STEP 1: Font size fitting (vertical)
+            if (hasOverflow) {
+                var low = minSize;
+                var high = currentSize;
+                var best = minSize;
+                
+                for (var i = 0; i < 6; i++) {
+                    var mid = Math.floor((low + high) / 2);
+                    body.style.fontSize = mid + 'px';
+                    
+                    if (doc.scrollHeight <= (winH + 2)) {
+                        best = mid;
+                        low = mid + 1;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                
+                body.style.fontSize = best + 'px';
+            } else {
+                var low = currentSize;
+                var high = maxSize;
+                var best = currentSize;
+                
+                for (var i = 0; i < 6; i++) {
+                    var mid = Math.floor((low + high) / 2);
+                    body.style.fontSize = mid + 'px';
+                    
+                    if (doc.scrollHeight <= (winH + 2)) {
+                        best = mid;
+                        low = mid + 1;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                
+                body.style.fontSize = best + 'px';
+            }
+            
+            // STEP 2: Width condensing to prevent text wrapping
+            // Check if text width exceeds container width (would cause wrapping)
+            try {
+                var text = body.innerText || body.textContent || '';
+                text = text.trim();
+                
+                if (text.length > 0 && text.length < 200) {
+                    // Create measurement span
+                    var span = document.createElement('span');
+                    span.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:' + window.getComputedStyle(body).font;
+                    span.textContent = text;
+                    body.appendChild(span);
+                    
+                    var textWidth = span.offsetWidth;
+                    body.removeChild(span);
+                    
+                    // If text would wrap (wider than container), condense wdth
+                    if (textWidth > winW) {
+                        var ratio = winW / textWidth;
+                        // Calculate target wdth: reduce proportionally from 90
+                        // Use 0.80 multiplier to be aggressive and ensure fit on narrow windows
+                        // wdth range for Google Sans Flex is 62.5 to 100
+                        var targetWdth = Math.max(62.5, Math.floor(90 * ratio * 0.80));
+                        
+                        // Apply condensed width
+                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
+                    }
+                }
+            } catch(e) {}
+            
+            // STEP 3: Final overflow check - if still overflowing, try more aggressive condensing
+            hasOverflow = doc.scrollHeight > (winH + 2);
+            if (hasOverflow) {
+                var widths = [80, 75, 70, 65, 62.5];
+                for (var w = 0; w < widths.length; w++) {
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
+                    if (doc.scrollHeight <= (winH + 2)) {
+                        break;
+                    }
+                }
+            }
+            
+            window._sgtFitting = false;
+        }, 50);
+    })();
+    "#;
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script(script);
         }
     });
 }
@@ -1476,12 +1623,13 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
         let mut rect = RECT::default();
         let _ = GetClientRect(parent_hwnd, &mut rect);
 
-        // 2px edge margin for resize handles
-        let edge_margin = 2.0;
+        // Edge margins: 4px left/right for resize handles, 2px top/bottom
+        let margin_x = 4.0;
+        let margin_y = 2.0;
         // Only reserve button area when hovered
-        let button_area_height = if is_hovered { 52.0 } else { edge_margin };
+        let button_area_height = if is_hovered { 52.0 } else { margin_y };
 
-        let content_width = ((rect.right - rect.left) as f64 - edge_margin * 2.0).max(50.0);
+        let content_width = ((rect.right - rect.left) as f64 - margin_x * 2.0).max(50.0);
         let content_height =
             ((rect.bottom - rect.top) as f64 - top_offset - button_area_height).max(50.0);
 
@@ -1490,7 +1638,7 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
                 // Use Physical coordinates since GetClientRect returns physical pixels
                 let _ = webview.set_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                        edge_margin as i32,
+                        margin_x as i32,
                         top_offset as i32,
                     )),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
@@ -1501,6 +1649,9 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
             }
         });
     }
+
+    // Re-fit font after resize to maintain optimal scaling
+    fit_font_to_window(parent_hwnd);
 }
 
 /// Hide the WebView (toggle back to plain text)
