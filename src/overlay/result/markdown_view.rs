@@ -253,14 +253,13 @@ const MARKDOWN_CSS: &str = r#"
         font-optical-sizing: auto;
         /* wdth 90 for more compact text as requested */
         font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100;
-        /* Smart auto-scaling: min 14px, scales with viewport, max 28px */
-        /* Uses clamp() for native, crash-free scaling based on window height */
-        font-size: clamp(14px, 3.5vh, 28px);
+        /* Default size 14px - JavaScript fit_font_to_window handles dynamic scaling for short content */
+        font-size: 14px;
         line-height: 1.5; /* Reduced line height for compactness */
         background: var(--bg);
         background-image: var(--bg-grad);
         background-attachment: fixed;
-        min-height: 100vh;
+        /* Removed min-height: 100vh to enable proper overflow detection for font scaling */
         color: #e0e0e0;
         margin: 0;
         padding: 0; /* Padding now handled by WebView edge margin */
@@ -1449,14 +1448,23 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
             var currentSize = parseFloat(window.getComputedStyle(body).fontSize) || 14;
             currentSize = Math.round(currentSize);
             
-            if (currentSize < 8) currentSize = 8;
+            if (currentSize < 14) currentSize = 14;
             
             var hasOverflow = doc.scrollHeight > (winH + 2);
-            var minSize = 8;
+            var minSize = 14; // Normal minimum is 14px (emergency shrink in Step 3 can go lower)
             var maxSize = 32;
             
+            // Get content length to determine fitting strategy
+            var text = body.innerText || body.textContent || '';
+            var textLen = text.trim().length;
+            
             // STEP 1: Font size fitting (vertical)
-            if (hasOverflow) {
+            // Only shrink for SHORT content (< 300 chars) that could fit
+            // Long content uses default size and scrolls
+            var isShortContent = textLen < 300;
+            
+            if (hasOverflow && isShortContent) {
+                // Short content - try to shrink to fit
                 var low = minSize;
                 var high = currentSize;
                 var best = minSize;
@@ -1474,7 +1482,8 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 }
                 
                 body.style.fontSize = best + 'px';
-            } else {
+            } else if (!hasOverflow) {
+                // No overflow - try to grow to fill space
                 var low = currentSize;
                 var high = maxSize;
                 var best = currentSize;
@@ -1493,45 +1502,64 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 
                 body.style.fontSize = best + 'px';
             }
+            // else: long content with overflow - keep default size, let it scroll
             
-            // STEP 2: Width condensing to prevent text wrapping
-            // Check if text width exceeds container width (would cause wrapping)
-            try {
-                var text = body.innerText || body.textContent || '';
-                text = text.trim();
-                
-                if (text.length > 0 && text.length < 200) {
-                    // Create measurement span
-                    var span = document.createElement('span');
-                    span.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:' + window.getComputedStyle(body).font;
-                    span.textContent = text;
-                    body.appendChild(span);
-                    
-                    var textWidth = span.offsetWidth;
-                    body.removeChild(span);
-                    
-                    // If text would wrap (wider than container), condense wdth
-                    if (textWidth > winW) {
-                        var ratio = winW / textWidth;
-                        // Calculate target wdth: reduce proportionally from 90
-                        // Use 0.80 multiplier to be aggressive and ensure fit on narrow windows
-                        // wdth range for Google Sans Flex is 62.5 to 100
-                        var targetWdth = Math.max(62.5, Math.floor(90 * ratio * 0.80));
+            // STEP 2 & 3: Only for short content
+            if (isShortContent) {
+                // STEP 2: Width adjustment (condense OR stretch)
+                try {
+                    if (textLen > 0 && textLen < 200) {
+                        // Create measurement span
+                        var span = document.createElement('span');
+                        span.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:' + window.getComputedStyle(body).font;
+                        span.textContent = text.trim();
+                        body.appendChild(span);
                         
-                        // Apply condensed width
-                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
+                        var textWidth = span.offsetWidth;
+                        body.removeChild(span);
+                        
+                        // If text would wrap (wider than container), CONDENSE wdth
+                        if (textWidth > winW) {
+                            var ratio = winW / textWidth;
+                            var targetWdth = Math.max(62.5, Math.floor(90 * ratio * 0.80));
+                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
+                        }
+                        // If text is much narrower than container, STRETCH wdth to fill
+                        else if (textWidth < winW * 0.85) {
+                            var ratio = winW / textWidth;
+                            var targetWdth = Math.min(151, Math.floor(90 * ratio * 0.90));
+                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
+                            
+                            // After stretching, verify we didn't cause overflow
+                            if (doc.scrollHeight > (winH + 2)) {
+                                body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+                            }
+                        }
                     }
-                }
-            } catch(e) {}
-            
-            // STEP 3: Final overflow check - if still overflowing, try more aggressive condensing
-            hasOverflow = doc.scrollHeight > (winH + 2);
-            if (hasOverflow) {
-                var widths = [80, 75, 70, 65, 62.5];
-                for (var w = 0; w < widths.length; w++) {
-                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
-                    if (doc.scrollHeight <= (winH + 2)) {
-                        break;
+                } catch(e) {}
+                
+                // STEP 3: Final overflow check - emergency shrink for short content only
+                hasOverflow = doc.scrollHeight > (winH + 2);
+                if (hasOverflow) {
+                    // First try width condensing
+                    var widths = [80, 75, 70, 65, 62.5];
+                    for (var w = 0; w < widths.length; w++) {
+                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
+                        if (doc.scrollHeight <= (winH + 2)) {
+                            break;
+                        }
+                    }
+                    
+                    // If still overflowing, shrink font size further (emergency shrink)
+                    hasOverflow = doc.scrollHeight > (winH + 2);
+                    if (hasOverflow) {
+                        var currentFontSize = parseFloat(body.style.fontSize) || 14;
+                        for (var s = currentFontSize - 1; s >= 6; s--) {
+                            body.style.fontSize = s + 'px';
+                            if (doc.scrollHeight <= (winH + 2)) {
+                                break;
+                            }
+                        }
                     }
                 }
             }
