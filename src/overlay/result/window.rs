@@ -83,8 +83,9 @@ pub fn create_result_window(
 
         // WS_CLIPCHILDREN prevents parent from drawing over child (Fixes Blinking)
         // WS_EX_NOACTIVATE prevents stealing focus when window appears
-        // NOTE: For markdown mode, we match text_input's working configuration exactly
-        let (ex_style, base_style) = if render_mode == "markdown" {
+        // NOTE: For markdown modes, we match text_input's working configuration exactly
+        let is_any_markdown_mode = render_mode == "markdown" || render_mode == "markdown_stream";
+        let (ex_style, base_style) = if is_any_markdown_mode {
             // Markdown mode: match text_input (no WS_CLIPCHILDREN, no WS_EX_NOACTIVATE)
             (WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW, WS_POPUP)
         } else {
@@ -111,9 +112,9 @@ pub fn create_result_window(
         )
         .unwrap_or_default();
 
-        // FOR MARKDOWN MODE: Create WebView IMMEDIATELY after window creation
+        // FOR MARKDOWN MODES: Create WebView IMMEDIATELY after window creation
         // See docs/WEBVIEW2_INITIALIZATION.md for why this is necessary
-        if render_mode == "markdown" {
+        if is_any_markdown_mode {
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
             let _ = super::markdown_view::create_markdown_webview(hwnd, &initial_text, false);
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
@@ -225,7 +226,8 @@ pub fn create_result_window(
                     graphics_mode,
                     cancellation_token: None,
                     // Markdown mode state
-                    is_markdown_mode: render_mode == "markdown",
+                    is_markdown_mode: is_any_markdown_mode,
+                    is_markdown_streaming: render_mode == "markdown_stream",
                     on_markdown_btn: false,
                     is_browsing: false,
                     navigation_depth: 0,
@@ -273,7 +275,7 @@ pub fn create_result_window(
         }
 
         SetTimer(Some(hwnd), 3, 16, None);
-        if render_mode == "markdown" {
+        if is_any_markdown_mode {
             SetTimer(Some(hwnd), 2, 30, None);
             // WebView was already created immediately after window creation (see above)
         }

@@ -819,8 +819,9 @@ progressBar.onclick = (e) => {{
         // Use JSON format for single-block image extraction (helps with structured output)
         let use_json = block_idx == 0 && blocks.len() == 1 && blocks[0].block_type == "image";
 
-        // CRITICAL: Override streaming to false if render_mode is markdown
-        // Markdown + streaming doesn't work properly (causes missing content)
+        // CRITICAL: Override streaming to false if render_mode is markdown (but NOT markdown_stream)
+        // Regular markdown mode doesn't work well with streaming (causes missing content)
+        // But markdown_stream is specifically designed for streaming with markdown rendering
         let actual_streaming_enabled = if block.render_mode == "markdown" {
             false
         } else {

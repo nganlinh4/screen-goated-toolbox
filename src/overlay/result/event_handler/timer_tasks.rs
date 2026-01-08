@@ -215,7 +215,7 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
         let wide_text = to_wstring(&txt);
         let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
 
-        let (maybe_markdown_update, is_hovered) = {
+        let (maybe_markdown_update, is_hovered, is_markdown_streaming, is_streaming) = {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                 // 200ms font recalc throttling during streaming/text updates
@@ -231,17 +231,46 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 state.full_text = txt.clone();
 
                 if state.is_markdown_mode && !state.is_refining {
-                    (Some(state.full_text.clone()), state.is_hovered)
+                    (
+                        Some(state.full_text.clone()),
+                        state.is_hovered,
+                        state.is_markdown_streaming,
+                        state.is_streaming_active,
+                    )
                 } else {
-                    (None, false)
+                    (None, false, false, false)
                 }
             } else {
-                (None, false)
+                (None, false, false, false)
             }
         };
 
         if let Some(md_text) = maybe_markdown_update {
-            markdown_view::create_markdown_webview(hwnd, &md_text, is_hovered);
+            // Use streaming-optimized update for markdown_stream mode during active streaming
+            if is_markdown_streaming && is_streaming {
+                println!(
+                    "[DEBUG] Using stream_markdown_content - streaming={} md_streaming={}",
+                    is_streaming, is_markdown_streaming
+                );
+                markdown_view::stream_markdown_content(hwnd, &md_text);
+            } else if is_markdown_streaming && !is_streaming {
+                // Streaming just ended in markdown_stream mode
+                // Render the FINAL content first (in case last chunks weren't rendered due to throttling)
+                // Then reset the counter for next session
+                println!("[DEBUG] Streaming ended in md_stream mode - final render then reset");
+                // Final render - only new words (if any) will animate
+                markdown_view::stream_markdown_content(hwnd, &md_text);
+                // Now reset for next session
+                markdown_view::reset_stream_counter(hwnd);
+            } else {
+                println!(
+                    "[DEBUG] Using create_markdown_webview - streaming={} md_streaming={}",
+                    is_streaming, is_markdown_streaming
+                );
+                // Regular markdown mode (not streaming) - full render
+                markdown_view::reset_stream_counter(hwnd);
+                markdown_view::create_markdown_webview(hwnd, &md_text, is_hovered);
+            }
         }
         need_repaint = true;
     }

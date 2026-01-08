@@ -173,8 +173,9 @@ pub struct WindowState {
     pub cancellation_token: Option<Arc<AtomicBool>>,
 
     // Markdown mode state
-    pub is_markdown_mode: bool, // True when showing markdown view
-    pub on_markdown_btn: bool,  // Hover state for markdown button
+    pub is_markdown_mode: bool,      // True when showing markdown view
+    pub is_markdown_streaming: bool, // True when using markdown_stream render mode (uses streaming update)
+    pub on_markdown_btn: bool,       // Hover state for markdown button
 
     // Web Browsing State
     pub is_browsing: bool, // True when user has navigated away from initial content

@@ -229,6 +229,24 @@ const MARKDOWN_CSS: &str = r#"
         0% { background-position: 100% 0; }
         100% { background-position: -100% 0; }
     }
+    
+    /* Appearing animation with blur dissolve - matches realtime overlay style */
+    @keyframes content-appear {
+        from {
+            opacity: 0;
+            filter: blur(8px);
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+            transform: translateY(4px);
+        }
+        to {
+            opacity: 1;
+            filter: blur(0);
+            -webkit-backdrop-filter: blur(0);
+            backdrop-filter: blur(0);
+            transform: translateY(0);
+        }
+    }
 
     body { 
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, sans-serif;
@@ -246,7 +264,8 @@ const MARKDOWN_CSS: &str = r#"
         padding: 10px; /* Reduced from 12px */
         overflow-x: hidden;
         word-wrap: break-word;
-        opacity: 1;
+        /* Appearing animation */
+        animation: content-appear 0.35s cubic-bezier(0.2, 0, 0.2, 1) forwards;
     }
     
     body > *:first-child { margin-top: 0; }
@@ -406,6 +425,43 @@ const MARKDOWN_CSS: &str = r#"
     
     hr { border: none; height: 1px; background: #333; margin: 16px 0; } /* Reduced from 24px */
     img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    
+    /* Streaming chunk animation - blur-dissolve for ONLY new content */
+    @keyframes stream-chunk-in {
+        from {
+            opacity: 0;
+            filter: blur(4px);
+            transform: translateX(-2px);
+        }
+        to {
+            opacity: 1;
+            filter: blur(0);
+            transform: translateX(0);
+        }
+    }
+    
+    /* Legacy chunk-appear kept for compatibility */
+    @keyframes chunk-appear {
+        from {
+            opacity: 0;
+            filter: blur(4px);
+        }
+        to {
+            opacity: 1;
+            filter: blur(0);
+        }
+    }
+    
+    /* Class for newly streamed text */
+    .streaming-new {
+        display: inline;
+        animation: stream-chunk-in 0.25s ease-out forwards;
+    }
+    
+    /* Smooth transition for all direct body children during updates */
+    body > * {
+        transition: opacity 0.15s ease-out, filter 0.15s ease-out;
+    }
     
     ::-webkit-scrollbar { display: none; }
 "#;
@@ -1213,6 +1269,136 @@ pub fn update_markdown_content_ex(
         }
         false
     })
+}
+
+/// Stream markdown content - optimized for rapid updates during streaming
+/// Uses innerHTML instead of document.write to avoid document recreation
+/// Call this during streaming, then call update_markdown_content at the end for final render
+pub fn stream_markdown_content(parent_hwnd: HWND, markdown_text: &str) -> bool {
+    let hwnd_key = parent_hwnd.0 as isize;
+    let (is_refining, preset_prompt, input_text) = {
+        let states = super::state::WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get(&hwnd_key) {
+            (
+                state.is_refining,
+                state.preset_prompt.clone(),
+                state.input_text.clone(),
+            )
+        } else {
+            (false, String::new(), String::new())
+        }
+    };
+
+    stream_markdown_content_ex(
+        parent_hwnd,
+        markdown_text,
+        is_refining,
+        &preset_prompt,
+        &input_text,
+    )
+}
+
+/// Stream markdown content - internal version for rapid streaming updates
+/// Uses innerHTML on body to avoid document recreation overhead
+pub fn stream_markdown_content_ex(
+    parent_hwnd: HWND,
+    markdown_text: &str,
+    is_refining: bool,
+    preset_prompt: &str,
+    input_text: &str,
+) -> bool {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    // Check if webview exists
+    let exists = WEBVIEWS.with(|webviews| webviews.borrow().contains_key(&hwnd_key));
+
+    if !exists {
+        // Create the webview first if it doesn't exist
+        return create_markdown_webview_ex(
+            parent_hwnd,
+            markdown_text,
+            false, // is_hovered - during streaming, use compact view
+            is_refining,
+            preset_prompt,
+            input_text,
+        );
+    }
+
+    // For streaming, we just update the body innerHTML
+    // This is much faster than document.write and doesn't recreate the document
+    let html = markdown_to_html(markdown_text, is_refining, preset_prompt, input_text);
+
+    // Extract just the body content from the full HTML
+    // The HTML structure is: ....<body>CONTENT</body>....
+    let body_content = if let Some(body_start) = html.find("<body>") {
+        let after_body = &html[body_start + 6..];
+        if let Some(body_end) = after_body.find("</body>") {
+            &after_body[..body_end]
+        } else {
+            &html[..] // Fallback to full html
+        }
+    } else {
+        &html[..] // Fallback to full html
+    };
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            // Escape for JS template literal
+            let escaped_content = body_content
+                .replace('\\', "\\\\")
+                .replace('`', "\\`")
+                .replace("${", "\\${");
+
+            // Animate only NEW .word spans (markdown_to_html wraps words in <span class="word">)
+            // Track previous word count, add animation only to new words
+            let script = format!(
+                r#"(function() {{
+    const newContent = `{}`;
+    const prevWordCount = window._streamWordCount || 0;
+    
+    // Update content
+    document.body.innerHTML = newContent;
+    
+    // Get all word spans
+    const words = document.querySelectorAll('.word');
+    const newWordCount = words.length;
+    
+    // Animate only NEW words (beyond previous count)
+    for (let i = prevWordCount; i < newWordCount; i++) {{
+        const word = words[i];
+        word.style.opacity = '0';
+        word.style.filter = 'blur(2px)';
+        word.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
+        
+        // Trigger animation after reflow
+        requestAnimationFrame(() => {{
+            word.style.opacity = '1';
+            word.style.filter = 'blur(0)';
+        }});
+    }}
+    
+    window._streamWordCount = newWordCount;
+    window.scrollTo({{ top: document.body.scrollHeight, behavior: 'smooth' }});
+}})()"#,
+                escaped_content
+            );
+            let _ = webview.evaluate_script(&script);
+            return true;
+        }
+        false
+    })
+}
+
+/// Reset the stream content tracker (call when streaming ends)
+/// This ensures the next streaming session starts fresh
+pub fn reset_stream_counter(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script("window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0;");
+        }
+    });
 }
 
 /// Resize the WebView to match parent window
