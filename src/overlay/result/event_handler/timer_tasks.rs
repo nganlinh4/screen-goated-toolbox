@@ -248,10 +248,6 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
         if let Some(md_text) = maybe_markdown_update {
             // Use streaming-optimized update for markdown_stream mode during active streaming
             if is_markdown_streaming && is_streaming {
-                println!(
-                    "[DEBUG] Using stream_markdown_content - streaming={} md_streaming={}",
-                    is_streaming, is_markdown_streaming
-                );
                 markdown_view::stream_markdown_content(hwnd, &md_text);
                 // Continuously scale font as content streams in (only shrinks, no delay)
                 markdown_view::fit_font_streaming(hwnd);
@@ -261,7 +257,6 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 // Streaming just ended in markdown_stream mode
                 // Render the FINAL content first (in case last chunks weren't rendered due to throttling)
                 // Then reset the counter for next session
-                println!("[DEBUG] Streaming ended in md_stream mode - final render then reset");
                 // Final render - only new words (if any) will animate
                 markdown_view::stream_markdown_content(hwnd, &md_text);
                 // Initialize Grid.js on any tables
