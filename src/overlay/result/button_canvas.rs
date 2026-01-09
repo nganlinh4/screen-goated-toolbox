@@ -15,10 +15,17 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
+use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
 use super::state::WINDOW_STATES;
+
+/// Get DPI scale factor (1.0 = 100%, 1.5 = 150%, 2.0 = 200%, etc.)
+fn get_dpi_scale() -> f64 {
+    let dpi = unsafe { GetDpiForSystem() };
+    dpi as f64 / 96.0
+}
 
 // Singleton canvas state
 static CANVAS_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -64,13 +71,10 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 /// Warmup the button canvas - creates hidden fullscreen transparent window
 pub fn warmup() {
-    eprintln!("[ButtonCanvas] warmup() called");
     if IS_WARMED_UP.load(Ordering::SeqCst) || CANVAS_HWND.load(Ordering::SeqCst) != 0 {
-        eprintln!("[ButtonCanvas] Already warmed up or HWND exists, skipping");
         return;
     }
 
-    eprintln!("[ButtonCanvas] Spawning canvas thread...");
     std::thread::spawn(|| {
         create_canvas_window();
     });
@@ -84,10 +88,6 @@ pub fn is_ready() -> bool {
 /// Register a markdown window for button overlay
 pub fn register_markdown_window(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
-    eprintln!(
-        "[ButtonCanvas] register_markdown_window called for hwnd={}",
-        hwnd_key
-    );
 
     // Get window rect
     let rect = unsafe {
@@ -95,13 +95,6 @@ pub fn register_markdown_window(hwnd: HWND) {
         let _ = GetWindowRect(hwnd, &mut r);
         r
     };
-    eprintln!(
-        "[ButtonCanvas] Window rect: ({}, {}, {}, {})",
-        rect.left,
-        rect.top,
-        rect.right - rect.left,
-        rect.bottom - rect.top
-    );
 
     {
         let mut windows = MARKDOWN_WINDOWS.lock().unwrap();
@@ -113,10 +106,6 @@ pub fn register_markdown_window(hwnd: HWND) {
                 rect.right - rect.left,
                 rect.bottom - rect.top,
             ),
-        );
-        eprintln!(
-            "[ButtonCanvas] Now tracking {} markdown windows",
-            windows.len()
         );
     }
 
@@ -791,11 +780,21 @@ fn handle_ipc_message(body: &str) {
                 unsafe {
                     let combined_rgn = CreateRectRgn(0, 0, 0, 0);
 
+                    // JavaScript sends logical (CSS) coordinates, but SetWindowRgn expects physical
+                    let scale = get_dpi_scale();
+
                     for r in regions {
-                        let x = r.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-                        let y = r.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-                        let w = r.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-                        let h = r.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+                        // Parse logical coordinates from JavaScript
+                        let logical_x = r.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let logical_y = r.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let logical_w = r.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let logical_h = r.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                        // Scale to physical coordinates
+                        let x = (logical_x * scale) as i32;
+                        let y = (logical_y * scale) as i32;
+                        let w = (logical_w * scale) as i32;
+                        let h = (logical_h * scale) as i32;
 
                         let rgn = CreateRectRgn(x, y, x + w, y + h);
                         let _ =
@@ -907,17 +906,12 @@ fn handle_ipc_message(body: &str) {
                 crate::overlay::result::trigger_close_all();
             }
             "broom_drag" => {
-                // Drag window group - use f64 to avoid truncation issues with high-DPI mouse moves
-                let dx = json
-                    .get("dx")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0)
-                    .round() as i32;
-                let dy = json
-                    .get("dy")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0)
-                    .round() as i32;
+                // Drag window group - JavaScript sends logical (CSS) pixels, scale to physical
+                let scale = get_dpi_scale();
+                let dx =
+                    (json.get("dx").and_then(|v| v.as_f64()).unwrap_or(0.0) * scale).round() as i32;
+                let dy =
+                    (json.get("dy").and_then(|v| v.as_f64()).unwrap_or(0.0) * scale).round() as i32;
                 crate::overlay::result::trigger_drag_window(hwnd, dx, dy);
             }
             _ => {}
@@ -947,10 +941,18 @@ fn send_windows_update() {
                 "isMarkdown": state.map(|s| s.is_markdown_mode).unwrap_or(false),
             });
 
+            // Scale physical coordinates to logical coordinates for WebView
+            // GetWindowRect returns physical pixels, but WebView uses logical (CSS) pixels
+            let scale = get_dpi_scale();
+            let logical_x = (x as f64 / scale) as i32;
+            let logical_y = (y as f64 / scale) as i32;
+            let logical_w = (w as f64 / scale) as i32;
+            let logical_h = (h as f64 / scale) as i32;
+
             data.insert(
                 hwnd_key.to_string(),
                 serde_json::json!({
-                    "rect": { "x": x, "y": y, "w": w, "h": h },
+                    "rect": { "x": logical_x, "y": logical_y, "w": logical_w, "h": logical_h },
                     "state": state_obj
                 }),
             );
@@ -959,18 +961,10 @@ fn send_windows_update() {
         serde_json::Value::Object(data)
     };
 
-    eprintln!(
-        "[ButtonCanvas] send_windows_update() windows_data={}",
-        windows_data
-    );
-
     CANVAS_WEBVIEW.with(|cell| {
         if let Some(webview) = cell.borrow().as_ref() {
             let script = format!("window.updateWindows({});", windows_data);
-            eprintln!(
-                "[ButtonCanvas] Executing script: {}",
-                &script[..script.len().min(200)]
-            );
+
             let _ = webview.evaluate_script(&script);
         } else {
             eprintln!("[ButtonCanvas] ERROR: WebView is None!");
@@ -986,13 +980,11 @@ unsafe extern "system" fn canvas_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_APP_UPDATE_WINDOWS => {
-            eprintln!("[ButtonCanvas] WM_APP_UPDATE_WINDOWS received");
             send_windows_update();
             LRESULT(0)
         }
 
         WM_APP_SHOW_CANVAS => {
-            eprintln!("[ButtonCanvas] WM_APP_SHOW_CANVAS received - showing window");
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             // Start cursor polling timer (50ms interval for smooth fade)
             let _ = SetTimer(Some(hwnd), CURSOR_POLL_TIMER_ID, 50, None);
@@ -1011,10 +1003,17 @@ unsafe extern "system" fn canvas_wnd_proc(
                 // Poll cursor position and send to WebView
                 let mut pt = POINT::default();
                 if GetCursorPos(&mut pt).is_ok() {
+                    // Scale physical cursor coordinates to logical (CSS) coordinates
+                    let scale = get_dpi_scale();
+                    let logical_x = (pt.x as f64 / scale) as i32;
+                    let logical_y = (pt.y as f64 / scale) as i32;
+
                     CANVAS_WEBVIEW.with(|cell| {
                         if let Some(webview) = cell.borrow().as_ref() {
-                            let script =
-                                format!("window.updateCursorPosition({}, {});", pt.x, pt.y);
+                            let script = format!(
+                                "window.updateCursorPosition({}, {});",
+                                logical_x, logical_y
+                            );
                             let _ = webview.evaluate_script(&script);
                         }
                     });
