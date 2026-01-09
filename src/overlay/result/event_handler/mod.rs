@@ -58,6 +58,33 @@ pub unsafe extern "system" fn result_wnd_proc(
 
         // Deferred WebView2 creation - handles the WM_CREATE_WEBVIEW we posted
         msg if msg == misc::WM_CREATE_WEBVIEW => misc::handle_create_webview(hwnd),
+        msg if msg == misc::WM_SHOW_MARKDOWN => misc::handle_show_markdown(hwnd),
+        msg if msg == misc::WM_HIDE_MARKDOWN => misc::handle_hide_markdown(hwnd),
+        msg if msg == misc::WM_RESIZE_MARKDOWN => misc::handle_resize_markdown(hwnd),
+
+        msg if msg == misc::WM_UNDO_CLICK => {
+            crate::overlay::result::trigger_undo(hwnd);
+            LRESULT(0)
+        }
+        msg if msg == misc::WM_REDO_CLICK => {
+            crate::overlay::result::trigger_redo(hwnd);
+            LRESULT(0)
+        }
+        msg if msg == misc::WM_COPY_CLICK => {
+            crate::overlay::result::trigger_copy(hwnd);
+            LRESULT(0)
+        }
+        msg if msg == misc::WM_EDIT_CLICK => {
+            crate::overlay::result::trigger_edit(hwnd);
+            LRESULT(0)
+        }
+        msg if msg == misc::WM_BACK_CLICK => misc::handle_back_click(hwnd),
+        msg if msg == misc::WM_FORWARD_CLICK => misc::handle_forward_click(hwnd),
+        msg if msg == misc::WM_SPEAKER_CLICK => {
+            crate::overlay::result::trigger_speaker(hwnd);
+            LRESULT(0)
+        }
+        msg if msg == misc::WM_DOWNLOAD_CLICK => misc::handle_download_click(hwnd),
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }

@@ -319,6 +319,8 @@ let lastVisibleState = new Map();
 // Note: Position is updated from Rust via updateCursorPosition() since WS_EX_TRANSPARENT
 // prevents this window from receiving mouse events directly
 let cursorX = 0, cursorY = 0;
+// Track drag state globally so opacity updates can sync regions during drag
+let broomDragData = null;
 
 // Called from Rust every 50ms with current cursor position
 window.updateCursorPosition = (x, y) => {{
@@ -330,7 +332,8 @@ window.updateCursorPosition = (x, y) => {{
 // Update button opacity based on distance from cursor to nearest edge of button group
 function updateButtonOpacity() {{
     const groups = document.querySelectorAll('.button-group');
-    let needsUpdate = false;
+    // Force update during drag to ensure clipping region follows the buttons
+    let needsUpdate = (broomDragData && broomDragData.moved) || false;
     
     groups.forEach(group => {{
         const rect = group.getBoundingClientRect();
@@ -365,14 +368,16 @@ function updateButtonOpacity() {{
         // Send updated clickable regions to Rust
         // Only include regions that are currently visible
         const regions = [];
+        const padding = 20; // Padding for glow effect and easier clicking
+        
         groups.forEach(group => {{
             if (lastVisibleState.get(group.dataset.hwnd)) {{
                 const rect = group.getBoundingClientRect();
                 regions.push({{
-                    x: rect.left,
-                    y: rect.top,
-                    w: rect.width,
-                    h: rect.height
+                    x: rect.left - padding,
+                    y: rect.top - padding,
+                    w: rect.width + (padding * 2),
+                    h: rect.height + (padding * 2)
                 }});
             }}
         }});
@@ -388,7 +393,7 @@ function updateButtonOpacity() {{
 function calculateButtonPosition(winRect) {{
     const screenW = window.innerWidth;
     const screenH = window.innerHeight;
-    const btnGroupW = 280; // Approximate width of button group
+    const btnGroupW = 400; // Updated for 10 buttons (~382px actual width)
     const btnGroupH = 40;  // Approximate height
     const margin = 8;
     
@@ -474,8 +479,9 @@ function generateButtonsHTML(hwnd, state) {{
         <span class="icons">edit</span>
     </div>`;
     
-    // Markdown toggle (switch to plain text)
-    buttons += `<div class="btn active" onclick="action('${{hwnd}}', 'markdown')" title="Plain Text">
+    // Markdown toggle
+    const mdClass = state.isMarkdown ? 'active' : '';
+    buttons += `<div class="btn ${{mdClass}}" onclick="action('${{hwnd}}', 'markdown')" title="Toggle Markdown">
         <span class="icons">article</span>
     </div>`;
     
@@ -505,24 +511,36 @@ function generateButtonsHTML(hwnd, state) {{
 }}
 
 // Handle broom drag
-let broomDragData = null;
 function handleBroomDrag(e, hwnd) {{
     if (e.button !== 0) return; // Only left click
     broomDragData = {{ hwnd, startX: e.clientX, startY: e.clientY, moved: false }};
     
     const onMove = (ev) => {{
         if (!broomDragData) return;
-        const dx = Math.abs(ev.clientX - broomDragData.startX);
-        const dy = Math.abs(ev.clientY - broomDragData.startY);
-        if (dx > 5 || dy > 5) {{
+        const deltaX = ev.clientX - broomDragData.startX;
+        const deltaY = ev.clientY - broomDragData.startY;
+        
+        // Threshold check: waiting for initial move > 4px, then process all
+        if (broomDragData.moved || Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {{
             broomDragData.moved = true;
-            // Send drag delta to Rust
+
+            // 1. Immediate Visual Update to prevent lag
+            const group = document.querySelector('.button-group[data-hwnd="' + broomDragData.hwnd + '"]');
+            if (group) {{
+                const curL = parseFloat(group.style.left || 0);
+                const curT = parseFloat(group.style.top || 0);
+                group.style.left = (curL + deltaX) + 'px';
+                group.style.top = (curT + deltaY) + 'px';
+            }}
+
+            // 2. Send drag delta to Rust
             window.ipc.postMessage(JSON.stringify({{
                 action: 'broom_drag',
                 hwnd: broomDragData.hwnd,
-                dx: ev.clientX - broomDragData.startX,
-                dy: ev.clientY - broomDragData.startY
+                dx: Math.round(deltaX),
+                dy: Math.round(deltaY)
             }}));
+            
             broomDragData.startX = ev.clientX;
             broomDragData.startY = ev.clientY;
         }}
@@ -531,6 +549,12 @@ function handleBroomDrag(e, hwnd) {{
     const onUp = () => {{
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        
+        if (broomDragData && broomDragData.moved) {{
+            // Prevent accidental click triggering after drag
+            window.ignoreNextBroomClick = true;
+            setTimeout(() => {{ window.ignoreNextBroomClick = false; }}, 100);
+        }}
         broomDragData = null;
     }};
     
@@ -540,29 +564,55 @@ function handleBroomDrag(e, hwnd) {{
 
 // Send action to Rust
 function action(hwnd, cmd) {{
+    // If it's a broom click and we just dragged, ignore it
+    if (cmd === 'broom_click' && window.ignoreNextBroomClick) return;
     window.ipc.postMessage(JSON.stringify({{ action: cmd, hwnd: hwnd }}));
 }}
 
 // Update all button groups
 function updateWindows(windowsData) {{
     window.registeredWindows = windowsData;
-    lastVisibleState.clear(); // Reset visibility tracking
+    // lastVisibleState.clear(); // Removing clear to handle updates better
+    
     const container = document.getElementById('button-container');
-    container.innerHTML = '';
+    
+    // Diffing logic to prevent blink
+    const existingGroups = new Map();
+    container.querySelectorAll('.button-group').forEach(el => {{
+        existingGroups.set(el.dataset.hwnd, el);
+    }});
     
     for (const [hwnd, data] of Object.entries(windowsData)) {{
         const pos = calculateButtonPosition(data.rect);
-        const group = document.createElement('div');
-        group.className = 'button-group';
+        let group = existingGroups.get(hwnd);
+        
+        if (!group) {{
+            group = document.createElement('div');
+            group.className = 'button-group';
+            group.style.opacity = '0'; // Start hidden
+            group.dataset.hwnd = hwnd;
+            container.appendChild(group);
+        }} else {{
+            existingGroups.delete(hwnd); // Mark as kept
+        }}
+        
         group.style.left = pos.x + 'px';
         group.style.top = pos.y + 'px';
-        group.style.opacity = '0'; // Start hidden
-        group.dataset.hwnd = hwnd;
-        group.innerHTML = generateButtonsHTML(hwnd, data.state || {{}});
-        container.appendChild(group);
+        
+        // Update content only if state changed
+        const newStateStr = JSON.stringify(data.state || {{}});
+        if (group.dataset.lastState !== newStateStr) {{
+            group.innerHTML = generateButtonsHTML(hwnd, data.state || {{}});
+            group.dataset.lastState = newStateStr;
+        }}
     }}
     
-    // Initial check (will likely be all hidden, but good to init state)
+    // Remove stale
+    existingGroups.forEach((el, key) => {{
+        el.remove();
+        lastVisibleState.delete(key);
+    }});
+    
     updateButtonOpacity();
 }}
 
@@ -771,52 +821,103 @@ fn handle_ipc_message(body: &str) {
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
 
         match action {
-            "copy" => {
-                // Trigger copy action on the result window
-                crate::overlay::result::trigger_copy(hwnd);
-            }
-            "undo" => {
-                crate::overlay::result::trigger_undo(hwnd);
-            }
-            "redo" => {
-                crate::overlay::result::trigger_redo(hwnd);
-            }
-            "edit" => {
-                crate::overlay::result::trigger_edit(hwnd);
-            }
+            "copy_click" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_COPY_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
+            "undo" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_UNDO_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
+            "redo" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_REDO_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
+            "edit" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_EDIT_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
             "markdown" => {
                 crate::overlay::result::trigger_markdown_toggle(hwnd);
             }
-            "download" => {
-                crate::overlay::result::trigger_download(hwnd);
-            }
-            "back" => {
-                crate::overlay::result::markdown_view::go_back(hwnd);
-            }
-            "forward" => {
-                crate::overlay::result::markdown_view::go_forward(hwnd);
-            }
-            "speaker" => {
-                crate::overlay::result::trigger_speaker(hwnd);
-            }
+            "download" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_DOWNLOAD_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
+            "back" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_BACK_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
+            "forward" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_FORWARD_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
+            "speaker" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_SPEAKER_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
             "broom_click" => {
                 // Close window
                 unsafe {
                     let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
             }
-            "broom_right" => {
-                // Right-click = copy and close
-                crate::overlay::result::trigger_copy(hwnd);
-            }
+            "broom_right" => unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    super::event_handler::misc::WM_COPY_CLICK,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            },
             "broom_middle" => {
                 // Middle-click = close all
                 crate::overlay::result::trigger_close_all();
             }
             "broom_drag" => {
-                // Drag window group
-                let dx = json.get("dx").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                let dy = json.get("dy").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                // Drag window group - use f64 to avoid truncation issues with high-DPI mouse moves
+                let dx = json
+                    .get("dx")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+                    .round() as i32;
+                let dy = json
+                    .get("dy")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+                    .round() as i32;
                 crate::overlay::result::trigger_drag_window(hwnd, dx, dy);
             }
             _ => {}
@@ -827,8 +928,8 @@ fn handle_ipc_message(body: &str) {
 /// Send updated window data to the canvas
 fn send_windows_update() {
     let windows_data = {
-        let windows = MARKDOWN_WINDOWS.lock().unwrap();
         let states = WINDOW_STATES.lock().unwrap();
+        let windows = MARKDOWN_WINDOWS.lock().unwrap();
 
         let mut data = serde_json::Map::new();
 
@@ -843,6 +944,7 @@ fn send_windows_update() {
                 "maxNavDepth": state.map(|s| s.max_navigation_depth).unwrap_or(0),
                 "ttsLoading": state.map(|s| s.tts_loading).unwrap_or(false),
                 "ttsSpeaking": state.map(|s| s.tts_request_id != 0 && !s.tts_loading).unwrap_or(false),
+                "isMarkdown": state.map(|s| s.is_markdown_mode).unwrap_or(false),
             });
 
             data.insert(

@@ -283,6 +283,9 @@ pub fn create_result_window(
         let _ = InvalidateRect(Some(hwnd), None, false);
         let _ = UpdateWindow(hwnd);
 
+        // Always register window with button canvas so floating buttons are available
+        super::button_canvas::register_markdown_window(hwnd);
+
         hwnd
     }
 }

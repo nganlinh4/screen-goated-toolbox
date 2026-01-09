@@ -912,7 +912,7 @@ pub fn create_markdown_webview_ex(
     // 52px at bottom for buttons (btn_size 28 + margin 12 * 2) if hovered
     let margin_x = 4.0;
     let margin_y = 2.0;
-    let button_area_height = if is_hovered { 52.0 } else { 0.0 };
+    let button_area_height = margin_y;
     let content_width = ((rect.right - rect.left) as f64 - margin_x * 2.0).max(50.0);
     let content_height = ((rect.bottom - rect.top) as f64 - margin_y - button_area_height).max(0.0); // No min height - allow shrink for button bar
 
@@ -1688,8 +1688,8 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
         // Edge margins: 4px left/right for resize handles, 2px top/bottom
         let margin_x = 4.0;
         let margin_y = 2.0;
-        // Only reserve button area when hovered
-        let button_area_height = if is_hovered { 52.0 } else { margin_y };
+        // Always use margin_y, as buttons are now floating on a separate canvas
+        let button_area_height = margin_y;
 
         let content_width = ((rect.right - rect.left) as f64 - margin_x * 2.0).max(50.0);
         let content_height =

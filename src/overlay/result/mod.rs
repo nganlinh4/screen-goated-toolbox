@@ -86,13 +86,15 @@ pub fn trigger_undo(hwnd: HWND) {
             );
         }
 
-        // Update markdown if needed
         if is_markdown {
-            let is_hovered = {
-                let states = WINDOW_STATES.lock().unwrap();
-                states.get(&hwnd_key).map(|s| s.is_hovered).unwrap_or(false)
-            };
-            markdown_view::create_markdown_webview(hwnd, &txt, is_hovered);
+            unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    event_handler::misc::WM_CREATE_WEBVIEW,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            }
         }
 
         // Update canvas
@@ -130,11 +132,14 @@ pub fn trigger_redo(hwnd: HWND) {
         }
 
         if is_markdown {
-            let is_hovered = {
-                let states = WINDOW_STATES.lock().unwrap();
-                states.get(&hwnd_key).map(|s| s.is_hovered).unwrap_or(false)
-            };
-            markdown_view::create_markdown_webview(hwnd, &txt, is_hovered);
+            unsafe {
+                let _ = PostMessageW(
+                    Some(hwnd),
+                    event_handler::misc::WM_CREATE_WEBVIEW,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            }
         }
 
         button_canvas::update_window_position(hwnd);
@@ -168,11 +173,14 @@ pub fn trigger_edit(hwnd: HWND) {
     }
 
     // Resize markdown view if needed
-    let is_hovered = {
-        let states = WINDOW_STATES.lock().unwrap();
-        states.get(&hwnd_key).map(|s| s.is_hovered).unwrap_or(false)
-    };
-    markdown_view::resize_markdown_webview(hwnd, is_hovered);
+    unsafe {
+        let _ = PostMessageW(
+            Some(hwnd),
+            event_handler::misc::WM_RESIZE_MARKDOWN,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
 }
 
 /// Trigger markdown toggle (switch back to plain text)
@@ -192,24 +200,38 @@ pub fn trigger_markdown_toggle(hwnd: HWND) {
         return;
     }
 
-    // Toggle off markdown mode
-    {
+    // Toggle the mode in state
+    let is_now_markdown = {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd_key) {
-            state.is_markdown_mode = false;
+            state.is_markdown_mode = !state.is_markdown_mode;
+            state.is_markdown_mode
+        } else {
+            return;
+        }
+    };
+
+    // Use message passing to update UI on the correct thread
+    unsafe {
+        if is_now_markdown {
+            let _ = PostMessageW(
+                Some(hwnd),
+                event_handler::misc::WM_CREATE_WEBVIEW,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        } else {
+            let _ = PostMessageW(
+                Some(hwnd),
+                event_handler::misc::WM_HIDE_MARKDOWN,
+                WPARAM(0),
+                LPARAM(0),
+            );
         }
     }
 
-    // Hide markdown webview
-    markdown_view::hide_markdown_webview(hwnd);
-
-    // Unregister from canvas
-    button_canvas::unregister_markdown_window(hwnd);
-
-    // Invalidate window to show plain text
-    unsafe {
-        let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(hwnd), None, false);
-    }
+    // Update canvas to reflect the new state (e.g., active icon state)
+    button_canvas::update_window_position(hwnd);
 }
 
 /// Trigger download HTML
