@@ -1454,7 +1454,7 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
             
             var hasOverflow = doc.scrollHeight > (winH + 2);
             var minSize = 14; // Normal minimum is 14px (emergency shrink in Step 3 can go lower)
-            var maxSize = 32;
+            var maxSize = 200; // Unlocked: extremely high limit for short content
             
             // Get content length to determine fitting strategy
             var text = body.innerText || body.textContent || '';
@@ -1523,13 +1523,13 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                         // If text would wrap (wider than container), CONDENSE wdth
                         if (textWidth > winW) {
                             var ratio = winW / textWidth;
-                            var targetWdth = Math.max(62.5, Math.floor(90 * ratio * 0.80));
+                            var targetWdth = Math.max(50, Math.floor(90 * ratio * 0.80)); // Unlocked: min wdth 50
                             body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
                         }
                         // If text is much narrower than container, STRETCH wdth to fill
                         else if (textWidth < winW * 0.85) {
                             var ratio = winW / textWidth;
-                            var targetWdth = Math.min(151, Math.floor(90 * ratio * 0.90));
+                            var targetWdth = Math.min(300, Math.floor(90 * ratio * 0.90)); // Unlocked: max wdth 300
                             body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
                             
                             // After stretching, verify we didn't cause overflow
@@ -1544,7 +1544,7 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 hasOverflow = doc.scrollHeight > (winH + 2);
                 if (hasOverflow) {
                     // First try width condensing
-                    var widths = [80, 75, 70, 65, 62.5];
+                    var widths = [80, 75, 70, 65, 60, 55, 50]; // Unlocked: down to wdth 50
                     for (var w = 0; w < widths.length; w++) {
                         body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
                         if (doc.scrollHeight <= (winH + 2)) {
@@ -1556,7 +1556,7 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                     hasOverflow = doc.scrollHeight > (winH + 2);
                     if (hasOverflow) {
                         var currentFontSize = parseFloat(body.style.fontSize) || 14;
-                        for (var s = currentFontSize - 1; s >= 6; s--) {
+                        for (var s = currentFontSize - 1; s >= 4; s--) { // Unlocked: emergency shrink to 4px
                             body.style.fontSize = s + 'px';
                             if (doc.scrollHeight <= (winH + 2)) {
                                 break;
@@ -1597,7 +1597,7 @@ pub fn fit_font_streaming(parent_hwnd: HWND) {
         
         // At start of new session, reset font to default (start big - 32px)
         if (isNewSession) {
-            body.style.fontSize = '32px';
+            body.style.fontSize = '200px'; // Unlocked: start streaming at max size
             body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
         }
         
@@ -1608,7 +1608,7 @@ pub fn fit_font_streaming(parent_hwnd: HWND) {
             var currentSize = parseFloat(body.style.fontSize) || parseFloat(window.getComputedStyle(body).fontSize) || 14;
             
             // Shrink by 1px at a time until it fits or hits minimum
-            while (hasOverflow && currentSize > 8) {
+            while (hasOverflow && currentSize > 6) { // Unlocked: streaming min 6px
                 currentSize = currentSize - 1;
                 body.style.fontSize = currentSize + 'px';
                 hasOverflow = doc.scrollHeight > (winH + 2);
@@ -1616,7 +1616,7 @@ pub fn fit_font_streaming(parent_hwnd: HWND) {
             
             // If still overflowing at 8px, try width condensing
             if (hasOverflow) {
-                var widths = [85, 80, 75, 70, 65, 62.5];
+                var widths = [85, 80, 75, 70, 65, 60, 55, 50]; // Unlocked: down to wdth 50
                 for (var w = 0; w < widths.length; w++) {
                     body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
                     if (doc.scrollHeight <= (winH + 2)) break;
