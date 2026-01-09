@@ -249,8 +249,8 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
             // Use streaming-optimized update for markdown_stream mode during active streaming
             if is_markdown_streaming && is_streaming {
                 markdown_view::stream_markdown_content(hwnd, &md_text);
-                // Continuously scale font as content streams in (only shrinks, no delay)
-                markdown_view::fit_font_streaming(hwnd);
+                // Continuously scale font as content streams in (logic now integrated into stream_markdown_content for zero-lag)
+                // markdown_view::fit_font_streaming(hwnd); - REMOVED
                 // Register with button canvas (may already be registered, that's fine)
                 crate::overlay::result::button_canvas::register_markdown_window(hwnd);
             } else if is_markdown_streaming && !is_streaming {
