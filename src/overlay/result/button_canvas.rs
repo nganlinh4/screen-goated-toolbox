@@ -299,12 +299,14 @@ html, body {{
 }}
 
 .btn.active {{
-    background: rgba(79, 195, 247, 0.3);
+    background: rgba(30, 30, 30, 0.95);
+    border-color: #4fc3f7;
     color: #4fc3f7;
 }}
 
 .btn.success {{
-    background: rgba(76, 175, 80, 0.3);
+    background: rgba(30, 30, 30, 0.95);
+    border-color: #81c784;
     color: #81c784;
 }}
 
