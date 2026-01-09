@@ -22,7 +22,9 @@ static POPUP_HWND: AtomicIsize = AtomicIsize::new(0);
 static IGNORE_FOCUS_LOSS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 // Warmup flag - tracks if the window has been created and is ready for instant display
-static mut IS_WARMED_UP: bool = false;
+static IS_WARMED_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static IS_WARMING_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WARMUP_START_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 // Custom window messages
 const WM_APP_SHOW: u32 = WM_APP + 1;
@@ -67,7 +69,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 pub fn show_tray_popup() {
     unsafe {
         // Check if warmed up and window exists
-        if !IS_WARMED_UP {
+        if !IS_WARMED_UP.load(Ordering::SeqCst) {
             // Not ready yet - trigger warmup and show notification
             warmup_tray_popup();
             
@@ -77,10 +79,11 @@ pub fn show_tray_popup() {
             
             // Spawn thread to wait for warmup completion and auto-show
             std::thread::spawn(move || {
+                // Poll for 5 seconds (50 * 100ms)
                 for _ in 0..50 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     // Check if ready
-                    let ready = IS_WARMED_UP && POPUP_HWND.load(Ordering::SeqCst) != 0;
+                    let ready = IS_WARMED_UP.load(Ordering::SeqCst) && POPUP_HWND.load(Ordering::SeqCst) != 0;
                     if ready {
                         show_tray_popup();
                         return;
@@ -92,27 +95,30 @@ pub fn show_tray_popup() {
         
         let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
         if hwnd_val == 0 {
+            // Should be warmed up but handle missing? Retry warmup
+            IS_WARMED_UP.store(false, Ordering::SeqCst);
+            warmup_tray_popup();
             return;
         }
         
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
         
-        // Check if window still valid
+        // Check if window still valid logic...
         if !IsWindow(Some(hwnd)).as_bool() {
-            // Window was destroyed - reset and retry
-            IS_WARMED_UP = false;
+            // Window destroyed
+            IS_WARMED_UP.store(false, Ordering::SeqCst);
             POPUP_HWND.store(0, Ordering::SeqCst);
             warmup_tray_popup();
             return;
         }
         
-        // Check if already visible - if so, hide it (toggle behavior)
+        // Check if already visible
         if IsWindowVisible(hwnd).as_bool() {
             hide_tray_popup();
             return;
         }
         
-        // Post message to show the window (repositioning happens on the window's thread)
+        // Post message to show
         let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
     }
 }
@@ -132,11 +138,29 @@ pub fn hide_tray_popup() {
 
 /// Warmup the tray popup - creates hidden window with WebView for instant display later
 pub fn warmup_tray_popup() {
-    // Only warmup once
+    // Check if dead stuck (timestamp check)
     unsafe {
-        if IS_WARMED_UP || POPUP_HWND.load(Ordering::SeqCst) != 0 {
-            return;
+        let start_time = WARMUP_START_TIME.load(Ordering::SeqCst);
+        let now = windows::Win32::System::SystemInformation::GetTickCount64();
+        if start_time > 0 && (now - start_time) > 10000 {
+            // Stuck for > 10s - force reset
+            IS_WARMED_UP.store(false, Ordering::SeqCst);
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
+            POPUP_HWND.store(0, Ordering::SeqCst);
         }
+    }
+
+    // Only allow one warmup thread at a time
+    if IS_WARMING_UP
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+
+    // Update timestamp
+    unsafe {
+        WARMUP_START_TIME.store(windows::Win32::System::SystemInformation::GetTickCount64(), Ordering::SeqCst);
     }
     
     std::thread::spawn(|| {
@@ -645,22 +669,23 @@ fn create_popup_window() {
             });
 
             // Mark as warmed up - ready for instant display
-            IS_WARMED_UP = true;
-        } else {
-            // Failed to create webview
-            return;
-        }
+            IS_WARMED_UP.store(true, Ordering::SeqCst);
+            IS_WARMING_UP.store(false, Ordering::SeqCst); // Done warming up
+            WARMUP_START_TIME.store(0, Ordering::SeqCst);
 
-        // Message loop runs forever to keep window alive
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).into() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            // Message loop runs forever to keep window alive
+            let mut msg = MSG::default();
+            while GetMessageW(&mut msg, None, 0, 0).into() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
 
         // Clean up on thread exit
-        IS_WARMED_UP = false;
+        IS_WARMED_UP.store(false, Ordering::SeqCst);
+        IS_WARMING_UP.store(false, Ordering::SeqCst);
         POPUP_HWND.store(0, Ordering::SeqCst);
+        WARMUP_START_TIME.store(0, Ordering::SeqCst);
         POPUP_WEBVIEW.with(|cell| {
             *cell.borrow_mut() = None;
         });
