@@ -767,6 +767,7 @@ pub fn markdown_to_html(
                     Event::Text(text)
                 }
             }
+            Event::SoftBreak => Event::HardBreak,
             _ => event,
         }
     });
