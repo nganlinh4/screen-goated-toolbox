@@ -11,7 +11,7 @@ use crate::overlay::result::{self, RefineContext};
 use crate::overlay::text_input;
 
 use super::chain::{execute_chain_pipeline, execute_chain_pipeline_with_token, run_chain_step};
-use super::types::reset_window_position_queue;
+use super::types::generate_chain_id;
 use super::window::create_processing_window;
 
 // --- ENTRY POINTS ---
@@ -295,8 +295,8 @@ pub fn show_audio_result(
         None
     };
 
-    // Reset position queue for new chain
-    reset_window_position_queue();
+    // Generate unique chain ID for this processing chain
+    let chain_id = generate_chain_id();
 
     run_chain_step(
         0,
@@ -313,6 +313,7 @@ pub fn show_audio_result(
         preset.id.clone(),
         // Check if we should disable auto-paste (e.g. for Gemini Live real-time typing)
         is_streaming_result,
+        chain_id, // Per-chain position tracking
     );
 }
 
@@ -387,8 +388,8 @@ pub fn start_processing_pipeline(
                         SendMessageW(processing_hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
                 }
 
-                // Reset position queue for new chain
-                reset_window_position_queue();
+                // Generate unique chain ID for this processing chain
+                let chain_id = generate_chain_id();
 
                 // Spawn chain execution - reusing existing run_chain_step!
                 let blocks = modified_preset.blocks.clone();
@@ -411,6 +412,7 @@ pub fn start_processing_pipeline(
                         Arc::new(AtomicBool::new(false)),
                         preset_id,
                         false, // disable_auto_paste
+                        chain_id, // Per-chain position tracking
                     );
                 });
 
@@ -457,8 +459,8 @@ pub fn start_processing_pipeline(
         );
         let context = RefineContext::Image(png_data);
 
-        // Reset position queue for new chain
-        reset_window_position_queue();
+        // Generate unique chain ID for this processing chain
+        let chain_id = generate_chain_id();
 
         // Start chain execution with the pre-created processing window
         run_chain_step(
@@ -475,6 +477,7 @@ pub fn start_processing_pipeline(
             Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
             preset_id,
             false, // disable_auto_paste
+            chain_id, // Per-chain position tracking
         );
     });
 
@@ -530,8 +533,8 @@ pub fn start_processing_pipeline_parallel(
             // This preserves JPEG format if input was JPEG
             let context = RefineContext::Image(original_bytes);
 
-            // Reset position queue for new chain
-            reset_window_position_queue();
+            // Generate unique chain ID for this processing chain
+            let chain_id = generate_chain_id();
 
             // Start chain execution with the pre-created processing window
             run_chain_step(
@@ -548,6 +551,7 @@ pub fn start_processing_pipeline_parallel(
                 Arc::new(AtomicBool::new(false)),
                 preset_id,
                 false, // disable_auto_paste
+                chain_id, // Per-chain position tracking
             );
         } else {
             // Load failed or cancelled -> Close window immediately
