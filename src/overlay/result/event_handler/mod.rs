@@ -9,7 +9,7 @@ pub mod timer_tasks;
 /// Minimum window size to prevent rendering issues when resizing too small.
 /// Below these dimensions, GDI operations can fail or cause system errors.
 pub const MIN_WINDOW_WIDTH: i32 = 40;
-pub const MIN_WINDOW_HEIGHT: i32 = 40;
+pub const MIN_WINDOW_HEIGHT: i32 = 30;
 
 pub unsafe extern "system" fn result_wnd_proc(
     hwnd: HWND,

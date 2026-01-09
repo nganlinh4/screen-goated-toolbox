@@ -1,20 +1,21 @@
-use windows::Win32::Foundation::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use std::mem::size_of;
+use windows::Win32::Foundation::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+use windows::Win32::UI::WindowsAndMessaging::*;
 
-use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::core::PCWSTR;
-use windows::Win32::UI::Input::KeyboardAndMouse::{TRACKMOUSEEVENT, TrackMouseEvent, TME_LEAVE};
+use windows::Win32::Graphics::Gdi::InvalidateRect;
+use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 
-use crate::overlay::result::state::{WINDOW_STATES, InteractionMode};
-use crate::overlay::result::markdown_view;
-use crate::overlay::result::refine_input;
-use crate::overlay::utils::to_wstring;
 use super::misc::WM_CREATE_WEBVIEW;
+use crate::overlay::result::refine_input;
+use crate::overlay::result::state::{InteractionMode, WINDOW_STATES};
+use crate::overlay::result::{button_canvas, markdown_view};
+use crate::overlay::utils::to_wstring;
 
 pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
     let _ = ReleaseCapture();
+    button_canvas::set_drag_mode(false); // Disable unclipped drag mode
     let mut perform_click = false;
     let mut is_copy_click = false;
     let mut is_edit_click = false;
@@ -43,13 +44,13 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
             }
         }
     }
-    
+
     if perform_click {
-            if is_back_click {
-                markdown_view::go_back(hwnd);
-            } else if is_forward_click {
-                markdown_view::go_forward(hwnd);
-            } else if is_undo_click {
+        if is_back_click {
+            markdown_view::go_back(hwnd);
+        } else if is_forward_click {
+            markdown_view::go_forward(hwnd);
+        } else if is_undo_click {
             let mut prev_text = None;
 
             let mut is_markdown = false;
@@ -82,15 +83,15 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                         state.is_browsing = false;
                     }
                 }
-                
+
                 // Update markdown WebView if in markdown mode
                 if is_markdown {
                     markdown_view::create_markdown_webview(hwnd, &txt, is_hovered);
                 }
-                
+
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
-            } else if is_redo_click {
+        } else if is_redo_click {
             // Redo: pop from redo_history, push current to text_history
             let mut next_text = None;
 
@@ -124,15 +125,15 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                         state.is_browsing = false;
                     }
                 }
-                
+
                 // Update markdown WebView if in markdown mode
                 if is_markdown {
                     markdown_view::create_markdown_webview(hwnd, &txt, is_hovered);
                 }
-                
+
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
-            } else if is_edit_click {
+        } else if is_edit_click {
             // Check if we're in markdown mode to decide which input to use
             let (is_markdown_mode, _is_currently_editing, _h_edit) = {
                 let states = WINDOW_STATES.lock().unwrap();
@@ -142,7 +143,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     (false, false, HWND::default())
                 }
             };
-            
+
             if is_markdown_mode {
                 // Use WebView-based refine input (stays above markdown view)
                 if refine_input::is_refine_input_active(hwnd) {
@@ -157,7 +158,10 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     // Resize markdown WebView back to full
                     let is_hovered = {
                         let states = WINDOW_STATES.lock().unwrap();
-                        states.get(&(hwnd.0 as isize)).map(|s| s.is_hovered).unwrap_or(false)
+                        states
+                            .get(&(hwnd.0 as isize))
+                            .map(|s| s.is_hovered)
+                            .unwrap_or(false)
                     };
                     markdown_view::resize_markdown_webview(hwnd, is_hovered);
                 } else {
@@ -168,7 +172,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     };
                     let locale = crate::gui::locale::LocaleText::get(&lang);
                     let placeholder = locale.text_input_placeholder;
-                    
+
                     if refine_input::show_refine_input(hwnd, placeholder) {
                         {
                             let mut states = WINDOW_STATES.lock().unwrap();
@@ -201,7 +205,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     };
                     let locale = crate::gui::locale::LocaleText::get(&lang);
                     let placeholder = locale.text_input_placeholder;
-                    
+
                     if refine_input::show_refine_input(hwnd, placeholder) {
                         {
                             let mut states = WINDOW_STATES.lock().unwrap();
@@ -213,7 +217,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                 }
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
-            } else if is_copy_click {
+        } else if is_copy_click {
             let text_len = GetWindowTextLengthW(hwnd) + 1;
             let mut buf = vec![0u16; text_len as usize];
             GetWindowTextW(hwnd, &mut buf);
@@ -226,7 +230,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                 }
             }
             SetTimer(Some(hwnd), 1, 1500, None);
-            } else if is_markdown_click {
+        } else if is_markdown_click {
             // Only allow markdown toggle when NOT refining AND NOT streaming
             let can_toggle = {
                 let states = WINDOW_STATES.lock().unwrap();
@@ -236,7 +240,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     false
                 }
             };
-            
+
             if can_toggle {
                 // Toggle markdown mode
                 let (toggle_on, _full_text) = {
@@ -248,7 +252,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                         (false, String::new())
                     }
                 };
-                
+
                 if toggle_on {
                     // DEFER WebView creation to after this handler returns
                     // Using PostMessage allows the handler to return first.
@@ -260,21 +264,21 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     markdown_view::hide_markdown_webview(hwnd);
                     // Stop hover polling timer
                     let _ = KillTimer(Some(hwnd), 2);
-                    
+
                     // Re-establish TrackMouseEvent for plain text mode
                     // This is needed because Timer 2 was handling hover state,
                     // but now we need WM_MOUSELEAVE to fire again
-                    let mut tme = TRACKMOUSEEVENT { 
-                        cbSize: size_of::<TRACKMOUSEEVENT>() as u32, 
-                        dwFlags: TME_LEAVE, 
-                        hwndTrack: hwnd, 
-                        dwHoverTime: 0 
+                    let mut tme = TRACKMOUSEEVENT {
+                        cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: hwnd,
+                        dwHoverTime: 0,
                     };
                     let _ = TrackMouseEvent(&mut tme);
                 }
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
-            } else if is_download_click {
+        } else if is_download_click {
             // Download as HTML file
             let full_text = {
                 let states = WINDOW_STATES.lock().unwrap();
@@ -284,26 +288,32 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     String::new()
                 }
             };
-            
+
             if !full_text.is_empty() {
                 // Call save_html_file which opens the file save dialog
                 markdown_view::save_html_file(&full_text);
             }
-            } else if is_speaker_click {
+        } else if is_speaker_click {
             // TTS - speak the result text
             let (full_text, current_tts_id, is_loading) = {
                 let states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                    (state.full_text.clone(), state.tts_request_id, state.tts_loading)
+                    (
+                        state.full_text.clone(),
+                        state.tts_request_id,
+                        state.tts_loading,
+                    )
                 } else {
                     (String::new(), 0, false)
                 }
             };
-            
+
             // Don't allow clicks while loading
             if is_loading {
                 // Ignore click during loading state
-            } else if current_tts_id != 0 && crate::api::tts::TTS_MANAGER.is_speaking(current_tts_id) {
+            } else if current_tts_id != 0
+                && crate::api::tts::TTS_MANAGER.is_speaking(current_tts_id)
+            {
                 // Currently speaking (blue button) - stop immediately
                 crate::api::tts::TTS_MANAGER.stop();
                 {
@@ -322,7 +332,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                     }
                 }
                 let _ = InvalidateRect(Some(hwnd), None, false); // Redraw to show loading
-                
+
                 let request_id = crate::api::tts::TTS_MANAGER.speak(&full_text, hwnd.0 as isize);
                 {
                     let mut states = WINDOW_STATES.lock().unwrap();
@@ -333,44 +343,49 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                 }
             }
             let _ = InvalidateRect(Some(hwnd), None, false);
-            } else {
-                // Clicking "x" (or outside buttons) -> Close window
-                let linked_hwnd = {
-                    let states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get(&(hwnd.0 as isize)) { state.linked_window } else { None }
-                };
-                if let Some(linked) = linked_hwnd {
-                    if IsWindow(Some(linked)).as_bool() {
-                        let _ = PostMessageW(Some(linked), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    }
+        } else {
+            // Clicking "x" (or outside buttons) -> Close window
+            let linked_hwnd = {
+                let states = WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get(&(hwnd.0 as isize)) {
+                    state.linked_window
+                } else {
+                    None
                 }
-                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            };
+            if let Some(linked) = linked_hwnd {
+                if IsWindow(Some(linked)).as_bool() {
+                    let _ = PostMessageW(Some(linked), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
             }
+            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
     }
     LRESULT(0)
 }
 
 pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
     let _ = ReleaseCapture();
+    button_canvas::set_drag_mode(false); // Disable unclipped drag mode
     let mut perform_action = false;
-    
+
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                match &state.interaction_mode {
-                    InteractionMode::DraggingGroup(_) => {
-                        if !state.has_moved_significantly {
-                            perform_action = true;
-                        }
-                    }
-                    _ => {
-                        perform_action = true; 
+            match &state.interaction_mode {
+                InteractionMode::DraggingGroup(_) => {
+                    if !state.has_moved_significantly {
+                        perform_action = true;
                     }
                 }
-                state.interaction_mode = InteractionMode::None;
+                _ => {
+                    perform_action = true;
+                }
+            }
+            state.interaction_mode = InteractionMode::None;
         }
     }
-    
+
     if perform_action {
         let text_len = GetWindowTextLengthW(hwnd) + 1;
         let mut buf = vec![0u16; text_len as usize];

@@ -30,6 +30,7 @@ fn get_dpi_scale() -> f64 {
 // Singleton canvas state
 static CANVAS_HWND: AtomicIsize = AtomicIsize::new(0);
 static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
+static IS_DRAGGING_EXTERNAL: AtomicBool = AtomicBool::new(false); // New flag
 static REGISTER_CANVAS_CLASS: std::sync::Once = std::sync::Once::new();
 
 // Custom messages
@@ -157,6 +158,28 @@ pub fn update_window_position(hwnd: HWND) {
     }
 
     update_canvas();
+    update_canvas();
+}
+
+/// Set drag mode (temporarily disable region clipping to prevent UI cutoff)
+pub fn set_drag_mode(active: bool) {
+    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
+    if canvas_hwnd == 0 {
+        return;
+    }
+    let hwnd = HWND(canvas_hwnd as *mut std::ffi::c_void);
+
+    if active {
+        // ENTER DRAG MODE: Remove region (full window visible/interactive)
+        IS_DRAGGING_EXTERNAL.store(true, Ordering::SeqCst);
+        unsafe {
+            let _ = SetWindowRgn(hwnd, None, true);
+        }
+    } else {
+        // EXIT DRAG MODE: Restore regions
+        IS_DRAGGING_EXTERNAL.store(false, Ordering::SeqCst);
+        update_canvas(); // Trigger recalculation of regions
+    }
 }
 
 /// Update canvas with current window positions
@@ -207,8 +230,8 @@ fn generate_canvas_html() -> String {
 
 .icons {{
     font-family: 'Material Symbols Rounded';
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-    font-size: 18px;
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+    font-size: 16px;
     line-height: 1;
 }}
 
@@ -226,16 +249,16 @@ html, body {{
 .button-group {{
     position: absolute;
     display: flex;
-    gap: 6px;
-    padding: 4px;
+    gap: 4px;
+    padding: 2px;
     pointer-events: auto; /* Buttons accept clicks */
     transition: opacity 0.15s ease-out;
 }}
 
 .btn {{
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
     background: rgba(30, 30, 30, 0.85);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -251,12 +274,12 @@ html, body {{
 
 .button-group.vertical {{
     flex-direction: column;
-    padding: 8px 4px;
+    padding: 6px 3px;
     height: auto;
-    width: 48px;
+    width: 32px;
 }}
 .button-group.vertical .btn {{
-    margin: 4px 0;
+    margin: 3px 0;
 }}
 
 .btn:hover {{
@@ -399,9 +422,9 @@ function updateButtonOpacity() {{
 function calculateButtonPosition(winRect) {{
     const screenW = window.innerWidth;
     const screenH = window.innerHeight;
-    const longDim = 400; // Length of the button group (Width in Horiz, Height in Vert)
-    const shortDim = 50;  // Thickness of the button group (Height in Horiz, Width in Vert)
-    const margin = 8;
+    const longDim = 300; // Length of the button group (reduced for compact UI)
+    const shortDim = 32;  // Thickness of the button group (24px btn + padding)
+    const margin = 4; // Gap of 4px to match button spacing
     
     // Check available space on each side (thickness-wise)
     const spaceBottom = screenH - (winRect.y + winRect.h);
@@ -479,14 +502,18 @@ function generateButtonsHTML(hwnd, state) {{
     let buttons = '';
     
     // Back button (if browsable)
-    buttons += `<div class="btn ${{canGoBack ? '' : 'disabled'}}" onclick="action('${{hwnd}}', 'back')" title="Back">
-        <span class="icons">arrow_back</span>
-    </div>`;
+    if (canGoBack) {{
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'back')" title="Back">
+            <span class="icons">arrow_back</span>
+        </div>`;
+    }}
     
-    // Forward button (if browsable)  
-    buttons += `<div class="btn ${{canGoForward ? '' : 'disabled'}}" onclick="action('${{hwnd}}', 'forward')" title="Forward">
-        <span class="icons">arrow_forward</span>
-    </div>`;
+    // Forward button (if browsable)
+    if (canGoForward) {{
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'forward')" title="Forward">
+            <span class="icons">arrow_forward</span>
+        </div>`;
+    }}
     
     // Copy
     buttons += `<div class="btn ${{state.copySuccess ? 'success' : ''}}" onclick="action('${{hwnd}}', 'copy')" title="Copy">
@@ -494,24 +521,32 @@ function generateButtonsHTML(hwnd, state) {{
     </div>`;
     
     // Undo
-    buttons += `<div class="btn ${{state.hasUndo ? '' : 'disabled'}}" onclick="action('${{hwnd}}', 'undo')" title="Undo">
-        <span class="icons">undo</span>
-    </div>`;
+    if (state.hasUndo) {{
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'undo')" title="Undo">
+            <span class="icons">undo</span>
+        </div>`;
+    }}
     
     // Redo
-    buttons += `<div class="btn ${{state.hasRedo ? '' : 'disabled'}}" onclick="action('${{hwnd}}', 'redo')" title="Redo">
-        <span class="icons">redo</span>
-    </div>`;
+    if (state.hasRedo) {{
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'redo')" title="Redo">
+            <span class="icons">redo</span>
+        </div>`;
+    }}
     
-    // Edit/Refine
+    // Edit/Refine (Custom SVG Icon)
     buttons += `<div class="btn" onclick="action('${{hwnd}}', 'edit')" title="Refine">
-        <span class="icons">edit</span>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 258" width="14" height="14" style="fill: currentColor; stroke: currentColor; stroke-width: 20; stroke-linejoin: round; opacity: 0.9;">
+            <path d="m122.062 172.77l-10.27 23.52c-3.947 9.042-16.459 9.042-20.406 0l-10.27-23.52c-9.14-20.933-25.59-37.595-46.108-46.703L6.74 113.52c-8.987-3.99-8.987-17.064 0-21.053l27.385-12.156C55.172 70.97 71.917 53.69 80.9 32.043L91.303 6.977c3.86-9.303 16.712-9.303 20.573 0l10.403 25.066c8.983 21.646 25.728 38.926 46.775 48.268l27.384 12.156c8.987 3.99 8.987 17.063 0 21.053l-28.267 12.547c-20.52 9.108-36.97 25.77-46.109 46.703"/>
+            <path d="m217.5 246.937l-2.888 6.62c-2.114 4.845-8.824 4.845-10.937 0l-2.889-6.62c-5.148-11.803-14.42-21.2-25.992-26.34l-8.898-3.954c-4.811-2.137-4.811-9.131 0-11.269l8.4-3.733c11.87-5.273 21.308-15.017 26.368-27.22l2.966-7.154c2.067-4.985 8.96-4.985 11.027 0l2.966 7.153c5.06 12.204 14.499 21.948 26.368 27.221l8.4 3.733c4.812 2.138 4.812 9.132 0 11.27l-8.898 3.953c-11.571 5.14-20.844 14.537-25.992 26.34"/>
+        </svg>
     </div>`;
     
     // Markdown toggle
     const mdClass = state.isMarkdown ? 'active' : '';
+    const mdIcon = state.isMarkdown ? 'newsmode' : 'notes';
     buttons += `<div class="btn ${{mdClass}}" onclick="action('${{hwnd}}', 'markdown')" title="Toggle Markdown">
-        <span class="icons">article</span>
+        <span class="icons">${{mdIcon}}</span>
     </div>`;
     
     // Download
@@ -664,15 +699,15 @@ function updateWindows(windowsData) {{
         if (pos.direction === 'bottom') {{
             // Right align relative to window
             finalX = data.rect.x + data.rect.w - actualW;
-            finalY = data.rect.y + data.rect.h + 8; // margin
+            finalY = data.rect.y + data.rect.h + 4; // margin 4
         }} else if (pos.direction === 'top') {{
             finalX = data.rect.x + (data.rect.w - actualW) / 2;
-            finalY = data.rect.y - actualH - 8;
+            finalY = data.rect.y - actualH - 4; // margin 4 (gap)
         }} else if (pos.direction === 'right') {{
-            finalX = data.rect.x + data.rect.w + 8;
+            finalX = data.rect.x + data.rect.w + 4; // margin 4
             finalY = data.rect.y + (data.rect.h - actualH) / 2;
         }} else if (pos.direction === 'left') {{
-            finalX = data.rect.x - actualW - 8;
+            finalX = data.rect.x - actualW - 4; // margin 4
             finalY = data.rect.y + (data.rect.h - actualH) / 2;
         }} else {{ // inside
             finalX = data.rect.x + 8;
@@ -868,6 +903,12 @@ fn handle_ipc_message(body: &str) {
             if let Some(regions) = json.get("regions").and_then(|v| v.as_array()) {
                 let canvas_hwnd = HWND(CANVAS_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
                 if canvas_hwnd.0.is_null() {
+                    return;
+                }
+
+                // If currently dragging external window, IGNORE region updates
+                // We want the window to remain unclipped (full screen) during drag for smoothness
+                if IS_DRAGGING_EXTERNAL.load(Ordering::SeqCst) {
                     return;
                 }
 

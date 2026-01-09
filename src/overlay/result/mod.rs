@@ -223,6 +223,21 @@ pub fn trigger_markdown_toggle(hwnd: HWND) {
                 LPARAM(0),
             );
         } else {
+            // Switching BACK to plain text
+            // We must manually update the window text because the optimized streaming path skipped it!
+            let full_text = {
+                let states = WINDOW_STATES.lock().unwrap();
+                states
+                    .get(&hwnd_key)
+                    .map(|s| s.full_text.clone())
+                    .unwrap_or_default()
+            };
+            let wide_text = crate::overlay::utils::to_wstring(&full_text);
+            let _ = windows::Win32::UI::WindowsAndMessaging::SetWindowTextW(
+                hwnd,
+                windows::core::PCWSTR(wide_text.as_ptr()),
+            );
+
             let _ = PostMessageW(
                 Some(hwnd),
                 event_handler::misc::WM_HIDE_MARKDOWN,

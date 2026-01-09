@@ -212,9 +212,6 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
     }
 
     if let Some(txt) = pending_update {
-        let wide_text = to_wstring(&txt);
-        let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
-
         let (maybe_markdown_update, is_hovered, is_markdown_streaming, is_streaming) = {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
@@ -246,18 +243,17 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
         };
 
         if let Some(md_text) = maybe_markdown_update {
+            // MARKDOWN MODE - OPTIMIZED PATH
+            // Skip SetWindowTextW and InvalidateRect to prevent double-rendering lag behind WebView
+
             // Use streaming-optimized update for markdown_stream mode during active streaming
             if is_markdown_streaming && is_streaming {
                 markdown_view::stream_markdown_content(hwnd, &md_text);
-                // Continuously scale font as content streams in (logic now integrated into stream_markdown_content for zero-lag)
-                // markdown_view::fit_font_streaming(hwnd); - REMOVED
                 // Register with button canvas (may already be registered, that's fine)
                 crate::overlay::result::button_canvas::register_markdown_window(hwnd);
             } else if is_markdown_streaming && !is_streaming {
                 // Streaming just ended in markdown_stream mode
                 // Render the FINAL content first (in case last chunks weren't rendered due to throttling)
-                // Then reset the counter for next session
-                // Final render - only new words (if any) will animate
                 markdown_view::stream_markdown_content(hwnd, &md_text);
                 // Initialize Grid.js on any tables
                 markdown_view::init_gridjs(hwnd);
@@ -276,8 +272,16 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 // Register with button canvas
                 crate::overlay::result::button_canvas::register_markdown_window(hwnd);
             }
+
+            // Do NOT set need_repaint = true here.
+            // The WebView handles the display. Repainting parent window is wasteful and causes lag.
+        } else {
+            // PLAIN TEXT MODE (or Refining) - LEGACY PATH
+            // Must update window text and trigger GDI repaint
+            let wide_text = to_wstring(&txt);
+            let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
+            need_repaint = true;
         }
-        need_repaint = true;
     }
 
     // --- TYPE MODE PROMPT LOGIC ---

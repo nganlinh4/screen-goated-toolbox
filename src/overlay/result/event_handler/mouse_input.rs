@@ -6,6 +6,7 @@ use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::overlay::result::button_canvas;
 use crate::overlay::result::layout::{
     get_copy_btn_rect, get_download_btn_rect, get_edit_btn_rect, get_markdown_btn_rect,
     get_redo_btn_rect, get_resize_edge, get_speaker_btn_rect, get_undo_btn_rect,
@@ -176,6 +177,7 @@ pub unsafe fn handle_lbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
         }
     }
     SetCapture(hwnd);
+    button_canvas::set_drag_mode(true); // Enable unclipped drag mode for smooth UI
     LRESULT(0)
 }
 
@@ -248,6 +250,7 @@ pub unsafe fn handle_rbutton_down(hwnd: HWND, _lparam: LPARAM) -> LRESULT {
     }
 
     SetCapture(hwnd);
+    button_canvas::set_drag_mode(true); // Enable unclipped drag mode for smooth UI
     LRESULT(0)
 }
 
@@ -421,6 +424,7 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
                         0,
                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
                     );
+                    button_canvas::update_window_position(hwnd);
                 }
                 InteractionMode::DraggingGroup(snapshot) => {
                     let mut curr_pt = POINT::default();
@@ -501,6 +505,7 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
                     if refine_input::is_refine_input_active(hwnd) {
                         refine_input::resize_refine_input(hwnd);
                     }
+                    button_canvas::update_window_position(hwnd);
                 }
                 _ => {}
             }
@@ -519,6 +524,7 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
             0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
+        button_canvas::update_window_position(h);
     }
 
     LRESULT(0)
