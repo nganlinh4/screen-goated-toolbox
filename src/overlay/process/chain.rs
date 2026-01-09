@@ -14,7 +14,7 @@ use std::sync::{
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use super::types::{get_next_window_position, reset_window_position_queue};
+use super::types::{generate_chain_id, get_next_window_position_for_chain};
 use super::window::create_processing_window;
 
 // --- CORE PIPELINE LOGIC ---
@@ -43,8 +43,8 @@ pub fn execute_chain_pipeline(
 
     let processing_hwnd_send = SendHwnd(processing_hwnd);
     std::thread::spawn(move || {
-        // Reset position queue for new chain
-        reset_window_position_queue();
+        // Generate unique chain ID for this processing chain
+        let chain_id = generate_chain_id();
 
         run_chain_step(
             0,
@@ -60,6 +60,7 @@ pub fn execute_chain_pipeline(
             Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
             preset_id,
             false, // disable_auto_paste
+            chain_id, // Per-chain position tracking
         );
     });
 
@@ -94,8 +95,8 @@ pub fn execute_chain_pipeline_with_token(
     let blocks = preset.blocks.clone();
     let connections = preset.block_connections.clone();
 
-    // Reset position queue for new chain
-    reset_window_position_queue();
+    // Generate unique chain ID for this processing chain
+    let chain_id = generate_chain_id();
 
     run_chain_step(
         0,
@@ -111,6 +112,7 @@ pub fn execute_chain_pipeline_with_token(
         cancel_token,
         preset.id.clone(),
         false, // disable_auto_paste
+        chain_id, // Per-chain position tracking
     );
 }
 
@@ -129,6 +131,7 @@ pub fn run_chain_step(
     cancel_token: Arc<AtomicBool>, // Cancellation flag - if true, stop processing
     preset_id: String,
     disable_auto_paste: bool,
+    chain_id: String, // Per-chain position tracking - windows in same chain use snake placement
 ) {
     // Check if cancelled before starting
     if cancel_token.load(Ordering::Relaxed) {
@@ -179,9 +182,10 @@ pub fn run_chain_step(
         .count();
     let bg_color = get_chain_color(visible_count_before);
 
-    // For visible windows: use global queue for sequential snake positioning (first-come-first-serve)
+    // For visible windows: use per-chain queue for sequential snake positioning (first-come-first-serve)
+    // Windows in the same chain use snake placement, different chains are independent
     let my_rect = if block.show_overlay {
-        get_next_window_position(current_rect)
+        get_next_window_position_for_chain(&chain_id, current_rect)
     } else {
         current_rect // Hidden blocks don't consume a position
     };
@@ -1380,12 +1384,13 @@ progressBar.onclick = (e) => {{
             let cancel_clone = cancel_token.clone();
             let parent_clone = next_parent.clone();
             let preset_id_clone = preset_id.clone();
+            let chain_id_clone = chain_id.clone();
             let next_idx_copy = *next_idx;
 
             // Capture next_context for parallel branches
             let branch_context = next_context.clone();
 
-            // Position will be determined individually by get_next_window_position inside run_chain_step
+            // Position will be determined individually by get_next_window_position_for_chain inside run_chain_step
             // We just pass the base_rect as a reference point
             let branch_rect = base_rect;
 
@@ -1417,6 +1422,7 @@ progressBar.onclick = (e) => {{
                     cancel_clone,
                     preset_id_clone,
                     disable_auto_paste, // Propagate the flag
+                    chain_id_clone, // Same chain ID for all branches
                 );
             });
         }
@@ -1436,6 +1442,7 @@ progressBar.onclick = (e) => {{
             cancel_token,              // Pass the same token through the chain
             preset_id,
             disable_auto_paste, // Propagate the flag
+            chain_id, // Same chain ID through the chain
         );
     } else {
         // Chain stopped unexpectedly (empty result or error)
