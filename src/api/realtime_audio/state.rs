@@ -14,6 +14,35 @@ pub const AI_SILENCE_TIMEOUT_MS: u64 = 1000;
 /// Prevents committing short noise artifacts (like "Ah", "Umm")
 const MIN_FORCE_COMMIT_CHARS: usize = 10;
 
+// ============================================
+// PARAKEET-SPECIFIC TIMEOUT CONSTANTS
+// ============================================
+// Parakeet doesn't produce punctuation, so we use time-based segmentation
+
+/// Base timeout for Parakeet segments (800ms)
+pub const PARAKEET_BASE_TIMEOUT_MS: u64 = 800;
+/// Minimum word count before allowing timeout-based commit for Parakeet
+pub const PARAKEET_MIN_WORDS: usize = 7;
+/// Minimum timeout (ms) - floor for the decreasing formula
+pub const PARAKEET_MIN_TIMEOUT_MS: u64 = 350;
+/// How fast timeout decreases per character beyond threshold (2.5ms per char)
+pub const PARAKEET_TIMEOUT_DECAY_RATE: f64 = 2.5;
+
+/// Transcription method being used
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TranscriptionMethod {
+    /// Gemini Live API - produces punctuation
+    GeminiLive,
+    /// Local Parakeet model - no punctuation
+    Parakeet,
+}
+
+impl Default for TranscriptionMethod {
+    fn default() -> Self {
+        TranscriptionMethod::GeminiLive
+    }
+}
+
 /// Shared state for realtime transcription
 pub struct RealtimeState {
     /// Full transcript (used for translation and display)
@@ -47,6 +76,15 @@ pub struct RealtimeState {
     pub download_title: String,
     pub download_message: String,
     pub download_progress: f32,
+
+    // ============================================
+    // PARAKEET-SPECIFIC FIELDS
+    // ============================================
+    /// Which transcription method is being used (Gemini Live or Parakeet)
+    /// This determines which commit logic to apply
+    pub transcription_method: TranscriptionMethod,
+    /// When the current uncommitted segment started (for Parakeet timeout)
+    pub parakeet_segment_start_time: Instant,
 }
 
 impl RealtimeState {
@@ -66,6 +104,9 @@ impl RealtimeState {
             download_title: String::new(),
             download_message: String::new(),
             download_progress: 0.0,
+            // Parakeet-specific: default to GeminiLive (existing behavior)
+            transcription_method: TranscriptionMethod::GeminiLive,
+            parakeet_segment_start_time: Instant::now(),
         }
     }
 
@@ -93,9 +134,97 @@ impl RealtimeState {
 
     /// Append new transcript text and update display
     pub fn append_transcript(&mut self, new_text: &str) {
-        self.full_transcript.push_str(new_text);
+        // If this is the first text after a commit, reset segment start time
+        if self.transcription_method == TranscriptionMethod::Parakeet {
+            if self.last_committed_pos >= self.full_transcript.len() {
+                // Starting a new segment
+                self.parakeet_segment_start_time = Instant::now();
+            }
+        }
+
+        // Capitalization Logic for Parakeet:
+        // If transcript is empty OR ends with a sentence delimiter (like the period we injected),
+        // we should capitalize the first letter of this new chunk.
+        let mut text_to_append = new_text.to_string();
+
+        if self.transcription_method == TranscriptionMethod::Parakeet {
+            let needs_cap =
+                self.full_transcript.trim().is_empty() || self.source_ends_with_sentence();
+
+            if needs_cap {
+                // Handle " hello" -> " Hello" (preserve leading space)
+                if let Some(first_char_idx) = text_to_append.find(|c: char| !c.is_whitespace()) {
+                    // Get the char to be capitalized
+                    let c = text_to_append.chars().nth(first_char_idx).unwrap();
+
+                    // Reconstruct string: pre-space + uppercase char + rest
+                    let pre_space = &text_to_append[..first_char_idx];
+                    let rest = &text_to_append[first_char_idx + 1..];
+                    text_to_append = format!("{}{}{}", pre_space, c.to_uppercase(), rest);
+                }
+            }
+        }
+
+        self.full_transcript.push_str(&text_to_append);
         self.last_transcript_append_time = Instant::now();
         self.update_display_transcript();
+    }
+
+    // ============================================
+    // PARAKEET-SPECIFIC METHODS
+    // ============================================
+
+    /// Set the transcription method (called when starting transcription)
+    /// IMPORTANT: This determines which commit logic is used
+    pub fn set_transcription_method(&mut self, method: TranscriptionMethod) {
+        self.transcription_method = method;
+        if method == TranscriptionMethod::Parakeet {
+            self.parakeet_segment_start_time = Instant::now();
+        }
+    }
+
+    /// Count words in the uncommitted source text (for Parakeet minimum word check)
+    fn count_uncommitted_words(&self) -> usize {
+        if self.last_committed_pos >= self.full_transcript.len() {
+            return 0;
+        }
+        if !self
+            .full_transcript
+            .is_char_boundary(self.last_committed_pos)
+        {
+            return 0;
+        }
+        let uncommitted = &self.full_transcript[self.last_committed_pos..];
+        uncommitted.split_whitespace().count()
+    }
+
+    /// Calculate dynamic timeout for Parakeet based on segment length
+    /// Formula: base_timeout - (segment_length * decay_rate)
+    /// Clamped to PARAKEET_MIN_TIMEOUT_MS floor
+    fn calculate_parakeet_timeout_ms(&self) -> u64 {
+        let segment_len = if self.last_committed_pos >= self.full_transcript.len() {
+            0
+        } else if self
+            .full_transcript
+            .is_char_boundary(self.last_committed_pos)
+        {
+            self.full_transcript[self.last_committed_pos..].len()
+        } else {
+            0
+        };
+
+        // Start decreasing after some reasonable length
+        let threshold = 30usize; // Start decay after 30 chars
+        if segment_len <= threshold {
+            return PARAKEET_BASE_TIMEOUT_MS;
+        }
+
+        // Calculate decay: longer segments = shorter timeout
+        let excess_chars = segment_len - threshold;
+        let decay = (excess_chars as f64 * PARAKEET_TIMEOUT_DECAY_RATE) as u64;
+
+        let timeout = PARAKEET_BASE_TIMEOUT_MS.saturating_sub(decay);
+        timeout.max(PARAKEET_MIN_TIMEOUT_MS)
     }
 
     /// Check if uncommitted source text ends with a sentence delimiter
@@ -114,8 +243,35 @@ impl RealtimeState {
     }
 
     /// Check if we should force-commit due to timeout.
-    /// FIX: Only commit if BOTH User AND AI have been silent.
+    /// For Gemini Live: waits 2 seconds of silence (BOTH user AND AI)
+    /// For Parakeet: ONLY checks user silence (800ms) - translation runs independently!
     pub fn should_force_commit_on_timeout(&self) -> bool {
+        // For Parakeet: completely independent path
+        // Only check user silence - let translation work in parallel
+        if self.transcription_method == TranscriptionMethod::Parakeet {
+            // Must have uncommitted source text
+            if self.last_committed_pos >= self.full_transcript.len() {
+                return false;
+            }
+
+            // Must have minimum words
+            let word_count = self.count_uncommitted_words();
+            if word_count < PARAKEET_MIN_WORDS {
+                return false;
+            }
+
+            // Check ONLY user silence - NOT AI silence!
+            // This allows transcription to segment and move forward
+            // Translation will catch up independently
+            let now = Instant::now();
+            let user_timeout = self.calculate_parakeet_timeout_ms();
+            let user_silent = now.duration_since(self.last_transcript_append_time)
+                > Duration::from_millis(user_timeout);
+
+            return user_silent;
+        }
+
+        // For Gemini Live: original behavior - wait for BOTH user AND AI silence
         if self.uncommitted_translation.is_empty() {
             return false;
         }
@@ -147,8 +303,28 @@ impl RealtimeState {
     }
 
     /// Force commit all uncommitted content (used for timeout-based commit)
-    /// This bypasses the normal sentence-matching logic and commits everything as-is
+    /// For Gemini: requires non-empty translation before committing
+    /// For Parakeet: Injects punctuation to create logical sentences (does not force commit)
     pub fn force_commit_all(&mut self) {
+        // For Parakeet: special handling - inject punctuation
+        // Instead of forcing a commit, we inject a period to mark the segment end.
+        // This converts the time-based segment into a "sentence" which the
+        // translation loop (and commit_finished_sentences) can handle naturally.
+        if self.transcription_method == TranscriptionMethod::Parakeet {
+            // Only inject if we have uncommitted text and it doesn't already have punctuation
+            if self.last_committed_pos < self.full_transcript.len()
+                && !self.source_ends_with_sentence()
+            {
+                self.full_transcript.push_str(". ");
+                self.update_display_transcript();
+            }
+            // We do NOT advance last_committed_pos or clear translation here.
+            // We rely on `commit_finished_sentences()` to see the new period
+            // and match it with the translation's period.
+            return;
+        }
+
+        // For Gemini Live: original behavior - require non-empty translation
         if self.uncommitted_translation.is_empty() {
             return;
         }

@@ -13,11 +13,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebViewBuilder};
 
-use crate::win_types::SendHwnd;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 static REGISTER_INPUT_CLASS: Once = Once::new();
-static mut INPUT_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
-static mut IS_WARMED_UP: bool = false;
+static INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
+static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
+static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
+static IS_SHOWING: AtomicBool = AtomicBool::new(false);
 // Colors
 const COL_DARK_BG: u32 = 0x202020; // RGB(32, 32, 32)
 
@@ -325,17 +327,18 @@ fn get_editor_html(placeholder: &str) -> String {
 }
 
 pub fn is_active() -> bool {
-    unsafe {
-        !std::ptr::addr_of!(INPUT_HWND).read().is_invalid()
-            && IsWindowVisible(INPUT_HWND.0).as_bool()
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val == 0 {
+        return false;
     }
+    unsafe { IsWindowVisible(HWND(hwnd_val as *mut std::ffi::c_void)).as_bool() }
 }
 
 pub fn cancel_input() {
-    unsafe {
-        if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
-            // Just hide the window, don't destroy
-            let _ = ShowWindow(INPUT_HWND.0, SW_HIDE);
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        unsafe {
+            let _ = ShowWindow(HWND(hwnd_val as *mut std::ffi::c_void), SW_HIDE);
         }
     }
 }
@@ -343,13 +346,19 @@ pub fn cancel_input() {
 /// Set text content in the webview editor (for paste operations)
 /// This is thread-safe and can be called from any thread
 pub fn set_editor_text(text: &str) {
-    unsafe {
-        // Store the text in the mutex
-        *PENDING_TEXT.lock().unwrap() = Some(text.to_string());
+    // Store the text in the mutex
+    *PENDING_TEXT.lock().unwrap() = Some(text.to_string());
 
-        // Post message to the text input window to trigger the injection
-        if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
-            let _ = PostMessageW(Some(INPUT_HWND.0), WM_APP_SET_TEXT, WPARAM(0), LPARAM(0));
+    // Post message to the text input window to trigger the injection
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(hwnd_val as *mut std::ffi::c_void)),
+                WM_APP_SET_TEXT,
+                WPARAM(0),
+                LPARAM(0),
+            );
         }
     }
 }
@@ -421,10 +430,11 @@ pub fn clear_editor_text() {
 
 /// Update the UI text (header) and trigger a repaint
 pub fn update_ui_text(header_text: String) {
-    unsafe {
-        if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
-            *CFG_TITLE.lock().unwrap() = header_text;
-            let _ = InvalidateRect(Some(INPUT_HWND.0), None, true);
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        *CFG_TITLE.lock().unwrap() = header_text;
+        unsafe {
+            let _ = InvalidateRect(Some(HWND(hwnd_val as *mut std::ffi::c_void)), None, true);
         }
     }
 }
@@ -432,17 +442,19 @@ pub fn update_ui_text(header_text: String) {
 /// Bring the text input window to foreground and focus the editor
 /// Call this after closing modal windows like the preset wheel
 pub fn refocus_editor() {
-    unsafe {
-        if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        unsafe {
             use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
             use windows::Win32::UI::WindowsAndMessaging::{
                 BringWindowToTop, SetForegroundWindow, SetTimer,
             };
 
             // Aggressive focus: try multiple methods
-            let _ = BringWindowToTop(INPUT_HWND.0);
-            let _ = SetForegroundWindow(INPUT_HWND.0);
-            let _ = SetFocus(Some(INPUT_HWND.0));
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
 
             // Focus the webview editor immediately
             TEXT_INPUT_WEBVIEW.with(|webview| {
@@ -456,17 +468,18 @@ pub fn refocus_editor() {
 
             // Schedule another focus attempt after 200ms via timer ID 3
             // This will be handled in WM_TIMER in the same thread
-            let _ = SetTimer(Some(INPUT_HWND.0), 3, 200, None);
+            let _ = SetTimer(Some(hwnd), 3, 200, None);
         }
     }
 }
 
 /// Get the current window rect of the text input window (if active)
 pub fn get_window_rect() -> Option<RECT> {
-    unsafe {
-        if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
-            let mut rect = RECT::default();
-            if GetWindowRect(INPUT_HWND.0, &mut rect).is_ok() {
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        let mut rect = RECT::default();
+        unsafe {
+            if GetWindowRect(HWND(hwnd_val as *mut std::ffi::c_void), &mut rect).is_ok() {
                 return Some(rect);
             }
         }
@@ -476,6 +489,16 @@ pub fn get_window_rect() -> Option<RECT> {
 
 /// Start the persistent hidden window (called from main)
 pub fn warmup() {
+    // Thread-safe atomic check-and-set to prevent multiple warmup threads
+    if IS_WARMED_UP.load(Ordering::SeqCst) {
+        return;
+    }
+    if IS_WARMING_UP
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
     std::thread::spawn(|| {
         internal_create_window_loop();
     });
@@ -488,50 +511,86 @@ pub fn show(
     continuous_mode: bool,
     on_submit: impl Fn(String, HWND) + Send + 'static,
 ) {
-    unsafe {
-        // Clone lang for locale notification before moving/consuming it
-        let lang_for_locale = ui_language.clone();
+    // Re-entrancy guard: if we are already in the process of showing/waiting, ignore subsequent calls
+    // This prevents key-mashing from spawning multiple wait loops or confused states
+    if IS_SHOWING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
 
-        // Update shared state FIRST so it's ready when window shows up
-        *CFG_TITLE.lock().unwrap() = prompt_guide;
-        *CFG_LANG.lock().unwrap() = ui_language;
-        *CFG_CANCEL.lock().unwrap() = cancel_hotkey_name;
-        *CFG_CONTINUOUS.lock().unwrap() = continuous_mode;
-        *CFG_CALLBACK.lock().unwrap() = Some(Box::new(on_submit));
+    // Ensure we clear the flag when we return
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            IS_SHOWING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = Guard;
 
-        *SUBMITTED_TEXT.lock().unwrap() = None;
-        *SHOULD_CLOSE.lock().unwrap() = false;
-        *SHOULD_CLEAR_ONLY.lock().unwrap() = false;
+    // Clone lang for locale notification before moving/consuming it
+    let lang_for_locale = ui_language.clone();
 
-        // Check if warmed up
-        if !IS_WARMED_UP {
-            // Trigger warmup for recovery
-            warmup();
+    // Update shared state FIRST so it's ready when window shows up
+    *CFG_TITLE.lock().unwrap() = prompt_guide;
+    *CFG_LANG.lock().unwrap() = ui_language;
+    *CFG_CANCEL.lock().unwrap() = cancel_hotkey_name;
+    *CFG_CONTINUOUS.lock().unwrap() = continuous_mode;
+    *CFG_CALLBACK.lock().unwrap() = Some(Box::new(on_submit));
 
-            // Show localized message that feature is not ready yet
-            let locale = LocaleText::get(&lang_for_locale);
-            crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);
+    *SUBMITTED_TEXT.lock().unwrap() = None;
+    *SHOULD_CLOSE.lock().unwrap() = false;
+    *SHOULD_CLEAR_ONLY.lock().unwrap() = false;
 
-            // Spawn thread to wait and auto-show
-            std::thread::spawn(move || {
-                for _ in 0..50 {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                    // SAFETY: Accessing static muts INPUT_HWND and IS_WARMED_UP (lexically inside unsafe block)
-                    let ready = !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() && IS_WARMED_UP;
-                    if ready {
-                        let hwnd_wrapper = std::ptr::addr_of!(INPUT_HWND).read();
-                        let _ =
-                            PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
-                        return;
-                    }
+    // Check if warmed up
+    if !IS_WARMED_UP.load(Ordering::SeqCst) {
+        // Trigger warmup for recovery
+        warmup();
+
+        // Show localized message that feature is not ready yet
+        let locale = LocaleText::get(&lang_for_locale);
+        crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);
+
+        // Blocking wait with message pump
+        // We wait up to 5 seconds. If it fails, we simply return (preventing premature broken window)
+        for _ in 0..500 {
+            unsafe {
+                let mut msg = MSG::default();
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
                 }
-            });
-            return;
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(10));
+
+            if IS_WARMED_UP.load(Ordering::SeqCst) {
+                break;
+            }
         }
 
-        if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
-            // Window exists, wake it up
-            let _ = PostMessageW(Some(INPUT_HWND.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+        // If still not warmed up after wait, give up
+        if !IS_WARMED_UP.load(Ordering::SeqCst) {
+            return;
+        }
+    }
+
+    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+        unsafe {
+            // TOGGLE LOGIC:
+            // If window is visible, hide it. Otherwise, show it.
+            if IsWindowVisible(hwnd).as_bool() {
+                // Currently visible -> Hide it
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                // Also reset history when hiding via toggle to be safe
+                crate::overlay::input_history::reset_history_navigation();
+            } else {
+                // Currently hidden -> Show it
+                let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+            }
         }
     }
 }
@@ -576,7 +635,7 @@ fn internal_create_window_loop() {
         )
         .unwrap_or_default();
 
-        INPUT_HWND = SendHwnd(hwnd);
+        INPUT_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
 
         // Initialize Layered (Transparent)
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
@@ -589,7 +648,8 @@ fn internal_create_window_loop() {
         init_webview(hwnd, win_w, win_h);
 
         // Mark as warmed up and ready
-        IS_WARMED_UP = true;
+        IS_WARMED_UP.store(true, Ordering::SeqCst);
+        IS_WARMING_UP.store(false, Ordering::SeqCst); // Done warming up
 
         // Message Loop
         let mut msg = MSG::default();
@@ -602,7 +662,9 @@ fn internal_create_window_loop() {
         TEXT_INPUT_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = None;
         });
-        INPUT_HWND = SendHwnd::default();
+        INPUT_HWND.store(0, Ordering::SeqCst);
+        IS_WARMED_UP.store(false, Ordering::SeqCst);
+        IS_WARMING_UP.store(false, Ordering::SeqCst);
     }
 }
 
@@ -637,6 +699,11 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
             WebViewBuilder::new()
         };
         let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+
+        // Store HTML in font server and get URL for same-origin font loading
+        let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
+            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
+
         builder
             .with_bounds(Rect {
                 position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
@@ -647,7 +714,7 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
                     webview_h as u32,
                 )),
             })
-            .with_html(&html)
+            .with_url(&page_url)
             .with_transparent(false)
             .with_ipc_handler(move |msg: wry::http::Request<String>| {
                 let body = msg.body();
@@ -667,10 +734,11 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
                     if let Some(text) = crate::overlay::input_history::navigate_history_up(current)
                     {
                         *PENDING_TEXT.lock().unwrap() = Some(format!("__REPLACE_ALL__{}", text));
-                        unsafe {
-                            if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
+                        let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+                        if hwnd_val != 0 {
+                            unsafe {
                                 let _ = PostMessageW(
-                                    Some(INPUT_HWND.0),
+                                    Some(HWND(hwnd_val as *mut std::ffi::c_void)),
                                     WM_APP_SET_TEXT,
                                     WPARAM(0),
                                     LPARAM(0),
@@ -684,10 +752,11 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
                         crate::overlay::input_history::navigate_history_down(current)
                     {
                         *PENDING_TEXT.lock().unwrap() = Some(format!("__REPLACE_ALL__{}", text));
-                        unsafe {
-                            if !std::ptr::addr_of!(INPUT_HWND).read().is_invalid() {
+                        let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+                        if hwnd_val != 0 {
+                            unsafe {
                                 let _ = PostMessageW(
-                                    Some(INPUT_HWND.0),
+                                    Some(HWND(hwnd_val as *mut std::ffi::c_void)),
                                     WM_APP_SET_TEXT,
                                     WPARAM(0),
                                     LPARAM(0),

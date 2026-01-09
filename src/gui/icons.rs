@@ -36,6 +36,7 @@ pub enum Icon {
     Device,          // New: Monitor/Device icon for system theme
     DragHandle,      // New: Drag handle for reordering
     History,         // New: History icon (clock)
+    Parakeet,        // New: Parakeet icon (Bird)
 }
 
 /// Main entry point: Draw a clickable icon button (default size 24.0)
@@ -928,6 +929,28 @@ fn paint_internal(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: 
             painter.line_segment([center, center + egui::vec2(4.0 * scale, 0.0)], stroke);
             // Minute hand at 12 o'clock
             painter.line_segment([center, center + egui::vec2(0.0, -5.0 * scale)], stroke);
+        }
+
+        Icon::Parakeet => {
+            // Bird Head (Parakeet) - Minimalist profile
+            let r_head = 7.0 * scale;
+            painter.circle_filled(center, r_head, color);
+
+            // Eye (Contrast color - usually background fill)
+            let eye_pos = center + egui::vec2(2.0, -2.0) * scale;
+            painter.circle_filled(
+                eye_pos,
+                2.0 * scale,
+                painter.ctx().style().visuals.panel_fill,
+            );
+
+            // Beak (Triangle on right)
+            let beak_pts = vec![
+                center + egui::vec2(5.0 * scale, -1.0 * scale), // Top-right of head
+                center + egui::vec2(11.0 * scale, 3.0 * scale), // Tip
+                center + egui::vec2(4.0 * scale, 5.0 * scale),  // Bottom-right of head
+            ];
+            painter.add(egui::Shape::convex_polygon(beak_pts, color, stroke));
         }
     }
 }

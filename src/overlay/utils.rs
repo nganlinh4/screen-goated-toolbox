@@ -392,6 +392,76 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
     }
 }
 
+pub fn type_text_to_window(hwnd_target_opt: Option<HWND>, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    unsafe {
+        // Determine the actual target window
+        let fg_window = GetForegroundWindow();
+        let target_window = if let Some(hwnd) = hwnd_target_opt {
+            if IsWindow(Some(hwnd)).as_bool() {
+                hwnd
+            } else {
+                fg_window
+            }
+        } else {
+            fg_window
+        };
+
+        // Don't try to type into nothing
+        if target_window.is_invalid() {
+            return;
+        }
+
+        if fg_window != target_window {
+            let cur_thread = GetCurrentThreadId();
+            let target_thread = GetWindowThreadProcessId(target_window, None);
+            if cur_thread != target_thread {
+                let _ = AttachThreadInput(cur_thread, target_thread, true);
+                let _ = SetForegroundWindow(target_window);
+                let _ = AttachThreadInput(cur_thread, target_thread, false);
+            } else {
+                let _ = SetForegroundWindow(target_window);
+            }
+        }
+
+        // Send Chars
+        for c in text.chars() {
+            let mut buffer = [0u16; 2];
+            let encoded = c.encode_utf16(&mut buffer);
+
+            for utf16_val in encoded.iter() {
+                let val = *utf16_val;
+                let input_down = INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VIRTUAL_KEY(0),
+                            wScan: val,
+                            dwFlags: KEYEVENTF_UNICODE,
+                            ..Default::default()
+                        },
+                    },
+                };
+                let input_up = INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VIRTUAL_KEY(0),
+                            wScan: val,
+                            dwFlags: KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                            ..Default::default()
+                        },
+                    },
+                };
+                SendInput(&[input_down, input_up], std::mem::size_of::<INPUT>() as i32);
+                std::thread::sleep(std::time::Duration::from_millis(8));
+            }
+        }
+    }
+}
+
 pub fn get_error_message(error: &str, lang: &str, model_name: Option<&str>) -> String {
     // Parse NO_API_KEY:provider format
     if error.starts_with("NO_API_KEY") {
@@ -604,4 +674,35 @@ fn format_http_error(
             _ => format!("Error {}: An error occurred with {} (HTTP {}).", status_code, model_info, status_code),
         },
     }
+}
+
+pub fn is_retryable_error(error: &str) -> bool {
+    // 1. Check for explicit Auth errors (Never retry)
+    if error.contains("NO_API_KEY") || error.contains("INVALID_API_KEY") {
+        return false;
+    }
+
+    // 2. Check HTTP status if present
+    if let Some(code) = extract_http_status_code(error) {
+        // 429: Rate Limit (Retry!)
+        if code == 429 {
+            return true;
+        }
+        // 5xx: Server Errors (Retry!)
+        if code >= 500 && code <= 599 {
+            return true;
+        }
+        return false;
+    }
+
+    // 3. Fallback text checks
+    let lower_err = error.to_lowercase();
+    if lower_err.contains("rate limit")
+        || lower_err.contains("too many requests")
+        || lower_err.contains("quota exceeded")
+    {
+        return true;
+    }
+
+    false
 }

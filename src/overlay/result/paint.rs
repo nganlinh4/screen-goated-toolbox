@@ -206,7 +206,20 @@ pub fn paint_window(hwnd: HWND) {
                 }
 
                 if state.last_w != width || state.last_h != height {
-                    state.font_cache_dirty = true;
+                    // Record resize time for debouncing
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u32)
+                        .unwrap_or(0);
+
+                    // RESIZE DEBOUNCE: Only recalculate font after resize stops for 100ms
+                    // This prevents expensive DrawTextW calls during active resize of large text
+                    let time_since_last_resize = now.wrapping_sub(state.last_resize_time);
+                    if time_since_last_resize > 100 || state.last_resize_time == 0 {
+                        state.font_cache_dirty = true;
+                    }
+                    // Always update resize time and dimensions
+                    state.last_resize_time = now;
                     state.last_w = width;
                     state.last_h = height;
                 }
@@ -396,31 +409,29 @@ pub fn paint_window(hwnd: HWND) {
                             format!("{}\n\n{}", preset_prompt, input_text)
                         };
                         let quote = crate::overlay::utils::get_context_quote(&combined);
-                        quote
-                            .encode_utf16()
-                            .chain(std::iter::once(0))
-                            .collect::<Vec<u16>>()
+                        quote.encode_utf16().collect::<Vec<u16>>()
                     }
                 } else {
-                    let text_len = GetWindowTextLengthW(hwnd) + 1;
-                    let mut b = vec![0u16; text_len as usize];
-                    GetWindowTextW(hwnd, &mut b);
+                    let text_len = GetWindowTextLengthW(hwnd);
+                    let mut b = vec![0u16; text_len as usize + 1];
+                    let actual_len = GetWindowTextW(hwnd, &mut b);
+                    b.truncate(actual_len as usize);
                     b
                 };
 
-                let h_padding = if is_refining { 20 } else { 6 };
+                let h_padding = if is_refining { 20 } else { 2 };
                 let available_w = (width - (h_padding * 2)).max(1);
-                let v_safety_margin = 4;
+                let v_safety_margin = 0;
                 let available_h = (height - v_safety_margin).max(1);
 
-                let mut low = if is_refining { 8 } else { 8 };
+                let mut low = if is_refining { 8 } else { 2 };
                 let max_possible = if is_refining {
                     18.min(available_h)
                 } else {
-                    available_h.min(100)
+                    available_h.max(2).min(150)
                 };
                 let mut high = max_possible;
-                let mut best_fit = 8;
+                let mut best_fit = low;
 
                 if high < low {
                     best_fit = low;

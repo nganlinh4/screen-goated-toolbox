@@ -84,7 +84,11 @@ pub fn run_translation_loop(
                 .store(false, Ordering::SeqCst);
         }
 
-        // Check timeout-based commit
+        // Check timeout-based commit (works for BOTH Gemini Live and Parakeet)
+        // This correctly waits for:
+        // 1. uncommitted_translation to be non-empty (AI has responded)
+        // 2. BOTH user AND AI to be silent
+        // For Parakeet: uses shorter timeout via should_force_commit_on_timeout()
         {
             let should_force = { state.lock().unwrap().should_force_commit_on_timeout() };
             if should_force {

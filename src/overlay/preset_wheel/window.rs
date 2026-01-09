@@ -98,8 +98,20 @@ pub fn show_preset_wheel(
         crate::overlay::auto_copy_badge::show_notification(locale.preset_wheel_loading);
 
         // Wait up to 5 seconds for it to become ready
-        for _ in 0..50 {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        // Wait up to 5 seconds for it to become ready
+        // We use smaller sleep intervals (10ms) with message pumping to keep the UI thread responsive
+        // Total wait: 500 * 10ms = 5000ms (5 seconds)
+        for _ in 0..500 {
+            unsafe {
+                let mut msg = MSG::default();
+                // Drain message queue to prevent freezing the UI thread (input window)
+                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(10));
             if IS_WARMED_UP.load(Ordering::SeqCst) {
                 // It's ready! Proceed to show logic (fall through)
                 break;
@@ -344,10 +356,16 @@ fn internal_create_window_loop() {
 
             let template_html = get_wheel_template(true); // Default dark for warmup
 
+            // Store HTML in font server and get URL for same-origin font loading
+            let page_url = crate::overlay::html_components::font_manager::store_html_page(
+                template_html.clone(),
+            )
+            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&template_html)));
+
             builder
                 .with_transparent(true)
                 .with_background_color((0, 0, 0, 0))
-                .with_html(template_html)
+                .with_url(&page_url)
                 .with_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(

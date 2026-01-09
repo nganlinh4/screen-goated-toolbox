@@ -1,6 +1,10 @@
 use super::client::UREQ_AGENT;
 use crate::config::Preset;
 use crate::model_config::{get_model_by_id, model_is_non_llm};
+use crate::overlay::result::{
+    create_result_window, get_chain_color, update_window_text, RefineContext, WindowType,
+};
+use crate::win_types::SendHwnd;
 use crate::APP;
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
@@ -12,6 +16,27 @@ use std::sync::{
 };
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+fn encode_wav(samples: &[i16], sample_rate: u32, channels: u16) -> Vec<u8> {
+    let spec = hound::WavSpec {
+        channels,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut wav_cursor = Cursor::new(Vec::new());
+    {
+        let mut writer =
+            hound::WavWriter::new(&mut wav_cursor, spec).expect("Failed to create memory writer");
+        for sample in samples {
+            writer
+                .write_sample(*sample)
+                .expect("Failed to write sample");
+        }
+        writer.finalize().expect("Failed to finalize WAV");
+    }
+    wav_cursor.into_inner()
+}
 
 pub fn transcribe_audio_gemini<F>(
     gemini_api_key: &str,
@@ -107,6 +132,1404 @@ where
     }
 
     Ok(full_content)
+}
+
+/// Transcribe audio using Gemini Live WebSocket with INPUT transcription
+/// (transcribes what was recorded, not AI response)
+fn transcribe_with_gemini_live_input(api_key: &str, wav_data: Vec<u8>) -> anyhow::Result<String> {
+    use crate::api::realtime_audio::websocket::{
+        connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
+        set_socket_nonblocking, set_socket_short_timeout,
+    };
+    use crate::overlay::recording::AUDIO_INITIALIZING;
+    use std::time::{Duration, Instant};
+
+    println!(
+        "[GeminiLiveInput] Starting transcription, WAV data size: {} bytes",
+        wav_data.len()
+    );
+
+    // Signal that we're initializing (WebSocket connection)
+    AUDIO_INITIALIZING.store(true, Ordering::SeqCst);
+
+    // Connect and setup WebSocket
+    println!("[GeminiLiveInput] Connecting to WebSocket...");
+    let mut socket = match connect_websocket(api_key) {
+        Ok(s) => {
+            println!("[GeminiLiveInput] WebSocket connected successfully");
+            s
+        }
+        Err(e) => {
+            println!("[GeminiLiveInput] WebSocket connection failed: {}", e);
+            AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+    };
+
+    println!("[GeminiLiveInput] Sending setup message...");
+    if let Err(e) = send_setup_message(&mut socket) {
+        println!("[GeminiLiveInput] Setup message failed: {}", e);
+        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+        return Err(e);
+    }
+
+    // Set short timeout for setup phase
+    if let Err(e) = set_socket_short_timeout(&mut socket) {
+        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+        return Err(e);
+    }
+
+    // Wait for setup complete
+    println!("[GeminiLiveInput] Waiting for setupComplete...");
+    let setup_start = Instant::now();
+    loop {
+        match socket.read() {
+            Ok(tungstenite::Message::Text(msg)) => {
+                let msg = msg.as_str();
+                println!(
+                    "[GeminiLiveInput] Received text message: {}",
+                    &msg[..msg.len().min(200)]
+                );
+                if msg.contains("setupComplete") {
+                    println!("[GeminiLiveInput] Setup complete received!");
+                    break;
+                }
+                if msg.contains("error") || msg.contains("Error") {
+                    println!("[GeminiLiveInput] Server error: {}", msg);
+                    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+                    return Err(anyhow::anyhow!("Server returned error: {}", msg));
+                }
+            }
+            Ok(tungstenite::Message::Binary(data)) => {
+                println!(
+                    "[GeminiLiveInput] Received binary message: {} bytes",
+                    data.len()
+                );
+                if let Ok(text) = String::from_utf8(data.to_vec()) {
+                    if text.contains("setupComplete") {
+                        println!("[GeminiLiveInput] Setup complete (from binary)!");
+                        break;
+                    }
+                }
+            }
+            Ok(other) => {
+                println!("[GeminiLiveInput] Received other message type: {:?}", other);
+            }
+            Err(tungstenite::Error::Io(ref e))
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                if setup_start.elapsed() > Duration::from_secs(30) {
+                    println!("[GeminiLiveInput] Setup timeout after 30s");
+                    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+                    return Err(anyhow::anyhow!("Setup timeout"));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                println!("[GeminiLiveInput] Socket error during setup: {}", e);
+                AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+                return Err(e.into());
+            }
+        }
+    }
+
+    // Setup complete - switch to non-blocking mode and clear initializing state
+    if let Err(e) = set_socket_nonblocking(&mut socket) {
+        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+        return Err(e);
+    }
+    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+    // Now signal warmup complete so UI shows recording state
+    crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+
+    // Extract PCM samples from WAV data
+    println!("[GeminiLiveInput] Extracting PCM samples from WAV...");
+    let pcm_samples = extract_pcm_from_wav(&wav_data)?;
+    println!(
+        "[GeminiLiveInput] Extracted {} PCM samples",
+        pcm_samples.len()
+    );
+
+    // Send audio in chunks (16kHz, 100ms chunks = 1600 samples)
+    let chunk_size = 1600;
+    let mut accumulated_text = String::new();
+    let mut offset = 0;
+    let mut chunks_sent = 0;
+    let mut transcripts_received = 0;
+
+    println!("[GeminiLiveInput] Sending audio chunks...");
+    while offset < pcm_samples.len() {
+        let end = (offset + chunk_size).min(pcm_samples.len());
+        let chunk = &pcm_samples[offset..end];
+
+        if send_audio_chunk(&mut socket, chunk).is_err() {
+            println!(
+                "[GeminiLiveInput] Failed to send audio chunk at offset {}",
+                offset
+            );
+            break;
+        }
+        chunks_sent += 1;
+        offset = end;
+
+        // Read any available transcriptions
+        loop {
+            match socket.read() {
+                Ok(tungstenite::Message::Text(msg)) => {
+                    let msg = msg.as_str();
+                    println!(
+                        "[GeminiLiveInput] Message while sending: {}",
+                        &msg[..msg.len().min(300)]
+                    );
+                    if let Some(transcript) = parse_input_transcription(msg) {
+                        if !transcript.is_empty() {
+                            println!("[GeminiLiveInput] Got transcript: '{}'", transcript);
+                            transcripts_received += 1;
+                            accumulated_text.push_str(&transcript);
+                        }
+                    }
+                }
+                Ok(tungstenite::Message::Binary(data)) => {
+                    if let Ok(text) = String::from_utf8(data.to_vec()) {
+                        if let Some(transcript) = parse_input_transcription(&text) {
+                            if !transcript.is_empty() {
+                                println!(
+                                    "[GeminiLiveInput] Got transcript (binary): '{}'",
+                                    transcript
+                                );
+                                transcripts_received += 1;
+                                accumulated_text.push_str(&transcript);
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    break; // No more messages available, continue sending
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Small delay between chunks to not overwhelm the connection
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    println!(
+        "[GeminiLiveInput] Sent {} chunks, waiting 2s for final transcriptions...",
+        chunks_sent
+    );
+
+    // Wait 2 seconds after sending all audio for final transcriptions
+    let conclude_start = Instant::now();
+    let conclude_duration = Duration::from_secs(2);
+
+    while conclude_start.elapsed() < conclude_duration {
+        match socket.read() {
+            Ok(tungstenite::Message::Text(msg)) => {
+                let msg = msg.as_str();
+                println!(
+                    "[GeminiLiveInput] Message in conclude phase: {}",
+                    &msg[..msg.len().min(300)]
+                );
+                if let Some(transcript) = parse_input_transcription(msg) {
+                    if !transcript.is_empty() {
+                        println!("[GeminiLiveInput] Got final transcript: '{}'", transcript);
+                        transcripts_received += 1;
+                        accumulated_text.push_str(&transcript);
+                    }
+                }
+            }
+            Ok(tungstenite::Message::Binary(data)) => {
+                if let Ok(text) = String::from_utf8(data.to_vec()) {
+                    if let Some(transcript) = parse_input_transcription(&text) {
+                        if !transcript.is_empty() {
+                            println!(
+                                "[GeminiLiveInput] Got final transcript (binary): '{}'",
+                                transcript
+                            );
+                            transcripts_received += 1;
+                            accumulated_text.push_str(&transcript);
+                        }
+                    }
+                }
+            }
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(ref e))
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => break,
+        }
+    }
+
+    let _ = socket.close(None);
+
+    println!(
+        "[GeminiLiveInput] Done! Transcripts received: {}, Total text length: {}",
+        transcripts_received,
+        accumulated_text.len()
+    );
+    println!("[GeminiLiveInput] Final result: '{}'", accumulated_text);
+
+    if accumulated_text.is_empty() {
+        // This is actually okay - could be silence or inaudible
+        Ok(String::new())
+    } else {
+        Ok(accumulated_text)
+    }
+}
+
+/// Extract PCM i16 samples from WAV data
+fn extract_pcm_from_wav(wav_data: &[u8]) -> anyhow::Result<Vec<i16>> {
+    use std::io::Cursor;
+
+    let cursor = Cursor::new(wav_data);
+    let reader = hound::WavReader::new(cursor)?;
+    let spec = reader.spec();
+
+    // Get samples based on format
+    let samples: Vec<i16> = match spec.sample_format {
+        hound::SampleFormat::Int => reader
+            .into_samples::<i16>()
+            .filter_map(|s| s.ok())
+            .collect(),
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .filter_map(|s| s.ok())
+            .map(|f| (f * i16::MAX as f32) as i16)
+            .collect(),
+    };
+
+    // Convert to mono 16kHz if needed
+    let mono_samples: Vec<i16> = if spec.channels > 1 {
+        samples
+            .chunks(spec.channels as usize)
+            .map(|chunk| {
+                let sum: i32 = chunk.iter().map(|&s| s as i32).sum();
+                (sum / chunk.len() as i32) as i16
+            })
+            .collect()
+    } else {
+        samples
+    };
+
+    // Resample to 16kHz if needed
+    let target_rate = 16000;
+    if spec.sample_rate != target_rate {
+        let ratio = target_rate as f64 / spec.sample_rate as f64;
+        let new_len = (mono_samples.len() as f64 * ratio) as usize;
+        let mut resampled = Vec::with_capacity(new_len);
+
+        for i in 0..new_len {
+            let src_idx = (i as f64 / ratio) as usize;
+            if src_idx < mono_samples.len() {
+                resampled.push(mono_samples[src_idx]);
+            }
+        }
+        Ok(resampled)
+    } else {
+        Ok(mono_samples)
+    }
+}
+
+/// Simple nearest-neighbor resampling to 16kHz
+fn resample_to_16khz(samples: &[i16], source_rate: u32) -> Vec<i16> {
+    if source_rate == 16000 {
+        return samples.to_vec();
+    }
+    let ratio = 16000.0 / source_rate as f64;
+    let new_len = (samples.len() as f64 * ratio) as usize;
+    let mut resampled = Vec::with_capacity(new_len);
+    for i in 0..new_len {
+        let src_idx = (i as f64 / ratio) as usize;
+        if src_idx < samples.len() {
+            resampled.push(samples[src_idx]);
+        }
+    }
+    resampled
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum AudioMode {
+    Normal,
+    Silence,
+    CatchUp,
+}
+
+fn try_reconnect(
+    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    api_key: &str,
+    audio_buffer: &Arc<std::sync::Mutex<Vec<i16>>>,
+    silence_buffer: &mut Vec<i16>,
+    audio_mode: &mut AudioMode,
+    mode_start: &mut std::time::Instant,
+    last_transcription_time: &mut std::time::Instant,
+    consecutive_empty_reads: &mut u32,
+    stop_signal: &Arc<std::sync::atomic::AtomicBool>,
+) -> bool {
+    use crate::api::realtime_audio::websocket::{
+        connect_websocket, send_setup_message, set_socket_nonblocking,
+    };
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    let mut reconnect_buffer: Vec<i16> = Vec::new();
+    let _ = socket.close(None);
+
+    // Retry indefinitely until success or user stop
+    loop {
+        // Check if user stopped the recording while we were trying to reconnect
+        if stop_signal.load(Ordering::Relaxed) {
+            println!("[GeminiLiveStream] Stop signal received during reconnection.");
+            return false;
+        }
+
+        {
+            let mut buf = audio_buffer.lock().unwrap();
+            reconnect_buffer.extend(std::mem::take(&mut *buf));
+        }
+
+        match connect_websocket(api_key) {
+            Ok(mut new_socket) => {
+                if send_setup_message(&mut new_socket).is_err() {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+                if set_socket_nonblocking(&mut new_socket).is_err() {
+                    let _ = new_socket.close(None);
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+
+                // Final flush of buffer before resuming
+                {
+                    let mut buf = audio_buffer.lock().unwrap();
+                    reconnect_buffer.extend(std::mem::take(&mut *buf));
+                }
+
+                silence_buffer.clear();
+                silence_buffer.extend(reconnect_buffer);
+                *audio_mode = AudioMode::CatchUp;
+                *mode_start = Instant::now();
+                *socket = new_socket;
+                *last_transcription_time = Instant::now();
+                *consecutive_empty_reads = 0;
+
+                return true;
+            }
+            Err(e) => {
+                println!(
+                    "[GeminiLiveStream] Reconnection failed: {}. Retrying in 1s...",
+                    e
+                );
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
+    }
+}
+
+/// Real-time record and stream to Gemini Live WebSocket
+/// Connects WebSocket FIRST, then streams audio in real-time during recording
+pub fn record_and_stream_gemini_live(
+    preset: Preset,
+    stop_signal: Arc<AtomicBool>,
+    pause_signal: Arc<AtomicBool>,
+    abort_signal: Arc<AtomicBool>,
+    overlay_hwnd: HWND,
+    _target_window: Option<HWND>,
+) {
+    use crate::api::realtime_audio::websocket::{
+        connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
+        set_socket_nonblocking, set_socket_short_timeout,
+    };
+    use crate::overlay::recording::AUDIO_INITIALIZING;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    println!("[GeminiLiveStream] Starting real-time streaming...");
+
+    // Check if streaming is enabled
+    // Enable if explicit flag is set OR render_mode is "stream"
+    // Find the relevant audio block for streaming settings
+    let audio_block = preset
+        .blocks
+        .iter()
+        .find(|b| b.block_type == "audio")
+        .or_else(|| preset.blocks.first());
+
+    let streaming_enabled = audio_block
+        .map(|b| b.show_overlay && (b.streaming_enabled || b.render_mode == "stream"))
+        .unwrap_or(false);
+    let mut streaming_hwnd: Option<HWND> = None;
+
+    struct WindowGuard(HWND);
+    impl Drop for WindowGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = PostMessageW(Some(self.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+
+    // Launch Result Overlay if streaming is enabled
+    if streaming_enabled {
+        let (tx, rx) = mpsc::channel();
+        let preset_for_thread = preset.clone();
+
+        std::thread::spawn(move || {
+            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+            let (rect, _) = if preset_for_thread.blocks.len() > 1 {
+                let w = 600;
+                let h = 300;
+                let gap = 20;
+                let total = w * 2 + gap;
+                let x = (screen_w - total) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    Some(RECT {
+                        left: x + w + gap,
+                        top: y,
+                        right: x + w + gap + w,
+                        bottom: y + h,
+                    }),
+                )
+            } else {
+                let w = 700;
+                let h = 300;
+                let x = (screen_w - w) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    None,
+                )
+            };
+
+            let active_block = preset_for_thread
+                .blocks
+                .iter()
+                .find(|b| b.block_type == "audio")
+                .or_else(|| preset_for_thread.blocks.first());
+
+            let model_id = active_block.map(|b| b.model.clone()).unwrap_or_default();
+            let render_mode = active_block
+                .map(|b| b.render_mode.clone())
+                .unwrap_or_default();
+
+            // Get provider
+            let model_conf = crate::model_config::get_model_by_id(&model_id);
+            let provider = model_conf
+                .map(|m| m.provider)
+                .unwrap_or("gemini".to_string());
+
+            let hwnd = create_result_window(
+                rect,
+                WindowType::Primary,
+                RefineContext::Audio(Vec::new()), // Audio context placeholder
+                model_id,
+                provider,
+                true,          // streaming_enabled
+                false,         // start_editing
+                String::new(), // preset_prompt
+                get_chain_color(0),
+                &render_mode,
+                "Listening...".to_string(),
+            );
+
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+
+            let _ = tx.send(SendHwnd(hwnd));
+
+            // Message Loop
+            unsafe {
+                let mut m = MSG::default();
+                while GetMessageW(&mut m, None, 0, 0).into() {
+                    let _ = TranslateMessage(&m);
+                    DispatchMessageW(&m);
+                    if !IsWindow(Some(hwnd)).as_bool() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        if let Ok(SendHwnd(h)) = rx.recv() {
+            streaming_hwnd = Some(h);
+        }
+    }
+
+    let _window_guard = streaming_hwnd.map(WindowGuard);
+
+    let update_stream_text = |text: &str| {
+        if let Some(h) = streaming_hwnd {
+            update_window_text(h, text);
+        }
+    };
+
+    let gemini_api_key = {
+        let app = APP.lock().unwrap();
+        app.config.gemini_api_key.clone()
+    };
+
+    if gemini_api_key.trim().is_empty() {
+        eprintln!("[GeminiLiveStream] No API key");
+        unsafe {
+            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+        return;
+    }
+
+    // Connect WebSocket (Initializing state)
+    AUDIO_INITIALIZING.store(true, Ordering::SeqCst);
+    println!("[GeminiLiveStream] Connecting WebSocket...");
+
+    let mut socket = match connect_websocket(&gemini_api_key) {
+        Ok(s) => {
+            println!("[GeminiLiveStream] Connected");
+            s
+        }
+        Err(e) => {
+            println!("[GeminiLiveStream] Connection failed: {}", e);
+            AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+            unsafe {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            return;
+        }
+    };
+
+    if let Err(e) = send_setup_message(&mut socket) {
+        println!("[GeminiLiveStream] Setup failed: {}", e);
+        AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+        unsafe {
+            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+        return;
+    }
+
+    let _ = set_socket_short_timeout(&mut socket);
+
+    // Wait for setupComplete
+    let setup_start = Instant::now();
+    loop {
+        match socket.read() {
+            Ok(tungstenite::Message::Text(msg)) => {
+                if msg.as_str().contains("setupComplete") {
+                    break;
+                }
+            }
+            Ok(tungstenite::Message::Binary(data)) => {
+                if String::from_utf8(data.to_vec())
+                    .map(|t| t.contains("setupComplete"))
+                    .unwrap_or(false)
+                {
+                    break;
+                }
+            }
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(ref e))
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                if setup_start.elapsed() > Duration::from_secs(30) {
+                    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+                    unsafe {
+                        let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                    }
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => {
+                AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+                unsafe {
+                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+                return;
+            }
+        }
+    }
+
+    let _ = set_socket_nonblocking(&mut socket);
+    AUDIO_INITIALIZING.store(false, Ordering::SeqCst);
+    crate::overlay::recording::AUDIO_WARMUP_COMPLETE.store(true, Ordering::SeqCst);
+    println!("[GeminiLiveStream] Setup complete, starting audio...");
+
+    // Start audio capture
+    #[cfg(target_os = "windows")]
+    let host = if preset.audio_source == "device" {
+        cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or(cpal::default_host())
+    } else {
+        cpal::default_host()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let host = cpal::default_host();
+
+    let device = if preset.audio_source == "device" {
+        match host.default_output_device() {
+            Some(d) => d,
+            None => {
+                let _ = socket.close(None);
+                unsafe {
+                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+                return;
+            }
+        }
+    } else {
+        match host.default_input_device() {
+            Some(d) => d,
+            None => {
+                let _ = socket.close(None);
+                unsafe {
+                    let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+                return;
+            }
+        }
+    };
+
+    let config = if preset.audio_source == "device" {
+        device
+            .default_output_config()
+            .or_else(|_| device.default_input_config())
+    } else {
+        device.default_input_config()
+    };
+    let config = match config {
+        Ok(c) => c,
+        Err(_) => {
+            let _ = socket.close(None);
+            unsafe {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            return;
+        }
+    };
+
+    let sample_rate = config.sample_rate();
+    let channels = config.channels() as usize;
+    let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let audio_buffer_clone = audio_buffer.clone();
+    let full_buffer_clone = full_audio_buffer.clone();
+    let pause_clone = pause_signal.clone();
+
+    let stream = match config.sample_format() {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config.into(),
+            move |data: &[f32], _: &_| {
+                if pause_clone.load(Ordering::Relaxed) {
+                    return;
+                }
+                let mut rms = 0.0;
+                for &x in data {
+                    rms += x * x;
+                }
+                rms = (rms / data.len() as f32).sqrt();
+                crate::overlay::recording::update_audio_viz(rms);
+                let mono: Vec<i16> = if channels > 1 {
+                    data.chunks(channels)
+                        .map(|c| {
+                            ((c.iter().sum::<f32>() / channels as f32) * i16::MAX as f32) as i16
+                        })
+                        .collect()
+                } else {
+                    data.iter().map(|&f| (f * i16::MAX as f32) as i16).collect()
+                };
+                let resampled = resample_to_16khz(&mono, sample_rate);
+                if let Ok(mut buf) = audio_buffer_clone.lock() {
+                    buf.extend(resampled.clone());
+                }
+                if let Ok(mut full) = full_buffer_clone.lock() {
+                    full.extend(resampled);
+                }
+            },
+            |e| eprintln!("Stream error: {}", e),
+            None,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config.into(),
+            move |data: &[i16], _: &_| {
+                if pause_clone.load(Ordering::Relaxed) {
+                    return;
+                }
+                let mut rms = 0.0;
+                for &x in data {
+                    let f = x as f32 / i16::MAX as f32;
+                    rms += f * f;
+                }
+                rms = (rms / data.len() as f32).sqrt();
+                crate::overlay::recording::update_audio_viz(rms);
+                let mono: Vec<i16> = if channels > 1 {
+                    data.chunks(channels)
+                        .map(|c| (c.iter().map(|&s| s as i32).sum::<i32>() / c.len() as i32) as i16)
+                        .collect()
+                } else {
+                    data.to_vec()
+                };
+                let resampled = resample_to_16khz(&mono, sample_rate);
+                if let Ok(mut buf) = audio_buffer_clone.lock() {
+                    buf.extend(resampled.clone());
+                }
+                if let Ok(mut full) = full_buffer_clone.lock() {
+                    full.extend(resampled);
+                }
+            },
+            |e| eprintln!("Stream error: {}", e),
+            None,
+        ),
+        _ => {
+            let _ = socket.close(None);
+            unsafe {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            return;
+        }
+    };
+
+    let stream = match stream {
+        Ok(s) => s,
+        Err(_) => {
+            let _ = socket.close(None);
+            unsafe {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+            return;
+        }
+    };
+    if stream.play().is_err() {
+        let _ = socket.close(None);
+        unsafe {
+            let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+        return;
+    }
+
+    println!("[GeminiLiveStream] Streaming audio...");
+    let chunk_size = 1600;
+    let mut last_send = Instant::now();
+    let send_interval = Duration::from_millis(100);
+    let auto_stop = preset.auto_stop_recording;
+    let mut has_spoken = false;
+    let mut first_speech: Option<Instant> = None;
+    let mut last_active = Instant::now();
+
+    // Reconnection & CatchUp state
+    let mut audio_mode = AudioMode::Normal;
+    let mut mode_start = Instant::now();
+    let mut silence_buffer: Vec<i16> = Vec::new();
+    let mut last_transcription_time = Instant::now();
+    let mut consecutive_empty_reads: u32 = 0;
+
+    const NORMAL_DURATION: Duration = Duration::from_secs(20);
+    const SILENCE_DURATION: Duration = Duration::from_secs(2);
+    const SAMPLES_PER_100MS: usize = 1600;
+    const NO_RESULT_THRESHOLD_SECS: u64 = 8;
+    const EMPTY_READ_CHECK_COUNT: u32 = 50;
+
+    while !stop_signal.load(Ordering::SeqCst) && !abort_signal.load(Ordering::SeqCst) {
+        if !preset.hide_recording_ui && !unsafe { IsWindow(Some(overlay_hwnd)).as_bool() } {
+            break;
+        }
+
+        // State machine transitions
+        match audio_mode {
+            AudioMode::Normal => {
+                if mode_start.elapsed() >= NORMAL_DURATION {
+                    audio_mode = AudioMode::Silence;
+                    mode_start = Instant::now();
+                    silence_buffer.clear();
+                }
+            }
+            AudioMode::Silence => {
+                if mode_start.elapsed() >= SILENCE_DURATION {
+                    audio_mode = AudioMode::CatchUp;
+                    mode_start = Instant::now();
+                }
+            }
+            AudioMode::CatchUp => {
+                if silence_buffer.is_empty() {
+                    audio_mode = AudioMode::Normal;
+                    mode_start = Instant::now();
+                }
+            }
+        }
+
+        if last_send.elapsed() >= send_interval {
+            let real_audio: Vec<i16> = {
+                let mut buf = audio_buffer.lock().unwrap();
+                std::mem::take(&mut *buf)
+            };
+
+            match audio_mode {
+                AudioMode::Normal => {
+                    if !real_audio.is_empty() && !pause_signal.load(Ordering::Relaxed) {
+                        for chunk in real_audio.chunks(chunk_size) {
+                            if send_audio_chunk(&mut socket, chunk).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                AudioMode::Silence => {
+                    silence_buffer.extend(real_audio);
+                    let silence: Vec<i16> = vec![0i16; SAMPLES_PER_100MS];
+                    if send_audio_chunk(&mut socket, &silence).is_err() {
+                        break;
+                    }
+                }
+                AudioMode::CatchUp => {
+                    silence_buffer.extend(real_audio);
+                    let double_chunk = SAMPLES_PER_100MS * 2;
+                    let to_send: Vec<i16> = if silence_buffer.len() >= double_chunk {
+                        silence_buffer.drain(..double_chunk).collect()
+                    } else if !silence_buffer.is_empty() {
+                        silence_buffer.drain(..).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    if !to_send.is_empty() {
+                        if send_audio_chunk(&mut socket, &to_send).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            last_send = Instant::now();
+        }
+
+        // Read transcriptions
+        loop {
+            match socket.read() {
+                Ok(tungstenite::Message::Text(msg)) => {
+                    if let Some(t) = parse_input_transcription(msg.as_str()) {
+                        if !t.is_empty() {
+                            last_transcription_time = Instant::now();
+                            consecutive_empty_reads = 0;
+                            if let Ok(mut txt) = accumulated_text.lock() {
+                                txt.push_str(&t);
+                                update_stream_text(&txt);
+                            }
+                            if preset.auto_paste {
+                                crate::overlay::utils::type_text_to_window(None, &t);
+                            }
+                        }
+                    }
+                }
+                Ok(tungstenite::Message::Binary(data)) => {
+                    if let Ok(s) = String::from_utf8(data.to_vec()) {
+                        if let Some(t) = parse_input_transcription(&s) {
+                            if !t.is_empty() {
+                                last_transcription_time = Instant::now();
+                                consecutive_empty_reads = 0;
+                                if let Ok(mut txt) = accumulated_text.lock() {
+                                    txt.push_str(&t);
+                                    update_stream_text(&txt);
+                                }
+                                if preset.auto_paste {
+                                    crate::overlay::utils::type_text_to_window(None, &t);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(tungstenite::Message::Close(_)) => {
+                    if !try_reconnect(
+                        &mut socket,
+                        &gemini_api_key,
+                        &audio_buffer,
+                        &mut silence_buffer,
+                        &mut audio_mode,
+                        &mut mode_start,
+                        &mut last_transcription_time,
+                        &mut consecutive_empty_reads,
+                        &stop_signal,
+                    ) {
+                        break;
+                    }
+                }
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    consecutive_empty_reads += 1;
+                    if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
+                        && last_transcription_time.elapsed()
+                            > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
+                    {
+                        if !try_reconnect(
+                            &mut socket,
+                            &gemini_api_key,
+                            &audio_buffer,
+                            &mut silence_buffer,
+                            &mut audio_mode,
+                            &mut mode_start,
+                            &mut last_transcription_time,
+                            &mut consecutive_empty_reads,
+                            &stop_signal,
+                        ) {
+                            break;
+                        }
+                    }
+                    break;
+                }
+                Err(e) => {
+                    let error_str = e.to_string();
+                    if error_str.contains("reset")
+                        || error_str.contains("closed")
+                        || error_str.contains("broken")
+                    {
+                        if !try_reconnect(
+                            &mut socket,
+                            &gemini_api_key,
+                            &audio_buffer,
+                            &mut silence_buffer,
+                            &mut audio_mode,
+                            &mut mode_start,
+                            &mut last_transcription_time,
+                            &mut consecutive_empty_reads,
+                            &stop_signal,
+                        ) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Auto-stop: only active if not paused
+        if auto_stop && !pause_signal.load(Ordering::Relaxed) {
+            let rms =
+                f32::from_bits(crate::overlay::recording::CURRENT_RMS.load(Ordering::Relaxed));
+            if rms > 0.015 {
+                if !has_spoken {
+                    first_speech = Some(Instant::now());
+                }
+                has_spoken = true;
+                last_active = Instant::now();
+            } else if has_spoken
+                && first_speech.map(|t| t.elapsed().as_millis()).unwrap_or(0) >= 2000
+                && last_active.elapsed().as_millis() > 800
+            {
+                stop_signal.store(true, Ordering::SeqCst);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    drop(stream);
+    println!("[GeminiLiveStream] Stopped, waiting 2s...");
+
+    if !abort_signal.load(Ordering::SeqCst) {
+        let remaining: Vec<i16> = std::mem::take(&mut *audio_buffer.lock().unwrap());
+        if !remaining.is_empty() {
+            let _ = send_audio_chunk(&mut socket, &remaining);
+        }
+
+        // Adaptive wait: Start with 500ms
+        // If we get data, extend by 600ms (was 300ms), up to max 4.0s (was 2.5s)
+        let mut conclude_end = Instant::now() + Duration::from_millis(500);
+        let max_stop_time = Instant::now() + Duration::from_millis(4000);
+        let extension = Duration::from_millis(600);
+
+        println!("[GeminiLiveStream] Waiting for tail...");
+
+        while Instant::now() < conclude_end && Instant::now() < max_stop_time {
+            // We need to set the socket timeout dynamically or just rely on non-blocking + sleep
+            // Since we set non-blocking earlier, read() retrieves immediately.
+
+            match socket.read() {
+                Ok(tungstenite::Message::Text(msg)) => {
+                    if let Some(t) = parse_input_transcription(msg.as_str()) {
+                        if !t.is_empty() {
+                            if let Ok(mut txt) = accumulated_text.lock() {
+                                txt.push_str(&t);
+                                update_stream_text(&txt);
+                            }
+                            // Found data, extend wait
+                            conclude_end = Instant::now() + extension;
+                        }
+                    }
+                }
+                Ok(tungstenite::Message::Binary(data)) => {
+                    if let Ok(s) = String::from_utf8(data.to_vec()) {
+                        if let Some(t) = parse_input_transcription(&s) {
+                            if !t.is_empty() {
+                                if let Ok(mut txt) = accumulated_text.lock() {
+                                    txt.push_str(&t);
+                                }
+                                if preset.auto_paste {
+                                    crate::overlay::utils::type_text_to_window(None, &t);
+                                }
+                                // Found data, extend wait
+                                conclude_end = Instant::now() + extension;
+                            }
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(ref e))
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    let _ = socket.close(None);
+    let final_text = accumulated_text.lock().unwrap().clone();
+    println!("[GeminiLiveStream] Result: '{}'", final_text);
+
+    if abort_signal.load(Ordering::SeqCst) || final_text.is_empty() {
+        unsafe {
+            if IsWindow(Some(overlay_hwnd)).as_bool() {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+        return;
+    }
+
+    {
+        let app = APP.lock().unwrap();
+        app.history.save_audio(Vec::new(), final_text.clone());
+    }
+
+    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    let (rect, retrans) = if preset.blocks.len() > 1 {
+        let w = 600;
+        let h = 300;
+        let gap = 20;
+        let total = w * 2 + gap;
+        let x = (screen_w - total) / 2;
+        let y = (screen_h - h) / 2;
+        (
+            RECT {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            },
+            Some(RECT {
+                left: x + w + gap,
+                top: y,
+                right: x + w + gap + w,
+                bottom: y + h,
+            }),
+        )
+    } else {
+        let w = 700;
+        let h = 300;
+        let x = (screen_w - w) / 2;
+        let y = (screen_h - h) / 2;
+        (
+            RECT {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            },
+            None,
+        )
+    };
+
+    let final_wav = {
+        let samples = full_audio_buffer.lock().unwrap();
+        encode_wav(&samples, 16000, 1)
+    };
+
+    crate::overlay::process::show_audio_result(
+        preset,
+        final_text,
+        final_wav,
+        rect,
+        retrans,
+        overlay_hwnd,
+        true, // is_streaming_result: disable auto-paste for Gemini Live
+    );
+}
+
+pub fn record_and_stream_parakeet(
+    preset: Preset,
+    stop_signal: Arc<AtomicBool>,
+    pause_signal: Arc<AtomicBool>,
+    abort_signal: Arc<AtomicBool>,
+    overlay_hwnd: HWND,
+    target_window: Option<HWND>,
+) {
+    use std::sync::Mutex;
+    let accumulated_text: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let full_audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let acc_clone = accumulated_text.clone();
+    let preset_clone = preset.clone();
+    let _target_window_clone = target_window;
+
+    // Check if streaming is enabled in the first block (Audio block)
+    // Enable if explicit flag is set OR render_mode is "stream"
+    // Find the relevant audio block for streaming settings
+    let audio_block = preset
+        .blocks
+        .iter()
+        .find(|b| b.block_type == "audio")
+        .or_else(|| preset.blocks.first());
+
+    let streaming_enabled = audio_block
+        .map(|b| b.show_overlay && (b.streaming_enabled || b.render_mode == "stream"))
+        .unwrap_or(false);
+    let mut streaming_hwnd: Option<HWND> = None;
+
+    // Launch Result Overlay if streaming is enabled
+    if streaming_enabled {
+        let (tx, rx) = mpsc::channel();
+        let preset_for_thread = preset.clone();
+
+        std::thread::spawn(move || {
+            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+            let (rect, _) = if preset_for_thread.blocks.len() > 1 {
+                let w = 600;
+                let h = 300;
+                let gap = 20;
+                let total = w * 2 + gap;
+                let x = (screen_w - total) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    Some(RECT {
+                        left: x + w + gap,
+                        top: y,
+                        right: x + w + gap + w,
+                        bottom: y + h,
+                    }),
+                )
+            } else {
+                let w = 700;
+                let h = 300;
+                let x = (screen_w - w) / 2;
+                let y = (screen_h - h) / 2;
+                (
+                    RECT {
+                        left: x,
+                        top: y,
+                        right: x + w,
+                        bottom: y + h,
+                    },
+                    None,
+                )
+            };
+
+            let first_block = preset_for_thread.blocks.first();
+            let model_id = first_block.map(|b| b.model.clone()).unwrap_or_default();
+            let render_mode = first_block
+                .map(|b| b.render_mode.clone())
+                .unwrap_or_default();
+
+            // Get provider
+            let model_conf = crate::model_config::get_model_by_id(&model_id);
+            let provider = model_conf
+                .map(|m| m.provider)
+                .unwrap_or("parakeet".to_string());
+
+            let hwnd = create_result_window(
+                rect,
+                WindowType::Primary,
+                RefineContext::Audio(Vec::new()), // Audio context placeholder
+                model_id,
+                provider,
+                true,          // streaming_enabled
+                false,         // start_editing
+                String::new(), // preset_prompt (not used here)
+                get_chain_color(0),
+                &render_mode,
+                "Listening...".to_string(),
+            );
+
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+            }
+
+            let _ = tx.send(SendHwnd(hwnd));
+
+            // Message Loop
+            unsafe {
+                let mut m = MSG::default();
+                while GetMessageW(&mut m, None, 0, 0).into() {
+                    let _ = TranslateMessage(&m);
+                    DispatchMessageW(&m);
+                    if !IsWindow(Some(hwnd)).as_bool() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        if let Ok(SendHwnd(h)) = rx.recv() {
+            streaming_hwnd = Some(h);
+        }
+    }
+
+    let streaming_hwnd_clone = streaming_hwnd;
+
+    let callback = move |text: String| {
+        if !text.is_empty() {
+            if let Ok(mut txt) = acc_clone.lock() {
+                txt.push_str(&text);
+
+                // Update streaming window if active
+                if let Some(h) = streaming_hwnd_clone {
+                    update_window_text(h, &txt);
+                }
+            }
+            // Real-time typing
+            if preset_clone.auto_paste {
+                // Always use current foreground window (None) for continuous typing
+                // This allows user to switch windows while talking
+                crate::overlay::utils::type_text_to_window(None, &text);
+            }
+        }
+    };
+
+    println!("[ParakeetStream] Starting Parakeet session...");
+
+    // Run Parakeet session (blocks until stopped)
+    let res = crate::api::realtime_audio::parakeet::run_parakeet_session(
+        stop_signal.clone(),
+        pause_signal.clone(),
+        Some(full_audio_buffer.clone()),
+        Some(overlay_hwnd), // Send volume updates to overlay
+        preset_clone.hide_recording_ui,
+        true, // Enable download badge
+        Some(preset_clone.audio_source.clone()),
+        preset_clone.auto_stop_recording,
+        callback,
+    );
+
+    // Close streaming window immediately after recording stops
+    if let Some(h) = streaming_hwnd {
+        unsafe {
+            let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
+        }
+    }
+
+    if let Err(e) = res {
+        eprintln!("[ParakeetStream] Error: {:?}", e);
+    }
+
+    // Check for abort
+    if abort_signal.load(Ordering::SeqCst) {
+        unsafe {
+            if IsWindow(Some(overlay_hwnd)).as_bool() {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+        return;
+    }
+
+    let final_text = accumulated_text.lock().unwrap().clone();
+    println!("[ParakeetStream] Final Result: '{}'", final_text);
+
+    if final_text.is_empty() {
+        unsafe {
+            if IsWindow(Some(overlay_hwnd)).as_bool() {
+                let _ = PostMessageW(Some(overlay_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+        return;
+    }
+
+    let final_wav = {
+        let samples = full_audio_buffer.lock().unwrap();
+        encode_wav(&samples, 16000, 1)
+    };
+
+    // Save history
+    {
+        let app = crate::APP.lock().unwrap();
+        app.history
+            .save_audio(final_wav.clone(), final_text.clone());
+    }
+
+    let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+    let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+    let (rect, retrans) = if preset.blocks.len() > 1 {
+        let w = 600;
+        let h = 300;
+        let gap = 20;
+        let total = w * 2 + gap;
+        let x = (screen_w - total) / 2;
+        let y = (screen_h - h) / 2;
+        (
+            RECT {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            },
+            Some(RECT {
+                left: x + w + gap,
+                top: y,
+                right: x + w + gap + w,
+                bottom: y + h,
+            }),
+        )
+    } else {
+        let w = 700;
+        let h = 300;
+        let x = (screen_w - w) / 2;
+        let y = (screen_h - h) / 2;
+        (
+            RECT {
+                left: x,
+                top: y,
+                right: x + w,
+                bottom: y + h,
+            },
+            None,
+        )
+    };
+
+    crate::overlay::process::show_audio_result(
+        preset,
+        final_text,
+        final_wav,
+        rect,
+        retrans,
+        overlay_hwnd,
+        true, // is_streaming_result: disable auto-paste
+    );
 }
 
 fn upload_audio_to_whisper(
@@ -276,6 +1699,14 @@ fn execute_audio_processing_logic(preset: &Preset, wav_data: Vec<u8>) -> anyhow:
         } else {
             transcribe_audio_gemini(&gemini_api_key, final_prompt, model_name, wav_data, |_| {})
         }
+    } else if provider == "gemini-live" {
+        // Gemini Live API (WebSocket-based) - uses INPUT transcription (what user said)
+        // instead of LLM output transcription
+        if gemini_api_key.trim().is_empty() {
+            Err(anyhow::anyhow!("NO_API_KEY:gemini"))
+        } else {
+            transcribe_with_gemini_live_input(&gemini_api_key, wav_data)
+        }
     } else {
         Err(anyhow::anyhow!("Unsupported audio provider: {}", provider))
     }
@@ -288,6 +1719,7 @@ pub fn record_audio_and_transcribe(
     abort_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
 ) {
+    let pause_signal_audio = pause_signal.clone();
     #[cfg(target_os = "windows")]
     let host = if preset.audio_source == "device" {
         cpal::host_from_id(cpal::HostId::Wasapi).unwrap_or(cpal::default_host())
@@ -377,11 +1809,12 @@ pub fn record_audio_and_transcribe(
     // Threshold for "meaningful audio" - above this RMS means mic is truly receiving sound
     const WARMUP_RMS_THRESHOLD: f32 = 0.001;
 
+    let pause_signal_builder = pause_signal_audio.clone();
     let stream_res = match config.sample_format() {
         cpal::SampleFormat::F32 => device.build_input_stream(
             &config.into(),
             move |data: &[f32], _: &_| {
-                if !pause_signal.load(Ordering::Relaxed) {
+                if !pause_signal_builder.load(Ordering::Relaxed) {
                     let _ = tx.send(data.to_vec());
                     let mut rms = 0.0;
                     for &x in data {
@@ -403,7 +1836,7 @@ pub fn record_audio_and_transcribe(
         cpal::SampleFormat::I16 => device.build_input_stream(
             &config.into(),
             move |data: &[i16], _: &_| {
-                if !pause_signal.load(Ordering::Relaxed) {
+                if !pause_signal_builder.load(Ordering::Relaxed) {
                     let f32_data: Vec<f32> =
                         data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                     let _ = tx.send(f32_data);
@@ -471,7 +1904,10 @@ pub fn record_audio_and_transcribe(
         }
 
         // --- AUTO-STOP: Check volume and silence duration ---
-        if auto_stop_enabled && !stop_signal.load(Ordering::Relaxed) {
+        if auto_stop_enabled
+            && !stop_signal.load(Ordering::Relaxed)
+            && !pause_signal_audio.load(Ordering::Relaxed)
+        {
             // Get current RMS from the shared atomic
             let rms_bits = crate::overlay::recording::CURRENT_RMS.load(Ordering::Relaxed);
             let current_rms = f32::from_bits(rms_bits);
@@ -665,6 +2101,7 @@ pub fn record_audio_and_transcribe(
                 rect,
                 retranslate_rect,
                 overlay_hwnd,
+                false, // is_streaming_result: standard transcription (allow paste)
             );
         }
         Err(e) => {
@@ -746,6 +2183,7 @@ pub fn process_audio_file_request(preset: Preset, wav_data: Vec<u8>) {
                 rect,
                 retranslate_rect,
                 HWND(std::ptr::null_mut()), // No recording overlay handle needed
+                false,                      // is_streaming_result: file processing (allow paste)
             );
         }
         Err(e) => {

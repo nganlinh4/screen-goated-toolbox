@@ -62,6 +62,8 @@ pub fn model_is_non_llm(model_id: &str) -> bool {
         "google-gtx" => true,
         // Whisper models - speech-to-text only
         "whisper-fast" | "whisper-accurate" => true,
+        // Streaming audio models - process input directly
+        "gemini-live-audio" | "parakeet-local" => true,
         _ => false,
     }
 }
@@ -119,6 +121,19 @@ lazy_static::lazy_static! {
             "1000 lượt/ngày",
             "1000 요청/일",
             "1000 requests/day"
+        ),
+        ModelConfig::new(
+            "gemini-live-vision",
+            "gemini-live",
+            "Thử nghiệm",
+            "실험적",
+            "Experimental",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Vision,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
         ),
         ModelConfig::new(
             "gemma-3-27b-vision",
@@ -251,6 +266,71 @@ lazy_static::lazy_static! {
             "250 requests/day"
         ),
         ModelConfig::new(
+            "cerebras_llama33_70b",
+            "cerebras",
+            "C-Nhanh",
+            "C-빠름",
+            "C-Fast",
+            "llama-3.3-70b",
+            ModelType::Text,
+            true,
+            "14400 lượt/ngày",
+            "14400 요청/일",
+            "14400 requests/day"
+        ),
+        ModelConfig::new(
+            "cerebras_gpt_oss",
+            "cerebras",
+            "C-Chính xác",
+            "C-정확함",
+            "C-Accurate",
+            "gpt-oss-120b",
+            ModelType::Text,
+            true,
+            "14400 lượt/ngày",
+            "14400 요청/일",
+            "14400 requests/day"
+        ),
+        ModelConfig::new(
+            "cerebras_qwen3",
+            "cerebras",
+            "C-Rất chính xác",
+            "C-매우 정확함",
+            "C-Very Accurate",
+            "qwen-3-235b-a22b-instruct-2507",
+            ModelType::Text,
+            true,
+            "1440 lượt/ngày",
+            "1440 요청/일",
+            "1440 requests/day"
+        ),
+        ModelConfig::new(
+            "cerebras_zai_glm",
+            "cerebras",
+            "C-Siêu chính xác",
+            "C-초정밀",
+            "C-Super Accurate",
+            "zai-glm-4.6",
+            ModelType::Text,
+            true,
+            "100 lượt/ngày",
+            "100 요청/일",
+            "100 requests/day"
+        ),
+        ModelConfig::new(
+            "gemini-live-text",
+            "gemini-live",
+            "Thử nghiệm",
+            "실험적",
+            "Experimental",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Text,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
             "gemma-3-27b",
             "google",
             "Cân bằng, chậm",
@@ -380,58 +460,7 @@ lazy_static::lazy_static! {
             "50 공유 요청/일",
             "50 shared requests/day"
         ),
-        ModelConfig::new(
-            "cerebras_llama33_70b",
-            "cerebras",
-            "C-Nhanh",
-            "C-빠름",
-            "C-Fast",
-            "llama-3.3-70b",
-            ModelType::Text,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
-            "cerebras_gpt_oss",
-            "cerebras",
-            "C-Chính xác",
-            "C-정확함",
-            "C-Accurate",
-            "gpt-oss-120b",
-            ModelType::Text,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
-            "cerebras_qwen3",
-            "cerebras",
-            "C-Rất chính xác",
-            "C-매우 정확함",
-            "C-Very Accurate",
-            "qwen-3-235b-a22b-instruct-2507",
-            ModelType::Text,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
-            "cerebras_zai_glm",
-            "cerebras",
-            "C-Siêu chính xác",
-            "C-초정밀",
-            "C-Super Accurate",
-            "zai-glm-4.6",
-            ModelType::Text,
-            true,
-            "100 lượt/ngày",
-            "100 요청/일",
-            "100 requests/day"
-        ),
+
         ModelConfig::new(
             "whisper-fast",
             "groq",
@@ -457,6 +486,32 @@ lazy_static::lazy_static! {
             "8 giờ audio/ngày",
             "8시간 오디오/일",
             "8 hours audio/day"
+        ),
+        ModelConfig::new(
+            "parakeet-local",
+            "parakeet",
+            "Stream offline",
+            "Stream offline",
+            "Stream offline",
+            "parakeet-120m-v1",
+            ModelType::Audio,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
+        ),
+        ModelConfig::new(
+            "gemini-live-audio",
+            "gemini-live",
+            "Stream online",
+            "Stream online",
+            "Stream online",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+            ModelType::Audio,
+            true,
+            "Không giới hạn",
+            "무제한",
+            "Unlimited"
         ),
         ModelConfig::new(
             "gemini-audio",
@@ -510,6 +565,8 @@ lazy_static::lazy_static! {
             "20 요청/일",
             "20 requests/day"
         ),
+
+
     ];
 }
 
@@ -519,6 +576,87 @@ pub fn get_all_models() -> &'static [ModelConfig] {
 
 pub fn get_model_by_id(id: &str) -> Option<ModelConfig> {
     get_all_models().iter().find(|m| m.id == id).cloned()
+}
+
+/// Resolve a fallback model for retry logic
+/// Prioritizes:
+/// 1. Same provider, same type (Prioritize based on list order - treating list as priority queue)
+/// 2. Different provider, same type
+use crate::config::Config;
+
+/// Resolve a fallback model for retry logic
+/// Prioritizes:
+/// 1. Same provider, same type (Prioritize based on list order - treating list as priority queue)
+/// 2. Different provider, same type
+/// Checks if the provider is actually configured (has API key) before suggesting it.
+pub fn resolve_fallback_model(
+    failed_model_id: &str,
+    failed_model_ids: &[String],
+    current_model_type: &ModelType,
+    config: &Config,
+) -> Option<ModelConfig> {
+    let all_models = get_all_models_with_ollama();
+    let current_model_opt = get_model_by_id(failed_model_id);
+    let current_provider = current_model_opt
+        .as_ref()
+        .map(|m| m.provider.as_str())
+        .unwrap_or("");
+
+    // Helper to check if a provider is configured
+    let is_provider_configured = |provider: &str| -> bool {
+        match provider {
+            "groq" => !config.api_key.is_empty(),
+            "google" => !config.gemini_api_key.is_empty(),
+            "openai" => false, // We don't have openai_api_key in config struct (only openrouter/cerebras) - wait, checking Config struct..
+            // Ah, standard OpenAI is not in the Config struct I saw.
+            "openrouter" => !config.openrouter_api_key.is_empty(),
+            "cerebras" => !config.cerebras_api_key.is_empty(),
+            "ollama" => config.use_ollama, // No key needed, just enabled
+            _ => true, // Assume others (like internal ones) are "configured" or we can't check
+        }
+    };
+
+    // 1. Determine requirements from the failed model
+    // If the failed model supported search, the fallback MUST also support search
+    let must_support_search = model_supports_search_by_id(failed_model_id);
+
+    // 2. Try Same Provider
+    if !current_provider.is_empty() {
+        let same_provider_candidates: Vec<&ModelConfig> = all_models
+            .iter()
+            .filter(|m| {
+                m.provider == current_provider
+                    && m.model_type == *current_model_type
+                    && m.id != failed_model_id
+                    && !failed_model_ids.contains(&m.id)
+                    && (!must_support_search || model_supports_search_by_name(&m.full_name))
+            })
+            .collect();
+
+        // Prioritize the LAST model in the list (often the most capable/specific one)
+        if let Some(last) = same_provider_candidates.last() {
+            return Some((*last).clone());
+        }
+    }
+
+    // 3. Try Different Provider
+    let diff_provider_candidates: Vec<&ModelConfig> = all_models
+        .iter()
+        .filter(|m| {
+            m.provider != current_provider
+                && m.model_type == *current_model_type
+                && !failed_model_ids.contains(&m.id)
+                && is_provider_configured(&m.provider)
+                && (!must_support_search || model_supports_search_by_name(&m.full_name))
+        })
+        .collect();
+
+    // Prioritize the LAST model in the list
+    if let Some(last) = diff_provider_candidates.last() {
+        return Some((*last).clone());
+    }
+
+    None
 }
 
 /// Get all models including dynamically fetched Ollama models

@@ -15,7 +15,7 @@ use tts_settings::render_tts_settings_modal;
 use update_section::render_update_section_content;
 use usage_stats::render_usage_modal;
 
-const API_KEY_FIELD_WIDTH: f32 = 320.0;
+const API_KEY_FIELD_WIDTH: f32 = 400.0;
 
 pub fn render_global_settings(
     ui: &mut egui::Ui,
@@ -126,7 +126,6 @@ pub fn render_global_settings(
                         *show_api_key = !*show_api_key;
                     }
                 });
-                ui.add_space(8.0);
             }
 
             // Cerebras API Key (only show if enabled)
@@ -158,7 +157,6 @@ pub fn render_global_settings(
                         *show_cerebras_api_key = !*show_cerebras_api_key;
                     }
                 });
-                ui.add_space(8.0);
             }
 
             // Gemini API Key (only show if enabled)
@@ -190,7 +188,6 @@ pub fn render_global_settings(
                         *show_gemini_api_key = !*show_gemini_api_key;
                     }
                 });
-                ui.add_space(8.0);
             }
 
             // OpenRouter API Key (only show if enabled)
@@ -222,7 +219,6 @@ pub fn render_global_settings(
                         *show_openrouter_api_key = !*show_openrouter_api_key;
                     }
                 });
-                ui.add_space(8.0);
             }
 
             // Ollama (Local AI) - only show URL field if enabled
@@ -252,7 +248,6 @@ pub fn render_global_settings(
                         ui.label(egui::RichText::new(&status).size(11.0));
                     }
                 });
-                ui.add_space(8.0);
             }
         });
 

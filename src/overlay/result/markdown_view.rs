@@ -4,6 +4,7 @@ use raw_window_handle::{
 };
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Mutex, Once};
 use windows::core::w;
 use windows::Win32::Foundation::*;
@@ -20,6 +21,8 @@ lazy_static::lazy_static! {
     // Flag to skip next navigation handler call (set before history.back())
     static ref SKIP_NEXT_NAVIGATION: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
 }
+
+static MARKDOWN_PAGE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // Global hidden window handle for WebView warmup
 static mut WARMUP_HWND: HWND = HWND(std::ptr::null_mut());
@@ -131,6 +134,11 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
         );
         let wrapper = HwndWrapper(hwnd);
 
+        // Store HTML in font server and get URL for same-origin font loading
+        let page_url =
+            crate::overlay::html_components::font_manager::store_html_page(warmup_html.clone())
+                .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&warmup_html)));
+
         let result = SHARED_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -141,7 +149,7 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
-                    .with_html(&warmup_html)
+                    .with_url(&page_url)
                     .with_transparent(false);
 
                 crate::overlay::html_components::font_manager::configure_webview(builder)
@@ -155,7 +163,7 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
-                    .with_html(&warmup_html)
+                    .with_url(&page_url)
                     .with_transparent(false);
 
                 crate::overlay::html_components::font_manager::configure_webview(builder)
@@ -206,112 +214,246 @@ fn get_font_style() -> String {
 
 /// CSS styling for the markdown content
 const MARKDOWN_CSS: &str = r#"
+    :root {
+        --primary: #4fc3f7;
+        --secondary: #81d4fa;
+        --bg: #1a1a1a;
+        --bg-grad: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+        --glass: rgba(255, 255, 255, 0.03);
+        --glass-border: rgba(255, 255, 255, 0.05);
+    }
     * { box-sizing: border-box; }
+    
+    /* Animation definitions */
+    @keyframes shimmer {
+        0% { background-position: 100% 0; }
+        100% { background-position: -100% 0; }
+    }
+    
+    /* Appearing animation with blur dissolve - matches realtime overlay style */
+    @keyframes content-appear {
+        from {
+            opacity: 0;
+            filter: blur(8px);
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+            transform: translateY(4px);
+        }
+        to {
+            opacity: 1;
+            filter: blur(0);
+            -webkit-backdrop-filter: blur(0);
+            backdrop-filter: blur(0);
+            transform: translateY(0);
+        }
+    }
+
     body { 
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, sans-serif;
         font-optical-sizing: auto;
-        font-variation-settings: 'wght' 400, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        /* wdth 90 for more compact text as requested */
+        font-variation-settings: 'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100;
+        /* Default size 14px - JavaScript fit_font_to_window handles dynamic scaling for short content */
         font-size: 14px;
-        line-height: 1.6;
-        background: #1a1a1a;
-        min-height: 100vh;
+        line-height: 1.5; /* Reduced line height for compactness */
+        background: var(--bg);
+        background-image: var(--bg-grad);
+        background-attachment: fixed;
+        /* Removed min-height: 100vh to enable proper overflow detection for font scaling */
         color: #e0e0e0;
         margin: 0;
-        padding: 8px;
+        padding: 0; /* Padding now handled by WebView edge margin */
         overflow-x: hidden;
         word-wrap: break-word;
+        /* Appearing animation */
+        animation: content-appear 0.35s cubic-bezier(0.2, 0, 0.2, 1) forwards;
     }
+    
     body > *:first-child { margin-top: 0; }
+    
     h1 { 
         font-size: 1.8em; 
-        color: #4fc3f7; 
-        border-bottom: 1px solid #333; 
-        padding-bottom: 8px; 
+        color: var(--primary); 
         margin-top: 0;
-        font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+        margin-bottom: 12px; /* Reduced from 16px */
+        padding: 0px;
+        border-radius: 42px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        
+        font-variation-settings: 'wght' 600, 'wdth' 110, 'slnt' 0, 'ROND' 100;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
     }
+
     h2 { 
-        font-size: 1.5em; 
-        color: #81d4fa; 
-        border-bottom: 1px solid #2a2a2a; 
-        padding-bottom: 6px; 
-        margin-top: 0.5em;
+        font-size: 1.4em; 
+        color: var(--secondary); 
+        /* Removed border-bottom */
+        padding-bottom: 4px; 
+        margin-top: 1.0em; /* Reduced from 1.2em */
+        margin-bottom: 0.5em;
         font-variation-settings: 'wght' 550, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
+
     h3 { 
         font-size: 1.2em; 
         color: #b3e5fc; 
-        margin-top: 0.5em;
+        margin-top: 0.8em; /* Reduced from 1.0em */
+        margin-bottom: 0.4em;
         font-variation-settings: 'wght' 500, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
+    
     h4, h5, h6 { 
         color: #e1f5fe; 
-        margin-top: 0.5em;
+        margin-top: 0.8em;
+        margin-bottom: 0.4em;
         font-variation-settings: 'wght' 500, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
+
     p { margin: 0.5em 0; }
-    strong, b {
-        font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
+    
+    /* Interactive Word Styling - COLOR ONLY, preserves font scaling */
+    .word {
+        display: inline;
+        transition: color 0.2s ease, text-shadow 0.2s ease;
+        cursor: text;
     }
-    em, i {
-        font-variation-settings: 'wght' 400, 'wdth' 100, 'slnt' -10, 'ROND' 100;
+
+    /* 1. Center (Hovered) - Bright cyan + glow */
+    .word:hover {
+        color: var(--primary);
+        text-shadow: 0 0 12px rgba(79, 195, 247, 0.6);
     }
-    code { 
-        font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
-        background: #2d2d2d; 
-        padding: 2px 6px; 
-        border-radius: 4px;
-        font-size: 0.9em;
-        color: #ce9178;
+
+    /* 2. Immediate Neighbors (Distance: 1) - Light cyan */
+    .word:hover + .word {
+        color: #e1f5fe;
+        text-shadow: 0 0 6px rgba(79, 195, 247, 0.3);
     }
-    pre { 
-        background: #1a1a1a; 
-        padding: 12px 16px; 
-        border-radius: 8px; 
-        overflow-x: auto;
-        border: 1px solid #333;
+    .word:has(+ .word:hover) {
+        color: #e1f5fe;
+        text-shadow: 0 0 6px rgba(79, 195, 247, 0.3);
     }
+
+    /* 3. Secondary Neighbors (Distance: 2) - Lighter cyan */
+    .word:hover + .word + .word {
+        color: #b3e5fc;
+    }
+    .word:has(+ .word + .word:hover) {
+        color: #b3e5fc;
+    }
+
+    /* Headers need specific overriding to ensure the fisheye works on top of their base styles */
+    h1 .word:hover, h2 .word:hover, h3 .word:hover {
+        color: var(--primary);
+    }
+    
+    /* Ensure code blocks remain non-interactive */
+    pre .word {
+        display: inline;
+        transition: none;
+    }
+    pre .word:hover, 
+    pre .word:hover + .word,
+    pre .word:has(+ .word:hover) {
+        color: inherit;
+        text-shadow: none;
+    }
+    
     pre code { 
         background: transparent; 
         padding: 0; 
         color: #d4d4d4;
     }
-    a { color: #81d4fa; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    blockquote { 
-        border-left: 4px solid #4fc3f7; 
-        padding-left: 16px; 
-        margin-left: 0;
-        color: #aaa; 
-        background: #1a1a1a;
-        padding: 8px 16px;
-        border-radius: 0 8px 8px 0;
-        font-variation-settings: 'wght' 300, 'wdth' 100, 'slnt' 0, 'ROND' 100;
-    }
-    ul, ol { padding-left: 24px; margin: 0.8em 0; }
-    li { margin: 4px 0; }
+    
+    a { color: #82b1ff; text-decoration: none; transition: all 0.2s; cursor: pointer; }
+    a .word { cursor: pointer; } /* Ensure link words show hand cursor */
+    a:hover { color: #448aff; text-shadow: 0 0 10px rgba(68,138,255,0.4); text-decoration: none; }
+    
+    ul, ol { padding-left: 20px; margin: 0.5em 0; }
+    li { margin: 2px 0; } /* Reduced from 4px */
+    
     table { 
-        border-collapse: collapse; 
         width: 100%; 
-        margin: 1em 0;
-    }
-    th, td { 
-        border: 1px solid #444; 
-        padding: 8px 12px; 
-        text-align: left;
+        border-collapse: separate; 
+        border-spacing: 0; 
+        margin: 12px 0; /* Reduced from 16px */
+        border-radius: 8px; 
+        overflow: hidden; 
+        border: 1px solid #333; 
+        background: rgba(0,0,0,0.2);
     }
     th { 
-        background: #252525; 
-        color: #81d4fa;
+        background: #222; 
+        padding: 8px 10px; /* Reduced from 10px */
+        color: var(--primary); 
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 1px solid #333;
         font-variation-settings: 'wght' 600, 'wdth' 100, 'slnt' 0, 'ROND' 100;
     }
-    tr:nth-child(even) { background: #1a1a1a; }
-    hr { border: none; border-top: 1px solid #444; margin: 1.5em 0; }
-    img { max-width: 100%; border-radius: 8px; }
+    td { 
+        padding: 6px 10px; /* Reduced from 8px */
+        border-top: 1px solid #333;
+    }
+    tr:first-child td { border-top: none; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
     
-    /* Scrollbar styling - Hidden but scrollable */
+    hr { border: none; height: 1px; background: #333; margin: 16px 0; } /* Reduced from 24px */
+    img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    
+    /* Streaming chunk animation - blur-dissolve for ONLY new content */
+    @keyframes stream-chunk-in {
+        from {
+            opacity: 0;
+            filter: blur(4px);
+            transform: translateX(-2px);
+        }
+        to {
+            opacity: 1;
+            filter: blur(0);
+            transform: translateX(0);
+        }
+    }
+    
+    /* Legacy chunk-appear kept for compatibility */
+    @keyframes chunk-appear {
+        from {
+            opacity: 0;
+            filter: blur(4px);
+        }
+        to {
+            opacity: 1;
+            filter: blur(0);
+        }
+    }
+    
+    /* Class for newly streamed text */
+    .streaming-new {
+        display: inline;
+        animation: stream-chunk-in 0.25s ease-out forwards;
+    }
+    
+    /* Smooth transition for all direct body children during updates */
+    body > * {
+        transition: opacity 0.15s ease-out, filter 0.15s ease-out;
+    }
+    
     ::-webkit-scrollbar { display: none; }
 "#;
+
+use pulldown_cmark::{Event, Tag, TagEnd};
+
+/// Minimal HTML escaping for text content
+fn escape_html_text(text: &str) -> String {
+    text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&#39;")
+}
 
 /// Check if content is already HTML (rather than Markdown)
 fn is_html_content(content: &str) -> bool {
@@ -490,6 +632,28 @@ fn inject_gridjs(html: &str) -> String {
     result
 }
 
+/// Inject CSS to hide scrollbars while preserving scrolling functionality
+fn inject_scrollbar_css(html: &str) -> String {
+    let css = "<style>::-webkit-scrollbar { display: none; }</style>";
+    let lower = html.to_lowercase();
+    let mut result = html.to_string();
+
+    if let Some(pos) = lower.find("</head>") {
+        result.insert_str(pos, css);
+    } else if let Some(pos) = lower.find("<body>") {
+        result.insert_str(pos, css);
+    } else {
+        result.insert_str(0, css);
+    }
+    result
+}
+
+/// Auto-scaling is now handled purely via CSS clamp() in MARKDOWN_CSS
+/// This function is kept as a no-op for compatibility
+fn inject_auto_scaling(html: &str) -> String {
+    html.to_string()
+}
+
 /// Convert markdown text to styled HTML, or pass through raw HTML
 pub fn markdown_to_html(
     markdown: &str,
@@ -520,25 +684,30 @@ pub fn markdown_to_html(
             text-align: center; 
             height: 100vh; 
             margin: 0; 
-            padding: 24px;
+            padding: 12px;
             font-style: italic;
             color: #aaa;
             font-size: 16px;
         }}
     </style>
 </head>
-<body>{}</body>
+<body>
+    {}
+    {}
+</body>
 </html>"#,
             get_font_style(),
             MARKDOWN_CSS,
-            quote
+            quote,
+            "" // No extra script
         );
     }
 
-    // If input is already HTML, inject localStorage polyfill and Grid.js
+    // If input is already HTML, inject localStorage polyfill, Grid.js, and hidden scrollbar styles
     if is_html_content(markdown) {
         let with_storage = inject_storage_polyfill(markdown);
-        return inject_gridjs(&with_storage);
+        let with_grid = inject_gridjs(&with_storage);
+        return inject_scrollbar_css(&with_grid);
     }
 
     let mut options = Options::empty();
@@ -547,8 +716,63 @@ pub fn markdown_to_html(
     options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(markdown, options);
+
+    // Custom wrapper to enable word-level interaction
+    // We map text events to HTML events containing wrapped words
+    let mut in_code_block = false;
+    let mut in_table = false;
+
+    let wrapped_parser = parser.map(|event| {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => {
+                in_code_block = true;
+                event
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                in_code_block = false;
+                event
+            }
+            Event::Start(Tag::Table(_)) => {
+                in_table = true;
+                event
+            }
+            Event::End(TagEnd::Table) => {
+                in_table = false;
+                event
+            }
+            Event::Code(_) => {
+                // Inline code event - return as is
+                event
+            }
+            Event::Text(text) => {
+                if !in_code_block && !in_table {
+                    // Split text into words and wrap
+                    let mut output = String::with_capacity(text.len() * 2);
+                    let escaped = escape_html_text(&text);
+
+                    for (i, part) in escaped.split(' ').enumerate() {
+                        if i > 0 {
+                            output.push(' ');
+                        }
+                        if part.trim().is_empty() {
+                            output.push_str(part);
+                        } else {
+                            output.push_str("<span class=\"word\">");
+                            output.push_str(part);
+                            output.push_str("</span>");
+                        }
+                    }
+                    Event::Html(output.into())
+                } else {
+                    Event::Text(text)
+                }
+            }
+            _ => event,
+        }
+    });
+
     let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
+    html::push_html(&mut html_output, wrapped_parser);
 
     // Grid.js Integration
     let has_table = html_output.contains("<table");
@@ -575,7 +799,7 @@ pub fn markdown_to_html(
         String::new()
     };
 
-    format!(
+    let final_html = format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
@@ -595,7 +819,9 @@ pub fn markdown_to_html(
         gridjs_head,
         html_output,
         gridjs_body
-    )
+    );
+
+    inject_auto_scaling(&final_html)
 }
 
 /// Create a WebView child window for markdown rendering
@@ -682,34 +908,67 @@ pub fn create_markdown_webview_ex(
 
     let wrapper = HwndWrapper(parent_hwnd);
 
-    // Small margin on edges for resize handle accessibility (2px)
+    // Edge margins: 4px left/right for resize handles, 2px top/bottom
     // 52px at bottom for buttons (btn_size 28 + margin 12 * 2) if hovered
-    let edge_margin = 2.0;
+    let margin_x = 4.0;
+    let margin_y = 2.0;
     let button_area_height = if is_hovered { 52.0 } else { 0.0 };
-    let content_width = ((rect.right - rect.left) as f64 - edge_margin * 2.0).max(50.0);
-    let content_height =
-        ((rect.bottom - rect.top) as f64 - edge_margin - button_area_height).max(50.0);
+    let content_width = ((rect.right - rect.left) as f64 - margin_x * 2.0).max(50.0);
+    let content_height = ((rect.bottom - rect.top) as f64 - margin_y - button_area_height).max(0.0); // No min height - allow shrink for button bar
 
     // Create WebView with small margins so resize handles remain accessible
     // Use Physical coordinates since GetClientRect returns physical pixels
-    let _hwnd_copy = parent_hwnd;
     let hwnd_key_for_nav = hwnd_key;
 
-    // SIMPLIFIED FOR DEBUGGING - minimal WebView creation
-    // CRITICAL: with_transparent(false) matches text_input's working config
-    let result = WebViewBuilder::new()
+    // Use shared WebContext to match working realtime_webview behavior
+    // This ensures we share the same browser process/cache/state
+    let data_dir = crate::overlay::get_shared_webview_data_dir();
+    let mut web_context = WebContext::new(Some(data_dir));
+
+    // html_content is already a full HTML document from markdown_to_html
+    let full_html = html_content;
+
+    // Use store_html_page with reliable retry
+    let mut page_url = String::new();
+    for _ in 0..50 {
+        if let Some(url) =
+            crate::overlay::html_components::font_manager::store_html_page(full_html.clone())
+        {
+            page_url = url;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    if page_url.is_empty() {
+        eprintln!("Failed to store markdown page in font server!");
+        let error_html = "<html><body style='color:white'>Error: Could not connect to internal font server.</body></html>";
+        if let Some(url) =
+            crate::overlay::html_components::font_manager::store_html_page(error_html.to_string())
+        {
+            page_url = url;
+        } else {
+            page_url = "data:text/html,<html>Error</html>".to_string();
+        }
+    }
+
+    let mut builder = WebViewBuilder::new_with_web_context(&mut web_context)
         .with_bounds(Rect {
             position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                edge_margin as i32,
-                edge_margin as i32,
+                margin_x as i32,
+                margin_y as i32,
             )),
             size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
                 content_width as u32,
                 content_height as u32,
             )),
         })
-        .with_html(&html_content)
-        .with_transparent(false)
+        .with_url(&page_url)
+        .with_transparent(false);
+
+    builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+
+    let result = builder
         .with_navigation_handler(move |url: String| {
             // Check if we should skip this navigation (triggered by history.back())
             let should_skip = {
@@ -998,6 +1257,419 @@ pub fn update_markdown_content_ex(
     })
 }
 
+/// Stream markdown content - optimized for rapid updates during streaming
+/// Uses innerHTML instead of document.write to avoid document recreation
+/// Call this during streaming, then call update_markdown_content at the end for final render
+pub fn stream_markdown_content(parent_hwnd: HWND, markdown_text: &str) -> bool {
+    let hwnd_key = parent_hwnd.0 as isize;
+    let (is_refining, preset_prompt, input_text) = {
+        let states = super::state::WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get(&hwnd_key) {
+            (
+                state.is_refining,
+                state.preset_prompt.clone(),
+                state.input_text.clone(),
+            )
+        } else {
+            (false, String::new(), String::new())
+        }
+    };
+
+    stream_markdown_content_ex(
+        parent_hwnd,
+        markdown_text,
+        is_refining,
+        &preset_prompt,
+        &input_text,
+    )
+}
+
+/// Stream markdown content - internal version for rapid streaming updates
+/// Uses innerHTML on body to avoid document recreation overhead
+pub fn stream_markdown_content_ex(
+    parent_hwnd: HWND,
+    markdown_text: &str,
+    is_refining: bool,
+    preset_prompt: &str,
+    input_text: &str,
+) -> bool {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    // Check if webview exists
+    let exists = WEBVIEWS.with(|webviews| webviews.borrow().contains_key(&hwnd_key));
+
+    if !exists {
+        // Create the webview first if it doesn't exist
+        return create_markdown_webview_ex(
+            parent_hwnd,
+            markdown_text,
+            false, // is_hovered - during streaming, use compact view
+            is_refining,
+            preset_prompt,
+            input_text,
+        );
+    }
+
+    // For streaming, we just update the body innerHTML
+    // This is much faster than document.write and doesn't recreate the document
+    let html = markdown_to_html(markdown_text, is_refining, preset_prompt, input_text);
+
+    // Extract just the body content from the full HTML
+    // The HTML structure is: ....<body>CONTENT</body>....
+    let body_content = if let Some(body_start) = html.find("<body>") {
+        let after_body = &html[body_start + 6..];
+        if let Some(body_end) = after_body.find("</body>") {
+            &after_body[..body_end]
+        } else {
+            &html[..] // Fallback to full html
+        }
+    } else {
+        &html[..] // Fallback to full html
+    };
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            // Escape for JS template literal
+            let escaped_content = body_content
+                .replace('\\', "\\\\")
+                .replace('`', "\\`")
+                .replace("${", "\\${");
+
+            // Animate only NEW .word spans (markdown_to_html wraps words in <span class="word">)
+            // Track previous word count, add animation only to new words
+            let script = format!(
+                r#"(function() {{
+    const newContent = `{}`;
+    const prevWordCount = window._streamWordCount || 0;
+    
+    // Update content
+    document.body.innerHTML = newContent;
+    
+    // Get all word spans
+    const words = document.querySelectorAll('.word');
+    const newWordCount = words.length;
+    
+    // Animate only NEW words (beyond previous count)
+    // OPTIMIZED: Batch styling commands to avoid thousands of RAFs causing crashes
+    let newWords = [];
+    for (let i = prevWordCount; i < newWordCount; i++) {{
+        newWords.push(words[i]);
+    }}
+    
+    if (newWords.length > 0) {{
+        // Set initial state
+        newWords.forEach(w => {{
+            w.style.opacity = '0';
+            w.style.filter = 'blur(2px)';
+        }});
+        
+        // Single RAF for all items
+        requestAnimationFrame(() => {{
+             newWords.forEach(w => {{
+                w.style.transition = 'opacity 0.35s ease-out, filter 0.35s ease-out';
+                w.style.opacity = '1';
+                w.style.filter = 'blur(0)';
+             }});
+        }});
+    }}
+    
+    window._streamWordCount = newWordCount;
+    window.scrollTo({{ top: document.body.scrollHeight, behavior: 'smooth' }});
+}})()"#,
+                escaped_content
+            );
+            let _ = webview.evaluate_script(&script);
+            return true;
+        }
+        false
+    })
+}
+
+/// Reset the stream content tracker (call when streaming ends)
+/// This ensures the next streaming session starts fresh
+pub fn reset_stream_counter(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            // Reset stream counters only - font will be reset at start of next session
+            let _ = webview.evaluate_script(
+                "window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0;"
+            );
+        }
+    });
+}
+
+/// Fit font size to window - call after streaming ends or on content update
+/// This runs a ONE-TIME font fit calculation (no loops, no observers, safe)
+/// Scales font UP if there's unfilled space, scales DOWN if overflow (but never below 8px)
+/// Also adjusts font width (wdth) to prevent text wrapping when possible
+pub fn fit_font_to_window(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    // One-time font fitting script - runs once, no loops, no observers
+    // 1. First fits font size (8px-32px)
+    // 2. If text would wrap (single line wider than container), condense wdth
+    let script = r#"
+    (function() {
+        if (window._sgtFitting) return;
+        window._sgtFitting = true;
+        
+        setTimeout(function() {
+            var body = document.body;
+            var doc = document.documentElement;
+            var winH = window.innerHeight;
+            var winW = body.clientWidth || window.innerWidth;
+            
+            // Reset wdth to default before measuring
+            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+            
+            var currentSize = parseFloat(window.getComputedStyle(body).fontSize) || 14;
+            currentSize = Math.round(currentSize);
+            
+            if (currentSize < 14) currentSize = 14;
+            
+            var hasOverflow = doc.scrollHeight > (winH + 2);
+            var minSize = 14; // Normal minimum is 14px (emergency shrink in Step 3 can go lower)
+            var maxSize = 200; // Unlocked: extremely high limit for short content
+            
+            // Get content length to determine fitting strategy
+            var text = body.innerText || body.textContent || '';
+            var textLen = text.trim().length;
+            
+            // STEP 1: Font size fitting (vertical)
+            // Only shrink for SHORT content (< 300 chars) that could fit
+            // Long content uses default size and scrolls
+            var isShortContent = textLen < 300;
+            
+            if (hasOverflow && isShortContent) {
+                // Short content - try to shrink to fit
+                var low = minSize;
+                var high = currentSize;
+                var best = minSize;
+                
+                for (var i = 0; i < 6; i++) {
+                    var mid = Math.floor((low + high) / 2);
+                    body.style.fontSize = mid + 'px';
+                    
+                    if (doc.scrollHeight <= (winH + 2)) {
+                        best = mid;
+                        low = mid + 1;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                
+                body.style.fontSize = best + 'px';
+            } else if (!hasOverflow) {
+                // No overflow - try to grow to fill space
+                var low = currentSize;
+                var high = maxSize;
+                var best = currentSize;
+                
+                for (var i = 0; i < 6; i++) {
+                    var mid = Math.floor((low + high) / 2);
+                    body.style.fontSize = mid + 'px';
+                    
+                    if (doc.scrollHeight <= (winH + 2)) {
+                        best = mid;
+                        low = mid + 1;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                
+                body.style.fontSize = best + 'px';
+            }
+            // else: long content with overflow - keep default size, let it scroll
+            
+            // STEP 2 & 3: Only for short content
+            if (isShortContent) {
+                // STEP 2: Width adjustment (condense OR stretch)
+                try {
+                    if (textLen > 0 && textLen < 200) {
+                        // Create measurement span
+                        var span = document.createElement('span');
+                        span.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:' + window.getComputedStyle(body).font;
+                        span.textContent = text.trim();
+                        body.appendChild(span);
+                        
+                        var textWidth = span.offsetWidth;
+                        body.removeChild(span);
+                        
+                        // If text would wrap (wider than container), CONDENSE wdth
+                        if (textWidth > winW) {
+                            var ratio = winW / textWidth;
+                            var targetWdth = Math.max(50, Math.floor(90 * ratio * 0.80)); // Unlocked: min wdth 50
+                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
+                        }
+                        // If text is much narrower than container, STRETCH wdth to fill
+                        else if (textWidth < winW * 0.85) {
+                            var ratio = winW / textWidth;
+                            var targetWdth = Math.min(300, Math.floor(90 * ratio * 0.90)); // Unlocked: max wdth 300
+                            body.style.fontVariationSettings = "'wght' 400, 'wdth' " + targetWdth + ", 'slnt' 0, 'ROND' 100";
+                            
+                            // After stretching, verify we didn't cause overflow
+                            if (doc.scrollHeight > (winH + 2)) {
+                                body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+                            }
+                        }
+                    }
+                } catch(e) {}
+                
+                // STEP 3: Final overflow check - emergency shrink for short content only
+                hasOverflow = doc.scrollHeight > (winH + 2);
+                if (hasOverflow) {
+                    // First try width condensing
+                    var widths = [80, 75, 70, 65, 60, 55, 50]; // Unlocked: down to wdth 50
+                    for (var w = 0; w < widths.length; w++) {
+                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
+                        if (doc.scrollHeight <= (winH + 2)) {
+                            break;
+                        }
+                    }
+                    
+                    // If still overflowing, shrink font size further (emergency shrink)
+                    hasOverflow = doc.scrollHeight > (winH + 2);
+                    if (hasOverflow) {
+                        var currentFontSize = parseFloat(body.style.fontSize) || 14;
+                        for (var s = currentFontSize - 1; s >= 4; s--) { // Unlocked: emergency shrink to 4px
+                            body.style.fontSize = s + 'px';
+                            if (doc.scrollHeight <= (winH + 2)) {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            window._sgtFitting = false;
+        }, 50);
+    })();
+    "#;
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script(script);
+        }
+    });
+}
+
+/// Fit font size during streaming - simpler version that only shrinks, no delay
+/// Call this during active streaming for continuous font adjustment
+pub fn fit_font_streaming(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    // Streaming font fit - immediate, no guard, only shrinks (never grows)
+    // Resets to default at start of new session (detected by low word count or short content)
+    let script = r#"
+    (function() {
+        var body = document.body;
+        var doc = document.documentElement;
+        var winH = window.innerHeight;
+        
+        // Detect new session: word count is 0/undefined OR content is very short (first chunk)
+        var textLen = (body.innerText || body.textContent || '').trim().length;
+        var isNewSession = (!window._streamWordCount || window._streamWordCount < 5 || textLen < 50);
+        
+        // At start of new session, reset font to default (start big - 32px)
+        if (isNewSession) {
+            body.style.fontSize = '200px'; // Unlocked: start streaming at max size
+            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+        }
+        
+        var hasOverflow = doc.scrollHeight > (winH + 2);
+        
+        // Only shrink if overflow - never grow during streaming
+        if (hasOverflow) {
+            var currentSize = parseFloat(body.style.fontSize) || parseFloat(window.getComputedStyle(body).fontSize) || 14;
+            
+            // Shrink by 1px at a time until it fits or hits minimum
+            while (hasOverflow && currentSize > 6) { // Unlocked: streaming min 6px
+                currentSize = currentSize - 1;
+                body.style.fontSize = currentSize + 'px';
+                hasOverflow = doc.scrollHeight > (winH + 2);
+            }
+            
+            // If still overflowing at 8px, try width condensing
+            if (hasOverflow) {
+                var widths = [85, 80, 75, 70, 65, 60, 55, 50]; // Unlocked: down to wdth 50
+                for (var w = 0; w < widths.length; w++) {
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
+                    if (doc.scrollHeight <= (winH + 2)) break;
+                }
+            }
+        }
+    })();
+    "#;
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script(script);
+        }
+    });
+}
+
+/// Trigger Grid.js initialization on any tables in the WebView
+/// Call this after streaming ends to convert tables to interactive Grid.js tables
+pub fn init_gridjs(parent_hwnd: HWND) {
+    let hwnd_key = parent_hwnd.0 as isize;
+
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            // Trigger the table initialization via the MutationObserver's mechanism
+            // The observer watches for DOM changes and schedules initGridJs via window.gridJsTimeout
+            // We can simulate this by triggering a DOM change or directly calling the init logic
+            let script = r#"
+                (function() {
+                    if (typeof gridjs === 'undefined') return;
+                    
+                    var tables = document.querySelectorAll('table:not(.gridjs-table):not([data-processed-table="true"])');
+                    for (var i = 0; i < tables.length; i++) {
+                        var table = tables[i];
+                        if (table.closest('.gridjs-container') || table.closest('.gridjs-injected-wrapper')) continue;
+                        
+                        table.setAttribute('data-processed-table', 'true');
+                        
+                        var wrapper = document.createElement('div');
+                        wrapper.className = 'gridjs-injected-wrapper';
+                        table.parentNode.insertBefore(wrapper, table);
+                        
+                        try {
+                            var grid = new gridjs.Grid({
+                                from: table,
+                                sort: true,
+                                fixedHeader: true,
+                                search: false,
+                                resizable: false,
+                                autoWidth: false,
+                                style: {
+                                    table: { 'width': '100%' },
+                                    td: { 'border': '1px solid #333' },
+                                    th: { 'border': '1px solid #333' }
+                                },
+                                className: {
+                                    table: 'gridjs-table-premium',
+                                    th: 'gridjs-th-premium',
+                                    td: 'gridjs-td-premium'
+                                }
+                            });
+                            grid.on('ready', function() {
+                                table.classList.add('gridjs-hidden-source');
+                            });
+                            grid.render(wrapper);
+                        } catch (e) {
+                            console.error('Grid.js streaming init error:', e);
+                            if(wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+                        }
+                    }
+                })();
+            "#;
+            let _ = webview.evaluate_script(script);
+        }
+    });
+}
+
 /// Resize the WebView to match parent window
 /// When hovered: leaves 52px at bottom for buttons
 /// When not hovered: expands to full height for clean view
@@ -1013,21 +1685,22 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
         let mut rect = RECT::default();
         let _ = GetClientRect(parent_hwnd, &mut rect);
 
-        // 2px edge margin for resize handles
-        let edge_margin = 2.0;
+        // Edge margins: 4px left/right for resize handles, 2px top/bottom
+        let margin_x = 4.0;
+        let margin_y = 2.0;
         // Only reserve button area when hovered
-        let button_area_height = if is_hovered { 52.0 } else { edge_margin };
+        let button_area_height = if is_hovered { 52.0 } else { margin_y };
 
-        let content_width = ((rect.right - rect.left) as f64 - edge_margin * 2.0).max(50.0);
+        let content_width = ((rect.right - rect.left) as f64 - margin_x * 2.0).max(50.0);
         let content_height =
-            ((rect.bottom - rect.top) as f64 - top_offset - button_area_height).max(50.0);
+            ((rect.bottom - rect.top) as f64 - top_offset - button_area_height).max(0.0); // No min height - allow shrink for button bar
 
         WEBVIEWS.with(|webviews| {
             if let Some(webview) = webviews.borrow().get(&hwnd_key) {
                 // Use Physical coordinates since GetClientRect returns physical pixels
                 let _ = webview.set_bounds(Rect {
                     position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                        edge_margin as i32,
+                        margin_x as i32,
                         top_offset as i32,
                     )),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
@@ -1038,6 +1711,9 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
             }
         });
     }
+
+    // Re-fit font after resize to maintain optimal scaling
+    fit_font_to_window(parent_hwnd);
 }
 
 /// Hide the WebView (toggle back to plain text)

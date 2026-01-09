@@ -247,7 +247,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown()
                     .build(),
                 // Node 1: Make a learning HTML (from 0)
-                BlockBuilder::text("cerebras_qwen3")
+                BlockBuilder::text("cerebras_zai_glm")
                     .prompt("Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.")
                     .language("Vietnamese")
                     .markdown()

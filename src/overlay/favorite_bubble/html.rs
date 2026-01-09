@@ -43,9 +43,17 @@ function fitText() {{
                 }}
             }}
         }});
+        sendHeight();
     }});
 }}
 window.onload = fitText;
+
+function sendHeight() {{
+    const container = document.querySelector('.container');
+    if (container) {{
+         window.ipc.postMessage('resize:' + Math.max(container.scrollHeight, container.offsetHeight));
+    }}
+}}
 
 function startDrag(e) {{
     if (e.button === 0) window.ipc.postMessage('drag');

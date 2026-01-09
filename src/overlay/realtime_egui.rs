@@ -512,7 +512,8 @@ fn render_main_ui(ui: &mut egui::Ui, state: &mut RealtimeUiState) {
     // Render content
     if state.show_transcription && state.show_translation {
         let available_width = ui.available_width();
-        let col_width = (available_width - 10.0) / 2.0;
+        // Prevent negative width when window is very narrow
+        let col_width = ((available_width - 10.0) / 2.0).max(1.0);
         let content_height = available_height.max(50.0);
         
         ui.horizontal(|ui| {

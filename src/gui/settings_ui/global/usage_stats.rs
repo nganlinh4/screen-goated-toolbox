@@ -67,12 +67,82 @@ pub fn render_usage_modal(
                                 shown_models.insert(model.full_name.clone());
                                 
                                 ui.label(&model.full_name);
-                                let status = usage_stats.get(&model.full_name).cloned().unwrap_or_else(|| "??? / ?".to_string());
-                                ui.label(status);
+                                
+                                if model.model_type == crate::model_config::ModelType::Audio {
+                                    ui.label("");
+                                    ui.end_row();
+                                    continue;
+                                }
+
+                                let static_limit = model.quota_limit_en.split_whitespace().next().unwrap_or("?");
+                                let default_status = format!("??? / {}", static_limit);
+                                
+                                let raw_status = usage_stats.get(&model.full_name).cloned().unwrap_or(default_status);
+                                let display_status = if let Some((usage, limit)) = raw_status.split_once(" / ") {
+                                    let final_limit = if limit == "?" { static_limit } else { limit };
+                                    format!("{} / {}", usage, final_limit)
+                                } else {
+                                    raw_status
+                                };
+
+                                ui.label(display_status);
                                 ui.end_row();
                             }
                             
                         });
+                    });
+                }
+                
+                if use_cerebras {
+                    egui::CollapsingHeader::new(egui::RichText::new("🔥 Cerebras").strong().size(13.0))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                        egui::Grid::new("cerebras_grid").striped(true).show(ui, |ui| {
+                            ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
+                            ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
+                            ui.end_row();
+                            
+                            for model in &all_models {
+                                if !model.enabled || model.provider != "cerebras" { continue; }
+                                if shown_models.contains(&model.full_name) { continue; }
+                                shown_models.insert(model.full_name.clone());
+                                
+                                ui.label(&model.full_name);
+
+                                let static_limit = model.quota_limit_en.split_whitespace().next().unwrap_or("?");
+                                let default_status = format!("??? / {}", static_limit);
+                                
+                                let raw_status = usage_stats.get(&model.full_name).cloned().unwrap_or(default_status);
+                                let display_status = if let Some((usage, limit)) = raw_status.split_once(" / ") {
+                                    let final_limit = if limit == "?" { static_limit } else { limit };
+                                    format!("{} / {}", usage, final_limit)
+                                } else {
+                                    raw_status
+                                };
+
+                                ui.label(display_status);
+                                ui.end_row();
+                            }
+
+                            // Add gpt-oss-120b (realtime translation model)
+                            if !shown_models.contains("gpt-oss-120b") {
+                                shown_models.insert("gpt-oss-120b".to_string());
+                                ui.label("gpt-oss-120b");
+                                let static_limit = "14400";
+                                let default_status = format!("??? / {}", static_limit);
+                                let raw_status = usage_stats.get("gpt-oss-120b").cloned().unwrap_or(default_status);
+                                let display_status = if let Some((usage, limit)) = raw_status.split_once(" / ") {
+                                    let final_limit = if limit == "?" { static_limit } else { limit };
+                                    format!("{} / {}", usage, final_limit)
+                                } else {
+                                    raw_status
+                                };
+                                ui.label(display_status);
+                                ui.end_row();
+                            }
+                        });
+                        ui.add_space(4.0);
+                        ui.hyperlink_to(text.usage_check_link, "https://cloud.cerebras.ai/");
                     });
                 }
                 
@@ -136,40 +206,6 @@ pub fn render_usage_modal(
                             
                             ui.label(&model.full_name);
                         }
-                    });
-                }
-
-                if use_cerebras {
-                    egui::CollapsingHeader::new(egui::RichText::new("🧠 Cerebras").strong().size(13.0))
-                        .default_open(true)
-                        .show(ui, |ui| {
-                        egui::Grid::new("cerebras_grid").striped(true).show(ui, |ui| {
-                            ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
-                            ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
-                            ui.end_row();
-                            
-                            for model in &all_models {
-                                if !model.enabled || model.provider != "cerebras" { continue; }
-                                if shown_models.contains(&model.full_name) { continue; }
-                                shown_models.insert(model.full_name.clone());
-                                
-                                ui.label(&model.full_name);
-                                let status = usage_stats.get(&model.full_name).cloned().unwrap_or_else(|| "??? / ?".to_string());
-                                ui.label(status);
-                                ui.end_row();
-                            }
-
-                            // Add gpt-oss-120b (realtime translation model)
-                            if !shown_models.contains("gpt-oss-120b") {
-                                shown_models.insert("gpt-oss-120b".to_string());
-                                ui.label("gpt-oss-120b");
-                                let status = usage_stats.get("gpt-oss-120b").cloned().unwrap_or_else(|| "??? / ?".to_string());
-                                ui.label(status);
-                                ui.end_row();
-                            }
-                        });
-                        ui.add_space(4.0);
-                        ui.hyperlink_to(text.usage_check_link, "https://cloud.cerebras.ai/");
                     });
                 }
             });

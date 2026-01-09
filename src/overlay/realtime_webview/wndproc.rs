@@ -3,9 +3,9 @@
 use super::state::*;
 use super::webview::update_webview_text;
 use crate::api::realtime_audio::{
-    REALTIME_RMS, WM_CLOSE_TTS_MODAL, WM_COPY_TEXT, WM_DOWNLOAD_PROGRESS, WM_EXEC_SCRIPT,
-    WM_MODEL_SWITCH, WM_REALTIME_UPDATE, WM_START_DRAG, WM_TOGGLE_MIC, WM_TOGGLE_TRANS,
-    WM_TRANSLATION_UPDATE, WM_UPDATE_TTS_SPEED, WM_VOLUME_UPDATE,
+    REALTIME_RMS, WM_COPY_TEXT, WM_DOWNLOAD_PROGRESS, WM_EXEC_SCRIPT, WM_MODEL_SWITCH,
+    WM_REALTIME_UPDATE, WM_START_DRAG, WM_TOGGLE_MIC, WM_TOGGLE_TRANS, WM_TRANSLATION_UPDATE,
+    WM_UPDATE_TTS_SPEED, WM_VOLUME_UPDATE,
 };
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
@@ -62,6 +62,19 @@ pub unsafe extern "system" fn realtime_wnd_proc(
             LRESULT(0)
         }
         WM_REALTIME_UPDATE => {
+            // Check if we need to close the modal (flag set by app selection)
+            if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst) {
+                if CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst) {
+                    let hwnd_key = hwnd.0 as isize;
+                    let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
+                    REALTIME_WEBVIEWS.with(|wvs| {
+                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                            let _ = webview.evaluate_script(script);
+                        }
+                    });
+                }
+            }
+
             // Get old (committed) and new (current sentence) text from state
             let (old_text, new_text) = {
                 if let Ok(state) = REALTIME_STATE.lock() {
@@ -206,6 +219,7 @@ pub unsafe extern "system" fn realtime_wnd_proc(
 
             LRESULT(0)
         }
+
         WM_DESTROY => {
             let _ = DestroyWindow(hwnd);
             if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
@@ -225,7 +239,28 @@ pub unsafe extern "system" fn translation_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_COPY_TEXT => {
+            let ptr = lparam.0 as *mut String;
+            if !ptr.is_null() {
+                let text = Box::from_raw(ptr);
+                crate::overlay::utils::copy_to_clipboard(&text, hwnd);
+            }
+            LRESULT(0)
+        }
         WM_TRANSLATION_UPDATE => {
+            // Check if we need to close the modal (flag set by app selection)
+            if CLOSE_TTS_MODAL_REQUEST.load(Ordering::SeqCst) {
+                if CLOSE_TTS_MODAL_REQUEST.swap(false, Ordering::SeqCst) {
+                    let hwnd_key = hwnd.0 as isize;
+                    let script = "var m = document.getElementById('tts-modal'); if(m) m.classList.remove('show'); var o = document.getElementById('tts-modal-overlay'); if(o) o.classList.remove('show');";
+                    REALTIME_WEBVIEWS.with(|wvs| {
+                        if let Some(webview) = wvs.borrow().get(&hwnd_key) {
+                            let _ = webview.evaluate_script(script);
+                        }
+                    });
+                }
+            }
+
             // Get old (committed) and new (uncommitted) translation from state
             let (old_text, new_text): (String, String) = {
                 if let Ok(state) = REALTIME_STATE.lock() {
@@ -353,18 +388,7 @@ pub unsafe extern "system" fn translation_wnd_proc(
             });
             LRESULT(0)
         }
-        WM_CLOSE_TTS_MODAL => {
-            // Close the TTS settings modal in the WebView
-            let hwnd_key = hwnd.0 as isize;
-            let script = "if(document.getElementById('tts-modal')) { document.getElementById('tts-modal').classList.remove('show'); document.getElementById('tts-modal-overlay').classList.remove('show'); }";
 
-            REALTIME_WEBVIEWS.with(|wvs| {
-                if let Some(webview) = wvs.borrow().get(&hwnd_key) {
-                    let _ = webview.evaluate_script(script);
-                }
-            });
-            LRESULT(0)
-        }
         WM_CLOSE => {
             let _ = PostMessageW(
                 Some(REALTIME_HWND),

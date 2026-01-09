@@ -81,6 +81,17 @@ where
             ui_language,
             on_chunk,
         );
+    } else if provider == "gemini-live" {
+        // --- GEMINI LIVE API (WebSocket-based low-latency streaming) ---
+        return super::gemini_live::gemini_live_generate(
+            text,
+            instruction,
+            None, // No image for text-only
+            None, // No audio for text-only
+            streaming_enabled,
+            ui_language,
+            on_chunk,
+        );
     } else if provider == "google-gtx" {
         // --- GOOGLE TRANSLATE (GTX) API ---
         // Non-LLM translation model - no API key required
@@ -300,20 +311,32 @@ where
             })?;
 
         // Extract rate limit info
-        if let Some(remaining) = resp
+        // Extract rate limit info
+        let remaining = resp
             .headers()
             .get("x-ratelimit-remaining-requests-day")
             .or_else(|| resp.headers().get("x-ratelimit-remaining-requests"))
             .and_then(|v| v.to_str().ok())
-        {
-            let limit = resp
-                .headers()
-                .get("x-ratelimit-limit-requests-day")
-                .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("?");
-            let usage_str = format!("{} / {}", remaining, limit);
+            .unwrap_or("?");
 
+        let mut limit = resp
+            .headers()
+            .get("x-ratelimit-limit-requests-day")
+            .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("?")
+            .to_string();
+
+        if limit == "?" {
+            if let Some(conf) = crate::model_config::get_model_by_id(&model) {
+                if let Some(val) = conf.quota_limit_en.split_whitespace().next() {
+                    limit = val.to_string();
+                }
+            }
+        }
+
+        if remaining != "?" || limit != "?" {
+            let usage_str = format!("{} / {}", remaining, limit);
             if let Ok(mut app) = APP.lock() {
                 app.model_usage_stats.insert(model.clone(), usage_str);
             }
@@ -510,7 +533,7 @@ where
                     { "role": "user", "content": prompt }
                 ],
                 "temperature": 1,
-                "max_completion_tokens": 8192,
+                "max_tokens": 8192,
                 "stream": false,
                 "compound_custom": {
                     "tools": {
@@ -1060,6 +1083,17 @@ where
                     }
                 }
             }
+        } else if p_provider == "gemini-live" {
+            // --- GEMINI LIVE REFINE ---
+            return super::gemini_live::gemini_live_generate(
+                final_prompt.clone(),
+                String::new(), // instruction part of prompt for now
+                None,
+                None,
+                streaming_enabled,
+                ui_language,
+                &mut on_chunk,
+            );
         } else if p_provider == "cerebras" {
             if cerebras_api_key.trim().is_empty() {
                 return Err(anyhow::anyhow!("NO_API_KEY:cerebras"));
@@ -1081,20 +1115,32 @@ where
                 .map_err(|e| anyhow::anyhow!("Cerebras Refine Error: {}", e))?;
 
             // Extract rate limit info
-            if let Some(remaining) = resp
+            // Extract rate limit info
+            let remaining = resp
                 .headers()
                 .get("x-ratelimit-remaining-requests-day")
                 .or_else(|| resp.headers().get("x-ratelimit-remaining-requests"))
                 .and_then(|v| v.to_str().ok())
-            {
-                let limit = resp
-                    .headers()
-                    .get("x-ratelimit-limit-requests-day")
-                    .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("?");
-                let usage_str = format!("{} / {}", remaining, limit);
+                .unwrap_or("?");
 
+            let mut limit = resp
+                .headers()
+                .get("x-ratelimit-limit-requests-day")
+                .or_else(|| resp.headers().get("x-ratelimit-limit-requests"))
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("?")
+                .to_string();
+
+            if limit == "?" {
+                if let Some(conf) = crate::model_config::get_model_by_id(&p_model) {
+                    if let Some(val) = conf.quota_limit_en.split_whitespace().next() {
+                        limit = val.to_string();
+                    }
+                }
+            }
+
+            if remaining != "?" || limit != "?" {
+                let usage_str = format!("{} / {}", remaining, limit);
                 if let Ok(mut app) = APP.lock() {
                     app.model_usage_stats.insert(p_model.clone(), usage_str);
                 }
@@ -1498,6 +1544,18 @@ where
                     streaming_enabled,
                     false,
                     on_chunk,
+                )
+            } else if target_provider == "gemini-live" {
+                // Determine mime type (default to jpeg as per common usage)
+                let mime = "image/jpeg".to_string();
+                super::gemini_live::gemini_live_generate(
+                    final_prompt,
+                    String::new(),
+                    Some((img_bytes.clone(), mime)),
+                    None,
+                    streaming_enabled,
+                    ui_language,
+                    &mut on_chunk,
                 )
             } else {
                 if groq_api_key.trim().is_empty() {

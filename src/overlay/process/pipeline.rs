@@ -5,6 +5,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::config::{Config, Preset};
+use crate::model_config::model_is_non_llm;
 use crate::overlay::preset_wheel;
 use crate::overlay::result::{self, RefineContext};
 use crate::overlay::text_input;
@@ -31,7 +32,14 @@ pub fn start_text_processing(
             .map(|b| b.prompt.as_str())
             .unwrap_or("");
 
-        let guide_text = if first_block_prompt.is_empty() {
+        // Also check if model is non-LLM (doesn't use prompts)
+        let first_block_model = preset
+            .blocks
+            .first()
+            .map(|b| b.model.as_str())
+            .unwrap_or("");
+
+        let guide_text = if first_block_prompt.is_empty() || model_is_non_llm(first_block_model) {
             String::new()
         } else {
             format!("{}...", localized_preset_name)
@@ -266,6 +274,7 @@ pub fn show_audio_result(
     rect: RECT,
     _unused_rect: Option<RECT>,
     recording_hwnd: HWND, // Recording overlay window - keep alive until first visible block
+    is_streaming_result: bool, // Explicit flag: if true, we disable auto-paste (real-time typing assumed)
 ) {
     let config = {
         let app = crate::APP.lock().unwrap();
@@ -302,6 +311,8 @@ pub fn show_audio_result(
         processing_hwnd.map(SendHwnd), // Pass recording overlay - will close when first visible block appears
         Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
         preset.id.clone(),
+        // Check if we should disable auto-paste (e.g. for Gemini Live real-time typing)
+        is_streaming_result,
     );
 }
 
@@ -399,6 +410,7 @@ pub fn start_processing_pipeline(
                         Some(processing_hwnd_send),
                         Arc::new(AtomicBool::new(false)),
                         preset_id,
+                        false, // disable_auto_paste
                     );
                 });
 
@@ -462,6 +474,7 @@ pub fn start_processing_pipeline(
             Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
             Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
             preset_id,
+            false, // disable_auto_paste
         );
     });
 
@@ -534,6 +547,7 @@ pub fn start_processing_pipeline_parallel(
                 Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
                 Arc::new(AtomicBool::new(false)),
                 preset_id,
+                false, // disable_auto_paste
             );
         } else {
             // Load failed or cancelled -> Close window immediately

@@ -654,7 +654,7 @@ unsafe fn internal_create_pdj_loop() {
 
     let webview_result = PDJ_WEB_CONTEXT.with(|ctx| {
         let mut ctx_ref = ctx.borrow_mut();
-        let builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
+        let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
             .with_custom_protocol("promptdj".to_string(), move |_id, request| {
                 let path = request.uri().path();
                 let (content, mime) = if path == "/" || path == "/index.html" {
@@ -711,6 +711,7 @@ unsafe fn internal_create_pdj_loop() {
             })
             .with_url("promptdj://localhost/index.html");
 
+        builder = crate::overlay::html_components::font_manager::configure_webview(builder);
         builder.build_as_child(&wrapper)
     });
 

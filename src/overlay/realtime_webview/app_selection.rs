@@ -551,6 +551,13 @@ pub fn show_app_selection_popup() {
             let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
             let mut web_context = wry::WebContext::new(Some(shared_data_dir));
 
+            // Store HTML in font server and get URL for same-origin font loading
+            let page_url =
+                crate::overlay::html_components::font_manager::store_html_page(html_clone.clone())
+                    .unwrap_or_else(|| {
+                        format!("data:text/html,{}", urlencoding::encode(&html_clone))
+                    });
+
             let builder = wry::WebViewBuilder::new_with_web_context(&mut web_context);
             let result = crate::overlay::html_components::font_manager::configure_webview(builder)
                 .with_bounds(wry::Rect {
@@ -560,7 +567,7 @@ pub fn show_app_selection_popup() {
                         win_height as u32,
                     )),
                 })
-                .with_html(&html_clone)
+                .with_url(&page_url)
                 .with_transparent(true)
                 .with_ipc_handler(move |req| {
                     let body = req.body();
@@ -585,15 +592,32 @@ pub fn show_app_selection_popup() {
                                 let _ = ShowWindow(hwnd, SW_HIDE);
                                 let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
 
-                                // Close TTS Modal in translation window (if exists)
-                                if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
+                                // Close TTS Modal using shared flag (more robust)
+                                CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
+
+                                // Trigger updates on both windows to ensure the flag is checked immediately
+                                let trans_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
+                                let real_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+
+                                if !trans_hwnd.is_invalid() {
                                     let _ = PostMessageW(
-                                        Some(TRANSLATION_HWND),
-                                        WM_CLOSE_TTS_MODAL,
+                                        Some(trans_hwnd),
+                                        crate::api::realtime_audio::WM_TRANSLATION_UPDATE,
                                         WPARAM(0),
                                         LPARAM(0),
                                     );
                                 }
+
+                                if !real_hwnd.is_invalid() {
+                                    let _ = PostMessageW(
+                                        Some(real_hwnd),
+                                        crate::api::realtime_audio::WM_REALTIME_UPDATE,
+                                        WPARAM(0),
+                                        LPARAM(0),
+                                    );
+                                }
+                            } else {
+                                eprintln!("App Selection: Failed to parse PID from '{}'", pid_str);
                             }
                         }
                     }

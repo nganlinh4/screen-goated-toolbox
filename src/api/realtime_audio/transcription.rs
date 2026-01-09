@@ -21,7 +21,7 @@ use super::websocket::{
     connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
     set_socket_nonblocking, set_socket_short_timeout,
 };
-use super::WM_VOLUME_UPDATE;
+use super::{REALTIME_RMS, WM_VOLUME_UPDATE};
 
 /// Audio mode state machine for silence injection
 #[derive(Clone, Copy, PartialEq)]
@@ -42,6 +42,19 @@ pub fn start_realtime_transcription(
     let overlay_send = crate::win_types::SendHwnd(overlay_hwnd);
     let translation_send = translation_hwnd.map(crate::win_types::SendHwnd);
 
+    // Spawn translation thread if needed (Independent of transcription model)
+    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;
+    if has_translation {
+        let t_send = translation_send.clone().unwrap();
+        let t_state = state.clone();
+        let t_stop = stop_signal.clone();
+        let t_preset = preset.clone();
+
+        std::thread::spawn(move || {
+            run_translation_loop(t_preset, t_stop, t_send, t_state);
+        });
+    }
+
     std::thread::spawn(move || {
         transcription_thread_entry(preset, stop_signal, overlay_send, translation_send, state);
     });
@@ -61,33 +74,43 @@ fn transcription_thread_entry(
         AUDIO_SOURCE_CHANGE, NEW_AUDIO_SOURCE, NEW_TRANSCRIPTION_MODEL, TRANSCRIPTION_MODEL_CHANGE,
     };
 
-    let current_preset = preset;
+    let mut current_preset = preset;
 
     loop {
         AUDIO_SOURCE_CHANGE.store(false, Ordering::SeqCst);
         TRANSCRIPTION_MODEL_CHANGE.store(false, Ordering::SeqCst);
+
+        // Reset volume indicator to ensure fresh state when switching methods
+        REALTIME_RMS.store(0, Ordering::SeqCst);
 
         let trans_model = {
             let app = APP.lock().unwrap();
             app.config.realtime_transcription_model.clone()
         };
 
-        println!(
-            "Transcription model from config: '{}', will use parakeet: {}",
-            trans_model,
-            trans_model == "parakeet"
-        );
+        // Update state with selected method immediately (before potentially slow model loading)
+        if let Ok(mut s) = state.lock() {
+            if trans_model == "parakeet" {
+                s.set_transcription_method(super::state::TranscriptionMethod::Parakeet);
+            } else {
+                s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
+            }
+        }
 
         let result = if trans_model == "parakeet" {
-            println!(">>> Starting Parakeet transcription");
+            // println!(">>> Starting Parakeet transcription");
+            let dummy_pause = Arc::new(AtomicBool::new(false));
             super::parakeet::run_parakeet_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
-                hwnd_overlay,
+                dummy_pause,
+                None,  // No full audio buffer for standard realtime
+                false, // hide_recording_ui
+                Some(hwnd_overlay),
                 state.clone(),
             )
         } else {
-            println!(">>> Starting Gemini Live transcription");
+            // println!(">>> Starting Gemini Live transcription");
             run_realtime_transcription(
                 current_preset.clone(),
                 stop_signal.clone(),
@@ -131,9 +154,10 @@ fn transcription_thread_entry(
         if restart_source {
             if let Ok(new_source) = NEW_AUDIO_SOURCE.lock() {
                 if !new_source.is_empty() {
-                    println!("Changing audio source to: {}", new_source);
+                    // println!("Changing audio source to: {}", new_source);
                     let mut app = APP.lock().unwrap();
                     app.config.realtime_audio_source = new_source.clone();
+                    current_preset.audio_source = new_source.clone();
                     // Save config? Optional, but UI should sync.
                 }
             }
@@ -142,7 +166,7 @@ fn transcription_thread_entry(
         if restart_model {
             if let Ok(new_model) = NEW_TRANSCRIPTION_MODEL.lock() {
                 if !new_model.is_empty() {
-                    println!("Changing transcription model to: {}", new_model);
+                    // println!("Changing transcription model to: {}", new_model);
                     let mut app = APP.lock().unwrap();
                     app.config.realtime_transcription_model = new_model.clone();
                 }
@@ -171,7 +195,7 @@ fn run_realtime_transcription(
     preset: Preset,
     stop_signal: Arc<AtomicBool>,
     overlay_hwnd: HWND,
-    translation_hwnd: Option<HWND>,
+    _translation_hwnd: Option<HWND>,
     state: SharedRealtimeState,
 ) -> Result<()> {
     let gemini_api_key = {
@@ -183,11 +207,16 @@ fn run_realtime_transcription(
         return Err(anyhow::anyhow!("NO_API_KEY:google"));
     }
 
-    println!("Gemini: Connecting to WebSocket...");
+    // println!("Gemini: Connecting to WebSocket...");
     let mut socket = connect_websocket(&gemini_api_key)?;
-    println!("Gemini: Connected! Sending setup...");
+    // println!("Gemini: Connected! Sending setup...");
     send_setup_message(&mut socket)?;
-    println!("Gemini: Setup sent, waiting for acknowledgment...");
+    // println!("Gemini: Setup sent, waiting for acknowledgment...");
+
+    // Set transcription method to GeminiLive (uses delimiter-based segmentation)
+    if let Ok(mut s) = state.lock() {
+        s.set_transcription_method(super::state::TranscriptionMethod::GeminiLive);
+    }
 
     // Set short timeout so we can check for model changes during setup
     set_socket_short_timeout(&mut socket)?;
@@ -199,7 +228,6 @@ fn run_realtime_transcription(
             Ok(tungstenite::Message::Text(msg)) => {
                 let msg = msg.as_str();
                 if msg.contains("setupComplete") {
-                    println!("Gemini: Setup complete!");
                     break;
                 }
                 if msg.contains("error") || msg.contains("Error") {
@@ -218,7 +246,6 @@ fn run_realtime_transcription(
             Ok(tungstenite::Message::Binary(data)) => {
                 if let Ok(text) = String::from_utf8(data.to_vec()) {
                     if text.contains("setupComplete") {
-                        println!("Gemini: Setup complete!");
                         break;
                     }
                 } else if data.len() < 100 {
@@ -248,7 +275,7 @@ fn run_realtime_transcription(
         if TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
             || AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
         {
-            println!("Gemini: Model/source change detected during setup, aborting...");
+            // println!("Gemini: Model/source change detected during setup, aborting...");
             return Ok(()); // Return cleanly to allow the outer loop to handle the change
         }
     }
@@ -266,16 +293,24 @@ fn run_realtime_transcription(
 
     let _stream: Option<cpal::Stream>;
 
+    let dummy_pause = Arc::new(AtomicBool::new(false));
+
     if using_per_app_capture {
         #[cfg(target_os = "windows")]
         {
-            start_per_app_capture(selected_pid, audio_buffer.clone(), stop_signal.clone())?;
+            start_per_app_capture(
+                selected_pid,
+                audio_buffer.clone(),
+                stop_signal.clone(),
+                dummy_pause.clone(),
+            )?;
         }
         _stream = None;
     } else if using_device_loopback {
         _stream = Some(start_device_loopback_capture(
             audio_buffer.clone(),
             stop_signal.clone(),
+            dummy_pause.clone(),
         )?);
     } else if preset.audio_source == "device" && tts_enabled && selected_pid == 0 {
         _stream = None;
@@ -283,25 +318,13 @@ fn run_realtime_transcription(
         _stream = Some(start_mic_capture(
             audio_buffer.clone(),
             stop_signal.clone(),
+            dummy_pause.clone(),
         )?);
     }
 
     // Start translation thread if needed
-    let has_translation = translation_hwnd.is_some() && preset.blocks.len() > 1;
-    if has_translation {
-        let translation_send = crate::win_types::SendHwnd(translation_hwnd.unwrap());
-        let translation_state = state.clone();
-        let translation_stop = stop_signal.clone();
-        let translation_preset = preset.clone();
-        std::thread::spawn(move || {
-            run_translation_loop(
-                translation_preset,
-                translation_stop,
-                translation_send,
-                translation_state,
-            );
-        });
-    }
+    // NOTE: Translation thread is now spawned in `start_realtime_transcription`
+    // to ensure it runs independent of the transcription model (Parakeet/Gemini).
 
     // Main loop
     run_main_loop(
@@ -354,7 +377,6 @@ fn run_main_loop(
             if AUDIO_SOURCE_CHANGE.load(Ordering::SeqCst)
                 || TRANSCRIPTION_MODEL_CHANGE.load(Ordering::SeqCst)
             {
-                println!("Gemini: Model/source change detected, exiting main loop...");
                 break;
             }
         }

@@ -279,13 +279,14 @@ pub fn show_body(
                                             _ => &m.quota_limit_en,
                                         };
                                         let provider_icon = match m.provider.as_str() {
-                                            "google" => "💠 ",
+                                            "google" | "gemini-live" => "✨ ",
                                             "google-gtx" => "🌍 ",
                                             "groq" => "⚡ ",
                                             "cerebras" => "🔥 ",
                                             "openrouter" => "🌐 ",
                                             "ollama" => "🏠 ",
                                             "qrserver" => "🔳 ",
+                                            "parakeet" => "🐦 ",
                                             _ => "⚙️ ",
                                         };
                                         let search_suffix = if model_supports_search(&m.id) {
@@ -384,9 +385,15 @@ pub fn show_body(
                             }
 
                             if *show_overlay {
-                                // Render Mode Dropdown (Normal, Stream, Markdown) - using button+popup
+                                // Render Mode Dropdown (Normal, Stream, Markdown, Markdown+Stream) - using button+popup
                                 let current_mode_label =
                                     match (render_mode.as_str(), *streaming_enabled) {
+                                        ("markdown_stream", _) => match viewer.ui_language.as_str()
+                                        {
+                                            "vi" => "Đẹp+Str",
+                                            "ko" => "마크다운+스트림",
+                                            _ => "MD+Stream",
+                                        },
                                         ("markdown", _) => match viewer.ui_language.as_str() {
                                             "vi" => "Đẹp",
                                             "ko" => "마크다운",
@@ -422,13 +429,17 @@ pub fn show_body(
                                     &btn,
                                     egui::PopupCloseBehavior::CloseOnClickOutside,
                                     |ui| {
-                                        ui.set_min_width(60.0);
-                                        let (lbl_norm, lbl_stm, lbl_md) =
-                                            match viewer.ui_language.as_str() {
-                                                "vi" => ("Thường", "Stream", "Đẹp"),
-                                                "ko" => ("일반", "스트림", "마크다운"),
-                                                _ => ("Normal", "Stream", "Markdown"),
-                                            };
+                                        ui.set_min_width(80.0);
+                                        let (lbl_norm, lbl_stm, lbl_md, lbl_md_stm) = match viewer
+                                            .ui_language
+                                            .as_str()
+                                        {
+                                            "vi" => ("Thường", "Stream", "Đẹp", "Đẹp+Str"),
+                                            "ko" => {
+                                                ("일반", "스트림", "마크다운", "마크다운+스트림")
+                                            }
+                                            _ => ("Normal", "Stream", "Markdown", "MD+Stream"),
+                                        };
 
                                         if ui
                                             .selectable_label(
@@ -461,6 +472,18 @@ pub fn show_body(
                                         {
                                             *render_mode = "markdown".to_string();
                                             *streaming_enabled = false;
+                                            viewer.changed = true;
+                                            ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                        }
+                                        if ui
+                                            .selectable_label(
+                                                render_mode == "markdown_stream",
+                                                lbl_md_stm,
+                                            )
+                                            .clicked()
+                                        {
+                                            *render_mode = "markdown_stream".to_string();
+                                            *streaming_enabled = true;
                                             viewer.changed = true;
                                             ui.memory_mut(|mem| mem.close_popup(popup_id));
                                         }
@@ -577,13 +600,14 @@ pub fn show_body(
                                             _ => &m.quota_limit_en,
                                         };
                                         let provider_icon = match m.provider.as_str() {
-                                            "google" => "💠 ",
+                                            "google" | "gemini-live" => "✨ ",
                                             "google-gtx" => "🌍 ",
                                             "groq" => "⚡ ",
                                             "cerebras" => "🔥 ",
                                             "openrouter" => "🌐 ",
                                             "ollama" => "🏠 ",
                                             "qrserver" => "🔳 ",
+                                            "parakeet" => "🐦 ",
                                             _ => "⚙️ ",
                                         };
                                         let search_suffix = if model_supports_search(&m.id) {
@@ -682,8 +706,15 @@ pub fn show_body(
                             }
 
                             if *show_overlay {
+                                // Render Mode Dropdown (Normal, Stream, Markdown, Markdown+Stream) - using button+popup
                                 let current_mode_label =
                                     match (render_mode.as_str(), *streaming_enabled) {
+                                        ("markdown_stream", _) => match viewer.ui_language.as_str()
+                                        {
+                                            "vi" => "Đẹp+Str",
+                                            "ko" => "마크다운+스트림",
+                                            _ => "MD+Stream",
+                                        },
                                         ("markdown", _) => match viewer.ui_language.as_str() {
                                             "vi" => "Đẹp",
                                             "ko" => "마크다운",
@@ -719,13 +750,17 @@ pub fn show_body(
                                     &btn,
                                     egui::PopupCloseBehavior::CloseOnClickOutside,
                                     |ui| {
-                                        ui.set_min_width(60.0);
-                                        let (lbl_norm, lbl_stm, lbl_md) =
-                                            match viewer.ui_language.as_str() {
-                                                "vi" => ("Thường", "Stream", "Đẹp"),
-                                                "ko" => ("일반", "스트림", "마크다운"),
-                                                _ => ("Normal", "Stream", "Markdown"),
-                                            };
+                                        ui.set_min_width(80.0);
+                                        let (lbl_norm, lbl_stm, lbl_md, lbl_md_stm) = match viewer
+                                            .ui_language
+                                            .as_str()
+                                        {
+                                            "vi" => ("Thường", "Stream", "Đẹp", "Đẹp+Str"),
+                                            "ko" => {
+                                                ("일반", "스트림", "마크다운", "마크다운+스트림")
+                                            }
+                                            _ => ("Normal", "Stream", "Markdown", "MD+Stream"),
+                                        };
 
                                         if ui
                                             .selectable_label(
@@ -758,6 +793,18 @@ pub fn show_body(
                                         {
                                             *render_mode = "markdown".to_string();
                                             *streaming_enabled = false;
+                                            viewer.changed = true;
+                                            ui.memory_mut(|mem| mem.close_popup(popup_id));
+                                        }
+                                        if ui
+                                            .selectable_label(
+                                                render_mode == "markdown_stream",
+                                                lbl_md_stm,
+                                            )
+                                            .clicked()
+                                        {
+                                            *render_mode = "markdown_stream".to_string();
+                                            *streaming_enabled = true;
                                             viewer.changed = true;
                                             ui.memory_mut(|mem| mem.close_popup(popup_id));
                                         }
