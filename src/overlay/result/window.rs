@@ -86,8 +86,11 @@ pub fn create_result_window(
         // NOTE: For markdown modes, we match text_input's working configuration exactly
         let is_any_markdown_mode = render_mode == "markdown" || render_mode == "markdown_stream";
         let (ex_style, base_style) = if is_any_markdown_mode {
-            // Markdown mode: match text_input (no WS_CLIPCHILDREN, no WS_EX_NOACTIVATE)
-            (WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW, WS_POPUP)
+            // Markdown mode: Now including WS_EX_NOACTIVATE to prevent focus stealing
+            (
+                WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                WS_POPUP,
+            )
         } else {
             // Plain text mode: prevent focus stealing, use clip children
             (
