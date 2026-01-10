@@ -1093,6 +1093,12 @@ fn send_windows_update() {
             let state = states.get(&hwnd_key);
 
             // Skip if dragging - hides buttons during drag to prevent visual lag/clipping
+            // Also checking ACTIVE_DRAG_TARGET for our Rust-side drag
+            let dragging_target = ACTIVE_DRAG_TARGET.load(std::sync::atomic::Ordering::SeqCst);
+            if (hwnd_key as isize) == dragging_target {
+                continue;
+            }
+
             if let Some(s) = state {
                 use super::state::InteractionMode;
                 if matches!(
@@ -1260,21 +1266,24 @@ unsafe extern "system" fn canvas_wnd_proc(
 
         WM_TIMER => {
             if wparam.0 == CURSOR_POLL_TIMER_ID {
-                let mut pt = POINT::default();
-                if GetCursorPos(&mut pt).is_ok() {
-                    let scale = get_dpi_scale();
-                    let logical_x = (pt.x as f64 / scale) as i32;
-                    let logical_y = (pt.y as f64 / scale) as i32;
+                // Skip polling if we are dragging (to keep buttons hidden)
+                if ACTIVE_DRAG_TARGET.load(Ordering::SeqCst) == 0 {
+                    let mut pt = POINT::default();
+                    if GetCursorPos(&mut pt).is_ok() {
+                        let scale = get_dpi_scale();
+                        let logical_x = (pt.x as f64 / scale) as i32;
+                        let logical_y = (pt.y as f64 / scale) as i32;
 
-                    CANVAS_WEBVIEW.with(|cell| {
-                        if let Some(webview) = cell.borrow().as_ref() {
-                            let script = format!(
-                                "window.updateCursorPosition({}, {});",
-                                logical_x, logical_y
-                            );
-                            let _ = webview.evaluate_script(&script);
-                        }
-                    });
+                        CANVAS_WEBVIEW.with(|cell| {
+                            if let Some(webview) = cell.borrow().as_ref() {
+                                let script = format!(
+                                    "window.updateCursorPosition({}, {});",
+                                    logical_x, logical_y
+                                );
+                                let _ = webview.evaluate_script(&script);
+                            }
+                        });
+                    }
                 }
             }
             LRESULT(0)
