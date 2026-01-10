@@ -776,7 +776,7 @@ fn create_canvas_window() {
             0,
             0,
             screen_w,
-            screen_h,
+            screen_h - 1,
             None,
             None,
             Some(instance.into()),
@@ -837,15 +837,17 @@ fn create_canvas_window() {
                     position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
                     size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
                         screen_w as u32,
-                        screen_h as u32,
+                        (screen_h - 1) as u32,
                     )),
                 })
                 .with_transparent(true)
+                .with_visible(false)
+                .with_focused(false)
                 .with_url(&page_url)
                 .with_ipc_handler(move |msg: wry::http::Request<String>| {
                     handle_ipc_message(msg.body());
                 })
-                .build(&wrapper)
+                .build_as_child(&wrapper)
         });
 
         match webview {
@@ -1178,27 +1180,57 @@ unsafe extern "system" fn canvas_wnd_proc(
         }
 
         WM_APP_SHOW_CANVAS => {
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            );
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    GetForegroundWindow, IsWindow, SetForegroundWindow,
+                };
+                // 1. Capture current focus BEFORE showing our window
+                let foreground = GetForegroundWindow();
+
+                // 2. Show the window (SW_SHOWNOACTIVATE should prevent focus stealing, but doesn't always work with WebView)
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+
+                // 3. Show WebView (deferred visibility)
+                CANVAS_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let _ = webview.set_visible(true);
+                    }
+                });
+
+                // 4. Force restore focus if it was stolen
+                if !foreground.0.is_null() && IsWindow(Some(foreground)).as_bool() {
+                    let _ = SetForegroundWindow(foreground);
+                }
+            }
+
             let _ = SetTimer(Some(hwnd), CURSOR_POLL_TIMER_ID, 100, None);
             LRESULT(0)
         }
 
         WM_APP_HIDE_CANVAS => {
+            CANVAS_WEBVIEW.with(|cell| {
+                if let Some(webview) = cell.borrow().as_ref() {
+                    let _ = webview.set_visible(false);
+                }
+            });
             let _ = ShowWindow(hwnd, SW_HIDE);
             let _ = KillTimer(Some(hwnd), CURSOR_POLL_TIMER_ID);
             LRESULT(0)
         }
 
-        // Handle Dragging Logic
+        windows::Win32::UI::WindowsAndMessaging::WM_MOUSEACTIVATE => {
+            LRESULT(windows::Win32::UI::WindowsAndMessaging::MA_NOACTIVATE as isize)
+        }
+
         windows::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE => {
             let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
             if target_val != 0 {
