@@ -22,11 +22,11 @@ use super::state::{
 // 4: Orange
 // 5+: Random/Cyclic
 pub const CHAIN_PALETTE: [u32; 5] = [
-    0x00222222, // Dark Gray
-    0x002d4a22, // Forest Green
-    0x00223355, // Deep Blue
-    0x00332244, // Muted Purple
-    0x00443322, // Brown/Orange
+    0x001a1a1c, // Slate Gray (Primary)
+    0x00113832, // Deep Teal
+    0x00162a4d, // Royal Navy
+    0x00311b3e, // Deep Plum
+    0x004a2c22, // Deep Sienna
 ];
 
 pub fn get_chain_color(visible_index: usize) -> u32 {

@@ -184,21 +184,11 @@ pub fn paint_window(hwnd: HWND) {
                         let top_r = (state.bg_color >> 16) & 0xFF;
                         let top_g = (state.bg_color >> 8) & 0xFF;
                         let top_b = state.bg_color & 0xFF;
-                        let bot_r = (top_r as f32 * 0.6) as u32;
-                        let bot_g = (top_g as f32 * 0.6) as u32;
-                        let bot_b = (top_b as f32 * 0.6) as u32;
-
-                        for y in 0..height {
-                            let t = y as f32 / height as f32;
-                            let r = (top_r as f32 * (1.0 - t) + bot_r as f32 * t) as u32;
-                            let g = (top_g as f32 * (1.0 - t) + bot_g as f32 * t) as u32;
-                            let b = (top_b as f32 * (1.0 - t) + bot_b as f32 * t) as u32;
-                            let col = (255 << 24) | (r << 16) | (g << 8) | b;
-
-                            let start = (y * width) as usize;
-                            let end = start + width as usize;
-                            pixels[start..end].fill(col);
-                        }
+                        let r = (state.bg_color >> 16) & 0xFF;
+                        let g = (state.bg_color >> 8) & 0xFF;
+                        let b = state.bg_color & 0xFF;
+                        let col = (255 << 24) | (r << 16) | (g << 8) | b;
+                        pixels.fill(col);
                     }
                     state.bg_bitmap = hbm_bg;
                     state.bg_w = width;
