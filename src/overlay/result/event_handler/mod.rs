@@ -110,6 +110,19 @@ pub unsafe extern "system" fn result_wnd_proc(
                 hwnd,
                 crate::overlay::result::state::InteractionMode::None,
             );
+
+            // Re-trigger markdown view fitting after native resize ends
+            let is_markdown = {
+                let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
+                states
+                    .get(&(hwnd.0 as isize))
+                    .map(|s| s.is_markdown_mode)
+                    .unwrap_or(false)
+            };
+            if is_markdown {
+                crate::overlay::result::markdown_view::fit_font_to_window(hwnd);
+            }
+
             crate::overlay::result::button_canvas::update_canvas();
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }

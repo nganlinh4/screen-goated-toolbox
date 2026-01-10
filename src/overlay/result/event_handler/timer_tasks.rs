@@ -45,6 +45,7 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     }
                 }
                 markdown_view::resize_markdown_webview(hwnd, true);
+                markdown_view::fit_font_to_window(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
             } else if !cursor_inside && current_hover_state {
                 // Leave: Mark unhovered -> Expand WebView -> Clean look
@@ -61,6 +62,7 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     }
                 }
                 markdown_view::resize_markdown_webview(hwnd, false);
+                markdown_view::fit_font_to_window(hwnd);
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
         }
@@ -186,6 +188,7 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                         .unwrap_or(false)
                 };
                 markdown_view::resize_markdown_webview(hwnd, is_hovered);
+                markdown_view::fit_font_to_window(hwnd);
 
                 trigger_refine = true;
             } else if cancelled {
@@ -207,6 +210,7 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                         .unwrap_or(false)
                 };
                 markdown_view::resize_markdown_webview(hwnd, is_hovered);
+                markdown_view::fit_font_to_window(hwnd);
             }
         }
     }

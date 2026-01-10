@@ -203,7 +203,7 @@ pub fn get_font_css() -> String {
             font-family: 'Google Sans Flex';
             font-style: normal;
             font-weight: 100 1000;
-            font-stretch: 25% 151%;
+            font-stretch: 25% 1000%;
             font-display: swap;
             src: url('{}/font/GoogleSansFlex.ttf') format('truetype');
         }}

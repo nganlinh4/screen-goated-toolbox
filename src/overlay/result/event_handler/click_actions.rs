@@ -29,7 +29,11 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+            let was_resizing = matches!(state.interaction_mode, InteractionMode::Resizing(_));
             state.interaction_mode = InteractionMode::None;
+            if was_resizing && state.is_markdown_mode {
+                markdown_view::fit_font_to_window(hwnd);
+            }
             if !state.has_moved_significantly {
                 perform_click = true;
                 is_copy_click = state.on_copy_btn;

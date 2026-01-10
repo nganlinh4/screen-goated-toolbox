@@ -132,8 +132,8 @@ pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
         // WebView was pre-created, just show and update it
         markdown_view::update_markdown_content(hwnd, &full_text);
         markdown_view::show_markdown_webview(hwnd);
-        // Resize triggers fit_font_to_window internally
         markdown_view::resize_markdown_webview(hwnd, is_hovered);
+        markdown_view::fit_font_to_window(hwnd);
         // Register with button canvas for floating buttons
         button_canvas::register_markdown_window(hwnd);
     } else {
@@ -146,8 +146,8 @@ pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
                 state.is_markdown_mode = false;
             }
         } else {
-            // Resize triggers fit_font_to_window internally
             markdown_view::resize_markdown_webview(hwnd, is_hovered);
+            markdown_view::fit_font_to_window(hwnd);
             // Register with button canvas for floating buttons
             button_canvas::register_markdown_window(hwnd);
         }
@@ -187,6 +187,7 @@ pub unsafe fn handle_resize_markdown(hwnd: HWND) -> LRESULT {
             .unwrap_or(false)
     };
     markdown_view::resize_markdown_webview(hwnd, is_hovered);
+    markdown_view::fit_font_to_window(hwnd);
     LRESULT(0)
 }
 

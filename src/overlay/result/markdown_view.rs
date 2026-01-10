@@ -1516,8 +1516,14 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
             var minSize = isShortContent ? 6 : 14; 
             var maxSize = isTinyContent ? 200 : (isShortContent ? 32 : 16);
             
-            // Reset to default for baseline measurement
+            // Reset to baseline for measurement - VERY IMPORTANT: clears previous scaling to prevent "sticky" spacing
             body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+            body.style.letterSpacing = '0px';
+            body.style.lineHeight = '1.5';
+            var resetBlocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+            for (var i = 0; i < resetBlocks.length; i++) {
+                resetBlocks[i].style.marginBottom = '';
+            }
             var startSize = parseFloat(window.getComputedStyle(body).fontSize) || 14;
             
             // Check overflow at current size
@@ -1562,99 +1568,111 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 body.style.fontSize = best + 'px';
             }
             
-            // Width Adjustment (Condensing)
-            // Only if we are still overflowing OR if we were forced to very small font (< 10px)
-            var finalSize = parseFloat(body.style.fontSize) || 14;
-            var finalOverflow = doc.scrollHeight > (winH + 2);
+            // NEW: Adaptive Horizontal Pass (wdth + letterSpacing)
+            // After settling font size, determine best width properties to fill container OR fix overflow
+            var initialHeight = doc.scrollHeight;
+            var isOverflowing = initialHeight > (winH + 2);
             
-            if (isShortContent && (finalOverflow || finalSize <= 10)) {
-                // Try condensing width to fit or allow larger font
-                // If overflowing, we just want to fit.
-                // If small font, maybe condensing width allows text to reflow better? 
-                // Mostly useful for truly overflowing content.
-                
-                if (finalOverflow) {
-                    var widths = [85, 80, 75, 70, 65, 60, 55, 50]; 
-                    for (var w = 0; w < widths.length; w++) {
-                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
-                        if (doc.scrollHeight <= (winH + 2)) break;
+            if (isShortContent) {
+                if (isOverflowing) {
+                    // --- SHRINK MODE ---
+                    // 1. First try condensing 'wdth' (90 -> 50)
+                    var lowW = 50, highW = 90, bestW = 90;
+                    while (lowW <= highW) {
+                        var midW = Math.floor((lowW + highW) / 2);
+                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midW + ", 'slnt' 0, 'ROND' 100";
+                        if (doc.scrollHeight <= (winH + 2)) {
+                            bestW = midW;
+                            highW = midW - 1;
+                        } else {
+                            lowW = midW + 1;
+                        }
                     }
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestW + ", 'slnt' 0, 'ROND' 100";
+                    
+                    // 2. If STILL overflowing, try condensing letter-spacing (0 -> -2px)
+                    if (doc.scrollHeight > (winH + 2)) {
+                        var lowL = -2.0, highL = 0, bestL = 0;
+                        while (highL - lowL > 0.05) {
+                            var midL = (lowL + highL) / 2;
+                            body.style.letterSpacing = midL + 'px';
+                            if (doc.scrollHeight <= (winH + 2)) {
+                                bestL = midL;
+                                lowL = midL;
+                            } else {
+                                highL = midL;
+                            }
+                        }
+                        body.style.letterSpacing = bestL + 'px';
+                    }
+                } else {
+                    // --- STRETCH MODE ---
+                    // 1. Try stretching 'wdth' (90 -> 1000)
+                    var lowW = 90, highW = 1000, bestW = 90;
+                    while (lowW <= highW) {
+                        var midW = Math.floor((lowW + highW) / 2);
+                        body.style.fontVariationSettings = "'wght' 400, 'wdth' " + midW + ", 'slnt' 0, 'ROND' 100";
+                        if (doc.scrollHeight <= initialHeight) {
+                            bestW = midW;
+                            lowW = midW + 1;
+                        } else {
+                            highW = midW - 1;
+                        }
+                    }
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestW + ", 'slnt' 0, 'ROND' 100";
+
+                    // 2. Try stretching letter-spacing (0 -> 500px)
+                    var lowL = 0, highL = 500, bestL = 0;
+                    while (highL - lowL > 0.1) {
+                        var midL = (lowL + highL) / 2;
+                        body.style.letterSpacing = midL + 'px';
+                        if (doc.scrollHeight <= initialHeight) {
+                            bestL = midL;
+                            lowL = midL;
+                        } else {
+                            highL = midL;
+                        }
+                    }
+                    body.style.letterSpacing = bestL + 'px';
                 }
             }
-            // Tiny content stretch logic (make "Hi" look good)
-            else if (isTinyContent && !finalOverflow) {
-                try {
-                    var span = document.createElement('span');
-                    span.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font:' + window.getComputedStyle(body).font;
-                    span.textContent = text.trim();
-                    body.appendChild(span);
-                    var textWidth = span.offsetWidth;
-                    body.removeChild(span);
+            
+            // NEW: Line Height AND Vertical Spacing Scaling
+            // If we have substantial vertical space remaining, increase line-height and margins to fill the window
+            var finalHeight = doc.scrollHeight;
+            var finalOverflow = finalHeight > (winH + 2);
+            if (!finalOverflow && finalHeight < winH * 0.95) {
+                var lowScale = 1.0;
+                var highScale = 2.0; // Max scale factor for spacing 
+                var bestScale = 1.0;
+                
+                while (highScale - lowScale > 0.05) {
+                    var midScale = (lowScale + highScale) / 2;
+                    body.style.lineHeight = (1.5 * midScale);
                     
-                    if (textWidth < winW * 0.5) {
-                        // Stretch width if very narrow
-                        body.style.fontVariationSettings = "'wght' 400, 'wdth' 150, 'slnt' 0, 'ROND' 100";
+                    // Also adjust margins of block elements for better distribution
+                    var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+                    for (var i = 0; i < blocks.length; i++) {
+                        blocks[i].style.marginBottom = (0.8 * (midScale - 1)) + 'em';
                     }
-                } catch(e) {}
+                    
+                    if (doc.scrollHeight <= (winH + 2)) {
+                        bestScale = midScale;
+                        lowScale = midScale;
+                    } else {
+                        highScale = midScale;
+                    }
+                }
+                
+                body.style.lineHeight = (1.5 * bestScale);
+                var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+                for (var i = 0; i < blocks.length; i++) {
+                    blocks[i].style.marginBottom = (0.8 * (bestScale - 1)) + 'em';
+                }
             }
             
             window._sgtFitting = false;
         }, 50);
-    })();
-    "#;
-
-    WEBVIEWS.with(|webviews| {
-        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
-            let _ = webview.evaluate_script(script);
-        }
-    });
-}
-
-/// Fit font size during streaming - simpler version that only shrinks, no delay
-/// Call this during active streaming for continuous font adjustment
-pub fn fit_font_streaming(parent_hwnd: HWND) {
-    let hwnd_key = parent_hwnd.0 as isize;
-
-    // Streaming font fit - immediate, no guard, only shrinks (never grows)
-    // Resets to default at start of new session (detected by low word count or short content)
-    let script = r#"
-    (function() {
-        var body = document.body;
-        var doc = document.documentElement;
-        var winH = window.innerHeight;
-        
-        // Detect new session: word count is 0/undefined OR content is very short (first chunk)
-        var textLen = (body.innerText || body.textContent || '').trim().length;
-        var isNewSession = (!window._streamWordCount || window._streamWordCount < 5 || textLen < 50);
-        
-        // At start of new session, reset font to default (start big - 32px)
-        if (isNewSession) {
-            body.style.fontSize = '200px'; // Unlocked: start streaming at max size
-            body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
-        }
-        
-        var hasOverflow = doc.scrollHeight > (winH + 2);
-        
-        // Only shrink if overflow - never grow during streaming
-        if (hasOverflow) {
-            var currentSize = parseFloat(body.style.fontSize) || parseFloat(window.getComputedStyle(body).fontSize) || 14;
-            
-            // Shrink by 1px at a time until it fits or hits minimum
-            while (hasOverflow && currentSize > 6) { // Unlocked: streaming min 6px
-                currentSize = currentSize - 1;
-                body.style.fontSize = currentSize + 'px';
-                hasOverflow = doc.scrollHeight > (winH + 2);
-            }
-            
-            // If still overflowing at 8px, try width condensing
-            if (hasOverflow) {
-                var widths = [85, 80, 75, 70, 65, 60, 55, 50]; // Unlocked: down to wdth 50
-                for (var w = 0; w < widths.length; w++) {
-                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + widths[w] + ", 'slnt' 0, 'ROND' 100";
-                    if (doc.scrollHeight <= (winH + 2)) break;
-                }
-            }
-        }
     })();
     "#;
 
@@ -1729,7 +1747,7 @@ pub fn init_gridjs(parent_hwnd: HWND) {
 /// When hovered: leaves 52px at bottom for buttons
 /// When not hovered: expands to full height for clean view
 /// When refine input active: starts 44px from top (40px input + 4px gap)
-pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
+pub fn resize_markdown_webview(parent_hwnd: HWND, _is_hovered: bool) {
     let hwnd_key = parent_hwnd.0 as isize;
 
     // Check if refine input is active
@@ -1748,7 +1766,7 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
 
         let content_width = ((rect.right - rect.left) as f64 - margin_x * 2.0).max(50.0);
         let content_height =
-            ((rect.bottom - rect.top) as f64 - top_offset - button_area_height).max(0.0); // No min height - allow shrink for button bar
+            ((rect.bottom - rect.top) as f64 - top_offset - button_area_height).max(0.0);
 
         WEBVIEWS.with(|webviews| {
             if let Some(webview) = webviews.borrow().get(&hwnd_key) {
@@ -1766,9 +1784,6 @@ pub fn resize_markdown_webview(parent_hwnd: HWND, is_hovered: bool) {
             }
         });
     }
-
-    // Re-fit font after resize to maintain optimal scaling
-    fit_font_to_window(parent_hwnd);
 }
 
 /// Hide the WebView (toggle back to plain text)
