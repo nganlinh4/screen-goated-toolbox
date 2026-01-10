@@ -285,8 +285,12 @@ html, body {{
 .btn:hover {{
     background: rgba(60, 60, 60, 0.95);
     color: #4fc3f7;
-    transform: scale(1.1);
-    box-shadow: 0 0 12px rgba(79, 195, 247, 0.4);
+    transform: scale(1.05);
+    /* Directional glow: left, right, bottom only (no top to avoid resize area) */
+    box-shadow: 
+        -5px 0 6px -3px rgba(79, 195, 247, 0.35),  /* left */
+        5px 0 6px -3px rgba(79, 195, 247, 0.35),   /* right */
+        0 5px 6px -3px rgba(79, 195, 247, 0.4);    /* bottom */
 }}
 
 .btn:active {{
@@ -397,16 +401,16 @@ function updateButtonOpacity() {{
         // Send updated clickable regions to Rust
         // Only include regions that are currently visible
         const regions = [];
-        const padding = 20; // Padding for glow effect and easier clicking
+        const padding = 5; // Reduced 20 -> 5 to prevent resize handle overlap
         
         groups.forEach(group => {{
             if (lastVisibleState.get(group.dataset.hwnd)) {{
                 const rect = group.getBoundingClientRect();
                 regions.push({{
                     x: rect.left - padding,
-                    y: rect.top - padding,
+                    y: rect.top + 1, // Start slightly below top edge to ensure we don't cover window bottom border
                     w: rect.width + (padding * 2),
-                    h: rect.height + (padding * 2)
+                    h: rect.height + padding // Only pad bottom
                 }});
             }}
         }});
@@ -1070,7 +1074,7 @@ fn send_windows_update() {
 
             // Skip if dragging - hides buttons during drag to prevent visual lag/clipping
             if let Some(s) = state {
-                use super::state::{InteractionMode, ResizeEdge};
+                use super::state::InteractionMode;
                 if matches!(
                     s.interaction_mode,
                     InteractionMode::DraggingWindow | InteractionMode::DraggingGroup(_)
