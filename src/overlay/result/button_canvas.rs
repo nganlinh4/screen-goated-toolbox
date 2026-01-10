@@ -226,9 +226,25 @@ fn hide_canvas() {
     }
 }
 
-/// Generate the canvas HTML with buttons
 fn generate_canvas_html() -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
+
+    // Get localization
+    let lang = crate::APP.lock().unwrap().config.ui_language.clone();
+    let locale = crate::gui::locale::LocaleText::get(&lang);
+    let l10n_json = serde_json::json!({
+        "copy": locale.overlay_copy_tooltip,
+        "undo": locale.overlay_undo_tooltip,
+        "redo": locale.overlay_redo_tooltip,
+        "edit": locale.overlay_edit_tooltip,
+        "markdown": locale.overlay_markdown_tooltip,
+        "download": locale.overlay_download_tooltip,
+        "speaker": locale.overlay_speaker_tooltip,
+        "broom": locale.overlay_broom_tooltip,
+        "back": locale.overlay_back_tooltip,
+        "forward": locale.overlay_forward_tooltip,
+    })
+    .to_string();
 
     format!(
         r#"<!DOCTYPE html>
@@ -348,6 +364,7 @@ html, body {{
 <script>
 // Track registered windows: {{ hwnd: {{ x, y, w, h }} }}
 window.registeredWindows = {{}};
+window.L10N = #L10N_JSON#;
 
 // Track visibility state to minimize IPC calls
 // Key: hwnd string, Value: boolean (isVisible)
@@ -512,6 +529,7 @@ function calculateButtonPosition(winRect) {{
 }}
 
 // Generate buttons HTML for a window
+// Generate buttons HTML for a window
 function generateButtonsHTML(hwnd, state) {{
     const canGoBack = state.navDepth > 0;
     const canGoForward = state.navDepth < state.maxNavDepth;
@@ -520,39 +538,39 @@ function generateButtonsHTML(hwnd, state) {{
     
     // Back button (if browsable)
     if (canGoBack) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'back')" title="Back">
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'back')" title="${{window.L10N.back}}">
             <span class="icons">arrow_back</span>
         </div>`;
     }}
     
     // Forward button (if browsable)
     if (canGoForward) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'forward')" title="Forward">
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'forward')" title="${{window.L10N.forward}}">
             <span class="icons">arrow_forward</span>
         </div>`;
     }}
     
     // Copy
-    buttons += `<div class="btn ${{state.copySuccess ? 'success' : ''}}" onclick="action('${{hwnd}}', 'copy')" title="Copy">
+    buttons += `<div class="btn ${{state.copySuccess ? 'success' : ''}}" onclick="action('${{hwnd}}', 'copy')" title="${{window.L10N.copy}}">
         <span class="icons">${{state.copySuccess ? 'check' : 'content_copy'}}</span>
     </div>`;
     
     // Undo
     if (state.hasUndo) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'undo')" title="Undo">
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'undo')" title="${{window.L10N.undo}}">
             <span class="icons">undo</span>
         </div>`;
     }}
     
     // Redo
     if (state.hasRedo) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'redo')" title="Redo">
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'redo')" title="${{window.L10N.redo}}">
             <span class="icons">redo</span>
         </div>`;
     }}
     
     // Edit/Refine (Custom SVG Icon)
-    buttons += `<div class="btn" onclick="action('${{hwnd}}', 'edit')" title="Refine">
+    buttons += `<div class="btn" onclick="action('${{hwnd}}', 'edit')" title="${{window.L10N.edit}}">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 258" width="14" height="14" style="fill: currentColor; stroke: currentColor; stroke-width: 20; stroke-linejoin: round; opacity: 0.9;">
             <path d="m122.062 172.77l-10.27 23.52c-3.947 9.042-16.459 9.042-20.406 0l-10.27-23.52c-9.14-20.933-25.59-37.595-46.108-46.703L6.74 113.52c-8.987-3.99-8.987-17.064 0-21.053l27.385-12.156C55.172 70.97 71.917 53.69 80.9 32.043L91.303 6.977c3.86-9.303 16.712-9.303 20.573 0l10.403 25.066c8.983 21.646 25.728 38.926 46.775 48.268l27.384 12.156c8.987 3.99 8.987 17.063 0 21.053l-28.267 12.547c-20.52 9.108-36.97 25.77-46.109 46.703"/>
             <path d="m217.5 246.937l-2.888 6.62c-2.114 4.845-8.824 4.845-10.937 0l-2.889-6.62c-5.148-11.803-14.42-21.2-25.992-26.34l-8.898-3.954c-4.811-2.137-4.811-9.131 0-11.269l8.4-3.733c11.87-5.273 21.308-15.017 26.368-27.22l2.966-7.154c2.067-4.985 8.96-4.985 11.027 0l2.966 7.153c5.06 12.204 14.499 21.948 26.368 27.221l8.4 3.733c4.812 2.138 4.812 9.132 0 11.27l-8.898 3.953c-11.571 5.14-20.844 14.537-25.992 26.34"/>
@@ -562,19 +580,19 @@ function generateButtonsHTML(hwnd, state) {{
     // Markdown toggle
     const mdClass = state.isMarkdown ? 'active' : '';
     const mdIcon = state.isMarkdown ? 'newsmode' : 'notes';
-    buttons += `<div class="btn ${{mdClass}}" onclick="action('${{hwnd}}', 'markdown')" title="Toggle Markdown">
+    buttons += `<div class="btn ${{mdClass}}" onclick="action('${{hwnd}}', 'markdown')" title="${{window.L10N.markdown}}">
         <span class="icons">${{mdIcon}}</span>
     </div>`;
     
     // Download
-    buttons += `<div class="btn" onclick="action('${{hwnd}}', 'download')" title="Save HTML">
+    buttons += `<div class="btn" onclick="action('${{hwnd}}', 'download')" title="${{window.L10N.download}}">
         <span class="icons">download</span>
     </div>`;
     
     // Speaker/TTS
     const speakerIcon = state.ttsLoading ? 'hourglass_empty' : (state.ttsSpeaking ? 'stop' : 'volume_up');
     const speakerClass = state.ttsLoading ? 'loading' : (state.ttsSpeaking ? 'active' : '');
-    buttons += `<div class="btn ${{speakerClass}}" onclick="action('${{hwnd}}', 'speaker')" title="Text to Speech">
+    buttons += `<div class="btn ${{speakerClass}}" onclick="action('${{hwnd}}', 'speaker')" title="${{window.L10N.speaker}}">
         <span class="icons">${{speakerIcon}}</span>
     </div>`;
     
@@ -584,7 +602,7 @@ function generateButtonsHTML(hwnd, state) {{
         oncontextmenu="action('${{hwnd}}', 'broom_right'); return false;"
         onmousedown="handleBroomDrag(event, '${{hwnd}}')"
         onauxclick="if(event.button===1) action('${{hwnd}}', 'broom_middle')"
-        title="Close (drag to move)">
+        title="${{window.L10N.broom}}">
         <span class="icons">cleaning_services</span>
     </div>`;
     
@@ -736,6 +754,7 @@ window.updateWindows = updateWindows;
 </html>"#,
         font_css = font_css
     )
+    .replace("#L10N_JSON#", &l10n_json)
 }
 
 /// Create the fullscreen transparent canvas window
