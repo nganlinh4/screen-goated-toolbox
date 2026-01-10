@@ -245,7 +245,7 @@ pub fn show_selection_overlay(preset_idx: usize) {
             x,
             y,
             w,
-            h,
+            h - 1,
             None,
             None,
             Some(instance.into()),
@@ -876,7 +876,7 @@ unsafe fn sync_layered_window_contents(hwnd: HWND) {
     };
     let wnd_size = SIZE {
         cx: width,
-        cy: height,
+        cy: height - 1,
     };
     let src_pos = POINT { x: 0, y: 0 };
 

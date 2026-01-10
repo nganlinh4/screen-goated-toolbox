@@ -1407,7 +1407,7 @@ unsafe extern "system" fn canvas_wnd_proc(
                 0,
                 0,
                 screen_w,
-                screen_h,
+                screen_h - 1,
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
             CANVAS_WEBVIEW.with(|cell| {
