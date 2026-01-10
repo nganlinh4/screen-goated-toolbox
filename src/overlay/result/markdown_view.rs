@@ -150,7 +150,7 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
                     .with_url(&page_url)
-                    .with_transparent(false);
+                    .with_transparent(true);
 
                 crate::overlay::html_components::font_manager::configure_webview(builder)
                     .build_as_child(&wrapper)
@@ -164,7 +164,7 @@ body {{ font-family: 'Google Sans Flex', sans-serif; }}
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(50, 50)),
                     })
                     .with_url(&page_url)
-                    .with_transparent(false);
+                    .with_transparent(true);
 
                 crate::overlay::html_components::font_manager::configure_webview(builder)
                     .build_as_child(&wrapper)
@@ -217,8 +217,7 @@ const MARKDOWN_CSS: &str = r#"
     :root {
         --primary: #4fc3f7;
         --secondary: #81d4fa;
-        --bg: #1a1a1a;
-        --bg-grad: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%);
+        --bg: transparent;
         --glass: rgba(255, 255, 255, 0.03);
         --glass-border: rgba(255, 255, 255, 0.05);
     }
@@ -257,10 +256,8 @@ const MARKDOWN_CSS: &str = r#"
         font-size: 14px;
         line-height: 1.5; /* Reduced line height for compactness */
         background: var(--bg);
-        background-image: var(--bg-grad);
-        background-attachment: fixed;
         /* Removed min-height: 100vh to enable proper overflow detection for font scaling */
-        color: #e0e0e0;
+        color: white;
         margin: 0;
         padding: 0; /* Padding now handled by WebView edge margin */
         overflow-x: hidden;
@@ -965,7 +962,7 @@ pub fn create_markdown_webview_ex(
             )),
         })
         .with_url(&page_url)
-        .with_transparent(false)
+        .with_transparent(true)
         .with_ipc_handler(move |msg: wry::http::Request<String>| {
             let body = msg.body();
             handle_markdown_ipc(parent_hwnd, body);
