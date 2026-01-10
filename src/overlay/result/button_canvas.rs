@@ -1103,7 +1103,9 @@ fn send_windows_update() {
                 use super::state::InteractionMode;
                 if matches!(
                     s.interaction_mode,
-                    InteractionMode::DraggingWindow | InteractionMode::DraggingGroup(_)
+                    InteractionMode::DraggingWindow
+                        | InteractionMode::DraggingGroup(_)
+                        | InteractionMode::Resizing(_)
                 ) {
                     continue;
                 }
