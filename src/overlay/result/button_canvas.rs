@@ -134,6 +134,15 @@ pub fn unregister_markdown_window(hwnd: HWND) {
 
 /// Update window position (call when window moves/resizes)
 pub fn update_window_position(hwnd: HWND) {
+    update_window_position_internal(hwnd, true);
+}
+
+/// Update window position without triggering canvas repaint (for high-frequency drag)
+pub fn update_window_position_silent(hwnd: HWND) {
+    update_window_position_internal(hwnd, false);
+}
+
+fn update_window_position_internal(hwnd: HWND, notify: bool) {
     let hwnd_key = hwnd.0 as isize;
 
     let rect = unsafe {
@@ -157,8 +166,10 @@ pub fn update_window_position(hwnd: HWND) {
         }
     }
 
-    update_canvas();
-    update_canvas();
+    if notify {
+        update_canvas();
+        update_canvas();
+    }
 }
 
 /// Set drag mode (temporarily disable region clipping to prevent UI cutoff)
@@ -581,55 +592,27 @@ function generateButtonsHTML(hwnd, state) {{
 }}
 
 // Handle broom drag
+// Handle broom drag - NATIVE IMPLEMENTATION
 function handleBroomDrag(e, hwnd) {{
     if (e.button !== 0) return; // Only left click
-    broomDragData = {{ hwnd, startX: e.clientX, startY: e.clientY, moved: false }};
     
-    const onMove = (ev) => {{
-        if (!broomDragData) return;
-        const deltaX = ev.clientX - broomDragData.startX;
-        const deltaY = ev.clientY - broomDragData.startY;
+    // 1. Hide the button group immediately (it will reappear after drag via updateWindows)
+    const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
+    if (group) {{
+        group.style.opacity = '0';
+        group.style.pointerEvents = 'none';
         
-        // Threshold check: waiting for initial move > 4px, then process all
-        if (broomDragData.moved || Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {{
-            broomDragData.moved = true;
+        // Also update local state so it doesn't flicker back on if a cursor poll happens
+        lastVisibleState.set(hwnd, false);
+    }}
 
-            // 1. Immediate Visual Update to prevent lag
-            const group = document.querySelector('.button-group[data-hwnd="' + broomDragData.hwnd + '"]');
-            if (group) {{
-                const curL = parseFloat(group.style.left || 0);
-                const curT = parseFloat(group.style.top || 0);
-                group.style.left = (curL + deltaX) + 'px';
-                group.style.top = (curT + deltaY) + 'px';
-            }}
-
-            // 2. Send drag delta to Rust
-            window.ipc.postMessage(JSON.stringify({{
-                action: 'broom_drag',
-                hwnd: broomDragData.hwnd,
-                dx: Math.round(deltaX),
-                dy: Math.round(deltaY)
-            }}));
-            
-            broomDragData.startX = ev.clientX;
-            broomDragData.startY = ev.clientY;
-        }}
-    }};
+    // 2. Trigger native drag immediately
+    window.ipc.postMessage(JSON.stringify({{
+        action: 'broom_drag_start',
+        hwnd: hwnd
+    }}));
     
-    const onUp = () => {{
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        
-        if (broomDragData && broomDragData.moved) {{
-            // Prevent accidental click triggering after drag
-            window.ignoreNextBroomClick = true;
-            setTimeout(() => {{ window.ignoreNextBroomClick = false; }}, 100);
-        }}
-        broomDragData = null;
-    }};
-    
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    // No need for mousemove logic/throttling anymore - the OS handles it!
 }}
 
 // Send action to Rust
@@ -726,8 +709,13 @@ function updateWindows(windowsData) {{
         finalX = clamp(finalX, actualW, screenW);
         finalY = clamp(finalY, actualH, screenH);
         
-        group.style.left = finalX + 'px';
-        group.style.top = finalY + 'px';
+        // CRITICAL: Do NOT update position if we are currently dragging this window!
+        // The local drag handler owns the position to ensure smoothness.
+        // Overwriting it with potentially stale Rust data causes stutter/glitching.
+        if (!broomDragData || broomDragData.hwnd !== hwnd) {{
+            group.style.left = finalX + 'px';
+            group.style.top = finalY + 'px';
+        }}
     }}
     
     // Remove stale
@@ -1046,9 +1034,41 @@ fn handle_ipc_message(body: &str) {
                 // Middle-click = close all
                 crate::overlay::result::trigger_close_all();
             }
+            "broom_drag_start" => {
+                // Initiate manual Rust-side drag (more robust than system drag)
+                unsafe {
+                    use windows::Win32::UI::Input::KeyboardAndMouse::SetCapture;
+                    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+                    let mut pt = windows::Win32::Foundation::POINT::default();
+                    if GetCursorPos(&mut pt).is_ok() {
+                        use std::sync::atomic::Ordering;
+                        ACTIVE_DRAG_TARGET.store(hwnd.0 as isize, Ordering::SeqCst);
+
+                        let mut last = LAST_DRAG_POS.lock().unwrap();
+                        last.x = pt.x;
+                        last.y = pt.y;
+
+                        let mut start = START_DRAG_POS.lock().unwrap();
+                        start.x = pt.x;
+                        start.y = pt.y;
+
+                        // Capture mouse on the canvas window (since we are in IPC callback,
+                        // we need the canvas HWND. We can get it from the static if available
+                        // or we assume this thread handles it. But we need 'hwnd' to be the CANVAS hwnd?
+                        // No, 'hwnd' here is the TARGET window from IPC.
+                        // We need CANVAS_HWND.
+
+                        let canvas_val = CANVAS_HWND.load(Ordering::SeqCst);
+                        if canvas_val != 0 {
+                            let canvas_hwnd = HWND(canvas_val as *mut std::ffi::c_void);
+                            let _ = SetCapture(canvas_hwnd);
+                        }
+                    }
+                }
+            }
             "broom_drag" => {
-                // Drag window group - JavaScript sends logical (CSS) pixels, scale to physical
-                // User reports raw JS delta is too slow (100 log < 150 phys), so scaling is required.
+                // Legacy JS-driven drag (unused now but kept for compatibility)
                 let scale = get_dpi_scale();
                 let dx =
                     (json.get("dx").and_then(|v| v.as_f64()).unwrap_or(0.0) * scale).round() as i32;
@@ -1123,6 +1143,11 @@ fn send_windows_update() {
     });
 }
 
+// Global state for manual Rust-side dragging
+static ACTIVE_DRAG_TARGET: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+static LAST_DRAG_POS: std::sync::Mutex<POINT> = std::sync::Mutex::new(POINT { x: 0, y: 0 });
+static START_DRAG_POS: std::sync::Mutex<POINT> = std::sync::Mutex::new(POINT { x: 0, y: 0 });
+
 unsafe extern "system" fn canvas_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -1131,7 +1156,6 @@ unsafe extern "system" fn canvas_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_APP_UPDATE_WINDOWS => {
-            // Re-assert topmost position to stay above other result windows
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_TOPMOST),
@@ -1147,7 +1171,6 @@ unsafe extern "system" fn canvas_wnd_proc(
 
         WM_APP_SHOW_CANVAS => {
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            // Re-assert topmost position to stay above other result windows
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_TOPMOST),
@@ -1157,24 +1180,88 @@ unsafe extern "system" fn canvas_wnd_proc(
                 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
-            // Start cursor polling timer (100ms interval - balance between smoothness and performance)
             let _ = SetTimer(Some(hwnd), CURSOR_POLL_TIMER_ID, 100, None);
             LRESULT(0)
         }
 
         WM_APP_HIDE_CANVAS => {
             let _ = ShowWindow(hwnd, SW_HIDE);
-            // Stop cursor polling timer
             let _ = KillTimer(Some(hwnd), CURSOR_POLL_TIMER_ID);
             LRESULT(0)
         }
 
-        WM_TIMER => {
-            if wparam.0 == CURSOR_POLL_TIMER_ID {
-                // Poll cursor position and send to WebView
+        // Handle Dragging Logic
+        windows::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE => {
+            let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
+            if target_val != 0 {
+                let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
+
+                // Get current cursor pos
                 let mut pt = POINT::default();
                 if GetCursorPos(&mut pt).is_ok() {
-                    // Scale physical cursor coordinates to logical (CSS) coordinates
+                    let mut last = LAST_DRAG_POS.lock().unwrap();
+                    let dx = pt.x - last.x;
+                    let dy = pt.y - last.y;
+
+                    if dx != 0 || dy != 0 {
+                        // Move the actual window
+                        crate::overlay::result::trigger_drag_window(target_hwnd, dx, dy);
+
+                        // Update last pos
+                        last.x = pt.x;
+                        last.y = pt.y;
+                    }
+                }
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+
+        windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONUP => {
+            let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
+            if target_val != 0 {
+                use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+                // End drag
+                ACTIVE_DRAG_TARGET.store(0, Ordering::SeqCst);
+                let _ = ReleaseCapture();
+
+                // Click vs Drag Check
+                let mut pt = POINT::default();
+                let _ = GetCursorPos(&mut pt);
+
+                let start = START_DRAG_POS.lock().unwrap();
+                let dist_sq = ((pt.x - start.x).pow(2) + (pt.y - start.y).pow(2)) as f64;
+
+                if dist_sq.sqrt() < 5.0 {
+                    // Treating as CLICK -> Dismiss window
+                    let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
+                    let _ = PostMessageW(Some(target_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
+
+                // Force Immediate Cursor Update to JS (so buttons reappear correctly under mouse)
+                let scale = get_dpi_scale();
+                let logical_x = (pt.x as f64 / scale) as i32;
+                let logical_y = (pt.y as f64 / scale) as i32;
+                CANVAS_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let script =
+                            format!("window.updateCursorPosition({}, {});", logical_x, logical_y);
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
+
+                // Final update to sync everything (and show buttons again)
+                send_windows_update();
+
+                return LRESULT(0);
+            }
+            DefWindowProcW(hwnd, msg, wparam, lparam)
+        }
+
+        WM_TIMER => {
+            if wparam.0 == CURSOR_POLL_TIMER_ID {
+                let mut pt = POINT::default();
+                if GetCursorPos(&mut pt).is_ok() {
                     let scale = get_dpi_scale();
                     let logical_x = (pt.x as f64 / scale) as i32;
                     let logical_y = (pt.y as f64 / scale) as i32;
@@ -1194,7 +1281,6 @@ unsafe extern "system" fn canvas_wnd_proc(
         }
 
         WM_DISPLAYCHANGE => {
-            // Screen resolution changed - resize canvas
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
             let _ = SetWindowPos(
@@ -1206,7 +1292,6 @@ unsafe extern "system" fn canvas_wnd_proc(
                 screen_h,
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
-
             CANVAS_WEBVIEW.with(|cell| {
                 if let Some(webview) = cell.borrow().as_ref() {
                     let _ = webview.set_bounds(Rect {
@@ -1220,7 +1305,6 @@ unsafe extern "system" fn canvas_wnd_proc(
                     });
                 }
             });
-
             LRESULT(0)
         }
 
