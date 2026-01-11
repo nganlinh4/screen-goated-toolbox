@@ -194,7 +194,8 @@ const REFINE_CSS: &str = r#"
         height: 100%;
         overflow: hidden;
         background: transparent;
-        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-variation-settings: 'ROND' 100;
     }
     
     .container {
@@ -214,8 +215,9 @@ const REFINE_CSS: &str = r#"
         padding: 4px 10px;
         border: 1px solid transparent;
         outline: none;
-        border-radius: 6px;
-        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        border-radius: 12px;
+        font-family: 'Google Sans Flex', sans-serif;
+        font-variation-settings: 'ROND' 100;
         font-size: 13px;
         color: var(--text-color);
         background: var(--editor-bg);
@@ -255,15 +257,13 @@ const REFINE_CSS: &str = r#"
         box-shadow: 0 0 8px var(--mic-hover-bg);
     }
     
-    .mic-btn:active {
-        transform: scale(0.95);
+    .mic-btn svg, .send-btn svg {
+        width: 16px;
+        height: 16px;
     }
     
-    .mic-btn svg {
-        width: 14px;
-        height: 14px;
-        fill: var(--mic-fill);
-    }
+    .mic-btn svg { fill: var(--mic-fill); }
+    .send-btn svg { fill: var(--send-fill); }
     
     /* Send Button */
     .send-btn {
@@ -292,15 +292,10 @@ const REFINE_CSS: &str = r#"
         transform: scale(0.95);
     }
     
-    .send-btn svg {
-        width: 14px;
-        height: 14px;
-        fill: var(--send-fill);
-    }
-    
     .hint {
         font-size: 11px;
         color: var(--hint-color);
+        font-variation-settings: 'ROND' 100, 'slnt' -10;
         margin-left: 10px;
         white-space: nowrap;
     }
@@ -322,15 +317,10 @@ fn get_refine_html(placeholder: &str, is_dark: bool) -> String {
     <div class="container">
         <input type="text" id="editor" placeholder="{}" autofocus>
         <button class="mic-btn" id="micBtn" title="Speech to text">
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-            </svg>
+            {mic_svg}
         </button>
         <button class="send-btn" id="sendBtn" title="Send">
-            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-            </svg>
+            {send_svg}
         </button>
         <span class="hint">Esc ✕</span>
     </div>
@@ -396,7 +386,12 @@ fn get_refine_html(placeholder: &str, is_dark: bool) -> String {
     </script>
 </body>
 </html>"#,
-        theme_attr, font_css, REFINE_CSS, escaped
+        theme_attr,
+        font_css,
+        REFINE_CSS,
+        escaped,
+        mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
+        send_svg = crate::overlay::html_components::icons::get_icon_svg("send")
     )
 }
 

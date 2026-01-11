@@ -43,7 +43,7 @@ pub fn start_text_processing(
             .unwrap_or("");
 
         let guide_text = if first_block_prompt.is_empty() || model_is_non_llm(first_block_model) {
-            String::new()
+            localized_preset_name
         } else {
             format!("{}...", localized_preset_name)
         };
@@ -82,74 +82,81 @@ pub fn start_text_processing(
                 // Check if we already selected a preset from the wheel (subsequent submissions)
                 let already_selected = selected_preset_idx_clone.lock().unwrap().clone();
 
-                let (final_preset, final_config, is_continuous) =
-                    if let Some(preset_idx) = already_selected {
-                        // Already selected from wheel previously - use that preset directly (no wheel)
-                        let app = crate::APP.lock().unwrap();
-                        let p = app.config.presets[preset_idx].clone();
+                let (final_preset, final_config, is_continuous) = if let Some(preset_idx) =
+                    already_selected
+                {
+                    // Already selected from wheel previously - use that preset directly (no wheel)
+                    let app = crate::APP.lock().unwrap();
+                    let p = app.config.presets[preset_idx].clone();
+                    let c = app.config.clone();
+                    let continuous = p.continuous_input;
+
+                    // Update UI header just in case (e.g. if it reverted or missed an update)
+                    let localized_name =
+                        crate::gui::settings_ui::get_localized_preset_name(&p.id, &c.ui_language);
+                    text_input::update_ui_text(localized_name);
+
+                    (p, c, continuous)
+                } else if is_master {
+                    // First time MASTER preset - show the preset wheel
+                    let mut cursor_pos = POINT::default();
+                    unsafe {
+                        let _ = GetCursorPos(&mut cursor_pos);
+                    }
+
+                    // Show preset wheel - this blocks until user makes selection
+                    let selected =
+                        preset_wheel::show_preset_wheel("text", Some("type"), cursor_pos);
+
+                    if let Some(idx) = selected {
+                        // Store the selected preset index for subsequent submissions
+                        *selected_preset_idx_clone.lock().unwrap() = Some(idx);
+
+                        // Refocus the text input window and editor after wheel closes
+                        text_input::refocus_editor();
+
+                        // Get the selected preset from config AND update active_preset_idx
+                        let mut app = crate::APP.lock().unwrap();
+                        // CRITICAL: Update active_preset_idx so auto_paste logic works!
+                        app.config.active_preset_idx = idx;
+                        let p = app.config.presets[idx].clone();
                         let c = app.config.clone();
                         let continuous = p.continuous_input;
-                        (p, c, continuous)
-                    } else if is_master {
-                        // First time MASTER preset - show the preset wheel
-                        let mut cursor_pos = POINT::default();
-                        unsafe {
-                            let _ = GetCursorPos(&mut cursor_pos);
-                        }
 
-                        // Show preset wheel - this blocks until user makes selection
-                        let selected =
-                            preset_wheel::show_preset_wheel("text", Some("type"), cursor_pos);
+                        // Update UI header with the new preset's name
+                        let localized_name = crate::gui::settings_ui::get_localized_preset_name(
+                            &p.id,
+                            &c.ui_language,
+                        );
+                        // Find first hotkey name for this preset if available
+                        let hk_name = p
+                            .hotkeys
+                            .first()
+                            .map(|h| h.name.clone())
+                            .unwrap_or_default();
 
-                        if let Some(idx) = selected {
-                            // Store the selected preset index for subsequent submissions
-                            *selected_preset_idx_clone.lock().unwrap() = Some(idx);
-
-                            // Refocus the text input window and editor after wheel closes
-                            text_input::refocus_editor();
-
-                            // Get the selected preset from config AND update active_preset_idx
-                            let mut app = crate::APP.lock().unwrap();
-                            // CRITICAL: Update active_preset_idx so auto_paste logic works!
-                            app.config.active_preset_idx = idx;
-                            let p = app.config.presets[idx].clone();
-                            let c = app.config.clone();
-                            let continuous = p.continuous_input;
-
-                            // Update UI header with the new preset's name
-                            let localized_name = crate::gui::settings_ui::get_localized_preset_name(
-                                &p.id,
-                                &c.ui_language,
-                            );
-                            // Find first hotkey name for this preset if available
-                            let hk_name = p
-                                .hotkeys
-                                .first()
-                                .map(|h| h.name.clone())
-                                .unwrap_or_default();
-
-                            let new_guide_text = if !hk_name.is_empty() {
-                                format!("{} [{}]", localized_name, hk_name)
-                            } else {
-                                localized_name
-                            };
-                            text_input::update_ui_text(new_guide_text);
-
-                            (p, c, continuous)
+                        let new_guide_text = if !hk_name.is_empty() {
+                            format!("{} [{}]", localized_name, hk_name)
                         } else {
-                            // User dismissed wheel - refocus and allow retry
-                            text_input::refocus_editor();
-                            return;
-                        }
+                            localized_name
+                        };
+                        text_input::update_ui_text(new_guide_text);
+
+                        (p, c, continuous)
                     } else {
-                        // Normal non-MASTER preset
-                        let is_continuous = (*preset_shared).continuous_input;
-                        (
-                            (*preset_shared).clone(),
-                            (*config_shared).clone(),
-                            is_continuous,
-                        )
-                    };
+                        // User dismissed wheel - refocus and allow retry
+                        text_input::refocus_editor();
+                        return;
+                    }
+                } else {
+                    // Normal non-MASTER preset
+                    let is_continuous = (*preset_shared).continuous_input;
+                    (
+                        (*preset_shared).clone(),
+                        (*config_shared).clone(),
+                        is_continuous,
+                    )
+                };
 
                 if !is_continuous {
                     // Normal mode: close input window

@@ -69,6 +69,7 @@ impl GeminiLiveManager {
     }
 
     /// Interrupt all pending requests (increment generation, clear queue)
+    #[allow(dead_code)]
     pub fn interrupt(&self) {
         self.interrupt_generation.fetch_add(1, Ordering::SeqCst);
 
@@ -91,6 +92,7 @@ impl GeminiLiveManager {
     }
 
     /// Shutdown the manager
+    #[allow(dead_code)]
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.interrupt();

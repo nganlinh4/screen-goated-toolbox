@@ -859,9 +859,6 @@ progressBar.onclick = (e) => {{
         let mut current_model_id = model_id.clone();
         let mut current_provider = provider.clone();
         let mut current_model_full_name = model_full_name.clone();
-        // Variable to hold the model name for error reporting (must survive loop)
-        let mut model_name_for_error = String::new();
-
         let mut failed_model_ids: Vec<String> = Vec::new();
         let mut retry_count = 0;
         const MAX_RETRIES: usize = 2;
@@ -874,9 +871,6 @@ progressBar.onclick = (e) => {{
 
         // RETRY LOOP
         let res = loop {
-            // Update model_name_for_error to current attempt
-            model_name_for_error = current_model_full_name.clone();
-
             let res_inner = if is_first_processing_block
                 && block.block_type == "image"
                 && matches!(context, RefineContext::Image(_))
@@ -1092,7 +1086,7 @@ progressBar.onclick = (e) => {{
                 let err = crate::overlay::utils::get_error_message(
                     &e.to_string(),
                     &lang,
-                    Some(&model_name_for_error),
+                    Some(&current_model_full_name),
                 );
                 if let Some(h) = my_hwnd {
                     // CRITICAL: For image blocks, the window may still be hidden if on_chunk was never called
