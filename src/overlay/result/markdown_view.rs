@@ -1454,13 +1454,26 @@ pub fn stream_markdown_content_ex(
          body.style.fontSize = best + 'px';
          
     }} else {{
-        // Incrementally adjust font size if overflow occurs (Heuristic skip for speed)
+        // Incrementally adjust font size if overflow occurs
         var hasOverflow = doc.scrollHeight > (winH + 2);
         if (hasOverflow) {{
             var currentSize = parseFloat(body.style.fontSize) || 14;
             if (currentSize > minSize) {{
-                // Quick jump instead of loop for streaming smoothness
-                body.style.fontSize = (currentSize - 1) + 'px';
+                // Binary search from minSize to currentSize to find the largest fitting size
+                var low = minSize;
+                var high = currentSize;
+                var best = minSize;
+                while (low <= high) {{
+                    var mid = Math.floor((low + high) / 2);
+                    body.style.fontSize = mid + 'px';
+                    if (doc.scrollHeight <= (winH + 2)) {{
+                        best = mid;
+                        low = mid + 1;
+                    }} else {{
+                        high = mid - 1;
+                    }}
+                }}
+                body.style.fontSize = best + 'px';
             }}
         }}
     }}
@@ -1680,10 +1693,10 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
             }
             
             // NEW: Line Height AND Vertical Spacing Scaling
-            // If we have substantial vertical space remaining, increase line-height and margins to fill the window
+            // If there's ANY vertical space remaining, increase line-height and margins to fill the window
             var finalHeight = doc.scrollHeight;
             var finalOverflow = finalHeight > (winH + 2);
-            if (!finalOverflow && finalHeight < winH * 0.95) {
+            if (!finalOverflow && finalHeight < winH) {
                 var lowScale = 1.0;
                 var highScale = 2.0; // Max scale factor for spacing 
                 var bestScale = 1.0;
@@ -1692,11 +1705,12 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                     var midScale = (lowScale + highScale) / 2;
                     body.style.lineHeight = (1.5 * midScale);
                     
-                    // Also adjust margins of block elements for better distribution
+                    // Also adjust margins of block elements for better distribution (skip last child)
                     var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
-                    for (var i = 0; i < blocks.length; i++) {
+                    for (var i = 0; i < blocks.length - 1; i++) {
                         blocks[i].style.marginBottom = (0.8 * (midScale - 1)) + 'em';
                     }
+                    if (blocks.length > 0) blocks[blocks.length - 1].style.marginBottom = '0';
                     
                     if (doc.scrollHeight <= (winH + 2)) {
                         bestScale = midScale;
@@ -1708,9 +1722,10 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 
                 body.style.lineHeight = (1.5 * bestScale);
                 var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
-                for (var i = 0; i < blocks.length; i++) {
+                for (var i = 0; i < blocks.length - 1; i++) {
                     blocks[i].style.marginBottom = (0.8 * (bestScale - 1)) + 'em';
                 }
+                if (blocks.length > 0) blocks[blocks.length - 1].style.marginBottom = '0';
             }
             
             window._sgtFitting = false;
