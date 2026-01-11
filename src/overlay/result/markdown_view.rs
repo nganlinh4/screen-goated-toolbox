@@ -1071,6 +1071,9 @@ pub fn create_markdown_webview_ex(
                         }
                     }
                 }
+                crate::overlay::result::button_canvas::update_window_position(HWND(
+                    hwnd_key_for_nav as *mut std::ffi::c_void,
+                ));
             } else if is_internal {
                 // If we hit an internal URL, we are likely back at the start (or initial load)
                 // Force reset depth and browsing state to correct any drift
@@ -1089,6 +1092,9 @@ pub fn create_markdown_webview_ex(
                                     false,
                                 );
                             }
+                            crate::overlay::result::button_canvas::update_window_position(HWND(
+                                hwnd_key_for_nav as *mut std::ffi::c_void,
+                            ));
                         }
                     }
                 }
@@ -1171,6 +1177,7 @@ pub fn go_back(parent_hwnd: HWND) {
         unsafe {
             let _ = windows::Win32::Graphics::Gdi::InvalidateRect(Some(parent_hwnd), None, false);
         }
+        crate::overlay::result::button_canvas::update_window_position(parent_hwnd);
     } else {
         // Normal browser history back for deeper navigation
         // Set skip flag to prevent navigation_handler from re-incrementing depth
@@ -1184,6 +1191,7 @@ pub fn go_back(parent_hwnd: HWND) {
                 let _ = webview.evaluate_script("history.back();");
             }
         });
+        crate::overlay::result::button_canvas::update_window_position(parent_hwnd);
     }
 }
 
@@ -1215,6 +1223,7 @@ pub fn go_forward(parent_hwnd: HWND) {
             let _ = webview.evaluate_script("history.forward();");
         }
     });
+    crate::overlay::result::button_canvas::update_window_position(parent_hwnd);
 }
 
 /// Update the markdown content in an existing WebView
