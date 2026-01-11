@@ -1,6 +1,6 @@
 use super::state::{ResizeEdge, WINDOW_STATES};
 use windows::Win32::Foundation::{HWND, RECT};
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindow};
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindow, IsWindowVisible};
 
 /// Minimum width threshold for showing buttons.
 /// When overlay width is below this value, buttons are hidden to avoid
@@ -37,8 +37,10 @@ fn get_all_active_window_rects() -> Vec<RECT> {
         for (&hwnd_key, _state) in states.iter() {
             let hwnd = HWND(hwnd_key as *mut std::ffi::c_void);
             unsafe {
-                // Verify window is still valid
-                if IsWindow(Some(hwnd)).as_bool() {
+                // Verify window is still valid and VISIBLE
+                // We check visibility because windows being closed are hidden immediately
+                // but might take a few milliseconds to be removed from WINDOW_STATES.
+                if IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() {
                     let mut rect = RECT::default();
                     if GetWindowRect(hwnd, &mut rect).is_ok() {
                         rects.push(rect);
@@ -70,7 +72,7 @@ pub fn is_rect_occupied(proposed: &RECT) -> bool {
 /// 4. Falls back to cascade positioning if all directions are blocked
 ///
 /// Similar to the intelligent layout in node_graph.rs blocks_to_snarl()
-pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> RECT {
+pub fn calculate_next_window_rect(prev: RECT, monitor_rect: RECT) -> RECT {
     let gap = 15;
     let w = (prev.right - prev.left).abs();
     let h = (prev.bottom - prev.top).abs();
@@ -85,7 +87,7 @@ pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> R
         right: prev.right + gap + w,
         bottom: prev.bottom,
     };
-    if right_candidate.right <= screen_w
+    if right_candidate.right <= monitor_rect.right
         && !would_overlap_existing(&right_candidate, &existing_windows, gap)
     {
         return right_candidate;
@@ -98,7 +100,7 @@ pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> R
         right: prev.right,
         bottom: prev.bottom + gap + h,
     };
-    if bottom_candidate.bottom <= screen_h
+    if bottom_candidate.bottom <= monitor_rect.bottom
         && !would_overlap_existing(&bottom_candidate, &existing_windows, gap)
     {
         return bottom_candidate;
@@ -111,7 +113,8 @@ pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> R
         right: prev.left - gap,
         bottom: prev.bottom,
     };
-    if left_candidate.left >= 0 && !would_overlap_existing(&left_candidate, &existing_windows, gap)
+    if left_candidate.left >= monitor_rect.left
+        && !would_overlap_existing(&left_candidate, &existing_windows, gap)
     {
         return left_candidate;
     }
@@ -123,7 +126,9 @@ pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> R
         right: prev.right,
         bottom: prev.top - gap,
     };
-    if top_candidate.top >= 0 && !would_overlap_existing(&top_candidate, &existing_windows, gap) {
+    if top_candidate.top >= monitor_rect.top
+        && !would_overlap_existing(&top_candidate, &existing_windows, gap)
+    {
         return top_candidate;
     }
 
@@ -160,10 +165,10 @@ pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> R
     ];
 
     for diag in diagonals {
-        if diag.left >= 0
-            && diag.right <= screen_w
-            && diag.top >= 0
-            && diag.bottom <= screen_h
+        if diag.left >= monitor_rect.left
+            && diag.right <= monitor_rect.right
+            && diag.top >= monitor_rect.top
+            && diag.bottom <= monitor_rect.bottom
             && !would_overlap_existing(&diag, &existing_windows, gap)
         {
             return diag;
@@ -171,7 +176,6 @@ pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> R
     }
 
     // 6. Cascade fallback: find a non-overlapping cascade position
-    // Start with standard offset and increment until we find free space
     for cascade_mult in 1..10 {
         let offset = 40 * cascade_mult;
         let cascade = RECT {
@@ -182,8 +186,8 @@ pub fn calculate_next_window_rect(prev: RECT, screen_w: i32, screen_h: i32) -> R
         };
 
         // Clamp to screen bounds
-        if cascade.right <= screen_w
-            && cascade.bottom <= screen_h
+        if cascade.right <= monitor_rect.right
+            && cascade.bottom <= monitor_rect.bottom
             && !would_overlap_existing(&cascade, &existing_windows, gap)
         {
             return cascade;

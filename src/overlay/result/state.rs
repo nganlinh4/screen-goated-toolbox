@@ -244,6 +244,13 @@ pub fn close_windows_with_token(token: &Arc<AtomicBool>) {
     for hwnd in to_close {
         unsafe {
             if IsWindow(Some(hwnd)).as_bool() {
+                // HIDE IMMEDIATELY so collision detection (which uses IsWindowVisible)
+                // will ignore these windows even if they take a moment to be destroyed.
+                let _ = windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+                    hwnd,
+                    windows::Win32::UI::WindowsAndMessaging::SW_HIDE,
+                );
+
                 let _ = PostMessageW(
                     Some(hwnd),
                     WM_CLOSE,
