@@ -56,6 +56,11 @@ fn would_overlap_existing(proposed: &RECT, existing: &[RECT], gap: i32) -> bool 
     existing.iter().any(|r| rects_overlap(proposed, r, gap))
 }
 
+pub fn is_rect_occupied(proposed: &RECT) -> bool {
+    let existing = get_all_active_window_rects();
+    would_overlap_existing(proposed, &existing, 15)
+}
+
 /// Calculate the next window position with intelligent collision detection.
 ///
 /// This improved algorithm:

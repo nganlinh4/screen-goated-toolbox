@@ -7,8 +7,10 @@ use std::num::NonZeroIsize;
 use std::sync::{Mutex, Once};
 use windows::core::*;
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebViewBuilder};
@@ -20,8 +22,9 @@ static INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
 static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
 static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 static IS_SHOWING: AtomicBool = AtomicBool::new(false);
-// Colors
-const COL_DARK_BG: u32 = 0x202020; // RGB(32, 32, 32)
+static LAST_THEME_IS_DARK: AtomicBool = AtomicBool::new(true); // Track last applied theme
+
+// COL_DARK_BG removed
 
 // Global storage for submitted text (from webview IPC)
 lazy_static::lazy_static! {
@@ -68,174 +71,305 @@ impl HasWindowHandle for HwndWrapper {
 }
 
 /// CSS for the modern text input editor
-fn get_editor_css() -> &'static str {
-    r#"
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+fn get_editor_css(is_dark: bool) -> String {
+    let vars = if is_dark {
+        r#"
+        :root {
+            /* 2-Color System: Dark (Google-like) */
+            --bg-color: rgba(32, 33, 36, 0.85);
+            --header-bg: rgba(32, 33, 36, 0.85);
+            --footer-bg: rgba(32, 33, 36, 0.85);
+            --text-color: #e8eaed;
+            --header-text: #9aa0a6;
+            --footer-text: #9aa0a6;
+            --placeholder-color: #5f6368;
+            --scrollbar-thumb: #5f6368;
+            --scrollbar-thumb-hover: #80868b;
+            --btn-bg: #1a1b1e;
+            --btn-border: 1px solid rgba(255, 255, 255, 0.1);
+            --mic-fill: #8ab4f8; 
+            --mic-border: transparent;
+            --mic-hover-bg: rgba(138, 180, 248, 0.08);
+            --send-fill: #8ab4f8;
+            --send-border: transparent;
+            --send-hover-bg: rgba(138, 180, 248, 0.08);
+            --hint-color: #9aa0a6;
+            --close-hover-bg: rgba(232, 234, 237, 0.08);
+            --container-border: 1px solid #3c4043;
+            --container-shadow: 0 4px 24px rgba(0,0,0,0.5);
+            --input-bg: rgba(48, 49, 52, 0.95);
+            --input-border: 1px solid transparent;
+        }
+        "#
+    } else {
+        r#"
+        :root {
+            /* 2-Color System: Light (Google-like) */
+            --bg-color: rgba(255, 255, 255, 0.85);
+            --header-bg: rgba(255, 255, 255, 0.85);
+            --footer-bg: rgba(255, 255, 255, 0.85);
+            --text-color: #202124;
+            --header-text: #5f6368;
+            --footer-text: #5f6368;
+            --placeholder-color: #5f6368;
+            --scrollbar-thumb: #dadce0;
+            --scrollbar-thumb-hover: #bdc1c6;
+            --btn-bg: #f1f3f4;
+            --btn-border: 1px solid transparent;
+            --mic-fill: #1a73e8;
+            --mic-border: transparent;
+            --mic-hover-bg: rgba(26, 115, 232, 0.04);
+            --send-fill: #1a73e8;
+            --send-border: transparent;
+            --send-hover-bg: rgba(26, 115, 232, 0.04);
+            --hint-color: #5f6368;
+            --close-hover-bg: rgba(32, 33, 36, 0.04);
+            --container-border: 1px solid #dadce0;
+            --container-shadow: 0 4px 20px rgba(60,64,67,0.15);
+            --input-bg: #f1f3f4;
+            --input-border: 1px solid transparent;
+        }
+        "#
+    };
+
+    format!(
+        r#"
+    {vars}
+
+    * {{ box-sizing: border-box; margin: 0; padding: 0; user-select: none; }}
     
-    html, body {
+    html, body {{
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: #F0F0F0;
+        background: transparent;
+        padding: 20px; /* Space for box-shadow to prevent clipping */
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
+    }}
     
-    .editor-container {
+    *::-webkit-scrollbar {{
+        width: 10px;
+        height: 10px;
+        background: transparent;
+    }}
+    *::-webkit-scrollbar-thumb {{
+        background: var(--scrollbar-thumb);
+        border-radius: 5px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }}
+    *::-webkit-scrollbar-thumb:hover {{
+        background: var(--scrollbar-thumb-hover);
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }}
+    
+    .editor-container {{
         width: 100%;
         height: 100%;
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        background: linear-gradient(180deg, #FAFAFA 0%, #F0F0F0 100%);
+        background: var(--bg-color);
         position: relative;
-    }
-
-
+        border-radius: 16px;
+        border: var(--container-border);
+        box-shadow: var(--container-shadow);
+        transition: background 0.2s, border-color 0.2s;
+    }}
     
-    #editor {
+    /* Header (Draggable) */
+    .header {{
+        height: 32px;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        cursor: default;
+        /* No border for header to seamless blend */
+    }}
+    
+    .header-title {{
+        flex: 1;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--header-text);
+        padding-left: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+    
+    .close-btn {{
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--header-text);
+        font-size: 16px;
+        transition: background 0.1s;
+    }}
+    
+    .close-btn:hover {{
+        background: var(--close-hover-bg);
+    }}
+
+    #editor {{
         flex: 1;
         width: 100%;
+        margin: 0px 8px;
+        background: var(--input-bg);
+        border-radius: 12px;
         padding: 12px 14px;
-        padding-right: 70px; /* Space for mic + send buttons */
-        border: none;
+        padding-right: 90px; /* Space for mic + send buttons to prevent overlap */
+        border: var(--input-border);
         outline: none;
         resize: none;
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
         font-size: 15px;
         line-height: 1.55;
-        color: #1a1a1a;
-        background: transparent;
+        color: var(--text-color);
         overflow-y: auto;
-    }
+        user-select: text;
+        width: calc(100% - 16px);
+    }}
     
-    #editor::placeholder {
-        color: #888;
+    #editor::placeholder {{
+        color: var(--placeholder-color);
         opacity: 1;
-    }
+    }}
     
-    #editor:focus {
-        outline: none;
-    }
-    
-    /* Modern scrollbar */
-    #editor::-webkit-scrollbar {
-        width: 6px;
-    }
-    #editor::-webkit-scrollbar-track {
+    /* Footer */
+    .footer {{
+        height: 28px;
         background: transparent;
-    }
-    #editor::-webkit-scrollbar-thumb {
-        background: #ccc;
-        border-radius: 3px;
-    }
-    #editor::-webkit-scrollbar-thumb:hover {
-        background: #aaa;
-    }
-    
-    /* Character counter */
-    .char-counter {
-        position: absolute;
-        bottom: 6px;
-        right: 10px;
+        /* No border for seamless blend */
+        display: flex;
+        align-items: center;
+        justify-content: center;
         font-size: 11px;
-        color: #999;
-        pointer-events: none;
-    }
-    
-    /* Floating Button Container - Vertical Layout */
-    .btn-container {
+        color: var(--footer-text);
+        cursor: default;
+    }}
+
+    /* Floating Buttons */
+    /* Floating Buttons - Vertical Stack */
+    .btn-container {{
         position: absolute;
-        right: 10px;
-        top: 50%;
-        transform: translateY(-50%);
+        bottom: 40px; /* Above footer */
+        right: 15px;
         display: flex;
         flex-direction: column;
-        gap: 18px;
-        z-index: 10;
-    }
-    
-    /* Floating Mic Button - Solid cyan aesthetic */
-    .mic-btn {
-        width: 44px;
-        height: 44px;
+        gap: 12px;
+        z-index: 100;
+    }}
+
+    .mic-btn, .send-btn {{
+        width: 48px;
+        height: 48px; /* Big buttons */
         border-radius: 50%;
-        border: 1px solid rgba(0, 200, 255, 0.3);
-        background: rgba(30, 30, 30, 0.9);
-        cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.2s ease;
-    }
-    
-    .mic-btn:hover {
-        background: rgba(0, 200, 255, 0.15);
-        border-color: #00c8ff;
-        box-shadow: 0 0 12px rgba(0, 200, 255, 0.4);
-    }
-    
-    .mic-btn:active {
-        transform: scale(0.95);
-    }
-    
-    .mic-btn svg {
-        width: 22px;
-        height: 22px;
-        fill: #00c8ff;
-    }
-    
-    /* Send Button - Solid green/teal aesthetic */
-    .send-btn {
-        width: 44px;
-        height: 44px;
-        border-radius: 50%;
-        border: 1px solid rgba(79, 195, 247, 0.3);
-        background: rgba(30, 30, 30, 0.9);
         cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-    }
+        background: var(--btn-bg);
+        border: 1px solid var(--btn-border);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        transition: all 0.2s cubic-bezier(0.2, 0.0, 0.2, 1);
+        backdrop-filter: blur(4px);
+    }}
     
-    .send-btn:hover {
-        background: rgba(79, 195, 247, 0.15);
-        border-color: #4fc3f7;
-        box-shadow: 0 0 12px rgba(79, 195, 247, 0.4);
-    }
+    .mic-btn svg, .send-btn svg {{
+        width: 28px; /* Bigger icons */
+        height: 28px;
+        transition: transform 0.2s, fill 0.2s;
+    }}
     
-    .send-btn:active {
+    .mic-btn:active, .send-btn:active {{
         transform: scale(0.95);
-    }
+    }}
     
-    .send-btn svg {
-        width: 22px;
-        height: 22px;
-        fill: #4fc3f7;
-    }
-    "#
+
+
+    .mic-btn svg {{ fill: var(--mic-fill); }}
+    .send-btn svg {{ fill: var(--send-fill); }}
+
+    .mic-btn:hover {{
+        background: var(--mic-hover-bg);
+        border-color: var(--mic-fill);
+    }}
+    
+    .send-btn:hover {{
+        background: var(--send-hover-bg);
+        border-color: var(--send-fill);
+    }}
+"#,
+        vars = vars
+    )
 }
 
 /// Generate HTML for the text input webview
-fn get_editor_html(placeholder: &str) -> String {
-    let css = get_editor_css();
+fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
+    let css = get_editor_css(is_dark);
+    let theme_attr = if is_dark {
+        "data-theme=\"dark\""
+    } else {
+        "data-theme=\"light\""
+    };
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
     let escaped_placeholder = placeholder
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n");
 
+    // Locale text
+    let (submit_txt, newline_txt, cancel_txt) = {
+        let lang = crate::overlay::text_input::CFG_LANG.lock().unwrap().clone();
+        let locale = crate::gui::locale::LocaleText::get(&lang);
+        (
+            locale.text_input_footer_submit.to_string(),
+            locale.text_input_footer_newline.to_string(),
+            locale.text_input_footer_cancel.to_string(),
+        )
+    };
+    let cancel_hint = {
+        let sub = crate::overlay::text_input::CFG_CANCEL.lock().unwrap();
+        if sub.is_empty() {
+            "Esc".to_string()
+        } else {
+            format!("Esc / {}", sub)
+        }
+    };
+    let title_text = {
+        let t = crate::overlay::text_input::CFG_TITLE.lock().unwrap();
+        if t.is_empty() {
+            "Text Input".to_string()
+        } else {
+            t.clone()
+        }
+    };
+
     format!(
         r#"<!DOCTYPE html>
-<html>
+<html {}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>{font_css}{css}</style>
+    <style>{font_css}</style>
+    <style id="theme-style">{css}</style>
 </head>
 <body>
     <div class="editor-container">
-        <textarea id="editor" placeholder="{escaped_placeholder}" autofocus></textarea>
+        <div class="header" id="headerRegion">
+            <span class="header-title" id="headerTitle">{}</span>
+            <div class="close-btn" id="closeBtn" title="Close">×</div>
+        </div>
+        
+        <textarea id="editor" placeholder="{}" autofocus></textarea>
+        
         <div class="btn-container">
             <button class="mic-btn" id="micBtn" title="Speech to text">
                 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -249,20 +383,38 @@ fn get_editor_html(placeholder: &str) -> String {
                 </svg>
             </button>
         </div>
+        
+        <div class="footer" id="footerRegion">
+            {}  |  {}  |  {} {}
+        </div>
     </div>
     <script>
         const editor = document.getElementById('editor');
+        const header = document.getElementById('headerRegion');
+        const closeBtn = document.getElementById('closeBtn');
         const micBtn = document.getElementById('micBtn');
         const sendBtn = document.getElementById('sendBtn');
         
-        // Auto focus on load
+        // Drag window logic
+        header.addEventListener('mousedown', (e) => {{
+            if (e.target.closest('.close-btn')) return; // Ignore close button
+            // Only left click
+            if (e.button === 0) {{
+                window.ipc.postMessage('drag_window');
+            }}
+        }});
+        
+        // Close button
+        closeBtn.addEventListener('click', (e) => {{
+            window.ipc.postMessage('close_window');
+        }});
+        
         window.onload = () => {{
             setTimeout(() => editor.focus(), 50);
         }};
         
-        // Handle keyboard events
+        // ... keydown handles ...
         editor.addEventListener('keydown', (e) => {{
-            // Enter without Shift = Submit
             if (e.key === 'Enter' && !e.shiftKey) {{
                 e.preventDefault();
                 const text = editor.value.trim();
@@ -271,13 +423,11 @@ fn get_editor_html(placeholder: &str) -> String {
                 }}
             }}
             
-            // Escape = Cancel
             if (e.key === 'Escape') {{
                 e.preventDefault();
                 window.ipc.postMessage('cancel');
             }}
             
-            // Arrow Up: History Up
             if (e.key === 'ArrowUp') {{
                 const isSingleLine = !editor.value.includes('\n');
                 if ((isSingleLine || editor.selectionStart === 0) && !e.shiftKey) {{
@@ -286,7 +436,6 @@ fn get_editor_html(placeholder: &str) -> String {
                 }}
             }}
 
-            // Arrow Down: History Down
             if (e.key === 'ArrowDown') {{
                 const isSingleLine = !editor.value.includes('\n');
                 if ((isSingleLine || editor.selectionStart === editor.value.length) && !e.shiftKey) {{
@@ -296,13 +445,11 @@ fn get_editor_html(placeholder: &str) -> String {
             }}
         }});
         
-        // Mic button click
         micBtn.addEventListener('click', (e) => {{
             e.preventDefault();
             window.ipc.postMessage('mic');
         }});
         
-        // Send button click (simulates Enter)
         sendBtn.addEventListener('click', (e) => {{
             e.preventDefault();
             const text = editor.value.trim();
@@ -311,18 +458,27 @@ fn get_editor_html(placeholder: &str) -> String {
             }}
         }});
         
-        // Prevent context menu
         document.addEventListener('contextmenu', e => e.preventDefault());
         
-        // Function to set editor text (called from Rust via evaluate_script)
         window.setEditorText = (text) => {{
             editor.value = text;
             editor.selectionStart = editor.selectionEnd = text.length;
             editor.focus();
         }};
+
+        window.updateTheme = (isDark) => {{
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        }};
     </script>
 </body>
-</html>"#
+</html>"#,
+        theme_attr,
+        title_text,
+        escaped_placeholder,
+        submit_txt,
+        newline_txt,
+        cancel_hint,
+        cancel_txt
     )
 }
 
@@ -588,7 +744,6 @@ pub fn show(
                 // Also reset history when hiding via toggle to be safe
                 crate::overlay::input_history::reset_history_navigation();
             } else {
-                // Currently hidden -> Show it
                 let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
             }
         }
@@ -607,20 +762,21 @@ fn internal_create_window_loop() {
             wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
             wc.lpszClassName = class_name;
             wc.style = CS_HREDRAW | CS_VREDRAW;
-            wc.hbrBackground = HBRUSH::default();
+            // Use NULL brush to prevent white flashes/stripes on resize
+            wc.hbrBackground = HBRUSH(GetStockObject(NULL_BRUSH).0);
             let _ = RegisterClassW(&wc);
         });
 
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
-        let win_w = 600;
-        let win_h = 250;
+        let win_w = 640;
+        let win_h = 340; /* Restored height for better layout */
         let x = (screen_w - win_w) / 2;
         let y = (screen_h - win_h) / 2;
 
         // Start HIDDEN logic
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
             class_name,
             w!("Text Input"),
             WS_POPUP, // Start invisible (not WS_VISIBLE)
@@ -637,12 +793,19 @@ fn internal_create_window_loop() {
 
         INPUT_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
 
-        // Initialize Layered (Transparent)
-        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
+        // Initialize use simple DwmExtendFrameIntoClientArea for full transparency
+        // NO SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_COLORKEY) as it conflicts with Dwm
+        // Use margins -1 to extend glass effect to entire window (fully transparent client area)
+        let margins = MARGINS {
+            cxLeftWidth: -1,
+            cxRightWidth: -1,
+            cyTopHeight: -1,
+            cyBottomHeight: -1,
+        };
+        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
 
-        // Window Region (Rounded)
-        let rgn = CreateRoundRectRgn(0, 0, win_w, win_h, 16, 16);
-        let _ = SetWindowRgn(hwnd, Some(rgn), true);
+        // REMOVED GDI REGION CLIPPING
+        // We now rely on HTML/CSS border-radius and transparent background
 
         // Create webview
         init_webview(hwnd, win_w, win_h);
@@ -669,18 +832,25 @@ fn internal_create_window_loop() {
 }
 
 unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
-    let edit_x = 20;
-    let edit_y = 50;
-    let edit_w = w - 40;
-    let edit_h = h - 90;
-    let corner_inset = 6;
-    let webview_x = edit_x + corner_inset;
-    let webview_y = edit_y + corner_inset;
-    let webview_w = edit_w - (corner_inset * 2);
-    let webview_h = edit_h - (corner_inset * 2);
+    // Use exact window dimensions for the webview, no insets.
+    // The CSS .editor-container handles the padding/border-radius/shadow.
+    let webview_x = 0;
+    let webview_y = 0;
+    let webview_w = w;
+    let webview_h = h;
+
+    let is_dark = if let Ok(app) = crate::APP.lock() {
+        match app.config.theme_mode {
+            crate::config::ThemeMode::Dark => true,
+            crate::config::ThemeMode::Light => false,
+            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+        }
+    } else {
+        true
+    };
 
     let placeholder = "Ready...";
-    let html = get_editor_html(placeholder);
+    let html = get_editor_html(placeholder, is_dark);
     let wrapper = HwndWrapper(hwnd);
 
     // Initialize shared WebContext if needed (uses same data dir as other modules)
@@ -698,6 +868,7 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
         } else {
             WebViewBuilder::new()
         };
+        let builder = builder.with_transparent(true);
         let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
 
         // Store HTML in font server and get URL for same-origin font loading
@@ -715,7 +886,7 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
                 )),
             })
             .with_url(&page_url)
-            .with_transparent(false)
+            .with_transparent(true)
             .with_ipc_handler(move |msg: wry::http::Request<String>| {
                 let body = msg.body();
                 if body.starts_with("submit:") {
@@ -779,6 +950,22 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
                             crate::overlay::recording::show_recording_overlay(preset_idx);
                         });
                     }
+                } else if body == "drag_window" {
+                    let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
+                    if hwnd_val != 0 {
+                        unsafe {
+                            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+                            let _ = ReleaseCapture();
+                            let _ = SendMessageW(
+                                hwnd,
+                                WM_NCLBUTTONDOWN,
+                                Some(WPARAM(HTCAPTION as usize)),
+                                Some(LPARAM(0)),
+                            );
+                        }
+                    }
+                } else if body == "close_window" {
+                    cancel_input();
                 }
             })
             .build_as_child(&wrapper)
@@ -803,62 +990,142 @@ unsafe extern "system" fn input_wnd_proc(
 
     match msg {
         WM_APP_SHOW => {
-            // Reset state
-            FADE_ALPHA = 0;
-
-            // Reset history navigation when showing
+            // Restore History Navigation State
             crate::overlay::input_history::reset_history_navigation();
 
-            // Get current config
-            let prompt_guide = CFG_TITLE.lock().unwrap().clone();
-            let ui_language = CFG_LANG.lock().unwrap().clone();
+            // 1. Position Logic - Center on the monitor where the cursor is
+            let mut cursor = POINT::default();
+            unsafe {
+                let _ = GetCursorPos(&mut cursor);
+                let hmonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+                let mut mi = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                let _ = GetMonitorInfoW(hmonitor, &mut mi);
 
-            // Update window title
-            let _ = SetWindowTextW(hwnd, &HSTRING::from(prompt_guide));
+                let mut rect = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut rect);
+                let w = rect.right - rect.left;
+                let h = rect.bottom - rect.top;
 
-            // Update webview placeholder and clear text (but NOT focus yet - window not visible)
-            let locale = LocaleText::get(&ui_language);
-            let placeholder = locale.text_input_placeholder.to_string();
-            TEXT_INPUT_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                     let script = format!(
-                         "document.getElementById('editor').placeholder = '{}'; document.getElementById('editor').value = '';",
-                         placeholder.replace("'", "\\'")
-                     );
-                     let _ = webview.evaluate_script(&script);
+                let monitor_w = mi.rcWork.right - mi.rcWork.left;
+                let monitor_h = mi.rcWork.bottom - mi.rcWork.top;
+
+                let x = mi.rcWork.left + (monitor_w - w) / 2;
+                let y = mi.rcWork.top + (monitor_h - h) / 2;
+
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOP),
+                    x,
+                    y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
+            }
+
+            // 2. Focus - Force window to foreground
+            let _ = SetForegroundWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
+            // Force Webview focus immediately
+            TEXT_INPUT_WEBVIEW.with(|webview| {
+                if let Some(wv) = webview.borrow().as_ref() {
+                    let _ = wv.focus();
                 }
             });
 
-            // RE-CENTER WINDOW
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
-            let mut rect = RECT::default();
-            let _ = GetWindowRect(hwnd, &mut rect);
-            let w = rect.right - rect.left;
-            let h = rect.bottom - rect.top;
-            let x = (screen_w - w) / 2;
-            let y = (screen_h - h) / 2;
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND::default()),
-                x,
-                y,
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOZORDER,
+            // 3. Dynamic Update (Theme + Locales)
+            let is_dark = if let Ok(app) = crate::APP.lock() {
+                match app.config.theme_mode {
+                    crate::config::ThemeMode::Dark => true,
+                    crate::config::ThemeMode::Light => false,
+                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+                }
+            } else {
+                true
+            };
+
+            // Re-fetch locales to ensure they are current
+            let (title, submit, newline, cancel, cancel_hint, placeholder) = {
+                let lang = crate::overlay::text_input::CFG_LANG.lock().unwrap().clone();
+                let locale = crate::gui::locale::LocaleText::get(&lang);
+                let t = crate::overlay::text_input::CFG_TITLE
+                    .lock()
+                    .unwrap()
+                    .clone();
+                let title = if t.is_empty() {
+                    "Text Input".to_string()
+                } else {
+                    t
+                };
+                let hotkey = crate::overlay::text_input::CFG_CANCEL.lock().unwrap();
+                let ch = if hotkey.is_empty() {
+                    "Esc".to_string()
+                } else {
+                    format!("Esc / {}", hotkey)
+                };
+                (
+                    title,
+                    locale.text_input_footer_submit.to_string(),
+                    locale.text_input_footer_newline.to_string(),
+                    locale.text_input_footer_cancel.to_string(),
+                    ch,
+                    locale.text_input_placeholder.to_string(),
+                )
+            };
+
+            // Update window title
+            let _ = SetWindowTextW(hwnd, &HSTRING::from(&title));
+
+            let css = get_editor_css(is_dark);
+            let css_escaped = css.replace("`", "\\`");
+
+            // Construct footer HTML
+            let footer_html = format!("{}  |  {}  |  {} {}", submit, newline, cancel_hint, cancel);
+            let placeholder_escaped = placeholder.replace("'", "\\'"); // rudimentary escape
+
+            let script = format!(
+                r#"
+                if (document.getElementById('theme-style')) {{
+                   document.getElementById('theme-style').innerHTML = `{}`;
+                }}
+                if (document.getElementById('headerTitle')) {{
+                   document.getElementById('headerTitle').innerText = `{}`;
+                }}
+                if (document.getElementById('footerRegion')) {{
+                   document.getElementById('footerRegion').innerHTML = `{}`;
+                }}
+                if (document.getElementById('editor')) {{
+                   document.getElementById('editor').placeholder = '{}';
+                }}
+                document.documentElement.setAttribute('data-theme', '{}');
+                // Force focus on editor 
+                setTimeout(() => {{
+                    const el = document.getElementById('editor');
+                    if (el) {{
+                        el.focus();     
+                        el.select(); 
+                        el.selectionStart = el.selectionEnd = el.value.length; 
+                    }}
+                }}, 10);
+                "#,
+                css_escaped,
+                title,
+                footer_html,
+                placeholder_escaped,
+                if is_dark { "dark" } else { "light" }
             );
 
-            // Reset alpha to 0 before show
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
+            TEXT_INPUT_WEBVIEW.with(|webview| {
+                if let Some(wv) = webview.borrow().as_ref() {
+                    let _ = wv.evaluate_script(&script);
+                }
+            });
 
-            // Show and bring to front
-            let _ = ShowWindow(hwnd, SW_SHOW);
-            let _ = SetForegroundWindow(hwnd);
-            let _ = SetFocus(Some(hwnd)); // CRITICAL: Set keyboard focus to window
-            let _ = UpdateWindow(hwnd);
-
-            // Start Fade Timer
-            SetTimer(Some(hwnd), 1, 16, None);
+            // Reset state
+            FADE_ALPHA = 0;
 
             // IPC check timer
             SetTimer(Some(hwnd), 2, 50, None);
@@ -898,31 +1165,8 @@ unsafe extern "system" fn input_wnd_proc(
 
         WM_TIMER => {
             if wparam.0 == 1 {
-                // Fade In Logic
-                if FADE_ALPHA < 245 {
-                    FADE_ALPHA += 25;
-                    if FADE_ALPHA > 245 {
-                        FADE_ALPHA = 245;
-                    }
-                    let _ =
-                        SetLayeredWindowAttributes(hwnd, COLORREF(0), FADE_ALPHA as u8, LWA_ALPHA);
-                } else {
-                    let _ = KillTimer(Some(hwnd), 1);
-
-                    // CRITICAL: Focus the editor AFTER fade completes (window fully visible)
-                    // WebView2 won't accept focus properly if window is transparent
-                    let _ = SetForegroundWindow(hwnd);
-                    let _ = SetFocus(Some(hwnd));
-                    TEXT_INPUT_WEBVIEW.with(|webview| {
-                        if let Some(wv) = webview.borrow().as_ref() {
-                            // First focus the WebView itself (native focus)
-                            let _ = wv.focus();
-                            // Then focus the textarea inside via JavaScript
-                            let _ =
-                                wv.evaluate_script("document.getElementById('editor').focus();");
-                        }
-                    });
-                }
+                // Fade Timer Logic removed
+                let _ = KillTimer(Some(hwnd), 1);
             }
 
             if wparam.0 == 2 {
@@ -939,6 +1183,7 @@ unsafe extern "system" fn input_wnd_proc(
                                 cb(text, hwnd);
                             }
                             clear_editor_text();
+                            refocus_editor();
                         } else {
                             let _ = ShowWindow(hwnd, SW_HIDE);
                             let cb_lock = CFG_CALLBACK.lock().unwrap();
@@ -999,186 +1244,28 @@ unsafe extern "system" fn input_wnd_proc(
             LRESULT(0)
         }
 
-        WM_PAINT => {
-            let mut ps = PAINTSTRUCT::default();
-            let hdc = BeginPaint(hwnd, &mut ps);
+        WM_SIZE => {
+            // Resize WebView to match the new client area
             let mut rect = RECT::default();
             let _ = GetClientRect(hwnd, &mut rect);
-            let w = rect.right;
-            let h = rect.bottom;
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
 
-            let mem_dc = CreateCompatibleDC(Some(hdc));
-            let mem_bmp = CreateCompatibleBitmap(hdc, w, h);
-            let old_bmp = SelectObject(mem_dc, mem_bmp.into());
-
-            // 1. Draw Background (Dark)
-            let brush_bg = CreateSolidBrush(COLORREF(COL_DARK_BG));
-            FillRect(mem_dc, &rect, brush_bg);
-            let _ = DeleteObject(brush_bg.into());
-
-            // 2. Draw white rounded rectangle
-            let edit_x = 20;
-            let edit_y = 50;
-            let edit_w = w - 40;
-            let edit_h = h - 90;
-            let corner_radius = 12.0f32;
-            let fill_color: u32 = 0xF0F0F0;
-
-            let cx = (edit_w as f32) / 2.0;
-            let cy = (edit_h as f32) / 2.0;
-            let half_w = cx;
-            let half_h = cy;
-
-            for py_local in 0..edit_h {
-                for px_local in 0..edit_w {
-                    let px_screen = edit_x + px_local;
-                    let py_screen = edit_y + py_local;
-                    let px_rel = (px_local as f32) - cx;
-                    let py_rel = (py_local as f32) - cy;
-                    let d = crate::overlay::paint_utils::sd_rounded_box(
-                        px_rel,
-                        py_rel,
-                        half_w,
-                        half_h,
-                        corner_radius,
-                    );
-
-                    if d < -1.0 {
-                        SetPixel(mem_dc, px_screen, py_screen, COLORREF(fill_color));
-                    } else if d < 1.0 {
-                        let t = (d + 1.0) / 2.0;
-                        let alpha = 1.0 - t * t * (3.0 - 2.0 * t);
-                        if alpha > 0.01 {
-                            let bg_r = ((COL_DARK_BG >> 16) & 0xFF) as f32;
-                            let bg_g = ((COL_DARK_BG >> 8) & 0xFF) as f32;
-                            let bg_b = (COL_DARK_BG & 0xFF) as f32;
-                            let fg_r = ((fill_color >> 16) & 0xFF) as f32;
-                            let fg_g = ((fill_color >> 8) & 0xFF) as f32;
-                            let fg_b = (fill_color & 0xFF) as f32;
-                            let r = (fg_r * alpha + bg_r * (1.0 - alpha)) as u32;
-                            let g = (fg_g * alpha + bg_g * (1.0 - alpha)) as u32;
-                            let b = (fg_b * alpha + bg_b * (1.0 - alpha)) as u32;
-                            SetPixel(
-                                mem_dc,
-                                px_screen,
-                                py_screen,
-                                COLORREF((r << 16) | (g << 8) | b),
-                            );
-                        }
+            if width > 0 && height > 0 {
+                TEXT_INPUT_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let _ = webview.set_bounds(Rect {
+                            position: wry::dpi::Position::Physical(
+                                wry::dpi::PhysicalPosition::new(0, 0),
+                            ),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                width as u32,
+                                height as u32,
+                            )),
+                        });
                     }
-                }
+                });
             }
-
-            // 3. Draw Text Labels
-            SetBkMode(mem_dc, TRANSPARENT);
-            SetTextColor(mem_dc, COLORREF(0x00FFFFFF));
-
-            let h_font = CreateFontW(
-                19,
-                0,
-                0,
-                0,
-                FW_SEMIBOLD.0 as i32,
-                0,
-                0,
-                0,
-                FONT_CHARSET(DEFAULT_CHARSET.0 as u8),
-                FONT_OUTPUT_PRECISION(OUT_DEFAULT_PRECIS.0 as u8),
-                FONT_CLIP_PRECISION(CLIP_DEFAULT_PRECIS.0 as u8),
-                FONT_QUALITY(CLEARTYPE_QUALITY.0 as u8),
-                std::mem::transmute((VARIABLE_PITCH.0 | FF_SWISS.0) as u32),
-                w!("Segoe UI"),
-            );
-            let old_font = SelectObject(mem_dc, h_font.into());
-
-            // USE NEW MUTEX CONFIG
-            let title_str = CFG_TITLE.lock().unwrap().clone();
-            let cur_lang = CFG_LANG.lock().unwrap().clone();
-            let cur_cancel = CFG_CANCEL.lock().unwrap().clone();
-
-            let locale = LocaleText::get(&cur_lang);
-            let display_title = if !title_str.is_empty() {
-                title_str
-            } else {
-                locale.text_input_title_default.to_string()
-            };
-            let mut title_w = crate::overlay::utils::to_wstring(&display_title);
-            let mut r_title = RECT {
-                left: 20,
-                top: 15,
-                right: w - 50,
-                bottom: 45,
-            };
-            DrawTextW(
-                mem_dc,
-                &mut title_w,
-                &mut r_title,
-                DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS,
-            );
-
-            let h_font_small = CreateFontW(
-                13,
-                0,
-                0,
-                0,
-                FW_NORMAL.0 as i32,
-                0,
-                0,
-                0,
-                FONT_CHARSET(DEFAULT_CHARSET.0 as u8),
-                FONT_OUTPUT_PRECISION(OUT_DEFAULT_PRECIS.0 as u8),
-                FONT_CLIP_PRECISION(CLIP_DEFAULT_PRECIS.0 as u8),
-                FONT_QUALITY(CLEARTYPE_QUALITY.0 as u8),
-                std::mem::transmute((VARIABLE_PITCH.0 | FF_SWISS.0) as u32),
-                w!("Segoe UI"),
-            );
-            SelectObject(mem_dc, h_font_small.into());
-            SetTextColor(mem_dc, COLORREF(0x00AAAAAA));
-
-            let esc_text = if cur_cancel.is_empty() {
-                "Esc".to_string()
-            } else {
-                format!("Esc / {}", cur_cancel)
-            };
-            let hint = format!(
-                "{}  |  {}  |  {} {}",
-                locale.text_input_footer_submit,
-                locale.text_input_footer_newline,
-                esc_text,
-                locale.text_input_footer_cancel
-            );
-            let mut hint_w = crate::overlay::utils::to_wstring(&hint);
-            let mut r_hint = RECT {
-                left: 20,
-                top: h - 30,
-                right: w - 20,
-                bottom: h - 5,
-            };
-            DrawTextW(mem_dc, &mut hint_w, &mut r_hint, DT_CENTER | DT_SINGLELINE);
-
-            SelectObject(mem_dc, old_font);
-            let _ = DeleteObject(h_font.into());
-            let _ = DeleteObject(h_font_small.into());
-
-            // 4. Draw Close Button 'X'
-            let c_cx = w - 30;
-            let c_cy = 20;
-            let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00AAAAAA));
-            let old_pen = SelectObject(mem_dc, pen.into());
-            let _ = MoveToEx(mem_dc, c_cx - 5, c_cy - 5, None);
-            let _ = LineTo(mem_dc, c_cx + 5, c_cy + 5);
-            let _ = MoveToEx(mem_dc, c_cx + 5, c_cy - 5, None);
-            let _ = LineTo(mem_dc, c_cx - 5, c_cy + 5);
-            SelectObject(mem_dc, old_pen);
-            let _ = DeleteObject(pen.into());
-
-            // Final Blit
-            let _ = BitBlt(hdc, 0, 0, w, h, Some(mem_dc), 0, 0, SRCCOPY);
-            SelectObject(mem_dc, old_bmp);
-            let _ = DeleteObject(mem_bmp.into());
-            let _ = DeleteDC(mem_dc);
-
-            let _ = EndPaint(hwnd, &mut ps);
             LRESULT(0)
         }
 

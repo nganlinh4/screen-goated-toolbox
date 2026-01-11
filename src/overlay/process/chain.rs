@@ -12,6 +12,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use windows::Win32::Foundation::*;
+use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::types::{generate_chain_id, get_next_window_position_for_chain};
@@ -61,6 +62,7 @@ pub fn execute_chain_pipeline(
             preset_id,
             false,    // disable_auto_paste
             chain_id, // Per-chain position tracking
+            None,     // No input refocus
         );
     });
 
@@ -88,6 +90,7 @@ pub fn execute_chain_pipeline_with_token(
     preset: Preset,
     context: RefineContext,
     cancel_token: Arc<AtomicBool>,
+    input_hwnd_refocus: Option<SendHwnd>,
 ) {
     // For text presets: NO processing window (gradient glow).
     // The result window itself shows the refining animation.
@@ -113,6 +116,7 @@ pub fn execute_chain_pipeline_with_token(
         preset.id.clone(),
         false,    // disable_auto_paste
         chain_id, // Per-chain position tracking
+        input_hwnd_refocus,
     );
 }
 
@@ -132,6 +136,7 @@ pub fn run_chain_step(
     preset_id: String,
     disable_auto_paste: bool,
     chain_id: String, // Per-chain position tracking - windows in same chain use snake placement
+    input_hwnd_refocus: Option<SendHwnd>,
 ) {
     // Check if cancelled before starting
     if cancel_token.load(Ordering::Relaxed) {
@@ -675,6 +680,7 @@ progressBar.onclick = (e) => {{
         let initial_content_clone = initial_content.clone();
 
         let cancel_token_thread = cancel_token.clone();
+        let input_hwnd_refocus_thread = input_hwnd_refocus.clone();
         std::thread::spawn(move || {
             // NOTE: wry handles COM internally, explicit initialization may interfere
 
@@ -712,7 +718,14 @@ progressBar.onclick = (e) => {{
             // For text blocks: show immediately with refining animation
             if !is_image_block {
                 unsafe {
-                    let _ = ShowWindow(hwnd, SW_SHOW);
+                    // Use SW_SHOWNA (Show No Activate) to prevent stealing focus from text input
+                    let _ = ShowWindow(hwnd, SW_SHOWNA);
+
+                    // FORCE REFOCUS: If we have a validation to refocus the input window (continuous mode), do it now!
+                    if let Some(h_input) = input_hwnd_refocus_thread {
+                        let _ = SetForegroundWindow(h_input.0);
+                        let _ = SetFocus(Some(h_input.0));
+                    }
                 }
             }
             let _ = tx_hwnd.send(SendHwnd(hwnd));
@@ -1423,6 +1436,7 @@ progressBar.onclick = (e) => {{
                     preset_id_clone,
                     disable_auto_paste, // Propagate the flag
                     chain_id_clone,     // Same chain ID for all branches
+                    None, // Only Refocus on main branch or pass it down? Pass None for now in parallel branches
                 );
             });
         }
@@ -1443,6 +1457,7 @@ progressBar.onclick = (e) => {{
             preset_id,
             disable_auto_paste, // Propagate the flag
             chain_id,           // Same chain ID through the chain
+            input_hwnd_refocus, // Propagate the refocus target
         );
     } else {
         // Chain stopped unexpectedly (empty result or error)

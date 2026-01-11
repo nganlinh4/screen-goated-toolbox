@@ -150,13 +150,50 @@ fn apply_history_text() {
 
 /// CSS for the compact refine input
 const REFINE_CSS: &str = r#"
+    :root {
+        /* Dark Mode (Default) */
+        --bg-grad-start: #333;
+        --bg-grad-end: #2a2a2a;
+        --border-bottom: #444;
+        --editor-bg: #1a1a1a;
+        --text-color: #fff;
+        --placeholder-color: #888;
+        --mic-border: rgba(0, 200, 255, 0.3);
+        --mic-bg: rgba(30, 30, 30, 0.9);
+        --mic-hover-bg: rgba(0, 200, 255, 0.15);
+        --mic-fill: #00c8ff;
+        --send-border: rgba(79, 195, 247, 0.3);
+        --send-bg: rgba(30, 30, 30, 0.9);
+        --send-hover-bg: rgba(79, 195, 247, 0.15);
+        --send-fill: #4fc3f7;
+        --hint-color: #888;
+    }
+    
+    :root[data-theme="light"] {
+        --bg-grad-start: #ffffff;
+        --bg-grad-end: #f0f0f0;
+        --border-bottom: #ddd;
+        --editor-bg: #ffffff;
+        --text-color: #333;
+        --placeholder-color: #999;
+        --mic-border: rgba(0, 136, 209, 0.3);
+        --mic-bg: rgba(255, 255, 255, 0.9);
+        --mic-hover-bg: rgba(0, 136, 209, 0.1);
+        --mic-fill: #0288d1;
+        --send-border: rgba(3, 155, 229, 0.3);
+        --send-bg: rgba(255, 255, 255, 0.9);
+        --send-hover-bg: rgba(3, 155, 229, 0.1);
+        --send-fill: #039be5;
+        --hint-color: #999;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     
     html, body {
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: #2a2a2a;
+        background: transparent;
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
@@ -166,8 +203,8 @@ const REFINE_CSS: &str = r#"
         display: flex;
         align-items: center;
         padding: 0 10px;
-        background: linear-gradient(180deg, #333 0%, #2a2a2a 100%);
-        border-bottom: 1px solid #444;
+        background: linear-gradient(180deg, var(--bg-grad-start) 0%, var(--bg-grad-end) 100%);
+        border-bottom: 1px solid var(--border-bottom);
     }
     
     #editor {
@@ -175,33 +212,35 @@ const REFINE_CSS: &str = r#"
         height: 28px;
         min-width: 30px;
         padding: 4px 10px;
-        border: none;
+        border: 1px solid transparent;
         outline: none;
         border-radius: 6px;
         font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
         font-size: 13px;
-        color: #fff;
-        background: #1a1a1a;
+        color: var(--text-color);
+        background: var(--editor-bg);
+        transition: box-shadow 0.1s ease, border-color 0.1s ease;
     }
     
     #editor::placeholder {
-        color: #888;
+        color: var(--placeholder-color);
     }
     
     #editor:focus {
         outline: none;
-        box-shadow: 0 0 0 1px #4fc3f7;
+        border-color: var(--send-fill);
+        box-shadow: 0 0 0 1px var(--send-fill);
     }
     
-    /* Mic Button - Solid cyan aesthetic */
+    /* Mic Button */
     .mic-btn {
         width: 28px;
         height: 28px;
         aspect-ratio: 1;
         border-radius: 50%;
-        border: 1px solid rgba(0, 200, 255, 0.3);
+        border: 1px solid var(--mic-border);
         margin-left: 8px;
-        background: rgba(30, 30, 30, 0.9);
+        background: var(--mic-bg);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -211,9 +250,9 @@ const REFINE_CSS: &str = r#"
     }
     
     .mic-btn:hover {
-        background: rgba(0, 200, 255, 0.15);
-        border-color: #00c8ff;
-        box-shadow: 0 0 8px rgba(0, 200, 255, 0.4);
+        background: var(--mic-hover-bg);
+        border-color: var(--mic-fill);
+        box-shadow: 0 0 8px var(--mic-hover-bg);
     }
     
     .mic-btn:active {
@@ -223,18 +262,18 @@ const REFINE_CSS: &str = r#"
     .mic-btn svg {
         width: 14px;
         height: 14px;
-        fill: #00c8ff;
+        fill: var(--mic-fill);
     }
     
-    /* Send Button - Solid teal aesthetic */
+    /* Send Button */
     .send-btn {
         width: 28px;
         height: 28px;
         aspect-ratio: 1;
         border-radius: 50%;
-        border: 1px solid rgba(79, 195, 247, 0.3);
+        border: 1px solid var(--send-border);
         margin-left: 6px;
-        background: rgba(30, 30, 30, 0.9);
+        background: var(--send-bg);
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -244,9 +283,9 @@ const REFINE_CSS: &str = r#"
     }
     
     .send-btn:hover {
-        background: rgba(79, 195, 247, 0.15);
-        border-color: #4fc3f7;
-        box-shadow: 0 0 8px rgba(79, 195, 247, 0.4);
+        background: var(--send-hover-bg);
+        border-color: var(--send-fill);
+        box-shadow: 0 0 8px var(--send-hover-bg);
     }
     
     .send-btn:active {
@@ -256,24 +295,25 @@ const REFINE_CSS: &str = r#"
     .send-btn svg {
         width: 14px;
         height: 14px;
-        fill: #4fc3f7;
+        fill: var(--send-fill);
     }
     
     .hint {
         font-size: 11px;
-        color: #888;
+        color: var(--hint-color);
         margin-left: 10px;
         white-space: nowrap;
     }
 "#;
 
 /// Generate HTML for the refine input
-fn get_refine_html(placeholder: &str) -> String {
+fn get_refine_html(placeholder: &str, is_dark: bool) -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
     let escaped = placeholder.replace('\'', "\\'");
+    let theme_attr = if is_dark { "" } else { "data-theme=\"light\"" };
     format!(
         r#"<!DOCTYPE html>
-<html>
+<html {}>
 <head>
     <meta charset="UTF-8">
     <style>{}{}</style>
@@ -345,10 +385,18 @@ fn get_refine_html(placeholder: &str) -> String {
         }});
         
         document.addEventListener('contextmenu', e => e.preventDefault());
+
+        window.updateTheme = (isDark) => {{
+            if (isDark) {{
+                document.documentElement.removeAttribute('data-theme');
+            }} else {{
+                document.documentElement.setAttribute('data-theme', 'light');
+            }}
+        }};
     </script>
 </body>
 </html>"#,
-        font_css, REFINE_CSS, escaped
+        theme_attr, font_css, REFINE_CSS, escaped
     )
 }
 
@@ -360,9 +408,25 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
     // Check if already exists
     let exists = REFINE_WEBVIEWS.with(|webviews| webviews.borrow().contains_key(&parent_key));
 
+    let is_dark = if let Ok(app) = crate::APP.lock() {
+        match app.config.theme_mode {
+            crate::config::ThemeMode::Dark => true,
+            crate::config::ThemeMode::Light => false,
+            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+        }
+    } else {
+        true
+    };
+
     if exists {
-        // Just focus existing
+        // Just focus existing and update theme
         focus_refine_input(parent_hwnd);
+        REFINE_WEBVIEWS.with(|webviews| {
+            if let Some(wv) = webviews.borrow().get(&parent_key) {
+                let script = format!("if(window.updateTheme) window.updateTheme({});", is_dark);
+                let _ = wv.evaluate_script(&script);
+            }
+        });
         return true;
     }
 
@@ -408,7 +472,7 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
         }
 
         // Create WebView inside the child window
-        let html = get_refine_html(placeholder);
+        let html = get_refine_html(placeholder, is_dark);
         let child_hwnd = child_hwnd.unwrap();
         let wrapper = HwndWrapper(child_hwnd);
 

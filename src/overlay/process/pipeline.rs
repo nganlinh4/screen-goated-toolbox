@@ -163,17 +163,38 @@ pub fn start_text_processing(
                     }
                 }
 
-                // Calculate overlay position:
-                // - Normal mode: use screen_rect (center of screen or original location)
-                // - Continuous mode: spawn below the input window
                 let overlay_rect = if is_continuous {
                     if let Some(input_rect) = text_input::get_window_rect() {
-                        // Position below the input window with a small gap
-                        RECT {
-                            left: input_rect.left,
+                        // Calculate Ideal "Under Input" Position
+                        // 1. Height: 280px (Reasonable bubble size)
+                        // 2. Width: 90% of input window
+                        // 3. Position: Centered below input window
+                        let input_w = input_rect.right - input_rect.left;
+                        let shrink_total = input_w / 10;
+                        let new_w = input_w - shrink_total;
+                        let center_x = input_rect.left + (input_w / 2);
+                        let left = center_x - (new_w / 2);
+
+                        let ideal_rect = RECT {
+                            left,
                             top: input_rect.bottom + 10, // 10px gap below input window
-                            right: input_rect.right,
-                            bottom: input_rect.bottom + 10 + (screen_rect.bottom - screen_rect.top),
+                            right: left + new_w,
+                            bottom: input_rect.bottom + 10 + 280,
+                        };
+
+                        // Smart Placement Logic:
+                        // 1. Try the ideal "Under Input" spot first.
+                        // 2. If occupied, ask layout engine for the next best spot relative to it.
+                        //    - This ensures Result 1 goes under input.
+                        //    - Result 2 detects Result 1 is there, and goes Right (standard snake).
+                        if crate::overlay::result::layout::is_rect_occupied(&ideal_rect) {
+                            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
+                            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+                            crate::overlay::result::layout::calculate_next_window_rect(
+                                ideal_rect, screen_w, screen_h,
+                            )
+                        } else {
+                            ideal_rect
                         }
                     } else {
                         screen_rect
@@ -187,6 +208,7 @@ pub fn start_text_processing(
                 let preset_clone = final_preset;
                 let last_token_update = last_cancel_token_clone.clone();
 
+                let input_hwnd_send = SendHwnd(input_hwnd);
                 std::thread::spawn(move || {
                     // Create a new cancellation token for this chain
                     let new_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -204,6 +226,7 @@ pub fn start_text_processing(
                         preset_clone,
                         RefineContext::None,
                         new_token,
+                        Some(input_hwnd_send),
                     );
                 });
             },
@@ -314,6 +337,7 @@ pub fn show_audio_result(
         // Check if we should disable auto-paste (e.g. for Gemini Live real-time typing)
         is_streaming_result,
         chain_id, // Per-chain position tracking
+        None,     // No input refocus for audio results
     );
 }
 
@@ -411,8 +435,9 @@ pub fn start_processing_pipeline(
                         Some(processing_hwnd_send),
                         Arc::new(AtomicBool::new(false)),
                         preset_id,
-                        false, // disable_auto_paste
+                        false,    // disable_auto_paste
                         chain_id, // Per-chain position tracking
+                        None,     // No input refocus
                     );
                 });
 
@@ -476,8 +501,9 @@ pub fn start_processing_pipeline(
             Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
             Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
             preset_id,
-            false, // disable_auto_paste
+            false,    // disable_auto_paste
             chain_id, // Per-chain position tracking
+            None,     // No input refocus
         );
     });
 
@@ -550,8 +576,9 @@ pub fn start_processing_pipeline_parallel(
                 Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
                 Arc::new(AtomicBool::new(false)),
                 preset_id,
-                false, // disable_auto_paste
+                false,    // disable_auto_paste
                 chain_id, // Per-chain position tracking
+                None,     // No input refocus
             );
         } else {
             // Load failed or cancelled -> Close window immediately
