@@ -2,6 +2,9 @@ use crate::win_types::SendHwnd;
 use image::{ImageBuffer, Rgba};
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::config::{Config, Preset};
@@ -188,10 +191,28 @@ pub fn start_text_processing(
                         //    - This ensures Result 1 goes under input.
                         //    - Result 2 detects Result 1 is there, and goes Right (standard snake).
                         if crate::overlay::result::layout::is_rect_occupied(&ideal_rect) {
-                            let screen_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-                            let screen_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
+                            // Multi-monitor aware monitor detection
+                            let monitor_rect = unsafe {
+                                let h_monitor =
+                                    MonitorFromRect(&input_rect, MONITOR_DEFAULTTONEAREST);
+                                let mut mi = MONITORINFO::default();
+                                mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                                if GetMonitorInfoW(h_monitor, &mut mi).as_bool() {
+                                    mi.rcMonitor
+                                } else {
+                                    // Fallback to primary screen metrics if monitor detection fails
+                                    RECT {
+                                        left: 0,
+                                        top: 0,
+                                        right: GetSystemMetrics(SM_CXSCREEN),
+                                        bottom: GetSystemMetrics(SM_CYSCREEN),
+                                    }
+                                }
+                            };
+
                             crate::overlay::result::layout::calculate_next_window_rect(
-                                ideal_rect, screen_w, screen_h,
+                                ideal_rect,
+                                monitor_rect,
                             )
                         } else {
                             ideal_rect

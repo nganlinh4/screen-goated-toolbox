@@ -1,9 +1,9 @@
+use crate::overlay::result::layout::calculate_next_window_rect;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use crate::overlay::result::layout::calculate_next_window_rect;
 
 pub const MAX_GLOW_BUFFER_DIM: i32 = 1280;
 
@@ -36,10 +36,12 @@ impl ProcessingState {
             graphics_mode,
         }
     }
-    
+
     pub fn cleanup(&mut self) {
         if !self.cache_hbm.is_invalid() {
-            unsafe { let _ = DeleteObject(self.cache_hbm.into()); }
+            unsafe {
+                let _ = DeleteObject(self.cache_hbm.into());
+            }
             self.cache_hbm = HBITMAP::default();
             self.cache_bits = std::ptr::null_mut();
         }
@@ -54,17 +56,17 @@ lazy_static::lazy_static! {
 
 /// Generate a new unique chain ID for a processing chain
 pub fn generate_chain_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
     use std::sync::atomic::{AtomicU64, Ordering};
-    
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos() as u64;
     let count = COUNTER.fetch_add(1, Ordering::Relaxed);
-    
+
     format!("chain-{}-{}", timestamp, count)
 }
 
@@ -73,10 +75,23 @@ pub fn generate_chain_id() -> String {
 /// Different chains (different chain_id) are completely independent
 pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) -> RECT {
     let mut positions = CHAIN_WINDOW_POSITIONS.lock().unwrap();
-    
-    let s_w = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-    let s_h = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-    
+
+    let monitor_rect = unsafe {
+        let h_monitor = MonitorFromRect(&initial_rect, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO::default();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(h_monitor, &mut mi).as_bool() {
+            mi.rcMonitor
+        } else {
+            RECT {
+                left: 0,
+                top: 0,
+                right: GetSystemMetrics(SM_CXSCREEN),
+                bottom: GetSystemMetrics(SM_CYSCREEN),
+            }
+        }
+    };
+
     let next_rect = match positions.get(chain_id) {
         None => {
             // First window in this chain: use initial rect
@@ -84,12 +99,12 @@ pub fn get_next_window_position_for_chain(chain_id: &str, initial_rect: RECT) ->
         }
         Some(&prev) => {
             // Subsequent windows in this chain: use snake algorithm from last position
-            calculate_next_window_rect(prev, s_w, s_h)
+            calculate_next_window_rect(prev, monitor_rect)
         }
     };
-    
+
     // Update last position for this chain
     positions.insert(chain_id.to_string(), next_rect);
-    
+
     next_rect
 }
