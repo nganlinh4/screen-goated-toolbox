@@ -22,7 +22,6 @@ static INPUT_HWND: AtomicIsize = AtomicIsize::new(0);
 static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
 static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 static IS_SHOWING: AtomicBool = AtomicBool::new(false);
-static LAST_THEME_IS_DARK: AtomicBool = AtomicBool::new(true); // Track last applied theme
 
 // COL_DARK_BG removed
 
@@ -136,15 +135,22 @@ fn get_editor_css(is_dark: bool) -> String {
         r#"
     {vars}
 
-    * {{ box-sizing: border-box; margin: 0; padding: 0; user-select: none; }}
-    
     html, body {{
         width: 100%;
         height: 100%;
         overflow: hidden;
         background: transparent;
-        padding: 20px; /* Space for box-shadow to prevent clipping */
-        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        padding: 10px; /* Reduced to fit calc(100% - 20px) better */
+        font-family: 'Google Sans Flex', sans-serif;
+        font-variation-settings: 'ROND' 100;
+    }}
+    
+    * {{ 
+        box-sizing: border-box; 
+        margin: 0; 
+        padding: 0; 
+        user-select: none; 
+        font-variation-settings: 'ROND' 100; 
     }}
     
     *::-webkit-scrollbar {{
@@ -165,14 +171,15 @@ fn get_editor_css(is_dark: bool) -> String {
     }}
     
     .editor-container {{
-        width: 100%;
-        height: 100%;
+        width: calc(100% - 20px);
+        height: calc(100% - 20px);
+        margin: 10px;
         display: flex;
         flex-direction: column;
         overflow: hidden;
         background: var(--bg-color);
         position: relative;
-        border-radius: 16px;
+        border-radius: 20px;
         border: var(--container-border);
         box-shadow: var(--container-shadow);
         transition: background 0.2s, border-color 0.2s;
@@ -191,27 +198,47 @@ fn get_editor_css(is_dark: bool) -> String {
     
     .header-title {{
         flex: 1;
-        font-size: 13px;
-        font-weight: 600;
+        font-size: 14px;
+        font-weight: 800;
+        text-transform: uppercase;
+        font-stretch: 151%;
+        letter-spacing: 0.15em;
+        line-height: 24px;
+        padding-top: 4px; /* Visual centering */
         color: var(--header-text);
-        padding-left: 4px;
+        padding-left: 14px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        font-family: 'Google Sans Flex', sans-serif;
     }}
     
     .close-btn {{
-        width: 24px;
-        height: 24px;
+        width: 32px;
+        height: 32px;
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 4px;
+        border-radius: 50%;
         cursor: pointer;
         color: var(--header-text);
-        font-size: 16px;
         transition: background 0.1s;
+        margin-right: 6px;
     }}
+
+    .close-btn svg {{
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+    }}
+    
+    .mic-btn svg, .send-btn svg {{
+        width: 22px;
+        height: 22px;
+    }}
+    
+    .mic-btn svg {{ fill: var(--mic-fill); }}
+    .send-btn svg {{ fill: var(--send-fill); }}
     
     .close-btn:hover {{
         background: var(--close-hover-bg);
@@ -222,13 +249,13 @@ fn get_editor_css(is_dark: bool) -> String {
         width: 100%;
         margin: 0px 8px;
         background: var(--input-bg);
-        border-radius: 12px;
+        border-radius: 22px; /* Ultra rounded pill look */
         padding: 12px 14px;
-        padding-right: 90px; /* Space for mic + send buttons to prevent overlap */
+        padding-right: 68px; /* Space for mic + send buttons to prevent overlap */
         border: var(--input-border);
         outline: none;
         resize: none;
-        font-family: 'Google Sans Flex', 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Google Sans Flex', sans-serif;
         font-size: 15px;
         line-height: 1.55;
         color: var(--text-color);
@@ -252,6 +279,7 @@ fn get_editor_css(is_dark: bool) -> String {
         justify-content: center;
         font-size: 11px;
         color: var(--footer-text);
+        font-variation-settings: 'ROND' 100, 'slnt' -10;
         cursor: default;
     }}
 
@@ -260,7 +288,7 @@ fn get_editor_css(is_dark: bool) -> String {
     .btn-container {{
         position: absolute;
         bottom: 40px; /* Above footer */
-        right: 15px;
+        right: 20px;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -346,7 +374,9 @@ fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
     let title_text = {
         let t = crate::overlay::text_input::CFG_TITLE.lock().unwrap();
         if t.is_empty() {
-            "Text Input".to_string()
+            let lang = crate::overlay::text_input::CFG_LANG.lock().unwrap().clone();
+            let locale = crate::gui::locale::LocaleText::get(&lang);
+            locale.text_input_placeholder.to_string()
         } else {
             t.clone()
         }
@@ -354,7 +384,7 @@ fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
 
     format!(
         r#"<!DOCTYPE html>
-<html {}>
+<html {theme_attr}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -364,40 +394,42 @@ fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
 <body>
     <div class="editor-container">
         <div class="header" id="headerRegion">
-            <span class="header-title" id="headerTitle">{}</span>
-            <div class="close-btn" id="closeBtn" title="Close">×</div>
+            <span class="header-title" id="headerTitle">{title_text}</span>
+            <div class="close-btn" id="closeBtn" title="Close">
+                {close_svg}
+            </div>
         </div>
         
-        <textarea id="editor" placeholder="{}" autofocus></textarea>
+        <textarea id="editor" placeholder="{placeholder}" autofocus></textarea>
         
         <div class="btn-container">
             <button class="mic-btn" id="micBtn" title="Speech to text">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                    <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                </svg>
+                {mic_svg}
             </button>
             <button class="send-btn" id="sendBtn" title="Send">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-                </svg>
+                {send_svg}
             </button>
         </div>
         
         <div class="footer" id="footerRegion">
-            {}  |  {}  |  {} {}
+            {submit_txt}  |  {newline_txt}  |  {cancel_hint} {cancel_txt}
         </div>
     </div>
     <script>
+        const container = document.querySelector('.editor-container');
         const editor = document.getElementById('editor');
-        const header = document.getElementById('headerRegion');
         const closeBtn = document.getElementById('closeBtn');
         const micBtn = document.getElementById('micBtn');
         const sendBtn = document.getElementById('sendBtn');
         
-        // Drag window logic
-        header.addEventListener('mousedown', (e) => {{
-            if (e.target.closest('.close-btn')) return; // Ignore close button
+        // Drag window logic - Entire container except interactive elements
+        container.addEventListener('mousedown', (e) => {{
+            const isInteractive = e.target.closest('#editor') || 
+                                e.target.closest('.close-btn') || 
+                                e.target.closest('.mic-btn') || 
+                                e.target.closest('.send-btn');
+            if (isInteractive) return;
+            
             // Only left click
             if (e.button === 0) {{
                 window.ipc.postMessage('drag_window');
@@ -472,13 +504,18 @@ fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
     </script>
 </body>
 </html>"#,
-        theme_attr,
-        title_text,
-        escaped_placeholder,
-        submit_txt,
-        newline_txt,
-        cancel_hint,
-        cancel_txt
+        theme_attr = theme_attr,
+        font_css = font_css,
+        css = css,
+        title_text = title_text,
+        placeholder = escaped_placeholder,
+        submit_txt = submit_txt,
+        newline_txt = newline_txt,
+        cancel_hint = cancel_hint,
+        cancel_txt = cancel_txt,
+        close_svg = crate::overlay::html_components::icons::get_icon_svg("close"),
+        mic_svg = crate::overlay::html_components::icons::get_icon_svg("mic"),
+        send_svg = crate::overlay::html_components::icons::get_icon_svg("send")
     )
 }
 
@@ -586,11 +623,13 @@ pub fn clear_editor_text() {
 
 /// Update the UI text (header) and trigger a repaint
 pub fn update_ui_text(header_text: String) {
+    *CFG_TITLE.lock().unwrap() = header_text.clone();
     let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
     if hwnd_val != 0 {
-        *CFG_TITLE.lock().unwrap() = header_text;
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
         unsafe {
-            let _ = InvalidateRect(Some(HWND(hwnd_val as *mut std::ffi::c_void)), None, true);
+            let _ = SetWindowTextW(hwnd, &HSTRING::from(header_text));
+            let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(1), LPARAM(0));
         }
     }
 }
@@ -770,7 +809,7 @@ fn internal_create_window_loop() {
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let win_w = 640;
-        let win_h = 340; /* Restored height for better layout */
+        let win_h = 315; /* Increased for better typing space */
         let x = (screen_w - win_w) / 2;
         let y = (screen_h - win_h) / 2;
 
@@ -994,36 +1033,38 @@ unsafe extern "system" fn input_wnd_proc(
             crate::overlay::input_history::reset_history_navigation();
 
             // 1. Position Logic - Center on the monitor where the cursor is
-            let mut cursor = POINT::default();
-            unsafe {
-                let _ = GetCursorPos(&mut cursor);
-                let hmonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-                let mut mi = MONITORINFO {
-                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                    ..Default::default()
-                };
-                let _ = GetMonitorInfoW(hmonitor, &mut mi);
+            if wparam.0 != 1 {
+                let mut cursor = POINT::default();
+                unsafe {
+                    let _ = GetCursorPos(&mut cursor);
+                    let hmonitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+                    let mut mi = MONITORINFO {
+                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                        ..Default::default()
+                    };
+                    let _ = GetMonitorInfoW(hmonitor, &mut mi);
 
-                let mut rect = RECT::default();
-                let _ = GetWindowRect(hwnd, &mut rect);
-                let w = rect.right - rect.left;
-                let h = rect.bottom - rect.top;
+                    let mut rect = RECT::default();
+                    let _ = GetWindowRect(hwnd, &mut rect);
+                    let w = rect.right - rect.left;
+                    let h = rect.bottom - rect.top;
 
-                let monitor_w = mi.rcWork.right - mi.rcWork.left;
-                let monitor_h = mi.rcWork.bottom - mi.rcWork.top;
+                    let monitor_w = mi.rcWork.right - mi.rcWork.left;
+                    let monitor_h = mi.rcWork.bottom - mi.rcWork.top;
 
-                let x = mi.rcWork.left + (monitor_w - w) / 2;
-                let y = mi.rcWork.top + (monitor_h - h) / 2;
+                    let x = mi.rcWork.left + (monitor_w - w) / 2;
+                    let y = mi.rcWork.top + (monitor_h - h) / 2;
 
-                let _ = SetWindowPos(
-                    hwnd,
-                    Some(HWND_TOP),
-                    x,
-                    y,
-                    0,
-                    0,
-                    SWP_NOSIZE | SWP_SHOWWINDOW,
-                );
+                    let _ = SetWindowPos(
+                        hwnd,
+                        Some(HWND_TOP),
+                        x,
+                        y,
+                        0,
+                        0,
+                        SWP_NOSIZE | SWP_SHOWWINDOW,
+                    );
+                }
             }
 
             // 2. Focus - Force window to foreground
@@ -1056,7 +1097,9 @@ unsafe extern "system" fn input_wnd_proc(
                     .unwrap()
                     .clone();
                 let title = if t.is_empty() {
-                    "Text Input".to_string()
+                    let lang = crate::overlay::text_input::CFG_LANG.lock().unwrap().clone();
+                    let locale = crate::gui::locale::LocaleText::get(&lang);
+                    locale.text_input_placeholder.to_string()
                 } else {
                     t
                 };
