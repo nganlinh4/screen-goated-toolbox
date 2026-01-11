@@ -413,6 +413,9 @@ window.L10N = #L10N_JSON#;
 // Track visibility state to minimize IPC calls
 // Key: hwnd string, Value: boolean (isVisible)
 let lastVisibleState = new Map();
+// Key: hwnd string, Value: string (json of x,y,w,h)
+let lastSentRegions = new Map();
+
 
 // Track cursor position for radius-based opacity
 // Note: Position is updated from Rust via updateCursorPosition() since WS_EX_TRANSPARENT
@@ -467,6 +470,21 @@ function updateButtonOpacity() {{
             lastVisibleState.set(hwnd, isVisible);
             needsUpdate = true;
         }}
+
+        // Check if region dimensions changed (even if visibility didn't)
+        if (isVisible) {{
+            const currentRegion = {{
+                x: Math.round(rect.left),
+                y: Math.round(rect.top),
+                w: Math.round(rect.width),
+                h: Math.round(rect.height)
+            }};
+            const regionStr = JSON.stringify(currentRegion);
+            if (lastSentRegions.get(hwnd) !== regionStr) {{
+                // DON'T update map here, wait until we actually confirm sending
+                needsUpdate = true;
+            }}
+        }}
     }});
     
     if (needsUpdate) {{
@@ -478,12 +496,23 @@ function updateButtonOpacity() {{
         groups.forEach(group => {{
             if (lastVisibleState.get(group.dataset.hwnd)) {{
                 const rect = group.getBoundingClientRect();
-                regions.push({{
+                const region = {{
                     x: rect.left - padding,
                     y: rect.top + 1, // Start slightly below top edge to ensure we don't cover window bottom border
                     w: rect.width + (padding * 2),
                     h: rect.height + padding // Only pad bottom
-                }});
+                }};
+                regions.push(region);
+                
+                // Track what we sent (using the RAW rect, not the padded one, for change detection stability)
+                // Actually, let's track the RAW rect matching the change detection above
+                const rawRegion = {{
+                    x: Math.round(rect.left),
+                    y: Math.round(rect.top),
+                    w: Math.round(rect.width),
+                    h: Math.round(rect.height)
+                }};
+                lastSentRegions.set(group.dataset.hwnd, JSON.stringify(rawRegion));
             }}
         }});
         

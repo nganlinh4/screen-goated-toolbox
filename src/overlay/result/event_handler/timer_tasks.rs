@@ -189,6 +189,7 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 markdown_view::fit_font_to_window(hwnd);
 
                 trigger_refine = true;
+                crate::overlay::result::button_canvas::update_window_position(hwnd);
             } else if cancelled {
                 // User cancelled - just hide the input
                 {
@@ -209,6 +210,7 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 };
                 markdown_view::resize_markdown_webview(hwnd, is_hovered);
                 markdown_view::fit_font_to_window(hwnd);
+                crate::overlay::result::button_canvas::update_window_position(hwnd);
             }
         }
     }
