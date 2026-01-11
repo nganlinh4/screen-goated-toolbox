@@ -134,9 +134,12 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
                         "audio" => self.text.node_special_audio_to_text,
                         _ => self.text.node_special_default,
                     };
-                    ui.label(
-                        egui::RichText::new(title).color(egui::Color32::from_rgb(255, 200, 100)),
-                    );
+                    let header_color = if ui.visuals().dark_mode {
+                        egui::Color32::from_rgb(255, 200, 100)
+                    } else {
+                        egui::Color32::from_rgb(200, 100, 0)
+                    };
+                    ui.label(egui::RichText::new(title).color(header_color));
                 }
             };
         });

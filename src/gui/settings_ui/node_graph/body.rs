@@ -95,11 +95,14 @@ pub fn show_body(
                                     "input_render_mode_popup_{:?}",
                                     node_id
                                 ));
+                                let btn_bg = if ui.visuals().dark_mode {
+                                    egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)
+                                } else {
+                                    egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)
+                                };
                                 let btn = ui.add(
                                     egui::Button::new(current_mode_label)
-                                        .fill(egui::Color32::from_rgba_unmultiplied(
-                                            80, 80, 80, 180,
-                                        ))
+                                        .fill(btn_bg)
                                         .corner_radius(4.0),
                                 );
                                 if btn.clicked() {
@@ -413,11 +416,14 @@ pub fn show_body(
 
                                 let popup_id = ui
                                     .make_persistent_id(format!("render_mode_popup_{:?}", node_id));
+                                let btn_bg = if ui.visuals().dark_mode {
+                                    egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)
+                                } else {
+                                    egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)
+                                };
                                 let btn = ui.add(
                                     egui::Button::new(current_mode_label)
-                                        .fill(egui::Color32::from_rgba_unmultiplied(
-                                            80, 80, 80, 180,
-                                        ))
+                                        .fill(btn_bg)
                                         .corner_radius(4.0),
                                 );
                                 if btn.clicked() {
@@ -734,11 +740,14 @@ pub fn show_body(
 
                                 let popup_id = ui
                                     .make_persistent_id(format!("render_mode_popup_{:?}", node_id));
+                                let btn_bg = if ui.visuals().dark_mode {
+                                    egui::Color32::from_rgba_unmultiplied(80, 80, 80, 180)
+                                } else {
+                                    egui::Color32::from_rgba_unmultiplied(220, 220, 220, 200)
+                                };
                                 let btn = ui.add(
                                     egui::Button::new(current_mode_label)
-                                        .fill(egui::Color32::from_rgba_unmultiplied(
-                                            80, 80, 80, 180,
-                                        ))
+                                        .fill(btn_bg)
                                         .corner_radius(4.0),
                                 );
                                 if btn.clicked() {
