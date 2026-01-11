@@ -1436,7 +1436,17 @@ pub fn stream_markdown_content_ex(
          if (low > high) low = high;
          
          body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
-         
+         // RESET all spacing properties that might have been ramped up by fit_font_to_window in the previous session
+         body.style.letterSpacing = '0px';
+         body.style.wordSpacing = '0px';
+         body.style.lineHeight = '1.5';
+         body.style.paddingTop = '0';
+         body.style.paddingBottom = '0';
+         var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+         for (var i = 0; i < blocks.length; i++) {{
+             blocks[i].style.marginBottom = '0.5em';
+             blocks[i].style.paddingBottom = '0';
+         }}
          // Binary search
          var best = low;
          while (low <= high) {{
