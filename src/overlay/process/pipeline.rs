@@ -17,6 +17,11 @@ use super::chain::{execute_chain_pipeline, execute_chain_pipeline_with_token, ru
 use super::types::generate_chain_id;
 use super::window::create_processing_window;
 
+// Track last result window rect for continuous mode snaking
+lazy_static::lazy_static! {
+    static ref LAST_RESULT_RECT: Arc<Mutex<Option<RECT>>> = Arc::new(Mutex::new(None));
+}
+
 // --- ENTRY POINTS ---
 
 pub fn start_text_processing(
@@ -72,6 +77,9 @@ pub fn start_text_processing(
         // The text input window "transfers" to the selected preset.
         let selected_preset_idx: Arc<Mutex<Option<usize>>> = Arc::new(Mutex::new(None));
         let selected_preset_idx_clone = selected_preset_idx.clone();
+
+        // Reset snaking state for new session
+        *LAST_RESULT_RECT.lock().unwrap() = None;
 
         text_input::show(
             guide_text,
@@ -176,54 +184,62 @@ pub fn start_text_processing(
                 let overlay_rect = if is_continuous {
                     if let Some(input_rect) = text_input::get_window_rect() {
                         // Calculate Ideal "Under Input" Position
-                        // 1. Height: 280px (Reasonable bubble size)
+                        // 1. Height: Same as input window
                         // 2. Width: 90% of input window
                         // 3. Position: Centered below input window
                         let input_w = input_rect.right - input_rect.left;
-                        let shrink_total = input_w / 10;
+                        let input_h = input_rect.bottom - input_rect.top;
+
+                        let shrink_total = input_w / 10; // 10% shrink
                         let new_w = input_w - shrink_total;
+
                         let center_x = input_rect.left + (input_w / 2);
                         let left = center_x - (new_w / 2);
+                        let new_h = input_h;
 
                         let ideal_rect = RECT {
                             left,
                             top: input_rect.bottom + 10, // 10px gap below input window
                             right: left + new_w,
-                            bottom: input_rect.bottom + 10 + 280,
+                            bottom: input_rect.bottom + 10 + new_h,
                         };
 
-                        // Smart Placement Logic:
-                        // 1. Try the ideal "Under Input" spot first.
-                        // 2. If occupied, ask layout engine for the next best spot relative to it.
-                        //    - This ensures Result 1 goes under input.
-                        //    - Result 2 detects Result 1 is there, and goes Right (standard snake).
-                        if crate::overlay::result::layout::is_rect_occupied(&ideal_rect) {
-                            // Multi-monitor aware monitor detection
-                            let monitor_rect = unsafe {
-                                let h_monitor =
-                                    MonitorFromRect(&input_rect, MONITOR_DEFAULTTONEAREST);
-                                let mut mi = MONITORINFO::default();
-                                mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-                                if GetMonitorInfoW(h_monitor, &mut mi).as_bool() {
-                                    mi.rcMonitor
-                                } else {
-                                    // Fallback to primary screen metrics if monitor detection fails
-                                    RECT {
-                                        left: 0,
-                                        top: 0,
-                                        right: GetSystemMetrics(SM_CXSCREEN),
-                                        bottom: GetSystemMetrics(SM_CYSCREEN),
-                                    }
+                        // Get monitor rect for boundary checking
+                        let monitor_rect = unsafe {
+                            let h_monitor = MonitorFromRect(&input_rect, MONITOR_DEFAULTTONEAREST);
+                            let mut mi = MONITORINFO::default();
+                            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                            if GetMonitorInfoW(h_monitor, &mut mi).as_bool() {
+                                mi.rcMonitor
+                            } else {
+                                // Fallback to primary screen metrics if monitor detection fails
+                                RECT {
+                                    left: 0,
+                                    top: 0,
+                                    right: GetSystemMetrics(SM_CXSCREEN),
+                                    bottom: GetSystemMetrics(SM_CYSCREEN),
                                 }
+                            }
+                        };
+
+                        // First window: place at ideal_rect directly (under input)
+                        // Subsequent windows: snake from last result window
+                        let final_rect =
+                            if let Some(last_rect) = LAST_RESULT_RECT.lock().unwrap().clone() {
+                                // Second+ window: snake from previous result window
+                                crate::overlay::result::layout::calculate_next_window_rect(
+                                    last_rect,
+                                    monitor_rect,
+                                )
+                            } else {
+                                // First window: use ideal position directly
+                                ideal_rect
                             };
 
-                            crate::overlay::result::layout::calculate_next_window_rect(
-                                ideal_rect,
-                                monitor_rect,
-                            )
-                        } else {
-                            ideal_rect
-                        }
+                        // Store this rect as the last result window for next iteration
+                        *LAST_RESULT_RECT.lock().unwrap() = Some(final_rect);
+
+                        final_rect
                     } else {
                         screen_rect
                     }
@@ -235,6 +251,10 @@ pub fn start_text_processing(
                 let config_clone = final_config;
                 let preset_clone = final_preset;
                 let last_token_update = last_cancel_token_clone.clone();
+
+                // Reset last result rect for new submission (prevent stale rects from previous chain)
+                // Reset last result rect is REMOVED to allow snaking in continuous mode
+                // *LAST_RESULT_RECT.lock().unwrap() = None;
 
                 let input_hwnd_send = SendHwnd(input_hwnd);
                 std::thread::spawn(move || {
