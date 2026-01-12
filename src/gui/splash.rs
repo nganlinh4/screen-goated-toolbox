@@ -3,6 +3,7 @@ use eframe::egui::{Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
+use crate::gui::icons::{paint_icon, Icon};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 // --- CONFIGURATION ---
@@ -351,7 +352,16 @@ impl SplashScreen {
             let t = (now - self.start_time) as f32;
             if t > ANIMATION_DURATION - 0.5 {
                 if ctx.input(|i| i.pointer.any_click()) {
-                    self.exit_start_time = Some(now);
+                    // Prevent click on theme switcher from triggering splash exit
+                    let is_in_switcher = if let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) {
+                        pos.x < 100.0 && pos.y < 60.0
+                    } else {
+                        false
+                    };
+
+                    if !is_in_switcher {
+                        self.exit_start_time = Some(now);
+                    }
                 }
             }
         }
@@ -533,7 +543,8 @@ impl SplashScreen {
         SplashStatus::Ongoing
     }
 
-    pub fn paint(&self, ctx: &egui::Context) {
+    pub fn paint(&self, ctx: &egui::Context, theme_mode: &crate::config::ThemeMode) -> bool {
+        let mut theme_clicked = false;
         let now = ctx.input(|i| i.time);
         let t = (now - self.start_time) as f32;
 
@@ -563,13 +574,10 @@ impl SplashScreen {
         let rect = Rect::from_min_size(Pos2::ZERO, size);
 
         // --- INTERACTION BLOCKER ---
-        // This invisible Area consumes all pointer events (hover, click, drag) to prevent
-        // the underlying UI from receiving them. This stops tooltips and button hovers.
         egui::Area::new(egui::Id::new("splash_blocker"))
             .order(egui::Order::Foreground)
             .fixed_pos(Pos2::ZERO)
             .show(ctx, |ui| {
-                // Allocate the full screen size with full interaction sense
                 ui.allocate_response(
                     size,
                     egui::Sense::click_and_drag().union(egui::Sense::hover()),
@@ -593,6 +601,59 @@ impl SplashScreen {
             1.0
         };
         let master_alpha = alpha.clamp(0.0, 1.0);
+
+        // --- THEME SWITCHER OVERLAY (User can switch theme ABOVE splash) ---
+        if master_alpha > 0.1 && warp_prog < 0.2 {
+            egui::Area::new(egui::Id::new("splash_theme_switcher"))
+                .order(egui::Order::Tooltip) // High priority above blocker
+                .fixed_pos(Pos2::new(14.0, 11.0))
+                .show(ctx, |ui| {
+                    let icon = if self.is_dark { Icon::Sun } else { Icon::Moon };
+
+                    // Pulse effect for the button
+                    let pulse = (now * 2.0).sin().abs() * 0.2 + 0.8;
+                    let btn_bg = if self.is_dark {
+                        Color32::from_white_alpha(30)
+                    } else {
+                        Color32::from_black_alpha(20)
+                    };
+
+                    let icon_color = if self.is_dark {
+                        Color32::WHITE
+                    } else {
+                        Color32::BLACK
+                    };
+
+                    let (rect, resp) =
+                        ui.allocate_at_least(Vec2::splat(32.0), egui::Sense::click());
+
+                    // Glass background
+                    let fill = if resp.hovered() {
+                        btn_bg.linear_multiply(1.5)
+                    } else {
+                        btn_bg.linear_multiply(pulse as f32)
+                    };
+                    ui.painter().rect_filled(rect, 8.0, fill);
+
+                    // Seamless cutout for the Moon icon in Day mode
+                    // We must override the GLOBAL context style because the icon painter uses painter.ctx().style()
+                    let old_panel_fill = ctx.style().visuals.panel_fill;
+                    if !self.is_dark {
+                        ctx.style_mut(|s| s.visuals.panel_fill = Color32::from_rgb(109, 174, 235));
+                        // #6DAEEB
+                    }
+
+                    // High-quality manual vector icon
+                    paint_icon(ui.painter(), rect.shrink(6.0), icon, icon_color);
+
+                    // Restore global style
+                    ctx.style_mut(|s| s.visuals.panel_fill = old_panel_fill);
+
+                    if resp.clicked() {
+                        theme_clicked = true;
+                    }
+                });
+        }
 
         // 1. Background
         // Startup: Fade from Solid Black (Night) or White (Day) to Target Color
@@ -627,7 +688,7 @@ impl SplashScreen {
         }
 
         if master_alpha <= 0.05 {
-            return;
+            return theme_clicked;
         }
 
         // --- LAYER 0: STARS ---
@@ -1062,6 +1123,26 @@ impl SplashScreen {
             }
 
             let mut base_col = v.color;
+
+            // DYNAMIC COLOR SWAP: Fix sphere colors when theme changes on splash
+            if !v.is_debris && v.color != C_WHITE {
+                if self.is_dark {
+                    // Switch to Night Colors
+                    if v.color == C_DAY_REP {
+                        base_col = C_MAGENTA;
+                    } else if v.color == C_DAY_SEC {
+                        base_col = C_CYAN;
+                    }
+                } else {
+                    // Switch to Day Colors
+                    if v.color == C_MAGENTA {
+                        base_col = C_DAY_REP;
+                    } else if v.color == C_CYAN {
+                        base_col = C_DAY_SEC;
+                    }
+                }
+            }
+
             // Day mode debris fix
             if !self.is_dark && v.is_debris {
                 base_col = C_CLOUD_WHITE;
@@ -1227,5 +1308,6 @@ impl SplashScreen {
                 );
             }
         }
+        theme_clicked
     }
 }

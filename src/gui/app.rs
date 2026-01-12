@@ -72,7 +72,17 @@ impl eframe::App for SettingsApp {
 
         // Render Splash Overlay (Last Last)
         if let Some(splash) = &self.splash {
-            splash.paint(ctx);
+            if splash.paint(ctx, &self.config.theme_mode) {
+                // Simplified Toggle: Toggle between Light and Dark only
+                // If current effective is Dark, switch to Light, and vice versa.
+                let is_currently_dark = ctx.style().visuals.dark_mode;
+                self.config.theme_mode = if is_currently_dark {
+                    crate::config::ThemeMode::Light
+                } else {
+                    crate::config::ThemeMode::Dark
+                };
+                self.save_and_sync();
+            }
         }
 
         // Render Drop Overlay when dragging files (Very Last)
