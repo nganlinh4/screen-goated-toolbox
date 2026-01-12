@@ -603,7 +603,7 @@ impl SplashScreen {
         let master_alpha = alpha.clamp(0.0, 1.0);
 
         // --- THEME SWITCHER OVERLAY (User can switch theme ABOVE splash) ---
-        if master_alpha > 0.1 && warp_prog < 0.2 {
+        if master_alpha > 0.1 && self.exit_start_time.is_none() {
             egui::Area::new(egui::Id::new("splash_theme_switcher"))
                 .order(egui::Order::Tooltip) // High priority above blocker
                 .fixed_pos(Pos2::new(14.0, 11.0))
