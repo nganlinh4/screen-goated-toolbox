@@ -45,6 +45,7 @@ lazy_static::lazy_static! {
 
 const WM_APP_SHOW: u32 = WM_USER + 99;
 const WM_APP_SET_TEXT: u32 = WM_USER + 100; // New: trigger text injection from other threads
+const WM_APP_HIDE: u32 = WM_USER + 101; // New: trigger fade out sequence
 
 // Thread-local storage for WebView (not Send)
 thread_local! {
@@ -97,6 +98,7 @@ fn get_editor_css(is_dark: bool) -> String {
             --container-shadow: 0 0px 16px rgba(0,0,0,0.25);
             --input-bg: #303134; /* Base surface */
             --input-border: 1px solid transparent;
+            --wave-color: #8ab4f8; 
         }
         "#
     } else {
@@ -107,6 +109,7 @@ fn get_editor_css(is_dark: bool) -> String {
             --text-color: #202124;
             --header-text: #5f6368;
             --footer-text: #5f6368;
+            --wave-color: #1a73e8;
             --placeholder-color: #5f6368;
             --scrollbar-thumb: #dadce0;
             --scrollbar-thumb-hover: #bdc1c6;
@@ -179,7 +182,28 @@ fn get_editor_css(is_dark: bool) -> String {
         border-radius: 20px;
         border: var(--container-border);
         box-shadow: var(--container-shadow);
+        
+        /* Initial State for Animation */
+        opacity: 0;
+        transform: scale(0.95);
         transition: background 0.2s, border-color 0.2s;
+    }}
+
+    .editor-container.entering {{
+        animation: inputFadeIn 0.2s cubic-bezier(0.2, 0, 0, 1) forwards;
+    }}
+
+    .editor-container.exiting {{
+        animation: inputFadeOut 0.15s cubic-bezier(0.2, 0, 0, 1) forwards;
+    }}
+
+    @keyframes inputFadeIn {{
+        to {{ opacity: 1; transform: scale(1); }}
+    }}
+
+    @keyframes inputFadeOut {{
+        from {{ opacity: 1; transform: scale(1); }}
+        to {{ opacity: 0; transform: scale(0.95); }}
     }}
     
     /* Header (Draggable) */
@@ -196,7 +220,7 @@ fn get_editor_css(is_dark: bool) -> String {
     .header-title {{
         flex: 1;
         font-size: 14px;
-        font-weight: 800;
+        font-weight: 600;
         text-transform: uppercase;
         font-stretch: 151%;
         letter-spacing: 0.15em;
@@ -208,6 +232,22 @@ fn get_editor_css(is_dark: bool) -> String {
         overflow: hidden;
         text-overflow: ellipsis;
         font-family: 'Google Sans Flex', sans-serif;
+    }}
+    
+    .header-title span {{
+        display: inline-block;
+        transition: color 0.2s;
+    }}
+
+    @keyframes waveColor {{
+        0%, 100% {{
+            color: var(--header-text);
+            font-variation-settings: 'GRAD' 0, 'wght' 600, 'ROND' 100;
+        }}
+        50% {{
+            color: var(--wave-color);
+            font-variation-settings: 'GRAD' 200, 'wght' 1000, 'ROND' 100;
+        }}
     }}
     
     .close-btn {{
@@ -499,6 +539,39 @@ fn get_editor_html(placeholder: &str, is_dark: bool) -> String {
         window.updateTheme = (isDark) => {{
             document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
         }};
+
+        window.playEntry = () => {{
+            const el = document.querySelector('.editor-container');
+            if(el) {{
+                el.classList.remove('exiting');
+                el.classList.add('entering');
+                
+                // Trigger wave animation on title characters
+                const title = document.getElementById('headerTitle');
+                if (title && !title.hasAttribute('data-wrapped')) {{
+                    const text = title.innerText;
+                    title.innerHTML = text.split('').map((char, i) => 
+                        `<span style="animation: waveColor 0.6s ease forwards ${{0.2 + i * 0.05}}s">${{char === ' ' ? '&nbsp;' : char}}</span>`
+                    ).join('');
+                    title.setAttribute('data-wrapped', 'true');
+                }} else if (title) {{
+                    // Re-trigger animation by removing/adding spans or class
+                     const text = title.innerText; // Get raw text back from spans
+                     title.innerHTML = text.split('').map((char, i) => 
+                        `<span style="animation: waveColor 0.6s ease forwards ${{0.2 + i * 0.05}}s">${{char === ' ' ? '&nbsp;' : char}}</span>`
+                    ).join('');
+                }}
+            }}
+        }};
+
+        window.playExit = () => {{
+            const el = document.querySelector('.editor-container');
+            if(el) {{
+                el.classList.remove('entering');
+                el.classList.add('exiting');
+            }}
+        }};
+
     </script>
 </body>
 </html>"#,
@@ -529,7 +602,8 @@ pub fn cancel_input() {
     let hwnd_val = INPUT_HWND.load(Ordering::SeqCst);
     if hwnd_val != 0 {
         unsafe {
-            let _ = ShowWindow(HWND(hwnd_val as *mut std::ffi::c_void), SW_HIDE);
+            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
         }
     }
 }
@@ -1041,6 +1115,8 @@ unsafe extern "system" fn input_wnd_proc(
             // Restore History Navigation State
             crate::overlay::input_history::reset_history_navigation();
 
+            // Moved playEntry to end of block to run AFTER text updates
+
             // 1. Position Logic - Center on the monitor where the cursor is
             if wparam.0 != 1 {
                 let mut cursor = POINT::default();
@@ -1173,6 +1249,8 @@ unsafe extern "system" fn input_wnd_proc(
             TEXT_INPUT_WEBVIEW.with(|webview| {
                 if let Some(wv) = webview.borrow().as_ref() {
                     let _ = wv.evaluate_script(&script);
+                    // NOW trigger animation, after text has been updated
+                    let _ = wv.evaluate_script("playEntry();");
                 }
             });
 
@@ -1188,6 +1266,18 @@ unsafe extern "system" fn input_wnd_proc(
         WM_APP_SET_TEXT => {
             // Apply pending text from cross-thread call
             apply_pending_text();
+            LRESULT(0)
+        }
+
+        WM_APP_HIDE => {
+            // Trigger Fade Out Script & Delay Hide
+            TEXT_INPUT_WEBVIEW.with(|webview| {
+                if let Some(wv) = webview.borrow().as_ref() {
+                    let _ = wv.evaluate_script("playExit();");
+                }
+            });
+            // 150ms delay for animation (Timer ID 4)
+            SetTimer(Some(hwnd), 4, 150, None);
             LRESULT(0)
         }
 
@@ -1257,6 +1347,18 @@ unsafe extern "system" fn input_wnd_proc(
                         let _ = wv.evaluate_script("document.getElementById('editor').focus();");
                     }
                 });
+            }
+            // Timer 4: Hide window after fade-out
+            if wparam.0 == 4 {
+                let _ = KillTimer(Some(hwnd), 4);
+                let _ = ShowWindow(hwnd, SW_HIDE);
+
+                // Signal closure if needed
+                let mut should_close = SHOULD_CLOSE.lock().unwrap();
+                if *should_close {
+                    *should_close = false;
+                    let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                }
             }
             LRESULT(0)
         }
