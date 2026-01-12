@@ -282,16 +282,46 @@ fn generate_canvas_html() -> String {
     .to_string();
 
     let is_dark = crate::overlay::is_dark_mode();
+
+    // Icon color based on theme - REMOVED to allow CSS currentColor to work
+    // let icon_color = if is_dark {
+    //     "rgba(255, 255, 255, 0.8)"
+    // } else {
+    //     "rgba(0, 0, 0, 0.7)"
+    // };
+
     // Initialize state
     LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
     let theme_css = get_canvas_theme_css(is_dark);
+
+    // Get icon SVGs with theme-appropriate colors
+    // CHANGED: Do NOT replace currentColor. This allows CSS to control icon color (hover, active, etc.)
+    let get_colored_svg = |name: &str| -> String {
+        crate::overlay::html_components::icons::get_icon_svg(name).to_string()
+    };
+
+    let icon_svgs_json = serde_json::json!({
+        "arrow_back": get_colored_svg("arrow_back"),
+        "arrow_forward": get_colored_svg("arrow_forward"),
+        "undo": get_colored_svg("undo"),
+        "redo": get_colored_svg("redo"),
+        "newsmode": get_colored_svg("newsmode"),
+        "notes": get_colored_svg("notes"),
+        "hourglass_empty": get_colored_svg("hourglass_empty"),
+        "stop": get_colored_svg("stop"),
+        "cleaning_services": get_colored_svg("cleaning_services"),
+        "content_copy": get_colored_svg("content_copy"),
+        "check": get_colored_svg("check"),
+        "download": get_colored_svg("download"),
+        "volume_up": get_colored_svg("volume_up"),
+    })
+    .to_string();
 
     format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
 <style>
 {font_css}
 </style>
@@ -409,6 +439,7 @@ html, body {{
 // Track registered windows: {{ hwnd: {{ x, y, w, h }} }}
 window.registeredWindows = {{}};
 window.L10N = #L10N_JSON#;
+window.iconSvgs = #ICON_SVGS_JSON#;
 
 // Track visibility state to minimize IPC calls
 // Key: hwnd string, Value: boolean (isVisible)
@@ -612,33 +643,33 @@ function generateButtonsHTML(hwnd, state) {{
     // Back button (if browsable)
     if (canGoBack) {{
         buttons += `<div class="btn" onclick="action('${{hwnd}}', 'back')" title="${{window.L10N.back}}">
-            <span class="icons">arrow_back</span>
+            ${{window.iconSvgs.arrow_back}}
         </div>`;
     }}
-    
+
     // Forward button (if browsable)
     if (canGoForward) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'forward')" title="${{window.L10N.forward}}">
-            <span class="icons">arrow_forward</span>
+        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'forward')" title="${{window.L10N.forward}}>
+            ${{window.iconSvgs.arrow_forward}}
         </div>`;
     }}
     
     // Copy
     buttons += `<div class="btn ${{state.copySuccess ? 'success' : ''}}" onclick="action('${{hwnd}}', 'copy')" title="${{window.L10N.copy}}">
-        <span class="icons">${{state.copySuccess ? 'check' : 'content_copy'}}</span>
+        ${{window.iconSvgs[state.copySuccess ? 'check' : 'content_copy']}}
     </div>`;
     
     // Undo
     if (state.hasUndo) {{
         buttons += `<div class="btn" onclick="action('${{hwnd}}', 'undo')" title="${{window.L10N.undo}}">
-            <span class="icons">undo</span>
+            ${{window.iconSvgs.undo}}
         </div>`;
     }}
-    
+
     // Redo
     if (state.hasRedo) {{
         buttons += `<div class="btn" onclick="action('${{hwnd}}', 'redo')" title="${{window.L10N.redo}}">
-            <span class="icons">redo</span>
+            ${{window.iconSvgs.redo}}
         </div>`;
     }}
     
@@ -654,29 +685,29 @@ function generateButtonsHTML(hwnd, state) {{
     const mdClass = state.isMarkdown ? 'active' : '';
     const mdIcon = state.isMarkdown ? 'newsmode' : 'notes';
     buttons += `<div class="btn ${{mdClass}}" onclick="action('${{hwnd}}', 'markdown')" title="${{window.L10N.markdown}}">
-        <span class="icons">${{mdIcon}}</span>
+        ${{window.iconSvgs[mdIcon]}}
     </div>`;
     
     // Download
     buttons += `<div class="btn" onclick="action('${{hwnd}}', 'download')" title="${{window.L10N.download}}">
-        <span class="icons">download</span>
+        ${{window.iconSvgs.download}}
     </div>`;
     
     // Speaker/TTS
     const speakerIcon = state.ttsLoading ? 'hourglass_empty' : (state.ttsSpeaking ? 'stop' : 'volume_up');
     const speakerClass = state.ttsLoading ? 'loading' : (state.ttsSpeaking ? 'active' : '');
     buttons += `<div class="btn ${{speakerClass}}" onclick="action('${{hwnd}}', 'speaker')" title="${{window.L10N.speaker}}">
-        <span class="icons">${{speakerIcon}}</span>
+        ${{window.iconSvgs[speakerIcon]}}
     </div>`;
     
     // Broom (close/drag)
-    buttons += `<div class="btn broom" 
+    buttons += `<div class="btn broom"
         onclick="action('${{hwnd}}', 'broom_click')"
         oncontextmenu="action('${{hwnd}}', 'broom_right'); return false;"
         onmousedown="handleBroomDrag(event, '${{hwnd}}')"
         onauxclick="if(event.button===1) action('${{hwnd}}', 'broom_middle')"
         title="${{window.L10N.broom}}">
-        <span class="icons">cleaning_services</span>
+        ${{window.iconSvgs.cleaning_services}}
     </div>`;
     
     return buttons;
@@ -828,6 +859,7 @@ window.updateWindows = updateWindows;
         font_css = font_css
     )
     .replace("#L10N_JSON#", &l10n_json)
+    .replace("#ICON_SVGS_JSON#", &icon_svgs_json)
 }
 
 /// Create the fullscreen transparent canvas window
