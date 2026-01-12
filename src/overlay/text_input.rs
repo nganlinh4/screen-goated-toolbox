@@ -11,6 +11,7 @@ use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
+use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{Rect, WebContext, WebViewBuilder};
@@ -74,58 +75,54 @@ fn get_editor_css(is_dark: bool) -> String {
     let vars = if is_dark {
         r#"
         :root {
-            /* 2-Color System: Dark (Google-like) */
-            --bg-color: rgba(32, 33, 36, 0.85);
-            --header-bg: rgba(32, 33, 36, 0.85);
-            --footer-bg: rgba(32, 33, 36, 0.85);
+            /* Premium Dark Mode (Google UI Inspired) */
+            --bg-color: rgba(32, 33, 36, 0.8);
             --text-color: #e8eaed;
             --header-text: #9aa0a6;
             --footer-text: #9aa0a6;
-            --placeholder-color: #5f6368;
+            --placeholder-color: #9aa0a6;
             --scrollbar-thumb: #5f6368;
             --scrollbar-thumb-hover: #80868b;
-            --btn-bg: #1a1b1e;
-            --btn-border: 1px solid rgba(255, 255, 255, 0.1);
+            --btn-bg: #3c4043; /* Elevated surface */
+            --btn-border: rgba(255, 255, 255, 0.1);
             --mic-fill: #8ab4f8; 
             --mic-border: transparent;
-            --mic-hover-bg: rgba(138, 180, 248, 0.08);
+            --mic-hover-bg: rgba(138, 180, 248, 0.12);
             --send-fill: #8ab4f8;
             --send-border: transparent;
-            --send-hover-bg: rgba(138, 180, 248, 0.08);
+            --send-hover-bg: rgba(138, 180, 248, 0.12);
             --hint-color: #9aa0a6;
             --close-hover-bg: rgba(232, 234, 237, 0.08);
             --container-border: 1px solid #3c4043;
-            --container-shadow: 0 4px 24px rgba(0,0,0,0.5);
-            --input-bg: rgba(48, 49, 52, 0.95);
+            --container-shadow: 0 0px 16px rgba(0,0,0,0.25);
+            --input-bg: #303134; /* Base surface */
             --input-border: 1px solid transparent;
         }
         "#
     } else {
         r#"
         :root {
-            /* 2-Color System: Light (Google-like) */
-            --bg-color: rgba(255, 255, 255, 0.85);
-            --header-bg: rgba(255, 255, 255, 0.85);
-            --footer-bg: rgba(255, 255, 255, 0.85);
+            /* Premium Light Mode (Google UI Inspired) */
+            --bg-color: rgba(255, 255, 255, 0.75);
             --text-color: #202124;
             --header-text: #5f6368;
             --footer-text: #5f6368;
             --placeholder-color: #5f6368;
             --scrollbar-thumb: #dadce0;
             --scrollbar-thumb-hover: #bdc1c6;
-            --btn-bg: #f1f3f4;
-            --btn-border: 1px solid transparent;
+            --btn-bg: #ffffff; /* Elevated action button */
+            --btn-border: #dadce0;
             --mic-fill: #1a73e8;
             --mic-border: transparent;
-            --mic-hover-bg: rgba(26, 115, 232, 0.04);
+            --mic-hover-bg: rgba(26, 115, 232, 0.06);
             --send-fill: #1a73e8;
             --send-border: transparent;
-            --send-hover-bg: rgba(26, 115, 232, 0.04);
+            --send-hover-bg: rgba(26, 115, 232, 0.06);
             --hint-color: #5f6368;
             --close-hover-bg: rgba(32, 33, 36, 0.04);
             --container-border: 1px solid #dadce0;
-            --container-shadow: 0 4px 20px rgba(60,64,67,0.15);
-            --input-bg: #f1f3f4;
+            --container-shadow: 0 0px 16px rgba(0,0,0,0.25);
+            --input-bg: #f1f3f4; /* Base surface */
             --input-border: 1px solid transparent;
         }
         "#
@@ -305,9 +302,10 @@ fn get_editor_css(is_dark: bool) -> String {
         cursor: pointer;
         background: var(--btn-bg);
         border: 1px solid var(--btn-border);
-        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         transition: all 0.2s cubic-bezier(0.2, 0.0, 0.2, 1);
-        backdrop-filter: blur(4px);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
     }}
     
     .mic-btn svg, .send-btn svg {{
@@ -808,8 +806,18 @@ fn internal_create_window_loop() {
 
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
-        let win_w = 640;
-        let win_h = 315; /* Increased for better typing space */
+        let scale = {
+            let dpi = unsafe { GetDpiForSystem() };
+            dpi as f64 / 96.0
+        };
+        let win_w = (640.0 * scale).round() as i32;
+        let win_h = (253.0 * scale).round() as i32;
+
+        eprintln!(
+            "[TextInput] Creating window: scale={:.2}, width={}, height={}",
+            scale, win_w, win_h
+        );
+
         let x = (screen_w - win_w) / 2;
         let y = (screen_h - win_h) / 2;
 
