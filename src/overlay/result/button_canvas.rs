@@ -426,6 +426,12 @@ html, body {{
 .btn.broom:active {{
     cursor: grabbing;
 }}
+
+/* Hidden button - invisible but preserves space */
+.btn.hidden {{
+    visibility: hidden;
+    pointer-events: none;
+}}
 </style>
 </head>
 <body>
@@ -628,74 +634,74 @@ function calculateButtonPosition(winRect) {{
 }}
 
 // Generate buttons HTML for a window
-// Generate buttons HTML for a window
+// All buttons are always rendered but hidden when not applicable to preserve consistent layout
 function generateButtonsHTML(hwnd, state) {{
     const canGoBack = state.navDepth > 0;
     const canGoForward = state.navDepth < state.maxNavDepth;
+    const isBrowsing = state.isBrowsing || false;
+    const hideClass = isBrowsing ? 'hidden' : '';
     
     let buttons = '';
     
-    // Back button (if browsable)
-    if (canGoBack) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'back')" title="${{window.L10N.back}}">
-            ${{window.iconSvgs.arrow_back}}
-        </div>`;
-    }}
+    // Back button - always rendered, hidden when not available
+    const backHideClass = canGoBack ? '' : 'hidden';
+    buttons += `<div class="btn ${{backHideClass}}" onclick="action('${{hwnd}}', 'back')" title="${{window.L10N.back}}">
+        ${{window.iconSvgs.arrow_back}}
+    </div>`;
 
-    // Forward button (if browsable)
-    if (canGoForward) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'forward')" title="${{window.L10N.forward}}>
-            ${{window.iconSvgs.arrow_forward}}
-        </div>`;
-    }}
+    // Forward button - always rendered, hidden when not available
+    const forwardHideClass = canGoForward ? '' : 'hidden';
+    buttons += `<div class="btn ${{forwardHideClass}}" onclick="action('${{hwnd}}', 'forward')" title="${{window.L10N.forward}}">
+        ${{window.iconSvgs.arrow_forward}}
+    </div>`;
     
-    // Copy
-    buttons += `<div class="btn ${{state.copySuccess ? 'success' : ''}}" onclick="action('${{hwnd}}', 'copy')" title="${{window.L10N.copy}}">
+    // Copy - hidden when browsing but preserves space
+    buttons += `<div class="btn ${{state.copySuccess ? 'success' : ''}} ${{hideClass}}" onclick="action('${{hwnd}}', 'copy')" title="${{window.L10N.copy}}">
         ${{window.iconSvgs[state.copySuccess ? 'check' : 'content_copy']}}
     </div>`;
     
-    // Undo
+    // Undo - only shown if there's history (hidden when browsing)
     if (state.hasUndo) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'undo')" title="${{window.L10N.undo}}">
+        buttons += `<div class="btn ${{hideClass}}" onclick="action('${{hwnd}}', 'undo')" title="${{window.L10N.undo}}">
             ${{window.iconSvgs.undo}}
         </div>`;
     }}
 
-    // Redo
+    // Redo - only shown if there's redo history (hidden when browsing)
     if (state.hasRedo) {{
-        buttons += `<div class="btn" onclick="action('${{hwnd}}', 'redo')" title="${{window.L10N.redo}}">
+        buttons += `<div class="btn ${{hideClass}}" onclick="action('${{hwnd}}', 'redo')" title="${{window.L10N.redo}}">
             ${{window.iconSvgs.redo}}
         </div>`;
     }}
     
-    // Edit/Refine (Custom SVG Icon)
-    buttons += `<div class="btn" onclick="action('${{hwnd}}', 'edit')" title="${{window.L10N.edit}}">
+    // Edit/Refine - hidden when browsing but preserves space
+    buttons += `<div class="btn ${{hideClass}}" onclick="action('${{hwnd}}', 'edit')" title="${{window.L10N.edit}}">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 258" width="14" height="14" style="fill: currentColor; stroke: currentColor; stroke-width: 20; stroke-linejoin: round; opacity: 0.9;">
             <path d="m122.062 172.77l-10.27 23.52c-3.947 9.042-16.459 9.042-20.406 0l-10.27-23.52c-9.14-20.933-25.59-37.595-46.108-46.703L6.74 113.52c-8.987-3.99-8.987-17.064 0-21.053l27.385-12.156C55.172 70.97 71.917 53.69 80.9 32.043L91.303 6.977c3.86-9.303 16.712-9.303 20.573 0l10.403 25.066c8.983 21.646 25.728 38.926 46.775 48.268l27.384 12.156c8.987 3.99 8.987 17.063 0 21.053l-28.267 12.547c-20.52 9.108-36.97 25.77-46.109 46.703"/>
             <path d="m217.5 246.937l-2.888 6.62c-2.114 4.845-8.824 4.845-10.937 0l-2.889-6.62c-5.148-11.803-14.42-21.2-25.992-26.34l-8.898-3.954c-4.811-2.137-4.811-9.131 0-11.269l8.4-3.733c11.87-5.273 21.308-15.017 26.368-27.22l2.966-7.154c2.067-4.985 8.96-4.985 11.027 0l2.966 7.153c5.06 12.204 14.499 21.948 26.368 27.221l8.4 3.733c4.812 2.138 4.812 9.132 0 11.27l-8.898 3.953c-11.571 5.14-20.844 14.537-25.992 26.34"/>
         </svg>
     </div>`;
     
-    // Markdown toggle
+    // Markdown toggle - hidden when browsing but preserves space
     const mdClass = state.isMarkdown ? 'active' : '';
     const mdIcon = state.isMarkdown ? 'newsmode' : 'notes';
-    buttons += `<div class="btn ${{mdClass}}" onclick="action('${{hwnd}}', 'markdown')" title="${{window.L10N.markdown}}">
+    buttons += `<div class="btn ${{mdClass}} ${{hideClass}}" onclick="action('${{hwnd}}', 'markdown')" title="${{window.L10N.markdown}}">
         ${{window.iconSvgs[mdIcon]}}
     </div>`;
     
-    // Download
-    buttons += `<div class="btn" onclick="action('${{hwnd}}', 'download')" title="${{window.L10N.download}}">
+    // Download - hidden when browsing but preserves space
+    buttons += `<div class="btn ${{hideClass}}" onclick="action('${{hwnd}}', 'download')" title="${{window.L10N.download}}">
         ${{window.iconSvgs.download}}
     </div>`;
     
-    // Speaker/TTS
+    // Speaker/TTS - hidden when browsing but preserves space
     const speakerIcon = state.ttsLoading ? 'hourglass_empty' : (state.ttsSpeaking ? 'stop' : 'volume_up');
     const speakerClass = state.ttsLoading ? 'loading' : (state.ttsSpeaking ? 'active' : '');
-    buttons += `<div class="btn ${{speakerClass}}" onclick="action('${{hwnd}}', 'speaker')" title="${{window.L10N.speaker}}">
+    buttons += `<div class="btn ${{speakerClass}} ${{hideClass}}" onclick="action('${{hwnd}}', 'speaker')" title="${{window.L10N.speaker}}">
         ${{window.iconSvgs[speakerIcon]}}
     </div>`;
     
-    // Broom (close/drag)
+    // Broom (close/drag) - always visible
     buttons += `<div class="btn broom"
         onclick="action('${{hwnd}}', 'broom_click')"
         oncontextmenu="action('${{hwnd}}', 'broom_right'); return false;"
@@ -1298,6 +1304,7 @@ fn send_windows_update() {
                 "ttsLoading": state.map(|s| s.tts_loading).unwrap_or(false),
                 "ttsSpeaking": state.map(|s| s.tts_request_id != 0 && !s.tts_loading).unwrap_or(false),
                 "isMarkdown": state.map(|s| s.is_markdown_mode).unwrap_or(false),
+                "isBrowsing": state.map(|s| s.is_browsing).unwrap_or(false),
             });
 
             // Scale physical coordinates to logical coordinates for WebView
