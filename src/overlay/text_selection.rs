@@ -232,7 +232,7 @@ unsafe extern "system" fn tag_wnd_proc(
                     let _ = wv.evaluate_script("playEntry();");
                 }
             }
-            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             LRESULT(0)
         }
         WM_APP_HIDE => {
@@ -249,21 +249,21 @@ unsafe extern "system" fn tag_wnd_proc(
         }
         WM_TIMER => {
             if wparam.0 == 1 {
-                KillTimer(Some(hwnd), 1);
+                let _ = KillTimer(Some(hwnd), 1);
                 // Reset text state internally when truly hidden
                 {
                     let initial_text = INITIAL_TEXT_GLOBAL.lock().unwrap();
                     reset_ui_state(&initial_text);
                 }
-                ShowWindow(hwnd, SW_HIDE);
+                let _ = ShowWindow(hwnd, SW_HIDE);
             }
             LRESULT(0)
         }
         WM_CLOSE => {
-            KillTimer(Some(hwnd), 1);
+            let _ = KillTimer(Some(hwnd), 1);
             let initial_text = INITIAL_TEXT_GLOBAL.lock().unwrap();
             reset_ui_state(&initial_text);
-            ShowWindow(hwnd, SW_HIDE);
+            let _ = ShowWindow(hwnd, SW_HIDE);
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -361,7 +361,7 @@ fn internal_create_tag_thread() {
             SELECTION_STATE.lock().unwrap().webview = Some(webview);
         } else {
             eprintln!("Failed to create TextSelection WebView during warmup");
-            DestroyWindow(hwnd);
+            let _ = DestroyWindow(hwnd);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             return;
         }

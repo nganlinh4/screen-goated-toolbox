@@ -81,11 +81,6 @@ pub fn warmup() {
     });
 }
 
-/// Check if canvas is ready
-pub fn is_ready() -> bool {
-    IS_WARMED_UP.load(Ordering::SeqCst) && CANVAS_HWND.load(Ordering::SeqCst) != 0
-}
-
 /// Register a markdown window for button overlay
 pub fn register_markdown_window(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;

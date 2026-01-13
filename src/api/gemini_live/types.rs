@@ -38,8 +38,6 @@ pub enum LiveInputContent {
 /// A request to the Gemini Live LLM
 #[derive(Clone)]
 pub struct LiveRequest {
-    /// Unique request ID
-    pub id: u64,
     /// The input content
     pub content: LiveInputContent,
     /// System instruction (prompt)

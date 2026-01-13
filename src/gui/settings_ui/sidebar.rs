@@ -1,5 +1,5 @@
 use super::ViewMode;
-use crate::config::{Config, Preset, ThemeMode};
+use crate::config::{Config, Preset};
 use crate::gui::icons::{draw_icon_static, icon_button_sized, Icon};
 use crate::gui::locale::LocaleText;
 use eframe::egui;

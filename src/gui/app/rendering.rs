@@ -8,7 +8,6 @@ use crate::gui::settings_ui::{
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 use image;
-use image::GenericImageView;
 
 // compile_error!("Find me!");
 impl SettingsApp {
@@ -523,7 +522,7 @@ impl SettingsApp {
 
     pub(crate) fn render_main_layout(&mut self, ctx: &egui::Context) {
         let text = LocaleText::get(&self.config.ui_language);
-        let is_dark = ctx.style().visuals.dark_mode;
+        let _is_dark = ctx.style().visuals.dark_mode;
 
         egui::CentralPanel::default()
             .frame(

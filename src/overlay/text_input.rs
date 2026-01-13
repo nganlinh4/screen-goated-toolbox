@@ -874,7 +874,7 @@ fn internal_create_window_loop() {
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let scale = {
-            let dpi = unsafe { GetDpiForSystem() };
+            let dpi = GetDpiForSystem();
             dpi as f64 / 96.0
         };
         // Width scaling: matches 800px physical at 1.25 scale (Laptop preferred),
@@ -949,7 +949,7 @@ fn internal_create_window_loop() {
             // Don't mark as warmed up, let it fail so show() can re-trigger warmup if needed
             IS_WARMED_UP.store(false, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
-            DestroyWindow(hwnd);
+            let _ = DestroyWindow(hwnd);
             return;
         }
 

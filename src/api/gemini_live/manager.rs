@@ -49,7 +49,6 @@ impl GeminiLiveManager {
         let (tx, rx) = mpsc::channel();
 
         let req = LiveRequest {
-            id,
             content,
             instruction,
             show_thinking,
