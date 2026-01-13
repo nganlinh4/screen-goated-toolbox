@@ -68,6 +68,7 @@ pub fn get_default_presets() -> Vec<Preset> {
         find(&text, "preset_explain"),
         find(&text, "preset_ask_text"),
         find(&text, "preset_edit_as_follows"),
+        find(&text, "preset_101_on_this"),
         find(&text, "preset_hang_text"),
         find(&masters, "preset_text_select_master"),
         // Text-Type section

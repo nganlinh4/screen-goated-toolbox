@@ -186,6 +186,41 @@ pub fn create_text_presets() -> Vec<Preset> {
             ])
             .build(),
 
+        // 101 on this (Tất tần tật) - Complex branching graph
+        PresetBuilder::new("preset_101_on_this", "101 on this")
+            .text_select()
+            .blocks(vec![
+                // Node 0: Input text
+                BlockBuilder::input_adapter()
+                    .build(),
+                // Node 1: Make a learning HTML (from 0)
+                BlockBuilder::text("cerebras_zai_glm_4_7")
+                    .prompt("Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.")
+                    .language("Vietnamese")
+                    .markdown()
+                    .build(),
+                // Node 2: Summarize with sources (from 3)
+                BlockBuilder::text("compound_mini")
+                    .prompt("Search the internet to ensure of the accuracy of the following text as well as getting as much source information as possible. Summarize the following text into a detailed markdown summary with clickable links to the sources. Structure it clearly. Only OUTPUT the markdown, DO NOT include markdown file indicator (```markdown) or triple backticks.")
+                    .language("Vietnamese")
+                    .markdown_stream() // Đẹp+Str
+                    .build(),
+                // Node 3: Translate (from 0)
+                BlockBuilder::text("cerebras_qwen3")
+                    .prompt("Translate the following text to {language1}. Output ONLY the translation.")
+                    .language("Vietnamese")
+                    .markdown_stream() // Đẹp+Str
+                    .build(),
+                // Node 4: Summarize keywords (from 3)
+                BlockBuilder::text("cerebras_qwen3")
+                    .prompt("Summarize the essence of this text into 3-5 keywords or a short phrase in {language1}.")
+                    .markdown_stream() // Đẹp+Str
+                    .language("Vietnamese")
+                    .build(),
+            ])
+            .connections(vec![(0, 3), (0, 1), (3, 4), (3, 2)])
+            .build(),
+
         // =====================================================================
         // TEXT TYPING PRESETS (type text to process)
         // =====================================================================
