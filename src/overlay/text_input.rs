@@ -884,8 +884,9 @@ fn internal_create_window_loop() {
             let dpi = unsafe { GetDpiForSystem() };
             dpi as f64 / 96.0
         };
-        // Dynamic width based on screen width (35%)
-        let win_w = (screen_w as f64 * 0.35).round() as i32;
+        // Width scaling: matches 800px physical at 1.25 scale (Laptop preferred),
+        // but creates ~580px physical at 1.0 scale (PC preferred, narrower than 640).
+        let win_w = ((880.0 * scale) - 300.0).round() as i32;
         let win_h = (253.0 * scale).round() as i32;
 
         eprintln!(

@@ -719,6 +719,7 @@ fn get_html(initial_text: &str) -> String {
             --a1: #ff0055;
             --a2: #ffdd00;
             --a3: #aa00ff;
+            --wave-color: #1a73e8;
         }}
         [data-theme="dark"] {{
             --bg-color: rgba(26, 26, 26, 0.95);
@@ -731,6 +732,7 @@ fn get_html(initial_text: &str) -> String {
             --a1: #ff00cc;
             --a2: #ccff00;
             --a3: #ff2200;
+            --wave-color: #8ab4f8;
         }}
 
         * {{
@@ -819,6 +821,44 @@ fn get_html(initial_text: &str) -> String {
             from {{ transform: rotate(0deg); }}
             to {{ transform: rotate(360deg); }}
         }}
+
+        @keyframes waveColor {{
+            0% {{
+                color: var(--a1);
+                font-variation-settings: 'GRAD' 0, 'wght' 500, 'ROND' 100;
+                transform: translateY(0px) scale(1);
+            }}
+            33% {{
+                color: var(--a2);
+                font-variation-settings: 'GRAD' 200, 'wght' 900, 'ROND' 100;
+                transform: translateY(-2px) scale(1.1);
+            }}
+            66% {{
+                color: var(--a3);
+                font-variation-settings: 'GRAD' 200, 'wght' 900, 'ROND' 100;
+                transform: translateY(-1px) scale(1.1);
+            }}
+            100% {{
+                color: var(--a1);
+                font-variation-settings: 'GRAD' 0, 'wght' 500, 'ROND' 100;
+                transform: translateY(0px) scale(1);
+            }}
+        }}
+
+        @keyframes idleWave {{
+            0% {{
+                color: var(--g1);
+                font-variation-settings: 'GRAD' 0, 'wght' 400, 'ROND' 100;
+            }}
+            50% {{
+                color: var(--g2);
+                font-variation-settings: 'GRAD' 50, 'wght' 600, 'ROND' 100;
+            }}
+            100% {{
+                color: var(--g1);
+                font-variation-settings: 'GRAD' 0, 'wght' 400, 'ROND' 100;
+            }}
+        }}
         
         @keyframes fadeOut {{
             from {{ opacity: 1; transform: translateY(0); }}
@@ -879,14 +919,35 @@ fn get_html(initial_text: &str) -> String {
             }} else {{
                 document.body.classList.remove('selecting');
             }}
-            document.getElementById('text').innerText = newText;
+            
+            const title = document.getElementById('text');
+            if (isSelecting) {{
+                // Apply DRAMATIC, SPEEDY, LOOPING Wave Animation
+                const chars = newText.split('');
+                title.innerHTML = chars.map((char, i) => 
+                    `<span style="
+                        display: inline-block;
+                        animation: waveColor 0.6s linear infinite;
+                        animation-delay: ${{i * 0.05}}s;
+                    ">${{char === ' ' ? '&nbsp;' : char}}</span>`
+                ).join('');
+            }} else {{
+                // Idle State: Gentle Blue Wave
+                const chars = newText.split('');
+                title.innerHTML = chars.map((char, i) => 
+                    `<span style="
+                        display: inline-block;
+                        animation: idleWave 3s ease-in-out infinite;
+                        animation-delay: ${{i * 0.1}}s;
+                    ">${{char === ' ' ? '&nbsp;' : char}}</span>`
+                ).join('');
+            }}
         }}
 
         function updateTheme(isDark) {{
             if (isDark) {{
                 document.documentElement.setAttribute('data-theme', 'dark');
             }} else {{
-                document.documentElement.setAttribute('data-theme', 'light');
             }}
         }}
     </script>
