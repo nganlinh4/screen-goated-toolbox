@@ -1591,11 +1591,11 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
             var textLen = text.trim().length;
             
             var isShortContent = textLen < 1500;
-            var isTinyContent = textLen < 50;
+            var isTinyContent = textLen < 300;
             
             // Allowed ranges
             var minSize = isShortContent ? 6 : 12; 
-            var maxSize = isTinyContent ? 200 : (isShortContent ? 48 : 24);
+            var maxSize = isTinyContent ? 200 : (isShortContent ? 100 : 24);
             
             // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
             body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
