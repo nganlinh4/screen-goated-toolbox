@@ -253,6 +253,18 @@ fn main() -> eframe::Result<()> {
     // Initialize Gemini Live LLM connection pool
     api::gemini_live::init_gemini_live();
 
+    // --- CHECK FOR RESTARTED FLAG ---
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--restarted") {
+        std::thread::spawn(|| {
+            // Wait for app and overlays to settle before showing notification
+            std::thread::sleep(std::time::Duration::from_millis(2500));
+            overlay::auto_copy_badge::show_update_notification(
+                "Đã khởi động lại app để khôi phục hoàn toàn",
+            );
+        });
+    }
+
     // --- CLEAR WEBVIEW DATA IF SCHEDULED (before any WebViews are created) ---
     {
         let mut config = APP.lock().unwrap();

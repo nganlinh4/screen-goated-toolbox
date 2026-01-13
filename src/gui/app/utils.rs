@@ -92,3 +92,40 @@ impl SettingsApp {
         None
     }
 }
+
+/// Robustly restart the application on Windows.
+/// Uses a temporary batch file with a small delay to ensure the current process exits
+/// and releases its single-instance mutex before the new instance starts.
+pub fn restart_app() {
+    if let Ok(exe_path) = std::env::current_exe() {
+        // Create a temporary batch file to handle the delayed restart reliably
+        let kill_mutex_cmd = "timeout /t 1 /nobreak > NUL".to_string();
+        // Pass --restarted flag to show notification on next start
+        let start_cmd = format!("start \"\" \"{}\" --restarted", exe_path.to_string_lossy());
+        let self_del_cmd = "(goto) 2>nul & del \"%~f0\"";
+
+        let batch_content = format!(
+            "@echo off\r\n{}\r\n{}\r\n{}",
+            kill_mutex_cmd, start_cmd, self_del_cmd
+        );
+
+        let temp_dir = std::env::temp_dir();
+        let bat_path = temp_dir.join(format!("sgt_restart_{}.bat", std::process::id()));
+
+        if let Ok(_) = std::fs::write(&bat_path, batch_content) {
+            // Spawn the batch file hidden via cmd /C with CREATE_NO_WINDOW
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", &bat_path.to_string_lossy()])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .spawn();
+            std::process::exit(0);
+        } else {
+            // Fallback: Just try to spawn directly if batch fails
+            let _ = std::process::Command::new(exe_path)
+                .arg("--restarted")
+                .spawn();
+            std::process::exit(0);
+        }
+    }
+}

@@ -554,10 +554,12 @@ pub fn render_global_settings(
                     request_node_graph_view_reset(ui.ctx());
 
                     // Also clear WebView data (MIDI permissions, etc.)
-                    // If immediate clear fails, schedule for next startup
-                    if !crate::overlay::clear_webview_permissions() {
-                        config.clear_webview_on_startup = true;
-                    }
+                    // Instead of throwing an error if locked, we schedule for next startup and restart immediately.
+                    config.clear_webview_on_startup = true;
+
+                    // Save immediately and restart
+                    crate::config::save_config(config);
+                    crate::gui::app::restart_app();
 
                     changed = true;
                 }

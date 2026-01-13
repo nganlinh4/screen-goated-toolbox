@@ -6,7 +6,7 @@ mod types;
 mod utils;
 
 pub use types::SettingsApp;
-pub use utils::signal_restore_window;
+pub use utils::{restart_app, signal_restore_window};
 
 use eframe::egui;
 
