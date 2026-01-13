@@ -923,8 +923,35 @@ fn internal_create_window_loop() {
         // REMOVED GDI REGION CLIPPING
         // We now rely on HTML/CSS border-radius and transparent background
 
-        // Create webview
-        init_webview(hwnd, win_w, win_h);
+        // Create webview with retry logic
+        let mut attempts = 0;
+        let max_attempts = 3;
+        let mut webview_success = false;
+
+        while attempts < max_attempts {
+            if init_webview(hwnd, win_w, win_h).is_ok() {
+                webview_success = true;
+                break;
+            }
+            attempts += 1;
+            eprintln!(
+                "[TextInput] WebView init failed, retrying ({}/{})",
+                attempts, max_attempts
+            );
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+
+        if !webview_success {
+            eprintln!(
+                "[TextInput] Critical Error: Failed to initialize WebView after {} attempts.",
+                max_attempts
+            );
+            // Don't mark as warmed up, let it fail so show() can re-trigger warmup if needed
+            IS_WARMED_UP.store(false, Ordering::SeqCst);
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
+            DestroyWindow(hwnd);
+            return;
+        }
 
         // Mark as warmed up and ready
         IS_WARMED_UP.store(true, Ordering::SeqCst);
@@ -947,7 +974,7 @@ fn internal_create_window_loop() {
     }
 }
 
-unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
+unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<(), ()> {
     // Use exact window dimensions for the webview, no insets.
     // The CSS .editor-container handles the padding/border-radius/shadow.
     let webview_x = 0;
@@ -1091,6 +1118,9 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) {
         TEXT_INPUT_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = Some(webview);
         });
+        Ok(())
+    } else {
+        Err(())
     }
 }
 
