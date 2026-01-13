@@ -40,7 +40,6 @@ pub const WM_TOGGLE_TRANS: u32 = WM_APP + 207;
 pub const WM_COPY_TEXT: u32 = WM_APP + 208;
 pub const WM_EXEC_SCRIPT: u32 = WM_APP + 209;
 pub const WM_UPDATE_TTS_SPEED: u32 = WM_APP + 210;
-pub const WM_CLOSE_TTS_MODAL: u32 = WM_APP + 211;
 pub const WM_THEME_UPDATE: u32 = WM_APP + 212;
 
 // Shared RMS value for volume visualization

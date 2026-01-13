@@ -2,13 +2,6 @@ use super::state::{ResizeEdge, WINDOW_STATES};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindow, IsWindowVisible};
 
-/// Minimum width threshold for showing buttons.
-/// When overlay width is below this value, buttons are hidden to avoid
-/// overlapping with the broom cursor and content.
-/// When only height is small but width is adequate, buttons are shown
-/// since they're positioned on the right side and center-aligned vertically.
-const MIN_WIDTH_FOR_BUTTONS: i32 = 200;
-
 /// Determine if overlay buttons should be displayed based on window dimensions.
 /// - Returns false when width is too small (would overlap with broom cursor/content)
 /// - Returns true when width is adequate, even if height is small (buttons are right-aligned, center-vertical)
@@ -56,11 +49,6 @@ fn get_all_active_window_rects() -> Vec<RECT> {
 /// Check if a proposed RECT overlaps with any existing window
 fn would_overlap_existing(proposed: &RECT, existing: &[RECT], gap: i32) -> bool {
     existing.iter().any(|r| rects_overlap(proposed, r, gap))
-}
-
-pub fn is_rect_occupied(proposed: &RECT) -> bool {
-    let existing = get_all_active_window_rects();
-    would_overlap_existing(proposed, &existing, 15)
 }
 
 /// Calculate the next window position with intelligent collision detection.

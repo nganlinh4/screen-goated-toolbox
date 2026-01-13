@@ -251,23 +251,6 @@ pub fn trigger_markdown_toggle(hwnd: HWND) {
     button_canvas::update_window_position(hwnd);
 }
 
-/// Trigger download HTML
-pub fn trigger_download(hwnd: HWND) {
-    let hwnd_key = hwnd.0 as isize;
-
-    let full_text = {
-        let states = WINDOW_STATES.lock().unwrap();
-        states
-            .get(&hwnd_key)
-            .map(|s| s.full_text.clone())
-            .unwrap_or_default()
-    };
-
-    if !full_text.is_empty() {
-        markdown_view::save_html_file(&full_text);
-    }
-}
-
 /// Trigger speaker/TTS
 pub fn trigger_speaker(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
@@ -354,35 +337,4 @@ pub fn trigger_drag_window(hwnd: HWND, dx: i32, dy: i32) {
 
     // Update canvas with new position
     button_canvas::update_window_position_silent(hwnd);
-}
-
-/// Trigger native system drag for the window
-/// Trigger native system drag for the window
-pub fn trigger_native_drag(hwnd: HWND) {
-    unsafe {
-        use windows::Win32::Foundation::{LPARAM, POINT, WPARAM};
-        use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetCursorPos, PostMessageW, SetForegroundWindow, HTCAPTION, WM_NCLBUTTONDOWN,
-        };
-
-        // 1. Release capture from WebView so the system can redirect mouse input
-        let _ = ReleaseCapture();
-
-        // 2. Make target window active
-        let _ = SetForegroundWindow(hwnd);
-
-        // 3. Post WM_NCLBUTTONDOWN (simulates title bar click)
-        // This is safer for popups that might not have a system menu (required for SC_MOVE).
-        // We use PostMessage because the drag loop blocks execution.
-        let mut pt = POINT::default();
-        let _ = GetCursorPos(&mut pt);
-
-        let _ = PostMessageW(
-            Some(hwnd),
-            WM_NCLBUTTONDOWN,
-            WPARAM(HTCAPTION as usize),
-            LPARAM(((pt.y as isize) << 16) | (pt.x as isize)),
-        );
-    }
 }

@@ -29,7 +29,6 @@ const C_CLOUD_CORE: Color32 = Color32::from_rgb(2, 2, 5); // Almost pure black v
 
 // --- DAY PALETTE ---
 const C_SKY_DAY_TOP: Color32 = Color32::from_rgb(100, 180, 255);
-const C_SKY_DAY_BOT: Color32 = Color32::from_rgb(200, 230, 255);
 const C_DAY_REP: Color32 = Color32::from_rgb(0, 110, 255); // Representative (Vibrant Blue)
 const C_DAY_SEC: Color32 = Color32::from_rgb(255, 255, 255); // Secondary (White) - S/T Voxels
 const C_DAY_TEXT: Color32 = Color32::from_rgb(255, 120, 0); // Text (Orange) - Title/Loading
@@ -543,7 +542,7 @@ impl SplashScreen {
         SplashStatus::Ongoing
     }
 
-    pub fn paint(&self, ctx: &egui::Context, theme_mode: &crate::config::ThemeMode) -> bool {
+    pub fn paint(&self, ctx: &egui::Context, _theme_mode: &crate::config::ThemeMode) -> bool {
         let mut theme_clicked = false;
         let now = ctx.input(|i| i.time);
         let t = (now - self.start_time) as f32;

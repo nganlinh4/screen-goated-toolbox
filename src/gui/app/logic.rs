@@ -77,13 +77,15 @@ impl SettingsApp {
                 use windows::Win32::Foundation::{LPARAM, WPARAM};
                 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-                if !REALTIME_HWND.is_invalid() {
+                let realtime_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+                if !realtime_hwnd.is_invalid() {
                     let _ =
-                        PostMessageW(Some(REALTIME_HWND), WM_THEME_UPDATE, WPARAM(0), LPARAM(0));
+                        PostMessageW(Some(realtime_hwnd), WM_THEME_UPDATE, WPARAM(0), LPARAM(0));
                 }
-                if !TRANSLATION_HWND.is_invalid() {
+                let translation_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
+                if !translation_hwnd.is_invalid() {
                     let _ = PostMessageW(
-                        Some(TRANSLATION_HWND),
+                        Some(translation_hwnd),
                         WM_THEME_UPDATE,
                         WPARAM(0),
                         LPARAM(0),

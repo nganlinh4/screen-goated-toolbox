@@ -4,7 +4,6 @@ use raw_window_handle::{
 };
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
-use std::sync::atomic::AtomicU64;
 use std::sync::{Mutex, Once};
 use windows::core::w;
 use windows::Win32::Foundation::*;
@@ -21,8 +20,6 @@ lazy_static::lazy_static! {
     // Flag to skip next navigation handler call (set before history.back())
     static ref SKIP_NEXT_NAVIGATION: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
 }
-
-static MARKDOWN_PAGE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 // Global hidden window handle for WebView warmup
 static mut WARMUP_HWND: HWND = HWND(std::ptr::null_mut());
