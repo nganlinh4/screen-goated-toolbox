@@ -1180,6 +1180,28 @@ fn generate_html() -> String {
                 }}
             }}
             
+            // Apply fading curtain effect on both edges
+            const fadeWidth = 30; // Width of the fade zone in canvas pixels
+            
+            volumeCtx.save();
+            volumeCtx.globalCompositeOperation = 'destination-out';
+            
+            // Left fade (fully transparent at edge -> fully opaque inward)
+            const leftGrad = volumeCtx.createLinearGradient(0, 0, fadeWidth, 0);
+            leftGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+            leftGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            volumeCtx.fillStyle = leftGrad;
+            volumeCtx.fillRect(0, 0, fadeWidth, h);
+            
+            // Right fade (fully opaque inward -> fully transparent at edge)
+            const rightGrad = volumeCtx.createLinearGradient(w - fadeWidth, 0, w, 0);
+            rightGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            rightGrad.addColorStop(1, 'rgba(0, 0, 0, 1)');
+            volumeCtx.fillStyle = rightGrad;
+            volumeCtx.fillRect(w - fadeWidth, 0, fadeWidth, h);
+            
+            volumeCtx.restore();
+            
             animationFrame = requestAnimationFrame(drawWaveform);
         }}
 
