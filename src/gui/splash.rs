@@ -602,7 +602,15 @@ impl SplashScreen {
         let master_alpha = alpha.clamp(0.0, 1.0);
 
         // --- THEME SWITCHER OVERLAY (User can switch theme ABOVE splash) ---
-        if master_alpha > 0.1 && self.exit_start_time.is_none() {
+        // Fade out over 0.3s when exit starts
+        let switcher_alpha = if let Some(exit_start) = self.exit_start_time {
+            let exit_dt = (now - exit_start) as f32;
+            (1.0 - exit_dt / 0.3).max(0.0)
+        } else {
+            1.0
+        };
+
+        if master_alpha > 0.1 && switcher_alpha > 0.01 {
             egui::Area::new(egui::Id::new("splash_theme_switcher"))
                 .order(egui::Order::Tooltip) // High priority above blocker
                 .fixed_pos(Pos2::new(14.0, 11.0))
@@ -612,15 +620,15 @@ impl SplashScreen {
                     // Pulse effect for the button
                     let pulse = (now * 2.0).sin().abs() * 0.2 + 0.8;
                     let btn_bg = if self.is_dark {
-                        Color32::from_white_alpha(30)
+                        Color32::from_white_alpha((30.0 * switcher_alpha) as u8)
                     } else {
-                        Color32::from_black_alpha(20)
+                        Color32::from_black_alpha((20.0 * switcher_alpha) as u8)
                     };
 
                     let icon_color = if self.is_dark {
-                        Color32::WHITE
+                        Color32::WHITE.linear_multiply(switcher_alpha)
                     } else {
-                        Color32::BLACK
+                        Color32::BLACK.linear_multiply(switcher_alpha)
                     };
 
                     let (rect, resp) =
@@ -638,8 +646,10 @@ impl SplashScreen {
                     // We must override the GLOBAL context style because the icon painter uses painter.ctx().style()
                     let old_panel_fill = ctx.style().visuals.panel_fill;
                     if !self.is_dark {
-                        ctx.style_mut(|s| s.visuals.panel_fill = Color32::from_rgb(109, 174, 235));
-                        // #6DAEEB
+                        // Also fade the moon cutout color
+                        let cutout_color =
+                            Color32::from_rgb(109, 174, 235).linear_multiply(switcher_alpha);
+                        ctx.style_mut(|s| s.visuals.panel_fill = cutout_color);
                     }
 
                     // High-quality manual vector icon
@@ -648,7 +658,8 @@ impl SplashScreen {
                     // Restore global style
                     ctx.style_mut(|s| s.visuals.panel_fill = old_panel_fill);
 
-                    if resp.clicked() {
+                    // Only allow clicks when fully visible
+                    if resp.clicked() && switcher_alpha > 0.9 {
                         theme_clicked = true;
                     }
                 });
