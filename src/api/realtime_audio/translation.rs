@@ -103,14 +103,14 @@ pub fn run_translation_loop(
                 continue;
             }
 
-            let (chunk, has_finished, is_unchanged) = {
+            let (chunk, has_finished, bytes_to_commit, is_unchanged) = {
                 let s = state.lock().unwrap();
                 if s.is_transcript_unchanged() {
-                    (None, false, true)
+                    (None, false, 0, true)
                 } else {
                     match s.get_translation_chunk() {
-                        Some((text, has_finished)) => (Some(text), has_finished, false),
-                        None => (None, false, true),
+                        Some((text, has_finished, len)) => (Some(text), has_finished, len, false),
+                        None => (None, false, 0, true),
                     }
                 }
             };
@@ -150,10 +150,10 @@ pub fn run_translation_loop(
                     if let Some(text) = translate_with_google_gtx(&chunk, &target_language) {
                         if let Ok(mut s) = state.lock() {
                             s.append_translation(&text);
-                            // Only commit if source was finished (delimiter present)
+                            // Always commit source if finished, regardless of translation result
                             if has_finished {
                                 s.commit_current_translation();
-                                s.commit_finished_sentences();
+                                s.advance_committed_pos(bytes_to_commit);
                             }
                             let display = s.display_translation.clone();
                             update_translation_text(translation_hwnd, &display);
@@ -252,11 +252,13 @@ pub fn run_translation_loop(
                                     }
                                 }
 
-                                // Only commit if source was finished (delimiter present)
-                                if !full_translation.is_empty() && has_finished {
+                                // FIXED: Commit exact bytes processed
+                                if has_finished {
                                     if let Ok(mut s) = state.lock() {
-                                        s.commit_current_translation();
-                                        s.commit_finished_sentences();
+                                        if !full_translation.is_empty() {
+                                            s.commit_current_translation();
+                                        }
+                                        s.advance_committed_pos(bytes_to_commit);
                                     }
                                 }
                             }
@@ -279,6 +281,7 @@ pub fn run_translation_loop(
                         &cerebras_key,
                         &history_messages,
                         has_finished,
+                        bytes_to_commit,
                         translation_hwnd,
                         &state,
                         &stop_signal,
@@ -300,6 +303,7 @@ fn handle_fallback_translation(
     cerebras_key: &str,
     history_messages: &[serde_json::Value],
     has_finished: bool,
+    bytes_to_commit: usize,
     translation_hwnd: HWND,
     state: &SharedRealtimeState,
     stop_signal: &Arc<AtomicBool>,
@@ -342,7 +346,7 @@ fn handle_fallback_translation(
                 s.append_translation(&text);
                 if has_finished {
                     s.commit_current_translation();
-                    s.commit_finished_sentences();
+                    s.advance_committed_pos(bytes_to_commit);
                 }
                 let display = s.display_translation.clone();
                 update_translation_text(translation_hwnd, &display);
@@ -433,11 +437,13 @@ fn handle_fallback_translation(
                     }
                 }
 
-                // Only commit if finished
-                if !full_t.is_empty() && has_finished {
+                // FIXED: Commit exact bytes
+                if has_finished {
                     if let Ok(mut s) = state.lock() {
-                        s.commit_current_translation();
-                        s.commit_finished_sentences();
+                        if !full_t.is_empty() {
+                            s.commit_current_translation();
+                        }
+                        s.advance_committed_pos(bytes_to_commit);
                     }
                 }
             }
