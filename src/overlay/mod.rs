@@ -45,26 +45,90 @@ pub fn get_shared_webview_data_dir() -> std::path::PathBuf {
 /// Clear WebView permissions (MIDI, etc.) by removing the webview_data directory.
 /// The directory will be recreated on next WebView initialization.
 /// Returns true if successfully cleared, false otherwise.
+///
+/// On Windows, this function handles the "directory not empty" error (code 145)
+/// that can occur when files are locked by WebView processes. It will retry
+/// with delays and attempt per-file deletion as a fallback.
 pub fn clear_webview_permissions() -> bool {
     let mut path = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     path.push("SGT");
     path.push("webview_data");
 
-    if path.exists() {
+    if !path.exists() {
+        // Already clean
+        return true;
+    }
+
+    // Try up to 3 times with increasing delays
+    for attempt in 0..3 {
+        if attempt > 0 {
+            // Wait before retry (100ms, 500ms)
+            std::thread::sleep(std::time::Duration::from_millis(if attempt == 1 {
+                100
+            } else {
+                500
+            }));
+        }
+
         match std::fs::remove_dir_all(&path) {
             Ok(_) => {
                 println!("WebView data cleared successfully at {:?}", path);
-                true
+                return true;
             }
             Err(e) => {
-                eprintln!("Failed to clear WebView data: {:?}", e);
-                false
+                // Check if it's the "directory not empty" error (Windows error 145)
+                if e.raw_os_error() == Some(145) {
+                    eprintln!(
+                        "Attempt {}: Directory not empty, trying per-file deletion...",
+                        attempt + 1
+                    );
+                    // Try to delete files individually first
+                    if delete_directory_contents_recursive(&path) {
+                        // Now try to remove the empty directory
+                        if std::fs::remove_dir(&path).is_ok() {
+                            println!("WebView data cleared successfully (per-file) at {:?}", path);
+                            return true;
+                        }
+                    }
+                } else if attempt == 2 {
+                    eprintln!(
+                        "Failed to clear WebView data after {} attempts: {:?}",
+                        attempt + 1,
+                        e
+                    );
+                }
             }
         }
-    } else {
-        // Already clean
-        true
     }
+
+    false
+}
+
+/// Recursively delete directory contents, ignoring errors for individual locked files.
+/// Returns true if at least some cleanup was done.
+fn delete_directory_contents_recursive(path: &std::path::Path) -> bool {
+    let mut any_deleted = false;
+
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_dir() {
+                // Recursively clean subdirectory
+                delete_directory_contents_recursive(&entry_path);
+                // Try to remove the now-empty directory
+                if std::fs::remove_dir(&entry_path).is_ok() {
+                    any_deleted = true;
+                }
+            } else {
+                // Try to remove the file
+                if std::fs::remove_file(&entry_path).is_ok() {
+                    any_deleted = true;
+                }
+            }
+        }
+    }
+
+    any_deleted
 }
 /// Check if we should use dark mode based on config
 pub fn is_dark_mode() -> bool {
