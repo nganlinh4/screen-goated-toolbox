@@ -77,13 +77,23 @@ pub fn show_body(
                                 // Render Mode Dropdown for input display
                                 // Text: Normal only (no streaming for input)
                                 // Image/Audio: Normal or Markdown (đẹp)
-                                let current_mode_label = if render_mode == "markdown" {
+                                let current_mode_label = if render_mode == "markdown"
+                                    || render_mode == "markdown_stream"
+                                {
+                                    // Normalize markdown_stream to markdown for Input nodes (they don't stream)
+                                    if render_mode == "markdown_stream" {
+                                        *render_mode = "markdown".to_string();
+                                    }
                                     match viewer.ui_language.as_str() {
                                         "vi" => "Đẹp",
                                         "ko" => "마크다운",
                                         _ => "Markdown",
                                     }
                                 } else {
+                                    // Normalize stream to plain for Input nodes
+                                    if render_mode == "stream" {
+                                        *render_mode = "plain".to_string();
+                                    }
                                     match viewer.ui_language.as_str() {
                                         "vi" => "Thường",
                                         "ko" => "일반",
