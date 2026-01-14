@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 /// Reduced from 2000ms to 800ms for snappier response with Parakeet
 pub const USER_SILENCE_TIMEOUT_MS: u64 = 800;
 /// Timeout for AI Silence (Wait if AI stops generating)
-/// Reduced from 2000ms to 1000ms
 pub const AI_SILENCE_TIMEOUT_MS: u64 = 1000;
 
 /// Minimum characters required to trigger a force-commit on silence
@@ -18,6 +17,7 @@ const MIN_FORCE_COMMIT_CHARS: usize = 10;
 // ============================================
 
 pub const PARAKEET_BASE_TIMEOUT_MS: u64 = 800;
+pub const PARAKEET_SHORT_TIMEOUT_MS: u64 = 1200;
 pub const PARAKEET_MIN_WORDS: usize = 2;
 pub const PARAKEET_MIN_TIMEOUT_MS: u64 = 350;
 pub const PARAKEET_TIMEOUT_DECAY_RATE: f64 = 2.5;
@@ -152,6 +152,13 @@ impl RealtimeState {
     }
 
     fn calculate_parakeet_timeout_ms(&self) -> u64 {
+        let word_count = self.count_uncommitted_words();
+
+        // ADAPTIVE: Wait longer for short phrases to prevent cutting off sentences mid-thought
+        if word_count < 5 {
+            return PARAKEET_SHORT_TIMEOUT_MS; // 1200ms
+        }
+
         let segment_len = if self.last_committed_pos >= self.full_transcript.len() {
             0
         } else if self
@@ -165,7 +172,7 @@ impl RealtimeState {
 
         let threshold = 30usize;
         if segment_len <= threshold {
-            return PARAKEET_BASE_TIMEOUT_MS;
+            return PARAKEET_BASE_TIMEOUT_MS; // 800ms
         }
 
         let excess_chars = segment_len - threshold;
@@ -271,15 +278,9 @@ impl RealtimeState {
         self.update_display_translation();
     }
 
-    // ============================================
-    // CRITICAL FIX: SMARTER CHUNKING
-    // ============================================
-
     /// Get text to translate.
-    /// CRITICAL CHANGE: If a sentence delimiter exists, ONLY return the text up to that delimiter.
-    /// This ensures we don't send "finished sentence + half sentence" to the AI, which causes
-    /// alignment issues and repetition when we commit.
-    pub fn get_translation_chunk(&self) -> Option<(String, bool)> {
+    /// Returns: Option<(text_string, has_delimiter, byte_length_of_chunk)>
+    pub fn get_translation_chunk(&self) -> Option<(String, bool, usize)> {
         if self.last_committed_pos >= self.full_transcript.len() {
             return None;
         }
@@ -307,13 +308,12 @@ impl RealtimeState {
         }
 
         if let Some(idx) = split_idx {
-            // We found a delimiter! Return ONLY the finished sentence(s).
-            // This aligns perfectly with what commit_finished_sentences() will consume.
+            // Found delimiter. Return specific chunk and its exact length.
             let chunk = text[..idx].to_string();
-            Some((chunk, true))
+            Some((chunk, true, idx))
         } else {
-            // No delimiter yet, return the whole incomplete buffer for live preview
-            Some((text.to_string(), false))
+            // No delimiter. Return whole buffer, but length is 0 (don't commit yet).
+            Some((text.to_string(), false, 0))
         }
     }
 
@@ -325,39 +325,20 @@ impl RealtimeState {
         self.last_processed_len = self.full_transcript.len();
     }
 
-    /// Commit source based on delimiters.
-    pub fn commit_finished_sentences(&mut self) -> bool {
-        let sentence_delimiters = ['.', '!', '?', '。', '！', '？'];
+    /// Safely advance the commit pointer by a specific amount.
+    /// Used to commit exactly what was translated, avoiding race conditions.
+    pub fn advance_committed_pos(&mut self, amount: usize) {
+        let new_pos = self.last_committed_pos + amount;
 
-        if self.last_committed_pos >= self.full_transcript.len() {
-            return false;
-        }
-
-        if !self
-            .full_transcript
-            .is_char_boundary(self.last_committed_pos)
-        {
-            return false;
-        }
-
-        let source_text = &self.full_transcript[self.last_committed_pos..];
-
-        let mut last_delimiter_pos: Option<usize> = None;
-        for (i, c) in source_text.char_indices() {
-            if sentence_delimiters.contains(&c) {
-                last_delimiter_pos = Some(i + c.len_utf8());
+        // Safety bounds check
+        if new_pos <= self.full_transcript.len() && self.full_transcript.is_char_boundary(new_pos) {
+            self.last_committed_pos = new_pos;
+        } else {
+            // Fallback: if boundaries are messed up (rare), just go to end
+            if new_pos > self.full_transcript.len() {
+                self.last_committed_pos = self.full_transcript.len();
             }
         }
-
-        let src_end = match last_delimiter_pos {
-            Some(pos) => pos,
-            None => return false,
-        };
-
-        let final_src_pos = self.last_committed_pos + src_end;
-        self.last_committed_pos = final_src_pos;
-
-        true
     }
 
     pub fn start_new_translation(&mut self) {
