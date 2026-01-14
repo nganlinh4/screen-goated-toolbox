@@ -57,7 +57,7 @@ impl Default for ChainNode {
             language_vars: HashMap::new(),
             show_overlay: true,
             streaming_enabled: true,
-            render_mode: "stream".to_string(),
+            render_mode: "markdown_stream".to_string(),
             auto_copy: false,
             auto_speak: false,
         }

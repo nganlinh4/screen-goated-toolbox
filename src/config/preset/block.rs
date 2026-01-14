@@ -74,7 +74,7 @@ fn default_true() -> bool {
 }
 
 fn default_render_mode() -> String {
-    "stream".to_string()
+    "markdown_stream".to_string()
 }
 
 impl Default for ProcessingBlock {
@@ -87,7 +87,7 @@ impl Default for ProcessingBlock {
             selected_language: "Vietnamese".to_string(),
             language_vars: HashMap::new(),
             streaming_enabled: true,
-            render_mode: "stream".to_string(),
+            render_mode: "markdown_stream".to_string(),
             show_overlay: true,
             auto_copy: false,
             auto_speak: false,
