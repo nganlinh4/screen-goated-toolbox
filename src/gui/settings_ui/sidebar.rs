@@ -6,6 +6,15 @@ use eframe::egui;
 
 /// Get localized preset name for default presets (public for reuse in other modules)
 pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
+    // Special handling for 101 preset to ensure it matches
+    if preset_id == "preset_101_on_this" {
+        return match lang_code {
+            "vi" => "Tất tần tật".to_string(),
+            "ko" => "이것의 모든 것".to_string(),
+            _ => "101 on this".to_string(),
+        };
+    }
+
     match (preset_id, lang_code) {
         // Vietnamese
         ("preset_translate", "vi") => "Dịch vùng".to_string(),
@@ -46,8 +55,6 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_fact_check", "vi") => "Kiểm chứng thông tin".to_string(),
         ("preset_omniscient_god", "vi") => "Thần Trí tuệ".to_string(),
         // Moved from below to ensure priority/cleanliness
-        ("preset_101_on_this", "vi") => "Tất tần tật".to_string(),
-
         ("preset_realtime_audio_translate", "vi") => "Dịch cabin".to_string(),
         ("preset_quick_ai_question", "vi") => "Hỏi nhanh AI".to_string(),
         ("preset_voice_search", "vi") => "Nói để search".to_string(),
@@ -100,7 +107,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_quicker_foreigner_reply", "ko") => "빠른 외국인 답변 2".to_string(),
         ("preset_fact_check", "ko") => "정보 확인".to_string(),
         ("preset_omniscient_god", "ko") => "전지전능한 신".to_string(),
-        ("preset_101_on_this", "ko") => "이것의 모든 것".to_string(),
+
         ("preset_realtime_audio_translate", "ko") => "실시간 음성 번역".to_string(),
         ("preset_quick_ai_question", "ko") => "빠른 AI 질문".to_string(),
         ("preset_voice_search", "ko") => "음성 검색".to_string(),
@@ -163,7 +170,7 @@ pub fn get_localized_preset_name(preset_id: &str, lang_code: &str) -> String {
         ("preset_record_device", _) => "Device Record".to_string(),
         ("preset_continuous_writing_online", _) => "Continuous Writing".to_string(),
         ("preset_transcribe_english_offline", _) => "Transcribe English".to_string(),
-        ("preset_101_on_this", _) => "101 on this".to_string(),
+
         // MASTER presets - English (default)
         ("preset_image_master", _) => "Image MASTER".to_string(),
         ("preset_text_select_master", _) => "Select MASTER".to_string(),
