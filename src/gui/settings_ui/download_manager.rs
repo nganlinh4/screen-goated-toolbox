@@ -100,6 +100,16 @@ impl DownloadManager {
                 *ffmpeg_s.lock().unwrap() = InstallStatus::Missing;
                 log(&logs, "ffmpeg missing");
             }
+
+            // Cleanup any partial downloads (.tmp files)
+            if let Ok(entries) = fs::read_dir(&bin) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().map_or(false, |ext| ext == "tmp") {
+                        let _ = fs::remove_file(&path);
+                    }
+                }
+            }
         });
     }
 
@@ -738,14 +748,19 @@ fn download_file(
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
 
+    // Download to temp file first
+    let temp_path = path.with_extension("tmp");
     let mut reader = resp.into_body().into_reader();
-    let mut file = fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut file = fs::File::create(&temp_path).map_err(|e| e.to_string())?;
 
     let mut buffer = [0; 8192];
     let mut downloaded: u64 = 0;
 
     loop {
         if cancel.load(Ordering::Relaxed) {
+            // Cleanup temp file on cancel
+            drop(file);
+            let _ = fs::remove_file(&temp_path);
             return Err("Cancelled".to_string());
         }
         let bytes_read = reader.read(&mut buffer).map_err(|e| e.to_string())?;
@@ -761,6 +776,15 @@ fn download_file(
             *status.lock().unwrap() = InstallStatus::Downloading(progress);
         }
     }
+
+    // Ensure file is flushed and closed before rename
+    drop(file);
+
+    // Rename temp file to final path
+    fs::rename(&temp_path, path).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
+        format!("Failed to rename temp file: {}", e)
+    })?;
 
     Ok(())
 }

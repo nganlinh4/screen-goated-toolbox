@@ -280,7 +280,10 @@ impl SettingsApp {
             show_usage_modal: false,
             drop_overlay_fade: 0.0,
             // --- TTS SETTINGS MODAL INIT ---
+            // --- TTS SETTINGS MODAL INIT ---
             show_tts_modal: false,
+            // --- TOOLS MODAL INIT ---
+            show_tools_modal: false,
             // -----------------------
 
             // --- FAVORITE BUBBLE STATE INIT ---

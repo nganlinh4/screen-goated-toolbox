@@ -92,6 +92,7 @@ pub struct SettingsApp {
     pub(crate) drop_overlay_fade: f32,
     // --- TTS SETTINGS MODAL STATE ---
     pub(crate) show_tts_modal: bool,
+    pub(crate) show_tools_modal: bool,
     // --------------------
 
     // --- FAVORITE BUBBLE STATE TRACKING ---

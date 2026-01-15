@@ -7,10 +7,13 @@ use auto_launch::AutoLaunch;
 use eframe::egui;
 use std::collections::HashMap;
 
+mod downloaded_tools;
 mod tts_settings;
 mod update_section;
 mod usage_stats;
 
+use crate::gui::settings_ui::download_manager::DownloadManager;
+use downloaded_tools::render_downloaded_tools_modal;
 use tts_settings::render_tts_settings_modal;
 use update_section::render_update_section_content;
 use usage_stats::render_usage_modal;
@@ -32,7 +35,10 @@ pub fn render_global_settings(
     current_admin_state: bool,
     text: &LocaleText,
     show_usage_modal: &mut bool,
+
     show_tts_modal: &mut bool,
+    show_tools_modal: &mut bool,
+    download_manager: &mut DownloadManager,
     _cached_audio_devices: &std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
 ) -> bool {
     let mut changed = false;
@@ -302,6 +308,30 @@ pub fn render_global_settings(
         {
             *show_tts_modal = true;
         }
+
+        ui.add_space(10.0);
+
+        let tools_bg = if is_dark {
+            egui::Color32::from_rgb(60, 90, 140)
+        } else {
+            egui::Color32::from_rgb(100, 140, 200)
+        };
+
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new(format!("📦 {}", text.downloaded_tools_button))
+                        .color(egui::Color32::WHITE)
+                        .strong(),
+                )
+                .fill(tools_bg)
+                .corner_radius(10.0),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+        {
+            *show_tools_modal = true;
+        }
     });
 
     // === USAGE STATISTICS MODAL ===
@@ -316,6 +346,10 @@ pub fn render_global_settings(
         config.use_ollama,
         config.use_cerebras,
     );
+
+    // === TOOLS MODAL ===
+    let ctx = ui.ctx().clone();
+    render_downloaded_tools_modal(&ctx, ui, show_tools_modal, download_manager, text);
 
     // === TTS SETTINGS MODAL ===
     if render_tts_settings_modal(ui, config, text, show_tts_modal) {

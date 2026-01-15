@@ -615,6 +615,8 @@ impl SettingsApp {
                                         &text,
                                         &mut self.show_usage_modal,
                                         &mut self.show_tts_modal,
+                                        &mut self.show_tools_modal,
+                                        &mut self.download_manager,
                                         &self.cached_audio_devices,
                                     ) {
                                         self.save_and_sync();

@@ -265,6 +265,20 @@ pub struct LocaleText {
     pub download_change_folder_btn: &'static str,
     // Format: "{percent}% of {total} at {speed}, ETA {eta}"
     pub download_progress_info_fmt: &'static str, 
+
+    // --- DOWNLOADED TOOLS MODAL ---
+    pub downloaded_tools_button: &'static str,
+    pub downloaded_tools_title: &'static str,
+    pub tool_parakeet: &'static str,
+    pub tool_ytdlp: &'static str,
+    pub tool_ffmpeg: &'static str,
+    pub tool_status_installed: &'static str, // "Installed ({})"
+    pub tool_status_missing: &'static str,
+    pub tool_action_download: &'static str,
+    pub tool_action_delete: &'static str,
+    pub tool_desc_parakeet: &'static str,
+    pub tool_desc_ytdlp: &'static str,
+    pub tool_desc_ffmpeg: &'static str,
 }
 
 impl LocaleText {
@@ -579,6 +593,19 @@ impl LocaleText {
                   download_size_label: "Kích thước:",
                   download_change_folder_btn: "Thay đổi nơi lưu...",
                   download_progress_info_fmt: "{}% của {}, tốc độ {}, còn {}",
+                  
+                  downloaded_tools_button: "Công cụ đã tải",
+                  downloaded_tools_title: "Quản lý công cụ đã tải",
+                  tool_parakeet: "Mô hình Parakeet Realtime",
+                  tool_ytdlp: "Công cụ yt-dlp",
+                  tool_ffmpeg: "Công cụ ffmpeg",
+                  tool_status_installed: "Đã tải ({})",
+                  tool_status_missing: "Chưa tải",
+                  tool_action_download: "Tải về",
+                  tool_action_delete: "Xoá",
+                  tool_desc_parakeet: "Mô hình AI để nhận diện giọng nói realtime.",
+                  tool_desc_ytdlp: "Công cụ tải video/audio nguồn mở mạnh mẽ.",
+                  tool_desc_ffmpeg: "Công cụ xử lý đa phương tiện cần thiết.",
                   },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -863,6 +890,19 @@ impl LocaleText {
                  download_size_label: "크기:",
                  download_change_folder_btn: "폴더 변경...",
                  download_progress_info_fmt: "{}% / {}, 속도 {}, 남은 시간 {}",
+
+                  downloaded_tools_button: "다운로드된 도구",
+                  downloaded_tools_title: "다운로드된 도구 관리",
+                  tool_parakeet: "Parakeet 실시간 모델",
+                  tool_ytdlp: "yt-dlp 도구",
+                  tool_ffmpeg: "ffmpeg 도구",
+                  tool_status_installed: "설치됨 ({})",
+                  tool_status_missing: "설치되지 않음",
+                  tool_action_download: "다운로드",
+                  tool_action_delete: "삭제",
+                  tool_desc_parakeet: "실시간 음성 인식을 위한 AI 모델.",
+                  tool_desc_ytdlp: "강력한 오픈 소스 비디오/오디오 다운로더.",
+                  tool_desc_ffmpeg: "필수 멀티미디어 처리 도구.",
                  // --- HELP ASSISTANT KO ---
                  help_assistant_btn: "SGT 사용법 물어보기...",
                  help_assistant_title: "SGT에 대해 물어보기",
@@ -1198,6 +1238,19 @@ impl LocaleText {
                    download_size_label: "Size:",
                    download_change_folder_btn: "Change Folder...",
                    download_progress_info_fmt: "{}% of {}, at {}, ETA {}",
+
+                   downloaded_tools_button: "Downloaded Tools",
+                   downloaded_tools_title: "Downloaded Tools Manager",
+                   tool_parakeet: "Parakeet Realtime Model",
+                   tool_ytdlp: "yt-dlp Tool",
+                   tool_ffmpeg: "ffmpeg Tool",
+                   tool_status_installed: "Installed ({})",
+                   tool_status_missing: "Not installed",
+                   tool_action_download: "Download",
+                   tool_action_delete: "Delete",
+                   tool_desc_parakeet: "AI model for realtime speech recognition.",
+                   tool_desc_ytdlp: "Powerful open-source video/audio downloader.",
+                   tool_desc_ffmpeg: "Essential multimedia processing tool.",
                   },
                 }
     }
