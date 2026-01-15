@@ -18,7 +18,9 @@ impl eframe::App for SettingsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Handle Dropped Files and Paste FIRST (before any UI consumes events)
         input_handler::handle_dropped_files(ctx);
-        input_handler::handle_paste(ctx);
+        if !self.download_manager.show_window {
+            input_handler::handle_paste(ctx);
+        }
 
         // Updater
         self.check_updater();

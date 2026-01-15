@@ -1,3 +1,4 @@
+pub mod download_manager;
 mod footer;
 mod global;
 pub mod help_assistant;

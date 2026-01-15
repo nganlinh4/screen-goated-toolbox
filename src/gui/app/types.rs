@@ -98,4 +98,7 @@ pub struct SettingsApp {
     pub(crate) last_bubble_enabled: bool,
     pub(crate) last_has_favorites: bool,
     // --------------------------------------
+
+    // --- DOWNLOAD MANAGER ---
+    pub(crate) download_manager: crate::gui::settings_ui::download_manager::DownloadManager,
 }

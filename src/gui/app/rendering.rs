@@ -143,6 +143,9 @@ impl SettingsApp {
                 self.show_tips_modal = false;
             }
         }
+
+        // Render Download Manager Modal
+        self.download_manager.render(ctx, &text);
     }
 
     pub(crate) fn render_title_bar(&mut self, ctx: &egui::Context) {
@@ -290,6 +293,22 @@ impl SettingsApp {
                         .clicked()
                     {
                         crate::overlay::prompt_dj::show_prompt_dj();
+                    }
+
+                    // Download Manager
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!("⬇ {}", text.download_feature_btn))
+                                    .color(egui::Color32::WHITE)
+                                    .size(12.0),
+                            )
+                            .fill(egui::Color32::from_rgb(200, 100, 100))
+                            .corner_radius(6.0),
+                        )
+                        .clicked()
+                    {
+                        self.download_manager.show_window = true;
                     }
 
                     // Help Assistant

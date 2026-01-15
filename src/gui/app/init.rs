@@ -285,8 +285,13 @@ impl SettingsApp {
 
             // --- FAVORITE BUBBLE STATE INIT ---
             last_bubble_enabled: initial_bubble_enabled,
+
             last_has_favorites: initial_has_favorites,
             // ----------------------------------
+
+            // --- DOWNLOAD MANAGER INIT ---
+            download_manager: crate::gui::settings_ui::download_manager::DownloadManager::new(),
+            // -----------------------------
         }
     }
 }
