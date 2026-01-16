@@ -490,6 +490,8 @@ impl DownloadManager {
             .collapsible(false)
             .resizable(false)
             .default_width(400.0)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.screen_rect().center())
             .show(ctx, |ui| {
                 // Dependency Check
                 let ffmpeg_ok = matches!(
