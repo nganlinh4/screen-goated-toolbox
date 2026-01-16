@@ -83,14 +83,18 @@ fn create_bubble_window() {
         });
 
         // Get saved position or use default
-        let (initial_x, initial_y) = if let Ok(app) = APP.lock() {
-            app.config.favorite_bubble_position.unwrap_or_else(|| {
+        let (initial_x, initial_y, current_size) = if let Ok(app) = APP.lock() {
+            let size = app.config.favorite_bubble_size as i32;
+            BUBBLE_SIZE.store(size, Ordering::SeqCst);
+
+            let pos = app.config.favorite_bubble_position.unwrap_or_else(|| {
                 let screen_w = GetSystemMetrics(SM_CXSCREEN);
                 let screen_h = GetSystemMetrics(SM_CYSCREEN);
-                (screen_w - BUBBLE_SIZE - 30, screen_h - BUBBLE_SIZE - 150)
-            })
+                (screen_w - size - 30, screen_h - size - 150)
+            });
+            (pos.0, pos.1, size)
         } else {
-            (100, 100)
+            (100, 100, 40)
         };
 
         // Create layered window for transparency (NOACTIVATE prevents focus stealing)
@@ -101,8 +105,8 @@ fn create_bubble_window() {
             WS_POPUP,
             initial_x,
             initial_y,
-            BUBBLE_SIZE,
-            BUBBLE_SIZE,
+            current_size,
+            current_size,
             None,
             None,
             Some(instance.into()),
@@ -221,21 +225,17 @@ unsafe extern "system" fn bubble_wnd_proc(
                     let mut rect = RECT::default();
                     let _ = GetWindowRect(hwnd, &mut rect);
 
-                    // Use Work Area (exclude taskbar) for boundaries
-                    let mut work_area = RECT::default();
-                    unsafe {
-                        let _ = SystemParametersInfoW(
-                            SPI_GETWORKAREA,
-                            0,
-                            Some(&mut work_area as *mut _ as *mut std::ffi::c_void),
-                            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-                        );
-                    }
+                    // Use Virtual Screen bounds for cross-monitor dragging
+                    let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                    let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                    let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                    let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-                    let new_x = (rect.left + x - BUBBLE_SIZE / 2)
-                        .clamp(work_area.left, work_area.right - BUBBLE_SIZE);
-                    let new_y = (rect.top + y - BUBBLE_SIZE / 2)
-                        .clamp(work_area.top, work_area.bottom - BUBBLE_SIZE);
+                    let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
+                    let new_x =
+                        (rect.left + x - bubble_size / 2).clamp(v_x, v_x + v_w - bubble_size);
+                    let new_y =
+                        (rect.top + y - bubble_size / 2).clamp(v_y, v_y + v_h - bubble_size);
 
                     // Track velocity (instantaneous delta) with smoothing and boost
                     let raw_vx = (new_x - rect.left) as f32;
@@ -376,21 +376,17 @@ unsafe extern "system" fn bubble_wnd_proc(
                     let mut next_x = rect.left as f32 + vx;
                     let mut next_y = rect.top as f32 + vy;
 
-                    // Use Work Area (exclude taskbar) for physics collision logic
-                    let mut work_area = RECT::default();
-                    unsafe {
-                        let _ = SystemParametersInfoW(
-                            SPI_GETWORKAREA,
-                            0,
-                            Some(&mut work_area as *mut _ as *mut std::ffi::c_void),
-                            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-                        );
-                    }
+                    let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
+                    let bubble_size_f = bubble_size as f32;
 
-                    let min_x = work_area.left as f32;
-                    let max_x = (work_area.right - BUBBLE_SIZE) as f32;
-                    let min_y = work_area.top as f32;
-                    let max_y = (work_area.bottom - BUBBLE_SIZE) as f32;
+                    // Use Virtual Screen bounds for physics bouncing
+                    let min_x = GetSystemMetrics(SM_XVIRTUALSCREEN) as f32;
+                    let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                    let max_x = (min_x + v_w as f32) - bubble_size_f;
+
+                    let min_y = GetSystemMetrics(SM_YVIRTUALSCREEN) as f32;
+                    let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                    let max_y = (min_y + v_h as f32) - bubble_size_f;
 
                     let bounce_factor = 0.75; // Rubbery bounce
 

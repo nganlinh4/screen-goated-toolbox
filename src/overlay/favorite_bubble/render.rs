@@ -13,12 +13,14 @@ pub fn update_bubble_visual(hwnd: HWND) {
         let hdc_screen = GetDC(None);
         let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
 
+        let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
+
         // Create 32-bit ARGB bitmap
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: BUBBLE_SIZE,
-                biHeight: -BUBBLE_SIZE, // Top-down
+                biWidth: bubble_size,
+                biHeight: -bubble_size, // Top-down
                 biPlanes: 1,
                 biBitCount: 32,
                 biCompression: BI_RGB.0,
@@ -36,18 +38,18 @@ pub fn update_bubble_visual(hwnd: HWND) {
             // Draw directly to pixel buffer with anti-aliasing
             let pixels = std::slice::from_raw_parts_mut(
                 bits as *mut u32,
-                (BUBBLE_SIZE * BUBBLE_SIZE) as usize,
+                (bubble_size * bubble_size) as usize,
             );
             let is_hovered = IS_HOVERED.load(Ordering::SeqCst);
             let is_expanded = IS_EXPANDED.load(Ordering::SeqCst);
 
-            draw_bubble_pixels(pixels, BUBBLE_SIZE, is_hovered || is_expanded);
+            draw_bubble_pixels(pixels, bubble_size, is_hovered || is_expanded);
         }
 
         // Update layered window
         let size = SIZE {
-            cx: BUBBLE_SIZE,
-            cy: BUBBLE_SIZE,
+            cx: bubble_size,
+            cy: bubble_size,
         };
         let pt_src = POINT { x: 0, y: 0 };
         let blend = BLENDFUNCTION {
@@ -88,11 +90,8 @@ fn draw_bubble_pixels(pixels: &mut [u32], size: i32, _is_active: bool) {
     let opacity = CURRENT_OPACITY.load(Ordering::SeqCst);
 
     // Select icon based on theme
-    let icon_data = if LAST_THEME_IS_DARK.load(Ordering::SeqCst) {
-        &*ICON_RGBA
-    } else {
-        &*ICON_LIGHT_RGBA
-    };
+    let is_dark = LAST_THEME_IS_DARK.load(Ordering::SeqCst);
+    let icon_data = get_icon_data(size, is_dark);
 
     // Use embedded icon if available
     if !icon_data.is_empty() {

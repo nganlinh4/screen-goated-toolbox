@@ -187,15 +187,16 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
         let panel_h = panel_rect.bottom - panel_rect.top;
 
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
         let (panel_x, panel_y) = if bubble_x > screen_w / 2 {
             (
                 bubble_x - panel_w - 8,
-                bubble_y - panel_h / 2 + BUBBLE_SIZE / 2,
+                bubble_y - panel_h / 2 + bubble_size / 2,
             )
         } else {
             (
-                bubble_x + BUBBLE_SIZE + 8,
-                bubble_y - panel_h / 2 + BUBBLE_SIZE / 2,
+                bubble_x + bubble_size + 8,
+                bubble_y - panel_h / 2 + bubble_size / 2,
             )
         };
 
@@ -309,17 +310,18 @@ unsafe fn refresh_panel_layout_and_content(
     let panel_height_physical = (panel_height as f32 * scale).ceil() as i32;
 
     let screen_w = GetSystemMetrics(SM_CXSCREEN);
+    let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
 
     let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
         (
             bubble_rect.left - panel_width_physical - 4, // Closer to bubble
-            bubble_rect.top - panel_height_physical / 2 + BUBBLE_SIZE / 2,
+            bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
             "right",
         )
     } else {
         (
             bubble_rect.right + 4,
-            bubble_rect.top - panel_height_physical / 2 + BUBBLE_SIZE / 2,
+            bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
             "left",
         )
     };
@@ -378,11 +380,11 @@ unsafe fn refresh_panel_layout_and_content(
     // Pass side and bubble center relative to panel to JS
     // Use actual_panel_y (clamped) to match the real window position
     let bx = if side == "left" {
-        -(BUBBLE_SIZE as i32 / 2) - 4
+        -(bubble_size / 2) - 4
     } else {
-        (panel_width_physical / scale as i32) + (BUBBLE_SIZE as i32 / 2) + 4
+        (panel_width_physical / scale as i32) + (bubble_size / 2) + 4
     };
-    let by = (bubble_rect.top + BUBBLE_SIZE as i32 / 2) - actual_panel_y;
+    let by = (bubble_rect.top + bubble_size / 2) - actual_panel_y;
 
     PANEL_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
@@ -494,6 +496,22 @@ fn create_panel_webview(panel_hwnd: HWND) {
                     if let Ok(h) = body[7..].parse::<i32>() {
                         resize_panel_height(h);
                     }
+                } else if body == "increase_size" {
+                    if let Ok(mut app) = APP.lock() {
+                        let new_size = (app.config.favorite_bubble_size + 8).min(80);
+                        app.config.favorite_bubble_size = new_size;
+                        crate::config::save_config(&app.config);
+                        BUBBLE_SIZE.store(new_size as i32, Ordering::SeqCst);
+                    }
+                    update_favorites_panel();
+                } else if body == "decrease_size" {
+                    if let Ok(mut app) = APP.lock() {
+                        let new_size = (app.config.favorite_bubble_size.saturating_sub(8)).max(24);
+                        app.config.favorite_bubble_size = new_size;
+                        crate::config::save_config(&app.config);
+                        BUBBLE_SIZE.store(new_size as i32, Ordering::SeqCst);
+                    }
+                    update_favorites_panel();
                 }
             })
             .build_as_child(&wrapper)
@@ -651,15 +669,16 @@ fn resize_panel_height(content_height: i32) {
 
         // Recalculate Y position to keep centered on bubble
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
         let (_panel_x, panel_y) = if bubble_rect.left > screen_w / 2 {
             (
                 bubble_rect.left - current_width - 4,
-                bubble_rect.top - new_height_pixels / 2 + BUBBLE_SIZE / 2,
+                bubble_rect.top - new_height_pixels / 2 + bubble_size / 2,
             )
         } else {
             (
                 bubble_rect.right + 4,
-                bubble_rect.top - new_height_pixels / 2 + BUBBLE_SIZE / 2,
+                bubble_rect.top - new_height_pixels / 2 + bubble_size / 2,
             )
         };
 
