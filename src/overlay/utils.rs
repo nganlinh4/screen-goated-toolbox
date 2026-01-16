@@ -2,11 +2,69 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
     CreateDIBitmap, GetDC, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, CBM_INIT, DIB_RGB_COLORS,
 };
+use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::System::DataExchange::*;
 use windows::Win32::System::Memory::*;
 use windows::Win32::System::Threading::*;
+use windows::Win32::UI::Accessibility::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Timestamp (millis since epoch) of last "no caret" error badge.
+/// Used to rate-limit error notifications during streaming typing.
+static LAST_NO_CARET_ERROR_MS: AtomicU64 = AtomicU64::new(0);
+const NO_CARET_ERROR_COOLDOWN_MS: u64 = 5000; // Show error at most once per 5 seconds
+
+/// Checks if there's a text input element focused using UI Automation.
+/// This works for modern apps (Chrome, VS Code, Electron) unlike the legacy caret API.
+/// Returns true if a text input is focused, false otherwise.
+pub fn is_text_input_focused() -> bool {
+    unsafe {
+        // Try UI Automation first (works for modern apps)
+        // We use a pattern-based approach which is robust for Chrome/Electron/VSCode
+        if let Ok(uia) =
+            CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+        {
+            if let Ok(focused) = uia.GetFocusedElement() {
+                // Check for ValuePattern (simpler text inputs)
+                // UIA_ValuePatternId = 10002
+                if focused.GetCurrentPattern(UIA_ValuePatternId).is_ok() {
+                    return true;
+                }
+
+                // Check for TextPattern (rich text editors)
+                // UIA_TextPatternId = 10014
+                if focused.GetCurrentPattern(UIA_TextPatternId).is_ok() {
+                    return true;
+                }
+            }
+        }
+
+        // Fallback: Check legacy Win32 caret (for traditional Win32 apps like Notepad)
+        let hwnd_foreground = GetForegroundWindow();
+        if !hwnd_foreground.is_invalid() {
+            let thread_id = GetWindowThreadProcessId(hwnd_foreground, None);
+            if thread_id != 0 {
+                let mut gui_info = GUITHREADINFO::default();
+                gui_info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+
+                if GetGUIThreadInfo(thread_id, &mut gui_info).is_ok() {
+                    let has_caret = !gui_info.hwndCaret.is_invalid();
+                    let blinking = (gui_info.flags & GUI_CARETBLINKING).0 != 0;
+
+                    if has_caret || blinking {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+}
 
 pub fn to_wstring(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -274,36 +332,16 @@ pub fn get_clipboard_image_bytes() -> Option<Vec<u8>> {
 
 // --- AUTO PASTE UTILS ---
 
-/// Checks active window for caret OR keyboard focus and returns its HWND if found
+/// Returns the foreground window to attempt paste on.
+/// We don't filter by caret here anymore, deferring the check to force_focus_and_paste
+/// where we use more robust UI Automation.
 pub fn get_target_window_for_paste() -> Option<HWND> {
     unsafe {
         let hwnd_foreground = GetForegroundWindow();
         if hwnd_foreground.is_invalid() {
             return None;
         }
-
-        let thread_id = GetWindowThreadProcessId(hwnd_foreground, None);
-        if thread_id == 0 {
-            return None;
-        }
-
-        let mut gui_info = GUITHREADINFO::default();
-        gui_info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
-
-        if GetGUIThreadInfo(thread_id, &mut gui_info).is_ok() {
-            // Check legacy caret
-            let has_caret = !gui_info.hwndCaret.is_invalid();
-            let blinking = (gui_info.flags & GUI_CARETBLINKING).0 != 0;
-
-            // Check keyboard focus (Fix for Chrome/Electron/WPF)
-            let has_focus = !gui_info.hwndFocus.is_invalid();
-
-            if has_caret || blinking || has_focus {
-                return Some(hwnd_foreground);
-            }
-        }
-
-        None
+        Some(hwnd_foreground)
     }
 }
 
@@ -330,6 +368,27 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
 
         // 2. Wait for focus to settle
         std::thread::sleep(std::time::Duration::from_millis(350));
+
+        // 2.5 Check if there's a writable area using UI Automation
+        if !is_text_input_focused() {
+            // Rate limit error notifications
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let last_error_ms = LAST_NO_CARET_ERROR_MS.load(Ordering::Relaxed);
+
+            if now_ms.saturating_sub(last_error_ms) >= NO_CARET_ERROR_COOLDOWN_MS {
+                LAST_NO_CARET_ERROR_MS.store(now_ms, Ordering::Relaxed);
+                let app = crate::APP.lock().unwrap();
+                let ui_lang = app.config.ui_language.clone();
+                let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+                let msg = locale.cannot_type_no_caret;
+                drop(app);
+                crate::overlay::auto_copy_badge::show_error_notification(msg);
+            }
+            return;
+        }
 
         // 3. CLEANUP MODIFIERS SMARTLY
         // Only send KeyUp if the key is actually physically pressed to avoid side effects
@@ -411,6 +470,27 @@ pub fn type_text_to_window(hwnd_target_opt: Option<HWND>, text: &str) {
 
         // Don't try to type into nothing
         if target_window.is_invalid() {
+            return;
+        }
+
+        // Check if there's a writable area using UI Automation
+        if !is_text_input_focused() {
+            // Rate limit error notifications
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let last_error_ms = LAST_NO_CARET_ERROR_MS.load(Ordering::Relaxed);
+
+            if now_ms.saturating_sub(last_error_ms) >= NO_CARET_ERROR_COOLDOWN_MS {
+                LAST_NO_CARET_ERROR_MS.store(now_ms, Ordering::Relaxed);
+                let app = crate::APP.lock().unwrap();
+                let ui_lang = app.config.ui_language.clone();
+                let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+                let msg = locale.cannot_type_no_caret;
+                drop(app);
+                crate::overlay::auto_copy_badge::show_error_notification(msg);
+            }
             return;
         }
 

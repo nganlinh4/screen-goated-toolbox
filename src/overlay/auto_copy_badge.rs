@@ -1,5 +1,6 @@
 use crate::APP;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Mutex, Once};
 use windows::core::*;
@@ -20,22 +21,26 @@ static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
 static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 
 // Messages
-const WM_APP_SHOW_TEXT: u32 = WM_USER + 201;
-const WM_APP_SHOW_IMAGE: u32 = WM_USER + 202;
-const WM_APP_SHOW_NOTIFICATION: u32 = WM_USER + 203; // Yellow theme (loading/info)
-const WM_APP_SHOW_UPDATE: u32 = WM_USER + 204; // Blue theme (update available)
+const WM_APP_PROCESS_QUEUE: u32 = WM_USER + 201;
 
 /// Notification themes
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NotificationType {
     Success, // Green - auto copied
     Info,    // Yellow - loading/warming up
     Update,  // Blue - update available (longer duration)
+    Error,   // Red - error (e.g., no writable area for auto-paste)
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingNotification {
+    pub title: String,
+    pub snippet: String,
+    pub n_type: NotificationType,
 }
 
 lazy_static::lazy_static! {
-    static ref PENDING_CONTENT: Mutex<String> = Mutex::new(String::new());
-    static ref PENDING_NOTIFICATION_TYPE: Mutex<NotificationType> = Mutex::new(NotificationType::Success);
+    static ref PENDING_QUEUE: Mutex<VecDeque<PendingNotification>> = Mutex::new(VecDeque::new());
 }
 
 thread_local! {
@@ -45,7 +50,7 @@ thread_local! {
 
 // Dimensions
 const BADGE_WIDTH: i32 = 1200; // Super wide
-const BADGE_HEIGHT: i32 = 120; // Taller for nicer padding/shadows
+const BADGE_HEIGHT: i32 = 400; // Taller for stacking
 
 /// Wrapper for HWND to implement HasWindowHandle
 struct HwndWrapper(HWND);
@@ -65,47 +70,77 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
     }
 }
 
+fn enqueue_notification(title: String, snippet: String, n_type: NotificationType) {
+    println!("[Badge] Enqueuing: '{}' ({:?})", title, n_type);
+    {
+        let mut q = PENDING_QUEUE.lock().unwrap();
+        q.push_back(PendingNotification {
+            title,
+            snippet,
+            n_type,
+        });
+    }
+    ensure_window_and_post(WM_APP_PROCESS_QUEUE);
+}
+
 pub fn show_auto_copy_badge_text(text: &str) {
-    *PENDING_CONTENT.lock().unwrap() = text.to_string();
-    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Success;
-    ensure_window_and_post(WM_APP_SHOW_TEXT);
+    let app = APP.lock().unwrap();
+    let ui_lang = app.config.ui_language.clone();
+    let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+    let title = locale.auto_copied_badge.to_string();
+    drop(app);
+
+    let clean_text = text.replace('\n', " ").replace('\r', "");
+    let snippet = format!("\"{}\"", clean_text);
+
+    enqueue_notification(title, snippet, NotificationType::Success);
 }
 
 pub fn show_auto_copy_badge_image() {
-    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Success;
-    ensure_window_and_post(WM_APP_SHOW_IMAGE);
+    let app = APP.lock().unwrap();
+    let ui_lang = app.config.ui_language.clone();
+    let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+    let title = locale.auto_copied_badge.to_string();
+    let snippet = locale.auto_copied_image_badge.to_string();
+    drop(app);
+
+    enqueue_notification(title, snippet, NotificationType::Success);
 }
 
 /// Show a loading/info notification with just a title (yellow theme)
 pub fn show_notification(title: &str) {
-    *PENDING_CONTENT.lock().unwrap() = title.to_string();
-    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Info;
-    ensure_window_and_post(WM_APP_SHOW_NOTIFICATION);
+    enqueue_notification(title.to_string(), String::new(), NotificationType::Info);
 }
 
 /// Show an update available notification (blue theme, longer duration)
 pub fn show_update_notification(title: &str) {
-    *PENDING_CONTENT.lock().unwrap() = title.to_string();
-    *PENDING_NOTIFICATION_TYPE.lock().unwrap() = NotificationType::Update;
-    ensure_window_and_post(WM_APP_SHOW_UPDATE);
+    enqueue_notification(title.to_string(), String::new(), NotificationType::Update);
+}
+
+/// Show an error notification (red theme)
+pub fn show_error_notification(title: &str) {
+    enqueue_notification(title.to_string(), String::new(), NotificationType::Error);
 }
 
 fn ensure_window_and_post(msg: u32) {
     // Check if already warmed up
     if !IS_WARMED_UP.load(Ordering::SeqCst) {
+        println!("[Badge] Not warmed up, triggering warmup...");
         // Trigger warmup if not started yet
         warmup();
 
         // Poll for ready state (up to 3 seconds)
-        for _ in 0..60 {
+        for i in 0..60 {
             std::thread::sleep(std::time::Duration::from_millis(50));
             if IS_WARMED_UP.load(Ordering::SeqCst) {
+                println!("[Badge] Warmup completed after {} ms", i * 50);
                 break;
             }
         }
 
         // If still not ready, give up this notification
         if !IS_WARMED_UP.load(Ordering::SeqCst) {
+            println!("[Badge] Warmup TIMED OUT! Notification dropped.");
             return;
         }
     }
@@ -114,8 +149,11 @@ fn ensure_window_and_post(msg: u32) {
     let hwnd = HWND(hwnd_val as *mut _);
     if hwnd_val != 0 && !hwnd.is_invalid() {
         unsafe {
-            let _ = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
+            let res = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
+            println!("[Badge] PostMessage Result: {:?}", res);
         }
+    } else {
+        println!("[Badge] Invalid HWND: {:?}", hwnd);
     }
 }
 
@@ -143,13 +181,14 @@ fn get_badge_html() -> String {
 <style>
     {font_css}
     :root {{
-        --bg-color: #1A3D2A;
-        --border-color: #4ADE80; /* Brighter initial border */
-        --text-prio-color: #ffffff;
-        --text-sec-color: rgba(255, 255, 255, 0.9);
-        --accent-color: #4ADE80;
-        --bloom-color: rgba(74, 222, 128, 0.6); /* Strong glow */
-        --shadow-color: rgba(0, 0, 0, 0.5);
+        /* Defaults just in case */
+        --this-bg: #1A3D2A;
+        --this-border: #4ADE80;
+        --this-text-prio: #ffffff;
+        --this-text-sec: rgba(255, 255, 255, 0.9);
+        --this-accent: #4ADE80;
+        --this-bloom: rgba(74, 222, 128, 0.6);
+        --this-shadow: rgba(0, 0, 0, 0.5);
     }}
     
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -159,27 +198,34 @@ fn get_badge_html() -> String {
         background: transparent;
         font-family: 'Google Sans Flex', 'Segoe UI', sans-serif;
         display: flex;
-        justify-content: center;
+        flex-direction: column;
+        justify-content: flex-end; /* Align bottom */
         align-items: center;
         height: 100vh;
         user-select: none;
         cursor: default;
+        padding-bottom: 20px;
     }}
     
+    #notifications {{
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        align-items: center;
+        gap: 10px;
+    }}
+
     .badge {{
         min-width: 180px;
         max-width: 90%;
         width: auto;
         
-        /* Glass / Dynamic Styling */
-        background: var(--bg-color);
-        /* Super thick border as requested */
-        border: 2.5px solid var(--border-color);
+        background: var(--this-bg);
+        border: 2.5px solid var(--this-border);
         border-radius: 12px;
         
-        /* Blooming / Glow Effect */
-        box-shadow: 0 0 12px var(--bloom-color), 
-                    0 4px 15px var(--shadow-color);
+        box-shadow: 0 0 12px var(--this-bloom), 
+                    0 4px 15px var(--this-shadow);
                     
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
@@ -189,17 +235,12 @@ fn get_badge_html() -> String {
         justify-content: center;
         align-items: center;
         
-        opacity: 0;
-        transform: translateY(20px) scale(0.92);
-        
-        transition: opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), 
-                    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
-                    background 0.3s ease,
-                    border-color 0.3s ease,
-                    box-shadow 0.3s ease;
-                    
         padding: 4px 18px;
         position: relative;
+        
+        opacity: 0;
+        transform: translateY(20px) scale(0.92);
+        transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
     }}
     
     .badge.visible {{
@@ -216,26 +257,22 @@ fn get_badge_html() -> String {
         position: relative;
     }}
     
-    .title-row {{
-        margin-bottom: 0px;
-    }}
+    .title-row {{ margin-bottom: 0px; }}
     
     .title {{
         font-size: 15px;
         font-weight: 700;
-        color: var(--text-prio-color);
+        color: var(--this-text-prio);
         display: flex;
         align-items: center;
         gap: 8px;
-        /* More stretch */
         letter-spacing: 1.2px; 
         text-transform: uppercase;
-        
         font-variation-settings: 'wght' 700, 'wdth' 115, 'ROND' 100;
     }}
     
     .check {{
-        color: var(--accent-color);
+        color: var(--this-accent);
         font-weight: 800;
         font-size: 18px;
         display: flex;
@@ -245,8 +282,7 @@ fn get_badge_html() -> String {
         animation-delay: 0.1s;
         opacity: 0;
         transform: scale(0);
-        /* Glow for checkmark too */
-        filter: drop-shadow(0 0 5px var(--accent-color));
+        filter: drop-shadow(0 0 5px var(--this-accent));
     }}
     
     @keyframes pop {{
@@ -257,16 +293,14 @@ fn get_badge_html() -> String {
     .snippet {{
         font-size: 13px;
         font-weight: 500;
-        color: var(--text-sec-color);
+        color: var(--this-text-sec);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         max-width: 100%;
         text-align: center;
         padding-top: 1px;
-        
         font-family: 'Google Sans Flex', 'Segoe UI', sans-serif;
-        /* Condensed width (wdth < 100), keep slightly rounded (ROND 50) */
         font-variation-settings: 'wght' 500, 'wdth' 85, 'ROND' 50;
         letter-spacing: -0.3px;
     }}
@@ -280,26 +314,14 @@ fn get_badge_html() -> String {
 </style>
 </head>
 <body>
-    <div id="badge" class="badge">
-        <div class="row title-row">
-            <div class="title">
-                <span class="check">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                </span>
-                <span id="title-text">Auto Copy</span>
-            </div>
-        </div>
-        <div class="row snippet-container">
-            <div id="snippet" class="snippet"></div>
-        </div>
-    </div>
+    <div id="notifications"></div>
     <script>
-        let hideTimer;
-        let currentType = 'success'; // success, info, update
-        
-        // Theme colors for each notification type
+        // JS Error Handler for Debugging
+        window.onerror = function(msg, source, line, col, error) {{
+            window.ipc.postMessage('error: ' + msg + ' @ ' + line);
+        }};
+
+        // Theme definitions (Copied from original)
         const themes = {{
             success: {{
                 dark: {{
@@ -363,66 +385,99 @@ fn get_badge_html() -> String {
                     shadow: 'rgba(0, 0, 0, 0.2)'
                 }},
                 duration: 5000
+            }},
+            error: {{
+                dark: {{
+                    bg: 'rgba(30, 10, 10, 0.95)',
+                    border: '#F87171',
+                    textPrio: '#ffffff',
+                    textSec: 'rgba(255, 255, 255, 0.9)',
+                    accent: '#F87171',
+                    bloom: 'rgba(248, 113, 113, 0.5)',
+                    shadow: 'rgba(0, 0, 0, 0.6)'
+                }},
+                light: {{
+                    bg: 'rgba(254, 242, 242, 0.95)',
+                    border: '#DC2626',
+                    textPrio: '#1a1a1a',
+                    textSec: '#333333',
+                    accent: '#DC2626',
+                    bloom: 'rgba(220, 38, 38, 0.3)',
+                    shadow: 'rgba(0, 0, 0, 0.2)'
+                }},
+                duration: 2500
             }}
         }};
         
-        window.setNotificationType = (type) => {{
-            currentType = type || 'success';
-        }};
+        let isDarkMode = false;
         
         window.setTheme = (isDark) => {{
-            const root = document.documentElement;
-            const themeData = themes[currentType] || themes.success;
-            const colors = isDark ? themeData.dark : themeData.light;
-            
-            root.style.setProperty('--bg-color', colors.bg);
-            root.style.setProperty('--border-color', colors.border);
-            root.style.setProperty('--text-prio-color', colors.textPrio);
-            root.style.setProperty('--text-sec-color', colors.textSec);
-            root.style.setProperty('--accent-color', colors.accent);
-            root.style.setProperty('--bloom-color', colors.bloom);
-            root.style.setProperty('--shadow-color', colors.shadow);
+            isDarkMode = isDark;
         }};
-
-        window.show = (title, snippet) => {{
-            document.getElementById('title-text').innerText = title;
-            document.getElementById('snippet').innerText = snippet;
-            const b = document.getElementById('badge');
-            const check = document.querySelector('.check');
-            const snippetContainer = document.querySelector('.snippet-container');
+        
+        function getColors(type, isDark) {{
+            const t = themes[type] || themes.success;
+            return isDark ? t.dark : t.light;
+        }}
+        
+        window.addNotification = (title, snippet, type) => {{
+            const container = document.getElementById('notifications');
+            const colors = getColors(type, isDarkMode);
+            const duration = (themes[type] || themes.success).duration;
             
-            // Hide checkmark and snippet for notifications (empty snippet)
-            if (!snippet) {{
-                check.style.display = 'none';
-                snippetContainer.style.display = 'none';
-            }} else {{
-                check.style.display = 'flex';
-                snippetContainer.style.display = 'flex';
-            }}
+            const badge = document.createElement('div');
+            badge.className = 'badge';
             
-            // Force reflow to restart animation
-            b.classList.remove('visible');
-            b.offsetHeight; // trigger reflow
+            // Set styles
+            const s = badge.style;
+            s.setProperty('--this-bg', colors.bg);
+            s.setProperty('--this-border', colors.border);
+            s.setProperty('--this-text-prio', colors.textPrio);
+            s.setProperty('--this-text-sec', colors.textSec);
+            s.setProperty('--this-accent', colors.accent);
+            s.setProperty('--this-bloom', colors.bloom);
+            s.setProperty('--this-shadow', colors.shadow);
             
-            // Re-trigger check animation if visible
-            if (snippet) {{
-                check.style.animation = 'none';
-                check.offsetHeight; /* trigger reflow */
-                check.style.animation = null; 
-            }}
+            const hasSnippet = (snippet && snippet.length > 0);
+            const checkDisplay = hasSnippet ? 'flex' : 'none';
+            const snippetDisplay = hasSnippet ? 'flex' : 'none';
             
-            b.classList.add('visible');
+            badge.innerHTML = `
+                <div class="row title-row">
+                    <div class="title">
+                        <span class="check" style="display: ${{checkDisplay}}">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </span>
+                        <span>${{title}}</span>
+                    </div>
+                </div>
+                <div class="row snippet-container" style="display: ${{snippetDisplay}}">
+                    <div class="snippet">${{snippet}}</div>
+                </div>
+            `;
             
-            // Get duration based on notification type
-            const themeData = themes[currentType] || themes.success;
-            const duration = themeData.duration;
+            container.appendChild(badge);
             
-            clearTimeout(hideTimer);
-            hideTimer = setTimeout(() => {{
-                b.classList.remove('visible');
-                // Tell Rust to hide window after fade out
-                setTimeout(() => window.ipc.postMessage('finished'), 400);
-            }}, duration); 
+            // Animate In
+            // Double raf to ensure transition
+            requestAnimationFrame(() => {{
+                requestAnimationFrame(() => {{
+                   badge.classList.add('visible'); 
+                }});
+            }});
+            
+            // Remove logic
+            setTimeout(() => {{
+                badge.classList.remove('visible');
+                setTimeout(() => {{
+                    if (badge.parentNode) badge.parentNode.removeChild(badge);
+                    if (container.children.length === 0) {{
+                        window.ipc.postMessage('finished');
+                    }}
+                }}, 400);
+            }}, duration);
         }};
     </script>
 </body>
@@ -433,7 +488,8 @@ fn get_badge_html() -> String {
 fn internal_create_window_loop() {
     unsafe {
         // Initialize COM for the thread (Critical for WebView2/Wry)
-        let _ = CoInitialize(None);
+        let coinit = CoInitialize(None);
+        println!("[Badge] Internal Loop Start - CoInit: {:?}", coinit);
 
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGT_AutoCopyBadgeWebView");
@@ -515,6 +571,8 @@ fn internal_create_window_loop() {
                     let body = msg.body();
                     if body == "finished" {
                         let _ = ShowWindow(hwnd, SW_HIDE);
+                    } else if body.starts_with("error:") {
+                        println!("[BadgeJS] {}", body);
                     }
                 })
                 .build(&wrapper)
@@ -562,29 +620,17 @@ unsafe extern "system" fn badge_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
-        WM_APP_SHOW_TEXT | WM_APP_SHOW_IMAGE => {
+        WM_APP_PROCESS_QUEUE => {
+            println!("[Badge] WM_APP_PROCESS_QUEUE received");
             let app = APP.lock().unwrap();
-            let ui_lang = app.config.ui_language.clone();
-            // Determin theme
             let is_dark = match app.config.theme_mode {
                 crate::config::ThemeMode::Dark => true,
                 crate::config::ThemeMode::Light => false,
                 crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
             };
-
-            let locale = crate::gui::locale::LocaleText::get(&ui_lang);
-            let title = locale.auto_copied_badge;
-
-            let snippet = if msg == WM_APP_SHOW_TEXT {
-                let text = PENDING_CONTENT.lock().unwrap().clone();
-                let clean_text = text.replace('\n', " ").replace('\r', "");
-                format!("\"{}\"", clean_text)
-            } else {
-                locale.auto_copied_image_badge.to_string()
-            };
-
             drop(app);
 
+            // Update badge position (if screen changed?)
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
             let x = (screen_w - BADGE_WIDTH) / 2;
@@ -600,80 +646,53 @@ unsafe extern "system" fn badge_wnd_proc(
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
 
-            BADGE_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    // 1. Set notification type and update theme
-                    let _ = webview.evaluate_script("window.setNotificationType('success');");
-                    let theme_script = format!("window.setTheme({});", is_dark);
-                    let _ = webview.evaluate_script(&theme_script);
-
-                    // 2. Show content
-                    let safe_title = title
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .replace('\'', "\\'");
-                    let safe_snippet = snippet
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .replace('\'', "\\'");
-
-                    let script = format!("window.show('{}', '{}');", safe_title, safe_snippet);
-                    let _ = webview.evaluate_script(&script);
+            // Fetch generic queue items
+            let mut items = Vec::new();
+            {
+                let mut q = PENDING_QUEUE.lock().unwrap();
+                while let Some(item) = q.pop_front() {
+                    items.push(item);
                 }
-            });
+            }
 
-            LRESULT(0)
-        }
-        WM_APP_SHOW_NOTIFICATION | WM_APP_SHOW_UPDATE => {
-            let app = APP.lock().unwrap();
-            let is_dark = match app.config.theme_mode {
-                crate::config::ThemeMode::Dark => true,
-                crate::config::ThemeMode::Light => false,
-                crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-            };
-            drop(app);
+            if !items.is_empty() {
+                BADGE_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        // Update Theme
+                        let theme_script = format!("window.setTheme({});", is_dark);
+                        let _ = webview.evaluate_script(&theme_script);
 
-            let title = PENDING_CONTENT.lock().unwrap().clone();
-            let notification_type = if msg == WM_APP_SHOW_UPDATE {
-                "update"
-            } else {
-                "info"
-            };
+                        // Add Notifications logic
+                        for item in items {
+                            let type_str = match item.n_type {
+                                NotificationType::Success => "success",
+                                NotificationType::Info => "info",
+                                NotificationType::Update => "update",
+                                NotificationType::Error => "error",
+                            };
 
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
-            let x = (screen_w - BADGE_WIDTH) / 2;
-            let y = screen_h - BADGE_HEIGHT - 100;
+                            let safe_title = item
+                                .title
+                                .replace('\\', "\\\\")
+                                .replace('"', "\\\"")
+                                .replace('\'', "\\'");
 
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                x,
-                y,
-                BADGE_WIDTH,
-                BADGE_HEIGHT,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
+                            let safe_snippet = item
+                                .snippet
+                                .replace('\\', "\\\\")
+                                .replace('"', "\\\"")
+                                .replace('\'', "\\'")
+                                .replace('\n', " ");
 
-            BADGE_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    // Set notification type (info=yellow, update=blue)
-                    let type_script =
-                        format!("window.setNotificationType('{}');", notification_type);
-                    let _ = webview.evaluate_script(&type_script);
-
-                    let theme_script = format!("window.setTheme({});", is_dark);
-                    let _ = webview.evaluate_script(&theme_script);
-
-                    let safe_title = title
-                        .replace('\\', "\\\\")
-                        .replace('"', "\\\"")
-                        .replace('\'', "\\'");
-
-                    let script = format!("window.show('{}', '');", safe_title);
-                    let _ = webview.evaluate_script(&script);
-                }
-            });
+                            let script = format!(
+                                "window.addNotification('{}', '{}', '{}');",
+                                safe_title, safe_snippet, type_str
+                            );
+                            let _ = webview.evaluate_script(&script);
+                        }
+                    }
+                });
+            }
 
             LRESULT(0)
         }
