@@ -200,6 +200,7 @@ pub struct LocaleText {
     pub prompt_dj_loading: &'static str,
     pub tray_popup_loading: &'static str,
     pub update_available_notification: &'static str,
+    pub cannot_type_no_caret: &'static str,
     // --- DROP OVERLAY ---
     pub drop_overlay_text: &'static str,
     // --- REALTIME EGUI SPECIFIC ---
@@ -531,6 +532,7 @@ impl LocaleText {
                  prompt_dj_loading: "⏳ Đang khởi động Chill Corner...",
                  tray_popup_loading: "⏳ Đang khởi động menu...",
                  update_available_notification: "🎉 Có bản cập nhật mới!",
+                 cannot_type_no_caret: "Dùng tự động dán/ghi nhưng chưa chọn chỗ để ghi!",
                  // --- DROP OVERLAY VI ---
                  drop_overlay_text: "Thả vào đây để xử lý",
                  // --- REALTIME EGUI SPECIFIC VI ---
@@ -854,6 +856,7 @@ impl LocaleText {
                  prompt_dj_loading: "⏳ Chill Corner 로딩 중...",
                  tray_popup_loading: "⏳ 메뉴 로딩 중...",
                  update_available_notification: "🎉 새 업데이트 이용 가능!",
+                 cannot_type_no_caret: "자동 붙여넣기/쓰기가 활성화되었지만 텍스트 입력이 선택되지 않았습니다!",
                  // --- DROP OVERLAY KO ---
                  drop_overlay_text: "여기에 드롭하여 처리",
                  // --- REALTIME EGUI SPECIFIC KO ---
@@ -1176,6 +1179,7 @@ impl LocaleText {
                  prompt_dj_loading: "⏳ Loading Chill Corner...",
                  tray_popup_loading: "⏳ Loading menu...",
                  update_available_notification: "🎉 New update available!",
+                 cannot_type_no_caret: "Auto paste/write active but no text input selected!",
                  // --- DROP OVERLAY EN ---
                  drop_overlay_text: "Drop here to process",
                  // --- REALTIME EGUI SPECIFIC EN ---
