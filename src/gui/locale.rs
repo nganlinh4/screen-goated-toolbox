@@ -266,6 +266,19 @@ pub struct LocaleText {
     pub download_change_folder_btn: &'static str,
     // Format: "{percent}% of {total} at {speed}, ETA {eta}"
     pub download_progress_info_fmt: &'static str, 
+    pub download_advanced_header: &'static str,
+    pub download_opt_metadata: &'static str,
+    pub download_opt_sponsorblock: &'static str,
+    pub download_opt_subtitles: &'static str,
+    pub download_opt_playlist: &'static str,
+    pub download_opt_cookies: &'static str,
+    pub download_scan_ignore_btn: &'static str, // NEW
+    pub download_quality_label_text: &'static str, // NEW
+    pub download_quality_best: &'static str, // NEW
+    pub download_scanning_label: &'static str, // NEW
+    pub download_no_cookie_option: &'static str, // NEW
+    pub download_show_log_btn: &'static str, // NEW
+    pub download_hide_log_btn: &'static str, // NEW
 
     // --- DOWNLOADED TOOLS MODAL ---
     pub downloaded_tools_button: &'static str,
@@ -594,7 +607,21 @@ impl LocaleText {
                   download_file_label: "Tập tin:",
                   download_size_label: "Kích thước:",
                   download_change_folder_btn: "Thay đổi nơi lưu...",
+
                   download_progress_info_fmt: "{}% của {}, tốc độ {}, còn {}",
+                  download_advanced_header: "Tính năng nâng cao",
+                  download_opt_metadata: "Full Metadata (Ảnh bìa, Chapter, Info)",
+                  download_opt_sponsorblock: "Lược bỏ quảng cáo, ... (SponsorBlock)",
+                  download_opt_subtitles: "Tải phụ đề (Embed/SRT)",
+                  download_opt_playlist: "Tải cả danh sách phát (Playlist)",
+                  download_opt_cookies: "Lấy Cookies từ trình duyệt (để tải nội dung Premium/Age-gated):",
+                  download_scan_ignore_btn: "TẢI VỀ NGAY (mặc kệ quét tìm chất lượng)",
+                  download_quality_label_text: "Chất lượng:",
+                  download_quality_best: "Tốt nhất",
+                  download_scanning_label: "(Đang quét...)",
+                  download_no_cookie_option: "Không dùng cookie",
+                  download_show_log_btn: "Hiện nhật ký lỗi",
+                  download_hide_log_btn: "Ẩn nhật ký lỗi",
                   
                   downloaded_tools_button: "Công cụ đã tải",
                   downloaded_tools_title: "Quản lý công cụ đã tải",
@@ -892,7 +919,20 @@ impl LocaleText {
                  download_file_label: "파일:",
                  download_size_label: "크기:",
                  download_change_folder_btn: "폴더 변경...",
-                 download_progress_info_fmt: "{}% / {}, 속도 {}, 남은 시간 {}",
+                  download_progress_info_fmt: "{}% / {}, 속도 {}, 남은 시간 {}",
+                  download_advanced_header: "고급 기능",
+                  download_opt_metadata: "메타데이터 포함 (썸네일, 챕터, 정보)",
+                  download_opt_sponsorblock: "SponsorBlock (광고/후원 자동 건너뛰기)",
+                  download_opt_subtitles: "자막 다운로드 (Embed/SRT)",
+                  download_opt_playlist: "재생 목록 다운로드 (Playlist)",
+                  download_opt_cookies: "브라우저 쿠키 사용 (연령 제한/프리미엄 콘텐츠):",
+                  download_scan_ignore_btn: "지금 다운로드 (화질 검색 무시)",
+                  download_quality_label_text: "화질:",
+                  download_quality_best: "최고 화질",
+                  download_scanning_label: "(스캔 중...)",
+                  download_no_cookie_option: "쿠키 사용 안 함",
+                  download_show_log_btn: "오류 로그 보기",
+                  download_hide_log_btn: "오류 로그 숨기기",
 
                   downloaded_tools_button: "다운로드된 도구",
                   downloaded_tools_title: "다운로드된 도구 관리",
@@ -1241,7 +1281,21 @@ impl LocaleText {
                    download_file_label: "File:",
                    download_size_label: "Size:",
                    download_change_folder_btn: "Change Folder...",
+
                    download_progress_info_fmt: "{}% of {}, at {}, ETA {}",
+                   download_advanced_header: "Advanced Features",
+                   download_opt_metadata: "Full Metadata (Thumbnail, Chapters, Info)",
+                   download_opt_sponsorblock: "SponsorBlock (Remove sponsors/intros)",
+                   download_opt_subtitles: "Download Subtitles (Embed/SRT)",
+                   download_opt_playlist: "Process Playlist",
+                   download_opt_cookies: "Use Browser Cookies (For Premium/Age-gated):",
+                   download_scan_ignore_btn: "DOWNLOAD NOW (Ignore Quality Scan)",
+                   download_quality_label_text: "Quality:",
+                   download_quality_best: "Best",
+                   download_scanning_label: "(Scanning...)",
+                   download_no_cookie_option: "No cookies used",
+                   download_show_log_btn: "Show Error Log",
+                   download_hide_log_btn: "Hide Error Log",
 
                    downloaded_tools_button: "Downloaded Tools",
                    downloaded_tools_title: "Downloaded Tools Manager",
