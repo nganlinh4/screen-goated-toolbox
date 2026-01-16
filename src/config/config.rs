@@ -236,6 +236,10 @@ pub struct Config {
     #[serde(default)]
     pub favorites_keep_open: bool,
 
+    /// Size of the favorite bubble (width/height)
+    #[serde(default = "default_bubble_size")]
+    pub favorite_bubble_size: u32,
+
     // -------------------------------------------------------------------------
     // Maintenance Flags
     // -------------------------------------------------------------------------
@@ -304,9 +308,14 @@ impl Default for Config {
             show_favorite_bubble: false,
             favorite_bubble_position: None,
             favorites_keep_open: false,
+            favorite_bubble_size: 40,
 
             // Maintenance
             clear_webview_on_startup: false,
         }
     }
+}
+
+fn default_bubble_size() -> u32 {
+    40
 }

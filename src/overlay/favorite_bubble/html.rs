@@ -27,6 +27,8 @@ pub fn generate_panel_html(
     <div class="keep-open-row visible" id="keepOpenRow">
         <div class="toggle-switch{keep_open_class}" id="keepOpenToggle" onclick="toggleKeepOpen()"></div>
         <span class="keep-open-label{keep_open_class}" id="keepOpenLabel">{keep_open_label}</span>
+        <button class="size-btn" onclick="resizeBubble('desc')">-</button>
+        <button class="size-btn" onclick="resizeBubble('inc')">+</button>
     </div>
     <div class="list">{favorites}</div>
 </div>
@@ -37,7 +39,7 @@ function fitText() {{
             el.className = 'name';
             if (el.scrollWidth > el.clientWidth) {{
                 el.classList.add('condense');
-                if (el.scrollWidth > el.clientWidth) {{
+        if (el.scrollWidth > el.clientWidth) {{
                     el.classList.remove('condense');
                     el.classList.add('condense-more');
                 }}
@@ -45,6 +47,11 @@ function fitText() {{
         }});
         sendHeight();
     }});
+}}
+
+function resizeBubble(dir) {{
+    if (dir === 'inc') window.ipc.postMessage('increase_size');
+    else window.ipc.postMessage('decrease_size');
 }}
 window.onload = fitText;
 
@@ -450,6 +457,34 @@ html, body {{
 }}
 .toggle-switch.active::after {{
     transform: translateX(16px);
+}}
+
+/* Size buttons */
+.size-btn {{
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: none;
+    background: {item_bg};
+    color: {text_color};
+    font-family: inherit;
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: {toggle_knob_shadow};
+    margin-left: 4px;
+}}
+.size-btn:hover {{
+    background: {item_hover_bg};
+    transform: scale(1.1);
+    box-shadow: {item_hover_shadow};
+}}
+.size-btn:active {{
+    transform: scale(0.95);
 }}
 "#,
         font_css = font_css,
