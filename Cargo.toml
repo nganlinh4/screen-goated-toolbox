@@ -88,5 +88,6 @@ features = [
 opt-level = "z"
 lto = true
 codegen-units = 1
-strip = true
+strip = "symbols"  # Keep minimal debug info for AV trust (don't fully strip)
+debug = 1          # Include basic debug info - helps Windows Defender trust the exe
 panic = "unwind"
