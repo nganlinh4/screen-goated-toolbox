@@ -17,6 +17,15 @@ static GOOGLE_SANS_FLEX_TTF: &[u8] = crate::assets::GOOGLE_SANS_FLEX;
 static START_SERVER_ONCE: Once = Once::new();
 static PAGE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+// Session-based cache buster - generated once at startup to prevent cache corruption
+// This fixes ERR_CACHE_READ_FAILURE in persistent WebViews like preset_wheel
+lazy_static::lazy_static! {
+    static ref SESSION_CACHE_BUSTER: String = format!("{:x}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis());
+}
+
 lazy_static::lazy_static! {
     /// Server URL once started
     static ref SERVER_URL: Mutex<Option<String>> = Mutex::new(None);
@@ -100,15 +109,18 @@ fn handle_request(stream: &mut std::net::TcpStream) -> std::io::Result<()> {
         return Ok(());
     }
 
-    // Route requests
-    if path == "/font/GoogleSansFlex.ttf" {
-        // Serve font
+    // Route requests - strip query params for path matching
+    let path_without_query = path.split('?').next().unwrap_or(path);
+
+    if path_without_query == "/font/GoogleSansFlex.ttf" {
+        // Serve font with reduced cache time to prevent cache corruption
+        // The cache buster query param ensures fresh fetch each session
         let headers = format!(
             "HTTP/1.1 200 OK\r\n\
              Content-Type: font/ttf\r\n\
              Content-Length: {}\r\n\
              {cors_headers}\
-             Cache-Control: max-age=31536000\r\n\
+             Cache-Control: max-age=3600\r\n\
              Connection: close\r\n\r\n",
             GOOGLE_SANS_FLEX_TTF.len()
         );
@@ -195,6 +207,7 @@ pub fn configure_webview(builder: WebViewBuilder) -> WebViewBuilder {
 /// Returns the CSS @font-face rule using the local server
 pub fn get_font_css() -> String {
     let base_url = get_server_url().unwrap_or_else(|| "http://127.0.0.1:0".to_string());
+    let cache_buster = SESSION_CACHE_BUSTER.as_str();
 
     format!(
         r#"
@@ -204,9 +217,9 @@ pub fn get_font_css() -> String {
             font-weight: 100 1000;
             font-stretch: 25% 1000%;
             font-display: swap;
-            src: url('{}/font/GoogleSansFlex.ttf') format('truetype');
+            src: url('{}/font/GoogleSansFlex.ttf?v={}') format('truetype');
         }}
     "#,
-        base_url
+        base_url, cache_buster
     )
 }
