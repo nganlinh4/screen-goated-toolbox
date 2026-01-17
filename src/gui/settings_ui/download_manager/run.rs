@@ -1,9 +1,9 @@
-use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
+use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, UpdateStatus};
 use super::utils::{download_file, extract_ffmpeg, log};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -48,6 +48,168 @@ impl DownloadManager {
                     }
                 }
             }
+        });
+    }
+
+    pub fn check_updates(&self) {
+        if self.is_checking_updates.load(Ordering::Relaxed) {
+            return;
+        }
+        self.is_checking_updates.store(true, Ordering::Relaxed);
+
+        let bin = self.bin_dir.clone();
+        let ytdlp_status_store = self.ytdlp_update_status.clone();
+        let ffmpeg_status_store = self.ffmpeg_update_status.clone();
+        let ytdlp_ver = self.ytdlp_version.clone();
+        let ffmpeg_ver = self.ffmpeg_version.clone();
+        let logs = self.logs.clone();
+        let ytdlp_install = self.ytdlp_status.clone();
+        let ffmpeg_install = self.ffmpeg_status.clone();
+        let checking_flag = self.is_checking_updates.clone();
+
+        thread::spawn(move || {
+            log(&logs, "Checking for updates...");
+
+            // Set Checking
+            *ytdlp_status_store.lock().unwrap() = UpdateStatus::Checking;
+            *ffmpeg_status_store.lock().unwrap() = UpdateStatus::Checking;
+
+            // 1. Check yt-dlp
+            // Only if installed
+            let mut check_ytdlp = false;
+            {
+                let s = ytdlp_install.lock().unwrap();
+                if *s == InstallStatus::Installed {
+                    check_ytdlp = true;
+                } else {
+                    *ytdlp_status_store.lock().unwrap() = UpdateStatus::Idle;
+                }
+            }
+            if check_ytdlp {
+                let ytdlp_path = bin.join("yt-dlp.exe");
+                #[cfg(target_os = "windows")]
+                use std::os::windows::process::CommandExt;
+
+                let output = std::process::Command::new(&ytdlp_path)
+                    .arg("--version")
+                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                    .output();
+
+                if let Ok(out) = output {
+                    let local_ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    *ytdlp_ver.lock().unwrap() = Some(local_ver.clone());
+
+                    // Fetch latest
+                    let resp = ureq::get(
+                        "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest",
+                    )
+                    .header("User-Agent", "Mozilla/5.0")
+                    .call();
+
+                    if let Ok(r) = ureq::get(
+                        "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest",
+                    )
+                    .header("User-Agent", "ScreenGoatedToolbox")
+                    .call()
+                    {
+                        if let Ok(json_str) = r.into_body().read_to_string() {
+                            // Manual JSON parse for "tag_name"
+                            if let Some(pos) = json_str.find("\"tag_name\"") {
+                                let sub = &json_str[pos..];
+                                if let Some(colon) = sub.find(':') {
+                                    if let Some(quote1) = sub[colon..].find('"') {
+                                        let start = colon + quote1 + 1;
+                                        if let Some(quote2) = sub[start..].find('"') {
+                                            let remote_ver = &sub[start..start + quote2];
+                                            log(
+                                                &logs,
+                                                format!(
+                                                    "yt-dlp: local={}, remote={}",
+                                                    local_ver, remote_ver
+                                                ),
+                                            );
+                                            if remote_ver != local_ver && !remote_ver.is_empty() {
+                                                *ytdlp_status_store.lock().unwrap() =
+                                                    UpdateStatus::UpdateAvailable(
+                                                        remote_ver.to_string(),
+                                                    );
+                                            } else {
+                                                *ytdlp_status_store.lock().unwrap() =
+                                                    UpdateStatus::UpToDate;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Check ffmpeg
+            let mut check_ffmpeg = false;
+            {
+                let s = ffmpeg_install.lock().unwrap();
+                if *s == InstallStatus::Installed {
+                    check_ffmpeg = true;
+                } else {
+                    *ffmpeg_status_store.lock().unwrap() = UpdateStatus::Idle;
+                }
+            }
+            if check_ffmpeg {
+                let ffmpeg_path = bin.join("ffmpeg.exe");
+                #[cfg(target_os = "windows")]
+                use std::os::windows::process::CommandExt;
+
+                let output = std::process::Command::new(&ffmpeg_path)
+                    .arg("-version")
+                    .creation_flags(0x08000000)
+                    .output();
+
+                if let Ok(out) = output {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    // Line 1: ffmpeg version 6.1.1-essentials...
+                    if let Some(line) = stdout.lines().next() {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 3 && parts[0] == "ffmpeg" && parts[1] == "version" {
+                            let ver_chunk = parts[2]; // 6.1.1-essentials...
+                                                      // Extract just the version number (digits and dots)
+                            let local_ver: String = ver_chunk
+                                .chars()
+                                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                                .collect();
+                            *ffmpeg_ver.lock().unwrap() = Some(local_ver.clone());
+
+                            // Fetch remote
+                            if let Ok(r) =
+                                ureq::get("https://www.gyan.dev/ffmpeg/builds/release-version")
+                                    .header("User-Agent", "ScreenGoatedToolbox")
+                                    .call()
+                            {
+                                if let Ok(remote_ver) = r.into_body().read_to_string() {
+                                    let remote_ver = remote_ver.trim();
+                                    log(
+                                        &logs,
+                                        format!(
+                                            "ffmpeg: local={}, remote={}",
+                                            local_ver, remote_ver
+                                        ),
+                                    );
+                                    if remote_ver != local_ver && !remote_ver.is_empty() {
+                                        *ffmpeg_status_store.lock().unwrap() =
+                                            UpdateStatus::UpdateAvailable(remote_ver.to_string());
+                                    } else {
+                                        *ffmpeg_status_store.lock().unwrap() =
+                                            UpdateStatus::UpToDate;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            checking_flag.store(false, Ordering::Relaxed);
+            log(&logs, "Update check complete.");
         });
     }
 
@@ -103,8 +265,31 @@ impl DownloadManager {
     pub fn start_download_ytdlp(&self) {
         let bin = self.bin_dir.clone();
         let status = self.ytdlp_status.clone();
+        let update_status = self.ytdlp_update_status.clone();
         let logs = self.logs.clone();
         let cancel = self.cancel_flag.clone();
+        let self_clone = self.clone(); // Need clone to call methods or just pass needed arcs?
+                                       // Cannot pass self_clone easily to thread as DownloadManager is not Clone-able or meant to be?
+                                       // Actually DownloadManager is not Clone. But we need to call check_updates.
+                                       // check_updates uses Arc fields. We can separate the check logic or just reset status to Idle and let user check again?
+                                       // Better: Reset status to Checking and spawn a delayed check.
+
+        // Wait, self.check_updates() is on &self. The struct has Arcs.
+        // We can't nicely call methods from the thread if we don't own self.
+        // But we can reset update_status to Idle.
+
+        let update_status_clone = update_status.clone();
+        let checking_flag = self.is_checking_updates.clone();
+        let bin_clone = bin.clone();
+
+        // We will need to re-run the check logic manually or extract it.
+        // For simplicity: Clear version info and Reset update status to Idle so "Check Update" button appears.
+        // Even better: Set it to UpToDate if we trust the download.
+        // But version string needs update.
+        // Let's just set to Idle, so user clicks "Check Update" or we simulate it.
+        // Actually, let's explicitly run the version check part for ytdlp here again.
+
+        let ytdlp_ver_store = self.ytdlp_version.clone();
 
         {
             let mut s = status.lock().unwrap();
@@ -119,13 +304,26 @@ impl DownloadManager {
         }
 
         thread::spawn(move || {
-            let url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+            let url = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe";
             log(&logs, format!("Starting download: {}", url));
 
             match download_file(url, &bin.join("yt-dlp.exe"), &status, &cancel) {
                 Ok(_) => {
                     *status.lock().unwrap() = InstallStatus::Installed;
                     log(&logs, "yt-dlp installed successfully");
+                    *update_status.lock().unwrap() = UpdateStatus::Idle;
+
+                    // Update version string locally
+                    #[cfg(target_os = "windows")]
+                    use std::os::windows::process::CommandExt;
+                    let output = std::process::Command::new(bin_clone.join("yt-dlp.exe"))
+                        .arg("--version")
+                        .creation_flags(0x08000000)
+                        .output();
+                    if let Ok(out) = output {
+                        let local_ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        *ytdlp_ver_store.lock().unwrap() = Some(local_ver);
+                    }
                 }
                 Err(e) => {
                     *status.lock().unwrap() = InstallStatus::Error(e.clone());
@@ -138,8 +336,11 @@ impl DownloadManager {
     pub fn start_download_ffmpeg(&self) {
         let bin = self.bin_dir.clone();
         let status = self.ffmpeg_status.clone();
+        let update_status = self.ffmpeg_update_status.clone();
         let logs = self.logs.clone();
         let cancel = self.cancel_flag.clone();
+        let app_bin = bin.clone();
+        let ffmpeg_ver_store = self.ffmpeg_version.clone();
 
         {
             let mut s = status.lock().unwrap();
@@ -173,6 +374,33 @@ impl DownloadManager {
                             *status.lock().unwrap() = InstallStatus::Installed;
                             log(&logs, "ffmpeg installed successfully");
                             let _ = fs::remove_file(zip_path); // Cleanup
+                            *update_status.lock().unwrap() = UpdateStatus::Idle;
+
+                            // Update version string
+                            #[cfg(target_os = "windows")]
+                            use std::os::windows::process::CommandExt;
+                            let output = std::process::Command::new(app_bin.join("ffmpeg.exe"))
+                                .arg("-version")
+                                .creation_flags(0x08000000)
+                                .output();
+
+                            if let Ok(out) = output {
+                                let stdout = String::from_utf8_lossy(&out.stdout);
+                                if let Some(line) = stdout.lines().next() {
+                                    let parts: Vec<&str> = line.split_whitespace().collect();
+                                    if parts.len() >= 3
+                                        && parts[0] == "ffmpeg"
+                                        && parts[1] == "version"
+                                    {
+                                        let ver_chunk = parts[2];
+                                        let local_ver: String = ver_chunk
+                                            .chars()
+                                            .take_while(|c| c.is_ascii_digit() || *c == '.')
+                                            .collect();
+                                        *ffmpeg_ver_store.lock().unwrap() = Some(local_ver);
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
                             *status.lock().unwrap() = InstallStatus::Error(e.clone());
