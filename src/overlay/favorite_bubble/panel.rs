@@ -398,6 +398,7 @@ unsafe fn refresh_panel_layout_and_content(
 }
 
 fn create_panel_webview(panel_hwnd: HWND) {
+    crate::log_info!("[BubblePanel] Creating WebView for HWND: {:?}", panel_hwnd);
     let mut rect = RECT::default();
     unsafe {
         let _ = GetClientRect(panel_hwnd, &mut rect);
@@ -423,10 +424,9 @@ fn create_panel_webview(panel_hwnd: HWND) {
 
     let wrapper = HwndWrapper(panel_hwnd);
 
-    // Initialize shared WebContext if needed (uses same data dir as other modules)
     PANEL_WEB_CONTEXT.with(|ctx| {
         if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("bubble"));
             *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
         }
     });
@@ -518,9 +518,16 @@ fn create_panel_webview(panel_hwnd: HWND) {
     });
 
     if let Ok(webview) = result {
+        crate::log_info!("[BubblePanel] WebView success for HWND: {:?}", panel_hwnd);
         PANEL_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = Some(webview);
         });
+    } else if let Err(e) = result {
+        crate::log_info!(
+            "[BubblePanel] WebView FAILED for HWND: {:?}, Error: {:?}",
+            panel_hwnd,
+            e
+        );
     }
 }
 

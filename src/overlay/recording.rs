@@ -214,7 +214,8 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 fn internal_create_recording_window() {
     unsafe {
-        let _ = CoInitialize(None); // Required for WebView
+        let coinit = CoInitialize(None); // Required for WebView
+        crate::log_info!("[Recording] Loop Start - CoInit: {:?}", coinit);
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SGT_Recording_Persistent");
 
@@ -249,6 +250,7 @@ fn internal_create_recording_window() {
             None,
         )
         .unwrap();
+        crate::log_info!("[Recording] Window created with HWND: {:?}", hwnd);
 
         RECORDING_HWND_VAL.store(hwnd.0 as isize, Ordering::SeqCst);
 
@@ -277,7 +279,8 @@ fn internal_create_recording_window() {
 
         RECORDING_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                let shared_data_dir =
+                    crate::overlay::get_shared_webview_data_dir(Some("recording"));
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
@@ -348,6 +351,7 @@ fn internal_create_recording_window() {
         });
 
         if let Ok(wv) = webview_res {
+            crate::log_info!("[Recording] WebView success for HWND: {:?}", hwnd);
             RECORDING_WEBVIEW.with(|cell| *cell.borrow_mut() = Some(wv));
 
             // Setup Global Key Hook for ESC (This needs to be persistent or installed/uninstalled on show/hide)

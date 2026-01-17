@@ -644,7 +644,7 @@ unsafe fn internal_create_pdj_loop() {
 
     PDJ_WEB_CONTEXT.with(|ctx| {
         if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("prompt_dj"));
             *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
         }
     });

@@ -822,8 +822,8 @@ pub fn show(
         crate::overlay::auto_copy_badge::show_notification(locale.text_input_loading);
 
         // Blocking wait with message pump
-        // We wait up to 5 seconds. If it fails, we simply return (preventing premature broken window)
-        for _ in 0..500 {
+        // We wait up to 20 seconds. If it fails, we simply return (preventing premature broken window)
+        for _ in 0..2000 {
             unsafe {
                 let mut msg = MSG::default();
                 while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
@@ -859,7 +859,7 @@ pub fn show(
 fn internal_create_window_loop() {
     unsafe {
         let coinit = CoInitialize(None); // Required for WebView
-        println!("[TextInput] Loop Start - CoInit: {:?}", coinit);
+        crate::log_info!("[TextInput] Loop Start - CoInit: {:?}", coinit);
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SGT_TextInputWry");
 
@@ -874,14 +874,14 @@ fn internal_create_window_loop() {
             wc.hbrBackground = HBRUSH(GetStockObject(NULL_BRUSH).0);
             let _ = RegisterClassW(&wc);
         });
-        println!("[TextInput] Class Registered");
+        crate::log_info!("[TextInput] Class Registered");
 
-        println!("[TextInput] Calculating scale...");
+        crate::log_info!("[TextInput] Calculating scale...");
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let scale = {
             let dpi = GetDpiForSystem();
-            println!("[TextInput] System DPI: {}", dpi);
+            crate::log_info!("[TextInput] System DPI: {}", dpi);
             dpi as f64 / 96.0
         };
         // Width scaling: matches 800px physical at 1.25 scale (Laptop preferred),
@@ -889,9 +889,11 @@ fn internal_create_window_loop() {
         let win_w = ((880.0 * scale) - 300.0).round() as i32;
         let win_h = (253.0 * scale).round() as i32;
 
-        eprintln!(
+        crate::log_info!(
             "[TextInput] Creating window: scale={:.2}, width={}, height={}",
-            scale, win_w, win_h
+            scale,
+            win_w,
+            win_h
         );
 
         let x = (screen_w - win_w) / 2;
@@ -913,10 +915,10 @@ fn internal_create_window_loop() {
             None,
         )
         .unwrap_or_default();
-        println!("[TextInput] CreateWindowExW returned HWND: {:?}", hwnd);
+        crate::log_info!("[TextInput] CreateWindowExW returned HWND: {:?}", hwnd);
 
         if hwnd.is_invalid() {
-            eprintln!("[TextInput] Critical Error: Failed to create window.");
+            crate::log_info!("[TextInput] Critical Error: Failed to create window.");
             IS_WARMED_UP.store(false, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             let _ = CoUninitialize();
@@ -924,7 +926,7 @@ fn internal_create_window_loop() {
         }
 
         INPUT_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
-        println!("[TextInput] HWND stored, starting WebView initialization...");
+        crate::log_info!("[TextInput] HWND stored, starting WebView initialization...");
 
         // WebView Initialization
         // Initialize use simple DwmExtendFrameIntoClientArea for full transparency
@@ -951,20 +953,21 @@ fn internal_create_window_loop() {
                 webview_success = true;
                 break;
             }
-            println!(
+            crate::log_info!(
                 "[TextInput] WebView init attempt {} failed, retrying...",
                 attempts + 1
             );
             attempts += 1;
-            eprintln!(
+            crate::log_info!(
                 "[TextInput] WebView init failed, retrying ({}/{})",
-                attempts, max_attempts
+                attempts,
+                max_attempts
             );
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
 
         if !webview_success {
-            eprintln!(
+            crate::log_info!(
                 "[TextInput] Critical Error: Failed to initialize WebView after {} attempts.",
                 max_attempts
             );
@@ -1020,10 +1023,10 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<(), ()
     let html = get_editor_html(placeholder, is_dark);
     let wrapper = HwndWrapper(hwnd);
 
-    // Initialize shared WebContext if needed (uses same data dir as other modules)
+    // Initialize shared WebContext if needed
     TEXT_INPUT_WEB_CONTEXT.with(|ctx| {
         if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("text_input"));
             *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
         }
     });

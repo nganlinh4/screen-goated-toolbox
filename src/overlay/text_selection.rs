@@ -286,7 +286,7 @@ fn internal_create_tag_thread() {
     unsafe {
         use windows::Win32::System::Com::*;
         let coinit = CoInitialize(None);
-        println!("[TextSelection] Loop Start - CoInit: {:?}", coinit);
+        crate::log_info!("[TextSelection] Loop Start - CoInit: {:?}", coinit);
 
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SGT_TextTag_Web_Persistent");
@@ -301,7 +301,7 @@ fn internal_create_tag_thread() {
             wc.style = CS_HREDRAW | CS_VREDRAW;
             let _ = RegisterClassExW(&wc);
         });
-        println!("[TextSelection] Class Registered");
+        crate::log_info!("[TextSelection] Class Registered");
 
         // Create Layered Transparent Window
         let hwnd = CreateWindowExW(
@@ -319,7 +319,7 @@ fn internal_create_tag_thread() {
             None,
         )
         .unwrap_or_default();
-        println!("[TextSelection] Window created with HWND: {:?}", hwnd);
+        crate::log_info!("[TextSelection] Window created with HWND: {:?}", hwnd);
 
         if hwnd.is_invalid() {
             IS_WARMING_UP.store(false, Ordering::SeqCst);
@@ -347,10 +347,11 @@ fn internal_create_tag_thread() {
         let html_content = get_html(initial_text);
 
         // Initialize shared WebContext if needed
-        println!("[TextSelection] Initializing WebContext...");
+        crate::log_info!("[TextSelection] Initializing WebContext...");
         SELECTION_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                let shared_data_dir =
+                    crate::overlay::get_shared_webview_data_dir(Some("selection"));
                 *ctx.borrow_mut() = Some(wry::WebContext::new(Some(shared_data_dir)));
             }
         });
@@ -388,7 +389,7 @@ fn internal_create_tag_thread() {
                     .with_transparent(true)
                     .build_as_child(&HwndWrapper(hwnd))
             });
-            println!("[TextSelection] Attempting WebView creation...");
+            crate::log_info!("[TextSelection] Attempting WebView creation...");
 
             match res {
                 Ok(wv) => {
@@ -396,9 +397,10 @@ fn internal_create_tag_thread() {
                     break;
                 }
                 Err(e) => {
-                    eprintln!(
+                    crate::log_info!(
                         "[TextSelection] WebView init failed (attempt {}/3): {:?}",
-                        attempt, e
+                        attempt,
+                        e
                     );
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
@@ -406,13 +408,13 @@ fn internal_create_tag_thread() {
         }
 
         if let Some(webview) = final_webview {
-            println!("[TextSelection] WebView initialization SUCCESSFUL");
+            crate::log_info!("[TextSelection] WebView initialization SUCCESSFUL");
             // Set initial theme
             let init_script = format!("updateTheme({});", initial_is_dark);
             let _ = webview.evaluate_script(&init_script);
             SELECTION_STATE.lock().unwrap().webview = Some(webview);
         } else {
-            eprintln!("[TextSelection] FAILED to create WebView after 3 attempts.");
+            crate::log_info!("[TextSelection] FAILED to create WebView after 3 attempts.");
             let _ = DestroyWindow(hwnd);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             let _ = CoUninitialize();

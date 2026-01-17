@@ -933,10 +933,8 @@ fn create_canvas_window() {
         // Initialize WebContext
         CANVAS_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let mut data_dir = crate::overlay::get_shared_webview_data_dir();
-                // WebView2 on different threads with different Environments MUST use different user data folders
-                data_dir.push("button_canvas_thread");
-                *ctx.borrow_mut() = Some(WebContext::new(Some(data_dir)));
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("canvas"));
+                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
 
@@ -978,17 +976,17 @@ fn create_canvas_window() {
 
         match webview {
             Ok(wv) => {
-                eprintln!("[ButtonCanvas] WebView created successfully!");
+                crate::log_info!("[ButtonCanvas] WebView created successfully!");
                 CANVAS_WEBVIEW.with(|cell| {
                     *cell.borrow_mut() = Some(wv);
                 });
                 IS_WARMED_UP.store(true, Ordering::SeqCst);
-                eprintln!("[ButtonCanvas] Canvas is now warmed up and ready");
+                crate::log_info!("[ButtonCanvas] Canvas is now warmed up and ready");
             }
             Err(e) => {
-                eprintln!("[ButtonCanvas] Failed to create WebView: {:?}", e);
+                crate::log_info!("[ButtonCanvas] Failed to create WebView: {:?}", e);
                 // CRITICAL: Destroy the window so it doesn't block the screen invisibly
-                eprintln!("[ButtonCanvas] Destroying canvas window due to WebView failure");
+                crate::log_info!("[ButtonCanvas] Destroying canvas window due to WebView failure");
                 let _ = DestroyWindow(hwnd);
                 CANVAS_HWND.store(0, Ordering::SeqCst);
                 CoUninitialize();

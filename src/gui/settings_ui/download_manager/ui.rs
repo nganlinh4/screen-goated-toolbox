@@ -1,7 +1,6 @@
 use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
-use std::fs;
 use std::path::PathBuf;
 
 use super::DownloadManager;
@@ -20,7 +19,7 @@ impl DownloadManager {
             .resizable(false)
             .default_width(400.0)
             .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(ctx.screen_rect().center())
+            .default_pos(ctx.input(|i| i.viewport_rect()).center())
             .show(ctx, |ui| {
                 // Dependency Check
                 let ffmpeg_ok = matches!(
@@ -111,7 +110,7 @@ impl DownloadManager {
                 } else {
                     // MAIN DOWNLOADER UI - COMPACT & NO SCROLLBAR
                     // Use a Frame with inner margin to keep things tidy but maximize space
-                    egui::Frame::none().inner_margin(8.0).show(ui, |ui| {
+                    egui::Frame::default().inner_margin(8.0).show(ui, |ui| {
                         // --- FOLDER & SETTINGS ---
                         ui.horizontal(|ui| {
                             // Compact Path:  📂 ...\Downloads  [⚙]

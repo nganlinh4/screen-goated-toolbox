@@ -471,10 +471,9 @@ pub fn show_refine_input(parent_hwnd: HWND, placeholder: &str) -> bool {
         let child_hwnd = child_hwnd.unwrap();
         let wrapper = HwndWrapper(child_hwnd);
 
-        // Initialize shared WebContext if needed (uses same data dir as other modules)
         REFINE_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("result"));
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });

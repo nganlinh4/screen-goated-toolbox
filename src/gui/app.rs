@@ -16,6 +16,13 @@ impl eframe::App for SettingsApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Log first update
+        static LOGGED_STARTUP: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !LOGGED_STARTUP.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            crate::log_info!("[Main] App Update Start - Main Thread Alive");
+        }
+
         // Handle Dropped Files and Paste FIRST (before any UI consumes events)
         input_handler::handle_dropped_files(ctx);
         if !self.download_manager.show_window {

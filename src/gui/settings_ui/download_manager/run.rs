@@ -100,7 +100,7 @@ impl DownloadManager {
                     *ytdlp_ver.lock().unwrap() = Some(local_ver.clone());
 
                     // Fetch latest
-                    let resp = ureq::get(
+                    let _resp = ureq::get(
                         "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest",
                     )
                     .header("User-Agent", "Mozilla/5.0")
@@ -268,18 +268,15 @@ impl DownloadManager {
         let update_status = self.ytdlp_update_status.clone();
         let logs = self.logs.clone();
         let cancel = self.cancel_flag.clone();
-        let self_clone = self.clone(); // Need clone to call methods or just pass needed arcs?
-                                       // Cannot pass self_clone easily to thread as DownloadManager is not Clone-able or meant to be?
-                                       // Actually DownloadManager is not Clone. But we need to call check_updates.
-                                       // check_updates uses Arc fields. We can separate the check logic or just reset status to Idle and let user check again?
-                                       // Better: Reset status to Checking and spawn a delayed check.
+        // Cannot pass self_clone easily to thread as DownloadManager is not Clone-able or meant to be?
+        // Actually DownloadManager is not Clone. But we need to call check_updates.
+        // check_updates uses Arc fields. We can separate the check logic or just reset status to Idle and let user check again?
+        // Better: Reset status to Checking and spawn a delayed check.
 
         // Wait, self.check_updates() is on &self. The struct has Arcs.
         // We can't nicely call methods from the thread if we don't own self.
         // But we can reset update_status to Idle.
 
-        let update_status_clone = update_status.clone();
-        let checking_flag = self.is_checking_updates.clone();
         let bin_clone = bin.clone();
 
         // We will need to re-run the check logic manually or extract it.
