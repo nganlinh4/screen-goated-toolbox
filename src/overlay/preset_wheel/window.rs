@@ -185,15 +185,17 @@ pub fn show_preset_wheel(
             _ => "CANCEL",
         };
 
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
         let win_x = (center_pos.x - WHEEL_WIDTH / 2)
-            .max(0)
-            .min(screen_w - WHEEL_WIDTH);
+            .max(screen_x)
+            .min(screen_x + screen_w - WHEEL_WIDTH);
         let win_y = (center_pos.y - WHEEL_HEIGHT / 2)
-            .max(0)
-            .min(screen_h - WHEEL_HEIGHT);
+            .max(screen_y)
+            .min(screen_y + screen_h - WHEEL_HEIGHT);
 
         let items_html = generate_items_html(&filtered, &ui_lang);
 
@@ -253,8 +255,10 @@ fn internal_create_window_loop() {
         let _ = CoInitialize(None);
 
         let instance = GetModuleHandleW(None).unwrap_or_default();
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
         let overlay_class = w!("SGTWheelOverlayPersistent");
         REGISTER_OVERLAY_CLASS.call_once(|| {
@@ -274,10 +278,10 @@ fn internal_create_window_loop() {
             overlay_class,
             w!("WheelOverlay"),
             WS_POPUP,
-            0,
-            0,
+            screen_x,
+            screen_y,
             screen_w,
-            screen_h,
+            screen_h - 1, // Solve taskbar hide issue
             None,
             None,
             Some(instance.into()),
@@ -552,15 +556,17 @@ unsafe extern "system" fn wheel_wnd_proc(
             let overlay = HWND(overlay_val as *mut _);
             if !overlay.is_invalid() {
                 let _ = ShowWindow(overlay, SW_SHOWNOACTIVATE);
-                let screen_w = GetSystemMetrics(SM_CXSCREEN);
-                let screen_h = GetSystemMetrics(SM_CYSCREEN);
+                let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
                 let _ = SetWindowPos(
                     overlay,
                     Some(HWND_TOPMOST),
-                    0,
-                    0,
+                    screen_x,
+                    screen_y,
                     screen_w,
-                    screen_h,
+                    screen_h - 1, // Solve taskbar hide issue
                     SWP_NOACTIVATE | SWP_NOMOVE,
                 );
             }
