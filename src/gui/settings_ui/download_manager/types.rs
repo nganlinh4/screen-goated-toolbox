@@ -18,6 +18,15 @@ pub enum DownloadState {
     Error(String),             // Error message
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub enum UpdateStatus {
+    Idle,
+    Checking,
+    UpdateAvailable(String), // remote_version
+    UpToDate,
+    Error(String),
+}
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum DownloadType {
     Video, // Best video+audio -> mkv/mp4

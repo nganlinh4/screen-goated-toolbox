@@ -2,11 +2,12 @@ use crate::api::realtime_audio::model_loader::{
     download_parakeet_model, get_parakeet_model_dir, is_model_downloaded,
 };
 use crate::gui::locale::LocaleText;
-use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus};
+use crate::gui::settings_ui::download_manager::{DownloadManager, InstallStatus, UpdateStatus};
 use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 use std::fs;
 use std::path::PathBuf;
+
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
@@ -121,6 +122,71 @@ pub fn render_downloaded_tools_modal(
                                         *download_manager.ytdlp_status.lock().unwrap() =
                                             InstallStatus::Missing;
                                     }
+
+                                    // Show Version
+                                    if let Ok(guard) = download_manager.ytdlp_version.lock() {
+                                        if let Some(ver) = &*guard {
+                                            ui.label(
+                                                egui::RichText::new(format!("(v{})", ver))
+                                                    .color(egui::Color32::GRAY),
+                                            );
+                                        }
+                                    }
+
+                                    let status = {
+                                        if let Ok(s) = download_manager.ytdlp_update_status.lock() {
+                                            s.clone()
+                                        } else {
+                                            UpdateStatus::Idle
+                                        }
+                                    };
+
+                                    match status {
+                                        UpdateStatus::UpdateAvailable(ver) => {
+                                            if ui
+                                                .button(
+                                                    egui::RichText::new(format!(
+                                                        "Update ({})",
+                                                        ver
+                                                    ))
+                                                    .color(egui::Color32::from_rgb(255, 165, 0)),
+                                                )
+                                                .clicked()
+                                            {
+                                                download_manager.start_download_ytdlp();
+                                            }
+                                        }
+                                        UpdateStatus::Checking => {
+                                            ui.horizontal(|ui| {
+                                                ui.spinner();
+                                                ui.label("Checking...");
+                                            });
+                                        }
+                                        UpdateStatus::UpToDate => {
+                                            ui.label(
+                                                egui::RichText::new("Latest")
+                                                    .color(egui::Color32::GREEN),
+                                            );
+                                            if ui.small_button("Check Again").clicked() {
+                                                download_manager.check_updates();
+                                            }
+                                        }
+                                        UpdateStatus::Error(e) => {
+                                            ui.label(
+                                                egui::RichText::new("Error")
+                                                    .color(egui::Color32::RED),
+                                            )
+                                            .on_hover_text(e);
+                                            if ui.button("Retry").clicked() {
+                                                download_manager.check_updates();
+                                            }
+                                        }
+                                        UpdateStatus::Idle => {
+                                            if ui.button("Check Update").clicked() {
+                                                download_manager.check_updates();
+                                            }
+                                        }
+                                    }
                                 }
                                 InstallStatus::Downloading(p) => {
                                     ui.label(format!("{:.0}%", p * 100.0));
@@ -165,7 +231,6 @@ pub fn render_downloaded_tools_modal(
                                     let size = if let Ok(meta) = fs::metadata(&path) {
                                         meta.len()
                                     } else {
-                                        // might be just the exe size, proper size includes prompt/etc? No, just ffmpeg.
                                         0
                                     };
                                     // Actually ffmpeg download extracts multiple files.
@@ -195,6 +260,72 @@ pub fn render_downloaded_tools_modal(
                                         );
                                         *download_manager.ffmpeg_status.lock().unwrap() =
                                             InstallStatus::Missing;
+                                    }
+
+                                    // Show Version
+                                    if let Ok(guard) = download_manager.ffmpeg_version.lock() {
+                                        if let Some(ver) = &*guard {
+                                            ui.label(
+                                                egui::RichText::new(format!("(v{})", ver))
+                                                    .color(egui::Color32::GRAY),
+                                            );
+                                        }
+                                    }
+
+                                    let status = {
+                                        if let Ok(s) = download_manager.ffmpeg_update_status.lock()
+                                        {
+                                            s.clone()
+                                        } else {
+                                            UpdateStatus::Idle
+                                        }
+                                    };
+
+                                    match status {
+                                        UpdateStatus::UpdateAvailable(ver) => {
+                                            if ui
+                                                .button(
+                                                    egui::RichText::new(format!(
+                                                        "Update ({})",
+                                                        ver
+                                                    ))
+                                                    .color(egui::Color32::from_rgb(255, 165, 0)),
+                                                )
+                                                .clicked()
+                                            {
+                                                download_manager.start_download_ffmpeg();
+                                            }
+                                        }
+                                        UpdateStatus::Checking => {
+                                            ui.horizontal(|ui| {
+                                                ui.spinner();
+                                                ui.label("Checking...");
+                                            });
+                                        }
+                                        UpdateStatus::UpToDate => {
+                                            ui.label(
+                                                egui::RichText::new("Latest")
+                                                    .color(egui::Color32::GREEN),
+                                            );
+                                            if ui.small_button("Check Again").clicked() {
+                                                download_manager.check_updates();
+                                            }
+                                        }
+                                        UpdateStatus::Error(e) => {
+                                            ui.label(
+                                                egui::RichText::new("Error")
+                                                    .color(egui::Color32::RED),
+                                            )
+                                            .on_hover_text(e);
+                                            if ui.button("Retry").clicked() {
+                                                download_manager.check_updates();
+                                            }
+                                        }
+                                        UpdateStatus::Idle => {
+                                            if ui.button("Check Update").clicked() {
+                                                download_manager.check_updates();
+                                            }
+                                        }
                                     }
                                 }
                                 InstallStatus::Downloading(p) => {

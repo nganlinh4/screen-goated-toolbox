@@ -5,7 +5,7 @@ pub mod types;
 pub mod ui;
 pub mod utils;
 
-pub use self::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
+pub use self::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, UpdateStatus};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -14,6 +14,11 @@ pub struct DownloadManager {
     pub show_window: bool,
     pub ffmpeg_status: Arc<Mutex<InstallStatus>>,
     pub ytdlp_status: Arc<Mutex<InstallStatus>>,
+    pub ffmpeg_update_status: Arc<Mutex<UpdateStatus>>,
+    pub ytdlp_update_status: Arc<Mutex<UpdateStatus>>,
+    pub ffmpeg_version: Arc<Mutex<Option<String>>>,
+    pub ytdlp_version: Arc<Mutex<Option<String>>>,
+    pub is_checking_updates: Arc<AtomicBool>,
     pub logs: Arc<Mutex<Vec<String>>>,
     pub bin_dir: PathBuf,
 
@@ -88,6 +93,11 @@ impl DownloadManager {
             show_window: false,
             ffmpeg_status: Arc::new(Mutex::new(InstallStatus::Checking)),
             ytdlp_status: Arc::new(Mutex::new(InstallStatus::Checking)),
+            ffmpeg_update_status: Arc::new(Mutex::new(UpdateStatus::Idle)),
+            ytdlp_update_status: Arc::new(Mutex::new(UpdateStatus::Idle)),
+            ffmpeg_version: Arc::new(Mutex::new(None)),
+            ytdlp_version: Arc::new(Mutex::new(None)),
+            is_checking_updates: Arc::new(AtomicBool::new(false)),
             logs: Arc::new(Mutex::new(Vec::new())),
             bin_dir: bin_dir.clone(),
             input_url: String::new(),
