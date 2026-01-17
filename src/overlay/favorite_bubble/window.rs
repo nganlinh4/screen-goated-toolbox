@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering;
 use windows::core::w;
 use windows::Win32::Foundation::*;
 
+use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
@@ -68,6 +69,7 @@ pub fn trigger_blink_animation() {
 
 fn create_bubble_window() {
     unsafe {
+        let _ = CoInitialize(None); // Required for WebView warmup
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGTFavoriteBubble");
 
@@ -149,6 +151,7 @@ fn create_bubble_window() {
         destroy_panel();
         BUBBLE_ACTIVE.store(false, Ordering::SeqCst);
         BUBBLE_HWND.store(0, Ordering::SeqCst);
+        let _ = CoUninitialize();
     }
 }
 
