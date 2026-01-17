@@ -511,7 +511,7 @@ fn create_popup_window() {
     unsafe {
         // Initialize COM for the thread (Critical for WebView2/Wry)
         let coinit = windows::Win32::System::Com::CoInitialize(None);
-        println!("[TrayPopup] Loop Start - CoInit: {:?}", coinit);
+        crate::log_info!("[TrayPopup] Loop Start - CoInit: {:?}", coinit);
         
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGTTrayPopup");
@@ -527,7 +527,7 @@ fn create_popup_window() {
             };
             RegisterClassW(&wc);
         });
-        println!("[TrayPopup] Class Registered");
+        crate::log_info!("[TrayPopup] Class Registered");
 
         // Get DPI-scaled dimensions
         let popup_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
@@ -550,7 +550,7 @@ fn create_popup_window() {
         )
         .unwrap_or_default();
 
-        println!("[TrayPopup] Window created with HWND: {:?}", hwnd);
+        crate::log_info!("[TrayPopup] Window created with HWND: {:?}", hwnd);
 
         if hwnd.is_invalid() {
             return;
@@ -577,121 +577,123 @@ fn create_popup_window() {
         // Initialize shared WebContext if needed (uses same data dir as other modules)
         POPUP_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("tray"));
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
         
-        println!("[TrayPopup] Starting WebView initialization...");
+        crate::log_info!("[TrayPopup] Starting WebView initialization...");
 
+        let mut final_webview: Option<WebView> = None;
+        
         // Stagger startup to avoid collision
         std::thread::sleep(std::time::Duration::from_millis(250));
 
-        let mut final_webview: Option<WebView> = None;
-
         for attempt in 1..=3 {
-            let res = POPUP_WEB_CONTEXT.with(|ctx| {
-                let mut ctx_ref = ctx.borrow_mut();
-                let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
-                    WebViewBuilder::new_with_web_context(web_ctx)
-                } else {
-                    WebViewBuilder::new()
-                };
-                let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
-                
-                // Store HTML in font server and get URL for same-origin font loading
-                let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
-                    .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
-                
-                builder
-                    .with_bounds(Rect {
-                        position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            popup_width as u32,
-                            popup_height as u32,
-                        )),
-                    })
-                    .with_transparent(true)
-                    .with_url(&page_url)
-                    .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                        let body = msg.body();
-                        match body.as_str() {
-                            "settings" => {
-                                // Hide popup and restore main window
-                                hide_tray_popup();
-                                crate::gui::signal_restore_window();
-                            }
-                            "bubble" => {
-                                // Toggle bubble state
-                                let new_state = if let Ok(mut app) = APP.lock() {
-                                    app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
-                                    let enabled = app.config.show_favorite_bubble;
-                                    crate::config::save_config(&app.config);
+                let res = POPUP_WEB_CONTEXT.with(|ctx| {
+                    let mut ctx_ref = ctx.borrow_mut();
+                    let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
+                        WebViewBuilder::new_with_web_context(web_ctx)
+                    } else {
+                        WebViewBuilder::new()
+                    };
+                    let builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+                    
+                    // Store HTML in font server and get URL for same-origin font loading
+                    let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
+                        .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
+                    
+                    builder
+                        .with_bounds(Rect {
+                            position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                popup_width as u32,
+                                popup_height as u32,
+                            )),
+                        })
+                        .with_transparent(true)
+                        .with_url(&page_url)
+                        .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                            let body = msg.body();
+                            match body.as_str() {
+                                "settings" => {
+                                    // Hide popup and restore main window
+                                    hide_tray_popup();
+                                    crate::gui::signal_restore_window();
+                                }
+                                "bubble" => {
+                                    // Toggle bubble state
+                                    let new_state = if let Ok(mut app) = APP.lock() {
+                                        app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
+                                        let enabled = app.config.show_favorite_bubble;
+                                        crate::config::save_config(&app.config);
 
-                                    if enabled {
-                                        crate::overlay::favorite_bubble::show_favorite_bubble();
-                                        std::thread::spawn(|| {
-                                            std::thread::sleep(std::time::Duration::from_millis(150));
-                                            crate::overlay::favorite_bubble::trigger_blink_animation();
-                                        });
+                                        if enabled {
+                                            crate::overlay::favorite_bubble::show_favorite_bubble();
+                                            std::thread::spawn(|| {
+                                                std::thread::sleep(std::time::Duration::from_millis(150));
+                                                crate::overlay::favorite_bubble::trigger_blink_animation();
+                                            });
+                                        } else {
+                                            crate::overlay::favorite_bubble::hide_favorite_bubble();
+                                        }
+                                        enabled
                                     } else {
-                                        crate::overlay::favorite_bubble::hide_favorite_bubble();
-                                    }
-                                    enabled
-                                } else {
-                                    false
-                                };
+                                        false
+                                    };
 
-                                // Update checkmark in popup via JavaScript (keep popup open)
-                                POPUP_WEBVIEW.with(|cell| {
-                                    if let Some(webview) = cell.borrow().as_ref() {
-                                        let js = format!(
-                                            "document.getElementById('bubble-check-container').innerHTML = '{}';",
-                                            if new_state { 
-                                                r#"<svg class="check-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13.86 3.66a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.6 9.03a.75.75 0 1 1 1.06-1.06l2.42 2.42 6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>"#
-                                            } else { "" }
-                                        );
-                                        let _ = webview.evaluate_script(&js);
-                                    }
-                                });
+                                    // Update checkmark in popup via JavaScript (keep popup open)
+                                    POPUP_WEBVIEW.with(|cell| {
+                                        if let Some(webview) = cell.borrow().as_ref() {
+                                            let js = format!(
+                                                "document.getElementById('bubble-check-container').innerHTML = '{}';",
+                                                if new_state { 
+                                                    r#"<svg class="check-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M13.86 3.66a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.6 9.03a.75.75 0 1 1 1.06-1.06l2.42 2.42 6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>"#
+                                                } else { "" }
+                                            );
+                                            let _ = webview.evaluate_script(&js);
+                                        }
+                                    });
+                                }
+                                "stop_tts" => {
+                                    // Stop all TTS playback and clear queues
+                                    crate::api::tts::TTS_MANAGER.stop();
+                                    // Hide popup after action
+                                    hide_tray_popup();
+                                }
+                                "quit" => {
+                                    // Hide popup first, then exit
+                                    hide_tray_popup();
+                                    std::thread::spawn(|| {
+                                        std::thread::sleep(std::time::Duration::from_millis(50));
+                                        std::process::exit(0);
+                                    });
+                                }
+                                "close" => {
+                                    hide_tray_popup();
+                                }
+                                _ => {}
                             }
-                            "stop_tts" => {
-                                // Stop all TTS playback and clear queues
-                                crate::api::tts::TTS_MANAGER.stop();
-                                // Hide popup after action
-                                hide_tray_popup();
-                            }
-                            "quit" => {
-                                // Hide popup first, then exit
-                                hide_tray_popup();
-                                std::thread::spawn(|| {
-                                    std::thread::sleep(std::time::Duration::from_millis(50));
-                                    std::process::exit(0);
-                                });
-                            }
-                            "close" => {
-                                hide_tray_popup();
-                            }
-                            _ => {}
+                        })
+                        .build(&wrapper)
+                });
+    
+                match res {
+                    Ok(wv) => {
+                        final_webview = Some(wv);
+                        break;
+                    }
+                    Err(e) => {
+                        crate::log_info!("[TrayPopup] WebView init attempt {} failed: {:?}", attempt, e);
+                        if attempt < 3 {
+                            std::thread::sleep(std::time::Duration::from_millis(500));
                         }
-                    })
-                    .build(&wrapper)
-            });
-
-            match res {
-                Ok(wv) => {
-                    final_webview = Some(wv);
-                    break;
-                }
-                Err(e) => {
-                    println!("[TrayPopup] WebView init attempt {} failed: {:?}", attempt, e);
-                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
                 }
             }
-        }
 
         if let Some(wv) = final_webview {
-            println!("[TrayPopup] WebView initialization SUCCESSFUL");
+            crate::log_info!("[TrayPopup] WebView initialization SUCCESSFUL");
             POPUP_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });
@@ -703,12 +705,14 @@ fn create_popup_window() {
 
             // Message loop runs forever to keep window alive
             let mut msg = MSG::default();
-            while GetMessageW(&mut msg, None, 0, 0).into() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+            unsafe {
+                while GetMessageW(&mut msg, None, 0, 0).into() {
+                    let _ = TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
             }
         } else {
-            println!("[TrayPopup] FAILED to initialize WebView after 3 attempts.");
+            crate::log_info!("[TrayPopup] FAILED to initialize WebView after 3 attempts.");
         }
 
         // Clean up on thread exit
@@ -720,7 +724,7 @@ fn create_popup_window() {
             *cell.borrow_mut() = None;
         });
         
-        let _ = windows::Win32::System::Com::CoUninitialize();
+        unsafe { let _ = windows::Win32::System::Com::CoUninitialize(); }
     }
 }
 

@@ -26,17 +26,21 @@ pub use recording::{
 pub use selection::{is_selection_overlay_active_and_dismiss, show_selection_overlay};
 pub use text_selection::show_text_selection_tag;
 // Use the new WebView2-based realtime overlay
+
+// pub use crate::api::realtime_audio::show_realtime_overlay; // REMOVED - Incorrect path
 pub use realtime_webview::{
     is_realtime_overlay_active, show_realtime_overlay, stop_realtime_overlay,
 };
 
-/// Get the shared WebView2 data directory path.
-/// All WebViews using this same path will share browser processes, reducing RAM usage.
-/// Uses %APPDATA%/SGT/webview_data on Windows.
-pub fn get_shared_webview_data_dir() -> std::path::PathBuf {
-    let mut path = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+/// Get a WebView2 data directory path.
+/// If subdir is provided, returns a component-specific folder to avoid file-lock contention.
+pub fn get_shared_webview_data_dir(subdir: Option<&str>) -> std::path::PathBuf {
+    let mut path = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     path.push("SGT");
     path.push("webview_data");
+    if let Some(s) = subdir {
+        path.push(s);
+    }
     // Ensure the directory exists
     let _ = std::fs::create_dir_all(&path);
     path
@@ -50,7 +54,7 @@ pub fn get_shared_webview_data_dir() -> std::path::PathBuf {
 /// that can occur when files are locked by WebView processes. It will retry
 /// with delays and attempt per-file deletion as a fallback.
 pub fn clear_webview_permissions() -> bool {
-    let mut path = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let mut path = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     path.push("SGT");
     path.push("webview_data");
 
@@ -130,25 +134,20 @@ fn delete_directory_contents_recursive(path: &std::path::Path) -> bool {
 
     any_deleted
 }
-/// Check if we should use dark mode based on config
+/// Check if we should use dark mode based on config.
+/// Uses direct registry check for System theme to avoid crate overhead/crashes.
 pub fn is_dark_mode() -> bool {
-    let (mode, _) = {
-        let app = crate::APP.lock().unwrap();
-        (
-            app.config.theme_mode.clone(),
-            app.config.ui_language.clone(),
-        )
+    let mode = {
+        if let Ok(app) = crate::APP.lock() {
+            app.config.theme_mode.clone()
+        } else {
+            crate::config::ThemeMode::Dark
+        }
     };
 
     match mode {
-        crate::config::types::ThemeMode::Dark => true,
-        crate::config::types::ThemeMode::Light => false,
-        crate::config::types::ThemeMode::System => {
-            // Check system theme (default to dark if check fails)
-            match dark_light::detect() {
-                Ok(dark_light::Mode::Light) => false,
-                _ => true,
-            }
-        }
+        crate::config::ThemeMode::Dark => true,
+        crate::config::ThemeMode::Light => false,
+        crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
     }
 }

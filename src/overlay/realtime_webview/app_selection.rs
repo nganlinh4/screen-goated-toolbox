@@ -452,7 +452,7 @@ pub fn show_app_selection_popup() {
             let hwnd_val = hwnd.0 as isize;
 
             // Create a WebContext using the shared data directory
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("realtime"));
             let mut web_context = wry::WebContext::new(Some(shared_data_dir));
 
             // Store HTML in font server and get URL for same-origin font loading

@@ -3,6 +3,7 @@
 mod api;
 mod assets;
 mod config;
+mod debug_log;
 pub mod gui;
 mod history;
 mod icon_gen;
@@ -129,6 +130,13 @@ fn enable_dark_mode_for_app() {
 }
 
 fn main() -> eframe::Result<()> {
+    crate::log_info!("========================================");
+    crate::log_info!(
+        "Screen Goated Toolbox v{} STARTUP",
+        env!("CARGO_PKG_VERSION")
+    );
+    crate::log_info!("========================================");
+
     // --- INIT COM ---
     // Essential for Tray Icon and Shell interactions, especially in Admin/Task Scheduler context.
     unsafe {

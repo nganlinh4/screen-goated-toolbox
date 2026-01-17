@@ -71,7 +71,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 }
 
 fn enqueue_notification(title: String, snippet: String, n_type: NotificationType) {
-    println!("[Badge] Enqueuing: '{}' ({:?})", title, n_type);
+    crate::log_info!("[Badge] Enqueuing: '{}' ({:?})", title, n_type);
     {
         let mut q = PENDING_QUEUE.lock().unwrap();
         q.push_back(PendingNotification {
@@ -125,22 +125,22 @@ pub fn show_error_notification(title: &str) {
 fn ensure_window_and_post(msg: u32) {
     // Check if already warmed up
     if !IS_WARMED_UP.load(Ordering::SeqCst) {
-        println!("[Badge] Not warmed up, triggering warmup...");
+        crate::log_info!("[Badge] Not warmed up, triggering warmup...");
         // Trigger warmup if not started yet
         warmup();
 
-        // Poll for ready state (up to 3 seconds)
-        for i in 0..60 {
+        // Poll for ready state (up to 20 seconds to allow for serialized startup)
+        for i in 0..400 {
             std::thread::sleep(std::time::Duration::from_millis(50));
             if IS_WARMED_UP.load(Ordering::SeqCst) {
-                println!("[Badge] Warmup completed after {} ms", i * 50);
+                crate::log_info!("[Badge] Warmup completed after {} ms", i * 50);
                 break;
             }
         }
 
         // If still not ready, give up this notification
         if !IS_WARMED_UP.load(Ordering::SeqCst) {
-            println!("[Badge] Warmup TIMED OUT! Notification dropped.");
+            crate::log_info!("[Badge] Warmup TIMED OUT! Notification dropped.");
             return;
         }
     }
@@ -489,7 +489,7 @@ fn internal_create_window_loop() {
     unsafe {
         // Initialize COM for the thread (Critical for WebView2/Wry)
         let coinit = CoInitialize(None);
-        println!("[Badge] Internal Loop Start - CoInit: {:?}", coinit);
+        crate::log_info!("[Badge] Internal Loop Start - CoInit: {:?}", coinit);
 
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGT_AutoCopyBadgeWebView");
@@ -504,7 +504,7 @@ fn internal_create_window_loop() {
             wc.hbrBackground = HBRUSH(std::ptr::null_mut());
             let _ = RegisterClassW(&wc);
         });
-        println!("[Badge] Class Registered");
+        crate::log_info!("[Badge] Class Registered");
 
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
@@ -521,10 +521,10 @@ fn internal_create_window_loop() {
             None,
         )
         .unwrap_or_default();
-        println!("[Badge] Window created with HWND: {:?}", hwnd);
+        crate::log_info!("[Badge] Window created with HWND: {:?}", hwnd);
 
         if hwnd.is_invalid() {
-            println!("[Badge] Window creation failed, HWND is invalid.");
+            crate::log_info!("[Badge] Window creation failed, HWND is invalid.");
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             BADGE_HWND.store(0, Ordering::SeqCst);
             let _ = CoUninitialize();
@@ -544,11 +544,12 @@ fn internal_create_window_loop() {
 
         BADGE_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
-                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("badge"));
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
-        println!("[Badge] Starting WebView initialization...");
+        crate::log_info!("[Badge] Starting WebView initialization...");
+
         // Stagger start to avoid global WebView2 init lock contention
         std::thread::sleep(std::time::Duration::from_millis(50));
 
@@ -585,14 +586,14 @@ fn internal_create_window_loop() {
                     if body == "finished" {
                         let _ = ShowWindow(hwnd, SW_HIDE);
                     } else if body.starts_with("error:") {
-                        println!("[BadgeJS] {}", body);
+                        crate::log_info!("[BadgeJS] {}", body);
                     }
                 })
                 .build(&wrapper)
         });
 
         if let Ok(wv) = webview {
-            println!("[Badge] WebView initialization SUCCESSFUL");
+            crate::log_info!("[Badge] WebView initialization SUCCESSFUL");
             BADGE_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });

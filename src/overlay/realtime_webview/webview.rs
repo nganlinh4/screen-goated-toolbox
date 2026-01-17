@@ -21,6 +21,7 @@ pub fn create_realtime_webview(
     font_size: u32,
 ) {
     let hwnd_key = hwnd.0 as isize;
+    crate::log_info!("[Realtime] Creating WebView for HWND: {:?}", hwnd);
 
     let mut rect = RECT::default();
     unsafe {
@@ -63,10 +64,9 @@ pub fn create_realtime_webview(
     // Capture hwnd for the IPC handler closure
     let hwnd_for_ipc = hwnd;
 
-    // Initialize shared WebContext if needed (uses same data dir as other modules)
     REALTIME_WEB_CONTEXT.with(|ctx| {
         if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("realtime"));
             *ctx.borrow_mut() = Some(wry::WebContext::new(Some(shared_data_dir)));
         }
     });
@@ -493,9 +493,16 @@ pub fn create_realtime_webview(
     });
 
     if let Ok(webview) = result {
+        crate::log_info!("[Realtime] WebView success for HWND: {:?}", hwnd);
         REALTIME_WEBVIEWS.with(|wvs| {
             wvs.borrow_mut().insert(hwnd_key, webview);
         });
+    } else if let Err(e) = result {
+        crate::log_info!(
+            "[Realtime] WebView FAILED for HWND: {:?}, Error: {:?}",
+            hwnd,
+            e
+        );
     }
 }
 

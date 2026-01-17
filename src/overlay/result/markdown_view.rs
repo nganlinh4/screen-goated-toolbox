@@ -98,9 +98,8 @@ fn warmup_internal() {
         // Make it transparent (invisible)
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
 
-        // Initialize shared WebContext for this thread (reduces RAM by sharing browser processes)
-        // All modules use the same data directory, so WebView2 shares browser processes
-        let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+        // Initialize shared WebContext for this thread
+        let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("result"));
         SHARED_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
@@ -954,6 +953,10 @@ pub fn create_markdown_webview_ex(
     unsafe {
         let _ = GetClientRect(parent_hwnd, &mut rect);
     }
+    crate::log_info!(
+        "[Markdown] Creating WebView for Parent HWND: {:?}",
+        parent_hwnd
+    );
 
     let html_content = markdown_to_html(markdown_text, is_refining, preset_prompt, input_text);
 
@@ -973,7 +976,8 @@ pub fn create_markdown_webview_ex(
 
     // Use shared WebContext to match working realtime_webview behavior
     // This ensures we share the same browser process/cache/state
-    let data_dir = crate::overlay::get_shared_webview_data_dir();
+
+    let data_dir = crate::overlay::get_shared_webview_data_dir(Some("result"));
     let mut web_context = WebContext::new(Some(data_dir));
 
     // html_content is already a full HTML document from markdown_to_html
@@ -992,7 +996,7 @@ pub fn create_markdown_webview_ex(
     }
 
     if page_url.is_empty() {
-        eprintln!("Failed to store markdown page in font server!");
+        crate::log_info!("[Markdown] FAILED to store markdown page in font server!");
         let error_html = "<html><body style='color:white'>Error: Could not connect to internal font server.</body></html>";
         if let Some(url) =
             crate::overlay::html_components::font_manager::store_html_page(error_html.to_string())
@@ -1123,6 +1127,10 @@ pub fn create_markdown_webview_ex(
 
     match result {
         Ok(webview) => {
+            crate::log_info!(
+                "[Markdown] WebView success for Parent HWND: {:?}",
+                parent_hwnd
+            );
             WEBVIEWS.with(|webviews| {
                 webviews.borrow_mut().insert(hwnd_key, webview);
             });
@@ -1131,7 +1139,12 @@ pub fn create_markdown_webview_ex(
             states.insert(hwnd_key, true);
             true
         }
-        Err(_e) => {
+        Err(e) => {
+            crate::log_info!(
+                "[Markdown] WebView FAILED for Parent HWND: {:?}, Error: {:?}",
+                parent_hwnd,
+                e
+            );
             // WebView creation failed - warmup may not have completed
             false
         }
