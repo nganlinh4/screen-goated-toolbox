@@ -2,5 +2,12 @@
 # Optimize compilation
 rustflags = [
     "-Z", "location-detail=none",
-    "-C", "target-cpu=native"
+    "-C", "target-cpu=native",
+    "-C", "target-feature=+crt-static"
 ]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-C", "target-feature=+crt-static"
+]
+

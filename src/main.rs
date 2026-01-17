@@ -129,6 +129,8 @@ fn enable_dark_mode_for_app() {
     }
 }
 
+mod unpack_dlls;
+
 fn main() -> eframe::Result<()> {
     crate::log_info!("========================================");
     crate::log_info!(
@@ -136,6 +138,10 @@ fn main() -> eframe::Result<()> {
         env!("CARGO_PKG_VERSION")
     );
     crate::log_info!("========================================");
+
+    // --- UNPACK DLLS ---
+    // Extract embedded CRT and DirectML DLLs so the app is truly portable
+    unpack_dlls::unpack_dlls();
 
     // --- INIT COM ---
     // Essential for Tray Icon and Shell interactions, especially in Admin/Task Scheduler context.

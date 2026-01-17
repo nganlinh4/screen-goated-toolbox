@@ -58,7 +58,7 @@ wry = "0.53.5"
 raw-window-handle = "0.6"
 windows-core = "0.62"
 parakeet-rs = { version = "0.2.7", features = ["directml"] }
-ort = { version = "2.0.0-rc.10", features = ["directml"] }
+ort = { version = "2.0.0-rc.10", features = ["directml", "load-dynamic"] }
 ringbuf = "0.4.8"
 dark-light = "2.0.0"
 
