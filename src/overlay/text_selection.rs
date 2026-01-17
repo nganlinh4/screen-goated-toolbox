@@ -39,6 +39,10 @@ lazy_static::lazy_static! {
     pub static ref INITIAL_TEXT_GLOBAL: Mutex<String> = Mutex::new(String::from("Select text..."));
 }
 
+thread_local! {
+    static SELECTION_WEB_CONTEXT: std::cell::RefCell<Option<wry::WebContext>> = std::cell::RefCell::new(None);
+}
+
 // Warmup / Persistence Globals
 static TAG_HWND: AtomicIsize = AtomicIsize::new(0);
 static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
@@ -281,7 +285,8 @@ unsafe extern "system" fn tag_wnd_proc(
 fn internal_create_tag_thread() {
     unsafe {
         use windows::Win32::System::Com::*;
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let coinit = CoInitialize(None);
+        println!("[TextSelection] Loop Start - CoInit: {:?}", coinit);
 
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SGT_TextTag_Web_Persistent");
@@ -296,6 +301,7 @@ fn internal_create_tag_thread() {
             wc.style = CS_HREDRAW | CS_VREDRAW;
             let _ = RegisterClassExW(&wc);
         });
+        println!("[TextSelection] Class Registered");
 
         // Create Layered Transparent Window
         let hwnd = CreateWindowExW(
@@ -313,6 +319,7 @@ fn internal_create_tag_thread() {
             None,
         )
         .unwrap_or_default();
+        println!("[TextSelection] Window created with HWND: {:?}", hwnd);
 
         if hwnd.is_invalid() {
             IS_WARMING_UP.store(false, Ordering::SeqCst);
@@ -336,33 +343,79 @@ fn internal_create_tag_thread() {
             _ => "Select text...",
         };
         *INITIAL_TEXT_GLOBAL.lock().unwrap() = initial_text.to_string();
-
         // Use new get_html with CSS variables and updateTheme function
         let html_content = get_html(initial_text);
 
-        let mut web_context =
-            wry::WebContext::new(Some(crate::overlay::get_shared_webview_data_dir()));
-        let page_url = format!("data:text/html,{}", urlencoding::encode(&html_content));
+        // Initialize shared WebContext if needed
+        println!("[TextSelection] Initializing WebContext...");
+        SELECTION_WEB_CONTEXT.with(|ctx| {
+            if ctx.borrow().is_none() {
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir();
+                *ctx.borrow_mut() = Some(wry::WebContext::new(Some(shared_data_dir)));
+            }
+        });
 
-        let builder = wry::WebViewBuilder::new_with_web_context(&mut web_context);
-        let webview_res = builder
-            .with_bounds(wry::Rect {
-                position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(200, 120)),
-            })
-            .with_url(&page_url)
-            .with_transparent(true)
-            .build_as_child(&HwndWrapper(hwnd));
+        // Store HTML in font server and get URL for same-origin font loading
+        let page_url =
+            crate::overlay::html_components::font_manager::store_html_page(html_content.clone())
+                .unwrap_or_else(|| {
+                    format!("data:text/html,{}", urlencoding::encode(&html_content))
+                });
 
-        if let Ok(webview) = webview_res {
+        let mut final_webview: Option<wry::WebView> = None;
+
+        // Small initial delay to avoid collision with other warming-up modules (TextInput/Badge)
+        std::thread::sleep(std::time::Duration::from_millis(150));
+
+        // Retry loop for stability (similar to text_input)
+        for attempt in 1..=3 {
+            let res = SELECTION_WEB_CONTEXT.with(|ctx| {
+                let mut ctx_ref = ctx.borrow_mut();
+                let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
+                    wry::WebViewBuilder::new_with_web_context(web_ctx)
+                } else {
+                    wry::WebViewBuilder::new()
+                };
+
+                builder
+                    .with_bounds(wry::Rect {
+                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
+                            0, 0,
+                        )),
+                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(200, 120)),
+                    })
+                    .with_url(&page_url)
+                    .with_transparent(true)
+                    .build_as_child(&HwndWrapper(hwnd))
+            });
+            println!("[TextSelection] Attempting WebView creation...");
+
+            match res {
+                Ok(wv) => {
+                    final_webview = Some(wv);
+                    break;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[TextSelection] WebView init failed (attempt {}/3): {:?}",
+                        attempt, e
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+        }
+
+        if let Some(webview) = final_webview {
+            println!("[TextSelection] WebView initialization SUCCESSFUL");
             // Set initial theme
             let init_script = format!("updateTheme({});", initial_is_dark);
             let _ = webview.evaluate_script(&init_script);
             SELECTION_STATE.lock().unwrap().webview = Some(webview);
         } else {
-            eprintln!("Failed to create TextSelection WebView during warmup");
+            eprintln!("[TextSelection] FAILED to create WebView after 3 attempts.");
             let _ = DestroyWindow(hwnd);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
+            let _ = CoUninitialize();
             return;
         }
 

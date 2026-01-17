@@ -504,6 +504,7 @@ fn internal_create_window_loop() {
             wc.hbrBackground = HBRUSH(std::ptr::null_mut());
             let _ = RegisterClassW(&wc);
         });
+        println!("[Badge] Class Registered");
 
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
@@ -520,6 +521,15 @@ fn internal_create_window_loop() {
             None,
         )
         .unwrap_or_default();
+        println!("[Badge] Window created with HWND: {:?}", hwnd);
+
+        if hwnd.is_invalid() {
+            println!("[Badge] Window creation failed, HWND is invalid.");
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
+            BADGE_HWND.store(0, Ordering::SeqCst);
+            let _ = CoUninitialize();
+            return;
+        }
 
         // Don't store HWND yet - wait until WebView is ready
         let margins = MARGINS {
@@ -538,6 +548,9 @@ fn internal_create_window_loop() {
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
+        println!("[Badge] Starting WebView initialization...");
+        // Stagger start to avoid global WebView2 init lock contention
+        std::thread::sleep(std::time::Duration::from_millis(50));
 
         let webview = BADGE_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
@@ -579,6 +592,7 @@ fn internal_create_window_loop() {
         });
 
         if let Ok(wv) = webview {
+            println!("[Badge] WebView initialization SUCCESSFUL");
             BADGE_WEBVIEW.with(|cell| {
                 *cell.borrow_mut() = Some(wv);
             });
@@ -621,7 +635,6 @@ unsafe extern "system" fn badge_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_APP_PROCESS_QUEUE => {
-            println!("[Badge] WM_APP_PROCESS_QUEUE received");
             let app = APP.lock().unwrap();
             let is_dark = match app.config.theme_mode {
                 crate::config::ThemeMode::Dark => true,

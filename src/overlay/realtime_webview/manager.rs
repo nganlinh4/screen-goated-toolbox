@@ -12,6 +12,7 @@ use windows::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
 };
 use windows::Win32::Graphics::Gdi::HBRUSH;
+use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -77,6 +78,7 @@ pub fn show_realtime_overlay(preset_idx: usize) {
 }
 
 unsafe fn internal_create_realtime_loop() {
+    let _ = CoInitialize(None); // Required for WebView
     let instance = GetModuleHandleW(None).unwrap();
 
     // --- Register Classes ---
@@ -194,6 +196,7 @@ unsafe fn internal_create_realtime_loop() {
     IS_ACTIVE = false;
     REALTIME_HWND = HWND::default();
     TRANSLATION_HWND = HWND::default();
+    let _ = CoUninitialize();
 }
 
 unsafe extern "system" fn realtime_wnd_proc_internal(

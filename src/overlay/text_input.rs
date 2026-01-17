@@ -9,6 +9,7 @@ use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForSystem;
@@ -680,6 +681,7 @@ fn apply_pending_text() {
                 let _ = wv.evaluate_script(&script);
             }
         });
+        println!("[Badge] Starting WebView initialization...");
     }
 }
 
@@ -856,6 +858,8 @@ pub fn show(
 
 fn internal_create_window_loop() {
     unsafe {
+        let coinit = CoInitialize(None); // Required for WebView
+        println!("[TextInput] Loop Start - CoInit: {:?}", coinit);
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SGT_TextInputWry");
 
@@ -870,11 +874,14 @@ fn internal_create_window_loop() {
             wc.hbrBackground = HBRUSH(GetStockObject(NULL_BRUSH).0);
             let _ = RegisterClassW(&wc);
         });
+        println!("[TextInput] Class Registered");
 
+        println!("[TextInput] Calculating scale...");
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let scale = {
             let dpi = GetDpiForSystem();
+            println!("[TextInput] System DPI: {}", dpi);
             dpi as f64 / 96.0
         };
         // Width scaling: matches 800px physical at 1.25 scale (Laptop preferred),
@@ -906,9 +913,20 @@ fn internal_create_window_loop() {
             None,
         )
         .unwrap_or_default();
+        println!("[TextInput] CreateWindowExW returned HWND: {:?}", hwnd);
+
+        if hwnd.is_invalid() {
+            eprintln!("[TextInput] Critical Error: Failed to create window.");
+            IS_WARMED_UP.store(false, Ordering::SeqCst);
+            IS_WARMING_UP.store(false, Ordering::SeqCst);
+            let _ = CoUninitialize();
+            return;
+        }
 
         INPUT_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+        println!("[TextInput] HWND stored, starting WebView initialization...");
 
+        // WebView Initialization
         // Initialize use simple DwmExtendFrameIntoClientArea for full transparency
         // NO SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_COLORKEY) as it conflicts with Dwm
         // Use margins -1 to extend glass effect to entire window (fully transparent client area)
@@ -933,6 +951,10 @@ fn internal_create_window_loop() {
                 webview_success = true;
                 break;
             }
+            println!(
+                "[TextInput] WebView init attempt {} failed, retrying...",
+                attempts + 1
+            );
             attempts += 1;
             eprintln!(
                 "[TextInput] WebView init failed, retrying ({}/{})",
@@ -950,6 +972,7 @@ fn internal_create_window_loop() {
             IS_WARMED_UP.store(false, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             let _ = DestroyWindow(hwnd);
+            let _ = CoUninitialize();
             return;
         }
 
@@ -971,6 +994,7 @@ fn internal_create_window_loop() {
         INPUT_HWND.store(0, Ordering::SeqCst);
         IS_WARMED_UP.store(false, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst);
+        let _ = CoUninitialize();
     }
 }
 
@@ -1115,6 +1139,7 @@ unsafe fn init_webview(hwnd: HWND, w: i32, h: i32) -> std::result::Result<(), ()
     });
 
     if let Ok(webview) = result {
+        println!("[TextInput] WebView initialization SUCCESSFUL");
         TEXT_INPUT_WEBVIEW.with(|wv| {
             *wv.borrow_mut() = Some(webview);
         });
