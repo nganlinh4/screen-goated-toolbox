@@ -54,14 +54,6 @@ pub fn render_downloaded_tools_modal(
                                 ui.label(format!("{:.0}%", progress));
                                 ui.spinner();
                             } else if is_model_downloaded() {
-                                let size = get_dir_size(get_parakeet_model_dir());
-                                ui.label(
-                                    egui::RichText::new(
-                                        text.tool_status_installed
-                                            .replace("{}", &format_size(size)),
-                                    )
-                                    .color(egui::Color32::from_rgb(34, 139, 34)),
-                                );
                                 if ui
                                     .button(
                                         egui::RichText::new(text.tool_action_delete)
@@ -71,17 +63,25 @@ pub fn render_downloaded_tools_modal(
                                 {
                                     let _ = fs::remove_dir_all(get_parakeet_model_dir());
                                 }
-                            } else {
+                                let size = get_dir_size(get_parakeet_model_dir());
                                 ui.label(
-                                    egui::RichText::new(text.tool_status_missing)
-                                        .color(egui::Color32::GRAY),
+                                    egui::RichText::new(
+                                        text.tool_status_installed
+                                            .replace("{}", &format_size(size)),
+                                    )
+                                    .color(egui::Color32::from_rgb(34, 139, 34)),
                                 );
+                            } else {
                                 if ui.button(text.tool_action_download).clicked() {
                                     let stop_signal = Arc::new(AtomicBool::new(false));
                                     thread::spawn(move || {
                                         let _ = download_parakeet_model(stop_signal, false);
                                     });
                                 }
+                                ui.label(
+                                    egui::RichText::new(text.tool_status_missing)
+                                        .color(egui::Color32::GRAY),
+                                );
                             }
                         });
                     });
@@ -92,25 +92,13 @@ pub fn render_downloaded_tools_modal(
 
                 // --- yt-dlp ---
                 ui.group(|ui| {
+                    let status = download_manager.ytdlp_status.lock().unwrap().clone();
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(text.tool_ytdlp).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let status = download_manager.ytdlp_status.lock().unwrap().clone();
                             match status {
                                 InstallStatus::Installed => {
                                     let path = download_manager.bin_dir.join("yt-dlp.exe");
-                                    let size = if let Ok(meta) = fs::metadata(&path) {
-                                        meta.len()
-                                    } else {
-                                        0
-                                    };
-                                    ui.label(
-                                        egui::RichText::new(
-                                            text.tool_status_installed
-                                                .replace("{}", &format_size(size)),
-                                        )
-                                        .color(egui::Color32::from_rgb(34, 139, 34)),
-                                    );
                                     if ui
                                         .button(
                                             egui::RichText::new(text.tool_action_delete)
@@ -123,17 +111,53 @@ pub fn render_downloaded_tools_modal(
                                             InstallStatus::Missing;
                                     }
 
-                                    // Show Version
-                                    if let Ok(guard) = download_manager.ytdlp_version.lock() {
-                                        if let Some(ver) = &*guard {
-                                            ui.label(
-                                                egui::RichText::new(format!("(v{})", ver))
-                                                    .color(egui::Color32::GRAY),
-                                            );
-                                        }
+                                    let size = if let Ok(meta) =
+                                        fs::metadata(download_manager.bin_dir.join("yt-dlp.exe"))
+                                    {
+                                        meta.len()
+                                    } else {
+                                        0
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(
+                                            text.tool_status_installed
+                                                .replace("{}", &format_size(size)),
+                                        )
+                                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                                    );
+                                }
+                                InstallStatus::Downloading(p) => {
+                                    ui.spinner();
+                                    ui.label(format!("{:.0}%", p * 100.0));
+                                }
+                                InstallStatus::Extracting => {
+                                    ui.spinner();
+                                    ui.label(text.download_status_extracting);
+                                }
+                                InstallStatus::Checking => {
+                                    ui.spinner();
+                                }
+                                _ => {
+                                    if ui.button(text.tool_action_download).clicked() {
+                                        download_manager.start_download_ytdlp();
                                     }
+                                    ui.label(
+                                        egui::RichText::new(text.tool_status_missing)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                }
+                            }
+                        });
+                    });
 
-                                    let status = {
+                    ui.horizontal(|ui| {
+                        ui.label(text.tool_desc_ytdlp);
+                        if matches!(status, InstallStatus::Installed) {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    // Update Status
+                                    let u_status = {
                                         if let Ok(s) = download_manager.ytdlp_update_status.lock() {
                                             s.clone()
                                         } else {
@@ -141,14 +165,14 @@ pub fn render_downloaded_tools_modal(
                                         }
                                     };
 
-                                    match status {
+                                    match u_status {
                                         UpdateStatus::UpdateAvailable(ver) => {
                                             if ui
                                                 .button(
-                                                    egui::RichText::new(format!(
-                                                        "Update ({})",
-                                                        ver
-                                                    ))
+                                                    egui::RichText::new(
+                                                        text.tool_update_available
+                                                            .replace("{}", &ver),
+                                                    )
                                                     .color(egui::Color32::from_rgb(255, 165, 0)),
                                                 )
                                                 .clicked()
@@ -157,96 +181,65 @@ pub fn render_downloaded_tools_modal(
                                             }
                                         }
                                         UpdateStatus::Checking => {
-                                            ui.horizontal(|ui| {
-                                                ui.spinner();
-                                                ui.label("Checking...");
-                                            });
+                                            ui.spinner();
+                                            ui.label(text.tool_update_checking);
                                         }
                                         UpdateStatus::UpToDate => {
-                                            ui.label(
-                                                egui::RichText::new("Latest")
-                                                    .color(egui::Color32::GREEN),
-                                            );
-                                            if ui.small_button("Check Again").clicked() {
+                                            if ui
+                                                .small_button(text.tool_update_check_again)
+                                                .clicked()
+                                            {
                                                 download_manager.check_updates();
                                             }
+                                            ui.label(
+                                                egui::RichText::new(text.tool_update_latest)
+                                                    .color(egui::Color32::GREEN),
+                                            );
                                         }
                                         UpdateStatus::Error(e) => {
+                                            if ui.small_button(text.tool_update_retry).clicked() {
+                                                download_manager.check_updates();
+                                            }
                                             ui.label(
-                                                egui::RichText::new("Error")
+                                                egui::RichText::new(text.tool_update_error)
                                                     .color(egui::Color32::RED),
                                             )
                                             .on_hover_text(e);
-                                            if ui.button("Retry").clicked() {
-                                                download_manager.check_updates();
-                                            }
                                         }
                                         UpdateStatus::Idle => {
-                                            if ui.button("Check Update").clicked() {
+                                            if ui.small_button(text.tool_update_check_btn).clicked()
+                                            {
                                                 download_manager.check_updates();
                                             }
                                         }
                                     }
-                                }
-                                InstallStatus::Downloading(p) => {
-                                    ui.label(format!("{:.0}%", p * 100.0));
-                                    ui.spinner();
-                                }
-                                InstallStatus::Extracting => {
-                                    ui.label(text.download_status_extracting);
-                                    ui.spinner();
-                                }
-                                InstallStatus::Checking => {
-                                    ui.spinner();
-                                }
-                                _ => {
-                                    // Missing or Error
-                                    ui.label(
-                                        egui::RichText::new(text.tool_status_missing)
-                                            .color(egui::Color32::GRAY),
-                                    );
-                                    if ui.button(text.tool_action_download).clicked() {
-                                        download_manager.start_download_ytdlp();
+
+                                    // Version
+                                    if let Ok(guard) = download_manager.ytdlp_version.lock() {
+                                        if let Some(ver) = &*guard {
+                                            ui.label(
+                                                egui::RichText::new(format!("v{}", ver))
+                                                    .color(egui::Color32::GRAY),
+                                            );
+                                        }
                                     }
-                                }
-                            }
-                        });
+                                },
+                            );
+                        }
                     });
-                    ui.label(text.tool_desc_ytdlp);
                 });
 
                 ui.add_space(8.0);
 
                 // --- ffmpeg ---
                 ui.group(|ui| {
+                    let status = download_manager.ffmpeg_status.lock().unwrap().clone();
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(text.tool_ffmpeg).strong());
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let status = download_manager.ffmpeg_status.lock().unwrap().clone();
                             match status {
                                 InstallStatus::Installed => {
-                                    // ffmpeg is usually a dir or file. In manager it's bin/ffmpeg.exe?
-                                    // The manager checks bin.join("ffmpeg.exe").
                                     let path = download_manager.bin_dir.join("ffmpeg.exe");
-                                    let size = if let Ok(meta) = fs::metadata(&path) {
-                                        meta.len()
-                                    } else {
-                                        0
-                                    };
-                                    // Actually ffmpeg download extracts multiple files.
-                                    // Deleting just ffmpeg.exe is what manager does?
-                                    // Manager delete_dependencies() deletes `yt-dlp.exe` and `ffmpeg.exe` and `ffprobe.exe`.
-                                    // We should probably replicate that or call a helper.
-                                    // But manager doesn't expose `delete_ffmpeg` separate from `delete_dependencies`.
-                                    // I'll delete ffmpeg.exe and ffprobe.exe manually here.
-
-                                    ui.label(
-                                        egui::RichText::new(
-                                            text.tool_status_installed
-                                                .replace("{}", &format_size(size)),
-                                        )
-                                        .color(egui::Color32::from_rgb(34, 139, 34)),
-                                    );
                                     if ui
                                         .button(
                                             egui::RichText::new(text.tool_action_delete)
@@ -262,17 +255,51 @@ pub fn render_downloaded_tools_modal(
                                             InstallStatus::Missing;
                                     }
 
-                                    // Show Version
-                                    if let Ok(guard) = download_manager.ffmpeg_version.lock() {
-                                        if let Some(ver) = &*guard {
-                                            ui.label(
-                                                egui::RichText::new(format!("(v{})", ver))
-                                                    .color(egui::Color32::GRAY),
-                                            );
-                                        }
+                                    let size = if let Ok(meta) = fs::metadata(&path) {
+                                        meta.len()
+                                    } else {
+                                        0
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(
+                                            text.tool_status_installed
+                                                .replace("{}", &format_size(size)),
+                                        )
+                                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                                    );
+                                }
+                                InstallStatus::Downloading(p) => {
+                                    ui.spinner();
+                                    ui.label(format!("{:.0}%", p * 100.0));
+                                }
+                                InstallStatus::Extracting => {
+                                    ui.spinner();
+                                    ui.label(text.download_status_extracting);
+                                }
+                                InstallStatus::Checking => {
+                                    ui.spinner();
+                                }
+                                _ => {
+                                    if ui.button(text.tool_action_download).clicked() {
+                                        download_manager.start_download_ffmpeg();
                                     }
+                                    ui.label(
+                                        egui::RichText::new(text.tool_status_missing)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                }
+                            }
+                        });
+                    });
 
-                                    let status = {
+                    ui.horizontal(|ui| {
+                        ui.label(text.tool_desc_ffmpeg);
+                        if matches!(status, InstallStatus::Installed) {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    // Update Status
+                                    let u_status = {
                                         if let Ok(s) = download_manager.ffmpeg_update_status.lock()
                                         {
                                             s.clone()
@@ -281,14 +308,14 @@ pub fn render_downloaded_tools_modal(
                                         }
                                     };
 
-                                    match status {
+                                    match u_status {
                                         UpdateStatus::UpdateAvailable(ver) => {
                                             if ui
                                                 .button(
-                                                    egui::RichText::new(format!(
-                                                        "Update ({})",
-                                                        ver
-                                                    ))
+                                                    egui::RichText::new(
+                                                        text.tool_update_available
+                                                            .replace("{}", &ver),
+                                                    )
                                                     .color(egui::Color32::from_rgb(255, 165, 0)),
                                                 )
                                                 .clicked()
@@ -297,61 +324,52 @@ pub fn render_downloaded_tools_modal(
                                             }
                                         }
                                         UpdateStatus::Checking => {
-                                            ui.horizontal(|ui| {
-                                                ui.spinner();
-                                                ui.label("Checking...");
-                                            });
+                                            ui.spinner();
+                                            ui.label(text.tool_update_checking);
                                         }
                                         UpdateStatus::UpToDate => {
-                                            ui.label(
-                                                egui::RichText::new("Latest")
-                                                    .color(egui::Color32::GREEN),
-                                            );
-                                            if ui.small_button("Check Again").clicked() {
+                                            if ui
+                                                .small_button(text.tool_update_check_again)
+                                                .clicked()
+                                            {
                                                 download_manager.check_updates();
                                             }
+                                            ui.label(
+                                                egui::RichText::new(text.tool_update_latest)
+                                                    .color(egui::Color32::GREEN),
+                                            );
                                         }
                                         UpdateStatus::Error(e) => {
+                                            if ui.small_button(text.tool_update_retry).clicked() {
+                                                download_manager.check_updates();
+                                            }
                                             ui.label(
-                                                egui::RichText::new("Error")
+                                                egui::RichText::new(text.tool_update_error)
                                                     .color(egui::Color32::RED),
                                             )
                                             .on_hover_text(e);
-                                            if ui.button("Retry").clicked() {
-                                                download_manager.check_updates();
-                                            }
                                         }
                                         UpdateStatus::Idle => {
-                                            if ui.button("Check Update").clicked() {
+                                            if ui.small_button(text.tool_update_check_btn).clicked()
+                                            {
                                                 download_manager.check_updates();
                                             }
                                         }
                                     }
-                                }
-                                InstallStatus::Downloading(p) => {
-                                    ui.label(format!("{:.0}%", p * 100.0));
-                                    ui.spinner();
-                                }
-                                InstallStatus::Extracting => {
-                                    ui.label(text.download_status_extracting);
-                                    ui.spinner();
-                                }
-                                InstallStatus::Checking => {
-                                    ui.spinner();
-                                }
-                                _ => {
-                                    ui.label(
-                                        egui::RichText::new(text.tool_status_missing)
-                                            .color(egui::Color32::GRAY),
-                                    );
-                                    if ui.button(text.tool_action_download).clicked() {
-                                        download_manager.start_download_ffmpeg();
+
+                                    // Version
+                                    if let Ok(guard) = download_manager.ffmpeg_version.lock() {
+                                        if let Some(ver) = &*guard {
+                                            ui.label(
+                                                egui::RichText::new(format!("v{}", ver))
+                                                    .color(egui::Color32::GRAY),
+                                            );
+                                        }
                                     }
-                                }
-                            }
-                        });
+                                },
+                            );
+                        }
                     });
-                    ui.label(text.tool_desc_ffmpeg);
                 });
             });
 

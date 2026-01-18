@@ -293,6 +293,13 @@ pub struct LocaleText {
     pub tool_desc_parakeet: &'static str,
     pub tool_desc_ytdlp: &'static str,
     pub tool_desc_ffmpeg: &'static str,
+    pub tool_update_checking: &'static str,
+    pub tool_update_latest: &'static str,
+    pub tool_update_check_again: &'static str,
+    pub tool_update_error: &'static str,
+    pub tool_update_retry: &'static str,
+    pub tool_update_check_btn: &'static str,
+    pub tool_update_available: &'static str,
 }
 
 impl LocaleText {
@@ -634,8 +641,15 @@ impl LocaleText {
                   tool_action_delete: "Xoá",
                   tool_desc_parakeet: "Dùng trong tính năng Dịch cabin và là mô hình \"Stream offline\" trong node Audio->Text",
                   tool_desc_ytdlp: "Dùng trong tính năng Tải media",
-                  tool_desc_ffmpeg: "Dùng trong tính năng Tải media",
-                  },
+                   tool_desc_ffmpeg: "Dùng trong tính năng Tải media",
+                   tool_update_checking: "Đang kiểm tra...",
+                   tool_update_latest: "Đã là mới nhất",
+                   tool_update_check_again: "Kiểm tra lại",
+                   tool_update_error: "Lỗi",
+                   tool_update_retry: "Thử lại",
+                   tool_update_check_btn: "Kiểm tra cập nhật",
+                   tool_update_available: "Cập nhật ({})",
+                   },
             "ko" => Self {
                  history_btn: "히스토리",
                  history_title: "결과 라이브러리",
@@ -945,8 +959,15 @@ impl LocaleText {
                   tool_action_delete: "삭제",
                   tool_desc_parakeet: "캐빈 번역 기능 및 Audio->Text 노드의 \"Stream offline\" 모델로 사용됩니다",
                   tool_desc_ytdlp: "미디어 다운로드 기능에서 사용됨",
-                  tool_desc_ffmpeg: "미디어 다운로드 기능에서 사용됨",
-                 // --- HELP ASSISTANT KO ---
+                   tool_desc_ffmpeg: "미디어 다운로드 기능에서 사용됨",
+                   tool_update_checking: "확인 중...",
+                   tool_update_latest: "최신 버전",
+                   tool_update_check_again: "다시 확인",
+                   tool_update_error: "오류",
+                   tool_update_retry: "재시도",
+                   tool_update_check_btn: "업데이트 확인",
+                   tool_update_available: "업데이트 ({})",
+// --- HELP ASSISTANT KO ---
                  help_assistant_btn: "SGT 사용법 물어보기...",
                  help_assistant_title: "SGT에 대해 물어보기",
                  help_assistant_question_label: "질문:",
@@ -1309,6 +1330,13 @@ impl LocaleText {
                    tool_desc_parakeet: "Used in Cabin Translation and as the \"Stream offline\" model in Audio->Text node",
                    tool_desc_ytdlp: "Used in Media Download feature",
                    tool_desc_ffmpeg: "Used in Media Download feature",
+                   tool_update_checking: "Checking...",
+                   tool_update_latest: "Latest",
+                   tool_update_check_again: "Check Again",
+                   tool_update_error: "Error",
+                   tool_update_retry: "Retry",
+                   tool_update_check_btn: "Check Update",
+                   tool_update_available: "Update ({})",
                   },
                 }
     }
