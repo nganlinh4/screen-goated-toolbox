@@ -193,6 +193,17 @@ fn main() -> eframe::Result<()> {
     // Essential for Tray Icon and Shell interactions, especially in Admin/Task Scheduler context.
     unsafe {
         let _ = CoInitialize(None);
+        // Force Per-Monitor V2 DPI Awareness for correct screen metrics and sharp visuals
+        if let Ok(hidpi) = LoadLibraryW(w!("user32.dll")) {
+            if let Some(set_context) = GetProcAddress(
+                hidpi,
+                PCSTR::from_raw("SetProcessDpiAwarenessContext\0".as_ptr()),
+            ) {
+                let func: extern "system" fn(isize) -> BOOL = std::mem::transmute(set_context);
+                // -4 is DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+                func(-4);
+            }
+        }
     }
 
     // --- ENABLE DARK MODE FOR NATIVE MENUS ---
