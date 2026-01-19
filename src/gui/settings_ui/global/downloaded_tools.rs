@@ -193,7 +193,7 @@ pub fn render_downloaded_tools_modal(
                                             }
                                             ui.label(
                                                 egui::RichText::new(text.tool_update_latest)
-                                                    .color(egui::Color32::GREEN),
+                                                    .color(egui::Color32::from_rgb(34, 139, 34)),
                                             );
                                         }
                                         UpdateStatus::Error(e) => {
@@ -336,7 +336,7 @@ pub fn render_downloaded_tools_modal(
                                             }
                                             ui.label(
                                                 egui::RichText::new(text.tool_update_latest)
-                                                    .color(egui::Color32::GREEN),
+                                                    .color(egui::Color32::from_rgb(34, 139, 34)),
                                             );
                                         }
                                         UpdateStatus::Error(e) => {
