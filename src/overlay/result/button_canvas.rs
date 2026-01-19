@@ -37,6 +37,7 @@ static REGISTER_CANVAS_CLASS: std::sync::Once = std::sync::Once::new();
 const WM_APP_UPDATE_WINDOWS: u32 = WM_APP + 50;
 const WM_APP_SHOW_CANVAS: u32 = WM_APP + 51;
 const WM_APP_HIDE_CANVAS: u32 = WM_APP + 52;
+const WM_APP_SEND_REFINE_TEXT: u32 = WM_APP + 53;
 
 // Timer for cursor position polling (since WS_EX_TRANSPARENT prevents mouse events)
 const CURSOR_POLL_TIMER_ID: usize = 1;
@@ -142,6 +143,10 @@ pub fn unregister_markdown_window(hwnd: HWND) {
     update_canvas();
 }
 
+lazy_static::lazy_static! {
+    static ref PENDING_REFINE_UPDATES: Mutex<HashMap<isize, String>> = Mutex::new(HashMap::new());
+}
+
 /// Update window position (call when window moves/resizes)
 pub fn update_window_position(hwnd: HWND) {
     update_window_position_internal(hwnd, true);
@@ -179,6 +184,75 @@ fn update_window_position_internal(hwnd: HWND, notify: bool) {
     if notify {
         update_canvas();
         update_canvas();
+    }
+}
+
+// Update windows function exposed for other modules
+pub fn get_json_state_for_window(hwnd: HWND, _screen_w: f32, _screen_h: f32) -> serde_json::Value {
+    let hwnd_key = hwnd.0 as isize;
+
+    // Default rect calculation if not found (should be rare)
+    // Default rect calculation if not found (should be rare)
+    let rect = unsafe {
+        let mut r = windows::Win32::Foundation::RECT::default();
+        let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut r);
+        let scale = get_dpi_scale();
+        serde_json::json!({
+            "x": ((r.left as f64) / scale) as i32,
+            "y": ((r.top as f64) / scale) as i32,
+            "w": (((r.right - r.left) as f64) / scale) as i32,
+            "h": (((r.bottom - r.top) as f64) / scale) as i32
+        })
+    };
+
+    let state_obj = {
+        let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get(&hwnd_key) {
+            serde_json::json!({
+                "copySuccess": state.copy_success,
+                "hasUndo": !state.text_history.is_empty(),
+                "hasRedo": !state.redo_history.is_empty(),
+                "isMarkdown": state.is_markdown_mode,
+                "ttsSpeaking": state.tts_request_id != 0,
+                "ttsLoading": state.tts_loading,
+                "isEditing": state.is_editing,
+                "inputText": state.input_text,
+                "isBrowsing": state.is_browsing,
+                "navDepth": state.navigation_depth,
+                "maxNavDepth": state.max_navigation_depth
+            })
+        } else {
+            serde_json::json!({})
+        }
+    };
+
+    serde_json::json!({
+        "rect": rect,
+        "state": state_obj
+    })
+}
+
+/// Send update to set the text in the refine input bar
+pub fn send_refine_text_update(hwnd: HWND, text: &str, is_insert: bool) {
+    let hwnd_key = hwnd.0 as isize;
+
+    // Store in pending updates
+    {
+        let mut updates = PENDING_REFINE_UPDATES.lock().unwrap();
+        updates.insert(hwnd_key, text.to_string());
+    }
+
+    // Notify canvas thread
+    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
+    if canvas_hwnd != 0 {
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(canvas_hwnd as *mut _)),
+                WM_APP_SEND_REFINE_TEXT,
+                WPARAM(hwnd_key as usize),
+                LPARAM(if is_insert { 1 } else { 0 }),
+            );
+        }
     }
 }
 
@@ -252,6 +326,15 @@ fn get_canvas_theme_css(is_dark: bool) -> &'static str {
             --btn-active-color: #4fc3f7;
             --btn-success-color: #81c784;
             --shadow-color: rgba(79, 195, 247, 0.35);
+            
+            /* Refine Input Variables (Dark) */
+            --refine-bg: #1e1e1e;
+            --refine-border: #444;
+            --refine-input-bg: #2d2d2d;
+            --refine-text: #fff;
+            --refine-placeholder: #888;
+            --mic-bg: rgba(60, 60, 60, 0.5);
+            --mic-fill: #00c8ff;
         }
         "#
     } else {
@@ -266,6 +349,15 @@ fn get_canvas_theme_css(is_dark: bool) -> &'static str {
             --btn-active-color: #0277bd;
             --btn-success-color: #43a047;
             --shadow-color: rgba(2, 119, 189, 0.25);
+            
+            /* Refine Input Variables (Light) */
+            --refine-bg: #ffffff;
+            --refine-border: #ddd;
+            --refine-input-bg: #f5f5f5;
+            --refine-text: #333;
+            --refine-placeholder: #999;
+            --mic-bg: rgba(0, 0, 0, 0.05);
+            --mic-fill: #0288d1;
         }
         "#
     }
@@ -288,6 +380,7 @@ fn generate_canvas_html() -> String {
         "broom": locale.overlay_broom_tooltip,
         "back": locale.overlay_back_tooltip,
         "forward": locale.overlay_forward_tooltip,
+        "overlay_refine_placeholder": locale.overlay_refine_placeholder,
     })
     .to_string();
 
@@ -323,7 +416,10 @@ fn generate_canvas_html() -> String {
         "content_copy": get_colored_svg("content_copy"),
         "check": get_colored_svg("check"),
         "download": get_colored_svg("download"),
+        "download": get_colored_svg("download"),
         "volume_up": get_colored_svg("volume_up"),
+        "mic": get_colored_svg("mic"),
+        "send": get_colored_svg("send"),
     })
     .to_string();
 
@@ -446,6 +542,71 @@ html, body {{
 .btn.hidden {{
     visibility: hidden;
     pointer-events: none;
+}}
+
+/* Refine Input Bar */
+.refine-bar {{
+    display: flex;
+    align-items: center;
+    background: var(--refine-bg);
+    border: 1px solid var(--refine-border);
+    border-radius: 8px; /* Slightly tighter radius */
+    padding: 2px 4px; /* More compact padding */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    pointer-events: auto;
+    min-width: 250px; /* More compact */
+    gap: 4px;
+    animation: fadeIn 0.15s ease-out; /* Changed to simple fade */
+}}
+
+@keyframes fadeIn {{
+    from {{ opacity: 0; transform: scale(0.98); }} /* Subtle scale instead of fly up */
+    to {{ opacity: 1; transform: scale(1); }}
+}}
+
+.refine-input {{
+    flex: 1;
+    background: var(--refine-input-bg);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: var(--refine-text);
+    font-family: 'Google Sans Flex', sans-serif;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+    min-width: 0;
+}}
+
+.refine-input:focus {{
+    border-color: var(--btn-active-color);
+}}
+
+.refine-input::placeholder {{
+    color: var(--refine-placeholder);
+}}
+
+.refine-action-btn {{
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: transparent;
+    border: none;
+    color: var(--mic-fill);
+}}
+
+.refine-action-btn:hover {{
+    background: var(--mic-bg);
+    transform: scale(1.05);
+}}
+
+.refine-action-btn.send {{
+    color: var(--btn-active-color);
 }}
 </style>
 </head>
@@ -656,6 +817,11 @@ function generateButtonsHTML(hwnd, state) {{
     const isBrowsing = state.isBrowsing || false;
     const hideClass = isBrowsing ? 'hidden' : '';
     
+    // IF EDITING: Show Refine Input Bar
+    if (state.isEditing) {{
+        return generateRefineInputHTML(hwnd, state);
+    }}
+    
     let buttons = '';
     
     // Back button - always rendered, hidden when not available
@@ -756,6 +922,7 @@ function handleBroomDrag(e, hwnd) {{
 
 // Send action to Rust
 function action(hwnd, cmd) {{
+    window.focus();
     // If it's a broom click and we just dragged, ignore it
     if (cmd === 'broom_click' && window.ignoreNextBroomClick) return;
     window.ipc.postMessage(JSON.stringify({{ action: cmd, hwnd: hwnd }}));
@@ -869,6 +1036,171 @@ function updateWindows(windowsData) {{
 
 // Expose to Rust
 window.updateWindows = updateWindows;
+
+function generateRefineInputHTML(hwnd, state) {{
+    const micSvg = window.iconSvgs.mic;
+    const sendSvg = window.iconSvgs.send;
+    // We store the input value in a data attribute on the container if it exists, to preserve it on redraw
+    // BUT since we redraw the whole HTML, we need a way to preserve text? 
+    // Actually, updateWindows diffs and doesn't redraw if content same.
+    // However, if we type, we don't trigger updateWindows.
+    // Use an input ID unique to the hwnd
+    
+    // We need to ensure we don't blow away the input value when we re-render?
+    // updateWindows checks: if (group.dataset.lastState !== newStateStr)
+    // If state changes (e.g. typing doesn't change state), we don't redraw.
+    // If external state changes (e.g. text update), we might redraw.
+    // Currently, we don't send typing back to Rust until Submit.
+    
+    // Initial value? 
+    // state.inputText is what we want to edit.
+    // We should bind it.
+    
+    return `<div class="refine-bar">
+        <input type="text" 
+               id="input-${{hwnd}}" 
+               class="refine-input" 
+               placeholder="${{window.L10N.overlay_refine_placeholder || 'Refine...'}}" 
+               value="${{state.inputText || ''}}"
+               onkeydown="handleRefineKey(event, '${{hwnd}}')"
+               oninput="handleInput(event, '${{hwnd}}')"
+               onfocus="window.focus();"
+               autofocus
+               autocomplete="off">
+        <div class="refine-action-btn" 
+             onmousedown="event.preventDefault();"
+             onclick="action('${{hwnd}}', 'mic')">
+            ${{micSvg}}
+        </div>
+        <div class="refine-action-btn send" onclick="submitRefine('${{hwnd}}')">
+            ${{sendSvg}}
+        </div>
+        <div class="btn" style="width:24px;height:24px;border:none;background:transparent;box-shadow:none;cursor:pointer;display:flex;align-items:center;justify-content:center;"
+            onclick="action('${{hwnd}}', 'cancel_refine')"
+            title="Cancel">
+            <span style="font-size:14px;color:var(--refine-placeholder);pointer-events:none;">✕</span>
+        </div>
+    </div>`;
+}}
+
+// Preserve input focus and cursor position across updates
+let focusedInput = null;
+let selectionStart = 0;
+let selectionEnd = 0;
+let inputValues = new Map(); // hwnd -> current text
+
+function handleInput(e, hwnd) {{
+    window.focus();
+    inputValues.set(hwnd, e.target.value);
+}}
+
+function handleRefineKey(e, hwnd) {{
+    window.focus();
+    if (e.key === 'Enter') {{
+        e.preventDefault();
+        submitRefine(hwnd);
+    }} else if (e.key === 'Escape') {{
+        e.preventDefault();
+        action(hwnd, 'cancel_refine');
+    }} else if (e.key === 'ArrowUp') {{
+        e.preventDefault();
+        const val = inputValues.get(hwnd) || '';
+        window.ipc.postMessage(JSON.stringify({{ 
+            action: 'history_up_refine', 
+            hwnd: hwnd, 
+            text: val 
+        }}));
+    }} else if (e.key === 'ArrowDown') {{
+        e.preventDefault();
+        const val = inputValues.get(hwnd) || '';
+        window.ipc.postMessage(JSON.stringify({{ 
+            action: 'history_down_refine', 
+            hwnd: hwnd, 
+            text: val 
+        }}));
+    }}
+    
+    // Track cursor
+    focusedInput = e.target.id;
+    selectionStart = e.target.selectionStart;
+    selectionEnd = e.target.selectionEnd;
+}}
+
+function submitRefine(hwnd) {{
+    const inputId = 'input-' + hwnd;
+    const el = document.getElementById(inputId);
+    const text = el ? el.value : (inputValues.get(hwnd) || '');
+    if (text && text.trim().length > 0) {{
+        window.ipc.postMessage(JSON.stringify({{
+            action: 'submit_refine',
+            hwnd: hwnd,
+            text: text
+        }}));
+        // Clear value after submit
+        inputValues.delete(hwnd);
+    }}
+}}
+
+// Called from Rust to update refine text (e.g. history navigation)
+// isInsert: 1 for insert at cursor, 0 for overwrite
+window.setRefineText = (hwnd, text, isInsert) => {{
+    const inputId = 'input-' + hwnd;
+    const el = document.getElementById(inputId);
+    if (el) {{
+        if (isInsert) {{
+            const start = el.selectionStart;
+            const end = el.selectionEnd;
+            const val = el.value;
+            el.value = val.substring(0, start) + text + val.substring(end);
+            el.selectionStart = el.selectionEnd = start + text.length;
+        }} else {{
+            el.value = text;
+        }}
+        inputValues.set(hwnd, el.value);
+        el.focus();
+    }}
+}};
+
+// Hook into updateWindows to restore focus
+const originalUpdateWindows = window.updateWindows;
+window.updateWindows = function(data) {{
+    // Save focus state before update
+    const activeEl = document.activeElement;
+    if (activeEl && activeEl.tagName === 'INPUT') {{
+        focusedInput = activeEl.id;
+        selectionStart = activeEl.selectionStart;
+        selectionEnd = activeEl.selectionEnd;
+    }}
+    
+    originalUpdateWindows(data);
+    
+    // Restore focus OR focus newly opened edit bars
+    let focusedFound = false;
+    if (focusedInput) {{
+        const el = document.getElementById(focusedInput);
+        if (el) {{
+            el.focus();
+            focusedFound = true;
+            // Restore text if we have it locally tracked (to prevent overwrite by stale state)
+            const trackingHwnd = focusedInput.replace('input-', '');
+            if (inputValues.has(trackingHwnd)) {{
+                el.value = inputValues.get(trackingHwnd);
+            }}
+            
+            try {{
+                el.setSelectionRange(selectionStart, selectionEnd);
+            }} catch(e) {{}}
+        }}
+    }}
+    
+    if (!focusedFound) {{
+        // Find any visible edit bar and focus it
+        const editBars = document.querySelectorAll('.refine-input');
+        if (editBars.length > 0) {{
+            editBars[0].focus();
+        }}
+    }}
+}};
 </script>
 </body>
 </html>"#,
@@ -1107,6 +1439,15 @@ fn handle_ipc_message(body: &str) {
 
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
 
+        // Ensure canvas window is foreground for keyboard focus (Ctrl+A etc)
+        let canvas_val = CANVAS_HWND.load(Ordering::SeqCst);
+        if canvas_val != 0 {
+            unsafe {
+                let canvas_hwnd = HWND(canvas_val as *mut _);
+                let _ = SetForegroundWindow(canvas_hwnd);
+            }
+        }
+
         match action {
             "copy" => unsafe {
                 let _ = PostMessageW(
@@ -1267,6 +1608,42 @@ fn handle_ipc_message(body: &str) {
                     (json.get("dy").and_then(|v| v.as_f64()).unwrap_or(0.0) * scale).round() as i32;
                 crate::overlay::result::trigger_drag_window(hwnd, dx, dy);
             }
+            "submit_refine" => {
+                let text = json.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                crate::overlay::result::trigger_refine_submit(hwnd, text);
+            }
+            "cancel_refine" => {
+                crate::overlay::result::trigger_refine_cancel(hwnd);
+            }
+            "history_up_refine" => {
+                let current = json.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                if let Some(text) = crate::overlay::input_history::navigate_history_up(current) {
+                    // Send back to JS
+                    send_refine_text_update(hwnd, &text, false);
+                }
+            }
+            "history_down_refine" => {
+                let current = json.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                if let Some(text) = crate::overlay::input_history::navigate_history_down(current) {
+                    send_refine_text_update(hwnd, &text, false);
+                }
+            }
+            "mic" => {
+                // Trigger transcription preset
+                let transcribe_idx = {
+                    let app = crate::APP.lock().unwrap();
+                    app.config
+                        .presets
+                        .iter()
+                        .position(|p| p.id == "preset_transcribe")
+                };
+
+                if let Some(preset_idx) = transcribe_idx {
+                    std::thread::spawn(move || {
+                        crate::overlay::recording::show_recording_overlay(preset_idx);
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -1335,7 +1712,10 @@ fn send_windows_update() {
                 "ttsLoading": state.map(|s| s.tts_loading).unwrap_or(false),
                 "ttsSpeaking": state.map(|s| s.tts_request_id != 0 && !s.tts_loading).unwrap_or(false),
                 "isMarkdown": state.map(|s| s.is_markdown_mode).unwrap_or(false),
+                "isMarkdown": state.map(|s| s.is_markdown_mode).unwrap_or(false),
                 "isBrowsing": state.map(|s| s.is_browsing).unwrap_or(false),
+                "isEditing": state.map(|s| s.is_editing).unwrap_or(false),
+                "inputText": state.map(|s| s.input_text.clone()).unwrap_or_default(),
             });
 
             // Scale physical coordinates to logical coordinates for WebView
@@ -1441,8 +1821,39 @@ unsafe extern "system" fn canvas_wnd_proc(
             LRESULT(0)
         }
 
+        WM_APP_SEND_REFINE_TEXT => {
+            let hwnd_key = wparam.0 as isize;
+            let text = {
+                let mut updates = PENDING_REFINE_UPDATES.lock().unwrap();
+                updates.remove(&hwnd_key)
+            };
+
+            if let Some(text) = text {
+                let escaped = text
+                    .replace('\\', "\\\\")
+                    .replace('`', "\\`")
+                    .replace("${", "\\${")
+                    .replace('\r', "");
+
+                let is_insert = lparam.0 != 0;
+                let script = format!(
+                    "if(window.setRefineText) window.setRefineText('{}', `{}`, {});",
+                    hwnd_key,
+                    escaped,
+                    if is_insert { "true" } else { "false" }
+                );
+
+                CANVAS_WEBVIEW.with(|cell| {
+                    if let Some(webview) = cell.borrow().as_ref() {
+                        let _ = webview.evaluate_script(&script);
+                    }
+                });
+            }
+            LRESULT(0)
+        }
+
         windows::Win32::UI::WindowsAndMessaging::WM_MOUSEACTIVATE => {
-            LRESULT(windows::Win32::UI::WindowsAndMessaging::MA_NOACTIVATE as isize)
+            LRESULT(windows::Win32::UI::WindowsAndMessaging::MA_ACTIVATE as isize)
         }
 
         windows::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE => {

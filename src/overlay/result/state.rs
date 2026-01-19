@@ -4,7 +4,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::{HBITMAP, HFONT};
+use windows::Win32::Graphics::Gdi::HBITMAP;
 
 // --- DYNAMIC PARTICLES ---
 pub struct DustParticle {
@@ -101,7 +101,6 @@ pub struct WindowState {
 
     // Edit Mode
     pub is_editing: bool,            // Is the edit box open?
-    pub edit_hwnd: HWND,             // Handle to child EDIT control
     pub context_data: RefineContext, // Data needed for API call
     pub full_text: String,           // Current full text content
 
@@ -164,9 +163,6 @@ pub struct WindowState {
     pub bg_bitmap: HBITMAP,
     pub bg_w: i32,
     pub bg_h: i32,
-
-    // EDIT FONT HANDLE (must be deleted to avoid GDI leak)
-    pub edit_font: HFONT,
 
     // Graphics mode for refining animation (standard vs minimal)
     pub graphics_mode: String,

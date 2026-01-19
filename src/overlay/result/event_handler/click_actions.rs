@@ -8,7 +8,7 @@ use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
 
 use super::misc::WM_CREATE_WEBVIEW;
-use crate::overlay::result::refine_input;
+
 use crate::overlay::result::state::{InteractionMode, WINDOW_STATES};
 use crate::overlay::result::{button_canvas, markdown_view};
 use crate::overlay::utils::to_wstring;
@@ -138,89 +138,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
         } else if is_edit_click {
-            // Check if we're in markdown mode to decide which input to use
-            let (is_markdown_mode, _is_currently_editing, _h_edit) = {
-                let states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                    (state.is_markdown_mode, state.is_editing, state.edit_hwnd)
-                } else {
-                    (false, false, HWND::default())
-                }
-            };
-
-            if is_markdown_mode {
-                // Use WebView-based refine input (stays above markdown view)
-                if refine_input::is_refine_input_active(hwnd) {
-                    // Toggle off - hide the refine input
-                    refine_input::hide_refine_input(hwnd);
-                    {
-                        let mut states = WINDOW_STATES.lock().unwrap();
-                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                            state.is_editing = false;
-                        }
-                    }
-                    // Resize markdown WebView back to full
-                    let is_hovered = {
-                        let states = WINDOW_STATES.lock().unwrap();
-                        states
-                            .get(&(hwnd.0 as isize))
-                            .map(|s| s.is_hovered)
-                            .unwrap_or(false)
-                    };
-                    markdown_view::resize_markdown_webview(hwnd, is_hovered);
-                } else {
-                    // Toggle on - show the refine input
-                    let lang = {
-                        let app = crate::APP.lock().unwrap();
-                        app.config.ui_language.clone()
-                    };
-                    let locale = crate::gui::locale::LocaleText::get(&lang);
-                    let placeholder = locale.text_input_placeholder;
-
-                    if refine_input::show_refine_input(hwnd, placeholder) {
-                        {
-                            let mut states = WINDOW_STATES.lock().unwrap();
-                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                                state.is_editing = true;
-                            }
-                        }
-                        // Resize markdown WebView to leave room for refine input
-                        // The refine input is at top, so markdown view shifts down
-                        markdown_view::resize_markdown_webview(hwnd, true);
-                    }
-                }
-            } else {
-                // Plain text mode: now also use WebView-based refine input (same as markdown)
-                // This allows the mic button to work in both modes
-                if refine_input::is_refine_input_active(hwnd) {
-                    // Toggle off - hide the refine input
-                    refine_input::hide_refine_input(hwnd);
-                    {
-                        let mut states = WINDOW_STATES.lock().unwrap();
-                        if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                            state.is_editing = false;
-                        }
-                    }
-                } else {
-                    // Toggle on - show the refine input
-                    let lang = {
-                        let app = crate::APP.lock().unwrap();
-                        app.config.ui_language.clone()
-                    };
-                    let locale = crate::gui::locale::LocaleText::get(&lang);
-                    let placeholder = locale.text_input_placeholder;
-
-                    if refine_input::show_refine_input(hwnd, placeholder) {
-                        {
-                            let mut states = WINDOW_STATES.lock().unwrap();
-                            if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                                state.is_editing = true;
-                            }
-                        }
-                    }
-                }
-                let _ = InvalidateRect(Some(hwnd), None, false);
-            }
+            crate::overlay::result::trigger_edit(hwnd);
         } else if is_copy_click {
             let text_len = GetWindowTextLengthW(hwnd) + 1;
             let mut buf = vec![0u16; text_len as usize];

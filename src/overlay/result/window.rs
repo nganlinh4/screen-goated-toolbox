@@ -5,7 +5,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::event_handler::result_wnd_proc;
@@ -47,13 +46,6 @@ pub fn get_chain_color(visible_index: usize) -> u32 {
 }
 
 static REGISTER_RESULT_CLASS: Once = Once::new();
-
-// Helper to apply rounded corners to the edit control
-unsafe fn set_rounded_edit_region(h_edit: HWND, w: i32, h: i32) {
-    // radius (12, 12) matches the overlay style
-    let rgn = CreateRoundRectRgn(0, 0, w, h, 12, 12);
-    let _ = SetWindowRgn(h_edit, Some(rgn), true);
-}
 
 pub fn create_result_window(
     target_rect: RECT,
@@ -131,53 +123,6 @@ pub fn create_result_window(
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
         }
 
-        let edit_style = WINDOW_STYLE(
-            WS_CHILD.0
-                | WS_BORDER.0
-                | WS_CLIPSIBLINGS.0
-                | (ES_MULTILINE as u32)
-                | (ES_AUTOVSCROLL as u32),
-        );
-
-        let h_edit = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("EDIT"),
-            w!(""),
-            edit_style,
-            0,
-            0,
-            0,
-            0, // Sized dynamically
-            Some(hwnd),
-            Some(HMENU(101 as *mut core::ffi::c_void)),
-            Some(instance.into()),
-            None,
-        )
-        .unwrap_or_default();
-
-        let hfont = CreateFontW(
-            14,
-            0,
-            0,
-            0,
-            FW_NORMAL.0 as i32,
-            0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY,
-            (VARIABLE_PITCH.0 | FF_SWISS.0) as u32,
-            w!("Segoe UI"),
-        );
-        SendMessageW(
-            h_edit,
-            WM_SETFONT,
-            Some(WPARAM(hfont.0 as usize)),
-            Some(LPARAM(1)),
-        );
-
         let mut physics = CursorPhysics::default();
         physics.initialized = true;
 
@@ -206,7 +151,6 @@ pub fn create_result_window(
                     on_undo_btn: false,
                     on_redo_btn: false,
                     is_editing: start_editing,
-                    edit_hwnd: h_edit,
                     context_data: context,
                     full_text: initial_text.clone(),
                     text_history: Vec::new(),
@@ -239,7 +183,6 @@ pub fn create_result_window(
                     bg_bitmap: HBITMAP::default(),
                     bg_w: 0,
                     bg_h: 0,
-                    edit_font: hfont,
                     preset_prompt,
                     input_text: String::new(),
                     graphics_mode,
@@ -272,25 +215,8 @@ pub fn create_result_window(
         );
 
         if start_editing {
-            let width = (target_rect.right - target_rect.left).abs();
-            // Initial positioning for the edit box
-            let edit_w = width - 20;
-            let edit_h = 40;
-            let _ = SetWindowPos(
-                h_edit,
-                Some(HWND_TOP),
-                10,
-                10,
-                edit_w,
-                edit_h,
-                SWP_SHOWWINDOW,
-            );
-            set_rounded_edit_region(h_edit, edit_w, edit_h);
-
-            // FIX: Activate window so Edit control can receive focus immediately
-            // WS_EX_NOACTIVATE prevents click-activation, so we must force it here.
+            // Just activate the window, let the button canvas handle the UI
             let _ = SetForegroundWindow(hwnd);
-            let _ = SetFocus(Some(h_edit));
         }
 
         SetTimer(Some(hwnd), 3, 16, None);

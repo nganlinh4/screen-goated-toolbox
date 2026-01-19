@@ -20,8 +20,7 @@ pub unsafe extern "system" fn result_wnd_proc(
     match msg {
         WM_ERASEBKGND => misc::handle_erase_bkgnd(hwnd, wparam),
 
-        WM_CTLCOLOREDIT => misc::handle_ctl_color_edit(wparam),
-
+        // WM_CTLCOLOREDIT removed (native edit control deprecated)
         WM_SETCURSOR => mouse_input::handle_set_cursor(hwnd),
 
         WM_LBUTTONDOWN => mouse_input::handle_lbutton_down(hwnd, lparam),

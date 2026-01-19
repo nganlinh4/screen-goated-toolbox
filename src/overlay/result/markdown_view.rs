@@ -4,13 +4,10 @@ use raw_window_handle::{
 };
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
-use std::sync::{Mutex, Once};
-use windows::core::w;
+use std::sync::Mutex;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use wry::{Rect, WebContext, WebViewBuilder};
+use wry::{Rect, WebViewBuilder};
 
 lazy_static::lazy_static! {
     // Store WebViews per parent window - wrapped in thread-local storage to avoid Send issues
@@ -894,9 +891,6 @@ pub fn create_markdown_webview_ex(
 
                             if state.is_editing {
                                 state.is_editing = false;
-                                super::refine_input::hide_refine_input(HWND(
-                                    hwnd_key_for_nav as *mut std::ffi::c_void,
-                                ));
                             }
                         }
                     }
@@ -1716,9 +1710,7 @@ pub fn init_gridjs(parent_hwnd: HWND) {
 pub fn resize_markdown_webview(parent_hwnd: HWND, _is_hovered: bool) {
     let hwnd_key = parent_hwnd.0 as isize;
 
-    // Check if refine input is active
-    let refine_input_active = super::refine_input::is_refine_input_active(parent_hwnd);
-    let top_offset = if refine_input_active { 44.0 } else { 2.0 }; // 40px input + 4px gap, or 2px edge margin
+    let top_offset = 2.0; // 2px edge margin
 
     unsafe {
         let mut rect = RECT::default();

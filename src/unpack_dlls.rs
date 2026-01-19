@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use windows::core::w;
 use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
 
 /// Unpacks embedded DLLs to the local app data directory if they are missing.

@@ -237,6 +237,7 @@ pub struct LocaleText {
     pub overlay_undo_tooltip: &'static str,
     pub overlay_redo_tooltip: &'static str,
     pub overlay_edit_tooltip: &'static str,
+    pub overlay_refine_placeholder: &'static str, // NEW
     pub overlay_markdown_tooltip: &'static str,
     pub overlay_download_tooltip: &'static str,
     pub overlay_speaker_tooltip: &'static str,
@@ -586,6 +587,7 @@ impl LocaleText {
                   overlay_undo_tooltip: "Hoàn tác",
                   overlay_redo_tooltip: "Làm lại",
                   overlay_edit_tooltip: "Chỉnh sửa / Viết lại",
+                  overlay_refine_placeholder: "Chỉnh sửa kết quả...",
                   overlay_markdown_tooltip: "Bật/Tắt Markdown",
                   overlay_download_tooltip: "Tải về HTML",
                   overlay_speaker_tooltip: "Đọc to (TTS)",
@@ -987,6 +989,7 @@ impl LocaleText {
                    overlay_undo_tooltip: "실행 취소",
                    overlay_redo_tooltip: "다시 실행",
                    overlay_edit_tooltip: "편집 / 다듬기",
+                   overlay_refine_placeholder: "결과 수정...", // NEW
                    overlay_markdown_tooltip: "마크다운 토글",
                    overlay_download_tooltip: "HTML 저장",
                    overlay_speaker_tooltip: "텍스트 읽기 (TTS)",
@@ -1274,6 +1277,7 @@ impl LocaleText {
                    overlay_undo_tooltip: "Undo",
                    overlay_redo_tooltip: "Redo",
                    overlay_edit_tooltip: "Edit / Refine",
+                   overlay_refine_placeholder: "Refine result...",
                    overlay_markdown_tooltip: "Toggle Markdown",
                    overlay_download_tooltip: "Save HTML",
                    overlay_speaker_tooltip: "Speak (TTS)",

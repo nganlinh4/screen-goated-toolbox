@@ -13,13 +13,7 @@ use crate::overlay::result::layout::{
     should_show_buttons,
 };
 use crate::overlay::result::markdown_view;
-use crate::overlay::result::refine_input;
 use crate::overlay::result::state::{InteractionMode, ResizeEdge, WINDOW_STATES};
-
-unsafe fn set_rounded_edit_region(h_edit: HWND, w: i32, h: i32) {
-    let rgn = CreateRoundRectRgn(0, 0, w, h, 12, 12);
-    let _ = SetWindowRgn(h_edit, Some(rgn), true);
-}
 
 pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT {
     let mut cursor_id = PCWSTR(std::ptr::null());
@@ -30,23 +24,12 @@ pub unsafe fn handle_set_cursor(hwnd: HWND) -> LRESULT {
     let _ = GetCursorPos(&mut pt);
     let _ = ScreenToClient(hwnd, &mut pt);
 
-    let mut is_over_edit = false;
+    let is_over_edit = false;
     let mut is_streaming_active = false;
     {
         let states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get(&(hwnd.0 as isize)) {
             is_streaming_active = state.is_streaming_active;
-            if state.is_editing {
-                let edit_left = 10;
-                let edit_top = 10;
-                let edit_right = rect.right - 10;
-                let edit_bottom = 10 + 40;
-
-                is_over_edit = pt.x >= edit_left
-                    && pt.x <= edit_right
-                    && pt.y >= edit_top
-                    && pt.y <= edit_bottom;
-            }
         }
     }
 
@@ -490,28 +473,12 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
                         h,
                         SWP_NOZORDER | SWP_NOACTIVATE,
                     );
-                    if state.is_editing {
-                        let edit_w = w - 20;
-                        let edit_h = 40;
-                        let _ = SetWindowPos(
-                            state.edit_hwnd,
-                            Some(HWND_TOP),
-                            10,
-                            10,
-                            edit_w,
-                            edit_h,
-                            SWP_NOACTIVATE,
-                        );
-                        set_rounded_edit_region(state.edit_hwnd, edit_w, edit_h);
-                    }
+
                     // Resize markdown webview if in markdown mode
                     if state.is_markdown_mode {
                         markdown_view::resize_markdown_webview(hwnd, state.is_hovered);
                     }
-                    // Resize refine input if active
-                    if refine_input::is_refine_input_active(hwnd) {
-                        refine_input::resize_refine_input(hwnd);
-                    }
+
                     button_canvas::update_window_position(hwnd);
                 }
                 _ => {}

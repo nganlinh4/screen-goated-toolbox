@@ -6,7 +6,6 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::overlay::result::button_canvas;
 use crate::overlay::result::markdown_view;
 use crate::overlay::result::paint;
-use crate::overlay::result::refine_input;
 use crate::overlay::result::state::WINDOW_STATES;
 
 pub const WM_CREATE_WEBVIEW: u32 = WM_USER + 200;
@@ -26,14 +25,7 @@ pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
     LRESULT(1)
 }
 
-pub unsafe fn handle_ctl_color_edit(wparam: WPARAM) -> LRESULT {
-    let hdc = HDC(wparam.0 as *mut core::ffi::c_void);
-    SetBkMode(hdc, OPAQUE);
-    SetBkColor(hdc, COLORREF(0x00FFFFFF));
-    SetTextColor(hdc, COLORREF(0x00000000));
-    let hbrush = GetStockObject(WHITE_BRUSH);
-    LRESULT(hbrush.0 as isize)
-}
+// handle_ctl_color_edit removed (was for native edit control)
 
 pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
     // Collect windows to close (those sharing the same cancellation token)
@@ -79,13 +71,8 @@ pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
             if !state.bg_bitmap.is_invalid() {
                 let _ = DeleteObject(state.bg_bitmap.into());
             }
-            if !state.edit_font.is_invalid() {
-                let _ = DeleteObject(state.edit_font.into());
-            }
 
-            // Cleanup refine input if active (must be inside lock to check/set state if needed,
-            // but hide_refine_input handles its own visibility)
-            refine_input::hide_refine_input(hwnd);
+            // Cleanup refine input if active (state cleanup is handled by removing from WINDOW_STATES)
         } else {
             windows_to_close = Vec::new();
         }
@@ -155,12 +142,7 @@ pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
 
     // IMPORTANT: If refine input is active, resize markdown to leave room for it
     // AND bring refine input to top so it stays visible
-    if refine_input::is_refine_input_active(hwnd) {
-        // Resize markdown webview to account for refine input at top
-        markdown_view::resize_markdown_webview(hwnd, is_hovered);
-        // Bring refine input to top
-        refine_input::bring_to_top(hwnd);
-    }
+    // NOTE: Refine input is now part of button_canvas (overlay), so no resizing needed.
 
     let _ = InvalidateRect(Some(hwnd), None, false);
     LRESULT(0)

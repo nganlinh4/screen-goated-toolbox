@@ -1,7 +1,7 @@
 use super::super::logic;
 use crate::overlay::result::markdown_view;
-use crate::overlay::result::refine_input;
-use crate::overlay::result::state::{RefineContext, WINDOW_STATES};
+
+use crate::overlay::result::state::WINDOW_STATES;
 use crate::overlay::utils::to_wstring;
 use std::time::{SystemTime, UNIX_EPOCH};
 use windows::core::PCWSTR;
@@ -72,15 +72,12 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
 
     // Timer ID 1 and other timers: existing logic
     let mut need_repaint = false;
+
     let mut pending_update: Option<String> = None;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u32)
         .unwrap_or(0);
-
-    let mut trigger_refine = false;
-    let mut user_input = String::new();
-    let mut text_to_refine = String::new();
 
     {
         let mut states = WINDOW_STATES.lock().unwrap();
@@ -144,74 +141,6 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
 
             // Note: Native EDIT control handling removed - both plain text and markdown modes
             // now use WebView-based refine input. Polling happens outside the lock below.
-        }
-    }
-
-    // Poll WebView-based refine input outside of lock (IPC handler may need lock)
-    {
-        let is_refine_active = refine_input::is_refine_input_active(hwnd);
-        if is_refine_active {
-            let (submitted, cancelled, input_text) = refine_input::poll_refine_input(hwnd);
-
-            if submitted && !input_text.trim().is_empty() {
-                // User submitted from WebView refine input
-                user_input = input_text;
-
-                {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                        text_to_refine = state.full_text.clone();
-                        state.text_history.push(text_to_refine.clone());
-                        // Clear redo history when new action is performed
-                        state.redo_history.clear();
-                        state.input_text = text_to_refine.clone();
-                        state.is_editing = false;
-                        state.is_refining = true;
-                        state.is_streaming_active = true; // Hide buttons during refinement
-                        state.was_streaming_active = true; // Track for end-of-stream flush
-                        state.full_text = String::new();
-                        state.pending_text = Some(String::new());
-                    }
-                }
-
-                // Hide the refine input
-                refine_input::hide_refine_input(hwnd);
-
-                // Resize markdown WebView back to normal
-                let is_hovered = {
-                    let states = WINDOW_STATES.lock().unwrap();
-                    states
-                        .get(&(hwnd.0 as isize))
-                        .map(|s| s.is_hovered)
-                        .unwrap_or(false)
-                };
-                markdown_view::resize_markdown_webview(hwnd, is_hovered);
-                markdown_view::fit_font_to_window(hwnd);
-
-                trigger_refine = true;
-                crate::overlay::result::button_canvas::update_window_position(hwnd);
-            } else if cancelled {
-                // User cancelled - just hide the input
-                {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-                        state.is_editing = false;
-                    }
-                }
-                refine_input::hide_refine_input(hwnd);
-
-                // Resize markdown WebView back to normal
-                let is_hovered = {
-                    let states = WINDOW_STATES.lock().unwrap();
-                    states
-                        .get(&(hwnd.0 as isize))
-                        .map(|s| s.is_hovered)
-                        .unwrap_or(false)
-                };
-                markdown_view::resize_markdown_webview(hwnd, is_hovered);
-                markdown_view::fit_font_to_window(hwnd);
-                crate::overlay::result::button_canvas::update_window_position(hwnd);
-            }
         }
     }
 
@@ -313,122 +242,6 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
             let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
             need_repaint = true;
         }
-    }
-
-    // --- TYPE MODE PROMPT LOGIC ---
-    if trigger_refine && !user_input.trim().is_empty() {
-        let (context_data, model_id, provider, streaming, preset_prompt) = {
-            let states = WINDOW_STATES.lock().unwrap();
-            if let Some(s) = states.get(&(hwnd.0 as isize)) {
-                (
-                    s.context_data.clone(),
-                    s.model_id.clone(),
-                    s.provider.clone(),
-                    s.streaming_enabled,
-                    s.preset_prompt.clone(),
-                )
-            } else {
-                (
-                    RefineContext::None,
-                    "scout".to_string(),
-                    "groq".to_string(),
-                    false,
-                    "".to_string(),
-                )
-            }
-        };
-
-        let (final_prev_text, final_user_prompt) =
-            if text_to_refine.trim().is_empty() && !preset_prompt.is_empty() {
-                (user_input, preset_prompt)
-            } else {
-                (text_to_refine, user_input)
-            };
-
-        let hwnd_val = hwnd.0 as usize;
-        std::thread::spawn(move || {
-            // let hwnd = HWND(hwnd_val as *mut std::ffi::c_void); // Unused in this closure's scope, removed to silence warning.
-            // Actually it IS used in the callback closure below, which captures hwnd_val implicitly if I'm not careful.
-            // But the closure passed to refine_text_streaming captures `hwnd`?
-            // Wait, the callback `move |chunk|` captures `hwnd` if I refer to it.
-
-            let capture_hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-
-            let (groq_key, gemini_key) = {
-                let app = crate::APP.lock().unwrap();
-                (
-                    app.config.api_key.clone(),
-                    app.config.gemini_api_key.clone(),
-                )
-            };
-
-            let mut acc_text = String::new();
-            let mut first_chunk = true;
-
-            let result = crate::api::refine_text_streaming(
-                &groq_key,
-                &gemini_key,
-                context_data,
-                final_prev_text,
-                final_user_prompt,
-                &model_id,
-                &provider,
-                streaming,
-                {
-                    let app = crate::APP.lock().unwrap();
-                    &app.config.ui_language.clone()
-                },
-                move |chunk| {
-                    let mut states = WINDOW_STATES.lock().unwrap();
-                    if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
-                        if first_chunk {
-                            state.is_refining = false;
-                            first_chunk = false;
-                        }
-
-                        // Handle WIPE_SIGNAL - clear accumulator and use content after signal
-                        if chunk.starts_with(crate::api::WIPE_SIGNAL) {
-                            acc_text.clear();
-                            acc_text.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
-                        } else {
-                            acc_text.push_str(chunk);
-                        }
-                        state.pending_text = Some(acc_text.clone());
-                        state.full_text = acc_text.clone();
-                    }
-                },
-            );
-
-            // Refinement should ONLY update the current window
-            let mut states = WINDOW_STATES.lock().unwrap();
-            if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
-                state.is_refining = false;
-                state.is_streaming_active = false; // Refinement complete, show buttons
-                match result {
-                    Ok(final_text) => {
-                        // SUCCESS
-                        state.full_text = final_text.clone();
-                        state.pending_text = Some(final_text);
-                    }
-                    Err(e) => {
-                        let (lang, model_full_name) = {
-                            let app = crate::APP.lock().unwrap();
-                            let full_name = crate::model_config::get_model_by_id(&model_id)
-                                .map(|m| m.full_name)
-                                .unwrap_or_else(|| model_id.to_string());
-                            (app.config.ui_language.clone(), full_name)
-                        };
-                        let err_msg = crate::overlay::utils::get_error_message(
-                            &e.to_string(),
-                            &lang,
-                            Some(&model_full_name),
-                        );
-                        state.pending_text = Some(err_msg.clone());
-                        state.full_text = err_msg;
-                    }
-                }
-            }
-        });
     }
 
     logic::handle_timer(hwnd, wparam);

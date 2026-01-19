@@ -1243,14 +1243,10 @@ progressBar.onclick = (e) => {{
                             text_input::refocus_editor();
                         }
                         // Check if refine input is active - if so, set text there
-                        else if crate::overlay::result::refine_input::is_any_refine_active() {
-                            if let Some(parent) =
-                                crate::overlay::result::refine_input::get_active_refine_parent()
+                        else if crate::overlay::result::is_any_refine_active() {
+                            if let Some(parent) = crate::overlay::result::get_active_refine_parent()
                             {
-                                crate::overlay::result::refine_input::set_refine_text(
-                                    parent,
-                                    &final_text,
-                                );
+                                crate::overlay::result::set_refine_text(parent, &final_text, true);
                             }
                         } else if let Some(target) = target_window {
                             // Normal paste to last active window
