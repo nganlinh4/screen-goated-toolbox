@@ -29,6 +29,10 @@ pub fn unpack_dlls() {
             include_bytes!("embed_dlls/msvcp140_1.dll"),
         ),
         ("DirectML.dll", include_bytes!("embed_dlls/DirectML.dll")),
+        (
+            "onnxruntime.dll",
+            include_bytes!("embed_dlls/onnxruntime.dll"),
+        ),
     ];
 
     for (name, bytes) in dlls {
