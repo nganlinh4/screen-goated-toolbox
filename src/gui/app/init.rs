@@ -29,48 +29,127 @@ impl SettingsApp {
         ctx: egui::Context,
         pending_file_path: Option<std::path::PathBuf>,
     ) -> Self {
+        // Unified app name for both Debug and Release to share the same registry/task spot
         let app_name = "ScreenGoatedToolbox";
         let app_path = std::env::current_exe().unwrap();
+        let app_path_str = app_path.to_str().unwrap_or("");
         let args: &[&str] = &[];
 
-        let auto = AutoLaunch::new(app_name, app_path.to_str().unwrap(), args);
+        let auto = AutoLaunch::new(app_name, app_path_str, args);
 
-        // 1. Check Registry for standard startup
-        let mut run_at_startup = false;
-        #[cfg(target_os = "windows")]
+        // Check for current admin state early
+        let current_admin_state = if cfg!(target_os = "windows") {
+            crate::gui::utils::is_running_as_admin()
+        } else {
+            false
+        };
+
+        // --- STARTUP LOGIC REVAMP v2 (ONLY ONE WINS) ---
+        let mut run_at_startup_ui = false;
+
+        #[cfg(debug_assertions)]
         {
-            use winreg::enums::*;
-            use winreg::RegKey;
-            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-            if let Ok(key) = hkcu.open_subkey_with_flags(
-                "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                KEY_READ,
-            ) {
-                if key.get_value::<String, &str>(app_name).is_ok() {
-                    run_at_startup = true;
+            // THE FORCEFUL DECREE: Debug builds are strictly forbidden from managing startup.
+            // We actively clean up entries to ensure no accidental residue exists.
+            let _ = auto.disable();
+            // Try to delete task (may fail without admin, but that's okay, we try)
+            std::thread::spawn(|| {
+                crate::gui::utils::set_admin_startup(false);
+            });
+            // Intent is always false in debug
+            config.run_at_startup = false;
+            config.run_as_admin_on_startup = false;
+            run_at_startup_ui = false;
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            // 1. Initial Sync: If system has it enabled but config doesn't, sync to true (Migration)
+            let mut registry_enabled_in_system = false;
+            #[cfg(target_os = "windows")]
+            {
+                use winreg::enums::*;
+                use winreg::RegKey;
+                let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+                if let Ok(key) = hkcu.open_subkey_with_flags(
+                    "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    KEY_READ,
+                ) {
+                    if key.get_value::<String, &str>(app_name).is_ok() {
+                        registry_enabled_in_system = true;
+                    }
                 }
             }
-        }
-        if !run_at_startup {
-            run_at_startup = auto.is_enabled().unwrap_or(false);
+            if !registry_enabled_in_system && auto.is_enabled().unwrap_or(false) {
+                registry_enabled_in_system = true;
+            }
+
+            if registry_enabled_in_system
+                && !config.run_at_startup
+                && !config.run_as_admin_on_startup
+            {
+                config.run_at_startup = true;
+                // Also authorize the path currently in registry if ours is empty
+                if config.authorized_startup_path.is_empty() {
+                    config.authorized_startup_path = app_path_str.to_string();
+                }
+            }
+
+            let task_exists = crate::gui::utils::is_admin_startup_enabled();
+            if task_exists && !config.run_as_admin_on_startup {
+                config.run_as_admin_on_startup = true;
+                if config.authorized_startup_path.is_empty() {
+                    config.authorized_startup_path = app_path_str.to_string();
+                }
+            }
+
+            // 2. Determine if WE are authorized to manage startup
+            let is_authorized = if config.authorized_startup_path.is_empty() {
+                // No one is authorized? We take it.
+                true
+            } else if config.authorized_startup_path == app_path_str {
+                // We are the chosen one.
+                true
+            } else {
+                // Someone else is authorized. Do they still exist?
+                let other_exists = std::path::Path::new(&config.authorized_startup_path).exists();
+                if !other_exists {
+                    // The authorized version is gone (likely an update/rename). We take over.
+                    true
+                } else {
+                    // The authorized version still exists (likely Debug vs Release co-existing).
+                    // We stay quiet to avoid "Both starting" or "Hijacking".
+                    false
+                }
+            };
+
+            // 3. Apply intent & Auto-fix (ONLY if authorized)
+            if is_authorized {
+                // Update authorization if it was empty or changed due to "not exists"
+                if config.authorized_startup_path != app_path_str
+                    && (config.run_at_startup || config.run_as_admin_on_startup)
+                {
+                    config.authorized_startup_path = app_path_str.to_string();
+                }
+
+                if config.run_as_admin_on_startup {
+                    run_at_startup_ui = true;
+                    if !crate::gui::utils::is_admin_startup_pointing_to_current_exe()
+                        && current_admin_state
+                    {
+                        crate::gui::utils::set_admin_startup(true);
+                    }
+                } else if config.run_at_startup {
+                    run_at_startup_ui = true;
+                    let _ = auto.enable();
+                }
+            } else {
+                // If not authorized, UI state just reflects intent, but we don't repair/fix.
+                run_at_startup_ui = config.run_at_startup || config.run_as_admin_on_startup;
+            }
         }
 
-        // 2. Check Task Scheduler for Admin startup (FIX for persistence)
-        // If the Task exists, we consider startup enabled AND admin mode enabled.
-        if crate::gui::utils::is_admin_startup_enabled() {
-            run_at_startup = true;
-            config.run_as_admin_on_startup = true;
-            // Don't enable registry when Task Scheduler is active
-        } else if config.run_as_admin_on_startup {
-            // Config thinks admin is on, but Task is missing?
-            // Trust the system state -> Task is missing, so it's off.
-            config.run_as_admin_on_startup = false;
-        }
-
-        if run_at_startup && !config.run_as_admin_on_startup {
-            // Ensure path is current in case exe moved
-            let _ = auto.enable();
-        }
+        let run_at_startup = run_at_startup_ui;
 
         let (tx, rx) = channel();
 
@@ -190,13 +269,6 @@ impl SettingsApp {
                 *lock = devices;
             }
         });
-
-        // Check for current admin state
-        let current_admin_state = if cfg!(target_os = "windows") {
-            crate::gui::utils::is_running_as_admin()
-        } else {
-            false
-        };
 
         // Detect initial system theme
         let system_dark = crate::gui::utils::is_system_in_dark_mode();

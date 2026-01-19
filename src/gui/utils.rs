@@ -243,18 +243,53 @@ pub fn set_admin_startup(enable: bool) -> bool {
 }
 
 pub fn is_admin_startup_enabled() -> bool {
+    // 1. Check if ANY task with our name exists
     let mut cmd = Command::new("schtasks");
     cmd.args(&["/query", "/tn", TASK_NAME]);
-    // CREATE_NO_WINDOW = 0x08000000 - prevents console window flash
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
 
     let output = cmd.output();
-
-    match output {
+    let exists = match output {
         Ok(o) => o.status.success(),
         Err(_) => false,
+    };
+
+    if !exists {
+        return false;
     }
+
+    // 2. Check if it points to US.
+    // If it points to the wrong EXE, we consider it "Not Enabled" for this build.
+    is_admin_startup_pointing_to_current_exe()
+}
+
+pub fn is_admin_startup_pointing_to_current_exe() -> bool {
+    let exe_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    let exe_str = match exe_path.to_str() {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let mut cmd = Command::new("schtasks");
+    cmd.args(&["/query", "/tn", TASK_NAME, "/xml"]);
+    // CREATE_NO_WINDOW = 0x08000000
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
+
+    if let Ok(output) = cmd.output() {
+        if output.status.success() {
+            let xml_content = String::from_utf8_lossy(&output.stdout);
+            // The XML contains the path, likely quoted.
+            // We just check if the path substring is present.
+            // This handles cases where it might be "C:\Path\To\App.exe" or just C:\Path\To\App.exe
+            return xml_content.to_lowercase().contains(&exe_str.to_lowercase());
+        }
+    }
+    false
 }
 
 // --- NATIVE ICON UPDATER (FIXED) ---

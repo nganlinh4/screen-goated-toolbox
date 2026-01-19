@@ -9426,6 +9426,15 @@ pub fn is_admin_startup_enabled() -> bool {
 ⋮----
 cmd.args(&["/query", "/tn", TASK_NAME]);
 ⋮----
+pub fn is_admin_startup_pointing_to_current_exe() -> bool {
+⋮----
+cmd.args(&["/query", "/tn", TASK_NAME, "/xml"]);
+⋮----
+if let Ok(output) = cmd.output() {
+if output.status.success() {
+⋮----
+return xml_content.to_lowercase().contains(&exe_str.to_lowercase());
+⋮----
 fn rgba_to_bgra(data: &[u8]) -> Vec<u8> {
 let mut bgra = data.to_vec();
 for chunk in bgra.chunks_exact_mut(4) {
@@ -9892,6 +9901,82 @@ let _ = webview.evaluate_script(&script);
 fn resize_webview(hwnd: HWND, width: i32, height: i32) {
 ⋮----
 let _ = webview.set_bounds(wry::Rect {
+</file>
+
+<file path="src/overlay/result/event_handler/misc.rs">
+use std::sync::Arc;
+⋮----
+use crate::overlay::result::button_canvas;
+use crate::overlay::result::markdown_view;
+use crate::overlay::result::paint;
+use crate::overlay::result::state::WINDOW_STATES;
+⋮----
+pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
+LRESULT(1)
+⋮----
+pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
+⋮----
+let mut states = WINDOW_STATES.lock().unwrap();
+if let Some(state) = states.remove(&(hwnd.0 as isize)) {
+⋮----
+crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
+⋮----
+token_to_signal = state.cancellation_token.clone();
+⋮----
+token.store(true, std::sync::atomic::Ordering::Relaxed);
+⋮----
+.iter()
+.filter(|(_, s)| {
+⋮----
+.map(|(k, _)| HWND(*k as *mut core::ffi::c_void))
+.collect();
+⋮----
+if !state.content_bitmap.is_invalid() {
+let _ = DeleteObject(state.content_bitmap.into());
+⋮----
+if !state.bg_bitmap.is_invalid() {
+let _ = DeleteObject(state.bg_bitmap.into());
+⋮----
+let _ = KillTimer(Some(hwnd), 2);
+⋮----
+let _ = PostMessageW(Some(other_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+⋮----
+LRESULT(0)
+⋮----
+pub unsafe fn handle_paint(hwnd: HWND) -> LRESULT {
+⋮----
+pub unsafe fn handle_keydown() -> LRESULT {
+⋮----
+pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
+⋮----
+let states = WINDOW_STATES.lock().unwrap();
+if let Some(state) = states.get(&(hwnd.0 as isize)) {
+(state.full_text.clone(), state.is_hovered)
+⋮----
+if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+⋮----
+let _ = InvalidateRect(Some(hwnd), None, false);
+⋮----
+pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT {
+⋮----
+pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT {
+⋮----
+pub unsafe fn handle_resize_markdown(hwnd: HWND) -> LRESULT {
+⋮----
+.get(&(hwnd.0 as isize))
+.map(|s| s.is_hovered)
+.unwrap_or(false)
+⋮----
+pub unsafe fn handle_back_click(hwnd: HWND) -> LRESULT {
+⋮----
+pub unsafe fn handle_forward_click(hwnd: HWND) -> LRESULT {
+⋮----
+pub unsafe fn handle_download_click(hwnd: HWND) -> LRESULT {
+⋮----
+.map(|s| s.full_text.clone())
+.unwrap_or_default()
+⋮----
+if !text.is_empty() {
 </file>
 
 <file path="src/overlay/text_selection_webview/mod.rs">
@@ -11515,82 +11600,6 @@ if let Some(webview) = w.borrow().as_ref() {
 let _ = webview.evaluate_script(&script);
 </file>
 
-<file path="src/overlay/result/event_handler/misc.rs">
-use std::sync::Arc;
-⋮----
-use crate::overlay::result::button_canvas;
-use crate::overlay::result::markdown_view;
-use crate::overlay::result::paint;
-use crate::overlay::result::state::WINDOW_STATES;
-⋮----
-pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
-LRESULT(1)
-⋮----
-pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
-⋮----
-let mut states = WINDOW_STATES.lock().unwrap();
-if let Some(state) = states.remove(&(hwnd.0 as isize)) {
-⋮----
-crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
-⋮----
-token_to_signal = state.cancellation_token.clone();
-⋮----
-token.store(true, std::sync::atomic::Ordering::Relaxed);
-⋮----
-.iter()
-.filter(|(_, s)| {
-⋮----
-.map(|(k, _)| HWND(*k as *mut core::ffi::c_void))
-.collect();
-⋮----
-if !state.content_bitmap.is_invalid() {
-let _ = DeleteObject(state.content_bitmap.into());
-⋮----
-if !state.bg_bitmap.is_invalid() {
-let _ = DeleteObject(state.bg_bitmap.into());
-⋮----
-let _ = KillTimer(Some(hwnd), 2);
-⋮----
-let _ = PostMessageW(Some(other_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-⋮----
-LRESULT(0)
-⋮----
-pub unsafe fn handle_paint(hwnd: HWND) -> LRESULT {
-⋮----
-pub unsafe fn handle_keydown() -> LRESULT {
-⋮----
-pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
-⋮----
-let states = WINDOW_STATES.lock().unwrap();
-if let Some(state) = states.get(&(hwnd.0 as isize)) {
-(state.full_text.clone(), state.is_hovered)
-⋮----
-if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-⋮----
-let _ = InvalidateRect(Some(hwnd), None, false);
-⋮----
-pub unsafe fn handle_show_markdown(hwnd: HWND) -> LRESULT {
-⋮----
-pub unsafe fn handle_hide_markdown(hwnd: HWND) -> LRESULT {
-⋮----
-pub unsafe fn handle_resize_markdown(hwnd: HWND) -> LRESULT {
-⋮----
-.get(&(hwnd.0 as isize))
-.map(|s| s.is_hovered)
-.unwrap_or(false)
-⋮----
-pub unsafe fn handle_back_click(hwnd: HWND) -> LRESULT {
-⋮----
-pub unsafe fn handle_forward_click(hwnd: HWND) -> LRESULT {
-⋮----
-pub unsafe fn handle_download_click(hwnd: HWND) -> LRESULT {
-⋮----
-.map(|s| s.full_text.clone())
-.unwrap_or_default()
-⋮----
-if !text.is_empty() {
-</file>
-
 <file path="src/overlay/result/event_handler/mouse_input.rs">
 use std::mem::size_of;
 use std::sync::Arc;
@@ -11717,6 +11726,66 @@ group_moves.push((*h, new_x, new_y));
 let _ = InvalidateRect(Some(hwnd), None, false);
 ⋮----
 pub unsafe fn handle_mouse_leave(hwnd: HWND) -> LRESULT {
+</file>
+
+<file path="src/overlay/result/layout.rs">
+pub fn should_show_buttons(_window_w: i32, _window_h: i32) -> bool {
+⋮----
+fn rects_overlap(a: &RECT, b: &RECT, gap: i32) -> bool {
+⋮----
+fn get_all_active_window_rects() -> Vec<RECT> {
+⋮----
+if let Ok(states) = WINDOW_STATES.lock() {
+for (&hwnd_key, _state) in states.iter() {
+let hwnd = HWND(hwnd_key as *mut std::ffi::c_void);
+⋮----
+if IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() {
+⋮----
+if GetWindowRect(hwnd, &mut rect).is_ok() {
+rects.push(rect);
+⋮----
+fn would_overlap_existing(proposed: &RECT, existing: &[RECT], gap: i32) -> bool {
+existing.iter().any(|r| rects_overlap(proposed, r, gap))
+⋮----
+pub fn calculate_next_window_rect(prev: RECT, monitor_rect: RECT) -> RECT {
+⋮----
+let w = (prev.right - prev.left).abs();
+let h = (prev.bottom - prev.top).abs();
+let existing_windows = get_all_active_window_rects();
+⋮----
+&& !would_overlap_existing(&right_candidate, &existing_windows, gap)
+⋮----
+&& !would_overlap_existing(&bottom_candidate, &existing_windows, gap)
+⋮----
+&& !would_overlap_existing(&left_candidate, &existing_windows, gap)
+⋮----
+&& !would_overlap_existing(&top_candidate, &existing_windows, gap)
+⋮----
+&& !would_overlap_existing(&diag, &existing_windows, gap)
+⋮----
+&& !would_overlap_existing(&cascade, &existing_windows, gap)
+⋮----
+pub fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
+⋮----
+pub fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
+let speaker_rect = get_speaker_btn_rect(window_w, window_h);
+⋮----
+pub fn get_markdown_btn_rect(window_w: i32, window_h: i32) -> RECT {
+let edit_rect = get_edit_btn_rect(window_w, window_h);
+⋮----
+pub fn get_download_btn_rect(window_w: i32, window_h: i32) -> RECT {
+let md_rect = get_markdown_btn_rect(window_w, window_h);
+⋮----
+pub fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
+let dl_rect = get_download_btn_rect(window_w, window_h);
+⋮----
+pub fn get_redo_btn_rect(window_w: i32, window_h: i32) -> RECT {
+let undo_rect = get_undo_btn_rect(window_w, window_h);
+⋮----
+pub fn get_speaker_btn_rect(window_w: i32, window_h: i32) -> RECT {
+let copy_rect = get_copy_btn_rect(window_w, window_h);
+⋮----
+pub fn get_resize_edge(width: i32, height: i32, x: i32, y: i32) -> ResizeEdge {
 </file>
 
 <file path="src/overlay/utils.rs">
@@ -12063,29 +12132,59 @@ use std::sync::mpsc::channel;
 impl SettingsApp {
 pub fn new(
 ⋮----
+let app_name = if cfg!(debug_assertions) {
+⋮----
 let app_path = std::env::current_exe().unwrap();
 ⋮----
 let auto = AutoLaunch::new(app_name, app_path.to_str().unwrap(), args);
+let current_admin_state = if cfg!(target_os = "windows") {
 ⋮----
 use winreg::RegKey;
 ⋮----
 if let Ok(key) = hkcu.open_subkey_with_flags(
 ⋮----
-if key.get_value::<String, &str>(app_name).is_ok() {
+if reg_val != app_path.to_str().unwrap_or("") {
 ⋮----
-run_at_startup = auto.is_enabled().unwrap_or(false);
+if auto.is_enabled().unwrap_or(false) {
+⋮----
+// If we couldn't read registry but is_enabled returns true,
+// assume potential mismatch to be safe and ensure correct path
+⋮----
+// 2. Check Task Scheduler for Admin startup (FIX for persistence)
+// If the Task exists, we consider startup enabled AND admin mode enabled.
+⋮----
+// VERIFY path matches current executable!
+⋮----
+// Don't enable registry when Task Scheduler is active
+⋮----
+// Task exists but points to wrong EXE (e.g. Debug vs Release mismatch)
+⋮----
+// We are Admin, fix it immediately silently
+⋮----
+// Not admin, can't fix automatically.
+// Disable it so user sees unchecked box and re-enables it (triggering UAC)
+⋮----
+// Config thinks admin is on, but Task is missing?
+// Trust the system state -> Task is missing, so it's off.
+⋮----
+// Ensure path is current in case exe moved, but only write if needed
 ⋮----
 let _ = auto.enable();
 ⋮----
 let (tx, rx) = channel();
+// Tray thread
 let tx_tray = tx.clone();
 let ctx_tray = ctx.clone();
 ⋮----
 while let Ok(event) = TrayIconEvent::receiver().recv() {
 ⋮----
+// Handle right-click directly - show popup even when main window is hidden
+⋮----
+// Other events go through the normal channel
 let _ = tx_tray.send(UserEvent::Tray(event));
 ctx_tray.request_repaint();
 ⋮----
+// Restore signal listener
 let ctx_restore = ctx.clone();
 ⋮----
 match OpenEventW(
@@ -12138,8 +12237,6 @@ let (up_tx, up_rx) = channel();
 let devices_clone = cached_audio_devices.clone();
 ⋮----
 if let Ok(mut lock) = devices_clone.lock() {
-⋮----
-let current_admin_state = if cfg!(target_os = "windows") {
 ⋮----
 let initial_ui_language = config.ui_language.clone();
 ⋮----
@@ -13201,66 +13298,6 @@ targets.push(HWND(hwnd_int as *mut std::ffi::c_void));
 ⋮----
 if IsWindow(Some(target)).as_bool() {
 let _ = PostMessageW(Some(target), WM_CLOSE, WPARAM(0), LPARAM(0));
-</file>
-
-<file path="src/overlay/result/layout.rs">
-pub fn should_show_buttons(_window_w: i32, _window_h: i32) -> bool {
-⋮----
-fn rects_overlap(a: &RECT, b: &RECT, gap: i32) -> bool {
-⋮----
-fn get_all_active_window_rects() -> Vec<RECT> {
-⋮----
-if let Ok(states) = WINDOW_STATES.lock() {
-for (&hwnd_key, _state) in states.iter() {
-let hwnd = HWND(hwnd_key as *mut std::ffi::c_void);
-⋮----
-if IsWindow(Some(hwnd)).as_bool() && IsWindowVisible(hwnd).as_bool() {
-⋮----
-if GetWindowRect(hwnd, &mut rect).is_ok() {
-rects.push(rect);
-⋮----
-fn would_overlap_existing(proposed: &RECT, existing: &[RECT], gap: i32) -> bool {
-existing.iter().any(|r| rects_overlap(proposed, r, gap))
-⋮----
-pub fn calculate_next_window_rect(prev: RECT, monitor_rect: RECT) -> RECT {
-⋮----
-let w = (prev.right - prev.left).abs();
-let h = (prev.bottom - prev.top).abs();
-let existing_windows = get_all_active_window_rects();
-⋮----
-&& !would_overlap_existing(&right_candidate, &existing_windows, gap)
-⋮----
-&& !would_overlap_existing(&bottom_candidate, &existing_windows, gap)
-⋮----
-&& !would_overlap_existing(&left_candidate, &existing_windows, gap)
-⋮----
-&& !would_overlap_existing(&top_candidate, &existing_windows, gap)
-⋮----
-&& !would_overlap_existing(&diag, &existing_windows, gap)
-⋮----
-&& !would_overlap_existing(&cascade, &existing_windows, gap)
-⋮----
-pub fn get_copy_btn_rect(window_w: i32, window_h: i32) -> RECT {
-⋮----
-pub fn get_edit_btn_rect(window_w: i32, window_h: i32) -> RECT {
-let speaker_rect = get_speaker_btn_rect(window_w, window_h);
-⋮----
-pub fn get_markdown_btn_rect(window_w: i32, window_h: i32) -> RECT {
-let edit_rect = get_edit_btn_rect(window_w, window_h);
-⋮----
-pub fn get_download_btn_rect(window_w: i32, window_h: i32) -> RECT {
-let md_rect = get_markdown_btn_rect(window_w, window_h);
-⋮----
-pub fn get_undo_btn_rect(window_w: i32, window_h: i32) -> RECT {
-let dl_rect = get_download_btn_rect(window_w, window_h);
-⋮----
-pub fn get_redo_btn_rect(window_w: i32, window_h: i32) -> RECT {
-let undo_rect = get_undo_btn_rect(window_w, window_h);
-⋮----
-pub fn get_speaker_btn_rect(window_w: i32, window_h: i32) -> RECT {
-let copy_rect = get_copy_btn_rect(window_w, window_h);
-⋮----
-pub fn get_resize_edge(width: i32, height: i32, x: i32, y: i32) -> ResizeEdge {
 </file>
 
 <file path="src/gui/settings_ui/download_manager/run.rs">
@@ -14569,7 +14606,7 @@ painter.text(
 title_font.clone(),
 ⋮----
 painter.rect_filled(bar_rect, 2.0, bar_bg_col);
-let prog = (physics_t / (ANIMATION_DURATION - 1.0)).clamp(0.0, 1.0);
+let prog = (physics_t / (ANIMATION_DURATION - 0.5)).clamp(0.0, 1.0);
 ⋮----
 fill.set_width(bar_rect.width() * prog);
 painter.rect_filled(fill, 2.0, magenta_color);
@@ -15569,6 +15606,184 @@ if let Ok(Some((_cropped_img, original_bytes))) = rx.recv() {
 let _ = PostMessageW(Some(processing_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
 </file>
 
+<file path="src/overlay/result/event_handler/mod.rs">
+pub mod click_actions;
+pub mod misc;
+pub mod mouse_input;
+pub mod timer_tasks;
+⋮----
+pub unsafe extern "system" fn result_wnd_proc(
+⋮----
+if !mmi.is_null() {
+⋮----
+LRESULT(0)
+⋮----
+DefWindowProcW(hwnd, msg, wparam, lparam)
+⋮----
+let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
+⋮----
+.get(&(hwnd.0 as isize))
+.map(|s| s.is_markdown_mode)
+.unwrap_or(false)
+⋮----
+_ => DefWindowProcW(hwnd, msg, wparam, lparam),
+</file>
+
+<file path="src/overlay/result/mod.rs">
+pub mod button_canvas;
+mod event_handler;
+pub mod layout;
+mod logic;
+pub mod markdown_view;
+pub mod paint;
+pub mod state;
+mod window;
+⋮----
+pub fn is_any_refine_active() -> bool {
+let states = WINDOW_STATES.lock().unwrap();
+states.values().any(|s| s.is_editing)
+⋮----
+pub fn get_active_refine_parent() -> Option<HWND> {
+⋮----
+.iter()
+.find(|(_, s)| s.is_editing)
+.map(|(hwnd, _)| HWND(*hwnd as *mut std::ffi::c_void))
+⋮----
+pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
+⋮----
+let mut states = WINDOW_STATES.lock().unwrap();
+if let Some(state) = states.get_mut(&hwnd_key) {
+state.input_text = text.to_string();
+⋮----
+pub fn trigger_copy(hwnd: HWND) {
+⋮----
+.get(&hwnd_key)
+.map(|s| s.full_text.clone())
+.unwrap_or_default()
+⋮----
+if !text.is_empty() {
+⋮----
+if let Some(state) = states.get_mut(&(hwnd_val as isize)) {
+⋮----
+button_canvas::update_window_position(HWND(hwnd_val as *mut std::ffi::c_void));
+⋮----
+pub fn trigger_undo(hwnd: HWND) {
+⋮----
+if let Some(last) = state.text_history.pop() {
+let current = state.full_text.clone();
+state.redo_history.push(current);
+state.full_text = last.clone();
+(Some(last), state.is_markdown_mode)
+⋮----
+windows::core::PCWSTR(wide_text.as_ptr()),
+⋮----
+let _ = PostMessageW(
+Some(hwnd),
+⋮----
+WPARAM(0),
+LPARAM(0),
+⋮----
+pub fn trigger_redo(hwnd: HWND) {
+⋮----
+if let Some(redo) = state.redo_history.pop() {
+⋮----
+state.text_history.push(current);
+state.full_text = redo.clone();
+(Some(redo), state.is_markdown_mode)
+⋮----
+pub fn trigger_edit(hwnd: HWND) {
+⋮----
+state.input_text.clear();
+⋮----
+pub fn trigger_refine_submit(hwnd: HWND, text: &str) {
+if text.trim().is_empty() {
+⋮----
+let text_to_refine = state.full_text.clone();
+state.text_history.push(text_to_refine.clone());
+state.redo_history.clear();
+⋮----
+state.pending_text = Some(String::new());
+⋮----
+start_refinement(hwnd, text);
+⋮----
+pub fn trigger_refine_cancel(hwnd: HWND) {
+⋮----
+fn start_refinement(hwnd: HWND, user_prompt: &str) {
+⋮----
+if let Some(s) = states.get_mut(&hwnd_key) {
+let prev = s.full_text.clone();
+⋮----
+s.context_data.clone(),
+s.model_id.clone(),
+s.provider.clone(),
+⋮----
+s.preset_prompt.clone(),
+⋮----
+let user_input = user_prompt.to_string();
+⋮----
+if prev_text.trim().is_empty() && !preset_prompt.is_empty() {
+⋮----
+let capture_hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+⋮----
+let app = crate::APP.lock().unwrap();
+⋮----
+app.config.api_key.clone(),
+app.config.gemini_api_key.clone(),
+⋮----
+&app.config.ui_language.clone()
+⋮----
+if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
+⋮----
+if chunk.starts_with(crate::api::WIPE_SIGNAL) {
+acc_text.clear();
+acc_text.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+⋮----
+acc_text.push_str(chunk);
+⋮----
+state.pending_text = Some(acc_text.clone());
+state.full_text = acc_text.clone();
+⋮----
+state.full_text = final_text.clone();
+state.pending_text = Some(final_text);
+⋮----
+.map(|m| m.full_name)
+.unwrap_or_else(|| model_id.to_string());
+(app.config.ui_language.clone(), full_name)
+⋮----
+&e.to_string(),
+⋮----
+Some(&model_full_name),
+⋮----
+state.pending_text = Some(err_msg.clone());
+⋮----
+pub fn trigger_markdown_toggle(hwnd: HWND) {
+⋮----
+.map(|s| !s.is_refining && !s.is_streaming_active)
+.unwrap_or(false)
+⋮----
+pub fn trigger_speaker(hwnd: HWND) {
+⋮----
+.map(|s| (s.full_text.clone(), s.tts_request_id, s.tts_loading))
+⋮----
+if current_tts_id != 0 && crate::api::tts::TTS_MANAGER.is_speaking(current_tts_id) {
+crate::api::tts::TTS_MANAGER.stop();
+⋮----
+} else if !full_text.is_empty() {
+⋮----
+let request_id = crate::api::tts::TTS_MANAGER.speak(&full_text, hwnd_key);
+⋮----
+pub fn trigger_close_all() {
+⋮----
+.keys()
+.map(|&k| HWND(k as *mut std::ffi::c_void))
+.collect()
+⋮----
+if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() {
+let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+⋮----
+pub fn trigger_drag_window(hwnd: HWND, dx: i32, dy: i32) {
+</file>
+
 <file path="src/overlay/result/paint.rs">
 use super::layout::should_show_buttons;
 ⋮----
@@ -16403,182 +16618,83 @@ if let Ok(app) = crate::APP.lock() {
 app.config.theme_mode.clone()
 </file>
 
-<file path="src/overlay/result/event_handler/mod.rs">
-pub mod click_actions;
-pub mod misc;
-pub mod mouse_input;
-pub mod timer_tasks;
+<file path="src/overlay/result/window.rs">
+use std::mem::size_of;
+use std::sync::Once;
 ⋮----
-pub unsafe extern "system" fn result_wnd_proc(
+use super::event_handler::result_wnd_proc;
 ⋮----
-if !mmi.is_null() {
+pub fn get_chain_color(visible_index: usize) -> u32 {
 ⋮----
-LRESULT(0)
+let cycle_idx = (visible_index - 1) % (palette.len() - 1);
 ⋮----
-DefWindowProcW(hwnd, msg, wparam, lparam)
+pub fn create_result_window(
 ⋮----
-let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
+let instance = GetModuleHandleW(None).unwrap();
+let class_name = w!("TranslationResult");
+REGISTER_RESULT_CLASS.call_once(|| {
 ⋮----
-.get(&(hwnd.0 as isize))
-.map(|s| s.is_markdown_mode)
-.unwrap_or(false)
+wc.lpfnWndProc = Some(result_wnd_proc);
+wc.hInstance = instance.into();
+wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
 ⋮----
-_ => DefWindowProcW(hwnd, msg, wparam, lparam),
-</file>
-
-<file path="src/overlay/result/mod.rs">
-pub mod button_canvas;
-mod event_handler;
-pub mod layout;
-mod logic;
-pub mod markdown_view;
-pub mod paint;
-pub mod state;
-mod window;
+let _ = RegisterClassW(&wc);
 ⋮----
-pub fn is_any_refine_active() -> bool {
-let states = WINDOW_STATES.lock().unwrap();
-states.values().any(|s| s.is_editing)
+let width = (target_rect.right - target_rect.left).abs();
+let height = (target_rect.bottom - target_rect.top).abs();
 ⋮----
-pub fn get_active_refine_parent() -> Option<HWND> {
+let hwnd = CreateWindowExW(
 ⋮----
-.iter()
-.find(|(_, s)| s.is_editing)
-.map(|(hwnd, _)| HWND(*hwnd as *mut std::ffi::c_void))
+w!(""),
 ⋮----
-pub fn set_refine_text(hwnd: HWND, text: &str, is_insert: bool) {
+Some(instance.into()),
 ⋮----
-let mut states = WINDOW_STATES.lock().unwrap();
-if let Some(state) = states.get_mut(&hwnd_key) {
-state.input_text = text.to_string();
+.unwrap_or_default();
+// FOR MARKDOWN MODES: Create WebView IMMEDIATELY after window creation
+// See docs/WEBVIEW2_INITIALIZATION.md for why this is necessary
 ⋮----
-pub fn trigger_copy(hwnd: HWND) {
+let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
 ⋮----
-.get(&hwnd_key)
-.map(|s| s.full_text.clone())
-.unwrap_or_default()
+let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
 ⋮----
-if !text.is_empty() {
+// Initialize physics with current cursor position to prevent (0,0) glitch
 ⋮----
-if let Some(state) = states.get_mut(&(hwnd_val as isize)) {
+let _ = GetCursorPos(&mut pt);
+let _ = ScreenToClient(hwnd, &mut pt);
 ⋮----
-button_canvas::update_window_position(HWND(hwnd_val as *mut std::ffi::c_void));
-⋮----
-pub fn trigger_undo(hwnd: HWND) {
-⋮----
-if let Some(last) = state.text_history.pop() {
-let current = state.full_text.clone();
-state.redo_history.push(current);
-state.full_text = last.clone();
-(Some(last), state.is_markdown_mode)
-⋮----
-windows::core::PCWSTR(wide_text.as_ptr()),
-⋮----
-let _ = PostMessageW(
-Some(hwnd),
-⋮----
-WPARAM(0),
-LPARAM(0),
-⋮----
-pub fn trigger_redo(hwnd: HWND) {
-⋮----
-if let Some(redo) = state.redo_history.pop() {
-⋮----
-state.text_history.push(current);
-state.full_text = redo.clone();
-(Some(redo), state.is_markdown_mode)
-⋮----
-pub fn trigger_edit(hwnd: HWND) {
-⋮----
-state.input_text.clear();
-⋮----
-pub fn trigger_refine_submit(hwnd: HWND, text: &str) {
-if text.trim().is_empty() {
-⋮----
-let text_to_refine = state.full_text.clone();
-state.text_history.push(text_to_refine.clone());
-state.redo_history.clear();
-⋮----
-state.pending_text = Some(String::new());
-⋮----
-start_refinement(hwnd, text);
-⋮----
-pub fn trigger_refine_cancel(hwnd: HWND) {
-⋮----
-fn start_refinement(hwnd: HWND, user_prompt: &str) {
-⋮----
-if let Some(s) = states.get_mut(&hwnd_key) {
-let prev = s.full_text.clone();
-⋮----
-s.context_data.clone(),
-s.model_id.clone(),
-s.provider.clone(),
-⋮----
-s.preset_prompt.clone(),
-⋮----
-let user_input = user_prompt.to_string();
-⋮----
-if prev_text.trim().is_empty() && !preset_prompt.is_empty() {
-⋮----
-let capture_hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+// Get graphics mode from config
 ⋮----
 let app = crate::APP.lock().unwrap();
+app.config.graphics_mode.clone()
 ⋮----
-app.config.api_key.clone(),
-app.config.gemini_api_key.clone(),
+let mut states = WINDOW_STATES.lock().unwrap();
+states.insert(
 ⋮----
-&app.config.ui_language.clone()
+full_text: initial_text.clone(),
 ⋮----
-if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
+pending_text: Some(initial_text),
 ⋮----
-if chunk.starts_with(crate::api::WIPE_SIGNAL) {
-acc_text.clear();
-acc_text.push_str(&chunk[crate::api::WIPE_SIGNAL.len()..]);
+// Markdown mode state
 ⋮----
-acc_text.push_str(chunk);
+let _ = DwmSetWindowAttribute(
 ⋮----
-state.pending_text = Some(acc_text.clone());
-state.full_text = acc_text.clone();
+DWMWINDOWATTRIBUTE(33),
 ⋮----
-state.full_text = final_text.clone();
-state.pending_text = Some(final_text);
+let _ = SetForegroundWindow(hwnd);
 ⋮----
-.map(|m| m.full_name)
-.unwrap_or_else(|| model_id.to_string());
-(app.config.ui_language.clone(), full_name)
+SetTimer(Some(hwnd), 3, 16, None);
 ⋮----
-&e.to_string(),
+SetTimer(Some(hwnd), 2, 30, None);
 ⋮----
-Some(&model_full_name),
+let _ = InvalidateRect(Some(hwnd), None, false);
+let _ = UpdateWindow(hwnd);
 ⋮----
-state.pending_text = Some(err_msg.clone());
+pub fn update_window_text(hwnd: HWND, text: &str) {
+if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
 ⋮----
-pub fn trigger_markdown_toggle(hwnd: HWND) {
-⋮----
-.map(|s| !s.is_refining && !s.is_streaming_active)
-.unwrap_or(false)
-⋮----
-pub fn trigger_speaker(hwnd: HWND) {
-⋮----
-.map(|s| (s.full_text.clone(), s.tts_request_id, s.tts_loading))
-⋮----
-if current_tts_id != 0 && crate::api::tts::TTS_MANAGER.is_speaking(current_tts_id) {
-crate::api::tts::TTS_MANAGER.stop();
-⋮----
-} else if !full_text.is_empty() {
-⋮----
-let request_id = crate::api::tts::TTS_MANAGER.speak(&full_text, hwnd_key);
-⋮----
-pub fn trigger_close_all() {
-⋮----
-.keys()
-.map(|&k| HWND(k as *mut std::ffi::c_void))
-.collect()
-⋮----
-if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() {
-let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-⋮----
-pub fn trigger_drag_window(hwnd: HWND, dx: i32, dy: i32) {
+if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+state.pending_text = Some(text.to_string());
+state.full_text = text.to_string();
 </file>
 
 <file path="src/overlay/tray_popup.rs">
@@ -16836,182 +16952,6 @@ let _ = DestroyMenu(hmenu);
 let _ = DestroyWindow(hwnd);
 ⋮----
 if let Ok(mut app) = APP.lock() {
-</file>
-
-<file path="src/overlay/result/window.rs">
-use std::mem::size_of;
-use std::sync::Once;
-⋮----
-use super::event_handler::result_wnd_proc;
-⋮----
-pub fn get_chain_color(visible_index: usize) -> u32 {
-⋮----
-let cycle_idx = (visible_index - 1) % (palette.len() - 1);
-⋮----
-pub fn create_result_window(
-⋮----
-let instance = GetModuleHandleW(None).unwrap();
-let class_name = w!("TranslationResult");
-REGISTER_RESULT_CLASS.call_once(|| {
-⋮----
-wc.lpfnWndProc = Some(result_wnd_proc);
-wc.hInstance = instance.into();
-wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-⋮----
-let _ = RegisterClassW(&wc);
-⋮----
-let width = (target_rect.right - target_rect.left).abs();
-let height = (target_rect.bottom - target_rect.top).abs();
-⋮----
-let hwnd = CreateWindowExW(
-⋮----
-w!(""),
-⋮----
-Some(instance.into()),
-⋮----
-.unwrap_or_default();
-// FOR MARKDOWN MODES: Create WebView IMMEDIATELY after window creation
-// See docs/WEBVIEW2_INITIALIZATION.md for why this is necessary
-⋮----
-let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
-⋮----
-let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 220, LWA_ALPHA);
-⋮----
-// Initialize physics with current cursor position to prevent (0,0) glitch
-⋮----
-let _ = GetCursorPos(&mut pt);
-let _ = ScreenToClient(hwnd, &mut pt);
-⋮----
-// Get graphics mode from config
-⋮----
-let app = crate::APP.lock().unwrap();
-app.config.graphics_mode.clone()
-⋮----
-let mut states = WINDOW_STATES.lock().unwrap();
-states.insert(
-⋮----
-full_text: initial_text.clone(),
-⋮----
-pending_text: Some(initial_text),
-⋮----
-// Markdown mode state
-⋮----
-let _ = DwmSetWindowAttribute(
-⋮----
-DWMWINDOWATTRIBUTE(33),
-⋮----
-let _ = SetForegroundWindow(hwnd);
-⋮----
-SetTimer(Some(hwnd), 3, 16, None);
-⋮----
-SetTimer(Some(hwnd), 2, 30, None);
-⋮----
-let _ = InvalidateRect(Some(hwnd), None, false);
-let _ = UpdateWindow(hwnd);
-⋮----
-pub fn update_window_text(hwnd: HWND, text: &str) {
-if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
-⋮----
-if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-state.pending_text = Some(text.to_string());
-state.full_text = text.to_string();
-</file>
-
-<file path="Cargo.toml">
-[package]
-name = "screen-goated-toolbox"
-version = "4.3.1"
-edition = "2021"
-
-[build-dependencies]
-winres = "0.1"
-image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
-
-[dependencies]
-# Network & Serialization
-ureq = { version = "3.1", features = ["json"] }
-tungstenite = { version = "0.28", features = ["native-tls"] }
-native-tls = "0.2"
-url = "2.5"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-anyhow = "1.0"
-base64 = "0.22"
-self_update = { version = "0.42", features = ["archive-zip", "compression-zip-deflate"] }
-zip = "7.0"
-
-# Image Processing (Common formats for drag-and-drop)
-image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
-
-# Time
-chrono = { version = "0.4", features = ["serde"] }
-
-# System
-dirs = "6.0"
-lazy_static = "1.5"
-textwrap = "0.16"
-open = "5.3"
-sys-locale = "0.3"
-winreg = "0.55"
-auto-launch = "0.5"
-urlencoding = "2.1"
-
-# Language Data (Kept as requested)
-isolang = { version = "2.4", features = ["serde", "english_names"] }
-whatlang = "0.18"
-
-# GUI & Media
-eframe = { version = "0.33", default-features = false, features = ["glow"] }
-egui-snarl = { path = "libs/egui-snarl", features = ["serde"] }
-tray-icon = "0.21.3"
-cpal = "0.17"
-hound = "3.5"
-wasapi = "0.22"
-minimp3 = "0.6"
-egui_extras = { version = "0.33", features = ["all_loaders"] }
-# Audio file decoding (MP3, FLAC, OGG, WAV, AAC, ALAC)
-symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm"] }
-
-# Markdown Rendering
-pulldown-cmark = "0.13"
-wry = "0.53.5"
-raw-window-handle = "0.6"
-windows-core = "0.62"
-parakeet-rs = { version = "0.2.7", features = ["directml"] }
-ort = { version = "2.0.0-rc.10", features = ["directml", "load-dynamic"] }
-ringbuf = "0.4.8"
-dark-light = "2.0.0"
-
-[dependencies.windows]
-version = "0.62"
-features = [
-    "Win32_Foundation",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_Controls",
-    "Win32_Graphics_Gdi",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_System_LibraryLoader",
-    "Win32_Graphics_Dwm",
-    "Win32_UI_HiDpi",
-    "Win32_System_Threading",
-    "Win32_Security",
-    "Win32_System_Com",
-    "Win32_System_DataExchange",
-    "Win32_System_Memory",
-    "Win32_Media_Audio",
-    "Win32_System_SystemInformation",
-    "Win32_UI_Shell",
-    "Win32_UI_Shell_Common",
-    "Win32_UI_Accessibility",
-]
-
-[profile.release]
-opt-level = "z"
-lto = true
-codegen-units = 1
-strip = "symbols"  # Keep minimal debug info for AV trust (don't fully strip)
-debug = 1          # Include basic debug info - helps Windows Defender trust the exe
-panic = "unwind"
 </file>
 
 <file path="src/overlay/result/event_handler/timer_tasks.rs">
@@ -17322,6 +17262,103 @@ CallNextHookEx(None, code, wparam, lparam)
 fn get_html(initial_text: &str) -> String {
 ⋮----
 format!(
+</file>
+
+<file path="Cargo.toml">
+[package]
+name = "screen-goated-toolbox"
+version = "4.4.0"
+edition = "2021"
+
+[build-dependencies]
+winres = "0.1"
+image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
+
+[dependencies]
+# Network & Serialization
+ureq = { version = "3.1", features = ["json"] }
+tungstenite = { version = "0.28", features = ["native-tls"] }
+native-tls = "0.2"
+url = "2.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+base64 = "0.22"
+self_update = { version = "0.42", features = ["archive-zip", "compression-zip-deflate"] }
+zip = "7.0"
+
+# Image Processing (Common formats for drag-and-drop)
+image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp", "tiff"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# System
+dirs = "6.0"
+lazy_static = "1.5"
+textwrap = "0.16"
+open = "5.3"
+sys-locale = "0.3"
+winreg = "0.55"
+auto-launch = "0.5"
+urlencoding = "2.1"
+
+# Language Data (Kept as requested)
+isolang = { version = "2.4", features = ["serde", "english_names"] }
+whatlang = "0.18"
+
+# GUI & Media
+eframe = { version = "0.33", default-features = false, features = ["glow"] }
+egui-snarl = { path = "libs/egui-snarl", features = ["serde"] }
+tray-icon = "0.21.3"
+cpal = "0.17"
+hound = "3.5"
+wasapi = "0.22"
+minimp3 = "0.6"
+egui_extras = { version = "0.33", features = ["all_loaders"] }
+# Audio file decoding (MP3, FLAC, OGG, WAV, AAC, ALAC)
+symphonia = { version = "0.5", features = ["mp3", "flac", "ogg", "wav", "aac", "alac", "pcm"] }
+
+# Markdown Rendering
+pulldown-cmark = "0.13"
+wry = "0.53.5"
+raw-window-handle = "0.6"
+windows-core = "0.62"
+parakeet-rs = { version = "0.2.7", features = ["directml"] }
+ort = { version = "2.0.0-rc.10", features = ["directml", "load-dynamic"] }
+ringbuf = "0.4.8"
+dark-light = "2.0.0"
+
+[dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_LibraryLoader",
+    "Win32_Graphics_Dwm",
+    "Win32_UI_HiDpi",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_Media_Audio",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Accessibility",
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"  # Keep minimal debug info for AV trust (don't fully strip)
+debug = 1          # Include basic debug info - helps Windows Defender trust the exe
+panic = "unwind"
 </file>
 
 <file path="src/gui/locale.rs">
