@@ -539,7 +539,28 @@ pub fn render_global_settings(
                     });
 
                 // Big gap to simulate right alignment
-                ui.add_space(80.0);
+                ui.add_space(40.0);
+
+                // Force Quit button
+                let quite_bg = if is_dark {
+                    egui::Color32::from_rgb(120, 40, 40)
+                } else {
+                    egui::Color32::from_rgb(200, 100, 100)
+                };
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(text.force_quit).color(egui::Color32::WHITE),
+                        )
+                        .fill(quite_bg)
+                        .corner_radius(8.0),
+                    )
+                    .clicked()
+                {
+                    std::process::exit(0);
+                }
+
+                ui.add_space(10.0);
 
                 // Reset button
                 let reset_bg = if is_dark {

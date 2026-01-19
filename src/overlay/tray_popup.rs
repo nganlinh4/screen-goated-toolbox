@@ -25,6 +25,8 @@ static IGNORE_FOCUS_LOSS_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic
 static IS_WARMED_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static IS_WARMING_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static WARMUP_START_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+// Flag to track if WebView has permanently failed to initialize
+static WEBVIEW_INIT_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // Custom window messages
 const WM_APP_SHOW: u32 = WM_APP + 1;
@@ -68,6 +70,12 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 /// Show the tray popup at cursor position
 pub fn show_tray_popup() {
     unsafe {
+        // Fallback to native menu if WebView failed completely
+        if WEBVIEW_INIT_FAILED.load(Ordering::SeqCst) {
+            show_native_context_menu();
+            return;
+        }
+
         // Check if warmed up and window exists
         if !IS_WARMED_UP.load(Ordering::SeqCst) {
             // Not ready yet - trigger warmup and show notification
@@ -721,6 +729,7 @@ fn create_popup_window() {
             }
         } else {
             crate::log_info!("[TrayPopup] FAILED to initialize WebView after 3 attempts.");
+            WEBVIEW_INIT_FAILED.store(true, Ordering::SeqCst);
         }
 
         // Clean up on thread exit
@@ -732,7 +741,7 @@ fn create_popup_window() {
             *cell.borrow_mut() = None;
         });
         
-        unsafe { let _ = windows::Win32::System::Com::CoUninitialize(); }
+        let _ = windows::Win32::System::Com::CoUninitialize();
     }
 }
 
@@ -831,5 +840,134 @@ unsafe extern "system" fn popup_wnd_proc(
         }
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// Fallback native context menu when WebView fails
+unsafe fn show_native_context_menu() {
+    use crate::config::ThemeMode;
+    use windows::core::{HSTRING, PCWSTR};
+
+    let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, _is_dark) = if let Ok(app) = APP.lock() {
+        let lang = &app.config.ui_language;
+        let settings = match lang.as_str() {
+            "vi" => "Cài đặt",
+            "ko" => "설정",
+            _ => "Settings",
+        };
+        let bubble = match lang.as_str() {
+            "vi" => "Hiện bong bóng",
+            "ko" => "즐겨찾기 버블",
+            _ => "Favorite Bubble",
+        };
+        let stop_tts = match lang.as_str() {
+            "vi" => "Dừng đọc",
+            "ko" => "재생 중인 모든 음성 중지",
+            _ => "Stop All Playing TTS",
+        };
+        let quit = match lang.as_str() {
+            "vi" => "Thoát",
+            "ko" => "종료",
+            _ => "Quit",
+        };
+        let checked = app.config.show_favorite_bubble;
+        
+        let is_dark = match app.config.theme_mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+        };
+        
+        (settings, bubble, stop_tts, quit, checked, is_dark)
+    } else {
+        ("Settings", "Favorite Bubble", "Stop All TTS", "Quit", false, true)
+    };
+
+    let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
+
+    // Create a dummy window to handle menu messages
+    let instance = GetModuleHandleW(None).unwrap_or_default();
+    let hwnd = CreateWindowExW(
+        WS_EX_TOOLWINDOW,
+        w!("STATIC"),
+        w!("SGTNativeMenu"),
+        WS_POPUP,
+        0, 0, 0, 0,
+        None, None, Some(instance.into()), None
+    ).unwrap_or_default();
+
+    if hwnd.is_invalid() {
+        return;
+    }
+
+    let _ = SetForegroundWindow(hwnd);
+
+    let hmenu = CreatePopupMenu().unwrap_or_default();
+
+    fn add_item(hmenu: HMENU, id: usize, text: &str, checked: bool, disabled: bool) {
+        let mut flags = MF_STRING;
+        if checked { flags |= MF_CHECKED; }
+        if disabled { flags |= MF_DISABLED | MF_GRAYED; }
+        
+        let h_text = HSTRING::from(text);
+        unsafe {
+            let _ = AppendMenuW(hmenu, flags, id, PCWSTR(h_text.as_ptr()));
+        }
+    }
+
+    add_item(hmenu, 1, settings_text, false, false);
+    add_item(hmenu, 2, bubble_text, bubble_checked, false);
+    add_item(hmenu, 3, stop_tts_text, false, !has_tts_pending);
+    let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
+    add_item(hmenu, 4, quit_text, false, false);
+
+    let mut pt = POINT::default();
+    let _ = GetCursorPos(&mut pt);
+
+    let cmd_id = TrackPopupMenu(
+        hmenu,
+        TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+        pt.x,
+        pt.y,
+        None,
+        hwnd,
+        None
+    );
+
+    let _ = DestroyMenu(hmenu);
+    let _ = DestroyWindow(hwnd);
+
+    match cmd_id.0 as u32 {
+        1 => {
+            // Settings
+             crate::gui::signal_restore_window();
+        },
+        2 => {
+            // Toggle Bubble
+            if let Ok(mut app) = APP.lock() {
+                app.config.show_favorite_bubble = !app.config.show_favorite_bubble;
+                let enabled = app.config.show_favorite_bubble;
+                crate::config::save_config(&app.config);
+
+                if enabled {
+                    crate::overlay::favorite_bubble::show_favorite_bubble();
+                    std::thread::spawn(|| {
+                        std::thread::sleep(std::time::Duration::from_millis(150));
+                        crate::overlay::favorite_bubble::trigger_blink_animation();
+                    });
+                } else {
+                    crate::overlay::favorite_bubble::hide_favorite_bubble();
+                }
+            }
+        },
+        3 => {
+            // Stop TTS
+            crate::api::tts::TTS_MANAGER.stop();
+        },
+        4 => {
+            // Quit
+            std::process::exit(0);
+        },
+        _ => {}
     }
 }
