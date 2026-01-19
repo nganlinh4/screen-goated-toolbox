@@ -137,46 +137,6 @@ pub fn fetch_video_formats(
             args.push("--cookies-from-browser".to_string());
             args.push("whale".to_string());
         }
-        CookieBrowser::LibreWolf => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::Waterfox => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::PaleMoon => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::Zen => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::Thorium => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("chrome".to_string());
-        }
-        CookieBrowser::Arc => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("chrome".to_string());
-        }
-        CookieBrowser::Floorp => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::Mercury => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::Pulse => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("firefox".to_string());
-        }
-        CookieBrowser::Comet => {
-            args.push("--cookies-from-browser".to_string());
-            args.push("chrome".to_string());
-        }
     }
 
     args.push(url.to_string());

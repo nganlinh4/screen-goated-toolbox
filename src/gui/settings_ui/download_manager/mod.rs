@@ -83,8 +83,6 @@ impl DownloadManager {
         let config_exists = persistence::get_config_path().exists();
         let default_browser = if config_exists {
             config.cookie_browser.clone()
-        } else if available_browsers.len() > 1 {
-            available_browsers[1].clone()
         } else {
             CookieBrowser::None
         };
