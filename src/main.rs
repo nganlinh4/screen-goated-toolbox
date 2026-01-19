@@ -9,10 +9,11 @@ mod history;
 mod icon_gen;
 mod model_config;
 mod overlay;
+mod registry_integration;
 mod updater;
 pub mod win_types;
 
-use config::{load_config, Config, ThemeMode};
+use config::{Config, ThemeMode, load_config};
 use gui::locale::LocaleText;
 use history::HistoryManager;
 use lazy_static::lazy_static;
@@ -20,7 +21,6 @@ use std::collections::HashMap;
 use std::panic;
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::CoInitialize;
@@ -28,6 +28,7 @@ use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 
 // Window dimensions - Increased to accommodate two-column sidebar and longer text labels
 pub const WINDOW_WIDTH: f32 = 1230.0;
@@ -104,8 +105,8 @@ lazy_static! {
 /// Enable dark mode for Win32 native menus (context menus, tray menus)
 /// This uses the undocumented SetPreferredAppMode API from uxtheme.dll
 fn enable_dark_mode_for_app() {
-    use windows::core::w;
     use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    use windows::core::w;
 
     // PreferredAppMode enum values
     const ALLOW_DARK: u32 = 1; // AllowDark mode
@@ -188,6 +189,11 @@ fn main() -> eframe::Result<()> {
     // --- CLEANUP TEMP FILES ---
     // Remove leftover restart scripts or partial downloads
     cleanup_temporary_files();
+
+    // --- ENSURE CONTEXT MENU ENTRY ---
+    crate::log_info!("Ensuring context menu entry...");
+    registry_integration::ensure_context_menu_entry();
+    crate::log_info!("Context menu entry ensured.");
 
     // --- INIT COM ---
     // Essential for Tray Icon and Shell interactions, especially in Admin/Task Scheduler context.
@@ -302,11 +308,28 @@ fn main() -> eframe::Result<()> {
         );
         if let Ok(handle) = instance {
             if GetLastError() == ERROR_ALREADY_EXISTS {
-                // Another instance is running - signal it to restore
+                // Another instance is running - pass arguments via temp file and signal it
+                let args: Vec<String> = std::env::args().collect();
+                for arg in args.iter().skip(1) {
+                    if arg.starts_with("--") {
+                        continue;
+                    }
+                    let path = std::path::PathBuf::from(arg);
+                    if path.exists() && path.is_file() {
+                        let temp_file = std::env::temp_dir().join("sgt_pending_file.txt");
+                        if let Ok(mut f) = std::fs::File::create(temp_file) {
+                            use std::io::Write;
+                            let _ = write!(f, "{}", path.to_string_lossy());
+                        }
+                        break;
+                    }
+                }
+
                 if let Some(event) = RESTORE_EVENT.as_ref() {
                     let _ = SetEvent(event.0);
                 }
                 let _ = CloseHandle(handle);
+                // Exit successfully after signaling
                 return Ok(());
             }
             Some(handle)
@@ -325,8 +348,10 @@ fn main() -> eframe::Result<()> {
     // Initialize Gemini Live LLM connection pool
     api::gemini_live::init_gemini_live();
 
-    // --- CHECK FOR RESTARTED FLAG ---
+    // --- CHECK FOR RESTARTED FLAG AND FILE ARGUMENTS ---
     let args: Vec<String> = std::env::args().collect();
+    let mut pending_file_path: Option<std::path::PathBuf> = None;
+
     if args.iter().any(|arg| arg == "--restarted") {
         std::thread::spawn(|| {
             // Wait for app and overlays to settle before showing notification
@@ -335,6 +360,22 @@ fn main() -> eframe::Result<()> {
                 "Đã khởi động lại app để khôi phục hoàn toàn",
             );
         });
+    }
+
+    // Check for potential file path in arguments (drag-and-drop or context menu)
+    for arg in args.iter().skip(1) {
+        // Skip flags
+        if arg.starts_with("--") {
+            continue;
+        }
+        let path = std::path::PathBuf::from(arg);
+        if path.exists() && path.is_file() {
+            crate::log_info!("Check arguments: Found valid file path: {:?}", path);
+            pending_file_path = Some(path);
+            break; // Handle only one file for now
+        } else {
+            crate::log_info!("Check arguments: Invalid path or not a file: {:?}", arg);
+        }
     }
 
     // --- CLEAR WEBVIEW DATA IF SCHEDULED (before any WebViews are created) ---
@@ -480,6 +521,7 @@ fn main() -> eframe::Result<()> {
                 tray_quit_item,
                 tray_favorite_bubble_item,
                 cc.egui_ctx.clone(),
+                pending_file_path,
             )))
         }),
     )
@@ -602,6 +644,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
 }
 
 const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
+const WM_APP_PROCESS_PENDING_FILE: u32 = WM_USER + 102;
 
 fn run_hotkey_listener() {
     unsafe {
@@ -653,6 +696,27 @@ fn run_hotkey_listener() {
             *guard = SendHwnd(hwnd);
         }
 
+        // Spawn thread to wait for RESTORE_EVENT
+        let listener_hwnd_val = hwnd.0 as isize;
+        std::thread::spawn(move || {
+            if let Some(event) = RESTORE_EVENT.as_ref() {
+                loop {
+                    // Wait indefinitely for signal
+                    if WaitForSingleObject(event.0, INFINITE) == WAIT_OBJECT_0 {
+                        // Signal received! Post message to main thread/listener window
+                        let _ = PostMessageW(
+                            Some(HWND(listener_hwnd_val as *mut _)),
+                            WM_APP_PROCESS_PENDING_FILE,
+                            WPARAM(0),
+                            LPARAM(0),
+                        );
+                        // Reset event to wait for next signal
+                        let _ = ResetEvent(event.0);
+                    }
+                }
+            }
+        });
+
         // Install Mouse Hook
         if let Ok(hhook) =
             SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), Some(instance.into()), 0)
@@ -692,6 +756,26 @@ unsafe extern "system" fn hotkey_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     match msg {
+        WM_APP_PROCESS_PENDING_FILE => {
+            // Read temp file
+            let temp_file = std::env::temp_dir().join("sgt_pending_file.txt");
+            if temp_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&temp_file) {
+                    let path = std::path::PathBuf::from(content.trim());
+                    if path.exists() {
+                        crate::log_info!("HOTKEY LISTENER: Processing pending file: {:?}", path);
+                        // Spawn a thread to avoid blocking the hotkey listener (hook) thread
+                        let path_clone = path.clone();
+                        std::thread::spawn(move || {
+                            crate::gui::app::input_handler::process_file_path(&path_clone);
+                        });
+                    }
+                }
+                // Cleanup
+                let _ = std::fs::remove_file(temp_file);
+            }
+            LRESULT(0)
+        }
         WM_HOTKEY => {
             let id = wparam.0 as i32;
             if id > 0 {

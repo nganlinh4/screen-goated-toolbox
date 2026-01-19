@@ -5,12 +5,12 @@
 // 2. Shows the appropriate preset wheel
 // 3. Triggers the processing pipeline with the selected preset
 
+use crate::APP;
 use crate::overlay::preset_wheel::show_preset_wheel;
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
 };
 use crate::overlay::utils::get_clipboard_image_bytes;
-use crate::APP;
 use eframe::egui;
 use image::{ImageBuffer, Rgba};
 use std::io::Cursor;
@@ -102,7 +102,7 @@ fn load_audio_file(path: &Path) -> Option<Vec<u8>> {
             Err(symphonia::core::errors::Error::IoError(ref e))
                 if e.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
-                break
+                break;
             }
             Err(_) => break,
         };
@@ -230,6 +230,7 @@ fn process_image_parallel(rx: mpsc::Receiver<Option<(ImageBuffer<Rgba<u8>, Vec<u
     let selected = show_preset_wheel("image", None, cursor_pos);
 
     if let Some(preset_idx) = selected {
+        crate::log_info!("Image preset selected: {}", preset_idx);
         let (config, preset) = {
             let mut app = APP.lock().unwrap();
             app.config.active_preset_idx = preset_idx;
@@ -248,6 +249,7 @@ fn process_text_parallel(rx: mpsc::Receiver<Option<String>>) {
     let selected = show_preset_wheel("text", None, cursor_pos);
 
     if let Some(preset_idx) = selected {
+        crate::log_info!("Text preset selected: {}", preset_idx);
         let (config, preset) = {
             let mut app = APP.lock().unwrap();
             app.config.active_preset_idx = preset_idx;
@@ -292,6 +294,47 @@ fn process_audio_parallel(rx: mpsc::Receiver<Option<Vec<u8>>>) {
     }
 }
 
+/// Process a single file path (public for context menu usage)
+pub fn process_file_path(path: &Path) {
+    crate::log_info!("Processing file path: {:?}", path);
+    let path_clone = path.to_path_buf();
+
+    // Determine type by extension for immediate feedback
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    crate::log_info!("Detected extension: '{}'", ext);
+
+    if is_image_extension(ext) {
+        crate::log_info!("Type detected: IMAGE");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            // Read file bytes directly (preserves original format e.g. JPEG)
+            if let Ok(bytes) = std::fs::read(&path_clone) {
+                if let Ok(img) = image::load_from_memory(&bytes) {
+                    let _ = tx.send(Some((img.to_rgba8(), bytes)));
+                    return;
+                }
+            }
+            let _ = tx.send(None);
+        });
+        process_image_parallel(rx);
+    } else if is_audio_extension(ext) {
+        crate::log_info!("Type detected: AUDIO");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(load_audio_file(&path_clone));
+        });
+        process_audio_parallel(rx);
+    } else {
+        crate::log_info!("Type detected: TEXT (Default)");
+        // Default to Text (covers text files and unknown extensions)
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(load_text_file(&path_clone));
+        });
+        process_text_parallel(rx);
+    }
+}
+
 /// Handle dropped files from egui
 pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
     let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
@@ -302,43 +345,10 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
 
     // Process the first dropped file
     if let Some(file) = dropped_files.first() {
-        // Try to get the file path
         if let Some(path) = &file.path {
-            let path_clone = path.clone();
-
-            // Determine type by extension for immediate feedback
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-            if is_image_extension(ext) {
-                let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || {
-                    // Read file bytes directly (preserves original format e.g. JPEG)
-                    if let Ok(bytes) = std::fs::read(&path_clone) {
-                        if let Ok(img) = image::load_from_memory(&bytes) {
-                            let _ = tx.send(Some((img.to_rgba8(), bytes)));
-                            return;
-                        }
-                    }
-                    let _ = tx.send(None);
-                });
-                process_image_parallel(rx);
-                return true;
-            } else if is_audio_extension(ext) {
-                let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || {
-                    let _ = tx.send(load_audio_file(&path_clone));
-                });
-                process_audio_parallel(rx);
-                return true;
-            } else {
-                // Default to Text (covers text files and unknown extensions)
-                let (tx, rx) = mpsc::channel();
-                std::thread::spawn(move || {
-                    let _ = tx.send(load_text_file(&path_clone));
-                });
-                process_text_parallel(rx);
-                return true;
-            }
+            crate::log_info!("Handling dropped file: {:?}", path);
+            process_file_path(path);
+            return true;
         }
         // If path is not available, use existing byte handling (already threaded but serial load->process)
         else if let Some(bytes) = &file.bytes {
@@ -349,10 +359,10 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
                     let rgba = img.to_rgba8();
                     // For direct bytes drop, we also pass the bytes as "original"
                     process_image_content(rgba); // Fallback to serial for bytes-drop or update process_image_content?
-                                                 // NOTE: process_image_content expects just ImageBuffer.
-                                                 // To support zero-copy for bytes-drop too, we would need to update process_image_content.
-                                                 // But user specifically asked for "dragging job" (files).
-                                                 // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
+                // NOTE: process_image_content expects just ImageBuffer.
+                // To support zero-copy for bytes-drop too, we would need to update process_image_content.
+                // But user specifically asked for "dragging job" (files).
+                // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
                 }
                 // Try as text
                 else if let Ok(text) = String::from_utf8(bytes_clone.to_vec()) {

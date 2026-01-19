@@ -27,6 +27,7 @@ impl SettingsApp {
         tray_quit_item: MenuItem,
         tray_favorite_bubble_item: CheckMenuItem,
         ctx: egui::Context,
+        pending_file_path: Option<std::path::PathBuf>,
     ) -> Self {
         let app_name = "ScreenGoatedToolbox";
         let app_path = std::env::current_exe().unwrap();
@@ -295,6 +296,9 @@ impl SettingsApp {
             // --- DOWNLOAD MANAGER INIT ---
             download_manager: crate::gui::settings_ui::download_manager::DownloadManager::new(),
             // -----------------------------
+
+            // --- ARGUMENT HANDLING ---
+            pending_file_path,
         }
     }
 }
