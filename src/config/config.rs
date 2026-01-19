@@ -125,6 +125,14 @@ pub struct Config {
     #[serde(default)]
     pub run_as_admin_on_startup: bool,
 
+    /// Regular startup (registry-based)
+    #[serde(default)]
+    pub run_at_startup: bool,
+
+    /// The path that is authorized to manage startup entries
+    #[serde(default)]
+    pub authorized_startup_path: String,
+
     // -------------------------------------------------------------------------
     // API Provider Toggles
     // -------------------------------------------------------------------------
@@ -274,6 +282,8 @@ impl Default for Config {
             // Startup
             start_in_tray: false,
             run_as_admin_on_startup: false,
+            run_at_startup: false,
+            authorized_startup_path: String::new(),
 
             // API Providers
             use_groq: true,

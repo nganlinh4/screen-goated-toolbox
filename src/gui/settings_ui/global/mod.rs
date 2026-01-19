@@ -399,9 +399,17 @@ pub fn render_global_settings(
                         .clicked()
                     {
                         if startup_toggle && !(*run_at_startup) {
+                            // User is turning it ON - authorize THIS exe as the one allowed to start
+                            if let Ok(exe_path) = std::env::current_exe() {
+                                if let Some(exe_str) = exe_path.to_str() {
+                                    config.authorized_startup_path = exe_str.to_string();
+                                }
+                            }
+
                             if config.run_as_admin_on_startup && current_admin_state {
                                 if crate::gui::utils::set_admin_startup(true) {
                                     let _ = launcher.disable();
+                                    config.run_at_startup = false;
                                     *run_at_startup = true;
                                     changed = true;
                                 }
@@ -410,15 +418,18 @@ pub fn render_global_settings(
                                     crate::gui::utils::set_admin_startup(false);
                                 });
                                 let _ = launcher.enable();
+                                config.run_at_startup = true;
                                 *run_at_startup = true;
                                 changed = true;
                             }
                         } else if !startup_toggle && *run_at_startup {
+                            // User is turning it OFF
                             std::thread::spawn(|| {
                                 crate::gui::utils::set_admin_startup(false);
                             });
                             let _ = launcher.disable();
                             config.run_as_admin_on_startup = false;
+                            config.run_at_startup = false;
                             config.start_in_tray = false;
                             *run_at_startup = false;
                             changed = true;
@@ -436,18 +447,34 @@ pub fn render_global_settings(
                     if current_admin_state {
                         if ui.checkbox(&mut is_admin_mode, checkbox_label).clicked() {
                             if is_admin_mode && !config.run_as_admin_on_startup {
+                                // Transitioning to admin mode requires updated authorization
+                                if let Ok(exe_path) = std::env::current_exe() {
+                                    if let Some(exe_str) = exe_path.to_str() {
+                                        config.authorized_startup_path = exe_str.to_string();
+                                    }
+                                }
+
                                 if crate::gui::utils::set_admin_startup(true) {
                                     config.run_as_admin_on_startup = true;
+                                    config.run_at_startup = false;
                                     if let Some(launcher) = auto_launcher {
                                         let _ = launcher.disable();
                                     }
                                     changed = true;
                                 }
                             } else if !is_admin_mode && config.run_as_admin_on_startup {
+                                // Reverting to standard mode
+                                if let Ok(exe_path) = std::env::current_exe() {
+                                    if let Some(exe_str) = exe_path.to_str() {
+                                        config.authorized_startup_path = exe_str.to_string();
+                                    }
+                                }
+
                                 std::thread::spawn(|| {
                                     crate::gui::utils::set_admin_startup(false);
                                 });
                                 config.run_as_admin_on_startup = false;
+                                config.run_at_startup = true;
                                 if let Some(launcher) = auto_launcher {
                                     let _ = launcher.enable();
                                 }

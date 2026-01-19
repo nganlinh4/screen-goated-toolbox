@@ -3,7 +3,7 @@ use eframe::egui::{Align2, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
-use crate::gui::icons::{paint_icon, Icon};
+use crate::gui::icons::{Icon, paint_icon};
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 // --- CONFIGURATION ---
@@ -1302,12 +1302,12 @@ impl SplashScreen {
                 Color32::from_black_alpha((30.0 * ui_alpha) as u8)
             };
             painter.rect_filled(bar_rect, 2.0, bar_bg_col);
-            let prog = (physics_t / (ANIMATION_DURATION - 1.0)).clamp(0.0, 1.0);
+            let prog = (physics_t / (ANIMATION_DURATION - 0.5)).clamp(0.0, 1.0);
             let mut fill = bar_rect;
             fill.set_width(bar_rect.width() * prog);
             painter.rect_filled(fill, 2.0, magenta_color);
 
-            if t > ANIMATION_DURATION - 1.0 {
+            if t > ANIMATION_DURATION - 0.5 {
                 let pulse = (t * 5.0).sin().abs() * 0.7 + 0.3;
                 painter.text(
                     center - Vec2::new(0.0, 220.0),
