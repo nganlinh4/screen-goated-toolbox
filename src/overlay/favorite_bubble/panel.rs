@@ -654,7 +654,7 @@ fn trigger_preset(preset_idx: usize) {
     }
 }
 
-fn save_bubble_position() {
+pub fn save_bubble_position() {
     let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
     if bubble_val == 0 {
         return;

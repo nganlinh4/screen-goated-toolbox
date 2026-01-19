@@ -1,6 +1,6 @@
 use super::panel::{
-    close_panel, destroy_panel, ensure_panel_created, move_panel_to_bubble, show_panel,
-    WM_FORCE_SHOW_PANEL,
+    close_panel, destroy_panel, ensure_panel_created, move_panel_to_bubble, save_bubble_position,
+    show_panel, WM_FORCE_SHOW_PANEL,
 };
 use super::render::update_bubble_visual;
 use super::state::*;
@@ -89,12 +89,26 @@ fn create_bubble_window() {
             let size = app.config.favorite_bubble_size as i32;
             BUBBLE_SIZE.store(size, Ordering::SeqCst);
 
+            let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+            // Get primary monitor metrics for safe defaults
+            let screen_w = GetSystemMetrics(SM_CXSCREEN);
+            let screen_h = GetSystemMetrics(SM_CYSCREEN);
+
             let pos = app.config.favorite_bubble_position.unwrap_or_else(|| {
-                let screen_w = GetSystemMetrics(SM_CXSCREEN);
-                let screen_h = GetSystemMetrics(SM_CYSCREEN);
-                (screen_w - size - 30, screen_h - size - 150)
+                // Start at far bottom-right of primary screen
+                (screen_w - size - 10, screen_h - size - 120)
             });
-            (pos.0, pos.1, size)
+
+            // Safety: Ensure saved or default position is within current virtual screen bounds
+            // This handles cases where monitors are disconnected or resolution changed.
+            let final_x = pos.0.clamp(v_x, v_x + v_w - size);
+            let final_y = pos.1.clamp(v_y, v_y + v_h - size);
+
+            (final_x, final_y, size)
         } else {
             (100, 100, 40)
         };
@@ -198,6 +212,8 @@ unsafe extern "system" fn bubble_wnd_proc(
                 // Start physics inertia if we were moving
                 let _ = SetTimer(Some(hwnd), PHYSICS_TIMER_ID, 16, None);
             }
+            // Always save current position after movement interaction ends
+            save_bubble_position();
             LRESULT(0)
         }
 
@@ -370,6 +386,8 @@ unsafe extern "system" fn bubble_wnd_proc(
                         // Lower threshold for smoother stop
                         let _ = KillTimer(Some(hwnd), PHYSICS_TIMER_ID);
                         *p.borrow_mut() = (0.0, 0.0);
+                        // Save the final resting position
+                        save_bubble_position();
                         return;
                     }
 
