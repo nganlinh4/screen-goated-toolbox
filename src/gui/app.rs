@@ -1,5 +1,5 @@
 mod init;
-mod input_handler;
+pub mod input_handler;
 mod logic;
 mod rendering;
 mod types;
@@ -24,6 +24,10 @@ impl eframe::App for SettingsApp {
         }
 
         // Handle Dropped Files and Paste FIRST (before any UI consumes events)
+        if let Some(path) = self.pending_file_path.take() {
+            crate::log_info!("App Update: Found pending file path, triggering process...");
+            input_handler::process_file_path(&path);
+        }
         input_handler::handle_dropped_files(ctx);
         if !self.download_manager.show_window {
             input_handler::handle_paste(ctx);
