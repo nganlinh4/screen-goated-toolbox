@@ -29,16 +29,6 @@ pub fn detect_installed_browsers() -> Vec<CookieBrowser> {
         (CookieBrowser::Vivaldi, "vivaldi.exe"),
         (CookieBrowser::Chromium, "chromium.exe"),
         (CookieBrowser::Whale, "whale.exe"),
-        (CookieBrowser::LibreWolf, "librewolf.exe"),
-        (CookieBrowser::Waterfox, "waterfox.exe"),
-        (CookieBrowser::PaleMoon, "palemoon.exe"),
-        (CookieBrowser::Zen, "zen.exe"),
-        (CookieBrowser::Thorium, "thorium.exe"),
-        (CookieBrowser::Arc, "Arc.exe"),
-        (CookieBrowser::Floorp, "floorp.exe"),
-        (CookieBrowser::Mercury, "mercury.exe"),
-        (CookieBrowser::Pulse, "pulse.exe"),
-        (CookieBrowser::Comet, "comet.exe"),
     ];
 
     // 1. Scan "App Paths" (HKLM and HKCU) - Most robust way to find installed apps by exe name
@@ -84,28 +74,6 @@ pub fn detect_installed_browsers() -> Vec<CookieBrowser> {
                 add_if_new(CookieBrowser::Chromium, &mut found, &mut found_set);
             } else if lower.contains("whale") {
                 add_if_new(CookieBrowser::Whale, &mut found, &mut found_set);
-            } else if lower.contains("zen") {
-                add_if_new(CookieBrowser::Zen, &mut found, &mut found_set);
-            } else if lower.contains("comet") {
-                add_if_new(CookieBrowser::Comet, &mut found, &mut found_set);
-            }
-            // Fallbacks for detection logic that might rely on StartMenuInternet key names
-            else if lower.contains("librewolf") {
-                add_if_new(CookieBrowser::LibreWolf, &mut found, &mut found_set);
-            } else if lower.contains("waterfox") {
-                add_if_new(CookieBrowser::Waterfox, &mut found, &mut found_set);
-            } else if lower.contains("palemoon") {
-                add_if_new(CookieBrowser::PaleMoon, &mut found, &mut found_set);
-            } else if lower.contains("thorium") {
-                add_if_new(CookieBrowser::Thorium, &mut found, &mut found_set);
-            } else if lower.contains("item-arc") || lower.contains("arc.exe") {
-                add_if_new(CookieBrowser::Arc, &mut found, &mut found_set);
-            } else if lower.contains("floorp") {
-                add_if_new(CookieBrowser::Floorp, &mut found, &mut found_set);
-            } else if lower.contains("mercury") {
-                add_if_new(CookieBrowser::Mercury, &mut found, &mut found_set);
-            } else if lower.contains("pulse") {
-                add_if_new(CookieBrowser::Pulse, &mut found, &mut found_set);
             }
         }
     }
@@ -150,26 +118,6 @@ pub fn detect_installed_browsers() -> Vec<CookieBrowser> {
     check_exe(
         CookieBrowser::Vivaldi,
         &["Vivaldi\\Application\\vivaldi.exe"],
-    );
-    check_exe(
-        CookieBrowser::Comet,
-        &[
-            "Perplexity\\Comet\\Application\\comet.exe",
-            "Comet\\comet.exe",
-            "CometBrowser\\Application\\comet.exe",
-        ],
-    );
-    check_exe(
-        CookieBrowser::Zen,
-        &[
-            "Zen\\zen.exe",
-            "Zen Browser\\zen.exe",
-            "Zen Browser\\Application\\zen.exe",
-        ],
-    );
-    check_exe(
-        CookieBrowser::Arc,
-        &["Arc\\Arc.exe", "TheBrowserCompany.Arc*\\Arc.exe"],
     );
 
     found

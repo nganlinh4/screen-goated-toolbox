@@ -431,18 +431,19 @@ impl DownloadManager {
                                                 egui::Color32::from_gray(240)
                                             })
                                             .show(ui, |ui| {
+                                                let logs = self.logs.lock().unwrap();
+                                                let mut full_log_str = logs.join("\n");
                                                 egui::ScrollArea::vertical()
                                                     .max_height(120.0)
                                                     .show(ui, |ui| {
-                                                        let logs = self.logs.lock().unwrap();
-                                                        let mut full_log_str = logs.join("\n");
                                                         ui.add(
                                                             egui::TextEdit::multiline(
                                                                 &mut full_log_str,
                                                             )
                                                             .font(egui::FontId::monospace(10.0))
                                                             .desired_width(f32::INFINITY)
-                                                            .interactive(false),
+                                                            .interactive(true)
+                                                            .lock_focus(false),
                                                         );
                                                     });
                                             });

@@ -46,16 +46,6 @@ pub enum CookieBrowser {
     Vivaldi,
     Chromium,
     Whale,
-    LibreWolf,
-    Waterfox,
-    PaleMoon,
-    Zen,
-    Thorium,
-    Arc,
-    Floorp,
-    Mercury,
-    Pulse,
-    Comet,
 }
 
 impl CookieBrowser {
@@ -70,16 +60,6 @@ impl CookieBrowser {
             CookieBrowser::Vivaldi => "Vivaldi".to_string(),
             CookieBrowser::Chromium => "Chromium".to_string(),
             CookieBrowser::Whale => "Whale".to_string(),
-            CookieBrowser::LibreWolf => "LibreWolf".to_string(),
-            CookieBrowser::Waterfox => "Waterfox".to_string(),
-            CookieBrowser::PaleMoon => "Pale Moon".to_string(),
-            CookieBrowser::Zen => "Zen Browser".to_string(),
-            CookieBrowser::Thorium => "Thorium".to_string(),
-            CookieBrowser::Arc => "Arc".to_string(),
-            CookieBrowser::Floorp => "Floorp".to_string(),
-            CookieBrowser::Mercury => "Mercury".to_string(),
-            CookieBrowser::Pulse => "Pulse".to_string(),
-            CookieBrowser::Comet => "Comet".to_string(),
         }
     }
 }
