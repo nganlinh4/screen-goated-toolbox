@@ -43,6 +43,8 @@ pub struct LocaleText {
     pub preset_type_video: &'static str,
     pub preset_type_text: &'static str, // NEW
 
+    pub force_quit: &'static str, // NEW
+
     pub audio_source_label: &'static str,
     pub audio_src_mic: &'static str,
     pub audio_src_device: &'static str,
@@ -345,6 +347,7 @@ impl LocaleText {
                 press_keys: "Ấn tổ hợp phím...",
                 cancel_label: "Hủy",
                 reset_defaults_btn: "Khôi phục mặc định",
+                force_quit: "Buộc thoát",
 
 
 
@@ -691,6 +694,7 @@ impl LocaleText {
                 press_keys: "조합 키 누르기...",
                 cancel_label: "취소",
                 reset_defaults_btn: "기본값으로 재설정",
+                force_quit: "강제 종료",
 
 
 
@@ -1035,6 +1039,7 @@ impl LocaleText {
                 press_keys: "Press combination...",
                 cancel_label: "Cancel",
                 reset_defaults_btn: "Reset to Defaults",
+                force_quit: "Force Quit",
 
 
 
