@@ -922,7 +922,6 @@ function handleBroomDrag(e, hwnd) {{
 
 // Send action to Rust
 function action(hwnd, cmd) {{
-    window.focus();
     // If it's a broom click and we just dragged, ignore it
     if (cmd === 'broom_click' && window.ignoreNextBroomClick) return;
     window.ipc.postMessage(JSON.stringify({{ action: cmd, hwnd: hwnd }}));
@@ -1064,7 +1063,8 @@ function generateRefineInputHTML(hwnd, state) {{
                value="${{state.inputText || ''}}"
                onkeydown="handleRefineKey(event, '${{hwnd}}')"
                oninput="handleInput(event, '${{hwnd}}')"
-               onfocus="window.focus();"
+               onfocus="ensureNativeFocus('${{hwnd}}');"
+               onclick="ensureNativeFocus('${{hwnd}}');"
                autofocus
                autocomplete="off">
         <div class="refine-action-btn" 
@@ -1089,13 +1089,20 @@ let selectionStart = 0;
 let selectionEnd = 0;
 let inputValues = new Map(); // hwnd -> current text
 
-function handleInput(e, hwnd) {{
+function ensureNativeFocus(hwnd) {{
     window.focus();
+    window.ipc.postMessage(JSON.stringify({{ action: "request_focus", hwnd: hwnd }}));
+}}
+
+function handleInput(e, hwnd) {{
+    ensureNativeFocus(hwnd);
     inputValues.set(hwnd, e.target.value);
 }}
 
 function handleRefineKey(e, hwnd) {{
-    window.focus();
+    // Only request focus on keydown if not already focused? 
+    // Actually safe to re-request to ensure we keep focus
+    ensureNativeFocus(hwnd);
     if (e.key === 'Enter') {{
         e.preventDefault();
         submitRefine(hwnd);
@@ -1439,14 +1446,8 @@ fn handle_ipc_message(body: &str) {
 
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
 
-        // Ensure canvas window is foreground for keyboard focus (Ctrl+A etc)
-        let canvas_val = CANVAS_HWND.load(Ordering::SeqCst);
-        if canvas_val != 0 {
-            unsafe {
-                let canvas_hwnd = HWND(canvas_val as *mut _);
-                let _ = SetForegroundWindow(canvas_hwnd);
-            }
-        }
+        // Ensure canvas window is foreground for keyboard focus (Ctrl+A etc) - REMOVED to prevent focus stealing from games
+        // Only specific actions like 'edit' might need focus, handled locally in their logic if needed.
 
         match action {
             "copy" => unsafe {
@@ -1644,6 +1645,13 @@ fn handle_ipc_message(body: &str) {
                     });
                 }
             }
+            "request_focus" => unsafe {
+                let canvas_val = CANVAS_HWND.load(Ordering::SeqCst);
+                if canvas_val != 0 {
+                    let canvas_hwnd = HWND(canvas_val as *mut _);
+                    let _ = SetForegroundWindow(canvas_hwnd);
+                }
+            },
             _ => {}
         }
     }
@@ -1853,7 +1861,7 @@ unsafe extern "system" fn canvas_wnd_proc(
         }
 
         windows::Win32::UI::WindowsAndMessaging::WM_MOUSEACTIVATE => {
-            LRESULT(windows::Win32::UI::WindowsAndMessaging::MA_ACTIVATE as isize)
+            LRESULT(windows::Win32::UI::WindowsAndMessaging::MA_NOACTIVATE as isize)
         }
 
         windows::Win32::UI::WindowsAndMessaging::WM_MOUSEMOVE => {
