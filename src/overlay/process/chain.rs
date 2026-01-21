@@ -253,12 +253,15 @@ pub fn run_chain_step(
                         "image/png" // Fallback
                     };
 
+                    // Get locally cached font CSS for proper Unicode support
+                    let font_css = crate::overlay::html_components::font_manager::get_font_css();
+
                     format!(
                         r#"<!DOCTYPE html>
 <html>
 <head>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500&display=swap">
 <style>
+{}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ 
     display: flex; 
@@ -276,6 +279,8 @@ body {{
     display: flex;
     justify-content: center;
     align-items: center;
+    background: rgba(20, 20, 25, 0.98);
+    border-radius: 8px;
 }}
 .image {{
     width: 100%;
@@ -305,8 +310,12 @@ body {{
 }}
 .slider-label {{
     color: #e0e0e0;
-    font-size: 12px;
+    font-size: 12px !important;
     white-space: nowrap;
+    /* Prevent inherited font width variations from affecting slider label - !important to override JS inline styles */
+    font-variation-settings: 'wght' 400, 'wdth' 100, 'slnt' 0 !important;
+    letter-spacing: normal !important;
+    line-height: normal !important;
 }}
 .slider {{
     -webkit-appearance: none;
@@ -344,7 +353,7 @@ body {{
     <img class="image" id="img" src="data:{};base64,{}" />
     <div class="slider-container">
         <span class="slider-label">{}</span>
-        <input type="range" class="slider" id="opacity" min="0" max="100" value="100" />
+        <input type="range" class="slider" id="opacity" min="10" max="100" value="100" />
         <span class="value" id="val">100%</span>
     </div>
 </div>
@@ -360,18 +369,20 @@ slider.oninput = function() {{
 </script>
 </body>
 </html>"#,
-                        mime_type, base64_img, locale.opacity_label
+                        font_css, mime_type, base64_img, locale.opacity_label
                     )
                 }
                 RefineContext::Audio(wav_data) => {
                     use base64::Engine;
                     let base64_audio = base64::engine::general_purpose::STANDARD.encode(wav_data);
+                    // Get locally cached font CSS for proper Unicode support
+                    let font_css = crate::overlay::html_components::font_manager::get_font_css();
                     format!(
                         r#"<!DOCTYPE html>
 <html>
 <head>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500&display=swap">
 <style>
+{}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ 
     display: flex; 
@@ -667,6 +678,7 @@ progressBar.onclick = (e) => {{
 </script>
 </body>
 </html>"#,
+                        font_css,
                         locale.downloaded_successfully,
                         locale.download_recording_tooltip,
                         base64_audio

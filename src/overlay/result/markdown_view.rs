@@ -1420,6 +1420,13 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
         window._sgtFitting = true;
         
         setTimeout(function() {
+            // Skip font fitting for image/audio input adapters - detect by checking for slider-container
+            // These have special fixed layouts that shouldn't be affected by auto-scaling
+            if (document.querySelector('.slider-container') || document.querySelector('.audio-player')) {
+                window._sgtFitting = false;
+                return;
+            }
+            
             var body = document.body;
             var doc = document.documentElement;
             var winH = window.innerHeight;
