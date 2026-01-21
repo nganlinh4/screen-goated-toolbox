@@ -1,14 +1,15 @@
 pub fn get_css() -> &'static str {
     r#"
-    /* --- Grid.js Compact Dark Theme Fixes --- */
+    /* --- Grid.js Theme-Adaptive Compact Styling --- */
+    /* Uses CSS variables from markdown_view.rs theme system */
     
     .gridjs-container {
-        color: #e0e0e0;
+        color: var(--text-color, #e0e0e0);
         font-family: 'Google Sans Flex', 'Segoe UI', sans-serif !important;
-        background: #1a1a1a !important;
+        background: var(--table-bg, rgba(0,0,0,0.2)) !important;
         padding: 0 !important;
         border-radius: 8px;
-        border: 1px solid #333;
+        border: 1px solid var(--border-color, #333);
         box-shadow: none;
         margin: 0 !important;
         font-size: 13px !important;
@@ -18,8 +19,8 @@ pub fn get_css() -> &'static str {
     }
     
     .gridjs-wrapper, .gridjs-tbody, .gridjs-tr, .gridjs-td {
-        background-color: #1a1a1a !important;
-        border-color: #333 !important;
+        background-color: var(--table-bg, rgba(0,0,0,0.2)) !important;
+        border-color: var(--border-color, #333) !important;
     }
     
     .gridjs-table {
@@ -31,15 +32,15 @@ pub fn get_css() -> &'static str {
     }
     
     .gridjs-head {
-        background: #252525 !important;
+        background: var(--table-header-bg, #252525) !important;
     }
     
     /* Header Styling */
     .gridjs-th {
-        background: #252525 !important;
-        color: #81d4fa !important;
+        background: var(--table-header-bg, #252525) !important;
+        color: var(--primary, #81d4fa) !important;
         border: none !important;
-        border-bottom: 1px solid #444 !important;
+        border-bottom: 1px solid var(--border-color, #444) !important;
         /* Compact padding as requested */
         padding: 4px 8px !important;
         font-weight: 600 !important;
@@ -51,7 +52,7 @@ pub fn get_css() -> &'static str {
     }
     
     .gridjs-th:hover {
-        background: #2a2a2a !important;
+        background: var(--glass, rgba(255,255,255,0.03)) !important;
     }
     
     /* Sort Icon - Inline */
@@ -65,7 +66,8 @@ pub fn get_css() -> &'static str {
         display: inline-block !important;
         vertical-align: middle !important;
         opacity: 0.5 !important;
-        filter: invert(1) brightness(200%) grayscale(100%) !important; 
+        /* Use filter to adapt to theme - dark mode inverts, light mode uses default */
+        filter: var(--sort-icon-filter, invert(1) brightness(200%) grayscale(100%)) !important; 
         margin-left: 8px !important;
         margin-top: -2px !important;
         width: 10px !important;
@@ -76,8 +78,8 @@ pub fn get_css() -> &'static str {
     /* Cells */
     .gridjs-td {
         border: none !important;
-        border-bottom: 1px solid #333 !important;
-        color: #e0e0e0 !important;
+        border-bottom: 1px solid var(--border-color, #333) !important;
+        color: var(--text-color, #e0e0e0) !important;
         /* Compact padding as requested */
         padding: 4px 8px !important;
         white-space: normal !important; 
@@ -90,13 +92,13 @@ pub fn get_css() -> &'static str {
     }
     
     .gridjs-tr:hover .gridjs-td {
-        background-color: #222 !important;
+        background-color: var(--glass, rgba(255,255,255,0.03)) !important;
     }
 
     /* Footer */
     .gridjs-footer {
-        background: #252525 !important;
-        border-top: 1px solid #333 !important;
+        background: var(--table-header-bg, #252525) !important;
+        border-top: 1px solid var(--border-color, #333) !important;
         padding: 8px !important;
         width: 100% !important; 
         display: block !important;
@@ -104,29 +106,29 @@ pub fn get_css() -> &'static str {
     
     .gridjs-pagination button {
         background: transparent !important;
-        border: 1px solid rgba(255,255,255,0.1) !important;
-        color: #aaa !important;
+        border: 1px solid var(--border-color, rgba(255,255,255,0.1)) !important;
+        color: var(--h4-color, #aaa) !important;
         border-radius: 4px !important;
     }
     
     .gridjs-pagination button:hover:not([disabled]) {
-        background: #333 !important;
-        color: #fff !important;
+        background: var(--glass, #333) !important;
+        color: var(--text-color, #fff) !important;
     }
     
     .gridjs-pagination button.gridjs-currentPage {
-        background: #333 !important;
-        border-color: #81d4fa !important;
-        color: #81d4fa !important;
+        background: var(--glass, #333) !important;
+        border-color: var(--primary, #81d4fa) !important;
+        color: var(--primary, #81d4fa) !important;
         font-weight: bold;
     }
     
     .gridjs-tr-header { display: table-row !important; }
     
     .gridjs-wrapper::-webkit-scrollbar { width: 8px; height: 8px; }
-    .gridjs-wrapper::-webkit-scrollbar-track { background: #1a1a1a; }
-    .gridjs-wrapper::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
-    .gridjs-wrapper::-webkit-scrollbar-thumb:hover { background: #555; }
+    .gridjs-wrapper::-webkit-scrollbar-track { background: var(--table-bg, #1a1a1a); }
+    .gridjs-wrapper::-webkit-scrollbar-thumb { background: var(--border-color, #444); border-radius: 4px; }
+    .gridjs-wrapper::-webkit-scrollbar-thumb:hover { background: var(--h4-color, #555); }
     
     .gridjs-hidden-source {
         display: none !important;
