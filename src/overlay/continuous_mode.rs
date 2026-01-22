@@ -1,0 +1,272 @@
+//! Continuous Mode State Management
+//!
+//! This module handles the "hold-to-activate continuous mode" feature for image and text presets.
+//! When activated, the preset will automatically retrigger after each completion.
+
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
+
+/// Whether continuous mode is currently active
+static CONTINUOUS_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Whether continuous mode is pending start (e.g. from favorite bubble)
+static CONTINUOUS_PENDING_START: AtomicBool = AtomicBool::new(false);
+
+/// The preset index that is running in continuous mode
+static CONTINUOUS_PRESET_IDX: AtomicUsize = AtomicUsize::new(0);
+
+/// The hotkey name to display in the exit message (e.g., "Ctrl+Shift+T")
+static CONTINUOUS_HOTKEY_NAME: Mutex<String> = Mutex::new(String::new());
+
+/// Check if continuous mode is currently active
+pub fn is_active() -> bool {
+    CONTINUOUS_MODE_ACTIVE.load(Ordering::SeqCst)
+}
+
+/// Check if continuous mode is pending start
+pub fn is_pending_start() -> bool {
+    CONTINUOUS_PENDING_START.load(Ordering::SeqCst)
+}
+
+/// Set pending start for a preset
+pub fn set_pending_start(preset_idx: usize, hotkey_name: String) {
+    CONTINUOUS_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
+    *CONTINUOUS_HOTKEY_NAME.lock().unwrap() = hotkey_name;
+    CONTINUOUS_PENDING_START.store(true, Ordering::SeqCst);
+}
+
+/// Clear pending start
+pub fn clear_pending_start() {
+    CONTINUOUS_PENDING_START.store(false, Ordering::SeqCst);
+}
+
+/// Get the preset index running in continuous mode
+pub fn get_preset_idx() -> usize {
+    CONTINUOUS_PRESET_IDX.load(Ordering::SeqCst)
+}
+
+/// Get the hotkey name for the exit message
+pub fn get_hotkey_name() -> String {
+    CONTINUOUS_HOTKEY_NAME.lock().unwrap().clone()
+}
+
+/// Activate continuous mode for a preset (promotes pending to active)
+pub fn activate(preset_idx: usize, hotkey_name: String) {
+    CONTINUOUS_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
+    *CONTINUOUS_HOTKEY_NAME.lock().unwrap() = hotkey_name;
+    CONTINUOUS_MODE_ACTIVE.store(true, Ordering::SeqCst);
+    CONTINUOUS_PENDING_START.store(false, Ordering::SeqCst);
+}
+
+/// Deactivate continuous mode
+pub fn deactivate() {
+    CONTINUOUS_MODE_ACTIVE.store(false, Ordering::SeqCst);
+    CONTINUOUS_PENDING_START.store(false, Ordering::SeqCst);
+    CONTINUOUS_PRESET_IDX.store(0, Ordering::SeqCst);
+    *CONTINUOUS_HOTKEY_NAME.lock().unwrap() = String::new();
+}
+
+/// Show the continuous mode activation notification
+pub fn show_activation_notification(preset_name: &str, hotkey_name: &str) {
+    let lang = {
+        if let Ok(app) = crate::APP.lock() {
+            app.config.ui_language.clone()
+        } else {
+            "en".to_string()
+        }
+    };
+    let locale = crate::gui::locale::LocaleText::get(&lang);
+
+    // Format: "✨ Cấu hình \"<name>\" sẽ hoạt động liên tục, bấm ESC hay <hotkey> để thoát"
+    let message = locale
+        .continuous_mode_activated
+        .replace("{preset}", preset_name)
+        .replace("{hotkey}", hotkey_name);
+
+    crate::overlay::auto_copy_badge::show_update_notification(&message);
+}
+
+/// Check if a preset type supports continuous mode (only image and text)
+pub fn supports_continuous_mode(preset_type: &str) -> bool {
+    preset_type == "image" || preset_type == "text"
+}
+
+// =============================================================================
+// HOLD DETECTION STATE
+// These are used to track when a hotkey is being held down for continuous mode
+// =============================================================================
+
+use std::time::Instant;
+
+/// Duration threshold for hold-to-activate continuous mode (milliseconds)
+const HOLD_THRESHOLD_MS: u64 = 500;
+
+/// When the current hotkey was pressed down
+static HOLD_START_TIME: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// The hotkey ID that is currently being held
+static HOLD_HOTKEY_ID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// Start tracking a hotkey press for hold detection
+pub fn start_hold_tracking(hotkey_id: i32) {
+    *HOLD_START_TIME.lock().unwrap() = Some(Instant::now());
+    HOLD_HOTKEY_ID.store(hotkey_id, Ordering::SeqCst);
+}
+
+/// Stop tracking hold and return true if the hold duration exceeded threshold
+pub fn stop_hold_tracking() -> bool {
+    let held_long_enough = {
+        if let Some(start) = HOLD_START_TIME.lock().unwrap().take() {
+            start.elapsed().as_millis() >= HOLD_THRESHOLD_MS as u128
+        } else {
+            false
+        }
+    };
+    HOLD_HOTKEY_ID.store(0, Ordering::SeqCst);
+    held_long_enough
+}
+
+/// Get the hotkey ID currently being held
+pub fn get_held_hotkey_id() -> i32 {
+    HOLD_HOTKEY_ID.load(Ordering::SeqCst)
+}
+
+/// Check if we're currently tracking a hold
+pub fn is_tracking_hold() -> bool {
+    HOLD_START_TIME.lock().unwrap().is_some()
+}
+
+/// Get the hold threshold in milliseconds (for JavaScript progress animation)
+pub fn get_hold_threshold_ms() -> u64 {
+    HOLD_THRESHOLD_MS
+}
+
+/// The hotkey that triggered the current action (for checking if still held)
+/// The hotkey that triggered the current action (for checking if still held)
+static CURRENT_HOTKEY: Mutex<Option<(u32, u32)>> = Mutex::new(None); // (modifiers, vk_code)
+
+/// Timestamp of the last hotkey trigger attempt (used for heartbeat hold detection)
+static LAST_HOTKEY_TRIGGER_TIME: Mutex<Option<Instant>> = Mutex::new(None);
+static HEARTBEAT_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Reset the heartbeat count for a new session
+pub fn reset_heartbeat() {
+    HEARTBEAT_COUNT.store(0, Ordering::SeqCst);
+}
+
+/// Update the last trigger time (heartbeat)
+pub fn update_last_trigger_time() {
+    HEARTBEAT_COUNT.fetch_add(1, Ordering::SeqCst);
+    *LAST_HOTKEY_TRIGGER_TIME.lock().unwrap() = Some(Instant::now());
+}
+
+/// Get the current heartbeat count for hold detection
+pub fn get_heartbeat_count() -> usize {
+    HEARTBEAT_COUNT.load(Ordering::SeqCst)
+}
+
+/// Check if the hotkey was triggered recently (within ms)
+pub fn was_triggered_recently(ms: u128) -> bool {
+    if let Some(last) = *LAST_HOTKEY_TRIGGER_TIME.lock().unwrap() {
+        let elapsed = last.elapsed().as_millis();
+        let count = HEARTBEAT_COUNT.load(Ordering::SeqCst);
+        let recent = elapsed <= ms;
+        // A "Hold" must have been triggered at least twice (initial + at least one repeat)
+        let is_hold = recent && count > 1;
+
+        is_hold
+    } else {
+        false
+    }
+}
+
+/// Store the hotkey that triggered the current action
+pub fn set_current_hotkey(modifiers: u32, vk_code: u32) {
+    *CURRENT_HOTKEY.lock().unwrap() = Some((modifiers, vk_code));
+}
+
+/// Get the current hotkey info (modifiers, vk_code)
+pub fn get_current_hotkey_info() -> Option<(u32, u32)> {
+    *CURRENT_HOTKEY.lock().unwrap()
+}
+
+/// Clear the current hotkey
+pub fn clear_current_hotkey() {
+    *CURRENT_HOTKEY.lock().unwrap() = None;
+}
+
+/// Check if the current hotkey's modifiers are still being held
+/// This uses GetAsyncKeyState to check real-time key state
+pub fn are_modifiers_still_held() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+
+    let hotkey = CURRENT_HOTKEY.lock().unwrap().clone();
+    if let Some((modifiers, _vk_code)) = hotkey {
+        unsafe {
+            // Check each modifier
+            let alt_required = (modifiers & 0x0001) != 0; // MOD_ALT
+            let ctrl_required = (modifiers & 0x0002) != 0; // MOD_CONTROL
+            let shift_required = (modifiers & 0x0004) != 0; // MOD_SHIFT
+            let win_required = (modifiers & 0x0008) != 0; // MOD_WIN
+
+            let alt_held = (GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0;
+            let ctrl_held = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+            let shift_held = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+            let lwin_held = (GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0;
+            let rwin_held = (GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0;
+            let win_held = lwin_held || rwin_held;
+
+            // RELAXED CHECK: If the user is holding AT LEAST ONE of the required modifiers, we consider it a "Hold".
+            // If NO modifiers are required, we check the main key itself.
+
+            let mut satisfied = false;
+            let mut debug_str = String::new();
+
+            if modifiers == 0 {
+                // Single key hotkey (e.g. F9, `, etc.)
+                // Check the key code itself
+                // vk_code is usually u32, GetAsyncKeyState expects i32
+                let key_held = (GetAsyncKeyState(_vk_code as i32) as u16 & 0x8000) != 0;
+                if key_held {
+                    satisfied = true;
+                }
+                debug_str.push_str(&format!("Key({}):{}, ", _vk_code, key_held));
+            } else {
+                // Modifier combo
+                if alt_required {
+                    if alt_held {
+                        satisfied = true;
+                    }
+                    debug_str.push_str(&format!("Alt:{}, ", alt_held));
+                }
+                if ctrl_required {
+                    if ctrl_held {
+                        satisfied = true;
+                    }
+                    debug_str.push_str(&format!("Ctrl:{}, ", ctrl_held));
+                }
+                if shift_required {
+                    if shift_held {
+                        satisfied = true;
+                    }
+                    debug_str.push_str(&format!("Shift:{}, ", shift_held));
+                }
+                if win_required {
+                    if win_held {
+                        satisfied = true;
+                    }
+                    debug_str.push_str(&format!("Win:{}, ", win_held));
+                }
+            }
+
+            println!(
+                "[Continuous] Hold check (mods={}): {} -> Satisfied: {}",
+                modifiers, debug_str, satisfied
+            );
+            satisfied
+        }
+    } else {
+        println!("[Continuous] No current hotkey stored.");
+        false
+    }
+}

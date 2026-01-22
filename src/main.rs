@@ -13,7 +13,7 @@ mod registry_integration;
 mod updater;
 pub mod win_types;
 
-use config::{Config, ThemeMode, load_config};
+use config::{load_config, Config, ThemeMode};
 use gui::locale::LocaleText;
 use history::HistoryManager;
 use lazy_static::lazy_static;
@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::panic;
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
+use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::CoInitialize;
@@ -28,7 +29,6 @@ use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::*;
 
 // Window dimensions - Increased to accommodate two-column sidebar and longer text labels
 pub const WINDOW_WIDTH: f32 = 1230.0;
@@ -105,8 +105,8 @@ lazy_static! {
 /// Enable dark mode for Win32 native menus (context menus, tray menus)
 /// This uses the undocumented SetPreferredAppMode API from uxtheme.dll
 fn enable_dark_mode_for_app() {
-    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows::core::w;
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
     // PreferredAppMode enum values
     const ALLOW_DARK: u32 = 1; // AllowDark mode
@@ -779,6 +779,67 @@ unsafe extern "system" fn hotkey_proc(
         WM_HOTKEY => {
             let id = wparam.0 as i32;
             if id > 0 {
+                // debounce logic
+                static mut LAST_HOTKEY_TIMESTAMP: Option<std::time::Instant> = None;
+
+                let now = std::time::Instant::now();
+                let is_repeat = unsafe {
+                    if let Some(t) = LAST_HOTKEY_TIMESTAMP {
+                        // 150ms debounce
+                        if now.duration_since(t).as_millis() < 150 {
+                            true
+                        } else {
+                            LAST_HOTKEY_TIMESTAMP = Some(now);
+                            false
+                        }
+                    } else {
+                        LAST_HOTKEY_TIMESTAMP = Some(now);
+                        false
+                    }
+                };
+
+                // Valid Hotkey Received - Update Heartbeat
+                if !is_repeat {
+                    overlay::continuous_mode::reset_heartbeat();
+                }
+                overlay::continuous_mode::update_last_trigger_time();
+
+                if is_repeat {
+                    return LRESULT(0);
+                }
+
+                // Check if continuous mode is active or pending
+                if overlay::continuous_mode::is_active() {
+                    // Scenario 1. Continuous Mode is ACTIVE.
+                    // If the user presses the hotkey:
+                    // A. If an overlay is currently open (drawing/selecting), it's likely accidental key repeat or user wants to cancel overlay.
+                    //    We choose to IGNORE it to prevent "flash and close" issues.
+                    if overlay::is_selection_overlay_active() {
+                        return LRESULT(0);
+                    }
+
+                    // B. If no overlay is open, it's a genuine "Stop Continuous Mode" request.
+                    //    But first, check if this is a "pending start" (race condition edge case)
+                    if overlay::continuous_mode::is_pending_start() {
+                        // This shouldn't happen if logic is correct, but safe to promote
+                        let current = overlay::continuous_mode::get_preset_idx();
+                        let hotkey = overlay::continuous_mode::get_hotkey_name();
+                        overlay::continuous_mode::activate(current, hotkey);
+                    } else {
+                        // Normal DEACTIVATE
+                        overlay::continuous_mode::deactivate();
+                        overlay::text_selection::cancel_selection();
+                        return LRESULT(0);
+                    }
+                } else if overlay::continuous_mode::is_pending_start() {
+                    // Scenario 2. Continuous Mode is PENDING (e.g. from Bubble).
+                    // We must NOT cancel. We promote to ACTIVE and let the logic proceed to trigger the preset.
+                    let current = overlay::continuous_mode::get_preset_idx();
+                    let hotkey = overlay::continuous_mode::get_hotkey_name();
+                    overlay::continuous_mode::activate(current, hotkey);
+                    // Do NOT return. Proceed to trigger logic below.
+                }
+
                 // CRITICAL: If preset wheel is active, dismiss it and return early
                 // This allows pressing the hotkey again to dismiss the wheel
                 if overlay::preset_wheel::is_wheel_active() {
@@ -801,7 +862,16 @@ unsafe extern "system" fn hotkey_proc(
                             // Find the specific hotkey name that triggered this
                             let hk_idx = ((id - 1) % 1000) as usize;
                             let hk_name = if hk_idx < p.hotkeys.len() {
-                                p.hotkeys[hk_idx].name.clone()
+                                // Store hotkey info for continuous mode detection
+                                let hk = &p.hotkeys[hk_idx];
+                                if overlay::continuous_mode::supports_continuous_mode(&p_type) {
+                                    crate::log_info!("[Hotkey] Setting current hotkey for hold detection: mods={}, code={}", hk.modifiers, hk.code);
+                                    overlay::continuous_mode::set_current_hotkey(
+                                        hk.modifiers,
+                                        hk.code,
+                                    );
+                                }
+                                hk.name.clone()
                             } else {
                                 String::new()
                             };
@@ -882,7 +952,8 @@ unsafe extern "system" fn hotkey_proc(
                     if text_mode == "select" {
                         // Toggle Logic for Selection
                         if overlay::text_selection::is_active() {
-                            overlay::text_selection::cancel_selection();
+                            // Ignore repeat hotkeys to allow "hold to activate"
+                            return LRESULT(0);
                         } else {
                             // NEW: Try instant processing if text is already selected
                             std::thread::spawn(move || {
@@ -938,25 +1009,54 @@ unsafe extern "system" fn hotkey_proc(
                     }
                 } else {
                     // Image Mode
-                    if overlay::is_selection_overlay_active_and_dismiss() {
+                    // STRICT Debounce/Blocking for "Hold to Activate"
+                    if overlay::is_busy() || overlay::is_selection_overlay_active() {
+                        // User is still holding/pressing the key
+                        overlay::continuous_mode::update_last_trigger_time();
                         return LRESULT(0);
                     }
 
-                    let app_clone = APP.clone();
-                    let p_idx = preset_idx;
+                    // Set BUSY flag immediately on Main Thread to block repeats
+                    overlay::set_is_busy(true);
 
-                    std::thread::spawn(move || match capture_screen_fast() {
-                        Ok(capture) => {
-                            if let Ok(mut app) = app_clone.lock() {
-                                app.screenshot_handle = Some(capture);
-                            } else {
-                                return;
+                    let app_clone = APP.clone();
+                    let mut p_idx = preset_idx;
+                    std::thread::spawn(move || {
+                        loop {
+                            // 1. Capture Logic
+                            match capture_screen_fast() {
+                                Ok(capture) => {
+                                    if let Ok(mut app) = app_clone.lock() {
+                                        app.screenshot_handle = Some(capture);
+                                    } else {
+                                        break;
+                                    }
+
+                                    // 2. Show Overlay (BLOCKING)
+                                    overlay::show_selection_overlay(p_idx);
+                                }
+                                Err(e) => {
+                                    eprintln!("Capture Error: {}", e);
+                                    break;
+                                }
                             }
-                            overlay::show_selection_overlay(p_idx);
+
+                            // 3. Check for exit or update preset
+                            if !overlay::continuous_mode::is_active() {
+                                break;
+                            }
+
+                            // Update p_idx in case it changed (e.g. from Master Preset wheel selection)
+                            let current_active_idx = overlay::continuous_mode::get_preset_idx();
+                            if current_active_idx != p_idx {
+                                p_idx = current_active_idx;
+                            }
+
+                            // Small delay before retriggering to prevent tight looping
+                            std::thread::sleep(std::time::Duration::from_millis(200));
                         }
-                        Err(e) => {
-                            eprintln!("Capture Error: {}", e);
-                        }
+                        // Ensure flag is cleared on exit
+                        overlay::set_is_busy(false);
                     });
                 }
             }

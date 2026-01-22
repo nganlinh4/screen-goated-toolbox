@@ -304,6 +304,8 @@ pub struct LocaleText {
     pub tool_update_retry: &'static str,
     pub tool_update_check_btn: &'static str,
     pub tool_update_available: &'static str,
+    // --- CONTINUOUS MODE ---
+    pub continuous_mode_activated: &'static str, // "✨ Cấu hình \"{preset}\" sẽ hoạt động liên tục, bấm ESC hay {hotkey} để thoát"
 }
 
 impl LocaleText {
@@ -656,6 +658,7 @@ impl LocaleText {
                    tool_update_retry: "Thử lại",
                    tool_update_check_btn: "Kiểm tra cập nhật",
                    tool_update_available: "Cập nhật ({})",
+                   continuous_mode_activated: "✨ Cấu hình \"{preset}\" sẽ hoạt động liên tục, bấm ESC hay {hotkey} để thoát",
                    },
             "ko" => Self {
                  history_btn: "히스토리",
@@ -1003,6 +1006,7 @@ impl LocaleText {
                    overlay_back_tooltip: "뒤로",
                    overlay_forward_tooltip: "앞으로",
                    overlay_opacity_tooltip: "불투명도",
+                   continuous_mode_activated: "✨ 프리셋 \"{preset}\"이(가) 연속 모드로 실행됩니다. ESC 또는 {hotkey}를 눌러 종료",
                   },
                 _ => Self {
                  history_btn: "History",
@@ -1350,6 +1354,7 @@ impl LocaleText {
                    tool_update_retry: "Retry",
                    tool_update_check_btn: "Check Update",
                    tool_update_available: "Update ({})",
+                   continuous_mode_activated: "✨ Preset \"{preset}\" will run continuously. Press ESC or {hotkey} to exit",
                   },
                 }
     }

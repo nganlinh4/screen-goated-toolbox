@@ -2,7 +2,9 @@ use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, VK_ESCAPE};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, ReleaseCapture, SetCapture, VK_ESCAPE,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::process::start_processing_pipeline;
@@ -36,10 +38,17 @@ static mut CURR_POS: POINT = POINT { x: 0, y: 0 };
 static mut IS_DRAGGING: bool = false;
 static mut IS_FADING_OUT: bool = false;
 static mut CURRENT_ALPHA: u8 = 0;
-static mut SELECTION_OVERLAY_ACTIVE: bool = false;
+static SELECTION_OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
 static mut SELECTION_OVERLAY_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
 static mut CURRENT_PRESET_IDX: usize = 0;
 static mut SELECTION_HOOK: HHOOK = HHOOK(std::ptr::null_mut());
+
+// CONTINUOUS MODE HOTKEY TRACKING
+static mut TRIGGER_VK_CODE: u32 = 0;
+static mut TRIGGER_MODIFIERS: u32 = 0;
+static IS_HOTKEY_HELD: AtomicBool = AtomicBool::new(false);
+static CONTINUOUS_ACTIVATED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
+static HOLD_DETECTED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 
 // Cached back buffer to avoid per-frame allocations
 // Use a 32-bit DIB section for per-pixel alpha support (opaque box on semi-transparent dim)
@@ -53,6 +62,7 @@ const ZOOM_STEP: f32 = 0.25;
 const MIN_ZOOM: f32 = 1.0;
 const MAX_ZOOM: f32 = 4.0;
 const ZOOM_TIMER_ID: usize = 3;
+const CONTINUOUS_CHECK_TIMER_ID: usize = 4;
 
 static mut ZOOM_LEVEL: f32 = 1.0; // Target Zoom
 static mut ZOOM_CENTER_X: f32 = 0.0; // Target Center X
@@ -179,9 +189,13 @@ unsafe fn extract_crop_from_hbitmap(
     image::ImageBuffer::from_raw(w as u32, h as u32, buffer).unwrap()
 }
 
+pub fn is_selection_overlay_active() -> bool {
+    SELECTION_OVERLAY_ACTIVE.load(Ordering::SeqCst)
+}
+
 pub fn is_selection_overlay_active_and_dismiss() -> bool {
     unsafe {
-        if SELECTION_OVERLAY_ACTIVE
+        if SELECTION_OVERLAY_ACTIVE.load(Ordering::SeqCst)
             && !std::ptr::addr_of!(SELECTION_OVERLAY_HWND)
                 .read()
                 .is_invalid()
@@ -203,7 +217,7 @@ pub fn is_selection_overlay_active_and_dismiss() -> bool {
 pub fn show_selection_overlay(preset_idx: usize) {
     unsafe {
         CURRENT_PRESET_IDX = preset_idx;
-        SELECTION_OVERLAY_ACTIVE = true;
+        SELECTION_OVERLAY_ACTIVE.store(true, Ordering::SeqCst);
         CURRENT_ALPHA = 0;
         IS_FADING_OUT = false;
         IS_DRAGGING = false;
@@ -217,6 +231,24 @@ pub fn show_selection_overlay(preset_idx: usize) {
         RENDER_CENTER_Y = 0.0;
         IS_RIGHT_DRAGGING = false;
         ZOOM_ALPHA_OVERRIDE = None;
+        HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
+        CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
+
+        // Initialize Hotkey Tracking for Continuous Mode
+        if let Some((mods, vk)) = super::continuous_mode::get_current_hotkey_info() {
+            TRIGGER_MODIFIERS = mods;
+            TRIGGER_VK_CODE = vk;
+
+            // Only overwrite IS_HOTKEY_HELD if continuous mode is not already active
+            if !super::continuous_mode::is_active() {
+                let is_physically_held = (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0;
+                IS_HOTKEY_HELD.store(is_physically_held, Ordering::SeqCst);
+            }
+        } else {
+            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+            TRIGGER_MODIFIERS = 0;
+            TRIGGER_VK_CODE = 0;
+        }
 
         SELECTION_ABORT_SIGNAL.store(false, Ordering::SeqCst);
         let instance = GetModuleHandleW(None).unwrap();
@@ -266,11 +298,22 @@ pub fn show_selection_overlay(preset_idx: usize) {
             SELECTION_HOOK = h;
         }
 
+        // CRITICAL: Re-check physical key state AFTER hook is installed.
+        // This catches the race condition where user released key between
+        // the initial GetAsyncKeyState check and hook installation.
+        if TRIGGER_VK_CODE != 0 {
+            let is_still_held = (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
+            if !is_still_held {
+                IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+            }
+        }
+
         // Initial sync to set alpha 0
         sync_layered_window_contents(hwnd);
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
 
         let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+        let _ = SetTimer(Some(hwnd), CONTINUOUS_CHECK_TIMER_ID, 50, None);
 
         let mut msg = MSG::default();
         loop {
@@ -301,7 +344,7 @@ pub fn show_selection_overlay(preset_idx: usize) {
             SELECTION_HOOK = HHOOK(std::ptr::null_mut());
         }
 
-        SELECTION_OVERLAY_ACTIVE = false;
+        SELECTION_OVERLAY_ACTIVE.store(false, Ordering::SeqCst);
         SELECTION_OVERLAY_HWND = SendHwnd::default();
     }
 }
@@ -315,6 +358,7 @@ unsafe extern "system" fn selection_hook_proc(
         let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
             if kbd.vkCode == VK_ESCAPE.0 as u32 {
+                super::continuous_mode::deactivate();
                 SELECTION_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                 let hwnd = std::ptr::addr_of!(SELECTION_OVERLAY_HWND).read().0;
                 if !hwnd.is_invalid() {
@@ -322,6 +366,22 @@ unsafe extern "system" fn selection_hook_proc(
                     let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
                 }
                 return LRESULT(1);
+            }
+            if kbd.vkCode == TRIGGER_VK_CODE {
+                if !IS_HOTKEY_HELD.load(Ordering::SeqCst) {
+                    super::continuous_mode::deactivate();
+                    SELECTION_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+                    let hwnd = std::ptr::addr_of!(SELECTION_OVERLAY_HWND).read().0;
+                    if !hwnd.is_invalid() {
+                        let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
+                    }
+                    return LRESULT(1);
+                }
+            }
+        } else if wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize {
+            // Monitor Key Release for Continuous Mode
+            if kbd.vkCode == TRIGGER_VK_CODE {
+                IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
             }
         }
     }
@@ -340,6 +400,7 @@ unsafe extern "system" fn selection_wnd_proc(
             if !IS_FADING_OUT {
                 IS_DRAGGING = true;
                 let _ = GetCursorPos(std::ptr::addr_of_mut!(START_POS));
+
                 CURR_POS = START_POS;
                 SetCapture(hwnd);
                 sync_layered_window_contents(hwnd);
@@ -363,6 +424,7 @@ unsafe extern "system" fn selection_wnd_proc(
             }
             LRESULT(0)
         }
+        WM_NCHITTEST => LRESULT(HTCLIENT as _),
         WM_MOUSEMOVE => {
             if IS_DRAGGING {
                 let _ = GetCursorPos(std::ptr::addr_of_mut!(CURR_POS));
@@ -436,6 +498,9 @@ unsafe extern "system" fn selection_wnd_proc(
         }
         WM_LBUTTONUP => {
             if IS_DRAGGING {
+                let mut pt = POINT::default();
+                let _ = GetCursorPos(&mut pt);
+
                 IS_DRAGGING = false;
                 let _ = ReleaseCapture();
 
@@ -544,6 +609,38 @@ unsafe extern "system" fn selection_wnd_proc(
                     };
 
                     if let Some(preset_idx) = final_preset_idx {
+                        // 3. CHECK FOR CONTINUOUS MODE ACTIVATION (MOVED UP)
+                        let is_already_active = super::continuous_mode::is_active();
+                        if !is_already_active {
+                            // LATE ACTIVATION (e.g. for Master Presets or fallback)
+                            let held = HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst);
+                            if held && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst) {
+                                let mut hotkey_name = super::continuous_mode::get_hotkey_name();
+                                if hotkey_name.is_empty() {
+                                    hotkey_name = "Hotkey".to_string();
+                                }
+
+                                // Need preset name manually here since we haven't cloned `preset` yet
+                                let p_name = {
+                                    if let Ok(app) = APP.lock() {
+                                        app.config
+                                            .presets
+                                            .get(preset_idx)
+                                            .map(|p| p.id.clone())
+                                            .unwrap_or_default()
+                                    } else {
+                                        "Preset".to_string()
+                                    }
+                                };
+
+                                super::continuous_mode::activate(preset_idx, hotkey_name.clone());
+                                super::continuous_mode::show_activation_notification(
+                                    &p_name,
+                                    &hotkey_name,
+                                );
+                            }
+                        }
+
                         // 1. EXTRACT CROP (New Logic)
                         let (cropped_img, config, preset) = {
                             let mut guard = APP.lock().unwrap();
@@ -570,6 +667,8 @@ unsafe extern "system" fn selection_wnd_proc(
                             // Pass the rect for result window positioning
                             start_processing_pipeline(cropped_img, rect, config, preset);
                         });
+
+                        // 3. Continuous mode is handled by the loop in main.rs
                     }
 
                     // 3. START FADE OUT
@@ -659,6 +758,57 @@ unsafe extern "system" fn selection_wnd_proc(
                 } else if !changed && !IS_RIGHT_DRAGGING {
                     // Stop timer if settled and not dragging
                     let _ = KillTimer(Some(hwnd), ZOOM_TIMER_ID);
+                }
+            } else if wparam.0 == CONTINUOUS_CHECK_TIMER_ID {
+                // Background Hold Detection - Check even if not dragging
+                if !super::continuous_mode::is_active()
+                    && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
+                {
+                    let heartbeat = super::continuous_mode::was_triggered_recently(1500);
+                    if heartbeat {
+                        HOLD_DETECTED_THIS_SESSION.store(true, Ordering::SeqCst);
+
+                        let is_master = {
+                            if let Ok(app) = APP.lock() {
+                                app.config
+                                    .presets
+                                    .get(CURRENT_PRESET_IDX)
+                                    .map(|p| p.is_master)
+                                    .unwrap_or(false)
+                            } else {
+                                false
+                            }
+                        };
+
+                        if !is_master {
+                            let mut hotkey_name = super::continuous_mode::get_hotkey_name();
+                            if hotkey_name.is_empty() {
+                                hotkey_name = "Hotkey".to_string();
+                            }
+
+                            let p_name = {
+                                if let Ok(app) = APP.lock() {
+                                    app.config
+                                        .presets
+                                        .get(CURRENT_PRESET_IDX)
+                                        .map(|p| p.id.clone())
+                                        .unwrap_or_default()
+                                } else {
+                                    "Preset".to_string()
+                                }
+                            };
+
+                            super::continuous_mode::activate(
+                                CURRENT_PRESET_IDX,
+                                hotkey_name.clone(),
+                            );
+                            super::continuous_mode::show_activation_notification(
+                                &p_name,
+                                &hotkey_name,
+                            );
+                            CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+                        }
+                    }
                 }
             } else if wparam.0 == FADE_TIMER_ID {
                 let mut changed = false;

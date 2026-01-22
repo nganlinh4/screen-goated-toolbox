@@ -78,13 +78,66 @@ function toggleKeepOpen() {{
     window.ipc.postMessage('set_keep_open:' + (keepOpen ? '1' : '0'));
 }}
 
-function trigger(idx) {{
+let holdTimer = null;
+let holdIdx = null;
+const HOLD_THRESHOLD = 500;
+
+function onMouseDown(idx) {{
+    holdIdx = idx;
+    const item = event.currentTarget;
+    const fill = item.querySelector('.progress-fill');
+    
+    if (fill) {{
+        fill.style.width = '0%';
+        fill.style.transition = 'width ' + HOLD_THRESHOLD + 'ms linear';
+        requestAnimationFrame(() => fill.style.width = '100%');
+    }}
+
+    holdTimer = setTimeout(() => {{
+        holdTimer = null;
+        triggerContinuous(idx);
+    }}, HOLD_THRESHOLD);
+}}
+
+function onMouseUp(idx) {{
+    if (holdTimer) {{
+        clearTimeout(holdTimer);
+        holdTimer = null;
+        triggerNormal(idx);
+    }}
+    resetFill();
+}}
+
+function onMouseLeave() {{
+    if (holdTimer) {{
+        clearTimeout(holdTimer);
+        holdTimer = null;
+    }}
+    resetFill();
+}}
+
+function resetFill() {{
+    document.querySelectorAll('.progress-fill').forEach(f => {{
+        f.style.transition = 'none';
+        f.style.width = '0%';
+    }});
+}}
+
+function triggerNormal(idx) {{
     if (keepOpen) {{
-        // Keep panel open, just trigger the preset
         window.ipc.postMessage('trigger_only:' + idx);
     }} else {{
         closePanel();
         window.ipc.postMessage('trigger:' + idx);
+    }}
+}}
+
+function triggerContinuous(idx) {{
+    if (keepOpen) {{
+        window.ipc.postMessage('trigger_continuous_only:' + idx);
+    }} else {{
+        closePanel();
+        window.ipc.postMessage('trigger_continuous:' + idx);
     }}
 }}
 
@@ -346,6 +399,29 @@ html, body {{
     transform: scale(0.98) translate(0px, 0px) !important;
 }}
 
+.preset-item {{
+    position: relative;
+    overflow: hidden;
+}}
+
+/* Progress Fill (Continuous Mode) */
+.progress-fill {{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0%;
+    height: 100%;
+    background: rgba(64, 196, 255, 0.3); /* Blue tinted fill */
+    pointer-events: none;
+    z-index: 0;
+    transition: width 0.05s linear;
+}}
+
+.preset-item .icon, .preset-item .name {{
+    position: relative;
+    z-index: 1;
+}}
+
 .icon {{
     display: flex;
     align-items: center;
@@ -551,7 +627,8 @@ pub fn get_favorite_presets_html(presets: &[Preset], lang: &str, is_dark: bool) 
             };
 
             let item = format!(
-                r#"<div class="preset-item" onclick="trigger({})"><span class="icon" style="color: {};">{}</span><span class="name">{}</span></div>"#,
+                r#"<div class="preset-item" onmousedown="onMouseDown({})" onmouseup="onMouseUp({})" onmouseleave="onMouseLeave()"><div class="progress-fill"></div><span class="icon" style="color: {};">{}</span><span class="name">{}</span></div>"#,
+                idx,
                 idx,
                 color_hex,
                 icon_svg,

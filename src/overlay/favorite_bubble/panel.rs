@@ -513,6 +513,17 @@ fn create_panel_webview(panel_hwnd: HWND) {
                         if let Ok(idx) = body[13..].parse::<usize>() {
                             trigger_preset(idx);
                         }
+                    } else if body.starts_with("trigger_continuous:") {
+                        if let Ok(idx) = body[19..].parse::<usize>() {
+                            IS_EXPANDED.store(false, Ordering::SeqCst);
+                            activate_continuous_from_panel(idx);
+                            trigger_preset(idx);
+                        }
+                    } else if body.starts_with("trigger_continuous_only:") {
+                        if let Ok(idx) = body[24..].parse::<usize>() {
+                            activate_continuous_from_panel(idx);
+                            trigger_preset(idx);
+                        }
                     } else if body.starts_with("set_keep_open:") {
                         if let Ok(val) = body[14..].parse::<u32>() {
                             if let Ok(mut app) = APP.lock() {
@@ -651,6 +662,38 @@ fn trigger_preset(preset_idx: usize) {
             let hotkey_id = (preset_idx as i32 * 1000) + 1;
             let _ = PostMessageW(Some(hwnd), WM_HOTKEY, WPARAM(hotkey_id as usize), LPARAM(0));
         }
+    }
+}
+
+fn activate_continuous_from_panel(preset_idx: usize) {
+    let (p_type, p_id) = {
+        if let Ok(app) = APP.lock() {
+            if let Some(p) = app.config.presets.get(preset_idx) {
+                (p.preset_type.clone(), p.id.clone())
+            } else {
+                return;
+            }
+        } else {
+            return;
+        }
+    };
+
+    if crate::overlay::continuous_mode::supports_continuous_mode(&p_type) {
+        // Find first hotkey name for the instruction message
+        let hotkey_name = {
+            if let Ok(app) = APP.lock() {
+                app.config.presets[preset_idx]
+                    .hotkeys
+                    .first()
+                    .map(|h| h.name.clone())
+                    .unwrap_or_else(|| "ESC".to_string())
+            } else {
+                "ESC".to_string()
+            }
+        };
+
+        crate::overlay::continuous_mode::set_pending_start(preset_idx, hotkey_name.clone());
+        crate::overlay::continuous_mode::show_activation_notification(&p_id, &hotkey_name);
     }
 }
 

@@ -48,6 +48,13 @@ static TAG_HWND: AtomicIsize = AtomicIsize::new(0);
 static IS_WARMING_UP: AtomicBool = AtomicBool::new(false);
 static IS_WARMED_UP: AtomicBool = AtomicBool::new(false);
 
+// CONTINUOUS MODE HOTKEY TRACKING
+static mut TRIGGER_VK_CODE: u32 = 0;
+static mut TRIGGER_MODIFIERS: u32 = 0;
+static IS_HOTKEY_HELD: AtomicBool = AtomicBool::new(false);
+static CONTINUOUS_ACTIVATED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
+static HOLD_DETECTED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
+
 // Messages
 const WM_APP_SHOW: u32 = WM_USER + 200;
 const WM_APP_HIDE: u32 = WM_USER + 201;
@@ -191,6 +198,25 @@ pub fn show_text_selection_tag(preset_idx: usize) {
         state.is_selecting = false;
         state.is_processing = false;
         TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst);
+
+        // Initialize Hotkey Tracking
+        CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
+        HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
+        if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
+            unsafe {
+                TRIGGER_MODIFIERS = mods;
+                TRIGGER_VK_CODE = vk;
+
+                // Actually check if it's physically held
+                use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+                if !crate::overlay::continuous_mode::is_active() {
+                    let is_physically_held = (GetAsyncKeyState(vk as i32) as u16 & 0x8000) != 0;
+                    IS_HOTKEY_HELD.store(is_physically_held, Ordering::SeqCst);
+                }
+            }
+        } else {
+            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+        }
     }
 
     // 3. Signal Show (Pre-position to prevent jump/lag)
@@ -286,7 +312,6 @@ fn internal_create_tag_thread() {
     unsafe {
         use windows::Win32::System::Com::*;
         let coinit = CoInitialize(None);
-        crate::log_info!("[TextSelection] Loop Start - CoInit: {:?}", coinit);
 
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("SGT_TextTag_Web_Persistent");
@@ -301,7 +326,6 @@ fn internal_create_tag_thread() {
             wc.style = CS_HREDRAW | CS_VREDRAW;
             let _ = RegisterClassExW(&wc);
         });
-        crate::log_info!("[TextSelection] Class Registered");
 
         // Create Layered Transparent Window
         let hwnd = CreateWindowExW(
@@ -319,7 +343,6 @@ fn internal_create_tag_thread() {
             None,
         )
         .unwrap_or_default();
-        crate::log_info!("[TextSelection] Window created with HWND: {:?}", hwnd);
 
         if hwnd.is_invalid() {
             IS_WARMING_UP.store(false, Ordering::SeqCst);
@@ -350,7 +373,6 @@ fn internal_create_tag_thread() {
         let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
 
         // Initialize shared WebContext if needed
-        crate::log_info!("[TextSelection] Initializing WebContext...");
         SELECTION_WEB_CONTEXT.with(|ctx| {
             if ctx.borrow().is_none() {
                 *ctx.borrow_mut() = Some(wry::WebContext::new(Some(shared_data_dir)));
@@ -374,10 +396,6 @@ fn internal_create_tag_thread() {
             let res = {
                 // LOCK SCOPE: Only one WebView builds at a time to prevent "Not enough quota"
                 let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-                crate::log_info!(
-                    "[TextSelection] (Attempt {}) Acquired init lock. Building...",
-                    attempt
-                );
 
                 let build_res = SELECTION_WEB_CONTEXT.with(|ctx| {
                     let mut ctx_ref = ctx.borrow_mut();
@@ -399,11 +417,6 @@ fn internal_create_tag_thread() {
                         .build_as_child(&HwndWrapper(hwnd))
                 });
 
-                crate::log_info!(
-                    "[TextSelection] (Attempt {}) Build finished. Releasing lock. Status: {}",
-                    attempt,
-                    if build_res.is_ok() { "OK" } else { "ERR" }
-                );
                 build_res
             };
 
@@ -413,24 +426,17 @@ fn internal_create_tag_thread() {
                     break;
                 }
                 Err(e) => {
-                    crate::log_info!(
-                        "[TextSelection] WebView init failed (attempt {}/3): {:?}",
-                        attempt,
-                        e
-                    );
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
             }
         }
 
         if let Some(webview) = final_webview {
-            crate::log_info!("[TextSelection] WebView initialization SUCCESSFUL");
             // Set initial theme
             let init_script = format!("updateTheme({});", initial_is_dark);
             let _ = webview.evaluate_script(&init_script);
             SELECTION_STATE.lock().unwrap().webview = Some(webview);
         } else {
-            crate::log_info!("[TextSelection] FAILED to create WebView after 3 attempts.");
             let _ = DestroyWindow(hwnd);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             let _ = CoUninitialize();
@@ -499,6 +505,17 @@ fn internal_create_tag_thread() {
                         }
                     }
 
+                    // CRITICAL: Re-check physical key state AFTER hook is installed.
+                    // This catches the race condition where user released key between
+                    // the initial GetAsyncKeyState check and hook installation.
+                    if TRIGGER_VK_CODE != 0 {
+                        let is_still_held =
+                            (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
+                        if !is_still_held {
+                            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+                        }
+                    }
+
                     // Reset Logic
                     last_sent_is_selecting = false;
 
@@ -551,6 +568,44 @@ fn internal_create_tag_thread() {
 
                 // Use MoveWindow for Webview host
                 let _ = MoveWindow(hwnd, target_x, target_y, 200, 120, false);
+
+                // EARLY CONTINUOUS MODE TRIGGER
+                if !crate::overlay::continuous_mode::is_active()
+                    && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
+                {
+                    // Latch the hold detection early via heartbeats
+                    let heartbeat = crate::overlay::continuous_mode::was_triggered_recently(2000);
+                    if heartbeat {
+                        HOLD_DETECTED_THIS_SESSION.store(true, Ordering::SeqCst);
+                    }
+
+                    if HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst) {
+                        let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
+                        if hotkey_name.is_empty() {
+                            hotkey_name = "Hotkey".to_string();
+                        }
+
+                        let p_idx = SELECTION_STATE.lock().unwrap().preset_idx;
+                        let p_name = {
+                            if let Ok(app) = APP.lock() {
+                                app.config
+                                    .presets
+                                    .get(p_idx)
+                                    .map(|p| p.id.clone())
+                                    .unwrap_or_default()
+                            } else {
+                                "Preset".to_string()
+                            }
+                        };
+
+                        crate::overlay::continuous_mode::activate(p_idx, hotkey_name.clone());
+                        crate::overlay::continuous_mode::show_activation_notification(
+                            &p_name,
+                            &hotkey_name,
+                        );
+                        CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+                    }
+                }
 
                 let lbutton_down = (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0;
 
@@ -656,7 +711,62 @@ fn internal_create_tag_thread() {
                             // HIDE FIRST
                             let _ =
                                 PostMessageW(Some(hwnd_copy), WM_APP_HIDE, WPARAM(0), LPARAM(0));
-                            process_selected_text(preset_idx_for_thread, clipboard_text);
+
+                            let mut p_idx = preset_idx_for_thread;
+
+                            // CHECK FOR CONTINUOUS MODE ACTIVATION
+                            if !crate::overlay::continuous_mode::is_active()
+                                && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
+                            {
+                                let mut held = if unsafe { TRIGGER_MODIFIERS == 0 } {
+                                    IS_HOTKEY_HELD.load(Ordering::SeqCst)
+                                } else {
+                                    crate::overlay::continuous_mode::are_modifiers_still_held()
+                                };
+
+                                if !held {
+                                    held = crate::overlay::continuous_mode::was_triggered_recently(
+                                        1500,
+                                    );
+                                }
+
+                                if held {
+                                    let mut hotkey_name =
+                                        crate::overlay::continuous_mode::get_hotkey_name();
+                                    if hotkey_name.is_empty() {
+                                        hotkey_name = "Hotkey".to_string();
+                                    }
+
+                                    let preset_name = {
+                                        if let Ok(app) = APP.lock() {
+                                            app.config
+                                                .presets
+                                                .get(p_idx)
+                                                .map(|p| p.id.clone())
+                                                .unwrap_or_default()
+                                        } else {
+                                            "Preset".to_string()
+                                        }
+                                    };
+
+                                    let current_active_idx =
+                                        crate::overlay::continuous_mode::get_preset_idx();
+                                    if current_active_idx != p_idx {
+                                        p_idx = current_active_idx;
+                                    }
+                                    crate::overlay::continuous_mode::activate(
+                                        p_idx,
+                                        hotkey_name.clone(),
+                                    );
+                                    crate::overlay::continuous_mode::show_activation_notification(
+                                        &preset_name,
+                                        &hotkey_name,
+                                    );
+                                    CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+                                }
+                            }
+
+                            process_selected_text(p_idx, clipboard_text);
                         } else {
                             // Reset state if failed or empty
                             let mut state = SELECTION_STATE.lock().unwrap();
@@ -761,6 +871,18 @@ fn process_selected_text(preset_idx: usize, clipboard_text: String) {
             localized_name,
             cancel_hotkey,
         );
+
+        // Continuous retrigger
+        if crate::overlay::continuous_mode::is_active()
+            && crate::overlay::continuous_mode::get_preset_idx() == final_preset_idx
+        {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                if crate::overlay::continuous_mode::is_active() {
+                    let _ = super::show_text_selection_tag(final_preset_idx);
+                }
+            });
+        }
     }
 }
 
@@ -769,8 +891,20 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
         let kbd_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
             if kbd_struct.vkCode == VK_ESCAPE.0 as u32 {
+                crate::overlay::continuous_mode::deactivate();
                 TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                 return LRESULT(1);
+            }
+            if kbd_struct.vkCode == TRIGGER_VK_CODE {
+                if !IS_HOTKEY_HELD.load(Ordering::SeqCst) {
+                    crate::overlay::continuous_mode::deactivate();
+                    TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+                    return LRESULT(1);
+                }
+            }
+        } else if wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize {
+            if kbd_struct.vkCode == TRIGGER_VK_CODE {
+                IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
             }
         }
     }
