@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use std::sync::{Mutex, Once};
 use windows::core::w;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -306,20 +308,29 @@ fn internal_create_window_loop() {
         });
 
         let hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
             w!("PresetWheel"),
-            WS_POPUP, // Removed WS_VISIBLE to prevent initial flash/artifacts
+            WS_POPUP | WS_VISIBLE, // Start visible (offscreen)
             -4000,
             -4000,
-            WHEEL_WIDTH,
-            WHEEL_HEIGHT,
+            2000, // Dummy width (Large to avoid clipping)
+            2000, // Dummy height (Large to avoid clipping)
             None,
             None,
             Some(instance.into()),
             None,
         )
         .unwrap_or_default();
+
+        // Windows 11 Rounded Corners - Disable native rounding
+        let corner_pref = 1u32; // DWMWCP_DONOTROUND
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            std::ptr::addr_of!(corner_pref) as *const _,
+            std::mem::size_of_val(&corner_pref) as u32,
+        );
 
         // DELAYED STORE: Do not publish WHEEL_HWND yet. Wait until WebView is built.
         // WHEEL_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
@@ -598,9 +609,9 @@ unsafe extern "system" fn wheel_wnd_proc(
                 Some(HWND_TOPMOST),
                 target_x,
                 target_y,
-                0,
-                0,
-                SWP_NOACTIVATE | SWP_NOSIZE,
+                WHEEL_WIDTH + 50,  // Explicit size buffer
+                WHEEL_HEIGHT + 50, // Explicit size buffer
+                SWP_NOACTIVATE,    // Removed SWP_NOSIZE
             );
 
             LRESULT(0)
