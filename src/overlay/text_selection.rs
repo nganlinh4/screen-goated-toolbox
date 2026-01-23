@@ -63,6 +63,7 @@ static LAST_INSTANT_PROCESS_TIME: std::sync::atomic::AtomicU64 =
 // DRAG DETECTION: Mouse start position when selection begins
 static MOUSE_START_X: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 static MOUSE_START_Y: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static PENDING_SHOW_ON_WARMUP: AtomicBool = AtomicBool::new(false);
 
 // Messages
 const WM_APP_SHOW: u32 = WM_USER + 200;
@@ -271,31 +272,20 @@ pub fn warmup() {
 }
 
 // Positioning constants
+pub fn is_warming_up() -> bool {
+    IS_WARMING_UP.load(Ordering::SeqCst)
+}
+
 const OFFSET_X: i32 = -20;
 const OFFSET_Y: i32 = -90;
 
 pub fn show_text_selection_tag(preset_idx: usize) {
-    // 1. Ensure Warmed Up / Recover
+    // 1. Ensure Warmed Up / Trigger Warmup
     if !IS_WARMED_UP.load(Ordering::SeqCst) {
+        PENDING_SHOW_ON_WARMUP.store(true, Ordering::SeqCst);
         warmup();
-        // Wait up to 5s for recovery
-        for _ in 0..500 {
-            use windows::Win32::UI::WindowsAndMessaging::*;
-            unsafe {
-                let mut msg = MSG::default();
-                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            if IS_WARMED_UP.load(Ordering::SeqCst) {
-                break;
-            }
-        }
-        if !IS_WARMED_UP.load(Ordering::SeqCst) {
-            return;
-        }
+        // Fall through - we prepare the state below, and the warmup thread
+        // will pick up the need to show once it's ready.
     }
 
     // 2. Prepare State
@@ -561,6 +551,12 @@ fn internal_create_tag_thread() {
         IS_WARMED_UP.store(true, Ordering::SeqCst);
         IS_WARMING_UP.store(false, Ordering::SeqCst);
 
+        // If a show was requested during warmup, the state (preset_idx) is already set
+        // Just post the show message to ourselves to pop it up.
+        if PENDING_SHOW_ON_WARMUP.swap(false, Ordering::SeqCst) {
+            let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+        }
+
         let mut msg = MSG::default();
         let mut visible = false;
 
@@ -586,6 +582,18 @@ fn internal_create_tag_thread() {
                 }
                 if msg.message == WM_QUIT {
                     break;
+                }
+
+                // --- KEY HELD SYNC (POLLING) ---
+                // Continuous Mode Support: Ensure we don't get stuck if KeyUp was missed during warmup.
+                if TRIGGER_VK_CODE != 0 {
+                    let is_physically_down =
+                        (unsafe { GetAsyncKeyState(TRIGGER_VK_CODE as i32) } as u16 & 0x8000) != 0;
+
+                    // If it's physically up, force our state to false.
+                    if !is_physically_down && IS_HOTKEY_HELD.load(Ordering::SeqCst) {
+                        IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+                    }
                 }
             } else {
                 // Inactive Loop - Block until message (e.g., WM_APP_SHOW)
@@ -619,17 +627,7 @@ fn internal_create_tag_thread() {
                         }
                     }
 
-                    // CRITICAL: Re-check physical key state AFTER hook is installed.
-                    // This catches the race condition where user released key between
-                    // the initial GetAsyncKeyState check and hook installation.
-                    if TRIGGER_VK_CODE != 0 {
-                        let is_still_held =
-                            (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
-                        if !is_still_held {
-                            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
-                        }
-                    }
-
+                    // NOTE: Physical key sync moved to main polling loop below
                     // Reset Logic
                     last_sent_is_selecting = false;
 

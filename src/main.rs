@@ -939,14 +939,18 @@ unsafe extern "system" fn hotkey_proc(
                     // NEW TEXT LOGIC
                     if text_mode == "select" {
                         // Toggle Logic for Selection
-                        if overlay::text_selection::is_active() {
-                            // Ignore repeat hotkeys to allow "hold to activate"
+                        if overlay::text_selection::is_active()
+                            || overlay::text_selection::is_warming_up()
+                        {
+                            // Ignore repeat hotkeys to allow "hold to activate" or during warmup
+                            overlay::continuous_mode::update_last_trigger_time();
                             return LRESULT(0);
                         } else if overlay::continuous_mode::is_active()
                             && !just_activated_continuous
                         {
                             // Continuous mode is active - the worker thread's retrigger handles showing the tag
                             // Just ignore hotkey repeats to prevent duplicate notifications
+                            overlay::continuous_mode::update_last_trigger_time();
                             return LRESULT(0);
                         } else {
                             // NEW: Try instant processing if text is already selected
