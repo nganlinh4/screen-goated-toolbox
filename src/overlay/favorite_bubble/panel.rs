@@ -706,17 +706,7 @@ fn activate_continuous_from_panel(preset_idx: usize) {
 
     if crate::overlay::continuous_mode::supports_continuous_mode(&p_type) {
         // Find first hotkey name for the instruction message
-        let hotkey_name = {
-            if let Ok(app) = APP.lock() {
-                app.config.presets[preset_idx]
-                    .hotkeys
-                    .first()
-                    .map(|h| h.name.clone())
-                    .unwrap_or_else(|| "ESC".to_string())
-            } else {
-                "ESC".to_string()
-            }
-        };
+        let hotkey_name = "ESC".to_string();
 
         crate::overlay::continuous_mode::set_pending_start(preset_idx, hotkey_name.clone());
         crate::overlay::continuous_mode::show_activation_notification(&p_id, &hotkey_name);
