@@ -55,6 +55,15 @@ static IS_HOTKEY_HELD: AtomicBool = AtomicBool::new(false);
 static CONTINUOUS_ACTIVATED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 static HOLD_DETECTED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 
+// DEDUPLICATION: Track last processed text to prevent reprocessing same content
+static LAST_PROCESSED_HASH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+// DEDUPLICATION: Timestamp of last instant process to debounce rapid calls
+static LAST_INSTANT_PROCESS_TIME: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+// DRAG DETECTION: Mouse start position when selection begins
+static MOUSE_START_X: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+static MOUSE_START_Y: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
 // Messages
 const WM_APP_SHOW: u32 = WM_USER + 200;
 const WM_APP_HIDE: u32 = WM_USER + 201;
@@ -69,8 +78,47 @@ pub fn is_active() -> bool {
     unsafe { IsWindowVisible(HWND(hwnd_val as *mut std::ffi::c_void)).as_bool() }
 }
 
+pub fn is_processing() -> bool {
+    let state = SELECTION_STATE.lock().unwrap();
+    state.is_processing
+}
+
+struct ProcessingGuard;
+
+impl Drop for ProcessingGuard {
+    fn drop(&mut self) {
+        let mut state = SELECTION_STATE.lock().unwrap();
+        state.is_processing = false;
+    }
+}
+
 /// Try to process already-selected text instantly.
 pub fn try_instant_process(preset_idx: usize) -> bool {
+    // TIME-BASED DEBOUNCE: If we processed via instant process recently, skip
+    // This prevents multiple processes when holding hotkey on preselected text
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let last_time = LAST_INSTANT_PROCESS_TIME.load(Ordering::SeqCst);
+    if last_time > 0 && now - last_time < 2000 {
+        return false; // Processed within last 2 seconds, skip
+    }
+
+    // Set processing flag early to block other threads
+    // The guard will reset it to false when this function returns
+    let _guard = {
+        let mut state = SELECTION_STATE.lock().unwrap();
+        if state.is_processing {
+            return false;
+        }
+        state.is_processing = true;
+        ProcessingGuard
+    };
+
+    // Update timestamp now that we're committed to processing
+    LAST_INSTANT_PROCESS_TIME.store(now, Ordering::SeqCst);
+
     unsafe {
         // Step 1: Save clipboard
         let original_clipboard = get_clipboard_text();
@@ -126,7 +174,51 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
         // HIDE BADGE BEFORE PROCESSING (Critical for Master Wheel appearance)
         cancel_selection();
 
-        process_selected_text(preset_idx, clipboard_text);
+        // CONTINUOUS MODE SUPPORT for instant process
+        // Check if user is holding the hotkey for continuous mode
+        let mut final_preset_idx = preset_idx;
+        if !crate::overlay::continuous_mode::is_active() {
+            // Check if hotkey is being held
+            let held = crate::overlay::continuous_mode::was_triggered_recently(1500);
+            if held {
+                let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
+                if hotkey_name.is_empty() {
+                    hotkey_name = "Hotkey".to_string();
+                }
+                let preset_name = {
+                    if let Ok(app) = APP.lock() {
+                        app.config
+                            .presets
+                            .get(preset_idx)
+                            .map(|p| p.id.clone())
+                            .unwrap_or_default()
+                    } else {
+                        "Preset".to_string()
+                    }
+                };
+                crate::overlay::continuous_mode::activate(preset_idx, hotkey_name.clone());
+                crate::overlay::continuous_mode::show_activation_notification(
+                    &preset_name,
+                    &hotkey_name,
+                );
+            }
+        }
+
+        // Continuous mode retrigger (immediately, before processing)
+        if crate::overlay::continuous_mode::is_active() {
+            let current_idx = crate::overlay::continuous_mode::get_preset_idx();
+            if current_idx == preset_idx {
+                final_preset_idx = current_idx;
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    if crate::overlay::continuous_mode::is_active() {
+                        let _ = show_text_selection_tag(current_idx);
+                    }
+                });
+            }
+        }
+
+        process_selected_text(final_preset_idx, clipboard_text);
         true
     }
 }
@@ -200,8 +292,12 @@ pub fn show_text_selection_tag(preset_idx: usize) {
         TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst);
 
         // Initialize Hotkey Tracking
-        CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
-        HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
+        // Only reset session flags if NOT already in continuous mode
+        // (to prevent multiple notifications on hotkey repeats)
+        if !crate::overlay::continuous_mode::is_active() {
+            CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
+            HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
+        }
         if let Some((mods, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
             unsafe {
                 TRIGGER_MODIFIERS = mods;
@@ -255,6 +351,9 @@ unsafe extern "system" fn tag_wnd_proc(
 ) -> LRESULT {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match msg {
         WM_APP_SHOW => {
+            // Cancel any pending Hide timer to prevent it from hiding us later
+            let _ = KillTimer(Some(hwnd), 1);
+
             // Trigger Fade In Script
             {
                 let state = SELECTION_STATE.lock().unwrap();
@@ -535,8 +634,12 @@ fn internal_create_tag_thread() {
                         let _ = wv.evaluate_script(&reset_js);
                     }
                 } else {
-                    // Uninstall Hook
-                    if !state.hook_handle.is_invalid() {
+                    // Uninstall Hook ONLY if continuous mode is NOT active.
+                    // If continuous mode is active, we keep the hook to catch the exit command (ESC or Hotkey)
+                    // even while the tag is temporarily hidden/processing.
+                    if !crate::overlay::continuous_mode::is_active()
+                        && !state.hook_handle.is_invalid()
+                    {
                         let _ = UnhookWindowsHookEx(state.hook_handle);
                         state.hook_handle = HHOOK::default();
                     }
@@ -570,9 +673,10 @@ fn internal_create_tag_thread() {
                 let _ = MoveWindow(hwnd, target_x, target_y, 200, 120, false);
 
                 // EARLY CONTINUOUS MODE TRIGGER
-                if !crate::overlay::continuous_mode::is_active()
-                    && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
-                {
+                let cm_active = crate::overlay::continuous_mode::is_active();
+                let session_activated = CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst);
+
+                if !cm_active && !session_activated {
                     // Latch the hold detection early via heartbeats
                     let heartbeat = crate::overlay::continuous_mode::was_triggered_recently(2000);
                     if heartbeat {
@@ -617,11 +721,39 @@ fn internal_create_tag_thread() {
                     let mut state = SELECTION_STATE.lock().unwrap();
 
                     if !state.is_selecting && lbutton_down {
-                        state.is_selecting = true;
+                        // Check if mouse is over our own window to avoid triggering selection on UI interaction
+                        let mut pt = POINT::default();
+                        let _ = GetCursorPos(&mut pt);
+                        let hwnd_under_mouse = WindowFromPoint(pt);
+                        let mut pid: u32 = 0;
+                        unsafe { GetWindowThreadProcessId(hwnd_under_mouse, Some(&mut pid)) };
+                        let our_pid = std::process::id();
+
+                        if pid != our_pid {
+                            state.is_selecting = true;
+                            // Record mouse start position for drag detection
+                            MOUSE_START_X.store(pt.x, Ordering::SeqCst);
+                            MOUSE_START_Y.store(pt.y, Ordering::SeqCst);
+                        }
                     } else if state.is_selecting && !lbutton_down && !state.is_processing {
-                        state.is_processing = true;
-                        should_spawn_thread = true;
-                        preset_idx_for_thread = state.preset_idx;
+                        // DRAG DETECTION: Only process if mouse moved significantly
+                        let mut pt = POINT::default();
+                        let _ = GetCursorPos(&mut pt);
+                        let start_x = MOUSE_START_X.load(Ordering::SeqCst);
+                        let start_y = MOUSE_START_Y.load(Ordering::SeqCst);
+                        let dx = (pt.x - start_x).abs();
+                        let dy = (pt.y - start_y).abs();
+                        let distance = dx + dy; // Manhattan distance
+
+                        if distance >= 10 {
+                            // Real drag/selection detected
+                            state.is_processing = true;
+                            should_spawn_thread = true;
+                            preset_idx_for_thread = state.preset_idx;
+                        } else {
+                            // Just a click, not a selection - reset state
+                            state.is_selecting = false;
+                        }
                     }
 
                     if state.is_selecting != last_sent_is_selecting {
@@ -715,9 +847,11 @@ fn internal_create_tag_thread() {
                             let mut p_idx = preset_idx_for_thread;
 
                             // CHECK FOR CONTINUOUS MODE ACTIVATION
-                            if !crate::overlay::continuous_mode::is_active()
-                                && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
-                            {
+                            let cm_active_before = crate::overlay::continuous_mode::is_active();
+                            let session_flag =
+                                CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst);
+
+                            if !cm_active_before && !session_flag {
                                 let mut held = if unsafe { TRIGGER_MODIFIERS == 0 } {
                                     IS_HOTKEY_HELD.load(Ordering::SeqCst)
                                 } else {
@@ -764,6 +898,21 @@ fn internal_create_tag_thread() {
                                     );
                                     CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
                                 }
+                            }
+
+                            // CONTINUOUS MODE RETRIGGER - Immediately after hide, BEFORE processing
+                            // This ensures the tag reappears right at mouse release, not after process completes
+                            let cm_active = crate::overlay::continuous_mode::is_active();
+                            let cm_idx = crate::overlay::continuous_mode::get_preset_idx();
+                            if cm_active && cm_idx == p_idx {
+                                let retrigger_idx = p_idx;
+                                std::thread::spawn(move || {
+                                    // Small delay to let the hide animation complete
+                                    std::thread::sleep(std::time::Duration::from_millis(150));
+                                    if crate::overlay::continuous_mode::is_active() {
+                                        let _ = super::show_text_selection_tag(retrigger_idx);
+                                    }
+                                });
                             }
 
                             process_selected_text(p_idx, clipboard_text);
@@ -871,18 +1020,7 @@ fn process_selected_text(preset_idx: usize, clipboard_text: String) {
             localized_name,
             cancel_hotkey,
         );
-
-        // Continuous retrigger
-        if crate::overlay::continuous_mode::is_active()
-            && crate::overlay::continuous_mode::get_preset_idx() == final_preset_idx
-        {
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if crate::overlay::continuous_mode::is_active() {
-                    let _ = super::show_text_selection_tag(final_preset_idx);
-                }
-            });
-        }
+        // NOTE: Continuous retrigger is now handled at mouse release, not here
     }
 }
 

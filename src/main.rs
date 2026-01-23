@@ -810,27 +810,10 @@ unsafe extern "system" fn hotkey_proc(
 
                 // Check if continuous mode is active or pending
                 if overlay::continuous_mode::is_active() {
-                    // Scenario 1. Continuous Mode is ACTIVE.
-                    // If the user presses the hotkey:
-                    // A. If an overlay is currently open (drawing/selecting), it's likely accidental key repeat or user wants to cancel overlay.
-                    //    We choose to IGNORE it to prevent "flash and close" issues.
-                    if overlay::is_selection_overlay_active() {
-                        return LRESULT(0);
-                    }
-
-                    // B. If no overlay is open, it's a genuine "Stop Continuous Mode" request.
-                    //    But first, check if this is a "pending start" (race condition edge case)
-                    if overlay::continuous_mode::is_pending_start() {
-                        // This shouldn't happen if logic is correct, but safe to promote
-                        let current = overlay::continuous_mode::get_preset_idx();
-                        let hotkey = overlay::continuous_mode::get_hotkey_name();
-                        overlay::continuous_mode::activate(current, hotkey);
-                    } else {
-                        // Normal DEACTIVATE
-                        overlay::continuous_mode::deactivate();
-                        overlay::text_selection::cancel_selection();
-                        return LRESULT(0);
-                    }
+                    // Continuous mode is ACTIVE.
+                    // Ignore ALL hotkey presses - let the keyboard hooks handle exit (ESC or hotkey tap).
+                    // This prevents deactivation during text processing when tag is hidden.
+                    return LRESULT(0);
                 } else if overlay::continuous_mode::is_pending_start() {
                     // Scenario 2. Continuous Mode is PENDING (e.g. from Bubble).
                     // We must NOT cancel. We promote to ACTIVE and let the logic proceed to trigger the preset.
@@ -954,8 +937,17 @@ unsafe extern "system" fn hotkey_proc(
                         if overlay::text_selection::is_active() {
                             // Ignore repeat hotkeys to allow "hold to activate"
                             return LRESULT(0);
+                        } else if overlay::continuous_mode::is_active() {
+                            // Continuous mode is active - the worker thread's retrigger handles showing the tag
+                            // Just ignore hotkey repeats to prevent duplicate notifications
+                            return LRESULT(0);
                         } else {
                             // NEW: Try instant processing if text is already selected
+                            // Prevent duplicate processing if already running
+                            if overlay::text_selection::is_processing() {
+                                return LRESULT(0);
+                            }
+
                             std::thread::spawn(move || {
                                 // 1. Show Badge IMMEDIATELY (Decoupled)
                                 overlay::show_text_selection_tag(preset_idx);

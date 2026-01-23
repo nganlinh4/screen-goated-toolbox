@@ -231,8 +231,13 @@ pub fn show_selection_overlay(preset_idx: usize) {
         RENDER_CENTER_Y = 0.0;
         IS_RIGHT_DRAGGING = false;
         ZOOM_ALPHA_OVERRIDE = None;
-        HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
-        CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
+
+        // Only reset session flags if NOT already in continuous mode
+        // (to prevent issues on hotkey repeats)
+        if !super::continuous_mode::is_active() {
+            HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
+            CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
+        }
 
         // Initialize Hotkey Tracking for Continuous Mode
         if let Some((mods, vk)) = super::continuous_mode::get_current_hotkey_info() {
