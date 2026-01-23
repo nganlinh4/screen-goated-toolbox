@@ -768,6 +768,15 @@ unsafe extern "system" fn selection_wnd_proc(
                     let _ = KillTimer(Some(hwnd), ZOOM_TIMER_ID);
                 }
             } else if wparam.0 == CONTINUOUS_CHECK_TIMER_ID {
+                // SYNC PHYSICAL KEY STATE
+                if TRIGGER_VK_CODE != 0 {
+                    let is_physically_down =
+                        (unsafe { GetAsyncKeyState(TRIGGER_VK_CODE as i32) } as u16 & 0x8000) != 0;
+                    if !is_physically_down && IS_HOTKEY_HELD.load(Ordering::SeqCst) {
+                        IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+                    }
+                }
+
                 // Background Hold Detection - Check even if not dragging
                 if !super::continuous_mode::is_active()
                     && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)

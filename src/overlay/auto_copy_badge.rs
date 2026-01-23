@@ -130,24 +130,11 @@ pub fn show_detailed_notification(title: &str, snippet: &str, n_type: Notificati
 fn ensure_window_and_post(msg: u32) {
     // Check if already warmed up
     if !IS_WARMED_UP.load(Ordering::SeqCst) {
-        crate::log_info!("[Badge] Not warmed up, triggering warmup...");
         // Trigger warmup if not started yet
         warmup();
-
-        // Poll for ready state (up to 20 seconds to allow for serialized startup)
-        for i in 0..400 {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            if IS_WARMED_UP.load(Ordering::SeqCst) {
-                crate::log_info!("[Badge] Warmup completed after {} ms", i * 50);
-                break;
-            }
-        }
-
-        // If still not ready, give up this notification
-        if !IS_WARMED_UP.load(Ordering::SeqCst) {
-            crate::log_info!("[Badge] Warmup TIMED OUT! Notification dropped.");
-            return;
-        }
+        // We don't block anymore. The notification is in PENDING_QUEUE.
+        // internal_create_window_loop will post WM_APP_PROCESS_QUEUE to itself once ready.
+        return;
     }
 
     let hwnd_val = BADGE_HWND.load(Ordering::SeqCst);
@@ -160,6 +147,10 @@ fn ensure_window_and_post(msg: u32) {
     } else {
         println!("[Badge] Invalid HWND: {:?}", hwnd);
     }
+}
+
+pub fn is_warming_up() -> bool {
+    IS_WARMING_UP.load(Ordering::SeqCst)
 }
 
 pub fn warmup() {
@@ -623,6 +614,9 @@ fn internal_create_window_loop() {
             BADGE_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
             IS_WARMING_UP.store(false, Ordering::SeqCst);
             IS_WARMED_UP.store(true, Ordering::SeqCst);
+
+            // Process any notifications that were enqueued during warmup
+            let _ = PostMessageW(Some(hwnd), WM_APP_PROCESS_QUEUE, WPARAM(0), LPARAM(0));
         } else {
             // Initialization failed - cleanup and exit
             let _ = DestroyWindow(hwnd);
