@@ -6,8 +6,12 @@ use crate::APP;
 use std::sync::atomic::Ordering;
 use windows::core::w;
 use windows::Win32::Foundation::*;
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+};
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowW, GetClientRect,
@@ -15,7 +19,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos, ShowWindow, HTCAPTION,
     IDC_ARROW, SM_CXSCREEN, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
     SW_SHOWNOACTIVATE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_HOTKEY, WM_KILLFOCUS, WM_NCCALCSIZE,
-    WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP, WS_VISIBLE,
 };
 use wry::{Rect, WebContext, WebViewBuilder};
 
@@ -249,14 +254,14 @@ fn create_panel_window_internal(_bubble_hwnd: HWND) {
         });
 
         let panel_hwnd = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
             w!("FavPanel"),
-            WS_POPUP,
-            0,
-            0,
-            PANEL_WIDTH,
-            100, // Dummy height
+            WS_POPUP | WS_VISIBLE,
+            -4000,
+            -4000,
+            2000, // Dummy width (Large to avoid multi-column hit-test clipping)
+            2000, // Dummy height (Large to avoid hit-test clipping)
             None,
             None,
             Some(instance.into()),
@@ -266,7 +271,26 @@ fn create_panel_window_internal(_bubble_hwnd: HWND) {
 
         if !panel_hwnd.is_invalid() {
             PANEL_HWND.store(panel_hwnd.0 as isize, Ordering::SeqCst);
-            // NOTE: WebView2 creation is deferred to show_panel() to avoid focus stealing
+
+            // Windows 11 Rounded Corners - Disable native rounding
+            let corner_pref = 1u32; // DWMWCP_DONOTROUND
+            let _ = DwmSetWindowAttribute(
+                panel_hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                std::ptr::addr_of!(corner_pref) as *const _,
+                std::mem::size_of_val(&corner_pref) as u32,
+            );
+
+            // Extend frame for transparency
+            let margins = MARGINS {
+                cxLeftWidth: -1,
+                cxRightWidth: -1,
+                cyTopHeight: -1,
+                cyBottomHeight: -1,
+            };
+            let _ = DwmExtendFrameIntoClientArea(panel_hwnd, &margins);
+
+            // NOTE: WebView2 creation is deferred to show_panel()
         }
     }
 }
@@ -317,7 +341,8 @@ unsafe fn refresh_panel_layout_and_content(
     let panel_height = if fav_count == 0 {
         80 + buffer_y + keep_open_row_height
     } else {
-        (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height
+        (items_per_col as i32 * height_per_item) + 24 + buffer_y + keep_open_row_height + 100
+        // Extra buffer
     };
     let panel_height = panel_height.max(50);
 
@@ -554,7 +579,8 @@ fn create_panel_webview(panel_hwnd: HWND) {
                         update_favorites_panel();
                     }
                 })
-                .build_as_child(&wrapper)
+                .with_background_color((0, 0, 0, 0))
+                .build(&wrapper)
         });
         crate::log_info!(
             "[BubblePanel] Build finished. Status: {}",
@@ -730,7 +756,9 @@ fn resize_panel_height(content_height: i32) {
         let dpi = GetDpiForWindow(panel_hwnd);
         let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
 
-        let new_height_pixels = (content_height as f32 * scale).ceil() as i32 + 20;
+        // Add +100px buffer to ensure window is definitely taller than content
+        // This solves the 'click-through' issue at the bottom if DPI scaling is slightly off
+        let new_height_pixels = (content_height as f32 * scale).ceil() as i32 + 100;
 
         let mut panel_rect = RECT::default();
         let _ = GetWindowRect(panel_hwnd, &mut panel_rect);
