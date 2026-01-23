@@ -850,10 +850,13 @@ unsafe extern "system" fn hotkey_proc(
                                 // Store hotkey info for continuous mode detection
                                 let hk = &p.hotkeys[hk_idx];
                                 if overlay::continuous_mode::supports_continuous_mode(&p_type) {
-                                    crate::log_info!("[Hotkey] Setting current hotkey for hold detection: mods={}, code={}", hk.modifiers, hk.code);
+                                    crate::log_info!("[Hotkey] Setting current hotkey for hold detection: mods={}, code={}, name='{}'", hk.modifiers, hk.code, hk.name);
                                     overlay::continuous_mode::set_current_hotkey(
                                         hk.modifiers,
                                         hk.code,
+                                    );
+                                    overlay::continuous_mode::set_latest_hotkey_name(
+                                        hk.name.clone(),
                                     );
                                 }
                                 hk.name.clone()

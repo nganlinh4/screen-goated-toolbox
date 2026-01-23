@@ -122,6 +122,11 @@ pub fn show_error_notification(title: &str) {
     enqueue_notification(title.to_string(), String::new(), NotificationType::Error);
 }
 
+/// Show a detailed notification with title and snippet (custom type)
+pub fn show_detailed_notification(title: &str, snippet: &str, n_type: NotificationType) {
+    enqueue_notification(title.to_string(), snippet.to_string(), n_type);
+}
+
 fn ensure_window_and_post(msg: u32) {
     // Check if already warmed up
     if !IS_WARMED_UP.load(Ordering::SeqCst) {

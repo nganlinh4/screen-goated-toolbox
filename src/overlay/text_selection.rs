@@ -181,7 +181,18 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
             // Check if hotkey is being held
             let held = crate::overlay::continuous_mode::was_triggered_recently(1500);
             if held {
-                let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
+                let persistent_name = crate::overlay::continuous_mode::get_hotkey_name();
+                let latest_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
+                crate::log_info!(
+                    "[TextSelection] Hotkey Resolution - Persistent: '{}', Latest: '{}'",
+                    persistent_name,
+                    latest_name
+                );
+
+                let mut hotkey_name = persistent_name;
+                if hotkey_name.is_empty() {
+                    hotkey_name = latest_name;
+                }
                 if hotkey_name.is_empty() {
                     hotkey_name = "Hotkey".to_string();
                 }
@@ -690,6 +701,9 @@ fn internal_create_tag_thread() {
                     if HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst) {
                         let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
                         if hotkey_name.is_empty() {
+                            hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
+                        }
+                        if hotkey_name.is_empty() {
                             hotkey_name = "Hotkey".to_string();
                         }
 
@@ -874,6 +888,14 @@ fn internal_create_tag_thread() {
                                 if held {
                                     let mut hotkey_name =
                                         crate::overlay::continuous_mode::get_hotkey_name();
+
+                                    let dbg_latest =
+                                        crate::overlay::continuous_mode::get_latest_hotkey_name();
+                                    crate::log_info!("[TextSelection] Late Check - Persistent: '{}', Latest: '{}'", hotkey_name, dbg_latest);
+
+                                    if hotkey_name.is_empty() {
+                                        hotkey_name = dbg_latest;
+                                    }
                                     if hotkey_name.is_empty() {
                                         hotkey_name = "Hotkey".to_string();
                                     }

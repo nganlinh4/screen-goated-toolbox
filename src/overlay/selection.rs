@@ -622,6 +622,9 @@ unsafe extern "system" fn selection_wnd_proc(
                             if held && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst) {
                                 let mut hotkey_name = super::continuous_mode::get_hotkey_name();
                                 if hotkey_name.is_empty() {
+                                    hotkey_name = super::continuous_mode::get_latest_hotkey_name();
+                                }
+                                if hotkey_name.is_empty() {
                                     hotkey_name = "Hotkey".to_string();
                                 }
 
@@ -787,6 +790,9 @@ unsafe extern "system" fn selection_wnd_proc(
 
                         if !is_master {
                             let mut hotkey_name = super::continuous_mode::get_hotkey_name();
+                            if hotkey_name.is_empty() {
+                                hotkey_name = super::continuous_mode::get_latest_hotkey_name();
+                            }
                             if hotkey_name.is_empty() {
                                 hotkey_name = "Hotkey".to_string();
                             }

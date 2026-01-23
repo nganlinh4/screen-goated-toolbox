@@ -18,6 +18,9 @@ static CONTINUOUS_PRESET_IDX: AtomicUsize = AtomicUsize::new(0);
 /// The hotkey name to display in the exit message (e.g., "Ctrl+Shift+T")
 static CONTINUOUS_HOTKEY_NAME: Mutex<String> = Mutex::new(String::new());
 
+/// The name of the latest hotkey that triggered an action (used for "Hold" detection logic finding the name)
+static LATEST_HOTKEY_NAME: Mutex<String> = Mutex::new(String::new());
+
 /// Check if continuous mode is currently active
 pub fn is_active() -> bool {
     CONTINUOUS_MODE_ACTIVE.load(Ordering::SeqCst)
@@ -50,6 +53,17 @@ pub fn get_hotkey_name() -> String {
     CONTINUOUS_HOTKEY_NAME.lock().unwrap().clone()
 }
 
+/// Set the latest hotkey name (called by main loop)
+pub fn set_latest_hotkey_name(name: String) {
+    crate::log_info!("[Continuous] Setting Latest Hotkey Name: '{}'", name);
+    *LATEST_HOTKEY_NAME.lock().unwrap() = name;
+}
+
+/// Get the latest hotkey name
+pub fn get_latest_hotkey_name() -> String {
+    LATEST_HOTKEY_NAME.lock().unwrap().clone()
+}
+
 /// Activate continuous mode for a preset (promotes pending to active)
 pub fn activate(preset_idx: usize, hotkey_name: String) {
     CONTINUOUS_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
@@ -67,7 +81,8 @@ pub fn deactivate() {
 }
 
 /// Show the continuous mode activation notification
-pub fn show_activation_notification(preset_name: &str, hotkey_name: &str) {
+/// Show the continuous mode activation notification
+pub fn show_activation_notification(preset_id: &str, hotkey_name: &str) {
     let lang = {
         if let Ok(app) = crate::APP.lock() {
             app.config.ui_language.clone()
@@ -75,15 +90,72 @@ pub fn show_activation_notification(preset_name: &str, hotkey_name: &str) {
             "en".to_string()
         }
     };
+
+    crate::log_info!(
+        "[Continuous] Notification Request - Preset: {}, Hotkey: '{}'",
+        preset_id,
+        hotkey_name
+    );
+
+    let localized_name = crate::gui::settings_ui::get_localized_preset_name(preset_id, &lang);
+
+    // 1. Title Suffix
+    let suffix = match lang.as_str() {
+        "vi" => "Chế độ liên tục",
+        "ko" => "연속 모드",
+        _ => "Continuous Mode",
+    };
+    let title = format!("{} - {}", localized_name, suffix);
+
+    // 2. Prepare message from locale
     let locale = crate::gui::locale::LocaleText::get(&lang);
+    let mut message = locale.continuous_mode_activated.to_string();
 
-    // Format: "✨ Cấu hình \"<name>\" sẽ hoạt động liên tục, bấm ESC hay <hotkey> để thoát"
-    let message = locale
-        .continuous_mode_activated
-        .replace("{preset}", preset_name)
-        .replace("{hotkey}", hotkey_name);
+    // Remove Sparkle (User requested to remove sparkle icon from text)
+    message = message.replace("✨ ", "").replace("✨", "");
 
-    crate::overlay::auto_copy_badge::show_update_notification(&message);
+    // Remove Preset Name part (because it's in title now)
+    message = message
+        .replace("\"{preset}\"", "")
+        .replace("'{preset}'", "")
+        .replace("{preset}", "");
+
+    // 3. Hotkey Logic
+    // If triggered by UI (Bubble), hotkey_name is typically empty or generic "Hotkey"
+    // In that case, we want "... press ESC [ ] to exit" (removing the "or choice")
+    if hotkey_name.is_empty()
+        || hotkey_name.to_lowercase() == "hotkey"
+        || hotkey_name.to_lowercase() == "esc"
+    {
+        // Remove " or {hotkey}" variants
+        message = message
+            .replace(" hay {hotkey}", "")
+            .replace(" or {hotkey}", "")
+            .replace(" 또는 {hotkey}", "");
+
+        // Final cleanup for remaining {hotkey} if the structure was different
+        message = message.replace("{hotkey}", "");
+    } else {
+        // Specific Hotkey - keep the structure
+        message = message.replace("{hotkey}", hotkey_name);
+    }
+
+    // Clean up any double spaces introduced by removals
+    loop {
+        let new_msg = message.replace("  ", " ");
+        if new_msg == message {
+            break;
+        }
+        message = new_msg;
+    }
+    let message = message.trim();
+
+    // Call the detailed notification
+    crate::overlay::auto_copy_badge::show_detailed_notification(
+        &title,
+        message,
+        crate::overlay::auto_copy_badge::NotificationType::Update,
+    );
 }
 
 /// Check if a preset type supports continuous mode (only image and text)
