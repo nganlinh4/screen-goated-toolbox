@@ -47,7 +47,8 @@ impl SettingsApp {
                         } else {
                             12
                         },
-                    }),
+                    })
+                    .stroke(egui::Stroke::NONE),
             )
             .show(ctx, |ui| {
                 render_footer(
@@ -194,7 +195,7 @@ impl SettingsApp {
                 // We use interact instead of allocate_response to avoid pushing content
                 let drag_resp =
                     ui.interact(ui.max_rect(), ui.id().with("drag_bar"), egui::Sense::drag());
-                if drag_resp.dragged() {
+                if drag_resp.drag_started() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
                 }
 

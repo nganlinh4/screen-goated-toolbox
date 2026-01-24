@@ -4,12 +4,18 @@ use std::os::windows::process::CommandExt;
 use std::process::Command;
 use windows::core::w;
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_ROUND,
+};
 use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
 };
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIcon, FindWindowW, GetSystemMetrics, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON,
-    SM_CYICON, SM_CYSMICON, WM_SETICON,
+    CreateIcon, FindWindowW, GetSystemMetrics, SetWindowPos, ICON_BIG, ICON_SMALL, SM_CXICON,
+    SM_CXSMICON, SM_CYICON, SM_CYSMICON, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    WM_SETICON,
 };
 use windows_core::BOOL;
 
@@ -388,6 +394,45 @@ pub fn update_window_icon_native(is_dark_mode: bool) {
             hwnd = FindWindowW(None, title_name).unwrap_or_default();
         }
 
-        set_window_icon(hwnd, is_dark_mode);
+        if !hwnd.is_invalid() {
+            set_window_icon(hwnd, is_dark_mode);
+            apply_window_shadow_native(hwnd);
+        }
+    }
+}
+
+pub fn apply_window_shadow_native(hwnd: HWND) {
+    unsafe {
+        // 1. DWM Shadow (Nice modern shadow)
+        // Using only top margin = 1 avoids the dark artifacts at bottom corners
+        // while still triggering the system shadow for the whole window.
+        let margins = MARGINS {
+            cxLeftWidth: 0,
+            cxRightWidth: 0,
+            cyTopHeight: 1,
+            cyBottomHeight: 0,
+        };
+        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+        // 2. Windows 11 Rounding Preference
+        // This ensures the OS understands we want rounded corners, matching the app's internal UI radius.
+        let corner_pref = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            std::ptr::addr_of!(corner_pref) as *const _,
+            std::mem::size_of_val(&corner_pref) as u32,
+        );
+
+        // 3. Force update to apply the shadow and style changes reliably
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+        );
     }
 }

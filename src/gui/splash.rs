@@ -772,15 +772,19 @@ impl SplashScreen {
         // CRITICAL: Always use Pos2::ZERO as origin - painter works in window-local coords
         let rect = Rect::from_min_size(Pos2::ZERO, size);
 
-        // --- INTERACTION BLOCKER ---
+        // --- INTERACTION BLOCKER & DRAG HANDLE ---
         egui::Area::new(egui::Id::new("splash_blocker"))
             .order(egui::Order::Foreground)
             .fixed_pos(Pos2::ZERO)
             .show(ctx, |ui| {
-                ui.allocate_response(
+                let resp = ui.allocate_response(
                     size,
                     egui::Sense::click_and_drag().union(egui::Sense::hover()),
                 );
+
+                if resp.drag_started() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
             });
 
         // Use a Foreground layer to paint ON TOP of the main UI
