@@ -176,7 +176,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .dynamic_prompt()
             .auto_paste()
             .blocks(vec![
-                BlockBuilder::text("compound_mini")
+                BlockBuilder::text("cerebras_qwen3")
                     .prompt("Edit the following text according to the user's specific instructions. CRITICAL: Maintain the original language of the text unless instructed otherwise. Output ONLY the edited result without any introductory text, explanations, or quotes.")
                     .language("Vietnamese")
                     .show_overlay(false)
