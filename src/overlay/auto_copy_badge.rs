@@ -149,10 +149,6 @@ fn ensure_window_and_post(msg: u32) {
     }
 }
 
-pub fn is_warming_up() -> bool {
-    IS_WARMING_UP.load(Ordering::SeqCst)
-}
-
 pub fn warmup() {
     // Prevent multiple warmup threads from spawning (like preset_wheel)
     if IS_WARMING_UP

@@ -286,12 +286,6 @@ impl SplashAudio {
     }
 }
 
-fn rand_f32(phase: f32) -> f32 {
-    let mut state = (phase * 1000.0) as u32;
-    state = state.wrapping_mul(1103515245).wrapping_add(12345);
-    (state as f32) / (u32::MAX as f32)
-}
-
 pub struct SplashScreen {
     start_time: f64,
     voxels: Vec<Voxel>,

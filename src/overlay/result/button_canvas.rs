@@ -73,9 +73,6 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
 
 static IS_INITIALIZING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Warmup removed as per user request
-pub fn warmup() {}
-
 /// Register a markdown window for button overlay
 pub fn register_markdown_window(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
@@ -185,51 +182,6 @@ fn update_window_position_internal(hwnd: HWND, notify: bool) {
         update_canvas();
         update_canvas();
     }
-}
-
-// Update windows function exposed for other modules
-pub fn get_json_state_for_window(hwnd: HWND, _screen_w: f32, _screen_h: f32) -> serde_json::Value {
-    let hwnd_key = hwnd.0 as isize;
-
-    // Default rect calculation if not found (should be rare)
-    // Default rect calculation if not found (should be rare)
-    let rect = unsafe {
-        let mut r = windows::Win32::Foundation::RECT::default();
-        let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut r);
-        let scale = get_dpi_scale();
-        serde_json::json!({
-            "x": ((r.left as f64) / scale) as i32,
-            "y": ((r.top as f64) / scale) as i32,
-            "w": (((r.right - r.left) as f64) / scale) as i32,
-            "h": (((r.bottom - r.top) as f64) / scale) as i32
-        })
-    };
-
-    let state_obj = {
-        let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get(&hwnd_key) {
-            serde_json::json!({
-                "copySuccess": state.copy_success,
-                "hasUndo": !state.text_history.is_empty(),
-                "hasRedo": !state.redo_history.is_empty(),
-                "isMarkdown": state.is_markdown_mode,
-                "ttsSpeaking": state.tts_request_id != 0,
-                "ttsLoading": state.tts_loading,
-                "isEditing": state.is_editing,
-                "inputText": state.input_text,
-                "isBrowsing": state.is_browsing,
-                "navDepth": state.navigation_depth,
-                "maxNavDepth": state.max_navigation_depth
-            })
-        } else {
-            serde_json::json!({})
-        }
-    };
-
-    serde_json::json!({
-        "rect": rect,
-        "state": state_obj
-    })
 }
 
 /// Send update to set the text in the refine input bar

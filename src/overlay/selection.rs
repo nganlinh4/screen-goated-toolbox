@@ -193,26 +193,6 @@ pub fn is_selection_overlay_active() -> bool {
     SELECTION_OVERLAY_ACTIVE.load(Ordering::SeqCst)
 }
 
-pub fn is_selection_overlay_active_and_dismiss() -> bool {
-    unsafe {
-        if SELECTION_OVERLAY_ACTIVE.load(Ordering::SeqCst)
-            && !std::ptr::addr_of!(SELECTION_OVERLAY_HWND)
-                .read()
-                .is_invalid()
-        {
-            let _ = PostMessageW(
-                Some(SELECTION_OVERLAY_HWND.0),
-                WM_CLOSE,
-                WPARAM(0),
-                LPARAM(0),
-            );
-            true
-        } else {
-            false
-        }
-    }
-}
-
 #[allow(static_mut_refs)]
 pub fn show_selection_overlay(preset_idx: usize) {
     unsafe {

@@ -56,7 +56,7 @@ static CONTINUOUS_ACTIVATED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 static HOLD_DETECTED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 
 // DEDUPLICATION: Track last processed text to prevent reprocessing same content
-static LAST_PROCESSED_HASH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 // DEDUPLICATION: Timestamp of last instant process to debounce rapid calls
 static LAST_INSTANT_PROCESS_TIME: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
@@ -871,7 +871,7 @@ fn internal_create_tag_thread() {
                                 CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst);
 
                             if !cm_active_before && !session_flag {
-                                let mut held = if unsafe { TRIGGER_MODIFIERS == 0 } {
+                                let mut held = if TRIGGER_MODIFIERS == 0 {
                                     IS_HOTKEY_HELD.load(Ordering::SeqCst)
                                 } else {
                                     crate::overlay::continuous_mode::are_modifiers_still_held()

@@ -326,15 +326,13 @@ fn wnd_http_response(
         })
 }
 
-pub fn warmup() {}
-
 pub fn show_prompt_dj() {
     unsafe {
         // Initialize on-demand if not warmed up
         if !IS_WARMED_UP {
             if !IS_INITIALIZING {
                 IS_INITIALIZING = true;
-                std::thread::spawn(|| unsafe {
+                std::thread::spawn(|| {
                     internal_create_pdj_loop();
                 });
             }
@@ -344,17 +342,11 @@ pub fn show_prompt_dj() {
                 // Poll for 10 seconds (100 * 100ms)
                 for _ in 0..100 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
-                    unsafe {
-                        let hwnd_wrapper = std::ptr::addr_of!(PDJ_HWND).read();
-                        if IS_WARMED_UP && !hwnd_wrapper.is_invalid() {
-                            let _ = PostMessageW(
-                                Some(hwnd_wrapper.0),
-                                WM_APP_SHOW,
-                                WPARAM(0),
-                                LPARAM(0),
-                            );
-                            return;
-                        }
+                    let hwnd_wrapper = std::ptr::addr_of!(PDJ_HWND).read();
+                    if IS_WARMED_UP && !hwnd_wrapper.is_invalid() {
+                        let _ =
+                            PostMessageW(Some(hwnd_wrapper.0), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                        return;
                     }
                 }
             });
@@ -682,27 +674,19 @@ unsafe fn internal_create_pdj_loop() {
                     let body = msg.body().as_str();
                     if body == "drag_window" {
                         let _ = ReleaseCapture();
-                        unsafe {
-                            let _ = SendMessageW(
-                                hwnd_ipc,
-                                WM_NCLBUTTONDOWN,
-                                Some(WPARAM(HTCAPTION as usize)),
-                                Some(LPARAM(0)),
-                            );
-                        }
+                        let _ = SendMessageW(
+                            hwnd_ipc,
+                            WM_NCLBUTTONDOWN,
+                            Some(WPARAM(HTCAPTION as usize)),
+                            Some(LPARAM(0)),
+                        );
                     } else if body == "minimize_window" {
-                        unsafe {
-                            let _ = ShowWindow(hwnd_ipc, SW_MINIMIZE);
-                        }
+                        let _ = ShowWindow(hwnd_ipc, SW_MINIMIZE);
                     } else if body == "close_window" {
-                        unsafe {
-                            let _ = ShowWindow(hwnd_ipc, SW_HIDE);
-                        }
+                        let _ = ShowWindow(hwnd_ipc, SW_HIDE);
                     } else if body.starts_with("set_volume:") {
                         if let Ok(val) = body.trim_start_matches("set_volume:").parse::<f32>() {
-                            unsafe {
-                                let _ = set_app_volume(val);
-                            }
+                            let _ = set_app_volume(val);
                         }
                     }
                 })

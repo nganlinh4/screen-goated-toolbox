@@ -207,7 +207,7 @@ fn main() -> eframe::Result<()> {
             ) {
                 let func: extern "system" fn(isize) -> BOOL = std::mem::transmute(set_context);
                 // -4 is DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-                func(-4);
+                let _ = func(-4);
             }
         }
     }

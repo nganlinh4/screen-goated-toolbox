@@ -38,11 +38,6 @@ pub fn set_pending_start(preset_idx: usize, hotkey_name: String) {
     CONTINUOUS_PENDING_START.store(true, Ordering::SeqCst);
 }
 
-/// Clear pending start
-pub fn clear_pending_start() {
-    CONTINUOUS_PENDING_START.store(false, Ordering::SeqCst);
-}
-
 /// Get the preset index running in continuous mode
 pub fn get_preset_idx() -> usize {
     CONTINUOUS_PRESET_IDX.load(Ordering::SeqCst)
@@ -170,49 +165,6 @@ pub fn supports_continuous_mode(preset_type: &str) -> bool {
 
 use std::time::Instant;
 
-/// Duration threshold for hold-to-activate continuous mode (milliseconds)
-const HOLD_THRESHOLD_MS: u64 = 500;
-
-/// When the current hotkey was pressed down
-static HOLD_START_TIME: Mutex<Option<Instant>> = Mutex::new(None);
-
-/// The hotkey ID that is currently being held
-static HOLD_HOTKEY_ID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-
-/// Start tracking a hotkey press for hold detection
-pub fn start_hold_tracking(hotkey_id: i32) {
-    *HOLD_START_TIME.lock().unwrap() = Some(Instant::now());
-    HOLD_HOTKEY_ID.store(hotkey_id, Ordering::SeqCst);
-}
-
-/// Stop tracking hold and return true if the hold duration exceeded threshold
-pub fn stop_hold_tracking() -> bool {
-    let held_long_enough = {
-        if let Some(start) = HOLD_START_TIME.lock().unwrap().take() {
-            start.elapsed().as_millis() >= HOLD_THRESHOLD_MS as u128
-        } else {
-            false
-        }
-    };
-    HOLD_HOTKEY_ID.store(0, Ordering::SeqCst);
-    held_long_enough
-}
-
-/// Get the hotkey ID currently being held
-pub fn get_held_hotkey_id() -> i32 {
-    HOLD_HOTKEY_ID.load(Ordering::SeqCst)
-}
-
-/// Check if we're currently tracking a hold
-pub fn is_tracking_hold() -> bool {
-    HOLD_START_TIME.lock().unwrap().is_some()
-}
-
-/// Get the hold threshold in milliseconds (for JavaScript progress animation)
-pub fn get_hold_threshold_ms() -> u64 {
-    HOLD_THRESHOLD_MS
-}
-
 /// The hotkey that triggered the current action (for checking if still held)
 /// The hotkey that triggered the current action (for checking if still held)
 static CURRENT_HOTKEY: Mutex<Option<(u32, u32)>> = Mutex::new(None); // (modifiers, vk_code)
@@ -230,11 +182,6 @@ pub fn reset_heartbeat() {
 pub fn update_last_trigger_time() {
     HEARTBEAT_COUNT.fetch_add(1, Ordering::SeqCst);
     *LAST_HOTKEY_TRIGGER_TIME.lock().unwrap() = Some(Instant::now());
-}
-
-/// Get the current heartbeat count for hold detection
-pub fn get_heartbeat_count() -> usize {
-    HEARTBEAT_COUNT.load(Ordering::SeqCst)
 }
 
 /// Check if the hotkey was triggered recently (within ms)
@@ -260,11 +207,6 @@ pub fn set_current_hotkey(modifiers: u32, vk_code: u32) {
 /// Get the current hotkey info (modifiers, vk_code)
 pub fn get_current_hotkey_info() -> Option<(u32, u32)> {
     *CURRENT_HOTKEY.lock().unwrap()
-}
-
-/// Clear the current hotkey
-pub fn clear_current_hotkey() {
-    *CURRENT_HOTKEY.lock().unwrap() = None;
 }
 
 /// Check if the current hotkey's modifiers are still being held

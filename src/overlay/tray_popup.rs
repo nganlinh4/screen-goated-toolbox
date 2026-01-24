@@ -721,11 +721,9 @@ fn create_popup_window() {
 
             // Message loop runs forever to keep window alive
             let mut msg = MSG::default();
-            unsafe {
-                while GetMessageW(&mut msg, None, 0, 0).into() {
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
+            while GetMessageW(&mut msg, None, 0, 0).into() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
             }
         } else {
             crate::log_info!("[TrayPopup] FAILED to initialize WebView after 3 attempts.");

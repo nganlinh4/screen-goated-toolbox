@@ -891,7 +891,6 @@ fn internal_create_window_loop() {
 
         crate::log_info!("[TextInput] Calculating scale...");
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
         let scale = {
             let dpi = GetDpiForSystem();
             crate::log_info!("[TextInput] System DPI: {}", dpi);
@@ -915,9 +914,6 @@ fn internal_create_window_loop() {
             win_w,
             win_h
         );
-
-        let x = (screen_w - win_w) / 2;
-        let y = (screen_h - win_h) / 2;
 
         // Start HIDDEN logic (Offscreen but VISIBLE for Webview init)
         let hwnd = CreateWindowExW(
