@@ -264,7 +264,6 @@ impl SettingsApp {
             ThemeMode::System => system_dark,
         };
 
-        let start_in_tray = config.start_in_tray;
         let initial_ui_language = config.ui_language.clone(); // Extract before move
         let rng_seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

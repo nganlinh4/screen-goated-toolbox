@@ -49,15 +49,13 @@ pub fn stop_realtime_overlay() {
     }
 }
 
-pub fn warmup() {}
-
 pub fn show_realtime_overlay(preset_idx: usize) {
     unsafe {
         // Initialize on-demand if not warmed up
         if !IS_WARMED_UP {
             if !IS_INITIALIZING {
                 IS_INITIALIZING = true;
-                std::thread::spawn(move || unsafe {
+                std::thread::spawn(move || {
                     internal_create_realtime_loop();
                 });
             }
@@ -67,16 +65,14 @@ pub fn show_realtime_overlay(preset_idx: usize) {
                 // Poll for 10 seconds (100 * 100ms)
                 for _ in 0..100 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
-                    unsafe {
-                        if IS_WARMED_UP && !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
-                            let _ = PostMessageW(
-                                Some(REALTIME_HWND),
-                                WM_APP_REALTIME_START,
-                                WPARAM(preset_idx),
-                                LPARAM(0),
-                            );
-                            return;
-                        }
+                    if IS_WARMED_UP && !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
+                        let _ = PostMessageW(
+                            Some(REALTIME_HWND),
+                            WM_APP_REALTIME_START,
+                            WPARAM(preset_idx),
+                            LPARAM(0),
+                        );
+                        return;
                     }
                 }
             });

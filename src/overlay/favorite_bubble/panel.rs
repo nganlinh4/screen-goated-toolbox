@@ -71,10 +71,7 @@ pub fn show_panel(bubble_hwnd: HWND) {
                 let panel_val = PANEL_HWND.load(Ordering::SeqCst);
                 if panel_val != 0 {
                     let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
-                    unsafe {
-                        let _ =
-                            PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
-                    }
+                    let _ = PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
                 }
             });
         } else if let Ok(app) = APP.lock() {
