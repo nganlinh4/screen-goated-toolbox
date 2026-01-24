@@ -111,22 +111,12 @@ impl SettingsApp {
             self.tray_quit_item.set_text(new_locale.tray_quit);
         }
 
-        // --- LAZY TRAY ICON CREATION ---
-        // Try to create the tray icon if it doesn't exist yet.
+        // --- LAZY TRAY ICON RECONCILE ---
         if self.tray_icon.is_none() {
-            // FALLBACK: If icon is missing after 30s, ensure window is visible
-            if now > 30.0 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            }
-
             if now - self.tray_retry_timer > 1.0 {
                 self.tray_retry_timer = now;
-
-                // Use the Helper with effective theme
                 let icon = icon_gen::get_tray_icon(self.last_effective_theme_dark);
-
                 if let Ok(tray) = TrayIconBuilder::new()
-                    // NO with_menu() - we handle menu manually to avoid blocking
                     .with_tooltip("Screen Goated Toolbox (nganlinh4)")
                     .with_icon(icon)
                     .build()
@@ -134,7 +124,6 @@ impl SettingsApp {
                     self.tray_icon = Some(tray);
                 }
             }
-            ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
     }
 
@@ -163,51 +152,74 @@ impl SettingsApp {
                 let x_logical = center_x_physical / pixels_per_point;
                 let y_logical = center_y_physical / pixels_per_point;
 
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
-                    x_logical, y_logical,
-                )));
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    WINDOW_WIDTH,
-                    WINDOW_HEIGHT,
-                )));
+                if !self.config.start_in_tray {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(
+                        x_logical, y_logical,
+                    )));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                        WINDOW_WIDTH,
+                        WINDOW_HEIGHT,
+                    )));
+                }
 
                 self.startup_stage = 1;
                 ctx.request_repaint();
                 return;
             }
-        } else if self.startup_stage < 30 {
-            // Wait for ~30 frames to let egui and the OS settle window metrics
+        } else if self.startup_stage == 1 {
+            // --- EARLY INIT: TRULY BEFORE SPLASH ---
+
+            // 1. Start favorite bubble (WebView creation)
+            let has_favorites = self.config.presets.iter().any(|p| p.is_favorite);
+            if self.config.show_favorite_bubble && has_favorites {
+                crate::overlay::favorite_bubble::show_favorite_bubble();
+            }
+
+            // 2. Trigger auto-update check (Network/Disk IO)
+            if let Some(updater) = &self.updater {
+                updater.check_for_updates();
+            }
+
+            self.startup_stage = 2;
+            ctx.request_repaint();
+            return;
+        } else if self.startup_stage < 35 {
+            // Wait for ~35 frames to let background windows (Bubble/Tray) settle
             self.startup_stage += 1;
             ctx.request_repaint();
             return;
-        } else if self.startup_stage == 30 {
-            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                WINDOW_WIDTH,
-                WINDOW_HEIGHT,
-            )));
+        } else if self.startup_stage == 35 {
+            // CRITICAL: Wait for Tray Icon to be ready before starting splash
+            // This ensures all shell integration is settled.
+            if self.tray_icon.is_none() {
+                // If tray failed or is still initializing, keep waiting
+                ctx.request_repaint();
+                return;
+            }
 
-            // CRITICAL FIX: Only allow hiding if tray icon EXISTS.
-            // Otherwise, stay visible so the update loop continues and creates the icon.
-            let should_be_visible = !self.config.start_in_tray || self.tray_icon.is_none();
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(should_be_visible));
+            if self.config.start_in_tray {
+                // ENSURE HIDDEN: If starting in tray, we must stay invisible.
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            } else {
+                // SHOW SPLASH: Create it NOW for perfect t=0 timing.
+                if self.splash.is_none() {
+                    self.splash = Some(crate::gui::splash::SplashScreen::new(ctx));
+                }
 
-            self.startup_stage = 31;
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    WINDOW_WIDTH,
+                    WINDOW_HEIGHT,
+                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            }
+
+            self.startup_stage = 36;
         }
     }
 
     /// Called exactly once when the splash screen finishes its exit animation.
-    /// Use this for intrusive background tasks that might cause UI stutter.
     fn on_splash_finished(&mut self) {
-        // 1. Trigger auto-update check (Network/Disk IO)
-        if let Some(updater) = &self.updater {
-            updater.check_for_updates();
-        }
-
-        // 2. Start favorite bubble (WebView creation)
-        let has_favorites = self.config.presets.iter().any(|p| p.is_favorite);
-        if self.config.show_favorite_bubble && has_favorites {
-            crate::overlay::favorite_bubble::show_favorite_bubble();
-        }
+        // High-prio tasks now done before splash.
     }
 
     pub(crate) fn update_bubble_sync(&mut self) {

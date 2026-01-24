@@ -10,7 +10,7 @@ use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
-    MouseButton, TrayIconEvent,
+    MouseButton, TrayIconBuilder, TrayIconEvent,
 };
 use windows::core::*;
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
@@ -45,108 +45,92 @@ impl SettingsApp {
         };
 
         // --- STARTUP LOGIC REVAMP v2 (ONLY ONE WINS) ---
-        let mut run_at_startup_ui = false;
+        let mut run_at_startup_ui = config.run_at_startup || config.run_as_admin_on_startup;
 
-        #[cfg(debug_assertions)]
-        {
-            // THE FORCEFUL DECREE: Debug builds are strictly forbidden from managing startup.
-            // We actively clean up entries to ensure no accidental residue exists.
-            let _ = auto.disable();
-            // Try to delete task (may fail without admin, but that's okay, we try)
-            std::thread::spawn(|| {
-                crate::gui::utils::set_admin_startup(false);
-            });
-            // Intent is always false in debug
-            config.run_at_startup = false;
-            config.run_as_admin_on_startup = false;
-            run_at_startup_ui = false;
+        // Ensure authorized path is set if startup is enabled
+        if run_at_startup_ui && config.authorized_startup_path.is_empty() {
+            config.authorized_startup_path = app_path_str.to_string();
         }
 
-        #[cfg(not(debug_assertions))]
+        // 1. Initial Sync: If system has it enabled but config doesn't, sync to true (Migration)
+        let mut registry_enabled_in_system = false;
+        #[cfg(target_os = "windows")]
         {
-            // 1. Initial Sync: If system has it enabled but config doesn't, sync to true (Migration)
-            let mut registry_enabled_in_system = false;
-            #[cfg(target_os = "windows")]
-            {
-                use winreg::enums::*;
-                use winreg::RegKey;
-                let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-                if let Ok(key) = hkcu.open_subkey_with_flags(
-                    "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                    KEY_READ,
-                ) {
-                    if key.get_value::<String, &str>(app_name).is_ok() {
-                        registry_enabled_in_system = true;
-                    }
+            use winreg::enums::*;
+            use winreg::RegKey;
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            if let Ok(key) = hkcu.open_subkey_with_flags(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                KEY_READ,
+            ) {
+                if key.get_value::<String, &str>(app_name).is_ok() {
+                    registry_enabled_in_system = true;
                 }
             }
-            if !registry_enabled_in_system && auto.is_enabled().unwrap_or(false) {
-                registry_enabled_in_system = true;
-            }
+        }
+        if !registry_enabled_in_system && auto.is_enabled().unwrap_or(false) {
+            registry_enabled_in_system = true;
+        }
 
-            if registry_enabled_in_system
-                && !config.run_at_startup
-                && !config.run_as_admin_on_startup
-            {
-                config.run_at_startup = true;
-                // Also authorize the path currently in registry if ours is empty
-                if config.authorized_startup_path.is_empty() {
-                    config.authorized_startup_path = app_path_str.to_string();
-                }
+        if registry_enabled_in_system && !config.run_at_startup && !config.run_as_admin_on_startup {
+            config.run_at_startup = true;
+            // Also authorize the path currently in registry if ours is empty
+            if config.authorized_startup_path.is_empty() {
+                config.authorized_startup_path = app_path_str.to_string();
             }
+        }
 
-            let task_exists = crate::gui::utils::is_admin_startup_enabled();
-            if task_exists && !config.run_as_admin_on_startup {
-                config.run_as_admin_on_startup = true;
-                if config.authorized_startup_path.is_empty() {
-                    config.authorized_startup_path = app_path_str.to_string();
-                }
+        let task_exists = crate::gui::utils::is_admin_startup_enabled();
+        if task_exists && !config.run_as_admin_on_startup {
+            config.run_as_admin_on_startup = true;
+            if config.authorized_startup_path.is_empty() {
+                config.authorized_startup_path = app_path_str.to_string();
             }
+        }
 
-            // 2. Determine if WE are authorized to manage startup
-            let is_authorized = if config.authorized_startup_path.is_empty() {
-                // No one is authorized? We take it.
-                true
-            } else if config.authorized_startup_path == app_path_str {
-                // We are the chosen one.
+        // 2. Determine if WE are authorized to manage startup
+        let is_authorized = if config.authorized_startup_path.is_empty() {
+            // No one is authorized? We take it.
+            true
+        } else if config.authorized_startup_path == app_path_str {
+            // We are the chosen one.
+            true
+        } else {
+            // Someone else is authorized. Do they still exist?
+            let other_exists = std::path::Path::new(&config.authorized_startup_path).exists();
+            if !other_exists {
+                // The authorized version is gone (likely an update/rename). We take over.
                 true
             } else {
-                // Someone else is authorized. Do they still exist?
-                let other_exists = std::path::Path::new(&config.authorized_startup_path).exists();
-                if !other_exists {
-                    // The authorized version is gone (likely an update/rename). We take over.
-                    true
-                } else {
-                    // The authorized version still exists (likely Debug vs Release co-existing).
-                    // We stay quiet to avoid "Both starting" or "Hijacking".
-                    false
-                }
-            };
+                // The authorized version still exists (likely Debug vs Release co-existing).
+                // We stay quiet to avoid "Both starting" or "Hijacking".
+                false
+            }
+        };
 
-            // 3. Apply intent & Auto-fix (ONLY if authorized)
-            if is_authorized {
-                // Update authorization if it was empty or changed due to "not exists"
-                if config.authorized_startup_path != app_path_str
-                    && (config.run_at_startup || config.run_as_admin_on_startup)
+        // 3. Apply intent & Auto-fix (ONLY if authorized)
+        if is_authorized {
+            // Update authorization if it was empty or changed due to "not exists"
+            if config.authorized_startup_path != app_path_str
+                && (config.run_at_startup || config.run_as_admin_on_startup)
+            {
+                config.authorized_startup_path = app_path_str.to_string();
+            }
+
+            if config.run_as_admin_on_startup {
+                run_at_startup_ui = true;
+                if !crate::gui::utils::is_admin_startup_pointing_to_current_exe()
+                    && current_admin_state
                 {
-                    config.authorized_startup_path = app_path_str.to_string();
+                    crate::gui::utils::set_admin_startup(true);
                 }
-
-                if config.run_as_admin_on_startup {
-                    run_at_startup_ui = true;
-                    if !crate::gui::utils::is_admin_startup_pointing_to_current_exe()
-                        && current_admin_state
-                    {
-                        crate::gui::utils::set_admin_startup(true);
-                    }
-                } else if config.run_at_startup {
-                    run_at_startup_ui = true;
-                    let _ = auto.enable();
-                }
-            } else {
-                // If not authorized, UI state just reflects intent, but we don't repair/fix.
-                run_at_startup_ui = config.run_at_startup || config.run_as_admin_on_startup;
+            } else if config.run_at_startup {
+                run_at_startup_ui = true;
+                let _ = auto.enable();
             }
+        } else {
+            // If not authorized, UI state just reflects intent, but we don't repair/fix.
+            run_at_startup_ui = config.run_at_startup || config.run_as_admin_on_startup;
         }
 
         let run_at_startup = run_at_startup_ui;
@@ -294,17 +278,28 @@ impl SettingsApp {
         let initial_bubble_enabled = config.show_favorite_bubble;
         let initial_has_favorites = config.presets.iter().any(|p| p.is_favorite);
 
+        // Create tray icon immediately to avoid splash delay
+        let icon = crate::icon_gen::get_tray_icon(effective_dark);
+        let tray_icon = match TrayIconBuilder::new()
+            .with_tooltip("Screen Goated Toolbox (nganlinh4)")
+            .with_icon(icon)
+            .build()
+        {
+            Ok(t) => Some(t),
+            Err(_) => None,
+        };
+
         Self {
             config,
             app_state_ref: app_state,
             search_query: String::new(),
-            tray_icon: None, // INITIALIZE AS NONE - will be created lazily in update()
+            tray_icon, // Created immediately
             _tray_menu: tray_menu,
             tray_settings_item,
             tray_quit_item,
             tray_favorite_bubble_item,
             last_ui_language: initial_ui_language,
-            tray_retry_timer: 4.0, // Delay tray creation to prevent startup stutter
+            tray_retry_timer: 0.0,
             event_rx: rx,
             is_quitting: false,
             run_at_startup,
@@ -318,11 +313,7 @@ impl SettingsApp {
             view_mode,
             recording_hotkey_for_preset: None,
             hotkey_conflict_msg: None,
-            splash: if start_in_tray {
-                None
-            } else {
-                Some(crate::gui::splash::SplashScreen::new(&ctx))
-            },
+            splash: None, // DELAYED CREATION to stage 35 for perfect $t=0$ timing
             fade_in_start: None,
             startup_stage: 0,
             cached_monitors,

@@ -405,9 +405,9 @@ fn main() -> eframe::Result<()> {
             }
         };
 
-        // 1. Wait until splash is COMPLETELY finished before starting background resource preparation.
-        // This ensures the animation and sound remain interference-free.
-        std::thread::sleep(std::time::Duration::from_millis(4000));
+        // 1. Start warmups immediately so they are DONE before the splash appears.
+        // This ensures the tray popup and bubble are high-priority and ready.
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         // 1. Warmup tray popup (with is_warmup=true to avoid focus stealing)
         wait_for_popup_close();

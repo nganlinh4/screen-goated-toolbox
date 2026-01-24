@@ -64,30 +64,30 @@ impl eframe::App for SettingsApp {
         self.update_tips_logic(ctx);
 
         // --- UI LAYOUT ---
-        // Title Bar (Custom Windows Bar)
-        self.render_title_bar(ctx);
+        if self.startup_stage >= 36 {
+            // Title Bar (Custom Windows Bar)
+            self.render_title_bar(ctx);
 
-        // Footer & Tips Modal
-        self.render_footer_and_tips_modal(ctx);
+            // Footer & Tips Modal
+            self.render_footer_and_tips_modal(ctx);
 
-        // Main Layout
-        self.render_main_layout(ctx);
+            // Main Layout
+            self.render_main_layout(ctx);
 
-        // Window Resizing (Must be last to override cursors at edges)
-        self.render_window_resize_handles(ctx);
+            // Window Resizing (Must be last to override cursors at edges)
+            self.render_window_resize_handles(ctx);
 
-        // Overlays
-        self.render_fade_overlay(ctx);
-        self.render_drop_overlay(ctx);
+            // Overlays
+            self.render_fade_overlay(ctx);
 
-        // Render Minimal Mode Overlay (Realtime)
-        crate::overlay::realtime_egui::render_minimal_overlay(ctx);
+            // Render Minimal Mode Overlay (Realtime)
+            crate::overlay::realtime_egui::render_minimal_overlay(ctx);
+        }
 
         // Render Splash Overlay (Last Last)
+        // Note: Splash remains visible during its exit animation, covering the UI.
         if let Some(splash) = &self.splash {
             if splash.paint(ctx, &self.config.theme_mode) {
-                // Simplified Toggle: Toggle between Light and Dark only
-                // If current effective is Dark, switch to Light, and vice versa.
                 let is_currently_dark = ctx.style().visuals.dark_mode;
                 self.config.theme_mode = if is_currently_dark {
                     crate::config::ThemeMode::Light
@@ -99,7 +99,9 @@ impl eframe::App for SettingsApp {
         }
 
         // Render Drop Overlay when dragging files (Very Last)
-        self.render_drop_overlay(ctx);
+        if self.startup_stage >= 36 {
+            self.render_drop_overlay(ctx);
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
