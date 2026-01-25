@@ -309,18 +309,23 @@ pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
     button_canvas::set_drag_mode(false); // Disable unclipped drag mode
     let mut close_group = false;
 
+    let mut fit_targets = Vec::new();
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
             match &state.interaction_mode {
-                InteractionMode::DraggingGroup(_) => {
-                    if !state.has_moved_significantly {
+                InteractionMode::DraggingGroup(snapshot)
+                | InteractionMode::ResizingGroup(snapshot, _) => {
+                    if state.has_moved_significantly {
+                        fit_targets = snapshot.iter().map(|(h, _)| *h).collect();
+                    } else {
                         close_group = true;
                     }
                 }
-                _ => {
+                InteractionMode::None => {
                     close_group = true;
                 }
+                _ => {}
             }
             state.interaction_mode = InteractionMode::None;
         }
@@ -333,6 +338,36 @@ pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
                 let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
         }
+    } else {
+        // Post cursor refresh just in case, though the canvas fix should handle it natively
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_SETCURSOR,
+                WPARAM(hwnd.0 as usize),
+                LPARAM(0x02000001),
+            );
+        }
+
+        // Trigger font fitting for all windows in the group
+        for h in fit_targets {
+            let is_markdown = {
+                let states = WINDOW_STATES.lock().unwrap();
+                states
+                    .get(&(h.0 as isize))
+                    .map(|s| s.is_markdown_mode)
+                    .unwrap_or(false)
+            };
+            if is_markdown {
+                // Post message to target window to ensure it runs on correct thread for WebView access
+                let _ = PostMessageW(
+                    Some(h),
+                    super::misc::WM_RESIZE_MARKDOWN,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
+            }
+        }
     }
     LRESULT(0)
 }
@@ -342,11 +377,23 @@ pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
     button_canvas::set_drag_mode(false); // Disable unclipped drag mode
 
     let mut close_all = false;
+    let mut fit_targets = Vec::new();
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
-            if !state.has_moved_significantly {
-                close_all = true;
+            match &state.interaction_mode {
+                InteractionMode::DraggingGroup(snapshot)
+                | InteractionMode::ResizingGroup(snapshot, _) => {
+                    if state.has_moved_significantly {
+                        fit_targets = snapshot.iter().map(|(h, _)| *h).collect();
+                    } else {
+                        close_all = true;
+                    }
+                }
+                InteractionMode::None => {
+                    close_all = true;
+                }
+                _ => {}
             }
             state.interaction_mode = InteractionMode::None;
         }
@@ -365,6 +412,36 @@ pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
         for target in targets {
             if IsWindow(Some(target)).as_bool() {
                 let _ = PostMessageW(Some(target), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+    } else {
+        // Post cursor refresh
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_SETCURSOR,
+                WPARAM(hwnd.0 as usize),
+                LPARAM(0x02000001),
+            );
+        }
+
+        // Trigger font fitting for ALL windows
+        for h in fit_targets {
+            let is_markdown = {
+                let states = WINDOW_STATES.lock().unwrap();
+                states
+                    .get(&(h.0 as isize))
+                    .map(|s| s.is_markdown_mode)
+                    .unwrap_or(false)
+            };
+            if is_markdown {
+                // Post message to target window to ensure it runs on correct thread for WebView access
+                let _ = PostMessageW(
+                    Some(h),
+                    super::misc::WM_RESIZE_MARKDOWN,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
             }
         }
     }

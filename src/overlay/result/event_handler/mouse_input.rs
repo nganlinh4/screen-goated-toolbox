@@ -1,5 +1,4 @@
 use std::mem::size_of;
-use std::sync::Arc;
 use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
@@ -172,7 +171,13 @@ pub unsafe fn handle_lbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
     LRESULT(0)
 }
 
-pub unsafe fn handle_rbutton_down(hwnd: HWND, _lparam: LPARAM) -> LRESULT {
+pub unsafe fn handle_rbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+    let x = (lparam.0 & 0xFFFF) as i16 as i32;
+    let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+    let mut rect = RECT::default();
+    let _ = GetClientRect(hwnd, &mut rect);
+    let edge = get_resize_edge(rect.right, rect.bottom, x, y);
+
     let mut screen_pt = POINT::default();
     let _ = GetCursorPos(&mut screen_pt);
 
@@ -190,8 +195,17 @@ pub unsafe fn handle_rbutton_down(hwnd: HWND, _lparam: LPARAM) -> LRESULT {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
             state.drag_start_mouse = screen_pt;
+            state.drag_start_window_rect = {
+                let mut r = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut r);
+                r
+            };
             state.has_moved_significantly = false;
-            state.interaction_mode = InteractionMode::DraggingGroup(group_snapshot);
+            if edge != ResizeEdge::None {
+                state.interaction_mode = InteractionMode::ResizingGroup(group_snapshot, edge);
+            } else {
+                state.interaction_mode = InteractionMode::DraggingGroup(group_snapshot);
+            }
         }
     }
 
@@ -200,7 +214,13 @@ pub unsafe fn handle_rbutton_down(hwnd: HWND, _lparam: LPARAM) -> LRESULT {
     LRESULT(0)
 }
 
-pub unsafe fn handle_mbutton_down(hwnd: HWND, _lparam: LPARAM) -> LRESULT {
+pub unsafe fn handle_mbutton_down(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+    let x = (lparam.0 & 0xFFFF) as i16 as i32;
+    let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
+    let mut rect = RECT::default();
+    let _ = GetClientRect(hwnd, &mut rect);
+    let edge = get_resize_edge(rect.right, rect.bottom, x, y);
+
     let mut screen_pt = POINT::default();
     let _ = GetCursorPos(&mut screen_pt);
 
@@ -220,8 +240,17 @@ pub unsafe fn handle_mbutton_down(hwnd: HWND, _lparam: LPARAM) -> LRESULT {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
             state.drag_start_mouse = screen_pt;
+            state.drag_start_window_rect = {
+                let mut r = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut r);
+                r
+            };
             state.has_moved_significantly = false;
-            state.interaction_mode = InteractionMode::DraggingGroup(targets);
+            if edge != ResizeEdge::None {
+                state.interaction_mode = InteractionMode::ResizingGroup(targets, edge);
+            } else {
+                state.interaction_mode = InteractionMode::DraggingGroup(targets);
+            }
         }
     }
 
@@ -414,7 +443,13 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
                     for (h, start_rect) in snapshot {
                         let new_x = start_rect.left + dx;
                         let new_y = start_rect.top + dy;
-                        group_moves.push((*h, new_x, new_y));
+                        group_moves.push((
+                            *h,
+                            new_x,
+                            new_y,
+                            start_rect.right - start_rect.left,
+                            start_rect.bottom - start_rect.top,
+                        ));
                     }
                 }
                 InteractionMode::Resizing(edge) => {
@@ -426,6 +461,7 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
                     let mut new_rect = state.drag_start_window_rect;
                     let min_w = super::MIN_WINDOW_WIDTH;
                     let min_h = super::MIN_WINDOW_HEIGHT;
+
                     match edge {
                         ResizeEdge::Right | ResizeEdge::TopRight | ResizeEdge::BottomRight => {
                             new_rect.right = (state.drag_start_window_rect.right + dx)
@@ -467,6 +503,50 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
 
                     button_canvas::update_window_position(hwnd);
                 }
+                InteractionMode::ResizingGroup(snapshot, edge) => {
+                    state.has_moved_significantly = true;
+                    let mut curr_pt = POINT::default();
+                    let _ = GetCursorPos(&mut curr_pt);
+                    let dx = curr_pt.x - state.drag_start_mouse.x;
+                    let dy = curr_pt.y - state.drag_start_mouse.y;
+
+                    let min_w = super::MIN_WINDOW_WIDTH;
+                    let min_h = super::MIN_WINDOW_HEIGHT;
+
+                    for (h, start_rect) in snapshot {
+                        let mut new_rect = *start_rect;
+                        match edge {
+                            ResizeEdge::Right | ResizeEdge::TopRight | ResizeEdge::BottomRight => {
+                                new_rect.right =
+                                    (start_rect.right + dx).max(start_rect.left + min_w);
+                            }
+                            ResizeEdge::Left | ResizeEdge::TopLeft | ResizeEdge::BottomLeft => {
+                                new_rect.left =
+                                    (start_rect.left + dx).min(start_rect.right - min_w);
+                            }
+                            _ => {}
+                        }
+                        match edge {
+                            ResizeEdge::Bottom
+                            | ResizeEdge::BottomRight
+                            | ResizeEdge::BottomLeft => {
+                                new_rect.bottom =
+                                    (start_rect.bottom + dy).max(start_rect.top + min_h);
+                            }
+                            ResizeEdge::Top | ResizeEdge::TopLeft | ResizeEdge::TopRight => {
+                                new_rect.top = (start_rect.top + dy).min(start_rect.bottom - min_h);
+                            }
+                            _ => {}
+                        }
+                        group_moves.push((
+                            *h,
+                            new_rect.left,
+                            new_rect.top,
+                            new_rect.right - new_rect.left,
+                            new_rect.bottom - new_rect.top,
+                        ));
+                    }
+                }
                 _ => {}
             }
             let _ = InvalidateRect(Some(hwnd), None, false);
@@ -477,31 +557,22 @@ pub unsafe fn handle_mouse_move(hwnd: HWND, lparam: LPARAM) -> LRESULT {
     if !group_moves.is_empty() {
         unsafe {
             if let Ok(mut hdwp) = BeginDeferWindowPos(group_moves.len() as i32) {
-                for (h, x, y) in group_moves {
+                for (h, x, y, w, h_val) in group_moves {
                     hdwp = DeferWindowPos(
                         hdwp,
                         h,
                         None,
                         x,
                         y,
-                        0,
-                        0,
-                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                        w,
+                        h_val,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
                     )
                     .unwrap_or(hdwp);
-                    // Single-window position update (optimized to avoid redundant GetWindowRect)
-                    let mut r = RECT::default();
-                    if GetWindowRect(h, &mut r).is_ok() {
-                        button_canvas::update_window_position_direct(
-                            h,
-                            x,
-                            y,
-                            r.right - r.left,
-                            r.bottom - r.top,
-                        );
-                    }
+                    button_canvas::update_window_position_direct(h, x, y, w, h_val);
                 }
                 let _ = EndDeferWindowPos(hdwp);
+                button_canvas::update_canvas();
             }
         }
     }

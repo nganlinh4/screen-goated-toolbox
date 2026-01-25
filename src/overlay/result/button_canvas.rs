@@ -229,6 +229,15 @@ pub fn set_drag_mode(active: bool) {
     } else {
         // EXIT DRAG MODE: Restore regions
         IS_DRAGGING_EXTERNAL.store(false, Ordering::SeqCst);
+
+        // IMMEDIATE FIX: Reset region to empty (passthrough) so the underlying window
+        // receives mouse events immediately. The correct button regions will be
+        // restored asynchronously via update_canvas -> IPC -> SetWindowRgn.
+        unsafe {
+            let empty = CreateRectRgn(0, 0, 0, 0);
+            let _ = SetWindowRgn(hwnd, Some(empty), true);
+        }
+
         update_canvas(); // Trigger recalculation of regions
     }
 }
@@ -1888,6 +1897,7 @@ fn send_windows_update() {
             matches!(
                 s.interaction_mode,
                 super::state::InteractionMode::Resizing(_)
+                    | super::state::InteractionMode::ResizingGroup(_, _)
                     | super::state::InteractionMode::DraggingWindow
                     | super::state::InteractionMode::DraggingGroup(_)
             )
@@ -2105,6 +2115,7 @@ unsafe extern "system" fn canvas_wnd_proc(
                                     let _ = EndDeferWindowPos(hdwp);
                                 }
                             }
+                            update_canvas();
 
                             // Batch update internal registry without extra GetWindowRect calls or lock flapping
                             if !updates.is_empty() {
