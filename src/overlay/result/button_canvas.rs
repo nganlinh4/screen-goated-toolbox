@@ -566,7 +566,7 @@ html, body {{
 .opacity-btn-expandable {{
     width: 24px;
     height: 24px;
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s, color 0.15s !important;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s, color 0.15s !important;
     overflow: hidden;
     padding: 0 4px !important;
     display: flex !important;
@@ -576,8 +576,21 @@ html, body {{
     border-radius: 6px;
 }}
 
-.opacity-btn-expandable:hover {{
+.opacity-btn-expandable:not(.vertical-slider):hover {{
     width: 110px !important; /* Reduced from 125px */
+    background: var(--btn-hover-bg) !important;
+    transform: none !important;
+}}
+
+/* Vertical slider specific styles */
+.opacity-btn-expandable.vertical-slider {{
+    flex-direction: column !important;
+    justify-content: flex-end !important;
+    padding: 4px 0 !important;
+}}
+
+.opacity-btn-expandable.vertical-slider:hover {{
+    height: 110px !important; /* Exactly match horizontal expanded width */
     background: var(--btn-hover-bg) !important;
     transform: none !important;
 }}
@@ -593,6 +606,11 @@ html, body {{
     flex-shrink: 0;
 }}
 
+.opacity-btn-expandable.vertical-slider .opacity-icon-wrapper {{
+    height: 16px;
+    width: 24px;
+}}
+
 .opacity-slider-wrapper {{
     flex: 1;
     display: flex;
@@ -606,6 +624,14 @@ html, body {{
     min-width: 0;
 }}
 
+.opacity-btn-expandable.vertical-slider .opacity-slider-wrapper {{
+    flex-direction: column;
+    padding-right: 0;
+    padding-bottom: 2px;
+    gap: 2px;
+    justify-content: center;
+}}
+
 .opacity-btn-expandable:hover .opacity-slider-wrapper {{
     opacity: 1;
     pointer-events: auto;
@@ -614,6 +640,7 @@ html, body {{
 
 .opacity-slider-inline {{
     -webkit-appearance: none;
+    appearance: none;
     flex: 1;
     min-width: 0;
     height: 3px;
@@ -623,13 +650,28 @@ html, body {{
     outline: none;
 }}
 
+/* Shared Thumb Style */
 .opacity-slider-inline::-webkit-slider-thumb {{
     -webkit-appearance: none;
+    appearance: none;
     width: 12px;
     height: 12px;
     background: var(--btn-active-color);
     border-radius: 50%;
     cursor: pointer;
+    border: none;
+}}
+
+.opacity-btn-expandable.vertical-slider .opacity-slider-inline {{
+    -webkit-appearance: none;
+    appearance: none;
+    width: 3px !important;
+    min-width: 3px !important;
+    height: 55px !important; /* Match horizontal flexed track length */
+    flex: none;
+    margin: 5px auto;
+    writing-mode: vertical-lr;
+    direction: rtl;
 }}
 
 .opacity-value-inline {{
@@ -755,14 +797,28 @@ function updateButtonOpacity() {{
         groups.forEach(group => {{
             if (lastVisibleState.get(group.dataset.hwnd)) {{
                 const rect = group.getBoundingClientRect();
-                const region = {{
-                    // Add large left buffer (200px) to account for expanding UI
-                    // CSS expansion happens in the WebView and might go outside the strictly measured box
-                    x: rect.left - 200,
-                    y: rect.top - 5, 
-                    w: rect.width + 200 + padding,
-                    h: rect.height + padding + 5
-                }};
+                const isVertical = group.classList.contains('vertical');
+                let region;
+                
+                if (isVertical) {{
+                    region = {{
+                        // Add top buffer for vertical expanding slider
+                        x: rect.left + 1,
+                        y: rect.top - 200, 
+                        w: rect.width + padding,
+                        h: rect.height + 200 + padding
+                    }};
+                }} else {{
+                    region = {{
+                        // Add large left buffer (200px) to account for expanding UI
+                        x: rect.left - 200,
+                        // Start exactly at top edge or slightly below to avoid window border
+                        // Vertical bar doesn't have the "bottom-right corner" issue as it's on the side
+                        y: rect.top + 1, 
+                        w: rect.width + 200 + padding,
+                        h: rect.height + padding
+                    }};
+                }}
                 regions.push(region);
                 
                 // Track what we sent (using the RAW rect, not the padded one, for change detection stability)
@@ -863,7 +919,7 @@ function calculateButtonPosition(winRect) {{
 
 // Generate buttons HTML for a window
 // All buttons are always rendered but hidden when not applicable to preserve consistent layout
-function generateButtonsHTML(hwnd, state) {{
+function generateButtonsHTML(hwnd, state, isVertical) {{
     const canGoBack = state.navDepth > 0;
     const canGoForward = state.navDepth < state.maxNavDepth;
     const isBrowsing = state.isBrowsing || false;
@@ -889,9 +945,10 @@ function generateButtonsHTML(hwnd, state) {{
         ${{window.iconSvgs.arrow_forward}}
     </div>`;
     
-    // Opacity button - Expanding on hover, positioned left of Copy, grows to the LEFT
+    // Opacity button - Expanding on hover
     const opacityValue = state.opacityPercent || 100;
-    buttons += `<div class="btn opacity-btn-expandable ${{hideClass}}" title="${{window.L10N.opacity}}">
+    const verticalClass = isVertical ? 'vertical-slider' : '';
+    buttons += `<div class="btn opacity-btn-expandable ${{verticalClass}} ${{hideClass}}" title="${{window.L10N.opacity}}">
         <div class="opacity-slider-wrapper">
             <input type="range" class="opacity-slider-inline" min="10" max="100" value="${{opacityValue}}" 
                 oninput="updateOpacity('${{hwnd}}', this.value)" />
@@ -1023,14 +1080,15 @@ function updateWindows(windowsData) {{
         }}
         
         // Update content first to ensure correct dimensions for Pass 2
-        const newStateStr = JSON.stringify(data.state || {{}});
+        const isVertical = pos.direction === 'left' || pos.direction === 'right';
+        const newStateStr = JSON.stringify(data.state || {{}}) + isVertical;
         if (group.dataset.lastState !== newStateStr) {{
-            group.innerHTML = generateButtonsHTML(hwnd, data.state || {{}});
+            group.innerHTML = generateButtonsHTML(hwnd, data.state || {{}}, isVertical);
             group.dataset.lastState = newStateStr;
         }}
 
         // Apply estimated class to get approximate dimensions
-        if (pos.direction === 'left' || pos.direction === 'right') {{
+        if (isVertical) {{
             group.classList.add('vertical');
         }} else {{
             group.classList.remove('vertical');
@@ -1038,14 +1096,10 @@ function updateWindows(windowsData) {{
 
         // Pass 2: Measure and Correct
         // Now that content and class are set, read actual dimensions
-        const actualW = group.offsetWidth || (pos.direction === 'left' || pos.direction === 'right' ? 50 : 400);
-        const actualH = group.offsetHeight || (pos.direction === 'left' || pos.direction === 'right' ? 400 : 50);
+        const actualW = group.offsetWidth || (isVertical ? 50 : 400);
+        const actualH = group.offsetHeight || (isVertical ? 400 : 50);
 
         // Re-clamp position based on actual dimensions
-        // calculateButtonPosition used hardcoded 400/50. 
-        // If actual is 600, centering based on 400 is wrong.
-        // Let's re-run the relevant centering logic with actual dims
-        
         let finalX = pos.x;
         let finalY = pos.y;
 
@@ -1077,18 +1131,23 @@ function updateWindows(windowsData) {{
         finalY = clamp(finalY, actualH, screenH);
         
         // CRITICAL: Do NOT update position if we are currently dragging this window!
-        // The local drag handler owns the position to ensure smoothness.
-        // Overwriting it with potentially stale Rust data causes stutter/glitching.
         if (!broomDragData || broomDragData.hwnd !== hwnd) {{
-            // Anchor to right if it's right-aligned to window, so expansion happens towards the left
+            // Anchor to right if it's right-aligned to window
             if (pos.direction === 'bottom' || pos.direction === 'right') {{
                 group.style.left = 'auto';
                 group.style.right = (screenW - (finalX + actualW)) + 'px';
-                group.style.top = finalY + 'px';
             }} else {{
                 group.style.left = finalX + 'px';
                 group.style.right = 'auto';
+            }}
+
+            // Anchor to bottom for vertical groups so expansion happens upwards
+            if (isVertical) {{
+                group.style.top = 'auto';
+                group.style.bottom = (screenH - (finalY + actualH)) + 'px';
+            }} else {{
                 group.style.top = finalY + 'px';
+                group.style.bottom = 'auto';
             }}
         }}
     }}
