@@ -532,7 +532,7 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
                 monitor,
                 CursorCaptureSettings::WithoutCursor,
                 DrawBorderSettings::Default,
-                SecondaryWindowSettings::Default,
+                SecondaryWindowSettings::Include,
                 MinimumUpdateIntervalSettings::Default,
                 DirtyRegionSettings::Default,
                 ColorFormat::Bgra8,
