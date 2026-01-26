@@ -67,15 +67,22 @@ export class VideoRenderer {
     this.pointerImage.onload = () => { };
   }
 
+  private activeRenderContext: RenderContext | null = null;
+
+  public updateRenderContext(context: RenderContext) {
+    this.activeRenderContext = context;
+  }
+
   public startAnimation(renderContext: RenderContext) {
     console.log('[VideoRenderer] Starting animation');
     this.stopAnimation();
     this.lastDrawTime = 0;
     this.smoothedPositions = null;
+    this.activeRenderContext = renderContext;
 
     const animate = () => {
-      // Stop animation loop if video is paused
-      if (renderContext.video.paused) {
+      // Stop animation loop if video is paused or context missing
+      if (!this.activeRenderContext || this.activeRenderContext.video.paused) {
         this.animationFrame = null;
         return;
       }
@@ -84,7 +91,7 @@ export class VideoRenderer {
       const elapsed = now - this.lastDrawTime;
 
       if (this.lastDrawTime === 0 || elapsed >= this.FRAME_INTERVAL) {
-        this.drawFrame(renderContext)
+        this.drawFrame(this.activeRenderContext)
           .catch(err => console.error('[VideoRenderer] Draw error:', err));
         this.lastDrawTime = now;
       }
@@ -100,6 +107,7 @@ export class VideoRenderer {
       cancelAnimationFrame(this.animationFrame);
       this.animationFrame = null;
       this.lastDrawTime = 0; // Reset timing when stopping
+      this.activeRenderContext = null;
     }
   }
 

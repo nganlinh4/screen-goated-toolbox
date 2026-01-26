@@ -249,6 +249,8 @@ export class VideoController {
         // No animationFrame here, as renderFrame is called manually or by event listeners
         return;
       }
+      // Update the active context for the animation loop
+      videoRenderer.updateRenderContext(renderContext);
       videoRenderer.drawFrame(renderContext);
     } else {
       // console.log('[VideoController] Skipping frame - video not ready');
