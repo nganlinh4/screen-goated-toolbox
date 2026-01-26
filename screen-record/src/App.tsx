@@ -241,7 +241,6 @@ function App() {
   useEffect(() => {
     if (showHotkeyDialog && listeningForKey) {
       const handleKeyDown = async (e: KeyboardEvent) => {
-        console.log("Key pressed in dialog:", e.key, e.code);
         e.preventDefault();
 
         // Ignore modifier-only presses
@@ -333,7 +332,10 @@ function App() {
 
       // Reset video element
       if (videoRef.current) {
-        videoRef.current.src = '';
+        videoRef.current.pause();
+        videoRef.current.src = "";
+        videoRef.current.load();
+        videoRef.current.removeAttribute('src');
         videoRef.current.currentTime = 0;
       }
 
@@ -386,13 +388,18 @@ function App() {
         const videoBlob = await response.blob();
         const timestamp = new Date().toLocaleString();
         const initialSegment: VideoSegment = { trimStart: 0, trimEnd: 0, zoomKeyframes: [], textSegments: [] };
-        // Note: duration will be updated via metadata effect, but we save initial state here
+
+        // Final frame render to ensure we have a thumbnail
+        renderFrame();
+        const thumbnail = generateThumbnail();
+
         const project = await projectManager.saveProject({
           name: `Recording ${timestamp}`,
           videoBlob,
           segment: initialSegment,
           backgroundConfig,
-          mousePositions: mouseData
+          mousePositions: mouseData,
+          thumbnail
         });
         setCurrentProjectId(project.id);
         await loadProjects();
@@ -696,10 +703,19 @@ function App() {
     setProjects(projects);
   };
 
-  // Projects state
+  // States removed: showSaveDialog, projectNameInput
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [editingProjectNameId, setEditingProjectNameId] = useState<string | null>(null);
   const [projectRenameValue, setProjectRenameValue] = useState("");
+
+  const generateThumbnail = useCallback((): string | undefined => {
+    if (!canvasRef.current) return undefined;
+    try {
+      return canvasRef.current.toDataURL('image/jpeg', 0.5);
+    } catch (e) {
+      return undefined;
+    }
+  }, []);
 
   // Update handleSaveProject to show different options when editing existing project
   // Auto-save effect
@@ -710,12 +726,14 @@ function App() {
       try {
         const response = await fetch(currentVideo);
         const videoBlob = await response.blob();
+        const thumbnail = generateThumbnail();
         await projectManager.updateProject(currentProjectId, {
           name: projects.find(p => p.id === currentProjectId)?.name || "Auto Saved Project",
           videoBlob,
           segment,
           backgroundConfig,
-          mousePositions
+          mousePositions,
+          thumbnail
         });
         await loadProjects();
       } catch (err) {
@@ -1014,7 +1032,7 @@ function App() {
               <div className="aspect-video relative">
                 <div className="absolute inset-0 flex items-center justify-center">
                   <canvas ref={canvasRef} className="w-full h-full object-contain" />
-                  <video ref={videoRef} className="hidden" playsInline preload="auto" crossOrigin="anonymous" />
+                  <video ref={videoRef} className="hidden" playsInline preload="auto" />
                   {(!currentVideo || isRecording || isLoadingVideo) && renderPlaceholder()}
                 </div>
                 {currentVideo && !isRecording && !isLoadingVideo && (
@@ -1378,6 +1396,12 @@ function App() {
                       // Generate auto zoom keyframes
                       const newKeyframes = autoZoomGenerator.generateZooms(segment, mousePositions);
 
+                      if (newKeyframes.length === 0) {
+                        setError("No clicking activity detected to suggest zooms.");
+                        setTimeout(() => setError(null), 3000);
+                        return;
+                      }
+
                       // Merge with existing keyframes and sort by time
                       const allKeyframes = [...segment.zoomKeyframes, ...newKeyframes]
                         .sort((a, b) => a.time - b.time);
@@ -1628,9 +1652,18 @@ function App() {
                 {projects.map((project) => (
                   <div
                     key={project.id}
-                    className="flex items-center justify-between p-4 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors"
+                    className="flex items-center justify-between p-3 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors gap-4"
                   >
-                    <div className="flex-1 min-w-0 mr-4">
+                    <div className="w-24 h-14 bg-black rounded overflow-hidden flex-shrink-0 border border-[#343536]">
+                      {project.thumbnail ? (
+                        <img src={project.thumbnail} className="w-full h-full object-cover" alt="Preview" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[#343536]">
+                          <Video className="w-6 h-6" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
                       {editingProjectNameId === project.id ? (
                         <input
                           autoFocus
