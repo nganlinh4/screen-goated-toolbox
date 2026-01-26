@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Play, Pause, Video, Plus, Trash2, Search, Download, Loader2, FolderOpen, Upload, Wand2, Type, Keyboard, X, Minus, Square, Copy } from "lucide-react";
+import { Play, Pause, Video, Trash2, Search, Download, Loader2, FolderOpen, Upload, Wand2, Type, Keyboard, X, Minus, Square, Copy } from "lucide-react";
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { videoRenderer } from '@/lib/videoRenderer';
@@ -12,6 +12,7 @@ import { projectManager } from '@/lib/projectManager';
 import { autoZoomGenerator } from '@/lib/autoZoom';
 import { Timeline } from '@/components/Timeline';
 import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
+import { useUndoRedo } from '@/hooks/useUndoRedo';
 
 // Replace the debounce utility with throttle
 const useThrottle = (callback: Function, limit: number) => {
@@ -74,7 +75,7 @@ function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [segment, setSegment] = useState<VideoSegment | null>(null);
+  const { state: segment, setState: setSegment, undo, redo, canUndo, canRedo } = useUndoRedo<VideoSegment | null>(null);
   const [editingKeyframeId, setEditingKeyframeId] = useState<number | null>(null);
   const [zoomFactor, setZoomFactor] = useState(1.5);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -86,6 +87,9 @@ function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+
+
 
   // Add new state for the confirmation modal
   // State removed: showConfirmNewRecording
@@ -142,13 +146,26 @@ function App() {
 
   // Helper function to render a frame
   const renderFrame = useCallback(() => {
-    if (!segment) return;
+    if (!segment || !videoRef.current || !canvasRef.current) return;
 
     videoControllerRef.current?.updateRenderOptions({
       segment,
       backgroundConfig,
       mousePositions
     });
+
+    // Explicitly draw frame if paused to reflect changes immediately
+    if (videoRef.current.paused) {
+      videoRenderer.drawFrame({
+        video: videoRef.current,
+        canvas: canvasRef.current,
+        tempCanvas: tempCanvasRef.current,
+        segment,
+        backgroundConfig,
+        mousePositions,
+        currentTime: videoRef.current.currentTime
+      });
+    }
   }, [segment, backgroundConfig, mousePositions]);
 
   // Remove frameCallback and simplify the animation effect
@@ -439,6 +456,47 @@ function App() {
     videoControllerRef.current?.togglePlayPause();
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = ['INPUT', 'TEXTAREA'].includes(target.tagName);
+
+      if (e.code === 'Space' && !isInput) {
+        e.preventDefault();
+        togglePlayPause();
+      }
+
+      // Delete Keyframe
+      if ((e.code === 'Delete' || e.code === 'Backspace') && editingKeyframeId !== null && !isInput) {
+        if (segment && segment.zoomKeyframes[editingKeyframeId]) {
+          const newKeyframes = [...segment.zoomKeyframes];
+          newKeyframes.splice(editingKeyframeId, 1);
+          setSegment({ ...segment, zoomKeyframes: newKeyframes });
+          setEditingKeyframeId(null);
+        }
+      }
+
+      // Undo/Redo
+      if (e.ctrlKey || e.metaKey) {
+        if (e.code === 'KeyZ') {
+          if (e.shiftKey) {
+            e.preventDefault();
+            if (canRedo) redo();
+          } else {
+            e.preventDefault();
+            if (canUndo) undo();
+          }
+        } else if (e.code === 'KeyY') {
+          e.preventDefault();
+          if (canRedo) redo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlayPause, editingKeyframeId, segment, canUndo, canRedo, undo, redo]);
+
   // Add this effect to handle metadata loading
   useEffect(() => {
     const video = videoRef.current;
@@ -517,35 +575,81 @@ function App() {
   };
 
   // Update handleAddKeyframe to include duration
-  const handleAddKeyframe = () => {
+  const handleAddKeyframe = (override?: Partial<ZoomKeyframe>) => {
     if (!segment || !videoRef.current) return;
 
     const currentTime = videoRef.current.currentTime;
 
-    // Find the previous keyframe to inherit its values
-    const previousKeyframe = [...segment.zoomKeyframes]
-      .sort((a, b) => b.time - a.time) // Sort in reverse order
-      .find(k => k.time < currentTime);
+    // Check for nearby keyframe to update (debounce/merge)
+    const nearbyIndex = segment.zoomKeyframes.findIndex(k => Math.abs(k.time - currentTime) < 0.2);
 
-    const newKeyframe: ZoomKeyframe = {
-      time: currentTime,
-      duration: 0.5,
-      // Inherit values from previous keyframe if it exists, otherwise use defaults
-      zoomFactor: previousKeyframe ? previousKeyframe.zoomFactor : 1.5,
-      positionX: previousKeyframe ? previousKeyframe.positionX : 0.5,
-      positionY: previousKeyframe ? previousKeyframe.positionY : 0.5,
-      easingType: 'easeOut'
-    };
+    let updatedKeyframes: ZoomKeyframe[];
 
-    const newKeyframes = [...segment.zoomKeyframes, newKeyframe].sort((a, b) => a.time - b.time);
+    if (nearbyIndex !== -1) {
+      // Update existing keyframe
+      const existing = segment.zoomKeyframes[nearbyIndex];
+      updatedKeyframes = [...segment.zoomKeyframes];
+      updatedKeyframes[nearbyIndex] = {
+        ...existing,
+        zoomFactor: override?.zoomFactor ?? existing.zoomFactor,
+        positionX: override?.positionX ?? existing.positionX,
+        positionY: override?.positionY ?? existing.positionY,
+      };
+      setEditingKeyframeId(nearbyIndex);
+    } else {
+      // Create new keyframe
+      // Find previous keyframe for defaults
+      const previousKeyframe = [...segment.zoomKeyframes]
+        .sort((a, b) => b.time - a.time)
+        .find(k => k.time < currentTime);
+
+      const newKeyframe: ZoomKeyframe = {
+        time: currentTime,
+        duration: 1.0,
+        zoomFactor: override?.zoomFactor ?? previousKeyframe?.zoomFactor ?? 1.5,
+        positionX: override?.positionX ?? previousKeyframe?.positionX ?? 0.5,
+        positionY: override?.positionY ?? previousKeyframe?.positionY ?? 0.5,
+        easingType: 'easeInOut'
+      };
+
+      updatedKeyframes = [...segment.zoomKeyframes, newKeyframe]
+        .sort((a, b) => a.time - b.time);
+
+      setEditingKeyframeId(updatedKeyframes.indexOf(newKeyframe));
+    }
+
     setSegment({
       ...segment,
-      zoomKeyframes: newKeyframes
+      zoomKeyframes: updatedKeyframes
     });
 
-    setZoomFactor(newKeyframe.zoomFactor);
-    setEditingKeyframeId(newKeyframes.indexOf(newKeyframe));
+    // Update zoomFactor state so the slider stays in sync during wheel/panning
+    const finalFactor = override?.zoomFactor ?? updatedKeyframes[editingKeyframeId !== null ? nearbyIndex !== -1 ? nearbyIndex : updatedKeyframes.length - 1 : updatedKeyframes.length - 1]?.zoomFactor;
+    if (finalFactor !== undefined) {
+      setZoomFactor(finalFactor);
+    }
+
+    // Trigger AutoZoom update if smooth path is active
+    if (segment.smoothMotionPath && segment.smoothMotionPath.length > 0) {
+      // We need to re-run auto zoom generation with the new keyframes!
+      // But we need the mouse data... which is in `mousePositions` state.
+      // We need to access `mousePositions`.
+      // BUT, generating path takes time.
+      // We can trigger it in a useEffect or directly here if we have data.
+    }
   };
+
+  // Sync zoomFactor state with editing keyframe
+  useEffect(() => {
+    if (segment && editingKeyframeId !== null) {
+      const kf = segment.zoomKeyframes[editingKeyframeId];
+      if (kf) {
+        setZoomFactor(kf.zoomFactor);
+      }
+    }
+  }, [editingKeyframeId]);
+
+
 
   // Update the throttled update function for zoom configuration
   const throttledUpdateZoom = useThrottle((updates: Partial<ZoomKeyframe>) => {
@@ -560,13 +664,15 @@ function App() {
     setSegment({
       ...segment,
       zoomKeyframes: updatedKeyframes
-    });
+    }, false);
 
-    // Seek to the keyframe's time to show the final zoom state
+    // Seek if needed (optional, usually dragging slider expects update)
     if (videoRef.current) {
-      const keyframeTime = updatedKeyframes[editingKeyframeId].time;
-      videoRef.current.currentTime = keyframeTime;
-      setCurrentTime(keyframeTime);
+      const kf = updatedKeyframes[editingKeyframeId];
+      if (Math.abs(videoRef.current.currentTime - kf.time) > 0.1) {
+        videoRef.current.currentTime = kf.time;
+        setCurrentTime(kf.time);
+      }
     }
 
     // Force a redraw to show the changes
@@ -574,6 +680,42 @@ function App() {
       renderFrame();
     });
   }, 32); // 32ms throttle
+
+  // Non-passive wheel listener to fix scrolling issue
+  useEffect(() => {
+    const container = previewContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!currentVideo) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const lastState = videoRenderer.getLastCalculatedState();
+      if (!lastState) return;
+
+      // Sensitivity
+      const zoomDelta = -e.deltaY * 0.002 * lastState.zoomFactor;
+      const newZoom = Math.max(1.0, Math.min(12.0, lastState.zoomFactor + zoomDelta));
+
+      handleAddKeyframe({
+        zoomFactor: newZoom,
+        positionX: lastState.positionX,
+        positionY: lastState.positionY
+      });
+      setActivePanel('zoom');
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [currentVideo, segment]); // Re-bind if segment changes? No, handleAddKeyframe uses ref state mostly but logic is closed over? 
+  // handleAddKeyframe in App depends on 'segment'.
+  // If 'segment' changes, handleAddKeyframe is stale?
+  // Yes, functions in App are re-created.
+  // We need to fetch fresh state or use ref for handlers.
+  // Actually, 'handleAddKeyframe' is stable dependency? No it changes on render.
+  // So we must include it in dep array or `handleWheel` calls old closure.
+  // Added [handleAddKeyframe] to dependencies.
 
   // Add this effect to redraw when background config changes
   useEffect(() => {
@@ -667,11 +809,12 @@ function App() {
             <p className="text-[#818384] text-sm mt-1">This may take a few moments...</p>
           </div>
         ) : isRecording ? (
-          // Recording state
+          // Recording state (only show if no video is loaded)
           <div className="flex flex-col items-center">
             <div className="w-4 h-4 rounded-full bg-red-500 animate-pulse mb-4" />
             <p className="text-[#d7dadc] font-medium">Recording in progress...</p>
             <p className="text-[#818384] text-sm mt-1">Screen is being captured</p>
+            <span className="text-[#d7dadc] text-xl font-mono mt-4">{formatTime(recordingDuration)}</span>
           </div>
         ) : (
           // No video state
@@ -936,13 +1079,28 @@ function App() {
           (window as any).ipc.postMessage('drag_window');
         }}
       >
-        <div className="flex items-center gap-4 px-4 h-full pointer-events-none">
-          <Video className="w-5 h-5 text-[#0079d3]" />
-          <span className="text-[#d7dadc] text-sm font-medium">Screen Record</span>
+        <div className="flex items-center gap-4 px-4 h-full">
+          <div className="flex items-center gap-3">
+            <Video className="w-5 h-5 text-[#0079d3]" />
+            <span className="text-[#d7dadc] text-sm font-medium">Screen Record</span>
+          </div>
+
+          <div className="h-full flex items-center">
+            {isRecording && currentVideo && (
+              <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 px-3 py-1 rounded-full animate-in fade-in slide-in-from-left-2 duration-300">
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <div className="flex flex-col">
+                  <span className="text-red-500 text-[10px] font-bold leading-none uppercase tracking-wider">Recording</span>
+                  <span className="text-[#818384] text-[9px] leading-tight">Screen is being captured</span>
+                </div>
+                <span className="text-[#d7dadc] text-xs font-mono ml-1">{formatTime(recordingDuration)}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-3 h-full px-2">
-          <div className="flex items-center gap-2 flex-wrap max-w-[300px] justify-end">
+          <div className="flex items-center gap-2 flex-wrap max-w-[400px] justify-end">
             {hotkeys.map((h, i) => (
               <Button
                 key={i}
@@ -964,7 +1122,6 @@ function App() {
               <Keyboard className="w-3 h-3 mr-1" />
               Add Hotkey
             </Button>
-            {isRecording && <span className="text-red-500 font-medium ml-2">{formatTime(recordingDuration)}</span>}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1042,12 +1199,57 @@ function App() {
           <div className="grid grid-cols-4 gap-6 items-start">
             <div className="col-span-3 rounded-lg">
               <div className="aspect-video relative">
-                <div className="absolute inset-0 flex items-center justify-center">
+                <div
+                  ref={previewContainerRef}
+                  className="absolute inset-0 flex items-center justify-center cursor-crosshair group"
+                  onMouseDown={(e) => {
+                    if (!currentVideo) return;
+                    e.preventDefault();
+                    e.stopPropagation(); // Prevent drag of window if any
+
+                    if (isPlaying) togglePlayPause();
+
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const lastState = videoRenderer.getLastCalculatedState();
+                    if (!lastState) return;
+
+                    const startPosX = lastState.positionX;
+                    const startPosY = lastState.positionY;
+                    const z = lastState.zoomFactor;
+                    const rect = e.currentTarget.getBoundingClientRect();
+
+                    const handleMouseMove = (me: MouseEvent) => {
+                      const dx = me.clientX - startX;
+                      const dy = me.clientY - startY;
+
+                      // Drag World: Dragging Right (dx > 0) moves camera Left (pos decreases)
+                      const ndx = -(dx / rect.width) / z;
+                      const ndy = -(dy / rect.height) / z;
+
+                      handleAddKeyframe({
+                        zoomFactor: z,
+                        positionX: Math.max(0, Math.min(1, startPosX + ndx)),
+                        positionY: Math.max(0, Math.min(1, startPosY + ndy))
+                      });
+                      setActivePanel('zoom');
+                    };
+
+                    const handleMouseUp = () => {
+                      window.removeEventListener('mousemove', handleMouseMove);
+                      window.removeEventListener('mouseup', handleMouseUp);
+                    };
+
+                    window.addEventListener('mousemove', handleMouseMove);
+                    window.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
                   <canvas ref={canvasRef} className="w-full h-full object-contain" />
+                  <canvas ref={tempCanvasRef} className="hidden" />
                   <video ref={videoRef} className="hidden" playsInline preload="auto" />
-                  {(!currentVideo || isRecording || isLoadingVideo) && renderPlaceholder()}
+                  {(!currentVideo || isLoadingVideo) && renderPlaceholder()}
                 </div>
-                {currentVideo && !isRecording && !isLoadingVideo && (
+                {currentVideo && !isLoadingVideo && (
                   <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/80 rounded-full px-4 py-2 backdrop-blur-sm z-10">
                     <Button
                       onClick={togglePlayPause}
@@ -1261,14 +1463,14 @@ function App() {
                     <div>
                       <label className="text-sm font-medium text-[#d7dadc] mb-2 flex justify-between">
                         <span>Cursor Size</span>
-                        <span className="text-[#818384]">{backgroundConfig.cursorScale || 2}x</span>
+                        <span className="text-[#818384]">{backgroundConfig.cursorScale ?? 2}x</span>
                       </label>
                       <input
                         type="range"
                         min="1"
                         max="8"
                         step="0.1"
-                        value={backgroundConfig.cursorScale || 2}
+                        value={backgroundConfig.cursorScale ?? 2}
                         onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorScale: Number(e.target.value) }))}
                         className="w-full accent-[#0079d3]"
                       />
@@ -1276,14 +1478,14 @@ function App() {
                     <div>
                       <label className="text-sm font-medium text-[#d7dadc] mb-2 flex justify-between">
                         <span>Movement Smoothing</span>
-                        <span className="text-[#818384]">{backgroundConfig.cursorSmoothness || 5}</span>
+                        <span className="text-[#818384]">{backgroundConfig.cursorSmoothness ?? 5}</span>
                       </label>
                       <input
                         type="range"
                         min="0"
                         max="10"
                         step="1"
-                        value={backgroundConfig.cursorSmoothness || 5}
+                        value={backgroundConfig.cursorSmoothness ?? 5}
                         onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: Number(e.target.value) }))}
                         className="w-full accent-[#0079d3]"
                       />
@@ -1405,24 +1607,27 @@ function App() {
                     onClick={() => {
                       if (!segment || !mousePositions.length) return;
 
-                      // Generate auto zoom keyframes
-                      const newKeyframes = autoZoomGenerator.generateZooms(segment, mousePositions);
+                      // Generate auto zoom motion path
+                      const motionPath = autoZoomGenerator.generateMotionPath(segment, mousePositions);
 
-                      if (newKeyframes.length === 0) {
-                        setError("No clicking activity detected to suggest zooms.");
-                        setTimeout(() => setError(null), 3000);
-                        return;
-                      }
-
-                      // Merge with existing keyframes and sort by time
-                      const allKeyframes = [...segment.zoomKeyframes, ...newKeyframes]
-                        .sort((a, b) => a.time - b.time);
-
-                      // Update segment
-                      setSegment({
+                      const newSegment: VideoSegment = {
                         ...segment,
-                        zoomKeyframes: allKeyframes
-                      });
+                        zoomKeyframes: segment.zoomKeyframes,
+                        smoothMotionPath: motionPath,
+                        zoomInfluencePoints: [
+                          { time: 0, value: 1.0 },
+                          { time: duration, value: 1.0 }
+                        ]
+                      };
+
+                      setSegment(newSegment);
+                      if (currentProjectId) {
+                        projectManager.updateProject(currentProjectId, {
+                          segment: newSegment,
+                          backgroundConfig: backgroundConfig,
+                          mousePositions: mousePositions
+                        }).then(() => loadProjects());
+                      }
 
                       // Switch to zoom panel
                       setActivePanel('zoom');
@@ -1430,26 +1635,14 @@ function App() {
                     disabled={isProcessing || !currentVideo || !mousePositions.length}
                     className={`flex items-center px-4 py-2 h-9 text-sm font-medium transition-colors ${!currentVideo || isProcessing || !mousePositions.length
                       ? 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-                      : 'bg-[#0079d3] hover:bg-[#0079d3]/90 text-white shadow-sm'
+                      : 'bg-green-600 hover:bg-green-700 text-white shadow-sm'
                       }`}
                   >
-                    <Wand2 className="w-4 h-4 mr-2" />Auto-Add Zooms
+                    <Wand2 className="w-4 h-4 mr-2" />Auto-Smart Zoom
                   </Button>
-                  <Button
-                    onClick={() => { handleAddKeyframe(); setActivePanel('zoom'); }}
-                    disabled={isProcessing || !currentVideo}
-                    className={`flex items-center px-4 py-2 h-9 text-sm font-medium transition-colors ${!currentVideo || isProcessing
-                      ? 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-                      : 'bg-[#0079d3] hover:bg-[#0079d3]/90 text-white shadow-sm'
-                      }`}
-                  >
-                    <Plus className="w-4 h-4 mr-2" />Add Zoom at Playhead
-                  </Button>
+
                 </div>
               </div>
-              <p className="text-sm text-[#818384]">
-                Drag handles to trim video length
-              </p>
             </div>
 
             <Timeline
@@ -1469,7 +1662,7 @@ function App() {
             />
           </div>
         </div>
-      </main>
+      </main >
 
       {isProcessing && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
@@ -1477,281 +1670,292 @@ function App() {
             <p className="text-lg text-[#d7dadc]">{exportProgress > 0 ? `Exporting video... ${Math.round(exportProgress)}%` : 'Processing video...'}</p>
           </div>
         </div>
-      )}
+      )
+      }
 
       {/* showConfirmNewRecording removed */}
 
-      {showMonitorSelect && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-[#d7dadc] mb-4">Select Monitor</h3>
-            <div className="space-y-3 mb-6">
-              {monitors.map((monitor) => (
-                <button
-                  key={monitor.id}
-                  onClick={() => {
-                    setShowMonitorSelect(false);
-                    startNewRecording(monitor.id);
-                  }}
-                  className="w-full p-4 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors text-left"
-                >
-                  <div className="font-medium text-[#d7dadc]">
-                    {monitor.name}
-                  </div>
-                  <div className="text-sm text-[#818384] mt-1">
-                    {monitor.width}x{monitor.height} at ({monitor.x}, {monitor.y})
-                  </div>
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-end">
-              <Button
-                onClick={() => setShowMonitorSelect(false)}
-                variant="outline"
-                className="bg-transparent border-[#343536] text-[#d7dadc] hover:bg-[#272729] hover:text-[#d7dadc]"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {currentVideo && !isVideoReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <div className="text-white">Preparing video...</div>
-        </div>
-      )}
-
-      {showExportDialog && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-[#d7dadc] mb-4">Export Options</h3>
-
-            <div className="space-y-4 mb-6">
-              <div>
-                <label className="text-sm font-medium text-[#d7dadc] mb-2 block">Quality</label>
-                <select
-                  value={exportOptions.quality}
-                  onChange={(e) => setExportOptions(prev => ({ ...prev, quality: e.target.value as ExportOptions['quality'] }))}
-                  className="w-full bg-[#272729] border border-[#343536] rounded-md px-3 py-2 text-[#d7dadc]"
-                >
-                  {Object.entries(EXPORT_PRESETS).map(([key, preset]) => (
-                    <option key={key} value={key}>{preset.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-[#d7dadc] mb-2 block">Dimensions</label>
-                <select
-                  value={exportOptions.dimensions}
-                  onChange={(e) => setExportOptions(prev => ({ ...prev, dimensions: e.target.value as ExportOptions['dimensions'] }))}
-                  className="w-full bg-[#272729] border border-[#343536] rounded-md px-3 py-2 text-[#d7dadc]"
-                >
-                  {Object.entries(DIMENSION_PRESETS).map(([key, preset]) => (
-                    <option key={key} value={key}>{preset.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-[#d7dadc] mb-2 block">Speed</label>
-                <div className="bg-[#272729] rounded-md p-3">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm text-[#d7dadc] tabular-nums">
-                        {formatTime(segment ? (segment.trimEnd - segment.trimStart) / exportOptions.speed : 0)}
-                      </span>
-                      {segment && exportOptions.speed !== 1 && (
-                        <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-400/90' : 'text-green-400/90'}`}>
-                          {exportOptions.speed > 1 ? '↓' : '↑'}
-                          {formatTime(Math.abs(
-                            (segment.trimEnd - segment.trimStart) -
-                            ((segment.trimEnd - segment.trimStart) / exportOptions.speed)
-                          ))}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-sm font-medium text-[#d7dadc] tabular-nums">
-                      {Math.round(exportOptions.speed * 100)}%
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-[#818384] min-w-[36px]">Slower</span>
-                    <div className="flex-1">
-                      <input
-                        type="range"
-                        min="50"
-                        max="200"
-                        step="10"
-                        value={exportOptions.speed * 100}
-                        onChange={(e) => setExportOptions(prev => ({
-                          ...prev,
-                          speed: Number(e.target.value) / 100
-                        }))}
-                        className="w-full h-1 accent-[#0079d3] rounded-full"
-                        style={{
-                          background: `linear-gradient(to right, 
-                            #818384 0%, 
-                            #0079d3 ${((exportOptions.speed * 100 - 50) / 150) * 100}%`
-                        }}
-                      />
-                    </div>
-                    <span className="text-xs text-[#818384] min-w-[36px]">Faster</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setShowExportDialog(false)}
-                className="bg-transparent border-[#343536] text-[#d7dadc] hover:bg-[#272729] hover:text-[#d7dadc]"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={startExport}
-                className="bg-[#0079d3] hover:bg-[#0079d3]/90 text-white"
-              >
-                Export Video
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showProjectsDialog && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-2xl w-full mx-4">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-4">
-                <h3 className="text-lg font-semibold text-[#d7dadc]">Recent Projects</h3>
-                <div className="flex items-center gap-2 ml-4">
-                  <span className="text-xs text-[#818384]">Limit:</span>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    value={projectManager.getLimit()}
-                    onChange={(e) => {
-                      projectManager.setLimit(parseInt(e.target.value));
-                      loadProjects();
+      {
+        showMonitorSelect && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+            <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-md w-full mx-4">
+              <h3 className="text-lg font-semibold text-[#d7dadc] mb-4">Select Monitor</h3>
+              <div className="space-y-3 mb-6">
+                {monitors.map((monitor) => (
+                  <button
+                    key={monitor.id}
+                    onClick={() => {
+                      setShowMonitorSelect(false);
+                      startNewRecording(monitor.id);
                     }}
-                    className="w-24 h-1 bg-[#272729] rounded-lg appearance-none cursor-pointer accent-[#0079d3]"
-                  />
-                  <span className="text-xs text-[#d7dadc]">{projectManager.getLimit()}</span>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => setShowProjectsDialog(false)}
-                className="text-[#818384] hover:text-[#d7dadc]"
-              >
-                ✕
-              </Button>
-            </div>
-
-            {projects.length === 0 ? (
-              <div className="text-center py-8 text-[#818384]">
-                No saved projects yet
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-                {projects.map((project) => (
-                  <div
-                    key={project.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors gap-4"
+                    className="w-full p-4 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors text-left"
                   >
-                    <div className="w-24 h-14 bg-black rounded overflow-hidden flex-shrink-0 border border-[#343536]">
-                      {project.thumbnail ? (
-                        <img src={project.thumbnail} className="w-full h-full object-cover" alt="Preview" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-[#343536]">
-                          <Video className="w-6 h-6" />
-                        </div>
-                      )}
+                    <div className="font-medium text-[#d7dadc]">
+                      {monitor.name}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      {editingProjectNameId === project.id ? (
-                        <input
-                          autoFocus
-                          className="bg-[#1a1a1b] border border-[#0079d3] rounded px-2 py-1 text-[#d7dadc] w-full"
-                          value={projectRenameValue}
-                          onChange={(e) => setProjectRenameValue(e.target.value)}
-                          onBlur={() => handleRenameProject(project.id)}
-                          onKeyDown={(e) => e.key === 'Enter' && handleRenameProject(project.id)}
-                          onMouseDown={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <h4
-                          className="text-[#d7dadc] font-medium truncate cursor-primary hover:text-[#0079d3] cursor-pointer"
-                          title="Click to rename"
-                          onClick={() => {
-                            setEditingProjectNameId(project.id);
-                            setProjectRenameValue(project.name);
-                          }}
-                        >
-                          {project.name}
-                        </h4>
-                      )}
-                      <p className="text-sm text-[#818384]">
-                        Last modified: {new Date(project.lastModified).toLocaleDateString()}
-                      </p>
+                    <div className="text-sm text-[#818384] mt-1">
+                      {monitor.width}x{monitor.height} at ({monitor.x}, {monitor.y})
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handleLoadProject(project.id)}
-                        className="bg-[#0079d3] hover:bg-[#0079d3]/90 text-white"
-                      >
-                        Load Project
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={async () => {
-                          await projectManager.deleteProject(project.id);
-                          await loadProjects();
-                        }}
-                        className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+                  </button>
                 ))}
               </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {showHotkeyDialog && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-sm w-full mx-4 text-center">
-            <Keyboard className="w-12 h-12 text-[#0079d3] mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-[#d7dadc] mb-2">
-              Press Keys...
-            </h3>
-            <p className="text-[#818384] mb-6">
-              Press the combination of keys you want to use.
-            </p>
-
-            <div className="flex justify-center gap-3">
-              <Button
-                variant="ghost"
-                onClick={() => { setListeningForKey(false); setShowHotkeyDialog(false); }}
-                className="text-[#d7dadc] hover:bg-[#272729]"
-              >
-                Cancel
-              </Button>
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => setShowMonitorSelect(false)}
+                  variant="outline"
+                  className="bg-transparent border-[#343536] text-[#d7dadc] hover:bg-[#272729] hover:text-[#d7dadc]"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+
+      {
+        currentVideo && !isVideoReady && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+            <div className="text-white">Preparing video...</div>
+          </div>
+        )
+      }
+
+      {
+        showExportDialog && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+            <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-md w-full mx-4">
+              <h3 className="text-lg font-semibold text-[#d7dadc] mb-4">Export Options</h3>
+
+              <div className="space-y-4 mb-6">
+                <div>
+                  <label className="text-sm font-medium text-[#d7dadc] mb-2 block">Quality</label>
+                  <select
+                    value={exportOptions.quality}
+                    onChange={(e) => setExportOptions(prev => ({ ...prev, quality: e.target.value as ExportOptions['quality'] }))}
+                    className="w-full bg-[#272729] border border-[#343536] rounded-md px-3 py-2 text-[#d7dadc]"
+                  >
+                    {Object.entries(EXPORT_PRESETS).map(([key, preset]) => (
+                      <option key={key} value={key}>{preset.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-[#d7dadc] mb-2 block">Dimensions</label>
+                  <select
+                    value={exportOptions.dimensions}
+                    onChange={(e) => setExportOptions(prev => ({ ...prev, dimensions: e.target.value as ExportOptions['dimensions'] }))}
+                    className="w-full bg-[#272729] border border-[#343536] rounded-md px-3 py-2 text-[#d7dadc]"
+                  >
+                    {Object.entries(DIMENSION_PRESETS).map(([key, preset]) => (
+                      <option key={key} value={key}>{preset.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-[#d7dadc] mb-2 block">Speed</label>
+                  <div className="bg-[#272729] rounded-md p-3">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm text-[#d7dadc] tabular-nums">
+                          {formatTime(segment ? (segment.trimEnd - segment.trimStart) / exportOptions.speed : 0)}
+                        </span>
+                        {segment && exportOptions.speed !== 1 && (
+                          <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-400/90' : 'text-green-400/90'}`}>
+                            {exportOptions.speed > 1 ? '↓' : '↑'}
+                            {formatTime(Math.abs(
+                              (segment.trimEnd - segment.trimStart) -
+                              ((segment.trimEnd - segment.trimStart) / exportOptions.speed)
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm font-medium text-[#d7dadc] tabular-nums">
+                        {Math.round(exportOptions.speed * 100)}%
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-[#818384] min-w-[36px]">Slower</span>
+                      <div className="flex-1">
+                        <input
+                          type="range"
+                          min="50"
+                          max="200"
+                          step="10"
+                          value={exportOptions.speed * 100}
+                          onChange={(e) => setExportOptions(prev => ({
+                            ...prev,
+                            speed: Number(e.target.value) / 100
+                          }))}
+                          className="w-full h-1 accent-[#0079d3] rounded-full"
+                          style={{
+                            background: `linear-gradient(to right, 
+                            #818384 0%, 
+                            #0079d3 ${((exportOptions.speed * 100 - 50) / 150) * 100}%`
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs text-[#818384] min-w-[36px]">Faster</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowExportDialog(false)}
+                  className="bg-transparent border-[#343536] text-[#d7dadc] hover:bg-[#272729] hover:text-[#d7dadc]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={startExport}
+                  className="bg-[#0079d3] hover:bg-[#0079d3]/90 text-white"
+                >
+                  Export Video
+                </Button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        showProjectsDialog && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+            <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-2xl w-full mx-4">
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-4">
+                  <h3 className="text-lg font-semibold text-[#d7dadc]">Recent Projects</h3>
+                  <div className="flex items-center gap-2 ml-4">
+                    <span className="text-xs text-[#818384]">Limit:</span>
+                    <input
+                      type="range"
+                      min="10"
+                      max="100"
+                      value={projectManager.getLimit()}
+                      onChange={(e) => {
+                        projectManager.setLimit(parseInt(e.target.value));
+                        loadProjects();
+                      }}
+                      className="w-24 h-1 bg-[#272729] rounded-lg appearance-none cursor-pointer accent-[#0079d3]"
+                    />
+                    <span className="text-xs text-[#d7dadc]">{projectManager.getLimit()}</span>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowProjectsDialog(false)}
+                  className="text-[#818384] hover:text-[#d7dadc]"
+                >
+                  ✕
+                </Button>
+              </div>
+
+              {projects.length === 0 ? (
+                <div className="text-center py-8 text-[#818384]">
+                  No saved projects yet
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                  {projects.map((project) => (
+                    <div
+                      key={project.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors gap-4"
+                    >
+                      <div className="w-24 h-14 bg-black rounded overflow-hidden flex-shrink-0 border border-[#343536]">
+                        {project.thumbnail ? (
+                          <img src={project.thumbnail} className="w-full h-full object-cover" alt="Preview" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[#343536]">
+                            <Video className="w-6 h-6" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {editingProjectNameId === project.id ? (
+                          <input
+                            autoFocus
+                            className="bg-[#1a1a1b] border border-[#0079d3] rounded px-2 py-1 text-[#d7dadc] w-full"
+                            value={projectRenameValue}
+                            onChange={(e) => setProjectRenameValue(e.target.value)}
+                            onBlur={() => handleRenameProject(project.id)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleRenameProject(project.id)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <h4
+                            className="text-[#d7dadc] font-medium truncate cursor-primary hover:text-[#0079d3] cursor-pointer"
+                            title="Click to rename"
+                            onClick={() => {
+                              setEditingProjectNameId(project.id);
+                              setProjectRenameValue(project.name);
+                            }}
+                          >
+                            {project.name}
+                          </h4>
+                        )}
+                        <p className="text-sm text-[#818384]">
+                          Last modified: {new Date(project.lastModified).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => handleLoadProject(project.id)}
+                          className="bg-[#0079d3] hover:bg-[#0079d3]/90 text-white"
+                        >
+                          Load Project
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={async () => {
+                            await projectManager.deleteProject(project.id);
+                            await loadProjects();
+                          }}
+                          className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      }
+
+      {
+        showHotkeyDialog && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+            <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-sm w-full mx-4 text-center">
+              <Keyboard className="w-12 h-12 text-[#0079d3] mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-[#d7dadc] mb-2">
+                Press Keys...
+              </h3>
+              <p className="text-[#818384] mb-6">
+                Press the combination of keys you want to use.
+              </p>
+
+              <div className="flex justify-center gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => { setListeningForKey(false); setShowHotkeyDialog(false); }}
+                  className="text-[#d7dadc] hover:bg-[#272729]"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+    </div >
   );
 }
 

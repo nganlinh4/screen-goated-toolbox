@@ -83,14 +83,16 @@ class ProjectManager {
     await this.deleteVideoBlob(id);
   }
 
-  async updateProject(id: string, updates: Omit<Project, 'id' | 'createdAt' | 'lastModified'>): Promise<void> {
+  async updateProject(id: string, updates: Partial<Omit<Project, 'id' | 'createdAt' | 'lastModified'>>): Promise<void> {
     const projects = await this.getProjects();
     const projectIndex = projects.findIndex(p => p.id === id);
 
     if (projectIndex === -1) return;
 
-    // Store video blob
-    await this.saveVideoBlob(id, updates.videoBlob);
+    // Store video blob if updated
+    if (updates.videoBlob) {
+      await this.saveVideoBlob(id, updates.videoBlob);
+    }
 
     // Update project metadata
     const updatedProject = {

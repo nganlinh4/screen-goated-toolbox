@@ -27,6 +27,8 @@ export interface VideoSegment {
   trimStart: number;
   trimEnd: number;
   zoomKeyframes: ZoomKeyframe[];
+  smoothMotionPath?: { time: number; x: number; y: number; zoom: number }[];
+  zoomInfluencePoints?: { time: number; value: number }[];
   textSegments: TextSegment[];
 }
 

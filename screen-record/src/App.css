@@ -4,6 +4,12 @@
 
 /* Root theme variables - keeping these since they're used by the UI system */
 @layer base {
+  body {
+    user-select: none;
+  }
+  input, textarea {
+    user-select: text;
+  }
   :root {
     --background: 0 0% 100%;
     --foreground: 0 0% 3.9%;

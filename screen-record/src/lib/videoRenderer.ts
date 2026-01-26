@@ -50,6 +50,9 @@ export class VideoRenderer {
     easingType: 'linear' as const
   };
 
+  private lastCalculatedState: ZoomKeyframe | null = null;
+  public getLastCalculatedState() { return this.lastCalculatedState; }
+
   private smoothedPositions: MousePosition[] | null = null;
   private hasLoggedPositions = false;
 
@@ -463,6 +466,109 @@ export class VideoRenderer {
     currentTime: number,
     segment: VideoSegment
   ): ZoomKeyframe {
+    const state = this.calculateCurrentZoomStateInternal(currentTime, segment);
+    this.lastCalculatedState = state;
+    return state;
+  }
+
+  private calculateCurrentZoomStateInternal(
+    currentTime: number,
+    segment: VideoSegment
+  ): ZoomKeyframe {
+    // Priority: Continuous Motion Path (Smart Zoom)
+    if (segment.smoothMotionPath && segment.smoothMotionPath.length > 0) {
+      const path = segment.smoothMotionPath;
+
+      // Find bounding frames
+      // Binary search would be faster but linear is ok for this data size
+      const idx = path.findIndex(p => p.time >= currentTime);
+
+      let cam = { x: 1920 / 2, y: 1080 / 2, zoom: 1.0 };
+
+      if (idx === -1) {
+        // Past end
+        const last = path[path.length - 1];
+        cam = { x: last.x, y: last.y, zoom: last.zoom };
+      } else if (idx === 0) {
+        // Before start
+        const first = path[0];
+        cam = { x: first.x, y: first.y, zoom: first.zoom };
+      } else {
+        // Interpolate
+        const p1 = path[idx - 1];
+        const p2 = path[idx];
+        const t = (currentTime - p1.time) / (p2.time - p1.time);
+
+        cam = {
+          x: p1.x + (p2.x - p1.x) * t,
+          y: p1.y + (p2.y - p1.y) * t,
+          zoom: p1.zoom + (p2.zoom - p1.zoom) * t
+        };
+      }
+
+      // Apply Zoom Influence Curve (if exists)
+      if (segment.zoomInfluencePoints && segment.zoomInfluencePoints.length > 0) {
+        const points = segment.zoomInfluencePoints;
+        let influence = 1.0;
+
+        // Find bounding points
+        // Assuming sorted by time
+        const iIdx = points.findIndex(p => p.time >= currentTime);
+
+        if (iIdx === -1) {
+          influence = points[points.length - 1].value;
+        } else if (iIdx === 0) {
+          influence = points[0].value;
+        } else {
+          const ip1 = points[iIdx - 1];
+          const ip2 = points[iIdx];
+          const it = (currentTime - ip1.time) / (ip2.time - ip1.time);
+
+          // Cosine Interpolation for smoothness
+          const cosT = (1 - Math.cos(it * Math.PI)) / 2;
+          influence = ip1.value * (1 - cosT) + ip2.value * cosT;
+        }
+
+        // Blend Physics Camera with Overview (Zoom 1, Center) based on influence
+        // influence 1.0 = Full Physics
+        // influence 0.0 = Overview
+
+        cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
+        cam.x = (1920 / 2) + (cam.x - (1920 / 2)) * influence;
+        cam.y = (1080 / 2) + (cam.y - (1080 / 2)) * influence;
+      }
+
+      let resultState: ZoomKeyframe = {
+        time: currentTime,
+        duration: 0,
+        zoomFactor: cam.zoom,
+        positionX: cam.x / 1920,
+        positionY: cam.y / 1080,
+        easingType: 'linear'
+      };
+
+      // MANUAL KEYFRAME BLENDING (Real-time Feedback)
+      if (segment.zoomKeyframes && segment.zoomKeyframes.length > 0) {
+        const WINDOW = 1.5;
+        const nearby = segment.zoomKeyframes
+          .map(kf => ({ kf, dist: Math.abs(kf.time - currentTime) }))
+          .filter(item => item.dist < WINDOW)
+          .sort((a, b) => a.dist - b.dist)[0];
+
+        if (nearby) {
+          const ratio = nearby.dist / WINDOW;
+          const weight = (1 + Math.cos(ratio * Math.PI)) / 2;
+
+          resultState.zoomFactor = resultState.zoomFactor * (1 - weight) + nearby.kf.zoomFactor * weight;
+          resultState.positionX = resultState.positionX * (1 - weight) + nearby.kf.positionX * weight;
+          resultState.positionY = resultState.positionY * (1 - weight) + nearby.kf.positionY * weight;
+        }
+      }
+
+      return resultState;
+    }
+
+    // Fallback: Standard Keyframes
     const sortedKeyframes = [...segment.zoomKeyframes].sort((a, b) => a.time - b.time);
     if (sortedKeyframes.length === 0) return this.DEFAULT_STATE;
 
