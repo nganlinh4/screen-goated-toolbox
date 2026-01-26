@@ -52,11 +52,11 @@ export class AutoZoomGenerator {
   ): ZoomKeyframe[] {
     const opts = { ...this.DEFAULT_OPTIONS, ...options };
     const keyframes: ZoomKeyframe[] = [];
-    
+
     // 1. Find click points within trimmed segment, excluding first second
-    const clickPoints = mousePositions.filter(pos => 
-      pos.isClicked && 
-      pos.timestamp >= segment.trimStart + 1 && // Add 1 second buffer
+    const clickPoints = mousePositions.filter(pos =>
+      pos.isClicked &&
+      pos.timestamp >= segment.trimStart + 0.3 && // Reduced buffer from 1s to 0.3s
       pos.timestamp <= segment.trimEnd
     );
 
@@ -65,7 +65,7 @@ export class AutoZoomGenerator {
 
     // 3. Filter groups by distance and limit total zooms
     const significantPoints = this.filterSignificantPoints(
-      groupedClicks.map(group => group[0]), 
+      groupedClicks.map(group => group[0]),
       opts.minDistance!
     ).slice(0, opts.maxZooms);
 
@@ -139,7 +139,7 @@ export class AutoZoomGenerator {
     minZoom: number,
     maxZoom: number
   ): number {
-    const timeWindow = allPositions.filter(pos => 
+    const timeWindow = allPositions.filter(pos =>
       Math.abs(pos.timestamp - point.timestamp) <= this.DEFAULT_OPTIONS.mouseAnalysisWindow!
     );
 
@@ -150,25 +150,25 @@ export class AutoZoomGenerator {
     const dramaticPause = this.detectDramaticPause(timeWindow);
     const intentionalMovement = this.detectIntentionalMovement(timeWindow);
     const isDoubleClick = this.isDoubleClick(timeWindow);
-    
+
     let dynamicMaxZoom = maxZoom;
-    
+
     // Boost zoom for more engaging scenarios
     if (dramaticPause) {
       // More dramatic pause = deeper zoom
       dynamicMaxZoom = Math.min(this.DEFAULT_OPTIONS.maxClickZoom!, maxZoom * 1.4);
     }
-    
+
     if (clickIntensity > 2) {
       // Scale zoom with click intensity
       const intensityBoost = Math.min(clickIntensity / 2, 2);
       dynamicMaxZoom = Math.min(this.DEFAULT_OPTIONS.maxClickZoom!, maxZoom * (1.3 + intensityBoost * 0.2));
     }
-    
+
     if (isDoubleClick) {
       dynamicMaxZoom *= this.DEFAULT_OPTIONS.doubleClickBoost!;
     }
-    
+
     if (hoverScore > 0.7) {
       // More dramatic hover zoom based on hover duration
       const hoverBoost = 1 + (hoverScore - 0.7) * 0.5;
@@ -198,29 +198,29 @@ export class AutoZoomGenerator {
 
   private calculateMouseActivity(positions: MousePosition[]): number {
     if (positions.length < 2) return 0;
-    
+
     let totalDistance = 0;
     for (let i = 1; i < positions.length; i++) {
-      totalDistance += this.getDistance(positions[i-1], positions[i]);
+      totalDistance += this.getDistance(positions[i - 1], positions[i]);
     }
-    
-    const timeSpan = positions[positions.length-1].timestamp - positions[0].timestamp;
+
+    const timeSpan = positions[positions.length - 1].timestamp - positions[0].timestamp;
     return totalDistance / timeSpan; // pixels per second
   }
 
   private getDistance(p1: MousePosition, p2: MousePosition): number {
     return Math.sqrt(
-      Math.pow(p2.x - p1.x, 2) + 
+      Math.pow(p2.x - p1.x, 2) +
       Math.pow(p2.y - p1.y, 2)
     );
   }
 
   private filterSignificantPoints(points: MousePosition[], minDistance: number): MousePosition[] {
     const significant: MousePosition[] = [];
-    
+
     points.forEach(point => {
       // Check if this point is far enough from all previous significant points
-      const isFarEnough = significant.every(sigPoint => 
+      const isFarEnough = significant.every(sigPoint =>
         this.getDistance(point, sigPoint) >= minDistance
       );
 
@@ -237,8 +237,8 @@ export class AutoZoomGenerator {
     let currentGroup: MousePosition[] = [];
 
     clicks.forEach(click => {
-      if (currentGroup.length === 0 || 
-          click.timestamp - currentGroup[currentGroup.length - 1].timestamp <= threshold) {
+      if (currentGroup.length === 0 ||
+        click.timestamp - currentGroup[currentGroup.length - 1].timestamp <= threshold) {
         currentGroup.push(click);
       } else {
         groups.push(currentGroup);
@@ -255,10 +255,10 @@ export class AutoZoomGenerator {
 
   private calculateHoverScore(positions: MousePosition[]): number {
     if (positions.length < 2) return 0;
-    
-    const timeSpan = positions[positions.length-1].timestamp - positions[0].timestamp;
+
+    const timeSpan = positions[positions.length - 1].timestamp - positions[0].timestamp;
     const totalMovement = this.calculateMouseActivity(positions) * timeSpan;
-    
+
     // Higher score when mouse moves less
     return Math.max(0, 1 - (totalMovement / 100));
   }
@@ -266,24 +266,24 @@ export class AutoZoomGenerator {
   private calculateClickIntensity(positions: MousePosition[]): number {
     const clicks = positions.filter(p => p.isClicked);
     if (clicks.length <= 1) return 0;
-    
-    const timeSpan = clicks[clicks.length-1].timestamp - clicks[0].timestamp;
+
+    const timeSpan = clicks[clicks.length - 1].timestamp - clicks[0].timestamp;
     return clicks.length / Math.max(timeSpan, 0.1); // clicks per second
   }
 
   private detectDramaticPause(positions: MousePosition[]): boolean {
     if (positions.length < 2) return false;
-    
+
     const recentPositions = positions.slice(-5); // Look at last 5 positions
     const activity = this.calculateMouseActivity(recentPositions);
-    const timeSpan = recentPositions[recentPositions.length-1].timestamp - recentPositions[0].timestamp;
-    
+    const timeSpan = recentPositions[recentPositions.length - 1].timestamp - recentPositions[0].timestamp;
+
     return activity < 10 && timeSpan >= this.DEFAULT_OPTIONS.dramaticPauseThreshold!;
   }
 
   private calculateEdgeProximity(point: MousePosition): number {
     const buffer = this.DEFAULT_OPTIONS.edgeBuffer!;
-    
+
     // Calculate distance from edges as a percentage
     const edgeDistances = [
       point.x / 1920,                // Left edge
@@ -291,7 +291,7 @@ export class AutoZoomGenerator {
       (1920 - point.x) / 1920,       // Right edge
       (1080 - point.y) / 1080        // Bottom edge
     ];
-    
+
     // Return how close we are to an edge (0 = far from edges, 1 = at edge)
     const closestEdge = Math.min(...edgeDistances);
     return Math.max(0, (buffer - closestEdge) / buffer);
@@ -311,12 +311,12 @@ export class AutoZoomGenerator {
       // Calculate visible area at this zoom level
       const visibleWidth = 1920 / testZoom;
       const visibleHeight = 1080 / testZoom;
-      
+
       // Stronger centering bias - pull the view center more towards screen center
       const centeringStrength = 0.45; // Increased from 0.3 to 0.45 (45% pull towards center)
       const viewCenterX = point.x * (1 - centeringStrength) + screenCenterX * centeringStrength;
       const viewCenterY = point.y * (1 - centeringStrength) + screenCenterY * centeringStrength;
-      
+
       // Calculate bounds of visible area with centered bias
       const halfWidth = visibleWidth / 2;
       const halfHeight = visibleHeight / 2;
@@ -330,7 +330,7 @@ export class AutoZoomGenerator {
       // Increased padding to keep mouse further from edges
       const padding = 200; // Increased from 100 to 200 pixels
       const safetyMargin = 50; // Additional margin for movement
-      const mouseStaysInView = positions.every(pos => 
+      const mouseStaysInView = positions.every(pos =>
         pos.x >= bounds.left + padding + safetyMargin &&
         pos.x <= bounds.right - padding - safetyMargin &&
         pos.y >= bounds.top + padding + safetyMargin &&
@@ -346,34 +346,34 @@ export class AutoZoomGenerator {
 
   private detectIntentionalMovement(positions: MousePosition[]): boolean {
     if (positions.length < 3) return false;
-    
+
     // Calculate average speed and direction changes
     let directionChanges = 0;
     let totalSpeed = 0;
-    
+
     for (let i = 1; i < positions.length - 1; i++) {
       const prevVector = {
-        x: positions[i].x - positions[i-1].x,
-        y: positions[i].y - positions[i-1].y
+        x: positions[i].x - positions[i - 1].x,
+        y: positions[i].y - positions[i - 1].y
       };
       const nextVector = {
-        x: positions[i+1].x - positions[i].x,
-        y: positions[i+1].y - positions[i].y
+        x: positions[i + 1].x - positions[i].x,
+        y: positions[i + 1].y - positions[i].y
       };
-      
+
       // Check for direction change
       const dot = prevVector.x * nextVector.x + prevVector.y * nextVector.y;
       if (dot < 0) directionChanges++;
-      
+
       // Calculate speed
-      const speed = this.getDistance(positions[i], positions[i+1]) / 
-        (positions[i+1].timestamp - positions[i].timestamp);
+      const speed = this.getDistance(positions[i], positions[i + 1]) /
+        (positions[i + 1].timestamp - positions[i].timestamp);
       totalSpeed += speed;
     }
-    
+
     const avgSpeed = totalSpeed / (positions.length - 1);
     const directionChangeRate = directionChanges / (positions.length - 2);
-    
+
     // Movement is intentional if speed is above threshold and direction changes are minimal
     return avgSpeed >= this.DEFAULT_OPTIONS.mouseSpeedThreshold! && directionChangeRate < 0.3;
   }
@@ -381,7 +381,7 @@ export class AutoZoomGenerator {
   private isDoubleClick(positions: MousePosition[]): boolean {
     const clicks = positions.filter(p => p.isClicked);
     if (clicks.length < 2) return false;
-    
+
     // Check last two clicks
     const lastTwo = clicks.slice(-2);
     return lastTwo[1].timestamp - lastTwo[0].timestamp < 0.3; // 300ms threshold

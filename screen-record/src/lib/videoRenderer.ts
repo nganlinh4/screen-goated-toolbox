@@ -61,9 +61,7 @@ export class VideoRenderer {
     // Preload the pointer SVG image.
     this.pointerImage = new Image();
     this.pointerImage.src = '/pointer.svg';
-    this.pointerImage.onload = () => {
-      console.log('[VideoRenderer] Pointer image loaded:', this.pointerImage.naturalWidth, this.pointerImage.naturalHeight);
-    };
+    this.pointerImage.onload = () => { };
   }
 
   public startAnimation(renderContext: RenderContext) {
@@ -73,9 +71,9 @@ export class VideoRenderer {
     this.smoothedPositions = null;
 
     const animate = () => {
-      // Only animate if video is playing
+      // Stop animation loop if video is paused
       if (renderContext.video.paused) {
-        this.animationFrame = requestAnimationFrame(animate);
+        this.animationFrame = null;
         return;
       }
 
@@ -107,7 +105,7 @@ export class VideoRenderer {
     options: RenderOptions = {}
   ): Promise<void> => {
     if (this.isDrawing) return;
-    
+
     const { video, canvas, tempCanvas, segment, backgroundConfig, mousePositions } = context;
     if (!video || !canvas || !segment) return;
 
@@ -123,100 +121,79 @@ export class VideoRenderer {
 
     const isExportMode = options.exportMode || false;
     const quality = isExportMode ? 'high' : 'medium';
-    
+
     const ctx = canvas.getContext('2d', {
-        alpha: false,
-        willReadFrequently: false
+      alpha: false,
+      willReadFrequently: false
     });
     if (!ctx) return;
 
     ctx.imageSmoothingQuality = quality;
     this.isDrawing = true;
-    const drawStart = performance.now();
 
     try {
-        // Calculate dimensions once
-        const scale = backgroundConfig.scale / 100;
-        const scaledWidth = canvas.width * scale;
-        const scaledHeight = canvas.height * scale;
-        const x = (canvas.width - scaledWidth) / 2;
-        const y = (canvas.height - scaledHeight) / 2;
-        const zoomState = this.calculateCurrentZoomState(video.currentTime, segment);
+      // Calculate dimensions once
+      const scale = backgroundConfig.scale / 100;
+      const scaledWidth = canvas.width * scale;
+      const scaledHeight = canvas.height * scale;
+      const x = (canvas.width - scaledWidth) / 2;
+      const y = (canvas.height - scaledHeight) / 2;
+      const zoomState = this.calculateCurrentZoomState(video.currentTime, segment);
 
-        ctx.save();
-        
-        // Apply zoom transformation to entire canvas before drawing anything
-        if (zoomState && zoomState.zoomFactor !== 1) {
-            const zoomedWidth = canvas.width * zoomState.zoomFactor;
-            const zoomedHeight = canvas.height * zoomState.zoomFactor;
-            const zoomOffsetX = (canvas.width - zoomedWidth) * zoomState.positionX;
-            const zoomOffsetY = (canvas.height - zoomedHeight) * zoomState.positionY;
-            
-            ctx.translate(zoomOffsetX, zoomOffsetY);
-            ctx.scale(zoomState.zoomFactor, zoomState.zoomFactor);
-        }
+      ctx.save();
 
-        // Draw background first
-        ctx.fillStyle = this.getBackgroundStyle(
-          ctx, 
-          backgroundConfig.backgroundType,
-          backgroundConfig.customBackground
-        );
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Apply zoom transformation to entire canvas before drawing anything
+      if (zoomState && zoomState.zoomFactor !== 1) {
+        const zoomedWidth = canvas.width * zoomState.zoomFactor;
+        const zoomedHeight = canvas.height * zoomState.zoomFactor;
+        const zoomOffsetX = (canvas.width - zoomedWidth) * zoomState.positionX;
+        const zoomOffsetY = (canvas.height - zoomedHeight) * zoomState.positionY;
 
-        // Setup temporary canvas for rounded corners and shadows
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
-        const tempCtx = tempCanvas.getContext('2d', {
-            alpha: true,
-            willReadFrequently: false
-        });
-        if (!tempCtx) return;
+        ctx.translate(zoomOffsetX, zoomOffsetY);
+        ctx.scale(zoomState.zoomFactor, zoomState.zoomFactor);
+      }
 
-        // Clear temp canvas
-        tempCtx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw video frame with rounded corners to temp canvas
+      // Draw background first
+      ctx.fillStyle = this.getBackgroundStyle(
+        ctx,
+        backgroundConfig.backgroundType,
+        backgroundConfig.customBackground
+      );
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Setup temporary canvas for rounded corners and shadows
+      tempCanvas.width = canvas.width;
+      tempCanvas.height = canvas.height;
+      const tempCtx = tempCanvas.getContext('2d', {
+        alpha: true,
+        willReadFrequently: false
+      });
+      if (!tempCtx) return;
+
+      // Clear temp canvas
+      tempCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw video frame with rounded corners to temp canvas
+      tempCtx.save();
+
+      // Improve anti-aliasing
+      tempCtx.imageSmoothingEnabled = true;
+      tempCtx.imageSmoothingQuality = 'high';
+
+      // Create path for the rounded rectangle
+      const radius = backgroundConfig.borderRadius;
+      const offset = 0.5;
+
+      // Draw shadow first if enabled
+      if (backgroundConfig.shadow) {
         tempCtx.save();
-        
-        // Improve anti-aliasing
-        tempCtx.imageSmoothingEnabled = true;
-        tempCtx.imageSmoothingQuality = 'high';
 
-        // Create path for the rounded rectangle
-        const radius = backgroundConfig.borderRadius;
-        const offset = 0.5;
+        // Set shadow properties
+        tempCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        tempCtx.shadowBlur = backgroundConfig.shadow;
+        tempCtx.shadowOffsetY = backgroundConfig.shadow * 0.5;
 
-        // Draw shadow first if enabled
-        if (backgroundConfig.shadow) {
-            tempCtx.save();
-            
-            // Set shadow properties
-            tempCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-            tempCtx.shadowBlur = backgroundConfig.shadow;
-            tempCtx.shadowOffsetY = backgroundConfig.shadow * 0.5;
-            
-            // Create the rounded rectangle path
-            tempCtx.beginPath();
-            tempCtx.moveTo(x + radius + offset, y + offset);
-            tempCtx.lineTo(x + scaledWidth - radius - offset, y + offset);
-            tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + offset, x + scaledWidth - offset, y + radius + offset);
-            tempCtx.lineTo(x + scaledWidth - offset, y + scaledHeight - radius - offset);
-            tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + scaledHeight - offset, x + scaledWidth - radius - offset, y + scaledHeight - offset);
-            tempCtx.lineTo(x + radius + offset, y + scaledHeight - offset);
-            tempCtx.quadraticCurveTo(x + offset, y + scaledHeight - offset, x + offset, y + scaledHeight - radius - offset);
-            tempCtx.lineTo(x + offset, y + radius + offset);
-            tempCtx.quadraticCurveTo(x + offset, y + offset, x + radius + offset, y + offset);
-            tempCtx.closePath();
-            
-            // Fill with white to create shadow
-            tempCtx.fillStyle = '#fff';
-            tempCtx.fill();
-            
-            tempCtx.restore();
-        }
-
-        // Now draw the actual video content
+        // Create the rounded rectangle path
         tempCtx.beginPath();
         tempCtx.moveTo(x + radius + offset, y + offset);
         tempCtx.lineTo(x + scaledWidth - radius - offset, y + offset);
@@ -229,135 +206,144 @@ export class VideoRenderer {
         tempCtx.quadraticCurveTo(x + offset, y + offset, x + radius + offset, y + offset);
         tempCtx.closePath();
 
-        // Clip and draw the video
-        tempCtx.clip();
-        tempCtx.drawImage(video, x, y, scaledWidth, scaledHeight);
-
-        // Add a subtle border to smooth out edges
-        tempCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-        tempCtx.lineWidth = 1;
-        tempCtx.stroke();
+        // Fill with white to create shadow
+        tempCtx.fillStyle = '#fff';
+        tempCtx.fill();
 
         tempCtx.restore();
+      }
 
-        // Composite temp canvas onto main canvas
-        ctx.drawImage(tempCanvas, 0, 0);
+      // Now draw the actual video content
+      tempCtx.beginPath();
+      tempCtx.moveTo(x + radius + offset, y + offset);
+      tempCtx.lineTo(x + scaledWidth - radius - offset, y + offset);
+      tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + offset, x + scaledWidth - offset, y + radius + offset);
+      tempCtx.lineTo(x + scaledWidth - offset, y + scaledHeight - radius - offset);
+      tempCtx.quadraticCurveTo(x + scaledWidth - offset, y + scaledHeight - offset, x + scaledWidth - radius - offset, y + scaledHeight - offset);
+      tempCtx.lineTo(x + radius + offset, y + scaledHeight - offset);
+      tempCtx.quadraticCurveTo(x + offset, y + scaledHeight - offset, x + offset, y + scaledHeight - radius - offset);
+      tempCtx.lineTo(x + offset, y + radius + offset);
+      tempCtx.quadraticCurveTo(x + offset, y + offset, x + radius + offset, y + offset);
+      tempCtx.closePath();
 
-        // Mouse cursor
-        const cursorStart = performance.now();
-        const interpolatedPosition = this.interpolateCursorPosition(
-          video.currentTime, 
-          mousePositions
+      // Clip and draw the video
+      tempCtx.clip();
+      tempCtx.drawImage(video, x, y, scaledWidth, scaledHeight);
+
+      // Add a subtle border to smooth out edges
+      tempCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+      tempCtx.lineWidth = 1;
+      tempCtx.stroke();
+
+      tempCtx.restore();
+
+      // Composite temp canvas onto main canvas
+      ctx.drawImage(tempCanvas, 0, 0);
+
+      // Mouse cursor
+      const interpolatedPosition = this.interpolateCursorPosition(
+        video.currentTime,
+        mousePositions
+      );
+      if (interpolatedPosition) {
+        // Save current transform
+        ctx.save();
+        // Reset the transform before drawing cursor
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+        // Calculate cursor position in original video space first
+        let cursorX = x + (interpolatedPosition.x * scaledWidth / video.videoWidth);
+        let cursorY = y + (interpolatedPosition.y * scaledHeight / video.videoHeight);
+
+        // If there's zoom, adjust cursor position
+        if (zoomState && zoomState.zoomFactor !== 1) {
+          // Apply the same zoom transformation to cursor position
+          cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
+          cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
+        }
+
+        // Scale cursor size based on video dimensions ratio and zoom
+        const sizeRatio = Math.min(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
+        const cursorScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
+
+        this.drawMouseCursor(
+          ctx,
+          cursorX,
+          cursorY,
+          interpolatedPosition.isClicked || false,
+          cursorScale,
+          interpolatedPosition.cursor_type || 'default'
         );
-        if (interpolatedPosition) {
-            // Save current transform
-            ctx.save();
-            // Reset the transform before drawing cursor
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-            // Calculate cursor position in original video space first
-            let cursorX = x + (interpolatedPosition.x * scaledWidth / video.videoWidth);
-            let cursorY = y + (interpolatedPosition.y * scaledHeight / video.videoHeight);
+        // Restore transform
+        ctx.restore();
+      }
+      // Performance tracking removed
 
-            // If there's zoom, adjust cursor position
-            if (zoomState && zoomState.zoomFactor !== 1) {
-                // Apply the same zoom transformation to cursor position
-                cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
-                cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
-            }
+      this.backgroundConfig = context.backgroundConfig;
 
-            // Scale cursor size based on video dimensions ratio and zoom
-            const sizeRatio = Math.min(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
-            const cursorScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
-
-            this.drawMouseCursor(
-                ctx,
-                cursorX,
-                cursorY,
-                interpolatedPosition.isClicked || false,
-                cursorScale,
-                interpolatedPosition.cursor_type || 'default'
-            );
-
-            // Restore transform
-            ctx.restore();
-        }
-        const timings = { cursor: performance.now() - cursorStart };
-
-        const totalTime = performance.now() - drawStart;
-        if (totalTime > 16) { // Log if frame took longer than 16ms (60fps)
-            console.log('[VideoRenderer] Slow frame render:', {
-                totalTime: `${totalTime.toFixed(2)}ms`,
-                operations: Object.entries(timings).map(([key, time]) => 
-                    `${key}: ${time.toFixed(2)}ms`
-                )
-            });
-        }
-
-        this.backgroundConfig = context.backgroundConfig;
-
-        // Add text overlays
-        if (segment.textSegments) {
-          for (const textSegment of segment.textSegments) {
-            if (video.currentTime >= textSegment.startTime && video.currentTime <= textSegment.endTime) {
-              this.drawTextOverlay(ctx, textSegment, canvas.width, canvas.height);
-            }
+      // Add text overlays
+      if (segment.textSegments) {
+        for (const textSegment of segment.textSegments) {
+          if (video.currentTime >= textSegment.startTime && video.currentTime <= textSegment.endTime) {
+            this.drawTextOverlay(ctx, textSegment, canvas.width, canvas.height);
           }
         }
+      }
 
     } finally {
-        this.isDrawing = false;
-        ctx.restore();
+      this.isDrawing = false;
+      ctx.restore();
 
-        // If we're exporting and dimensions are different
-        if (options.exportMode && (targetWidth !== video.videoWidth || targetHeight !== video.videoHeight)) {
-            // Create a temporary canvas for scaling
-            const exportCanvas = document.createElement('canvas');
-            exportCanvas.width = targetWidth;
-            exportCanvas.height = targetHeight;
-            const exportCtx = exportCanvas.getContext('2d', {
-                alpha: false,
-                willReadFrequently: false
-            });
-            
-            if (exportCtx) {
-                // Use better quality settings for export
-                exportCtx.imageSmoothingEnabled = true;
-                exportCtx.imageSmoothingQuality = 'high';
-                
-                exportCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
-                // Copy scaled content back to main canvas
-                canvas.width = targetWidth;
-                canvas.height = targetHeight;
-                ctx?.drawImage(exportCanvas, 0, 0);
-                exportCanvas.remove(); // Clean up
-            }
-        } else if (!options.exportMode) {
-            // For preview, restore original canvas size with proper scaling
-            const previewCanvas = document.createElement('canvas');
-            previewCanvas.width = targetWidth;
-            previewCanvas.height = targetHeight;
-            const previewCtx = previewCanvas.getContext('2d', {
-                alpha: false,
-                willReadFrequently: false
-            });
-            
-            if (previewCtx) {
-                previewCtx.imageSmoothingEnabled = true;
-                previewCtx.imageSmoothingQuality = 'high';
-                previewCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
-                
-                canvas.width = targetWidth;
-                canvas.height = targetHeight;
-                ctx?.drawImage(previewCanvas, 0, 0);
-                previewCanvas.remove(); // Clean up
-            }
+      // If we're exporting and dimensions are different
+      if (options.exportMode && (targetWidth !== video.videoWidth || targetHeight !== video.videoHeight)) {
+        // Create a temporary canvas for scaling
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = targetWidth;
+        exportCanvas.height = targetHeight;
+        const exportCtx = exportCanvas.getContext('2d', {
+          alpha: false,
+          willReadFrequently: false
+        });
+
+        if (exportCtx) {
+          // Use better quality settings for export
+          exportCtx.imageSmoothingEnabled = true;
+          exportCtx.imageSmoothingQuality = 'high';
+
+          exportCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+          // Copy scaled content back to main canvas
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          ctx?.drawImage(exportCanvas, 0, 0);
+          exportCanvas.remove(); // Clean up
         }
+      } else if (!options.exportMode) {
+        // For preview, restore original canvas size with proper scaling
+        const previewCanvas = document.createElement('canvas');
+        previewCanvas.width = targetWidth;
+        previewCanvas.height = targetHeight;
+        const previewCtx = previewCanvas.getContext('2d', {
+          alpha: false,
+          willReadFrequently: false
+        });
+
+        if (previewCtx) {
+          previewCtx.imageSmoothingEnabled = true;
+          previewCtx.imageSmoothingQuality = 'high';
+          previewCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          ctx?.drawImage(previewCanvas, 0, 0);
+          previewCanvas.remove(); // Clean up
+        }
+      }
     }
   };
 
   private getBackgroundStyle(
-    ctx: CanvasRenderingContext2D, 
+    ctx: CanvasRenderingContext2D,
     type: BackgroundConfig['backgroundType'],
     customBackground?: string
   ): string | CanvasGradient | CanvasPattern {
@@ -389,53 +375,53 @@ export class VideoRenderer {
           if (this.lastCustomBackground !== customBackground || !this.customBackgroundPattern) {
             const img = new Image();
             img.src = customBackground;
-            
+
             if (img.complete) {
               // Create a temporary canvas for scaling the background
               const tempCanvas = document.createElement('canvas');
               const tempCtx = tempCanvas.getContext('2d');
-              
+
               if (tempCtx) {
                 // Scale the image to a reasonable size (e.g., viewport width)
                 const targetWidth = Math.min(1920, window.innerWidth);
                 const scale = targetWidth / img.width;
                 const targetHeight = img.height * scale;
-                
+
                 tempCanvas.width = targetWidth;
                 tempCanvas.height = targetHeight;
-                
+
                 // Use better quality settings
                 tempCtx.imageSmoothingEnabled = true;
                 tempCtx.imageSmoothingQuality = 'high';
-                
+
                 // Draw scaled image
                 tempCtx.drawImage(img, 0, 0, targetWidth, targetHeight);
-                
+
                 // Create pattern from scaled image
                 this.customBackgroundPattern = ctx.createPattern(tempCanvas, 'repeat');
                 this.lastCustomBackground = customBackground;
-                
+
                 // Clean up
                 tempCanvas.remove();
               }
             }
           }
-          
+
           if (this.customBackgroundPattern) {
             // Reset pattern transform
             this.customBackgroundPattern.setTransform(new DOMMatrix());
-            
+
             // Calculate scale to maintain aspect ratio
             const scale = Math.max(
               ctx.canvas.width / window.innerWidth,
               ctx.canvas.height / window.innerHeight
             ) * 1.1; // Slightly larger to avoid gaps
-            
+
             // Apply transform to pattern
             const matrix = new DOMMatrix()
               .scale(scale);
             this.customBackgroundPattern.setTransform(matrix);
-            
+
             return this.customBackgroundPattern;
           }
         }
@@ -447,7 +433,7 @@ export class VideoRenderer {
         gradient.addColorStop(0, '#0a0a0a'); // Very slightly lighter black at top
         gradient.addColorStop(0.5, '#000000'); // Pure black in middle
         gradient.addColorStop(1, '#0a0a0a'); // Very slightly lighter black at bottom
-        
+
         // Add a subtle radial overlay for more depth
         const centerX = ctx.canvas.width / 2;
         const centerY = ctx.canvas.height / 2;
@@ -489,7 +475,7 @@ export class VideoRenderer {
     if (prevKeyframe && nextKeyframe && (nextKeyframe.time - prevKeyframe.time) <= TRANSITION_DURATION) {
       const progress = (currentTime - prevKeyframe.time) / (nextKeyframe.time - prevKeyframe.time);
       const easedProgress = this.easeOutCubic(Math.min(1, Math.max(0, progress)));
-      
+
       return {
         time: currentTime,
         duration: nextKeyframe.time - prevKeyframe.time,
@@ -506,9 +492,9 @@ export class VideoRenderer {
       if (timeToNext <= TRANSITION_DURATION) {
         const progress = (TRANSITION_DURATION - timeToNext) / TRANSITION_DURATION;
         const easedProgress = this.easeOutCubic(Math.min(1, Math.max(0, progress)));
-        
+
         const startState = prevKeyframe || this.DEFAULT_STATE;
-        
+
         return {
           time: currentTime,
           duration: TRANSITION_DURATION,
@@ -541,7 +527,7 @@ export class VideoRenderer {
   ): number {
     const t2 = t * t;
     const t3 = t2 * t;
-    
+
     return 0.5 * (
       (2 * p1) +
       (-p0 + p2) * t +
@@ -557,7 +543,7 @@ export class VideoRenderer {
     if (positions.length < 4) return positions;
 
     const smoothed: MousePosition[] = [];
-    
+
     // First pass: Catmull-Rom interpolation
     for (let i = 0; i < positions.length - 3; i++) {
       const p0 = positions[i];
@@ -585,43 +571,43 @@ export class VideoRenderer {
     // Get smoothness value from background config, default to 5 if not set
     // Scale it up to make the effect more noticeable (1-10 becomes 2-20)
     const windowSize = ((this.backgroundConfig?.cursorSmoothness || 5) * 2) + 1;
-    
+
     // Multiple smoothing passes based on smoothness value
     const passes = Math.ceil(windowSize / 2);
     let currentSmoothed = smoothed;
 
     // Apply multiple passes of smoothing based on the smoothness value
     for (let pass = 0; pass < passes; pass++) {
-        const passSmoothed: MousePosition[] = [];
-        
-        for (let i = 0; i < currentSmoothed.length; i++) {
-            let sumX = 0;
-            let sumY = 0;
-            let totalWeight = 0;
-            
-            // Keep cursor type from original position
-            const cursor_type = currentSmoothed[i].cursor_type;
-            
-            // Only smooth position, not cursor type
-            for (let j = Math.max(0, i - windowSize); j <= Math.min(currentSmoothed.length - 1, i + windowSize); j++) {
-                const distance = Math.abs(i - j);
-                const weight = Math.exp(-distance * (0.5 / windowSize));
-                
-                sumX += currentSmoothed[j].x * weight;
-                sumY += currentSmoothed[j].y * weight;
-                totalWeight += weight;
-            }
+      const passSmoothed: MousePosition[] = [];
 
-            passSmoothed.push({
-                x: sumX / totalWeight,
-                y: sumY / totalWeight,
-                timestamp: currentSmoothed[i].timestamp,
-                isClicked: currentSmoothed[i].isClicked,
-                cursor_type // Preserve the cursor type
-            });
+      for (let i = 0; i < currentSmoothed.length; i++) {
+        let sumX = 0;
+        let sumY = 0;
+        let totalWeight = 0;
+
+        // Keep cursor type from original position
+        const cursor_type = currentSmoothed[i].cursor_type;
+
+        // Only smooth position, not cursor type
+        for (let j = Math.max(0, i - windowSize); j <= Math.min(currentSmoothed.length - 1, i + windowSize); j++) {
+          const distance = Math.abs(i - j);
+          const weight = Math.exp(-distance * (0.5 / windowSize));
+
+          sumX += currentSmoothed[j].x * weight;
+          sumY += currentSmoothed[j].y * weight;
+          totalWeight += weight;
         }
-        
-        currentSmoothed = passSmoothed;
+
+        passSmoothed.push({
+          x: sumX / totalWeight,
+          y: sumY / totalWeight,
+          timestamp: currentSmoothed[i].timestamp,
+          isClicked: currentSmoothed[i].isClicked,
+          cursor_type // Preserve the cursor type
+        });
+      }
+
+      currentSmoothed = passSmoothed;
     }
 
     // Apply threshold to remove tiny movements
@@ -631,21 +617,21 @@ export class VideoRenderer {
     const finalSmoothed = [lastSignificantPos];
 
     for (let i = 1; i < currentSmoothed.length; i++) {
-        const current = currentSmoothed[i];
-        const distance = Math.sqrt(
-            Math.pow(current.x - lastSignificantPos.x, 2) + 
-            Math.pow(current.y - lastSignificantPos.y, 2)
-        );
+      const current = currentSmoothed[i];
+      const distance = Math.sqrt(
+        Math.pow(current.x - lastSignificantPos.x, 2) +
+        Math.pow(current.y - lastSignificantPos.y, 2)
+      );
 
-        if (distance > threshold || current.isClicked !== lastSignificantPos.isClicked) {
-            finalSmoothed.push(current);
-            lastSignificantPos = current;
-        } else {
-            finalSmoothed.push({
-                ...lastSignificantPos,
-                timestamp: current.timestamp
-            });
-        }
+      if (distance > threshold || current.isClicked !== lastSignificantPos.isClicked) {
+        finalSmoothed.push(current);
+        lastSignificantPos = current;
+      } else {
+        finalSmoothed.push({
+          ...lastSignificantPos,
+          timestamp: current.timestamp
+        });
+      }
     }
 
     return finalSmoothed;
@@ -659,17 +645,6 @@ export class VideoRenderer {
 
     // Add cursor type frequency analysis
     if (!this.hasLoggedPositions) {
-      const typeCounts = mousePositions.reduce((acc, pos) => {
-        const type = pos.cursor_type || 'default';
-        acc[type] = (acc[type] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-
-      console.log('Cursor type frequencies:', {
-        total: mousePositions.length,
-        types: typeCounts
-      });
-      
       this.hasLoggedPositions = true;
     }
 
@@ -679,7 +654,7 @@ export class VideoRenderer {
     }
 
     const positions = this.smoothedPositions;
-    
+
     // Find the exact position for the current time
     const exactMatch = positions.find(pos => Math.abs(pos.timestamp - currentTime) < 0.001);
     if (exactMatch) {
@@ -696,11 +671,6 @@ export class VideoRenderer {
     const nextIndex = positions.findIndex(pos => pos.timestamp > currentTime);
     if (nextIndex === -1) {
       const last = positions[positions.length - 1];
-      console.log('Using last position:', {
-        time: currentTime,
-        cursor_type: last.cursor_type,
-        pos: last
-      });
       return {
         x: last.x,
         y: last.y,
@@ -734,10 +704,10 @@ export class VideoRenderer {
   }
 
   private drawMouseCursor(
-    ctx: CanvasRenderingContext2D, 
-    x: number, 
-    y: number, 
-    isClicked: boolean, 
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    isClicked: boolean,
     scale: number = 2,
     cursorType: string = 'default'
   ) {
@@ -747,78 +717,78 @@ export class VideoRenderer {
   }
 
   private drawCursorShape(
-    ctx: CanvasRenderingContext2D, 
-    x: number, 
-    y: number, 
-    isClicked: boolean, 
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    isClicked: boolean,
     scale: number = 2,
     cursorType: string
   ) {
     const lowerType = cursorType.toLowerCase();
- 
+
 
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
-    
+
     // Handle click animation state
     const now = performance.now();
     if (isClicked && !this.cursorAnimation.isAnimating) {
-        // Start new click animation
-        this.cursorAnimation.startTime = now;
-        this.cursorAnimation.isAnimating = true;
-        this.cursorAnimation.isSquishing = true;
-    }
-    
-    // Apply animation transforms
-    if (this.cursorAnimation.isAnimating) {
-        const elapsed = now - this.cursorAnimation.startTime;
-        
-        if (this.cursorAnimation.isSquishing) {
-            // Squish phase
-            const progress = Math.min(1, elapsed / this.SQUISH_DURATION);
-            const scaleAmount = 1 - (0.2 * this.easeOutQuad(progress)); // Reduce scale by 20%
-            ctx.scale(scaleAmount, scaleAmount);
-            
-            if (progress >= 1) {
-                // Switch to release phase
-                this.cursorAnimation.isSquishing = false;
-                this.cursorAnimation.startTime = now;
-            }
-        } else {
-            // Release/bounce phase
-            const progress = Math.min(1, elapsed / this.RELEASE_DURATION);
-            const baseScale = 0.8 + (0.2 * this.easeOutBack(progress));
-            ctx.scale(baseScale, baseScale);
-            
-            if (progress >= 1) {
-                this.cursorAnimation.isAnimating = false;
-            }
-        }
+      // Start new click animation
+      this.cursorAnimation.startTime = now;
+      this.cursorAnimation.isAnimating = true;
+      this.cursorAnimation.isSquishing = true;
     }
 
-    
+    // Apply animation transforms
+    if (this.cursorAnimation.isAnimating) {
+      const elapsed = now - this.cursorAnimation.startTime;
+
+      if (this.cursorAnimation.isSquishing) {
+        // Squish phase
+        const progress = Math.min(1, elapsed / this.SQUISH_DURATION);
+        const scaleAmount = 1 - (0.2 * this.easeOutQuad(progress)); // Reduce scale by 20%
+        ctx.scale(scaleAmount, scaleAmount);
+
+        if (progress >= 1) {
+          // Switch to release phase
+          this.cursorAnimation.isSquishing = false;
+          this.cursorAnimation.startTime = now;
+        }
+      } else {
+        // Release/bounce phase
+        const progress = Math.min(1, elapsed / this.RELEASE_DURATION);
+        const baseScale = 0.8 + (0.2 * this.easeOutBack(progress));
+        ctx.scale(baseScale, baseScale);
+
+        if (progress >= 1) {
+          this.cursorAnimation.isAnimating = false;
+        }
+      }
+    }
+
+
     switch (lowerType) {
       case 'text': {
 
         ctx.translate(-6, -8);
-        
+
         // I-beam cursor with more detailed shape
         const ibeam = new Path2D(`
           M 2 0 L 10 0 L 10 2 L 7 2 L 7 14 L 10 14 L 10 16 L 2 16 L 2 14 L 5 14 L 5 2 L 2 2 Z
         `);
-        
+
         // White outline
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 1.5;
         ctx.stroke(ibeam);
-        
+
         // Black fill
         ctx.fillStyle = 'black';
         ctx.fill(ibeam);
         break;
       }
-      
+
       case 'pointer': {
 
         // If the pointer image is loaded, draw it. Use fallback dimensions if necessary.
@@ -827,7 +797,7 @@ export class VideoRenderer {
           imgWidth = this.pointerImage.naturalWidth;
           imgHeight = this.pointerImage.naturalHeight;
         }
-        
+
         // Shift the image offset to center the pointer tip
         // Adjust offsetX and offsetY as needed. Here we shift right and down by 4 pixels each.
         const offsetX = 8;
@@ -836,7 +806,7 @@ export class VideoRenderer {
         ctx.drawImage(this.pointerImage, 0, 0, imgWidth, imgHeight);
         break;
       }
-      
+
       default: {
 
         ctx.translate(-8, -5);
@@ -876,15 +846,15 @@ export class VideoRenderer {
     height: number
   ) {
     ctx.save();
-    
+
     // Configure text style
     ctx.font = `${textSegment.style.fontSize}px sans-serif`;
     ctx.fillStyle = textSegment.style.color;
     ctx.textAlign = 'center';
-    
+
     const x = (textSegment.style.x / 100) * width;
     const y = (textSegment.style.y / 100) * height;
-    
+
     // Draw hit area for dragging (invisible)
     const metrics = ctx.measureText(textSegment.text);
     const textHeight = textSegment.style.fontSize;
@@ -900,7 +870,7 @@ export class VideoRenderer {
       ctx.fillStyle = 'rgba(0, 121, 211, 0.1)';
       ctx.fillRect(hitArea.x, hitArea.y, hitArea.width, hitArea.height);
     }
-    
+
     // Draw text with shadow
     ctx.shadowColor = 'rgba(0,0,0,0.7)';
     ctx.shadowBlur = 6;
@@ -908,9 +878,9 @@ export class VideoRenderer {
     ctx.shadowOffsetY = 2;
     ctx.fillStyle = textSegment.style.color;
     ctx.fillText(textSegment.text, x, y);
-    
+
     ctx.restore();
-    
+
     // Return hit area for collision detection
     return hitArea;
   }
@@ -927,7 +897,7 @@ export class VideoRenderer {
 
       const hitArea = this.drawTextOverlay(ctx, text, canvas.width, canvas.height);
       if (x >= hitArea.x && x <= hitArea.x + hitArea.width &&
-          y >= hitArea.y && y <= hitArea.y + hitArea.height) {
+        y >= hitArea.y && y <= hitArea.y + hitArea.height) {
         this.isDraggingText = true;
         this.draggedTextId = text.id;
         this.dragOffset.x = x - (text.style.x / 100 * canvas.width);
@@ -939,9 +909,9 @@ export class VideoRenderer {
   }
 
   public handleMouseMove(
-    e: MouseEvent, 
+    e: MouseEvent,
     _segment: VideoSegment,
-    canvas: HTMLCanvasElement, 
+    canvas: HTMLCanvasElement,
     onTextMove: (id: string, x: number, y: number) => void
   ) {
     if (!this.isDraggingText || !this.draggedTextId) return;

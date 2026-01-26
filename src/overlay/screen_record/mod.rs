@@ -502,6 +502,11 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
             let monitor_id = args["monitorId"].as_str().unwrap_or("0");
             let monitor_index = monitor_id.parse::<usize>().unwrap_or(0);
             
+            // RESET ALL RECORDING STATES
+            SHOULD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
+            crate::overlay::screen_record::engine::IS_MOUSE_CLICKED.store(false, std::sync::atomic::Ordering::SeqCst);
+            crate::overlay::screen_record::engine::MOUSE_POSITIONS.lock().clear();
+            
             let monitor = Monitor::from_index(monitor_index + 1).map_err(|e| e.to_string())?;
 
             // Set monitor coordinates for mouse tracking

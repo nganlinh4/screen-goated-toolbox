@@ -84,4 +84,5 @@ export interface Project {
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
+  thumbnail?: string;
 } 
