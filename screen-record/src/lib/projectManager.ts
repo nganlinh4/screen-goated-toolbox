@@ -2,10 +2,31 @@ import { Project } from '@/types/video';
 
 class ProjectManager {
   private readonly STORAGE_KEY = 'screen-demo-projects';
+  private limit = 50;
+
+  setLimit(newLimit: number) {
+    this.limit = newLimit;
+    this.pruneProjects();
+  }
+
+  getLimit(): number {
+    return this.limit;
+  }
+
+  private async pruneProjects() {
+    const projects = await this.getProjects();
+    if (projects.length > this.limit) {
+      const projectsToDelete = projects.splice(this.limit);
+      for (const p of projectsToDelete) {
+        await this.deleteVideoBlob(p.id);
+      }
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
+    }
+  }
 
   async saveProject(project: Omit<Project, 'id' | 'createdAt' | 'lastModified'>): Promise<Project> {
     const projects = await this.getProjects();
-    
+
     const newProject: Project = {
       ...project,
       id: crypto.randomUUID(),
@@ -15,14 +36,23 @@ class ProjectManager {
 
     // Store video blob separately using IndexedDB
     await this.saveVideoBlob(newProject.id, newProject.videoBlob);
-    
+
     // Store project metadata without the blob in localStorage
     const projectMeta = { ...newProject };
     delete (projectMeta as any).videoBlob;
-    
+
     projects.unshift(projectMeta);
+
+    // Limit projects
+    if (projects.length > this.limit) {
+      const projectsToDelete = projects.splice(this.limit);
+      for (const p of projectsToDelete) {
+        await this.deleteVideoBlob(p.id);
+      }
+    }
+
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
-    
+
     return newProject;
   }
 
@@ -34,13 +64,13 @@ class ProjectManager {
   async loadProject(id: string): Promise<Project | null> {
     const projects = await this.getProjects();
     const project = projects.find(p => p.id === id);
-    
+
     if (!project) return null;
-    
+
     // Load video blob from IndexedDB
     const videoBlob = await this.loadVideoBlob(id);
     if (!videoBlob) return null;
-    
+
     return { ...project, videoBlob };
   }
 
@@ -48,7 +78,7 @@ class ProjectManager {
     const projects = await this.getProjects();
     const filteredProjects = projects.filter(p => p.id !== id);
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(filteredProjects));
-    
+
     // Delete video blob from IndexedDB
     await this.deleteVideoBlob(id);
   }
@@ -56,12 +86,12 @@ class ProjectManager {
   async updateProject(id: string, updates: Omit<Project, 'id' | 'createdAt' | 'lastModified'>): Promise<void> {
     const projects = await this.getProjects();
     const projectIndex = projects.findIndex(p => p.id === id);
-    
+
     if (projectIndex === -1) return;
 
     // Store video blob
     await this.saveVideoBlob(id, updates.videoBlob);
-    
+
     // Update project metadata
     const updatedProject = {
       ...projects[projectIndex],
@@ -69,7 +99,7 @@ class ProjectManager {
       lastModified: Date.now()
     };
     delete (updatedProject as any).videoBlob;
-    
+
     projects[projectIndex] = updatedProject;
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
   }
@@ -86,7 +116,7 @@ class ProjectManager {
     const db = await this.openDB();
     const tx = db.transaction('videos', 'readonly');
     const store = tx.objectStore('videos');
-    
+
     return new Promise((resolve, reject) => {
       const request = store.get(id);
       request.onerror = () => reject(request.error);
@@ -104,10 +134,10 @@ class ProjectManager {
   private async openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open('ScreenDemoDB', 1);
-      
+
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
-      
+
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         if (!db.objectStoreNames.contains('videos')) {

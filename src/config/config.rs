@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::preset::{get_default_presets, Preset};
 use crate::config::types::{
     default_tts_language_conditions, get_system_ui_language, EdgeTtsSettings, Hotkey, ThemeMode,
-    TtsLanguageCondition, TtsMethod, DEFAULT_HISTORY_LIMIT,
+    TtsLanguageCondition, TtsMethod, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT,
 };
 
 // ============================================================================
@@ -18,6 +18,10 @@ fn default_true() -> bool {
 
 fn default_history_limit() -> usize {
     DEFAULT_HISTORY_LIMIT
+}
+
+fn default_projects_limit() -> usize {
+    DEFAULT_PROJECTS_LIMIT
 }
 
 fn default_graphics_mode() -> String {
@@ -109,6 +113,10 @@ pub struct Config {
     /// Maximum history items to keep
     #[serde(default = "default_history_limit")]
     pub max_history_items: usize,
+
+    /// Maximum screen record projects to keep
+    #[serde(default = "default_projects_limit")]
+    pub max_screen_record_projects: usize,
 
     /// Graphics mode: "standard" or "low"
     #[serde(default = "default_graphics_mode")]
@@ -330,6 +338,7 @@ impl Default for Config {
             theme_mode: ThemeMode::System,
             ui_language: get_system_ui_language(),
             max_history_items: DEFAULT_HISTORY_LIMIT,
+            max_screen_record_projects: DEFAULT_PROJECTS_LIMIT,
             graphics_mode: "standard".to_string(),
 
             // Startup

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Play, Pause, Video, Plus, Trash2, Search, Download, Loader2, Save, FolderOpen, Upload, Wand2, Type, Keyboard, X, Minus, Square, Copy } from "lucide-react";
+import { Play, Pause, Video, Plus, Trash2, Search, Download, Loader2, FolderOpen, Upload, Wand2, Type, Keyboard, X, Minus, Square, Copy } from "lucide-react";
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { videoRenderer } from '@/lib/videoRenderer';
@@ -88,7 +88,7 @@ function App() {
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Add new state for the confirmation modal
-  const [showConfirmNewRecording, setShowConfirmNewRecording] = useState(false);
+  // State removed: showConfirmNewRecording
 
   // Add this to your App component state
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>({
@@ -180,7 +180,7 @@ function App() {
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
 
   useEffect(() => {
-    invoke<boolean>('is_maximized').then(setIsWindowMaximized).catch(console.error);
+    invoke<boolean>('is_maximized').then(setIsWindowMaximized).catch(() => { });
   }, []);
 
   // Update other places where drawFrame was used to use renderFrame instead
@@ -192,7 +192,7 @@ function App() {
   // Add these state variables inside App component
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [showMonitorSelect, setShowMonitorSelect] = useState(false);
-  const [selectedMonitor, setSelectedMonitor] = useState<string | null>(null);
+
 
   // Add this function to fetch monitors
   const getMonitors = async () => {
@@ -214,7 +214,7 @@ function App() {
   const [listeningForKey, setListeningForKey] = useState(false);
 
   useEffect(() => {
-    invoke<Hotkey[]>('get_hotkeys').then(setHotkeys).catch(console.error);
+    invoke<Hotkey[]>('get_hotkeys').then(setHotkeys).catch(() => { });
   }, []);
 
   const handleRemoveHotkey = async (index: number) => {
@@ -228,15 +228,13 @@ function App() {
 
   useEffect(() => {
     if (showHotkeyDialog && listeningForKey) {
-      console.log("Hotkeys unregistering...");
-      invoke('unregister_hotkeys').catch(console.error);
+      invoke('unregister_hotkeys').catch(() => { });
       window.focus();
     } else {
-      console.log("Hotkeys registering...");
-      invoke('register_hotkeys').catch(console.error);
+      invoke('register_hotkeys').catch(() => { });
     }
     return () => {
-      invoke('register_hotkeys').catch(console.error);
+      invoke('register_hotkeys').catch(() => { });
     };
   }, [showHotkeyDialog, listeningForKey]);
 
@@ -306,11 +304,7 @@ function App() {
       }
 
       // If only one monitor, use it directly
-      if (currentVideo) {
-        setShowConfirmNewRecording(true);
-      } else {
-        await startNewRecording('0');
-      }
+      await startNewRecording('0');
     } catch (err) {
       console.error("Failed to handle start recording:", err);
       setError(err as string);
@@ -320,7 +314,6 @@ function App() {
   // Update startNewRecording to handle string IDs
   async function startNewRecording(monitorId: string) {
     try {
-      console.log('Starting new recording, clearing states');
       // Clear all states first
       setMousePositions([]);
       setIsVideoReady(false);
@@ -357,8 +350,6 @@ function App() {
       await invoke("start_recording", { monitorId });
       setIsRecording(true);
       setError(null);
-
-      console.log('Recording started, mouse positions cleared');
     } catch (err) {
       console.error("Failed to start recording:", err);
       setError(err as string);
@@ -389,10 +380,25 @@ function App() {
         setCurrentVideo(objectUrl);
         setIsVideoReady(true);
         generateThumbnails();
+
+        // Auto-save the initial project
+        const response = await fetch(objectUrl);
+        const videoBlob = await response.blob();
+        const timestamp = new Date().toLocaleString();
+        const initialSegment: VideoSegment = { trimStart: 0, trimEnd: 0, zoomKeyframes: [], textSegments: [] };
+        // Note: duration will be updated via metadata effect, but we save initial state here
+        const project = await projectManager.saveProject({
+          name: `Recording ${timestamp}`,
+          videoBlob,
+          segment: initialSegment,
+          backgroundConfig,
+          mousePositions: mouseData
+        });
+        setCurrentProjectId(project.id);
+        await loadProjects();
       }
 
     } catch (err) {
-      console.error("❌ Failed to stop recording:", err);
       setError(err as string);
     } finally {
       setIsLoadingVideo(false);
@@ -448,12 +454,8 @@ function App() {
   }, []);
 
   // Replace the debugLog function
-  const debugLog = (message: string, data?: any) => {
-    if (data) {
-      console.log(`[DEBUG] ${message}`, data);
-    } else {
-      console.log(`[DEBUG] ${message}`);
-    }
+  const debugLog = (_message: string, _data?: any) => {
+    // Disabled
   };
 
   // Add new export function to replace video-exporter.ts
@@ -694,58 +696,52 @@ function App() {
     setProjects(projects);
   };
 
-  // Add new state for the save dialog
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [projectNameInput, setProjectNameInput] = useState('');
-
-  // Add new state for current project
+  // Projects state
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [editingProjectNameId, setEditingProjectNameId] = useState<string | null>(null);
+  const [projectRenameValue, setProjectRenameValue] = useState("");
 
   // Update handleSaveProject to show different options when editing existing project
-  const handleSaveProject = async () => {
-    if (!currentVideo || !segment) return;
+  // Auto-save effect
+  useEffect(() => {
+    if (!currentProjectId || !currentVideo || !segment) return;
 
-    if (currentProjectId) {
-      // We're editing an existing project - show save options
-      setShowSaveDialog(true);
-      setProjectNameInput(projects.find(p => p.id === currentProjectId)?.name || 'Untitled Project');
-    } else {
-      // New project
-      setShowSaveDialog(true);
-      setProjectNameInput('Untitled Project');
-    }
-  };
+    const performAutoSave = async () => {
+      try {
+        const response = await fetch(currentVideo);
+        const videoBlob = await response.blob();
+        await projectManager.updateProject(currentProjectId, {
+          name: projects.find(p => p.id === currentProjectId)?.name || "Auto Saved Project",
+          videoBlob,
+          segment,
+          backgroundConfig,
+          mousePositions
+        });
+        await loadProjects();
+      } catch (err) {
+        // Silent fail on auto-save
+      }
+    };
 
-  // Update handleSaveConfirm to handle both new and existing projects
-  const handleSaveConfirm = async () => {
-    if (!currentVideo || !segment || !projectNameInput.trim()) return;
+    const timer = setTimeout(performAutoSave, 2000);
+    return () => clearTimeout(timer);
+  }, [segment, backgroundConfig, mousePositions, currentProjectId]);
 
-    const response = await fetch(currentVideo);
-    const videoBlob = await response.blob();
+  const handleRenameProject = async (id: string) => {
+    if (!projectRenameValue.trim()) return;
+    const project = projects.find(p => p.id === id);
+    if (!project) return;
 
-    if (currentProjectId) {
-      // Update existing project
-      await projectManager.updateProject(currentProjectId, {
-        name: projectNameInput,
-        videoBlob,
-        segment,
-        backgroundConfig,
-        mousePositions
+    // Load full project to update name
+    const fullProject = await projectManager.loadProject(id);
+    if (fullProject) {
+      await projectManager.updateProject(id, {
+        ...fullProject,
+        name: projectRenameValue.trim()
       });
-    } else {
-      // Create new project
-      const project = await projectManager.saveProject({
-        name: projectNameInput,
-        videoBlob,
-        segment,
-        backgroundConfig,
-        mousePositions
-      });
-      setCurrentProjectId(project.id);
+      await loadProjects();
     }
-
-    setShowSaveDialog(false);
-    await loadProjects();
+    setEditingProjectNameId(null);
   };
 
   // Update handleLoadProject to use loadVideo instead of handleVideoSourceChange
@@ -959,15 +955,6 @@ function App() {
               variant="ghost"
               size="sm"
               onMouseDown={(e) => e.stopPropagation()}
-              onClick={handleSaveProject}
-              className="h-8 text-xs text-[#d7dadc] hover:bg-[#272729]"
-            >
-              <Save className="w-4 h-4 mr-2" />Save
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onMouseDown={(e) => e.stopPropagation()}
               onClick={() => setShowProjectsDialog(true)}
               className="h-8 text-xs text-[#d7dadc] hover:bg-[#272729]"
             >
@@ -980,7 +967,6 @@ function App() {
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                console.log("[SR] Button Click: minimize_window");
                 (window as any).ipc.postMessage('minimize_window');
               }}
               className="px-3 h-full text-[#d7dadc] hover:bg-[#272729] transition-colors flex items-center"
@@ -992,7 +978,6 @@ function App() {
               onMouseDown={(e) => e.stopPropagation()}
               onClick={async (e) => {
                 e.stopPropagation();
-                console.log("[SR] Button Click: toggle_maximize");
                 (window as any).ipc.postMessage('toggle_maximize');
                 // Small delay to let the state settle before checking
                 setTimeout(async () => {
@@ -1009,7 +994,6 @@ function App() {
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                console.log("[SR] Button Click: close_window");
                 (window as any).ipc.postMessage('close_window');
               }}
               className="px-3 h-full text-[#d7dadc] hover:bg-[#e81123] hover:text-white transition-colors flex items-center"
@@ -1459,27 +1443,7 @@ function App() {
         </div>
       )}
 
-      {showConfirmNewRecording && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-[#d7dadc] mb-4">Start New Recording?</h3>
-            <p className="text-[#818384] mb-6">Starting a new recording will discard your current video. Are you sure you want to continue?</p>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => { setShowConfirmNewRecording(false); setSelectedMonitor(null); }} className="bg-transparent border-[#343536] text-[#d7dadc] hover:bg-[#272729] hover:text-[#d7dadc]">Cancel</Button>
-              <Button
-                onClick={() => {
-                  setShowConfirmNewRecording(false);
-                  startNewRecording(selectedMonitor ? selectedMonitor : '0');
-                  setSelectedMonitor(null);
-                }}
-                className="bg-[#0079d3] hover:bg-[#1484d6] text-white"
-              >
-                Start New Recording
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* showConfirmNewRecording removed */}
 
       {showMonitorSelect && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
@@ -1491,12 +1455,7 @@ function App() {
                   key={monitor.id}
                   onClick={() => {
                     setShowMonitorSelect(false);
-                    if (currentVideo) {
-                      setShowConfirmNewRecording(true);
-                      setSelectedMonitor(monitor.id);
-                    } else {
-                      startNewRecording(monitor.id);
-                    }
+                    startNewRecording(monitor.id);
                   }}
                   className="w-full p-4 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors text-left"
                 >
@@ -1633,7 +1592,24 @@ function App() {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-2xl w-full mx-4">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold text-[#d7dadc]">Recent Projects</h3>
+              <div className="flex items-center gap-4">
+                <h3 className="text-lg font-semibold text-[#d7dadc]">Recent Projects</h3>
+                <div className="flex items-center gap-2 ml-4">
+                  <span className="text-xs text-[#818384]">Limit:</span>
+                  <input
+                    type="range"
+                    min="10"
+                    max="100"
+                    value={projectManager.getLimit()}
+                    onChange={(e) => {
+                      projectManager.setLimit(parseInt(e.target.value));
+                      loadProjects();
+                    }}
+                    className="w-24 h-1 bg-[#272729] rounded-lg appearance-none cursor-pointer accent-[#0079d3]"
+                  />
+                  <span className="text-xs text-[#d7dadc]">{projectManager.getLimit()}</span>
+                </div>
+              </div>
               <Button
                 variant="ghost"
                 onClick={() => setShowProjectsDialog(false)}
@@ -1654,8 +1630,29 @@ function App() {
                     key={project.id}
                     className="flex items-center justify-between p-4 rounded-lg border border-[#343536] hover:bg-[#272729] transition-colors"
                   >
-                    <div>
-                      <h4 className="text-[#d7dadc] font-medium">{project.name}</h4>
+                    <div className="flex-1 min-w-0 mr-4">
+                      {editingProjectNameId === project.id ? (
+                        <input
+                          autoFocus
+                          className="bg-[#1a1a1b] border border-[#0079d3] rounded px-2 py-1 text-[#d7dadc] w-full"
+                          value={projectRenameValue}
+                          onChange={(e) => setProjectRenameValue(e.target.value)}
+                          onBlur={() => handleRenameProject(project.id)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleRenameProject(project.id)}
+                          onMouseDown={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <h4
+                          className="text-[#d7dadc] font-medium truncate cursor-primary hover:text-[#0079d3] cursor-pointer"
+                          title="Click to rename"
+                          onClick={() => {
+                            setEditingProjectNameId(project.id);
+                            setProjectRenameValue(project.name);
+                          }}
+                        >
+                          {project.name}
+                        </h4>
+                      )}
                       <p className="text-sm text-[#818384]">
                         Last modified: {new Date(project.lastModified).toLocaleDateString()}
                       </p>
@@ -1668,52 +1665,20 @@ function App() {
                         Load Project
                       </Button>
                       <Button
+                        variant="ghost"
                         onClick={async () => {
                           await projectManager.deleteProject(project.id);
                           await loadProjects();
                         }}
-                        variant="destructive"
-                        className="bg-red-500/10 hover:bg-red-500/20 text-red-500"
+                        className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
                       >
-                        Delete
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {showSaveDialog && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="bg-[#1a1a1b] p-6 rounded-lg border border-[#343536] max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-[#d7dadc] mb-4">Save Project</h3>
-            <input
-              type="text"
-              value={projectNameInput}
-              onChange={(e) => setProjectNameInput(e.target.value)}
-              placeholder="Enter project name"
-              className="w-full bg-[#272729] border border-[#343536] rounded-md px-3 py-2 text-[#d7dadc] mb-6"
-              autoFocus
-            />
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => setShowSaveDialog(false)}
-                className="bg-transparent border-[#343536] text-[#d7dadc] hover:bg-[#272729] hover:text-[#d7dadc]"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveConfirm}
-                disabled={!projectNameInput.trim()}
-                className="bg-[#0079d3] hover:bg-[#0079d3]/90 text-white disabled:opacity-50"
-              >
-                Save Project
-              </Button>
-            </div>
           </div>
         </div>
       )}
@@ -1753,5 +1718,3 @@ function formatTime(seconds: number): string {
 }
 
 export default App;
-
-

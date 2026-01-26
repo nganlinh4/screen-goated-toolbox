@@ -10,7 +10,9 @@ mod hotkey;
 mod tts;
 
 // Re-export all types for easy access
-pub use enums::{get_system_ui_language, BlockType, ThemeMode, DEFAULT_HISTORY_LIMIT};
+pub use enums::{
+    get_system_ui_language, BlockType, ThemeMode, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT,
+};
 
 pub use hotkey::Hotkey;
 

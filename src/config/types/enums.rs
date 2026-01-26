@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 pub const DEFAULT_HISTORY_LIMIT: usize = 50;
+pub const DEFAULT_PROJECTS_LIMIT: usize = 50;
 
 // ============================================================================
 // THEME MODE

@@ -390,7 +390,6 @@ unsafe fn internal_create_sr_loop() {
                         let body = msg.body().as_str();
                         let hwnd = send_hwnd.0;
                         if body == "drag_window" {
-                            println!("[SR] IPC: drag_window");
                             let _ = ReleaseCapture();
                             let _ = SendMessageW(
                                 hwnd,
@@ -399,20 +398,16 @@ unsafe fn internal_create_sr_loop() {
                                 Some(LPARAM(0)),
                             );
                         } else if body == "minimize_window" {
-                            println!("[SR] IPC: minimize_window");
                             let _ = ShowWindow(hwnd, SW_MINIMIZE);
                         } else if body == "toggle_maximize" {
-                            println!("[SR] IPC: toggle_maximize");
                             if unsafe { IsZoomed(hwnd).as_bool() } {
                                 let _ = ShowWindow(hwnd, SW_RESTORE);
                             } else {
                                 let _ = ShowWindow(hwnd, SW_MAXIMIZE);
                             }
                         } else if body == "close_window" {
-                            println!("[SR] IPC: close_window");
                             let _ = ShowWindow(hwnd, SW_HIDE);
                         } else if let Ok(req) = serde_json::from_str::<IpcRequest>(body) {
-                            println!("[SR] IPC command: {}", req.cmd);
                             let id = req.id;
                             let cmd = req.cmd;
                             let args = req.args;
