@@ -51,6 +51,8 @@ lazy_static::lazy_static! {
     pub static ref AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ENCODER_ACTIVE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref IS_MOUSE_CLICKED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    // Track if we already captured the click event (to only record one frame as clicked)
+    pub static ref CLICK_CAPTURED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
 pub static mut VIDEO_PATH: Option<String> = None;
@@ -182,10 +184,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             unsafe {
                 let mut point = POINT::default();
                 if GetCursorPos(&mut point).is_ok() {
+                    // Record actual held state - cursor should stay squished while held
                     let is_clicked = IS_MOUSE_CLICKED.load(Ordering::SeqCst);
-                    if is_clicked {
-                        println!("DEBUG: Engine captured CLICK at frame {}", self.frame_count);
-                    }
                     let cursor_type = get_cursor_type();
 
                     let mouse_pos = MousePosition {

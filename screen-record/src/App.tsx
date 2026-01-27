@@ -2107,6 +2107,7 @@ function App() {
               setEditingTextId={setEditingTextId}
               setActivePanel={setActivePanel}
               setSegment={setSegment}
+              onSeek={(time) => videoControllerRef.current?.seek(time)}
             />
           </div>
         </div>

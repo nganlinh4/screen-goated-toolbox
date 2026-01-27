@@ -36,6 +36,7 @@ interface TimelineProps {
   setEditingTextId: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   setSegment: (segment: VideoSegment | null) => void;
+  onSeek?: (time: number) => void;
 }
 
 const TimeMarkers: React.FC<{ duration: number }> = ({ duration }) => (
@@ -517,7 +518,8 @@ export const Timeline: React.FC<TimelineProps> = ({
   setEditingKeyframeId,
   setEditingTextId,
   setActivePanel,
-  setSegment
+  setSegment,
+  onSeek
 }) => {
   const [isDraggingTrimStart, setIsDraggingTrimStart] = useState(false);
   const [isDraggingTrimEnd, setIsDraggingTrimEnd] = useState(false);
@@ -532,16 +534,18 @@ export const Timeline: React.FC<TimelineProps> = ({
 
   const handleSeek = (clientX: number) => {
     const timeline = timelineRef.current;
-    const video = videoRef.current;
-    if (!timeline || !video || !segment) return;
+    if (!timeline || !segment) return;
 
     const rect = timeline.getBoundingClientRect();
     const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
     const time = (x / rect.width) * duration;
 
-    // Update video request
-    if (Math.abs(video.currentTime - time) > 0.05) {
-      video.currentTime = time;
+    // Use controller's seek method to properly sync video and audio
+    if (onSeek) {
+      onSeek(time);
+    } else if (videoRef.current && Math.abs(videoRef.current.currentTime - time) > 0.05) {
+      // Fallback to direct video manipulation
+      videoRef.current.currentTime = time;
       setCurrentTime(time);
     }
   };

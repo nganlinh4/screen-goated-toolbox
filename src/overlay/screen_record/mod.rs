@@ -509,6 +509,7 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
             // RESET ALL RECORDING STATES
             SHOULD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
             crate::overlay::screen_record::engine::IS_MOUSE_CLICKED.store(false, std::sync::atomic::Ordering::SeqCst);
+            crate::overlay::screen_record::engine::CLICK_CAPTURED.store(false, std::sync::atomic::Ordering::SeqCst);
             crate::overlay::screen_record::engine::MOUSE_POSITIONS.lock().clear();
             
             let monitor = Monitor::from_index(monitor_index + 1).map_err(|e| e.to_string())?;
