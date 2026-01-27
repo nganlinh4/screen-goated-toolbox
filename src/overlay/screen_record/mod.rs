@@ -25,6 +25,7 @@ const MOD_WIN: u32 = 0x0008;
 
 pub mod engine;
 pub mod audio_engine;
+pub mod keyviz;
 use engine::{
     get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, ENCODING_FINISHED, MOUSE_POSITIONS,
     SHOULD_STOP, VIDEO_PATH, AUDIO_PATH
@@ -502,6 +503,25 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
             let monitors = get_monitors();
             Ok(serde_json::to_value(monitors).unwrap())
         }
+        "install_keyviz" => {
+            std::thread::spawn(|| {
+                if let Err(e) = keyviz::install_keyviz() {
+                    crate::log_info!("Keyviz install failed: {}", e);
+                }
+            });
+            Ok(serde_json::Value::Null)
+        }
+        "set_keyviz_enabled" => {
+            let enabled = args["enabled"].as_bool().unwrap_or(false);
+            keyviz::set_enabled(enabled);
+            Ok(serde_json::Value::Null)
+        }
+        "get_keyviz_status" => {
+            Ok(serde_json::json!({
+                "installed": keyviz::is_installed(),
+                "enabled": keyviz::is_enabled()
+            }))
+        }
         "start_recording" => {
             let monitor_id = args["monitorId"].as_str().unwrap_or("0");
             let monitor_index = monitor_id.parse::<usize>().unwrap_or(0);
@@ -544,6 +564,9 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
                 monitor_id.to_string(),
             );
 
+            // Start Keyviz if enabled
+            let _ = keyviz::start();
+
             std::thread::spawn(move || {
                 let _ = CaptureHandler::start_free_threaded(settings);
             });
@@ -552,6 +575,7 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
         }
         "stop_recording" => {
             SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = keyviz::stop();
             
             // Wait for both video and audio encoding to finish
             let start = std::time::Instant::now();
