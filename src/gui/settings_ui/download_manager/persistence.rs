@@ -12,6 +12,7 @@ pub struct DownloadManagerConfig {
     pub use_playlist: bool,
     pub cookie_browser: CookieBrowser,
     pub download_type: DownloadType,
+    pub selected_subtitle: Option<String>,
 }
 
 impl Default for DownloadManagerConfig {
@@ -24,6 +25,7 @@ impl Default for DownloadManagerConfig {
             use_playlist: false,
             cookie_browser: CookieBrowser::None,
             download_type: DownloadType::Video,
+            selected_subtitle: None,
         }
     }
 }

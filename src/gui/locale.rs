@@ -285,6 +285,10 @@ pub struct LocaleText {
     pub download_no_cookie_option: &'static str, // NEW
     pub download_show_log_btn: &'static str, // NEW
     pub download_hide_log_btn: &'static str, // NEW
+    pub download_subtitle_label: &'static str, // NEW
+    pub download_subtitle_auto: &'static str,
+    pub download_subs_found_header: &'static str, // NEW
+    pub download_subs_none_found: &'static str, // NEW
 
     // --- DOWNLOADED TOOLS MODAL ---
     pub downloaded_tools_button: &'static str,
@@ -645,6 +649,10 @@ impl LocaleText {
                   download_no_cookie_option: "Không dùng cookie",
                   download_show_log_btn: "Hiện nhật ký lỗi",
                   download_hide_log_btn: "Ẩn nhật ký lỗi",
+                  download_subtitle_label: "Phụ đề:",
+                  download_subtitle_auto: "Tự động",
+                  download_subs_found_header: "NN đã tìm thấy",
+                  download_subs_none_found: "Không tìm thấy phụ đề",
                   
                   downloaded_tools_button: "Công cụ đã tải",
                   downloaded_tools_title: "Quản lý công cụ đã tải",
@@ -1018,6 +1026,10 @@ impl LocaleText {
                    overlay_back_tooltip: "뒤로",
                    overlay_forward_tooltip: "앞으로",
                    overlay_opacity_tooltip: "불투명도",
+                   download_subtitle_label: "자막:",
+                   download_subtitle_auto: "자동",
+                   download_subs_found_header: "찾은 언어",
+                   download_subs_none_found: "자막을 찾을 수 없습니다",
                    continuous_mode_activated: "✨ 프리셋 \"{preset}\"이(가) 연속 모드로 실행됩니다. ESC 또는 {hotkey}를 눌러 종료",
                   },
                 _ => Self {
@@ -1351,6 +1363,10 @@ impl LocaleText {
                    download_no_cookie_option: "No cookies used",
                    download_show_log_btn: "Show Error Log",
                    download_hide_log_btn: "Hide Error Log",
+                    download_subtitle_label: "Subtitles:",
+                    download_subtitle_auto: "Auto",
+                    download_subs_found_header: "Languages found",
+                    download_subs_none_found: "No subtitles found",
 
                    downloaded_tools_button: "Downloaded Tools",
                    downloaded_tools_title: "Downloaded Tools Manager",

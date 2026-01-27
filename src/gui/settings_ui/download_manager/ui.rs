@@ -261,6 +261,77 @@ impl DownloadManager {
                                                 );
                                             }
                                         });
+
+                                    // Subtitle Selection
+                                    {
+                                        let use_sub = *self.use_subtitles.lock().unwrap();
+                                        if use_sub {
+                                            let manual_subs =
+                                                self.available_subs_manual.lock().unwrap().clone();
+
+                                            if !manual_subs.is_empty() {
+                                                ui.add_space(8.0);
+                                                ui.label(text.download_subtitle_label);
+                                                let auto_text =
+                                                    text.download_subtitle_auto.to_string();
+                                                let current_sub = self
+                                                    .selected_subtitle
+                                                    .clone()
+                                                    .unwrap_or_else(|| auto_text.clone());
+
+                                                egui::ComboBox::from_id_salt("subtitle_combo")
+                                                    .selected_text(&current_sub)
+                                                    .width(70.0)
+                                                    .show_ui(ui, |ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(
+                                                                text.download_subs_found_header,
+                                                            )
+                                                            .small()
+                                                            .weak(),
+                                                        );
+                                                        ui.separator();
+
+                                                        if ui
+                                                            .selectable_value(
+                                                                &mut self.selected_subtitle,
+                                                                None,
+                                                                &auto_text,
+                                                            )
+                                                            .clicked()
+                                                        {
+                                                            self.save_settings();
+                                                        }
+
+                                                        for sub in manual_subs {
+                                                            if ui
+                                                                .selectable_label(
+                                                                    self.selected_subtitle
+                                                                        == Some(sub.clone()),
+                                                                    &sub,
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                self.selected_subtitle =
+                                                                    Some(sub.clone());
+                                                                self.save_settings();
+                                                            }
+                                                        }
+                                                    });
+                                            } else {
+                                                // No manual subs found
+                                                ui.add_space(8.0);
+                                                ui.colored_label(
+                                                    egui::Color32::GRAY,
+                                                    egui::RichText::new(
+                                                        text.download_subs_none_found,
+                                                    )
+                                                    .small()
+                                                    .italics(),
+                                                );
+                                            }
+                                        }
+                                    }
                                 } else if let Some(_) = error {
                                     // Error will be shown in status, just show generic fail here or nothing to keep compact
                                     ui.colored_label(egui::Color32::RED, "❌");
@@ -298,14 +369,15 @@ impl DownloadManager {
                                         }
                                         ui.end_row();
 
-                                        if ui
-                                            .checkbox(
-                                                &mut self.use_subtitles,
-                                                text.download_opt_subtitles,
-                                            )
-                                            .changed()
                                         {
-                                            self.save_settings();
+                                            let mut use_sub = self.use_subtitles.lock().unwrap();
+                                            if ui
+                                                .checkbox(&mut use_sub, text.download_opt_subtitles)
+                                                .changed()
+                                            {
+                                                drop(use_sub);
+                                                self.save_settings();
+                                            }
                                         }
                                         if ui
                                             .checkbox(

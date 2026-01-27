@@ -593,7 +593,6 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
         let msg = wparam.0 as u32;
         let vk_code = match msg {
             WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
-                println!("DEBUG: Mouse DOWN detected via Hook");
                 crate::overlay::screen_record::engine::IS_MOUSE_CLICKED
                     .store(true, std::sync::atomic::Ordering::SeqCst);
                 if msg == WM_MBUTTONDOWN {

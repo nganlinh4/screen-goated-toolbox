@@ -94,7 +94,7 @@ pub fn fetch_video_formats(
     url: &str,
     bin_dir: &PathBuf,
     cookie_browser: CookieBrowser,
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
     let ytdlp_path = bin_dir.join("yt-dlp.exe");
     if !ytdlp_path.exists() {
         return Err("yt-dlp is missing".to_string());
@@ -153,50 +153,68 @@ pub fn fetch_video_formats(
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
 
+    // 1. Extract resolutions
     let mut heights = std::collections::HashSet::new();
-
-    // Robust manual parsing for "height": 123
-    let key = "\"height\":";
-    for (i, _) in json_str.match_indices(key) {
-        let after_key = &json_str[i + key.len()..];
-        // Skip whitespace if any
-        let num_start_idx = after_key.find(|c: char| !c.is_whitespace()).unwrap_or(0);
-        let after_ws = &after_key[num_start_idx..];
-
-        // Find end of number (comma, bracket, brace, whitespace)
-        let num_end_idx = after_ws
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(after_ws.len());
-
-        if num_end_idx > 0 {
-            let num_str = &after_ws[..num_end_idx];
-            if let Ok(h) = num_str.parse::<u32>() {
+    if let Some(formats) = v.get("formats").and_then(|f| f.as_array()) {
+        for f in formats {
+            if let Some(h) = f.get("height").and_then(|h| h.as_u64()) {
                 if h > 0 {
-                    heights.insert(h);
+                    heights.insert(h as u32);
                 }
             }
         }
     }
 
+    // Fallback Robust manual parsing for "height": 123 if JSON array failed for some reason
     if heights.is_empty() {
-        // Fallback: Parsing formats field if available or just check if we got valid JSON
-        // If empty, maybe try -F?
-        // For now, let's return error if truly empty so UI shows it.
-        if json_str.len() < 50 {
-            return Err(format!("No formats found. Output: {}", json_str)); // Short error
+        let key = "\"height\":";
+        for (i, _) in json_str.match_indices(key) {
+            let after_key = &json_str[i + key.len()..];
+            let num_start_idx = after_key.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+            let after_ws = &after_key[num_start_idx..];
+            let num_end_idx = after_ws
+                .find(|c: char| !c.is_ascii_digit())
+                .unwrap_or(after_ws.len());
+            if num_end_idx > 0 {
+                let num_str = &after_ws[..num_end_idx];
+                if let Ok(h) = num_str.parse::<u32>() {
+                    if h > 0 {
+                        heights.insert(h);
+                    }
+                }
+            }
         }
-        return Err("No video resolutions found in metadata.".to_string());
     }
 
-    // Convert to Vec strings
     let mut sorted_heights: Vec<u32> = heights.into_iter().collect();
     sorted_heights.sort_unstable_by(|a, b| b.cmp(a)); // Descending
+    let format_results: Vec<String> = sorted_heights
+        .into_iter()
+        .map(|h| format!("{}p", h))
+        .collect();
 
-    let mut result = Vec::new();
-    for h in sorted_heights {
-        result.push(format!("{}p", h));
+    // 2. Extract Subtitles
+    let mut manual_langs = std::collections::HashSet::new();
+    if let Some(subs) = v.get("subtitles").and_then(|s| s.as_object()) {
+        for lang in subs.keys() {
+            manual_langs.insert(lang.clone());
+        }
     }
 
-    Ok(result)
+    let mut auto_langs = std::collections::HashSet::new();
+    if let Some(auto_subs) = v.get("automatic_captions").and_then(|s| s.as_object()) {
+        for lang in auto_subs.keys() {
+            auto_langs.insert(lang.clone());
+        }
+    }
+
+    let mut sorted_manual: Vec<String> = manual_langs.into_iter().collect();
+    sorted_manual.sort();
+
+    let mut sorted_auto: Vec<String> = auto_langs.into_iter().collect();
+    sorted_auto.sort();
+
+    Ok((format_results, sorted_manual, sorted_auto))
 }

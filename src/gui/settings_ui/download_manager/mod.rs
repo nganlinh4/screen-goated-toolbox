@@ -24,7 +24,6 @@ pub struct DownloadManager {
 
     // Downloader State
     pub input_url: String,
-    pub download_type: DownloadType,
     pub download_state: Arc<Mutex<DownloadState>>,
 
     // Config
@@ -34,7 +33,7 @@ pub struct DownloadManager {
     // Advanced Options
     pub use_metadata: bool,
     pub use_sponsorblock: bool,
-    pub use_subtitles: bool,
+    pub use_subtitles: Arc<Mutex<bool>>,
     pub use_playlist: bool,
     pub cookie_browser: CookieBrowser,
     pub available_browsers: Vec<CookieBrowser>,
@@ -42,6 +41,9 @@ pub struct DownloadManager {
     // Analysis State
     pub available_formats: Arc<Mutex<Vec<String>>>, // e.g. "1080p", "720p"
     pub selected_format: Option<String>,
+    pub available_subs_manual: Arc<Mutex<Vec<String>>>, // From 'subtitles'
+    pub download_type: DownloadType,
+    pub selected_subtitle: Option<String>,
     pub is_analyzing: Arc<Mutex<bool>>,
     pub last_url_analyzed: String,
     pub analysis_error: Arc<Mutex<Option<String>>>,
@@ -72,12 +74,8 @@ impl DownloadManager {
         // To implement (2), we check if config path exists *inside* load_config, but here we just get a struct.
         // Let's refine `load_config` or just check: if `cookie_browser` is None, we *might* want to auto-select,
         // UNLESS user explicitly set it to None.
-        // A simple heuristic: If config is fresh (defaults), `cookie_browser` is None. We can override if finding browsers.
         // But if user explicitly saved "None", how do we know?
-        // Maybe just trust config. If it's the first run, config is default.
-        // Let's do: Use config value. If config matches default (None) AND we have detected browsers, use detection?
-        // Risk: User wants None, restarts, gets Chrome selected.
-        // Solution: Let's trust persistence. If first run, persistent file doesn't exist.
+        // Maybe just trust config. If it's the first run, persistent file doesn't exist.
         // We can check if file exists in `new`.
 
         let config_exists = persistence::get_config_path().exists();
@@ -99,19 +97,21 @@ impl DownloadManager {
             logs: Arc::new(Mutex::new(Vec::new())),
             bin_dir: bin_dir.clone(),
             input_url: String::new(),
-            download_type: config.download_type,
             download_state: Arc::new(Mutex::new(DownloadState::Idle)),
             custom_download_path: config.custom_download_path,
             cancel_flag: Arc::new(AtomicBool::new(false)),
             use_metadata: config.use_metadata,
             use_sponsorblock: config.use_sponsorblock,
-            use_subtitles: config.use_subtitles,
+            use_subtitles: Arc::new(Mutex::new(config.use_subtitles)),
             use_playlist: config.use_playlist,
             cookie_browser: default_browser,
             available_browsers,
 
             available_formats: Arc::new(Mutex::new(Vec::new())),
             selected_format: None,
+            available_subs_manual: Arc::new(Mutex::new(Vec::new())),
+            download_type: config.download_type,
+            selected_subtitle: config.selected_subtitle,
             is_analyzing: Arc::new(Mutex::new(false)),
             last_url_analyzed: String::new(),
             analysis_error: Arc::new(Mutex::new(None)),
@@ -129,10 +129,11 @@ impl DownloadManager {
             custom_download_path: self.custom_download_path.clone(),
             use_metadata: self.use_metadata,
             use_sponsorblock: self.use_sponsorblock,
-            use_subtitles: self.use_subtitles,
+            use_subtitles: *self.use_subtitles.lock().unwrap(),
             use_playlist: self.use_playlist,
             cookie_browser: self.cookie_browser.clone(),
             download_type: self.download_type.clone(),
+            selected_subtitle: self.selected_subtitle.clone(),
         };
         persistence::save_config(&config);
     }

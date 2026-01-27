@@ -421,6 +421,8 @@ impl DownloadManager {
         let bin_dir = self.bin_dir.clone();
         let cookie_browser = self.cookie_browser.clone();
         let formats_clone = self.available_formats.clone();
+        let manual_subs_clone = self.available_subs_manual.clone();
+        let use_subtitles_clone = self.use_subtitles.clone();
         let is_analyzing = self.is_analyzing.clone();
         let error_clone = self.analysis_error.clone();
 
@@ -428,16 +430,22 @@ impl DownloadManager {
         *is_analyzing.lock().unwrap() = true;
         *error_clone.lock().unwrap() = None;
 
-        // Clear previous formats
+        // Reset analysis-specific choices for new URL
         formats_clone.lock().unwrap().clear();
+        manual_subs_clone.lock().unwrap().clear();
         self.selected_format = None;
+        self.selected_subtitle = None; // Reset selection
 
         use super::utils::fetch_video_formats;
 
         thread::spawn(
             move || match fetch_video_formats(&url, &bin_dir, cookie_browser) {
-                Ok(formats) => {
+                Ok((formats, manual, _auto)) => {
                     *formats_clone.lock().unwrap() = formats;
+                    *manual_subs_clone.lock().unwrap() = manual.clone();
+                    if manual.is_empty() {
+                        *use_subtitles_clone.lock().unwrap() = false;
+                    }
                     *is_analyzing.lock().unwrap() = false;
                 }
                 Err(e) => {
@@ -462,10 +470,11 @@ impl DownloadManager {
         // Capture advanced flags
         let use_metadata = self.use_metadata;
         let use_sponsorblock = self.use_sponsorblock;
-        let use_subtitles = self.use_subtitles;
+        let use_subtitles = *self.use_subtitles.lock().unwrap();
         let use_playlist = self.use_playlist;
         let cookie_browser = self.cookie_browser.clone();
         let selected_format = self.selected_format.clone();
+        let selected_subtitle = self.selected_subtitle.clone();
 
         let download_path = self
             .custom_download_path
@@ -516,9 +525,12 @@ impl DownloadManager {
 
             if use_subtitles {
                 args.push("--write-subs".to_string());
-                args.push("--write-auto-subs".to_string());
                 args.push("--sub-langs".to_string());
-                args.push("all".to_string());
+                if let Some(lang) = selected_subtitle {
+                    args.push(lang);
+                } else {
+                    args.push("en.*,vi.*,ko.*".to_string());
+                }
                 args.push("--embed-subs".to_string());
             }
 
@@ -708,8 +720,39 @@ impl DownloadManager {
                                         if let Some(start) = l.find("Destination: ") {
                                             let raw_path = &l[start + "Destination: ".len()..];
                                             let clean_path = raw_path.trim();
-                                            *final_filename_clone.lock().unwrap() =
-                                                Some(PathBuf::from(clean_path));
+                                            // Ignore subtitle files
+                                            if !clean_path.ends_with(".vtt")
+                                                && !clean_path.ends_with(".srt")
+                                                && !clean_path.ends_with(".ass")
+                                                && !clean_path.ends_with(".lrc")
+                                            {
+                                                *final_filename_clone.lock().unwrap() =
+                                                    Some(PathBuf::from(clean_path));
+                                            }
+                                        }
+                                    }
+                                } else if l.contains(" has already been downloaded") {
+                                    // Handle case where video is already there
+                                    if final_filename_clone.lock().unwrap().is_none() {
+                                        if let Some(end) = l.find(" has already been downloaded") {
+                                            // Try to find start after "[download] " or just take from beginning
+                                            let start = if let Some(p) = l.find("[download] ") {
+                                                p + "[download] ".len()
+                                            } else {
+                                                0
+                                            };
+                                            if start < end {
+                                                let filename = &l[start..end];
+                                                let clean_filename = filename.trim();
+                                                if !clean_filename.ends_with(".vtt")
+                                                    && !clean_filename.ends_with(".srt")
+                                                    && !clean_filename.ends_with(".ass")
+                                                    && !clean_filename.ends_with(".lrc")
+                                                {
+                                                    *final_filename_clone.lock().unwrap() =
+                                                        Some(PathBuf::from(clean_filename));
+                                                }
+                                            }
                                         }
                                     }
                                 }
