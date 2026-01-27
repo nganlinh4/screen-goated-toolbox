@@ -1,3 +1,4 @@
+use crate::overlay::screen_record::audio_engine;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -45,12 +46,15 @@ lazy_static::lazy_static! {
     pub static ref MOUSE_POSITIONS: Mutex<VecDeque<MousePosition>> = Mutex::new(VecDeque::new());
     pub static ref IS_RECORDING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref SHOULD_STOP: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    pub static ref SHOULD_STOP_AUDIO: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    pub static ref AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ENCODER_ACTIVE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref IS_MOUSE_CLICKED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
 pub static mut VIDEO_PATH: Option<String> = None;
+pub static mut AUDIO_PATH: Option<String> = None;
 pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
 
@@ -116,8 +120,17 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .as_millis()
         ));
 
+        let audio_path = app_data_dir.join(format!(
+            "recording_{}.wav",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+
         unsafe {
             VIDEO_PATH = Some(video_path.to_string_lossy().to_string());
+            AUDIO_PATH = Some(audio_path.to_string_lossy().to_string());
         }
 
         let video_settings = VideoSettingsBuilder::new(width, height)
@@ -130,6 +143,14 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             ContainerSettingsBuilder::default(),
             &video_path,
         )?;
+
+        SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
+        AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
+        audio_engine::record_audio(
+            audio_path.to_string_lossy().to_string(),
+            SHOULD_STOP_AUDIO.clone(),
+            AUDIO_ENCODING_FINISHED.clone(),
+        );
 
         ENCODER_ACTIVE.store(true, Ordering::SeqCst);
         ENCODING_FINISHED.store(false, Ordering::SeqCst);
@@ -183,6 +204,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         if SHOULD_STOP.load(Ordering::SeqCst) {
             ENCODER_ACTIVE.store(false, Ordering::SeqCst);
+            SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
             if let Some(encoder) = self.encoder.take() {
                 std::thread::spawn(move || {
                     let _ = encoder.finish();

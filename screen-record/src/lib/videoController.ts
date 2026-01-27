@@ -3,6 +3,7 @@ import type { VideoSegment, BackgroundConfig, MousePosition } from '@/types/vide
 
 interface VideoControllerOptions {
   videoRef: HTMLVideoElement;
+  audioRef?: HTMLAudioElement;
   canvasRef: HTMLCanvasElement;
   tempCanvasRef: HTMLCanvasElement;
   onTimeUpdate?: (time: number) => void;
@@ -10,6 +11,7 @@ interface VideoControllerOptions {
   onVideoReady?: (ready: boolean) => void;
   onError?: (error: string) => void;
   onDurationChange?: (duration: number) => void;
+  onMetadataLoaded?: (metadata: { duration: number, width: number, height: number }) => void;
 }
 
 interface VideoState {
@@ -26,13 +28,10 @@ interface RenderOptions {
   mousePositions: MousePosition[];
 }
 
-interface LoadVideoOptions {
-  videoUrl: string;
-  onLoadingProgress?: (progress: number) => void;
-}
 
 export class VideoController {
   private video: HTMLVideoElement;
+  private audio?: HTMLAudioElement;
   private canvas: HTMLCanvasElement;
   private tempCanvas: HTMLCanvasElement;
   private options: VideoControllerOptions;
@@ -41,6 +40,7 @@ export class VideoController {
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
+    this.audio = options.audioRef;
     this.canvas = options.canvasRef;
     this.tempCanvas = options.tempCanvasRef;
     this.options = options;
@@ -57,6 +57,7 @@ export class VideoController {
   }
 
   private initializeEventListeners() {
+    console.log('[VideoController] Initializing listeners (v2-no-waiting)');
     this.video.addEventListener('loadeddata', this.handleLoadedData);
     this.video.addEventListener('play', this.handlePlay);
     this.video.addEventListener('pause', this.handlePause);
@@ -65,50 +66,23 @@ export class VideoController {
     this.video.addEventListener('loadedmetadata', this.handleLoadedMetadata);
     this.video.addEventListener('durationchange', this.handleDurationChange);
     this.video.addEventListener('error', this.handleError);
-
-    // Add these new event listeners
-    this.video.addEventListener('waiting', () => { });
-    this.video.addEventListener('stalled', () => { });
-    this.video.addEventListener('suspend', () => { });
   }
 
   private handleLoadedData = () => {
     console.log('[VideoController] Video loaded data');
-
-    // Start the renderer immediately when data is loaded
     this.renderFrame();
-
-    videoRenderer.startAnimation({
-      video: this.video,
-      canvas: this.canvas,
-      tempCanvas: this.tempCanvas,
-      segment: this.renderOptions?.segment!,
-      backgroundConfig: this.renderOptions?.backgroundConfig!,
-      mousePositions: this.renderOptions?.mousePositions || [],
-      currentTime: this.video.currentTime
-    });
-
     this.setReady(true);
   };
 
   private handlePlay = () => {
-    if (!this.state.isReady) {
-      console.log('[VideoController] Play blocked - video not ready');
-      this.video.pause();
-      return;
+    console.log('[VideoController] Play event');
+    if (this.audio) {
+      this.audio.currentTime = this.video.currentTime;
+      this.audio.playbackRate = this.video.playbackRate;
+      this.audio.play().catch(e => console.warn('[VideoController] Audio play failed:', e));
     }
 
-    console.log('[VideoController] Play event', {
-      currentTime: this.video.currentTime,
-      readyState: this.video.readyState,
-      duration: this.video.duration,
-      buffered: this.video.buffered.length > 0 ? {
-        start: this.video.buffered.start(0),
-        end: this.video.buffered.end(0)
-      } : 'none'
-    });
-
-    // Ensure we have a render context when playing
+    // Ensure animation is running
     if (this.renderOptions) {
       videoRenderer.startAnimation({
         video: this.video,
@@ -125,35 +99,39 @@ export class VideoController {
   };
 
   private handlePause = () => {
-    console.log('[VideoController] Pause event', {
-      currentTime: this.video.currentTime,
-      readyState: this.video.readyState
-    });
+    console.log('[VideoController] Pause event');
+    if (this.audio) {
+      this.audio.pause();
+    }
     this.setPlaying(false);
-    this.renderFrame(); // Draw one last frame when paused
+    this.renderFrame();
   };
 
   private handleTimeUpdate = () => {
     if (!this.state.isSeeking) {
       const currentTime = this.video.currentTime;
 
-      // Add trim bounds handling
+      // Handle trim bounds
       if (this.renderOptions?.segment) {
         const { trimStart, trimEnd } = this.renderOptions.segment;
 
-        // If we've reached the end of the trimmed section, pause and emit a custom event
         if (currentTime >= trimEnd && !this.video.paused) {
-          this.video.pause();
-          if (Math.abs(this.video.currentTime - trimEnd) > 0.01) {
-            this.video.currentTime = trimEnd;
-          }
-          this.setPlaying(false);
-          // Dispatch a custom event to signal end of playback
-          this.video.dispatchEvent(new Event('playbackcomplete'));
+          console.log('[VideoController] Reached trim end', { currentTime, trimStart, trimEnd });
+          this.video.pause(); // Triggers handlePause
+          return;
         }
-        // If we're before the trim start, jump to trim start
-        else if (currentTime < trimStart) {
+
+        if (currentTime < trimStart) {
           this.video.currentTime = trimStart;
+          if (this.audio) this.audio.currentTime = trimStart;
+        }
+      }
+
+      // Smooth audio sync: only correct if drift > 150ms to avoid audio stutter
+      if (this.audio && !this.video.paused) {
+        const drift = Math.abs(this.video.currentTime - this.audio.currentTime);
+        if (drift > 0.15) {
+          this.audio.currentTime = this.video.currentTime;
         }
       }
 
@@ -170,6 +148,12 @@ export class VideoController {
 
   private handleLoadedMetadata = () => {
     console.log('Video metadata loaded:', {
+      duration: this.video.duration,
+      width: this.video.videoWidth,
+      height: this.video.videoHeight
+    });
+
+    this.options.onMetadataLoaded?.({
       duration: this.video.duration,
       width: this.video.videoWidth,
       height: this.video.videoHeight
@@ -193,9 +177,17 @@ export class VideoController {
   };
 
   private handleDurationChange = () => {
-    console.log('Duration changed:', this.video.duration);
+    console.log('[VideoController] Duration changed:', this.video.duration);
     if (this.video.duration !== Infinity) {
       this.setDuration(this.video.duration);
+
+      // Update trimEnd if it was not set correctly or is 0
+      if (this.renderOptions?.segment) {
+        if (this.renderOptions.segment.trimEnd === 0 || this.renderOptions.segment.trimEnd > this.video.duration) {
+          console.log('[VideoController] Updating segment trimEnd to duration:', this.video.duration);
+          this.renderOptions.segment.trimEnd = this.video.duration;
+        }
+      }
     }
   };
 
@@ -264,22 +256,19 @@ export class VideoController {
   }
 
   public play() {
-    if (!this.state.isReady) return;
+    if (!this.state.isReady) {
+      console.warn('[VideoController] Play ignored: not ready');
+      return;
+    }
 
-    // If we're at the trim end, jump back to trim start before playing
     if (this.renderOptions?.segment) {
       const { trimStart, trimEnd } = this.renderOptions.segment;
-      if (this.video.currentTime >= trimEnd) {
+      if (this.video.currentTime >= trimEnd - 0.05) {
         this.video.currentTime = trimStart;
       }
     }
 
-    const promise = this.video.play();
-    if (promise !== undefined) {
-      promise.catch(() => {
-        // Ignore AbortError: play() was interrupted by pause() or end of playback
-      });
-    }
+    this.video.play().catch(e => console.warn('[VideoController] Play attempt failed:', e));
   }
 
   public pause() {
@@ -287,27 +276,31 @@ export class VideoController {
   }
 
   public seek(time: number) {
-    console.log('[VideoController] Seeking to:', time);
+    if (!this.state.isReady) return;
 
     if (this.renderOptions?.segment) {
       const { trimStart, trimEnd } = this.renderOptions.segment;
-      const trimDuration = trimEnd - trimStart;
-
-      // Normalize the seek time to be within the trimmed section
-      const normalizedTime = trimStart + ((time - trimStart) % trimDuration);
-      time = normalizedTime;
+      time = Math.max(trimStart, Math.min(time, trimEnd));
     }
 
     this.setSeeking(true);
     this.video.currentTime = time;
+    if (this.audio) this.audio.currentTime = time;
   }
 
   public togglePlayPause() {
-    if (this.state.isPlaying) {
-      this.pause();
-    } else {
+    if (this.video.paused) {
       this.play();
+    } else {
+      this.pause();
     }
+  }
+
+  public setVolume(volume: number) {
+    if (this.audio) {
+      this.audio.volume = volume;
+    }
+    this.video.volume = volume;
   }
 
   public destroy() {
@@ -329,7 +322,7 @@ export class VideoController {
   public get duration() { return this.state.duration; }
 
   // Add this new method
-  public async loadVideo({ videoUrl, onLoadingProgress }: LoadVideoOptions): Promise<string> {
+  public async loadVideo({ videoBlob, videoUrl, onLoadingProgress }: { videoBlob?: Blob, videoUrl?: string, onLoadingProgress?: (p: number) => void }): Promise<string> {
     try {
       // Reset states
       this.setReady(false);
@@ -342,46 +335,91 @@ export class VideoController {
       this.video.load();
       this.video.removeAttribute('src');
 
-      // Fetch the video data
-      console.log('[VideoController] Fetching video data from:', videoUrl);
-      const response = await fetch(videoUrl);
-      if (!response.ok) throw new Error('Failed to fetch video');
-
-      // Show download progress
-      const reader = response.body!.getReader();
-      const contentLength = +(response.headers.get('Content-Length') ?? 0);
-      let receivedLength = 0;
-      const chunks = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        chunks.push(value);
-        receivedLength += value.length;
-        const progress = Math.min(((receivedLength / contentLength) * 100), 100);
-        onLoadingProgress?.(progress);
+      // Clear previous audio
+      if (this.audio) {
+        this.audio.pause();
+        this.audio.src = "";
+        this.audio.load();
+        this.audio.removeAttribute('src');
       }
 
-      // Combine chunks into a single Uint8Array
-      const videoData = new Uint8Array(receivedLength);
-      let position = 0;
-      for (const chunk of chunks) {
-        videoData.set(chunk, position);
-        position += chunk.length;
+      let blob: Blob;
+
+      if (videoBlob) {
+        blob = videoBlob;
+      } else if (videoUrl) {
+        console.log('[VideoController] Fetching video data from:', videoUrl);
+        const response = await fetch(videoUrl);
+        if (!response.ok) throw new Error('Failed to fetch video');
+
+        const reader = response.body!.getReader();
+        const contentLength = +(response.headers.get('Content-Length') ?? 0);
+        let receivedLength = 0;
+        const chunks = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          receivedLength += value.length;
+          const progress = Math.min(((receivedLength / contentLength) * 100), 100);
+          onLoadingProgress?.(progress);
+        }
+
+        blob = new Blob(chunks, { type: 'video/mp4' });
+      } else {
+        throw new Error('No video data provided');
       }
 
-      // Create blob and object URL
-      const blob = new Blob([videoData], { type: 'video/mp4' });
       const objectUrl = URL.createObjectURL(blob);
-
-      // Load the video
       await this.handleVideoSourceChange(objectUrl);
-
       return objectUrl;
     } catch (error) {
       console.error('[VideoController] Failed to load video:', error);
       throw error;
+    }
+  }
+
+  public async loadAudio({ audioBlob, audioUrl, onLoadingProgress }: { audioBlob?: Blob, audioUrl?: string, onLoadingProgress?: (p: number) => void }): Promise<string> {
+    try {
+      if (!this.audio) return "";
+
+      let blob: Blob;
+
+      if (audioBlob) {
+        blob = audioBlob;
+      } else if (audioUrl) {
+        console.log('[VideoController] Fetching audio data from:', audioUrl);
+        const response = await fetch(audioUrl);
+        if (!response.ok) throw new Error('Failed to fetch audio');
+
+        const reader = response.body!.getReader();
+        const contentLength = +(response.headers.get('Content-Length') ?? 0);
+        let receivedLength = 0;
+        const chunks = [];
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          receivedLength += value.length;
+          const progress = Math.min(((receivedLength / contentLength) * 100), 100);
+          onLoadingProgress?.(progress);
+        }
+
+        blob = new Blob(chunks, { type: 'audio/wav' });
+      } else {
+        return "";
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      this.audio.src = objectUrl;
+      this.audio.load();
+
+      return objectUrl;
+    } catch (error) {
+      console.error('[VideoController] Failed to load audio:', error);
+      return "";
     }
   }
 
@@ -447,9 +485,15 @@ export class VideoController {
 
   // Add new method
   public initializeSegment(): VideoSegment {
+    // If duration is available, use it, otherwise use a default safe large number
+    // It will be corrected by handleDurationChange later
+    const duration = (this.video && this.video.duration !== Infinity && !isNaN(this.video.duration))
+      ? this.video.duration
+      : 3600;
+
     const initialSegment: VideoSegment = {
       trimStart: 0,
-      trimEnd: this.duration,
+      trimEnd: duration,
       zoomKeyframes: [],
       textSegments: []
     };

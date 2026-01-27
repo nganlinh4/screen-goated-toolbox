@@ -41,6 +41,7 @@ export interface BackgroundConfig {
   cursorSmoothness?: number;
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
+  volume?: number; // 0-1
 }
 
 export interface MousePosition {
@@ -69,6 +70,7 @@ export interface ExportOptions {
   backgroundConfig?: BackgroundConfig;
   mousePositions?: MousePosition[];
   onProgress?: (progress: number) => void;
+  audio?: HTMLAudioElement;
 }
 
 export interface ExportPreset {
@@ -84,6 +86,7 @@ export interface Project {
   createdAt: number;
   lastModified: number;
   videoBlob: Blob;
+  audioBlob?: Blob;
   segment: VideoSegment;
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];

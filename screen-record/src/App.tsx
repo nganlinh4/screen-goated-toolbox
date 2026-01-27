@@ -83,8 +83,10 @@ function App() {
   const [exportProgress, setExportProgress] = useState(0);
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [currentAudio, setCurrentAudio] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -98,7 +100,8 @@ function App() {
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>({
     scale: 100,
     borderRadius: 8,
-    backgroundType: 'solid'
+    backgroundType: 'solid',
+    volume: 1
   });
 
   // Add this state to toggle between panels
@@ -130,19 +133,44 @@ function App() {
 
     videoControllerRef.current = createVideoController({
       videoRef: videoRef.current,
+      audioRef: audioRef.current || undefined,
       canvasRef: canvasRef.current,
       tempCanvasRef: tempCanvasRef.current,
       onTimeUpdate: (time) => setCurrentTime(time),
       onPlayingChange: (playing) => setIsPlaying(playing),
       onVideoReady: (ready) => setIsVideoReady(ready),
       onDurationChange: (duration) => setDuration(duration),
-      onError: (error) => setError(error)
+      onError: (error) => setError(error),
+      onMetadataLoaded: (metadata) => {
+        // When metadata loads, if we have a segment with invalid trimEnd (0 or > duration),
+        // we must update it to match the actual duration.
+        // This fixes the "Reached trim end" bug on project load.
+        setSegment(prevSegment => {
+          if (!prevSegment) return null;
+
+          if (prevSegment.trimEnd === 0 || prevSegment.trimEnd > metadata.duration) {
+            console.log('[App] Fixing invalid trimEnd on metadata load:', metadata.duration);
+            return {
+              ...prevSegment,
+              trimEnd: metadata.duration
+            };
+          }
+          return prevSegment;
+        });
+      }
     });
 
     return () => {
       videoControllerRef.current?.destroy();
     };
   }, []);
+
+  // Sync volume with controller
+  useEffect(() => {
+    if (videoControllerRef.current && backgroundConfig.volume !== undefined) {
+      videoControllerRef.current.setVolume(backgroundConfig.volume);
+    }
+  }, [backgroundConfig.volume]);
 
   // Helper function to render a frame
   const renderFrame = useCallback(() => {
@@ -346,6 +374,10 @@ function App() {
         URL.revokeObjectURL(currentVideo);
         setCurrentVideo(null);
       }
+      if (currentAudio) {
+        URL.revokeObjectURL(currentAudio);
+        setCurrentAudio(null);
+      }
 
       // Reset video element
       if (videoRef.current) {
@@ -363,6 +395,14 @@ function App() {
         if (ctx) {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
+      }
+
+      // Reset audio element
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+        audioRef.current.load();
+        audioRef.current.removeAttribute('src');
       }
 
       // Now start the new recording
@@ -386,7 +426,7 @@ function App() {
       setLoadingProgress(0);
       setThumbnails([]);
 
-      const [videoUrl, rawMouseData] = await invoke<[string, any[]]>("stop_recording");
+      const [videoUrl, audioUrl, rawMouseData] = await invoke<[string, string, any[]]>("stop_recording");
 
       // Explicitly map fields to handle potential camelCase vs snake_case mismatches
       const mouseData: MousePosition[] = rawMouseData.map(p => ({
@@ -407,10 +447,22 @@ function App() {
 
       if (objectUrl) {
         setCurrentVideo(objectUrl);
+
+        // Load audio if available
+        if (audioUrl) {
+          const audioObjectUrl = await videoControllerRef.current?.loadAudio({
+            audioUrl,
+            onLoadingProgress: (p) => console.log('Audio Progress:', p)
+          });
+          if (audioObjectUrl) {
+            setCurrentAudio(audioObjectUrl);
+          }
+        }
+
         setIsVideoReady(true);
         generateThumbnails();
 
-        console.log(`[App] Received recording data. Video URL: ${videoUrl}, Mouse Points: ${mouseData.length}, Clicks: ${mouseData.filter(p => p.isClicked).length}`);
+        console.log(`[App] Received recording data. Video URL: ${videoUrl}, Audio URL: ${audioUrl}, Mouse Points: ${mouseData.length}, Clicks: ${mouseData.filter(p => p.isClicked).length}`);
 
         // Auto-save the initial project
         const response = await fetch(objectUrl);
@@ -448,8 +500,11 @@ function App() {
       if (currentVideo && currentVideo.startsWith('blob:')) {
         URL.revokeObjectURL(currentVideo);
       }
+      if (currentAudio && currentAudio.startsWith('blob:')) {
+        URL.revokeObjectURL(currentAudio);
+      }
     };
-  }, [currentVideo]);
+  }, [currentVideo, currentAudio]);
 
   // Toggle play/pause
   const togglePlayPause = () => {
@@ -559,6 +614,7 @@ function App() {
         segment,
         backgroundConfig,
         mousePositions,
+        audio: audioRef.current || undefined,
         onProgress: (progress: number) => {
           setExportProgress(progress);
         }
@@ -922,20 +978,37 @@ function App() {
     const project = await projectManager.loadProject(projectId);
     if (!project) return;
 
-    // Clear previous video and thumbnails
-    if (currentVideo) {
-      URL.revokeObjectURL(currentVideo);
-    }
+    // Clear previous video and audio URLs
+    if (currentVideo) URL.revokeObjectURL(currentVideo);
+    if (currentAudio) URL.revokeObjectURL(currentAudio);
+
     setThumbnails([]);
+    setCurrentAudio(null);
 
-    // Create object URL from blob and load it
-    const objectUrl = URL.createObjectURL(project.videoBlob);
-    await videoControllerRef.current?.loadVideo({ videoUrl: objectUrl });
+    // Load Video
+    console.log('[App] Loading project video blob:', project.videoBlob.size);
+    const videoObjectUrl = await videoControllerRef.current?.loadVideo({ videoBlob: project.videoBlob });
+    if (videoObjectUrl) setCurrentVideo(videoObjectUrl);
 
-    setCurrentVideo(objectUrl);
+    // Load Audio
+    if (project.audioBlob) {
+      console.log('[App] Loading project audio blob:', project.audioBlob.size);
+      const audioObjectUrl = await videoControllerRef.current?.loadAudio({ audioBlob: project.audioBlob });
+      if (audioObjectUrl) setCurrentAudio(audioObjectUrl);
+    } else {
+      console.log('[App] Project has no audio blob');
+      setCurrentAudio(null);
+    }
+
     setSegment(project.segment);
     setBackgroundConfig(project.backgroundConfig);
     setMousePositions(project.mousePositions);
+
+    // Sync volume immediately
+    if (videoControllerRef.current && project.backgroundConfig.volume !== undefined) {
+      videoControllerRef.current.setVolume(project.backgroundConfig.volume);
+    }
+
     setShowProjectsDialog(false);
     setCurrentProjectId(projectId);
   };
@@ -1247,6 +1320,7 @@ function App() {
                   <canvas ref={canvasRef} className="w-full h-full object-contain" />
                   <canvas ref={tempCanvasRef} className="hidden" />
                   <video ref={videoRef} className="hidden" playsInline preload="auto" />
+                  <audio ref={audioRef} className="hidden" />
                   {(!currentVideo || isLoadingVideo) && renderPlaceholder()}
                 </div>
                 {currentVideo && !isLoadingVideo && (
@@ -1394,6 +1468,16 @@ function App() {
                       </label>
                       <input type="range" min="0" max="100" value={backgroundConfig.shadow || 0}
                         onChange={(e) => setBackgroundConfig(prev => ({ ...prev, shadow: Number(e.target.value) }))}
+                        className="w-full accent-[#0079d3]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-[#d7dadc] mb-2 flex justify-between">
+                        <span>Volume</span>
+                        <span className="text-[#818384]">{Math.round((backgroundConfig.volume ?? 1) * 100)}%</span>
+                      </label>
+                      <input type="range" min="0" max="1" step="0.01" value={backgroundConfig.volume ?? 1}
+                        onChange={(e) => setBackgroundConfig(prev => ({ ...prev, volume: Number(e.target.value) }))}
                         className="w-full accent-[#0079d3]"
                       />
                     </div>

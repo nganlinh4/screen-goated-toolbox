@@ -1,11 +1,11 @@
 import { videoRenderer } from './videoRenderer';
-import type { 
-  ExportOptions, 
-  ExportQuality, 
-  DimensionPreset, 
-  VideoSegment, 
-  BackgroundConfig, 
-  MousePosition 
+import type {
+  ExportOptions,
+  ExportQuality,
+  DimensionPreset,
+  VideoSegment,
+  BackgroundConfig,
+  MousePosition
 } from '@/types/video';
 
 interface QualityPreset {
@@ -28,7 +28,7 @@ interface FixedDimensionPreset {
 type DimensionPresetConfig = OriginalDimensionPreset | FixedDimensionPreset;
 
 export const EXPORT_PRESETS: Record<ExportQuality, QualityPreset> = {
-  balanced: {           
+  balanced: {
     bitrate: 10000000,   // 10Mbps
     label: 'Balanced Quality'
   },
@@ -39,21 +39,21 @@ export const EXPORT_PRESETS: Record<ExportQuality, QualityPreset> = {
 } as const;
 
 export const DIMENSION_PRESETS: Record<DimensionPreset, DimensionPresetConfig> = {
-  original: { 
+  original: {
     type: 'original',
-    label: 'Original Size' 
+    label: 'Original Size'
   },
-  '1080p': { 
+  '1080p': {
     type: 'fixed',
-    width: 1920, 
-    height: 1080, 
-    label: '1080p' 
+    width: 1920,
+    height: 1080,
+    label: '1080p'
   },
-  '720p': { 
+  '720p': {
     type: 'fixed',
-    width: 1280, 
-    height: 720, 
-    label: '720p' 
+    width: 1280,
+    height: 720,
+    label: '720p'
   }
 } as const;
 
@@ -94,7 +94,7 @@ export class VideoExporter {
 
     console.log('[VideoExporter] Using MIME type:', options.mimeType);
     const mediaRecorder = new MediaRecorder(stream, options);
-    
+
     // Force keyframe insertion every 2 seconds for better seeking
     const keyframeInterval = setInterval(() => {
       if (mediaRecorder.state === 'recording') {
@@ -117,6 +117,7 @@ export class VideoExporter {
     mousePositions: MousePosition[];
     onProgress?: (progress: number) => void;
     speed: number;
+    audio?: HTMLAudioElement;
   }): Promise<Blob> {
     if (this.isExporting) {
       return Promise.reject('Export already in progress');
@@ -131,14 +132,49 @@ export class VideoExporter {
     this.isExporting = true;
     let hasReachedEnd = false;
     const { video, canvas, tempCanvas, segment } = options;
-    
+
     // Store original video state
     const originalTime = video.currentTime;
     const originalPaused = video.paused;
 
     // Use higher framerate for capture
-    const stream = canvas.captureStream(60);
-    
+    const canvasStream = canvas.captureStream(60);
+    let finalStream = canvasStream;
+
+    // Handle audio integration
+    let audioContext: AudioContext | null = null;
+    let audioSource: MediaElementAudioSourceNode | null = null;
+    let audioDestination: MediaStreamAudioDestinationNode | null = null;
+
+    if (options.audio) {
+      try {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioSource = audioContext.createMediaElementSource(options.audio);
+        audioDestination = audioContext.createMediaStreamDestination();
+
+        // Add gain node for volume control
+        const gainNode = audioContext.createGain();
+        gainNode.gain.value = options.backgroundConfig.volume ?? 1;
+
+        if (audioSource) {
+          audioSource.connect(gainNode);
+          gainNode.connect(audioDestination);
+          gainNode.connect(audioContext.destination); // Also connect to physical output for monitoring if needed
+        }
+
+        // Combine canvas video track with audio destination tracks
+        const audioTracks = audioDestination.stream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          finalStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...audioTracks
+          ]);
+        }
+      } catch (e) {
+        console.error('[VideoExporter] Failed to setup audio export:', e);
+      }
+    }
+
     // Calculate output dimensions
     let outputWidth = video.videoWidth;
     let outputHeight = video.videoHeight;
@@ -147,10 +183,10 @@ export class VideoExporter {
       const preset = DIMENSION_PRESETS[options.dimensions];
       if (preset.type === 'fixed') {
         const aspectRatio = video.videoWidth / video.videoHeight;
-        
+
         outputWidth = preset.width;
         outputHeight = Math.round(preset.width / aspectRatio);
-        
+
         // Ensure height doesn't exceed target
         if (outputHeight > preset.height) {
           outputHeight = preset.height;
@@ -168,28 +204,28 @@ export class VideoExporter {
       desynchronized: false,
       willReadFrequently: false,
     }) as CanvasRenderingContext2D | null;  // Explicitly type as CanvasRenderingContext2D
-    
+
     if (ctx) {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      
+
       // Use only standard compositing operation
       ctx.globalCompositeOperation = 'copy';  // Faster compositing
     }
 
     // Set default quality to 'balanced' if not specified
     const quality = options.quality || 'balanced';
-    const mediaRecorder = this.setupMediaRecorder(stream, quality);
+    const mediaRecorder = this.setupMediaRecorder(finalStream, quality);
     const chunks: Blob[] = [];
     let recordingComplete = false;
 
     try {
       const recordingPromise = new Promise<Blob>((resolve) => {
         mediaRecorder.ondataavailable = (e) => {
-          console.log('[VideoExporter] Data available:', { 
+          console.log('[VideoExporter] Data available:', {
             size: e.data.size,
             state: mediaRecorder.state,
-            currentTime: video.currentTime 
+            currentTime: video.currentTime
           });
           if (e.data.size > 0) chunks.push(e.data);
         };
@@ -229,11 +265,19 @@ export class VideoExporter {
 
       console.log('[VideoExporter] Setting video to start position:', segment.trimStart);
       video.currentTime = segment.trimStart;
-      
+
       // Set the playback rate before starting playback
       video.playbackRate = options.speed;
-      
+
+      if (options.audio) {
+        options.audio.playbackRate = options.speed;
+        options.audio.currentTime = segment.trimStart;
+      }
+
       await video.play();
+      if (options.audio) {
+        options.audio.play().catch(() => { });
+      }
 
       await new Promise<void>((resolve, reject) => {
         const timeUpdateHandler = () => {
@@ -267,8 +311,9 @@ export class VideoExporter {
 
             hasReachedEnd = true;
             video.pause();
+            if (options.audio) options.audio.pause();
             video.removeEventListener('timeupdate', timeUpdateHandler);
-            
+
             // Force final data collection before stopping
             if (mediaRecorder.state === 'recording') {
               mediaRecorder.requestData();
@@ -277,7 +322,7 @@ export class VideoExporter {
                 mediaRecorder.stop();
               }, 100);
             }
-            
+
             resolve();
             return;
           }
@@ -305,7 +350,7 @@ export class VideoExporter {
             const duration = segment.trimEnd - segment.trimStart;
             const elapsed = video.currentTime - segment.trimStart;
             const currentProgress = (elapsed / duration) * 100;
-            
+
             options.onProgress?.(Math.min(currentProgress, 99.9));
           });
         };
@@ -321,6 +366,9 @@ export class VideoExporter {
       });
 
       const finalBlob = await recordingPromise;
+      if (audioContext) {
+        audioContext.close();
+      }
       console.log('[VideoExporter] Export completed successfully', {
         size: finalBlob.size,
         type: finalBlob.type
@@ -334,8 +382,9 @@ export class VideoExporter {
       if (!recordingComplete && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
       }
-      
-      stream.getTracks().forEach(track => track.stop());
+
+      finalStream.getTracks().forEach(track => track.stop());
+      canvasStream.getTracks().forEach(track => track.stop());
       this.isExporting = false;
 
       // Restore video state
@@ -344,6 +393,7 @@ export class VideoExporter {
 
       // Reset playback rate in cleanup
       video.playbackRate = 1;
+      if (options.audio) options.audio.playbackRate = 1;
     }
   }
 
@@ -362,17 +412,18 @@ export class VideoExporter {
         segment: options.segment,
         backgroundConfig: options.backgroundConfig!,
         mousePositions: options.mousePositions || [],
-        speed: options.speed || 1
+        speed: options.speed || 1,
+        audio: options.audio
       });
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      
+
       // Get extension from actual MIME type
       const extension = blob.type.includes('mp4') ? 'mp4' : 'webm';
       a.download = `processed_video_${Date.now()}.${extension}`;
-      
+
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

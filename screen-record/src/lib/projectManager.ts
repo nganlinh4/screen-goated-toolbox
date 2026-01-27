@@ -19,6 +19,7 @@ class ProjectManager {
       const projectsToDelete = projects.splice(this.limit);
       for (const p of projectsToDelete) {
         await this.deleteVideoBlob(p.id);
+        await this.deleteAudioBlob(p.id);
       }
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
     }
@@ -36,10 +37,14 @@ class ProjectManager {
 
     // Store video blob separately using IndexedDB
     await this.saveVideoBlob(newProject.id, newProject.videoBlob);
+    if (newProject.audioBlob) {
+      await this.saveAudioBlob(newProject.id, newProject.audioBlob);
+    }
 
     // Store project metadata without the blob in localStorage
     const projectMeta = { ...newProject };
     delete (projectMeta as any).videoBlob;
+    delete (projectMeta as any).audioBlob;
 
     projects.unshift(projectMeta);
 
@@ -48,6 +53,7 @@ class ProjectManager {
       const projectsToDelete = projects.splice(this.limit);
       for (const p of projectsToDelete) {
         await this.deleteVideoBlob(p.id);
+        await this.deleteAudioBlob(p.id);
       }
     }
 
@@ -56,7 +62,7 @@ class ProjectManager {
     return newProject;
   }
 
-  async getProjects(): Promise<Omit<Project, 'videoBlob'>[]> {
+  async getProjects(): Promise<Omit<Project, 'videoBlob' | 'audioBlob'>[]> {
     const projectsJson = localStorage.getItem(this.STORAGE_KEY);
     return projectsJson ? JSON.parse(projectsJson) : [];
   }
@@ -71,7 +77,9 @@ class ProjectManager {
     const videoBlob = await this.loadVideoBlob(id);
     if (!videoBlob) return null;
 
-    return { ...project, videoBlob };
+    const audioBlob = await this.loadAudioBlob(id);
+
+    return { ...project, videoBlob, audioBlob: audioBlob || undefined };
   }
 
   async deleteProject(id: string): Promise<void> {
@@ -81,6 +89,7 @@ class ProjectManager {
 
     // Delete video blob from IndexedDB
     await this.deleteVideoBlob(id);
+    await this.deleteAudioBlob(id);
   }
 
   async updateProject(id: string, updates: Partial<Omit<Project, 'id' | 'createdAt' | 'lastModified'>>): Promise<void> {
@@ -94,6 +103,10 @@ class ProjectManager {
       await this.saveVideoBlob(id, updates.videoBlob);
     }
 
+    if (updates.audioBlob) {
+      await this.saveAudioBlob(id, updates.audioBlob);
+    }
+
     // Update project metadata
     const updatedProject = {
       ...projects[projectIndex],
@@ -101,6 +114,7 @@ class ProjectManager {
       lastModified: Date.now()
     };
     delete (updatedProject as any).videoBlob;
+    delete (updatedProject as any).audioBlob;
 
     projects[projectIndex] = updatedProject;
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
@@ -135,7 +149,7 @@ class ProjectManager {
 
   private async openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('ScreenDemoDB', 1);
+      const request = indexedDB.open('ScreenDemoDB', 2);
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
@@ -145,8 +159,37 @@ class ProjectManager {
         if (!db.objectStoreNames.contains('videos')) {
           db.createObjectStore('videos');
         }
+        if (!db.objectStoreNames.contains('audio')) {
+          db.createObjectStore('audio');
+        }
       };
     });
+  }
+  // Audio blob storage helpers
+  private async saveAudioBlob(id: string, blob: Blob): Promise<void> {
+    const db = await this.openDB();
+    const tx = db.transaction('audio', 'readwrite');
+    const store = tx.objectStore('audio');
+    await store.put(blob, id);
+  }
+
+  private async loadAudioBlob(id: string): Promise<Blob | null> {
+    const db = await this.openDB();
+    const tx = db.transaction('audio', 'readonly');
+    const store = tx.objectStore('audio');
+
+    return new Promise((resolve) => {
+      const request = store.get(id);
+      request.onerror = () => resolve(null);
+      request.onsuccess = () => resolve(request.result as Blob);
+    });
+  }
+
+  private async deleteAudioBlob(id: string): Promise<void> {
+    const db = await this.openDB();
+    const tx = db.transaction('audio', 'readwrite');
+    const store = tx.objectStore('audio');
+    await store.delete(id);
   }
 }
 

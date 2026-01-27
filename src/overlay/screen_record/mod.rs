@@ -24,7 +24,11 @@ const MOD_SHIFT: u32 = 0x0004;
 const MOD_WIN: u32 = 0x0008;
 
 pub mod engine;
-use engine::{CaptureHandler, get_monitors, MOUSE_POSITIONS, SHOULD_STOP, ENCODING_FINISHED, VIDEO_PATH};
+pub mod audio_engine;
+use engine::{
+    get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, ENCODING_FINISHED, MOUSE_POSITIONS,
+    SHOULD_STOP, VIDEO_PATH, AUDIO_PATH
+};
 use windows_capture::capture::GraphicsCaptureApiHandler;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DrawBorderSettings, Settings,
@@ -548,24 +552,33 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
         "stop_recording" => {
             SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
             
-            // Wait for encoding to finish
+            // Wait for both video and audio encoding to finish
             let start = std::time::Instant::now();
-            while !ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst) && start.elapsed().as_secs() < 10 {
+            while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst) || 
+                   !AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)) && 
+                  start.elapsed().as_secs() < 10 {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
             let video_path = unsafe { VIDEO_PATH.clone() }.ok_or("No video path")?;
-            let port = start_video_server(video_path)?;
+            let audio_path = unsafe { AUDIO_PATH.clone() }.ok_or("No audio path")?;
+            
+            let port = start_media_server(video_path, audio_path)?;
             
             let mouse_positions = MOUSE_POSITIONS.lock().drain(..).collect::<Vec<_>>();
             
             let total_points = mouse_positions.len();
             let clicked_points = mouse_positions.iter().filter(|p| p.is_clicked).count();
-            crate::log_info!("Backend: Recording stopped. Total points: {}, Clicked points: {}", total_points, clicked_points);
+            crate::log_info!("Backend: Recording stopped. Total points: {}, Clicked points: {}, Video: {}, Audio: {}", 
+                total_points, clicked_points, 
+                ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst),
+                AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+            );
             
-            let url = format!("http://localhost:{}", port);
+            let video_url = format!("http://localhost:{}/video", port);
+            let audio_url = format!("http://localhost:{}/audio", port);
             
-            Ok(serde_json::json!([url, mouse_positions]))
+            Ok(serde_json::json!([video_url, audio_url, mouse_positions]))
         }
         "get_hotkeys" => {
             let app = APP.lock().unwrap();
@@ -774,7 +787,7 @@ fn js_code_to_vk(code: &str) -> Option<u32> {
     }
 }
 
-fn start_video_server(video_path: String) -> Result<u16, String> {
+fn start_media_server(video_path: String, audio_path: String) -> Result<u16, String> {
     let mut port = 8000;
     let server = loop {
         match Server::http(format!("127.0.0.1:{}", port)) {
@@ -790,18 +803,23 @@ fn start_video_server(video_path: String) -> Result<u16, String> {
     SERVER_PORT.store(actual_port, std::sync::atomic::Ordering::SeqCst);
 
     std::thread::spawn(move || {
-        if let Ok(file) = File::open(&video_path) {
-            let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
-            for request in server.incoming_requests() {
-                if request.method() == &tiny_http::Method::Options {
-                    let mut res = Response::empty(204);
-                    res.add_header(tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
-                    res.add_header(tiny_http::Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, OPTIONS"[..]).unwrap());
-                    res.add_header(tiny_http::Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Range"[..]).unwrap());
-                    let _ = request.respond(res);
-                    continue;
-                }
+        for request in server.incoming_requests() {
+            if request.method() == &tiny_http::Method::Options {
+                let mut res = Response::empty(204);
+                res.add_header(tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
+                res.add_header(tiny_http::Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, OPTIONS"[..]).unwrap());
+                res.add_header(tiny_http::Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Range"[..]).unwrap());
+                let _ = request.respond(res);
+                continue;
+            }
 
+            let url = request.url();
+            let is_audio = url.contains("audio");
+            let media_path = if is_audio { &audio_path } else { &video_path };
+            let content_type = if is_audio { "audio/wav" } else { "video/mp4" };
+
+            if let Ok(file) = File::open(media_path) {
+                let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
                 let mut start = 0;
                 let mut end = file_size.saturating_sub(1);
 
@@ -810,28 +828,32 @@ fn start_video_server(video_path: String) -> Result<u16, String> {
                         let parts: Vec<&str> = r.split('-').collect();
                         if parts.len() == 2 {
                             if let Ok(s) = parts[0].parse::<u64>() { start = s; }
-                            if let Ok(e) = parts[1].parse::<u64>() { end = e; }
+                            if let Ok(e) = parts[1].parse::<u64>() {
+                                if !parts[1].is_empty() { end = e; }
+                            }
                         }
                     }
                 }
 
-                if let Ok(mut f) = File::open(&video_path) {
+                if let Ok(mut f) = File::open(media_path) {
                     let _ = f.seek(std::io::SeekFrom::Start(start));
                     let mut res = Response::new(
-                        if start == 0 { StatusCode(200) } else { StatusCode(206) },
+                        if start == 0 && end == file_size.saturating_sub(1) { StatusCode(200) } else { StatusCode(206) },
                         vec![
-                            tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"video/mp4"[..]).unwrap(),
+                            tiny_http::Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes()).unwrap(),
                             tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
                         ],
                         Box::new(f.take(end - start + 1)) as Box<dyn Read + Send>,
                         Some((end - start + 1) as usize),
                         None,
                     );
-                    if start != 0 {
+                    if start != 0 || end != file_size.saturating_sub(1) {
                         res.add_header(tiny_http::Header::from_bytes(&b"Content-Range"[..], format!("bytes {}-{}/{}", start, end, file_size).as_bytes()).unwrap());
                     }
                     let _ = request.respond(res);
                 }
+            } else {
+                let _ = request.respond(Response::from_string("File not found").with_status_code(404));
             }
         }
     });
