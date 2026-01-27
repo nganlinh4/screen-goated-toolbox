@@ -15,27 +15,12 @@ export interface RenderOptions {
   highQuality?: boolean;
 }
 
-interface CursorAnimationState {
-  startTime: number;
-  isAnimating: boolean;
-  progress: number;
-  isSquishing: boolean;
-  lastPosition?: { x: number; y: number };
-}
-
 export class VideoRenderer {
   private animationFrame: number | null = null;
   private isDrawing: boolean = false;
-  private cursorAnimation: CursorAnimationState = {
-    startTime: 0,
-    isAnimating: false,
-    progress: 0,
-    isSquishing: false
-  };
-  private SQUISH_DURATION = 100; // Faster initial squish for snappier feel
-  private RELEASE_DURATION = 300; // Shorter release for quicker bounce back
   private lastDrawTime: number = 0;
-  private readonly FRAME_INTERVAL = 1000 / 120; // Increase to 120fps for smoother animation
+  private latestElapsed: number = 0;
+  private readonly FRAME_INTERVAL = 1000 / 120; // 120fps target
   private backgroundConfig: BackgroundConfig | null = null;
   private pointerImage: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
@@ -59,6 +44,13 @@ export class VideoRenderer {
   private isDraggingText = false;
   private draggedTextId: string | null = null;
   private dragOffset = { x: 0, y: 0 };
+
+  // Smooth cursor animation state
+  private currentSquishScale = 1.0;
+  private lastHoldTime = -1;
+  private readonly CLICK_FUSE_THRESHOLD = 0.15;
+  private readonly SQUISH_SPEED = 0.015;
+  private readonly RELEASE_SPEED = 0.01;
 
   constructor() {
     // Preload the pointer SVG image.
@@ -92,8 +84,7 @@ export class VideoRenderer {
 
       if (this.lastDrawTime === 0 || elapsed >= this.FRAME_INTERVAL) {
         this.drawFrame(this.activeRenderContext)
-          .catch(err => console.error('[VideoRenderer] Draw error:', err));
-        this.lastDrawTime = now;
+          .catch((err: unknown) => console.error('[VideoRenderer] Draw error:', err));
       }
 
       this.animationFrame = requestAnimationFrame(animate);
@@ -108,6 +99,8 @@ export class VideoRenderer {
       this.animationFrame = null;
       this.lastDrawTime = 0; // Reset timing when stopping
       this.activeRenderContext = null;
+      this.lastHoldTime = -1;
+      this.currentSquishScale = 1.0;
     }
   }
 
@@ -119,6 +112,23 @@ export class VideoRenderer {
 
     const { video, canvas, tempCanvas, segment, backgroundConfig, mousePositions } = context;
     if (!video || !canvas || !segment) return;
+
+    const isExportMode = options.exportMode || false;
+    const quality = options.highQuality || isExportMode ? 'high' : 'medium';
+
+    const ctx = canvas.getContext('2d', {
+      alpha: false,
+      willReadFrequently: false
+    });
+    if (!ctx) return;
+
+    this.isDrawing = true;
+    ctx.imageSmoothingQuality = quality as ImageSmoothingQuality;
+
+    // Calculate elapsed time for animations
+    const now = performance.now();
+    this.latestElapsed = this.lastDrawTime === 0 ? 1000 / 60 : now - this.lastDrawTime;
+    this.lastDrawTime = now;
 
     // Get video dimensions
     const vidW = video.videoWidth;
@@ -134,7 +144,6 @@ export class VideoRenderer {
     const srcH = vidH * crop.height;
 
     // Set canvas to match the cropped source dimensions exactly
-    // This ensures 1:1 pixel mapping and correct aspect ratio
     const canvasW = Math.round(srcW);
     const canvasH = Math.round(srcH);
 
@@ -149,21 +158,7 @@ export class VideoRenderer {
     // CSS aspect ratio matches buffer for proper display scaling
     canvas.style.aspectRatio = `${canvasW} / ${canvasH}`;
 
-    const isExportMode = options.exportMode || false;
-    const quality = isExportMode ? 'high' : 'medium';
-
-    const ctx = canvas.getContext('2d', {
-      alpha: false,
-      willReadFrequently: false
-    });
-    if (!ctx) return;
-
-    ctx.imageSmoothingQuality = quality;
-    this.isDrawing = true;
-
     try {
-      // Calculate dimensions once
-      // Calculate dimensions once
       // Note: cropBottom is legacy - ideally we migrate to segment.crop. 
       // For now, let's say cropBottom applies relative to the cropped frame? Or ignore it?
       // Since new crop is powerful, maybe ignore cropBottom if segment.crop is used?
@@ -323,14 +318,33 @@ export class VideoRenderer {
 
           // Scale cursor size based on canvas to source ratio and zoom
           const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
-          const cursorScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
+          const cursorSizeScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
+
+          // Update smooth squish animation state
+          const isActuallyClicked = interpolatedPosition.isClicked;
+
+          // Click fusing: if we clicked recently, stay "clicked" to bridge jitter/flicker
+          const timeSinceLastHold = video.currentTime - this.lastHoldTime;
+          const shouldBeSquished = isActuallyClicked || (this.lastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+
+          if (isActuallyClicked) {
+            this.lastHoldTime = video.currentTime;
+          }
+
+          // Smoothly interpolate the squish scale
+          const targetScale = shouldBeSquished ? 0.75 : 1.0;
+          if (this.currentSquishScale > targetScale) {
+            this.currentSquishScale = Math.max(targetScale, this.currentSquishScale - this.SQUISH_SPEED * (this.latestElapsed / (1000 / 120)));
+          } else if (this.currentSquishScale < targetScale) {
+            this.currentSquishScale = Math.min(targetScale, this.currentSquishScale + this.RELEASE_SPEED * (this.latestElapsed / (1000 / 120)));
+          }
 
           this.drawMouseCursor(
             ctx,
             cursorX,
             cursorY,
-            interpolatedPosition.isClicked || false,
-            cursorScale,
+            shouldBeSquished,
+            cursorSizeScale,
             interpolatedPosition.cursor_type || 'default'
           );
         }
@@ -497,8 +511,7 @@ export class VideoRenderer {
 
       // Find bounding frames
       // Binary search would be faster but linear is ok for this data size
-
-      const idx = path.findIndex(p => p.time >= currentTime);
+      const idx = path.findIndex((p: any) => p.time >= currentTime);
 
       let cam = { x: viewW / 2, y: viewH / 2, zoom: 1.0 };
 
@@ -530,7 +543,7 @@ export class VideoRenderer {
 
         // Find bounding points
         // Assuming sorted by time
-        const iIdx = points.findIndex(p => p.time >= currentTime);
+        const iIdx = points.findIndex((p: { time: number }) => p.time >= currentTime);
 
         if (iIdx === -1) {
           influence = points[points.length - 1].value;
@@ -567,9 +580,9 @@ export class VideoRenderer {
       if (segment.zoomKeyframes && segment.zoomKeyframes.length > 0) {
         const WINDOW = 1.5;
         const nearby = segment.zoomKeyframes
-          .map(kf => ({ kf, dist: Math.abs(kf.time - currentTime) }))
-          .filter(item => item.dist < WINDOW)
-          .sort((a, b) => a.dist - b.dist)[0];
+          .map((kf: ZoomKeyframe) => ({ kf, dist: Math.abs(kf.time - currentTime) }))
+          .filter((item: { kf: ZoomKeyframe; dist: number }) => item.dist < WINDOW)
+          .sort((a: { dist: number }, b: { dist: number }) => a.dist - b.dist)[0];
 
         if (nearby) {
           const ratio = nearby.dist / WINDOW;
@@ -585,7 +598,7 @@ export class VideoRenderer {
     }
 
     // Fallback: Standard Keyframes
-    const sortedKeyframes = [...segment.zoomKeyframes].sort((a, b) => a.time - b.time);
+    const sortedKeyframes = [...segment.zoomKeyframes].sort((a: ZoomKeyframe, b: ZoomKeyframe) => a.time - b.time);
     if (sortedKeyframes.length === 0) return this.DEFAULT_STATE;
 
     const nextKeyframe = sortedKeyframes.find(k => k.time > currentTime);
@@ -778,7 +791,7 @@ export class VideoRenderer {
     const positions = this.smoothedPositions;
 
     // Find the exact position for the current time
-    const exactMatch = positions.find(pos => Math.abs(pos.timestamp - currentTime) < 0.001);
+    const exactMatch = positions.find((pos: MousePosition) => Math.abs(pos.timestamp - currentTime) < 0.001);
     if (exactMatch) {
 
       return {
@@ -790,7 +803,7 @@ export class VideoRenderer {
     }
 
     // Find the two closest positions
-    const nextIndex = positions.findIndex(pos => pos.timestamp > currentTime);
+    const nextIndex = positions.findIndex((pos: MousePosition) => pos.timestamp > currentTime);
     if (nextIndex === -1) {
       const last = positions[positions.length - 1];
       return {
@@ -842,7 +855,7 @@ export class VideoRenderer {
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
-    isClicked: boolean,
+    _isClicked: boolean,
     scale: number = 2,
     cursorType: string
   ) {
@@ -854,10 +867,8 @@ export class VideoRenderer {
     ctx.scale(scale, scale);
 
     // Handle click/held state - cursor stays squished while mouse is held
-    if (isClicked) {
-      // Mouse is being held - stay squished at 80% scale
-      ctx.scale(0.8, 0.8);
-    }
+    // Use the class-level currentSquishScale for smooth animation
+    ctx.scale(this.currentSquishScale, this.currentSquishScale);
 
 
     switch (lowerType) {
@@ -918,17 +929,6 @@ export class VideoRenderer {
     }
 
     ctx.restore();
-  }
-
-  // Helper methods for animations
-  private easeOutQuad(t: number): number {
-    return t * (2 - t);
-  }
-
-  private easeOutBack(t: number): number {
-    const c1 = 1.70158;
-    const c3 = c1 + 1;
-    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
   }
 
   private drawTextOverlay(
