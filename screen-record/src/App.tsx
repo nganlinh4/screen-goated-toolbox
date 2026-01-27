@@ -100,10 +100,12 @@ function App() {
 
   // Add this to your App component state
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>({
-    scale: 100,
-    borderRadius: 8,
-    backgroundType: 'solid',
-    volume: 1
+    scale: 90,
+    borderRadius: 48,
+    backgroundType: 'gradient2',
+    shadow: 100,
+    volume: 1,
+    cursorScale: 5
   });
 
   // Add this state to toggle between panels
@@ -510,11 +512,35 @@ function App() {
 
         console.log(`[App] Received recording data. Video URL: ${videoUrl}, Audio URL: ${audioUrl}, Mouse Points: ${mouseData.length}, Clicks: ${mouseData.filter(p => p.isClicked).length}`);
 
+        // Get actual video duration for the segment
+        const videoDuration = videoRef.current?.duration || 0;
+        const initialSegment: VideoSegment = { 
+          trimStart: 0, 
+          trimEnd: videoDuration, 
+          zoomKeyframes: [], 
+          textSegments: [] 
+        };
+        
+        // Set segment immediately so first frame can render
+        setSegment(initialSegment);
+
+        // Render first frame immediately
+        if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) {
+          videoRenderer.drawFrame({
+            video: videoRef.current,
+            canvas: canvasRef.current,
+            tempCanvas: tempCanvasRef.current,
+            segment: initialSegment,
+            backgroundConfig,
+            mousePositions: mouseData,
+            currentTime: 0
+          });
+        }
+
         // Auto-save the initial project
         const response = await fetch(objectUrl);
         const videoBlob = await response.blob();
         const timestamp = new Date().toLocaleString();
-        const initialSegment: VideoSegment = { trimStart: 0, trimEnd: 0, zoomKeyframes: [], textSegments: [] };
 
         // Fetch audio blob if available
         let audioBlob: Blob | undefined;
@@ -1134,8 +1160,23 @@ function App() {
         textSegments: []
       };
       setSegment(initialSegment);
+
+      // Render first frame after segment is set (next tick to ensure state is updated)
+      setTimeout(() => {
+        if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) {
+          videoRenderer.drawFrame({
+            video: videoRef.current,
+            canvas: canvasRef.current,
+            tempCanvas: tempCanvasRef.current,
+            segment: initialSegment,
+            backgroundConfig,
+            mousePositions,
+            currentTime: 0
+          });
+        }
+      }, 0);
     }
-  }, [duration, segment]);
+  }, [duration, segment, backgroundConfig, mousePositions]);
 
   // Add this state for text segments
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
@@ -1336,10 +1377,11 @@ function App() {
               <div className="relative w-full flex justify-center max-h-[70vh]">
                 <div
                   ref={previewContainerRef}
-                  className="relative flex items-center justify-center cursor-crosshair group"
+                  className={`relative flex items-center justify-center cursor-crosshair group ${!currentVideo ? 'w-full aspect-video' : ''}`}
                   onMouseDown={(e) => {
                     if (!currentVideo) return;
                     if (isCropping) return; // Disable pan/zoom when cropping
+                    if (activePanel === 'text') return; // Disable panning when in text mode (allow text drag)
                     e.preventDefault();
                     e.stopPropagation(); // Prevent drag of window if any
 
@@ -1752,8 +1794,8 @@ function App() {
                   ) : (
                     <div className="bg-[#1a1a1b] rounded-lg border border-[#343536] p-6 flex flex-col items-center justify-center text-center">
                       <div className="bg-[#272729] rounded-full p-3 mb-3"><Search className="w-6 h-6 text-[#818384]" /></div>
-                      <p className="text-[#d7dadc] font-medium">No Zoom Effect Selected</p>
-                      <p className="text-[#818384] text-sm mt-1 max-w-[200px]">Select a zoom effect on the timeline or add a new one</p>
+                      <p className="text-[#d7dadc] font-medium">This Area Doesn't Have Manual Zoom</p>
+                      <p className="text-[#818384] text-sm mt-1 max-w-[200px]">Use your scroll wheel or drag inside the video player to add one</p>
                     </div>
                   )}
                 </>

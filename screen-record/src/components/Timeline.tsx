@@ -183,7 +183,12 @@ const ZoomInfluenceTrack: React.FC<{
         // But actually we force start/end to exist. User can't delete index 0 or length-1
         // unless we want to allow re-creating them? 
         // Requirement: "start and end handle must be able to be adjusted... not generating new handle" indicates anchors are permanent.
-        if (hoveredIdx === 0 || hoveredIdx === points.length - 1) return;
+        if (hoveredIdx === 0 || hoveredIdx === points.length - 1) {
+          if (points.length === 2) {
+            onUpdatePoints([]);
+          }
+          return;
+        }
 
         const newPoints = [...points];
         newPoints.splice(hoveredIdx, 1);
@@ -720,7 +725,13 @@ export const Timeline: React.FC<TimelineProps> = ({
               <ZoomInfluenceTrack
                 segment={segment}
                 duration={duration}
-                onUpdatePoints={(points) => setSegment({ ...segment!, zoomInfluencePoints: points })}
+                onUpdatePoints={(points) => {
+                  const newSegment = { ...segment!, zoomInfluencePoints: points };
+                  if (points.length === 0) {
+                    newSegment.smoothMotionPath = [];
+                  }
+                  setSegment(newSegment);
+                }}
               />
             )}
 
