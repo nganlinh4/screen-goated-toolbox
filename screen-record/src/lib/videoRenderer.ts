@@ -120,15 +120,34 @@ export class VideoRenderer {
     const { video, canvas, tempCanvas, segment, backgroundConfig, mousePositions } = context;
     if (!video || !canvas || !segment) return;
 
-    // Store original canvas dimensions
-    const targetWidth = canvas.width;
-    const targetHeight = canvas.height;
+    // Get video dimensions
+    const vidW = video.videoWidth;
+    const vidH = video.videoHeight;
 
-    // Temporarily set canvas to video dimensions for consistent rendering
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    tempCanvas.width = video.videoWidth;
-    tempCanvas.height = video.videoHeight;
+    // Determine the effective source resolution (cropped)
+    const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+
+    // Source rectangle in video pixels
+    const srcX = vidW * crop.x;
+    const srcY = vidH * crop.y;
+    const srcW = vidW * crop.width;
+    const srcH = vidH * crop.height;
+
+    // Set canvas to match the cropped source dimensions exactly
+    // This ensures 1:1 pixel mapping and correct aspect ratio
+    const canvasW = Math.round(srcW);
+    const canvasH = Math.round(srcH);
+
+    // Only update if dimensions changed to prevent flickering
+    if (canvas.width !== canvasW || canvas.height !== canvasH) {
+      canvas.width = canvasW;
+      canvas.height = canvasH;
+      tempCanvas.width = canvasW;
+      tempCanvas.height = canvasH;
+    }
+
+    // CSS aspect ratio matches buffer for proper display scaling
+    canvas.style.aspectRatio = `${canvasW} / ${canvasH}`;
 
     const isExportMode = options.exportMode || false;
     const quality = isExportMode ? 'high' : 'medium';
@@ -144,13 +163,20 @@ export class VideoRenderer {
 
     try {
       // Calculate dimensions once
-      const crop = (backgroundConfig.cropBottom || 0) / 100;
+      // Calculate dimensions once
+      // Note: cropBottom is legacy - ideally we migrate to segment.crop. 
+      // For now, let's say cropBottom applies relative to the cropped frame? Or ignore it?
+      // Since new crop is powerful, maybe ignore cropBottom if segment.crop is used?
+      // But for backward compatibility with "No Taskbar" preset which might set cropBottom...
+      // Let's modify: cropBottom percent applies to the *resultant* height?
+      const legacyCrop = (backgroundConfig.cropBottom || 0) / 100;
+
       const scale = backgroundConfig.scale / 100;
       const scaledWidth = canvas.width * scale;
-      const scaledHeight = (canvas.height * (1 - crop)) * scale;
+      const scaledHeight = (canvas.height * (1 - legacyCrop)) * scale;
       const x = (canvas.width - scaledWidth) / 2;
       const y = (canvas.height - scaledHeight) / 2;
-      const zoomState = this.calculateCurrentZoomState(video.currentTime, segment);
+      const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height);
 
       ctx.save();
 
@@ -240,10 +266,16 @@ export class VideoRenderer {
 
       // Clip and draw the video (using 9-arg version to crop bottom)
       tempCtx.clip();
+
+      // Draw the cropped source video onto the destination
+      // Source: srcX, srcY, srcW, srcH-legacyCrop? 
+      // Actually legacyCrop reduces destination height. We should reduce source height too if we want true crop.
+      // Let's assume legacyCrop just trims the bottom of the *already cropped* source.
+
       tempCtx.drawImage(
         video,
-        0, 0, video.videoWidth, video.videoHeight * (1 - crop), // sx, sy, sWidth, sHeight
-        x, y, scaledWidth, scaledHeight                      // dx, dy, dWidth, dHeight
+        srcX, srcY, srcW, srcH * (1 - legacyCrop), // sx, sy, sWidth, sHeight
+        x, y, scaledWidth, scaledHeight            // dx, dy, dWidth, dHeight
       );
 
       // Add a subtle border to smooth out edges
@@ -268,16 +300,19 @@ export class VideoRenderer {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
 
         // Map mouse position to the cropped video space
-        // original normalized mouse pos (0-1) on the UNcropped video
-        // We need to check if mouse is within the uncropped Y range
-        const mouseNormY = interpolatedPosition.y / video.videoHeight;
+        // interpolatedPosition.x/y are pixels in original video
+        const mX = interpolatedPosition.x;
+        const mY = interpolatedPosition.y;
 
-        // If mouse is below crop line, it disappears
-        if (mouseNormY <= (1 - crop)) {
-          // Re-calculate cursor position in terms of the cropped video frame drawn at (x, y)
-          let cursorX = x + (interpolatedPosition.x * scaledWidth / video.videoWidth);
-          // For Y, we scale it relative to the CROPPED height
-          let cursorY = y + (interpolatedPosition.y * scaledHeight / (video.videoHeight * (1 - crop)));
+        // Check if inside Source Crop
+        if (mX >= srcX && mX <= (srcX + srcW) && mY >= srcY && mY <= (srcY + srcH * (1 - legacyCrop))) {
+          // Map to Canvas space
+          // Relative to Source Crop top-left
+          const relX = (mX - srcX) / srcW; // 0-1 in cropped frame
+          const relY = (mY - srcY) / (srcH * (1 - legacyCrop)); // 0-1 in cropped frame
+
+          let cursorX = x + (relX * scaledWidth);
+          let cursorY = y + (relY * scaledHeight);
 
           // If there's zoom, adjust cursor position
           if (zoomState && zoomState.zoomFactor !== 1) {
@@ -286,8 +321,8 @@ export class VideoRenderer {
             cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
           }
 
-          // Scale cursor size based on video dimensions ratio and zoom
-          const sizeRatio = Math.min(targetWidth / video.videoWidth, targetHeight / video.videoHeight);
+          // Scale cursor size based on canvas to source ratio and zoom
+          const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
           const cursorScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
 
           this.drawMouseCursor(
@@ -319,51 +354,6 @@ export class VideoRenderer {
     } finally {
       this.isDrawing = false;
       ctx.restore();
-
-      // If we're exporting and dimensions are different
-      if (options.exportMode && (targetWidth !== video.videoWidth || targetHeight !== video.videoHeight)) {
-        // Create a temporary canvas for scaling
-        const exportCanvas = document.createElement('canvas');
-        exportCanvas.width = targetWidth;
-        exportCanvas.height = targetHeight;
-        const exportCtx = exportCanvas.getContext('2d', {
-          alpha: false,
-          willReadFrequently: false
-        });
-
-        if (exportCtx) {
-          // Use better quality settings for export
-          exportCtx.imageSmoothingEnabled = true;
-          exportCtx.imageSmoothingQuality = 'high';
-
-          exportCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
-          // Copy scaled content back to main canvas
-          canvas.width = targetWidth;
-          canvas.height = targetHeight;
-          ctx?.drawImage(exportCanvas, 0, 0);
-          exportCanvas.remove(); // Clean up
-        }
-      } else if (!options.exportMode) {
-        // For preview, restore original canvas size with proper scaling
-        const previewCanvas = document.createElement('canvas');
-        previewCanvas.width = targetWidth;
-        previewCanvas.height = targetHeight;
-        const previewCtx = previewCanvas.getContext('2d', {
-          alpha: false,
-          willReadFrequently: false
-        });
-
-        if (previewCtx) {
-          previewCtx.imageSmoothingEnabled = true;
-          previewCtx.imageSmoothingQuality = 'high';
-          previewCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
-
-          canvas.width = targetWidth;
-          canvas.height = targetHeight;
-          ctx?.drawImage(previewCanvas, 0, 0);
-          previewCanvas.remove(); // Clean up
-        }
-      }
     }
   };
 
@@ -486,16 +476,20 @@ export class VideoRenderer {
 
   private calculateCurrentZoomState(
     currentTime: number,
-    segment: VideoSegment
+    segment: VideoSegment,
+    viewW: number,
+    viewH: number
   ): ZoomKeyframe {
-    const state = this.calculateCurrentZoomStateInternal(currentTime, segment);
+    const state = this.calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH);
     this.lastCalculatedState = state;
     return state;
   }
 
   private calculateCurrentZoomStateInternal(
     currentTime: number,
-    segment: VideoSegment
+    segment: VideoSegment,
+    viewW: number,
+    viewH: number
   ): ZoomKeyframe {
     // Priority: Continuous Motion Path (Smart Zoom)
     if (segment.smoothMotionPath && segment.smoothMotionPath.length > 0) {
@@ -503,9 +497,10 @@ export class VideoRenderer {
 
       // Find bounding frames
       // Binary search would be faster but linear is ok for this data size
+
       const idx = path.findIndex(p => p.time >= currentTime);
 
-      let cam = { x: 1920 / 2, y: 1080 / 2, zoom: 1.0 };
+      let cam = { x: viewW / 2, y: viewH / 2, zoom: 1.0 };
 
       if (idx === -1) {
         // Past end
@@ -551,21 +546,20 @@ export class VideoRenderer {
           influence = ip1.value * (1 - cosT) + ip2.value * cosT;
         }
 
-        // Blend Physics Camera with Overview (Zoom 1, Center) based on influence
         // influence 1.0 = Full Physics
         // influence 0.0 = Overview
 
         cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
-        cam.x = (1920 / 2) + (cam.x - (1920 / 2)) * influence;
-        cam.y = (1080 / 2) + (cam.y - (1080 / 2)) * influence;
+        cam.x = (viewW / 2) + (cam.x - (viewW / 2)) * influence;
+        cam.y = (viewH / 2) + (cam.y - (viewH / 2)) * influence;
       }
 
       let resultState: ZoomKeyframe = {
         time: currentTime,
         duration: 0,
         zoomFactor: cam.zoom,
-        positionX: cam.x / 1920,
-        positionY: cam.y / 1080,
+        positionX: cam.x / viewW,
+        positionY: cam.y / viewH,
         easingType: 'linear'
       };
 

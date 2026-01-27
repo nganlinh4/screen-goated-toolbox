@@ -13,6 +13,7 @@ import { autoZoomGenerator } from '@/lib/autoZoom';
 import { Timeline } from '@/components/Timeline';
 import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
+import { Crop } from "lucide-react";
 
 // Replace the debounce utility with throttle
 const useThrottle = (callback: Function, limit: number) => {
@@ -84,6 +85,7 @@ function App() {
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [currentAudio, setCurrentAudio] = useState<string | null>(null);
+  const [isCropping, setIsCropping] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -188,17 +190,40 @@ function App() {
 
     // Explicitly draw frame if paused to reflect changes immediately
     if (videoRef.current.paused) {
+      // If cropping, force a 1.0 zoom render AND full source (no crop) so we see the full context
+      const renderSegment = isCropping ? {
+        ...segment,
+        crop: undefined, // Show full video
+        zoomKeyframes: segment.zoomKeyframes.map(k => ({
+          ...k,
+          zoomFactor: 1.0,
+          positionX: 0.5,
+          positionY: 0.5
+        }))
+      } : segment;
+
+      // Ensure we Strip all background config (Scale 100%, No padding, No shadow)
+      const renderBackground = isCropping ? {
+        ...backgroundConfig,
+        scale: 100,
+        borderRadius: 0,
+        shadow: 0,
+        backgroundType: 'solid' as const,
+        customBackground: undefined,
+        cropBottom: 0
+      } : backgroundConfig;
+
       videoRenderer.drawFrame({
         video: videoRef.current,
         canvas: canvasRef.current,
         tempCanvas: tempCanvasRef.current,
-        segment,
-        backgroundConfig,
+        segment: renderSegment,
+        backgroundConfig: renderBackground,
         mousePositions,
         currentTime: videoRef.current.currentTime
       });
     }
-  }, [segment, backgroundConfig, mousePositions]);
+  }, [segment, backgroundConfig, mousePositions, isCropping]);
 
   // Remove frameCallback and simplify the animation effect
   useEffect(() => {
@@ -209,12 +234,29 @@ function App() {
     if (video.paused) {
       renderFrame();
     } else {
+      // Logic for playing state: Also override if cropping
+      const loopSegment = (isCropping && segment) ? {
+        ...segment,
+        crop: undefined,
+        zoomKeyframes: segment.zoomKeyframes.map(k => ({ ...k, zoomFactor: 1.0, positionX: 0.5, positionY: 0.5 }))
+      } : segment;
+
+      const loopBackground = isCropping ? {
+        ...backgroundConfig,
+        scale: 100,
+        borderRadius: 0,
+        shadow: 0,
+        backgroundType: 'solid' as const,
+        customBackground: undefined,
+        cropBottom: 0
+      } : backgroundConfig;
+
       const renderContext = {
         video,
         canvas: canvasRef.current!,
         tempCanvas: tempCanvasRef.current,
-        segment: segment!,
-        backgroundConfig,
+        segment: loopSegment!,
+        backgroundConfig: loopBackground,
         mousePositions,
         currentTime: video.currentTime
       };
@@ -224,7 +266,7 @@ function App() {
     return () => {
       videoRenderer.stopAnimation();
     };
-  }, [segment, backgroundConfig, mousePositions]);
+  }, [segment, backgroundConfig, mousePositions, isCropping]);
 
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
 
@@ -755,7 +797,7 @@ function App() {
     if (!container) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (!currentVideo) return;
+      if (!currentVideo || isCropping) return;
       e.preventDefault();
       e.stopPropagation();
 
@@ -1290,13 +1332,14 @@ function App() {
 
         <div className="space-y-6">
           <div className="grid grid-cols-4 gap-6 items-start">
-            <div className="col-span-3 rounded-lg">
-              <div className="aspect-video relative">
+            <div className="col-span-3 rounded-lg overflow-hidden bg-black/20 flex items-center justify-center">
+              <div className="relative w-full flex justify-center max-h-[70vh]">
                 <div
                   ref={previewContainerRef}
-                  className="absolute inset-0 flex items-center justify-center cursor-crosshair group"
+                  className="relative flex items-center justify-center cursor-crosshair group"
                   onMouseDown={(e) => {
                     if (!currentVideo) return;
+                    if (isCropping) return; // Disable pan/zoom when cropping
                     e.preventDefault();
                     e.stopPropagation(); // Prevent drag of window if any
 
@@ -1337,14 +1380,271 @@ function App() {
                     window.addEventListener('mouseup', handleMouseUp);
                   }}
                 >
-                  <canvas ref={canvasRef} className="w-full h-full object-contain" />
+                  <canvas
+                    ref={canvasRef}
+                    className="max-w-full max-h-[70vh] object-contain"
+                  />
                   <canvas ref={tempCanvasRef} className="hidden" />
                   <video ref={videoRef} className="hidden" playsInline preload="auto" />
                   <audio ref={audioRef} className="hidden" />
                   {(!currentVideo || isLoadingVideo) && renderPlaceholder()}
+
+                  {/* Crop Overlay */}
+                  {isCropping && currentVideo && segment && (
+                    <div
+                      className="absolute inset-0 z-20 pointer-events-none"
+                    >
+                      {(() => {
+                        // 1. Calculate the actual video rectangle within the container
+                        const container = previewContainerRef.current;
+                        const video = videoRef.current;
+                        // We need to ensure we can read dimensions. If video isn't ready, we can't show crop box correctly aligned.
+                        if (!container || !video) return null;
+
+                        const containerRect = container.getBoundingClientRect();
+                        const vidW = video.videoWidth;
+                        const vidH = video.videoHeight;
+
+                        if (!vidW || !vidH) return null;
+
+                        const containerRatio = containerRect.width / containerRect.height;
+                        const videoRatio = vidW / vidH;
+
+                        let renderW, renderH, renderTop, renderLeft;
+
+                        if (containerRatio > videoRatio) {
+                          // Container is wider -> Video fits height
+                          renderH = containerRect.height;
+                          renderW = renderH * videoRatio;
+                          renderTop = 0;
+                          renderLeft = (containerRect.width - renderW) / 2;
+                        } else {
+                          // Container is taller -> Video fits width
+                          renderW = containerRect.width;
+                          renderH = renderW / videoRatio;
+                          renderLeft = 0;
+                          renderTop = (containerRect.height - renderH) / 2;
+                        }
+
+                        // 2. Wrap the crop logic in a div positioned exactly over the video content
+                        return (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              left: renderLeft,
+                              top: renderTop,
+                              width: renderW,
+                              height: renderH,
+                            }}
+                          >
+                            {(() => {
+                              // Current Crop State
+                              // Default to full video if undefined
+                              const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+
+                              // Visual properties (in %)
+                              const leftPct = crop.x;
+                              const topPct = crop.y;
+                              const widthPct = crop.width;
+                              const heightPct = crop.height;
+
+                              // Helper for resize handlers
+                              const handleResizeStart = (e: React.MouseEvent, type: string) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const startX = e.clientX;
+                                const startY = e.clientY;
+                                const startCrop = { ...crop };
+
+                                const rectW = renderW;
+                                const rectH = renderH;
+
+                                const handleMove = (me: MouseEvent) => {
+                                  const dx = (me.clientX - startX);
+                                  const dy = (me.clientY - startY);
+
+                                  // Convert to percentage change
+                                  const dXPct = dx / rectW;
+                                  const dYPct = dy / rectH;
+
+                                  let newX = startCrop.x;
+                                  let newY = startCrop.y;
+                                  let newW = startCrop.width;
+                                  let newH = startCrop.height;
+
+                                  // Adjust based on handle type
+                                  // N/S affect Y and Height
+                                  if (type.includes('n')) {
+                                    // If dragging North: New Top = Old Top + Delta
+                                    // New Height = Old Height - Delta
+                                    // Constraint: New Top >= 0, New Height >= Min
+                                    let desiredY = startCrop.y + dYPct;
+                                    // Clamp Y between 0 and (Bottom - MinHeight)
+                                    const maxY = startCrop.y + startCrop.height - 0.05;
+                                    desiredY = Math.max(0, Math.min(maxY, desiredY));
+
+                                    const deltaY = desiredY - startCrop.y;
+                                    newY = desiredY;
+                                    newH = startCrop.height - deltaY;
+                                  } else if (type.includes('s')) {
+                                    // Dragging South: Top fixed, Height changes
+                                    // New Height = Old Height + Delta
+                                    let desiredH = startCrop.height + dYPct;
+                                    // Clamp H: Min <= H <= (1 - Top)
+                                    newH = Math.max(0.05, Math.min(1 - startCrop.y, desiredH));
+                                  }
+
+                                  // E/W affect X and Width
+                                  if (type.includes('w')) {
+                                    // Dragging West: New Left = Old Left + Delta
+                                    // New Width = Old Width - Delta
+                                    let desiredX = startCrop.x + dXPct;
+                                    const maxX = startCrop.x + startCrop.width - 0.05;
+                                    desiredX = Math.max(0, Math.min(maxX, desiredX));
+
+                                    const deltaX = desiredX - startCrop.x;
+                                    newX = desiredX;
+                                    newW = startCrop.width - deltaX;
+                                  } else if (type.includes('e')) {
+                                    // Dragging East
+                                    let desiredW = startCrop.width + dXPct;
+                                    newW = Math.max(0.05, Math.min(1 - startCrop.x, desiredW));
+                                  }
+
+                                  // Update Segment State
+                                  setSegment(prev => prev ? ({
+                                    ...prev,
+                                    crop: { x: newX, y: newY, width: newW, height: newH }
+                                  }) : null);
+                                };
+
+                                const handleUp = () => {
+                                  window.removeEventListener('mousemove', handleMove);
+                                  window.removeEventListener('mouseup', handleUp);
+                                };
+                                window.addEventListener('mousemove', handleMove);
+                                window.addEventListener('mouseup', handleUp);
+                              };
+
+                              return (
+                                <div
+                                  className="absolute border-2 border-[#0079d3] bg-[#0079d3]/10 pointer-events-auto"
+                                  style={{
+                                    left: `${leftPct * 100}%`,
+                                    top: `${topPct * 100}%`,
+                                    width: `${widthPct * 100}%`,
+                                    height: `${heightPct * 100}%`,
+                                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.7)'
+                                  }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const startX = e.clientX;
+                                    const startY = e.clientY;
+                                    const startCrop = { ...crop };
+                                    const rectW = renderW;
+                                    const rectH = renderH;
+
+                                    const handleBoxMove = (me: MouseEvent) => {
+                                      const dx = (me.clientX - startX) / rectW;
+                                      const dy = (me.clientY - startY) / rectH;
+
+                                      // Move crop rect, clamping to bounds
+                                      let newX = startCrop.x + dx;
+                                      let newY = startCrop.y + dy;
+
+                                      // Clamp
+                                      newX = Math.max(0, Math.min(1 - startCrop.width, newX));
+                                      newY = Math.max(0, Math.min(1 - startCrop.height, newY));
+
+                                      setSegment(prev => prev ? ({
+                                        ...prev,
+                                        crop: { x: newX, y: newY, width: startCrop.width, height: startCrop.height }
+                                      }) : null);
+                                    };
+                                    const handleUp = () => {
+                                      window.removeEventListener('mousemove', handleBoxMove);
+                                      window.removeEventListener('mouseup', handleUp);
+                                    };
+                                    window.addEventListener('mousemove', handleBoxMove);
+                                    window.addEventListener('mouseup', handleUp);
+                                  }}
+                                >
+                                  {/* Grid Lines (Rule of Thirds) */}
+                                  <div className="absolute inset-0 flex flex-col pointer-events-none opacity-30">
+                                    <div className="flex-1 border-b border-white/50" />
+                                    <div className="flex-1 border-b border-white/50" />
+                                    <div className="flex-1" />
+                                  </div>
+                                  <div className="absolute inset-0 flex pointer-events-none opacity-30">
+                                    <div className="flex-1 border-r border-white/50" />
+                                    <div className="flex-1 border-r border-white/50" />
+                                    <div className="flex-1" />
+                                  </div>
+
+                                  {/* 8 Handles */}
+                                  {[
+                                    { t: 'nw', c: 'cursor-nw-resize', s: '-top-1.5 -left-1.5' },
+                                    { t: 'n', c: 'cursor-n-resize', s: '-top-1.5 left-1/2 -translate-x-1/2' },
+                                    { t: 'ne', c: 'cursor-ne-resize', s: '-top-1.5 -right-1.5' },
+                                    { t: 'w', c: 'cursor-w-resize', s: 'top-1/2 -translate-y-1/2 -left-1.5' },
+                                    { t: 'e', c: 'cursor-e-resize', s: 'top-1/2 -translate-y-1/2 -right-1.5' },
+                                    { t: 'sw', c: 'cursor-sw-resize', s: '-bottom-1.5 -left-1.5' },
+                                    { t: 's', c: 'cursor-s-resize', s: '-bottom-1.5 left-1/2 -translate-x-1/2' },
+                                    { t: 'se', c: 'cursor-se-resize', s: '-bottom-1.5 -right-1.5' },
+                                  ].map(handle => (
+                                    <div
+                                      key={handle.t}
+                                      className={`absolute w-3 h-3 bg-white border border-[#0079d3] rounded-full z-30 hover:scale-125 transition-transform ${handle.c} ${handle.s}`}
+                                      onMouseDown={(e) => handleResizeStart(e, handle.t)}
+                                    />
+                                  ))}
+
+                                  {/* Central Crosshair */}
+                                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 opacity-50 pointer-events-none">
+                                    <div className="absolute w-full h-[1px] bg-white top-1/2 -translate-y-1/2 shadow-sm" />
+                                    <div className="absolute h-full w-[1px] bg-white left-1/2 -translate-x-1/2 shadow-sm" />
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
                 </div>
                 {currentVideo && !isLoadingVideo && (
-                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/80 rounded-full px-4 py-2 backdrop-blur-sm z-10">
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/80 rounded-full px-4 py-2 backdrop-blur-sm z-50">
+                    <Button
+                      onClick={() => {
+                        if (isCropping) {
+                          // Confirm/Apply Crop
+                          setIsCropping(false);
+                          setActivePanel('zoom');
+                          // Reset Zoom to 1.0 to view the new crop clearly without inherited zoom
+                          setZoomFactor(1.0);
+                          // Also reset any focused keyframe to avoid confusion
+                          setEditingKeyframeId(null);
+                        } else {
+                          // Enter Crop Mode
+                          setIsCropping(true);
+                          if (isPlaying) togglePlayPause();
+                        }
+                      }}
+                      variant="ghost"
+                      size="icon"
+                      className={`w-8 h-8 rounded-full transition-colors ${isCropping ? 'bg-green-500/80 text-white hover:bg-green-600' : 'text-white/80 hover:text-white hover:bg-white/10'}`}
+                      title={isCropping ? "Apply Crop" : "Crop Video"}
+                    >
+                      {isCropping ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                      ) : (
+                        <Crop className="w-4 h-4" />
+                      )}
+                    </Button>
+                    <div className="w-px h-4 bg-white/20 mx-1" />
                     <Button
                       onClick={togglePlayPause}
                       disabled={isProcessing || !isVideoReady}
@@ -1744,6 +2044,8 @@ function App() {
                   >
                     <Wand2 className="w-4 h-4 mr-2" />Auto-Smart Zoom
                   </Button>
+
+
 
                 </div>
               </div>

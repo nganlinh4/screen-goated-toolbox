@@ -23,6 +23,13 @@ export interface TextSegment {
   };
 }
 
+export interface CropRect {
+  x: number; // 0-1
+  y: number; // 0-1
+  width: number; // 0-1
+  height: number; // 0-1
+}
+
 export interface VideoSegment {
   trimStart: number;
   trimEnd: number;
@@ -30,6 +37,7 @@ export interface VideoSegment {
   smoothMotionPath?: { time: number; x: number; y: number; zoom: number }[];
   zoomInfluencePoints?: { time: number; value: number }[];
   textSegments: TextSegment[];
+  crop?: CropRect;
 }
 
 export interface BackgroundConfig {
