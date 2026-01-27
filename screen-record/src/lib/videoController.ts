@@ -256,6 +256,9 @@ export class VideoController {
   }
 
   public play() {
+    // Reset seeking state to ensure play works after seek
+    this.setSeeking(false);
+    
     if (!this.state.isReady) {
       console.warn('[VideoController] Play ignored: not ready');
       return;

@@ -853,40 +853,10 @@ export class VideoRenderer {
     ctx.translate(x, y);
     ctx.scale(scale, scale);
 
-    // Handle click animation state
-    const now = performance.now();
-    if (isClicked && !this.cursorAnimation.isAnimating) {
-      // Start new click animation
-      this.cursorAnimation.startTime = now;
-      this.cursorAnimation.isAnimating = true;
-      this.cursorAnimation.isSquishing = true;
-    }
-
-    // Apply animation transforms
-    if (this.cursorAnimation.isAnimating) {
-      const elapsed = now - this.cursorAnimation.startTime;
-
-      if (this.cursorAnimation.isSquishing) {
-        // Squish phase
-        const progress = Math.min(1, elapsed / this.SQUISH_DURATION);
-        const scaleAmount = 1 - (0.2 * this.easeOutQuad(progress)); // Reduce scale by 20%
-        ctx.scale(scaleAmount, scaleAmount);
-
-        if (progress >= 1) {
-          // Switch to release phase
-          this.cursorAnimation.isSquishing = false;
-          this.cursorAnimation.startTime = now;
-        }
-      } else {
-        // Release/bounce phase
-        const progress = Math.min(1, elapsed / this.RELEASE_DURATION);
-        const baseScale = 0.8 + (0.2 * this.easeOutBack(progress));
-        ctx.scale(baseScale, baseScale);
-
-        if (progress >= 1) {
-          this.cursorAnimation.isAnimating = false;
-        }
-      }
+    // Handle click/held state - cursor stays squished while mouse is held
+    if (isClicked) {
+      // Mouse is being held - stay squished at 80% scale
+      ctx.scale(0.8, 0.8);
     }
 
 
