@@ -319,6 +319,30 @@ function App() {
     }
   };
 
+  const [keyvizStatus, setKeyvizStatus] = useState({ installed: false, enabled: false });
+
+  useEffect(() => {
+    invoke<{ installed: boolean; enabled: boolean }>('get_keyviz_status')
+      .then(setKeyvizStatus)
+      .catch(console.error);
+  }, []);
+
+  const toggleKeyviz = async () => {
+    try {
+      if (!keyvizStatus.installed && !keyvizStatus.enabled) {
+        await invoke('install_keyviz');
+        await invoke('set_keyviz_enabled', { enabled: true });
+        setKeyvizStatus({ installed: true, enabled: true });
+      } else {
+        const newEnabled = !keyvizStatus.enabled;
+        await invoke('set_keyviz_enabled', { enabled: newEnabled });
+        setKeyvizStatus(prev => ({ ...prev, enabled: newEnabled }));
+      }
+    } catch (err) {
+      console.error("Failed to toggle keyviz:", err);
+    }
+  };
+
   useEffect(() => {
     if (showHotkeyDialog && listeningForKey) {
       invoke('unregister_hotkeys').catch(() => { });
@@ -514,13 +538,13 @@ function App() {
 
         // Get actual video duration for the segment
         const videoDuration = videoRef.current?.duration || 0;
-        const initialSegment: VideoSegment = { 
-          trimStart: 0, 
-          trimEnd: videoDuration, 
-          zoomKeyframes: [], 
-          textSegments: [] 
+        const initialSegment: VideoSegment = {
+          trimStart: 0,
+          trimEnd: videoDuration,
+          zoomKeyframes: [],
+          textSegments: []
         };
-        
+
         // Set segment immediately so first frame can render
         setSegment(initialSegment);
 
@@ -1297,6 +1321,18 @@ function App() {
             >
               <Keyboard className="w-3 h-3 mr-1" />
               Add Hotkey
+            </Button>
+            <Button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={toggleKeyviz}
+              className={`px-2 h-7 text-xs flex-shrink-0 transition-colors ${keyvizStatus.enabled
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-[#272729] hover:bg-[#343536] text-[#d7dadc]'
+                }`}
+              title={keyvizStatus.installed ? "Toggle Keyviz" : "Install & Enable Keyviz"}
+            >
+              <Keyboard className="w-3 h-3 mr-1" />
+              {keyvizStatus.enabled ? "Keystrokes: ON" : "Show Keystrokes"}
             </Button>
           </div>
 
