@@ -172,15 +172,19 @@ function App() {
     }
   }, [backgroundConfig.volume]);
 
-  // Helper function to render a frame
-  const renderFrame = useCallback(() => {
-    if (!segment || !videoRef.current || !canvasRef.current) return;
-
-    videoControllerRef.current?.updateRenderOptions({
+  // Sync renderOptions with controller when segment/config changes
+  useEffect(() => {
+    if (!segment || !videoControllerRef.current) return;
+    videoControllerRef.current.updateRenderOptions({
       segment,
       backgroundConfig,
       mousePositions
     });
+  }, [segment, backgroundConfig, mousePositions]);
+
+  // Helper function to render a frame
+  const renderFrame = useCallback(() => {
+    if (!segment || !videoRef.current || !canvasRef.current) return;
 
     // Explicitly draw frame if paused to reflect changes immediately
     if (videoRef.current.paused) {
@@ -470,6 +474,13 @@ function App() {
         const timestamp = new Date().toLocaleString();
         const initialSegment: VideoSegment = { trimStart: 0, trimEnd: 0, zoomKeyframes: [], textSegments: [] };
 
+        // Fetch audio blob if available
+        let audioBlob: Blob | undefined;
+        if (audioUrl) {
+          const audioResponse = await fetch(audioUrl);
+          audioBlob = await audioResponse.blob();
+        }
+
         // Final frame render to ensure we have a thumbnail
         renderFrame();
         const thumbnail = generateThumbnail();
@@ -477,6 +488,7 @@ function App() {
         const project = await projectManager.saveProject({
           name: `Recording ${timestamp}`,
           videoBlob,
+          audioBlob,
           segment: initialSegment,
           backgroundConfig,
           mousePositions: mouseData,
@@ -1000,7 +1012,15 @@ function App() {
       setCurrentAudio(null);
     }
 
-    setSegment(project.segment);
+    // Fix trimEnd: 0 from saved projects - use actual video duration
+    const videoDuration = videoControllerRef.current?.duration || 0;
+    const correctedSegment = { ...project.segment };
+    if (correctedSegment.trimEnd === 0 || correctedSegment.trimEnd > videoDuration) {
+      correctedSegment.trimEnd = videoDuration;
+    }
+
+
+    setSegment(correctedSegment);
     setBackgroundConfig(project.backgroundConfig);
     setMousePositions(project.mousePositions);
 
