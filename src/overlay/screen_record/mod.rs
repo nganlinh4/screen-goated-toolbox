@@ -519,12 +519,12 @@ fn start_ffmpeg_installation() {
     // Check if already downloading
     {
         let status = FFMPEG_INSTALL_STATUS.lock().unwrap();
-        if matches!(*status, FfmpegInstallStatus::Downloading(_) | FfmpegInstallStatus::Extracting) {
+        if matches!(*status, FfmpegInstallStatus::Downloading { .. } | FfmpegInstallStatus::Extracting) {
             return;
         }
     }
     
-    *FFMPEG_INSTALL_STATUS.lock().unwrap() = FfmpegInstallStatus::Downloading(0.0);
+    *FFMPEG_INSTALL_STATUS.lock().unwrap() = FfmpegInstallStatus::Downloading { progress: 0.0, total_size: 0 };
     
     thread::spawn(move || {
         let bin_dir = get_bin_dir();
@@ -579,10 +579,10 @@ fn start_ffmpeg_installation() {
                             let mut status = FFMPEG_INSTALL_STATUS.lock().unwrap();
                             if total_size > 0 {
                                 let progress = (downloaded as f32 / total_size as f32) * 100.0;
-                                *status = FfmpegInstallStatus::Downloading(progress);
+                                *status = FfmpegInstallStatus::Downloading { progress, total_size };
                             } else {
                                 // If size is unknown, just show that we are downloading (0.1 to avoid showing 0%)
-                                *status = FfmpegInstallStatus::Downloading(0.1);
+                                *status = FfmpegInstallStatus::Downloading { progress: 0.1, total_size: 0 };
                             }
                         }
                         Err(e) => {
@@ -672,7 +672,7 @@ lazy_static::lazy_static! {
 #[derive(Clone, serde::Serialize)]
 pub enum FfmpegInstallStatus {
     Idle,
-    Downloading(f32), // progress 0.0-1.0
+    Downloading { progress: f32, total_size: u64 },
     Extracting,
     Installed,
     Error(String),

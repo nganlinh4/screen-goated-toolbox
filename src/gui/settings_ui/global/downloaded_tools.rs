@@ -255,10 +255,19 @@ pub fn render_downloaded_tools_modal(
                                             InstallStatus::Missing;
                                     }
 
-                                    let size = if let Ok(meta) = fs::metadata(&path) {
-                                        meta.len()
-                                    } else {
-                                        0
+                                    let size = {
+                                        let mut total = 0;
+                                        if let Ok(meta) = fs::metadata(
+                                            download_manager.bin_dir.join("ffmpeg.exe"),
+                                        ) {
+                                            total += meta.len();
+                                        }
+                                        if let Ok(meta) = fs::metadata(
+                                            download_manager.bin_dir.join("ffprobe.exe"),
+                                        ) {
+                                            total += meta.len();
+                                        }
+                                        total
                                     };
                                     ui.label(
                                         egui::RichText::new(
