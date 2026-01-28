@@ -443,6 +443,7 @@ export class VideoRenderer {
     viewW: number,
     viewH: number
   ): ZoomKeyframe {
+    // 1. AUTO ZOOM (Smooth Motion Path)
     if (segment.smoothMotionPath && segment.smoothMotionPath.length > 0) {
       const path = segment.smoothMotionPath;
       const idx = path.findIndex((p: any) => p.time >= currentTime);
@@ -482,20 +483,34 @@ export class VideoRenderer {
           influence = ip1.value * (1 - cosT) + ip2.value * cosT;
         }
 
+        // Apply influence to pull camera back to center/default
         cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
-        cam.x = (viewW / 2) + (cam.x - (viewW / 2)) * influence;
-        cam.y = (viewH / 2) + (cam.y - (viewH / 2)) * influence;
       }
+
+      // AUTO-ZOOM FIX:
+      // cam.x/y from autoZoom are in GLOBAL pixels (relative to 0,0 of source video).
+      // viewW/viewH are cropped dimensions.
+      // We must subtract the crop offset to get local coordinates for the preview.
+
+      const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+      // Calculate original source dimensions based on viewW/viewH (which are cropped dimensions)
+      const fullW = viewW / crop.width;
+      const fullH = viewH / crop.height;
+
+      const cropOffsetX = fullW * crop.x;
+      const cropOffsetY = fullH * crop.y;
 
       let resultState: ZoomKeyframe = {
         time: currentTime,
         duration: 0,
         zoomFactor: cam.zoom,
-        positionX: cam.x / viewW,
-        positionY: cam.y / viewH,
+        // Convert GLOBAL camera position to LOCAL relative position (0-1 within the crop)
+        positionX: (cam.x - cropOffsetX) / viewW,
+        positionY: (cam.y - cropOffsetY) / viewH,
         easingType: 'linear'
       };
 
+      // Blend with Manual Keyframes if they exist (Overriding Auto Zoom)
       if (segment.zoomKeyframes && segment.zoomKeyframes.length > 0) {
         const WINDOW = 1.5;
         const nearby = segment.zoomKeyframes
@@ -515,6 +530,7 @@ export class VideoRenderer {
       return resultState;
     }
 
+    // 2. MANUAL ZOOM (Keyframes Only)
     const sortedKeyframes = [...segment.zoomKeyframes].sort((a: ZoomKeyframe, b: ZoomKeyframe) => a.time - b.time);
     if (sortedKeyframes.length === 0) return this.DEFAULT_STATE;
 
