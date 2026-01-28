@@ -51,6 +51,7 @@ pub struct ZoomKeyframe {
     pub zoom_factor: f64,
     pub position_x: f64,
     pub position_y: f64,
+    pub easing_type: String, // 'linear', 'easeOut', 'easeInOut'
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -83,7 +84,6 @@ pub struct MousePosition {
 }
 
 // --- GRADIENT COLORS ---
-// Colors in sRGB, will be used directly (shader outputs to sRGB texture)
 
 fn srgb_to_linear(c: f32) -> f32 {
     if c <= 0.04045 {
@@ -123,14 +123,23 @@ fn get_gradient_colors(bg_type: &str) -> ([f32; 4], [f32; 4]) {
     }
 }
 
+// --- EASING FUNCTIONS ---
+fn ease_out_cubic(x: f64) -> f64 {
+    1.0 - (1.0 - x).powi(3)
+}
+
 // --- INTERPOLATION ---
 
 fn interpolate_zoom(
     time: f64,
     motion_path: &Option<Vec<MotionPoint>>,
-    default_x: f64,
-    default_y: f64,
+    manual_keyframes: &[ZoomKeyframe],
+    crop_x: f64,
+    crop_y: f64,
+    crop_w: f64,
+    crop_h: f64,
 ) -> (f64, f64, f64) {
+    // 1. Auto Zoom Path (Highest Priority)
     if let Some(path) = motion_path {
         if !path.is_empty() {
             let idx = path
@@ -153,7 +162,89 @@ fn interpolate_zoom(
             return (x, y, zoom);
         }
     }
-    (default_x, default_y, 1.0)
+
+    // 2. Manual Keyframes
+    if manual_keyframes.is_empty() {
+        // Center of Crop
+        let cx = crop_x + crop_w / 2.0;
+        let cy = crop_y + crop_h / 2.0;
+        return (cx, cy, 1.0);
+    }
+
+    // Find next and previous keyframes
+    // Assumes keyframes are NOT sorted in JSON, so we sort them first?
+    // Usually they are sorted by time, but for safety in Rust let's do a linear scan.
+
+    // Sort keyframes by time
+    let mut sorted: Vec<&ZoomKeyframe> = manual_keyframes.iter().collect();
+    sorted.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+
+    // Find bounding keyframes
+    let next_idx = sorted.iter().position(|k| k.time > time);
+
+    // Helper to convert normalized 0-1 pos (relative to crop) to global pixels
+    let to_global = |pos_x: f64, pos_y: f64| -> (f64, f64) {
+        (crop_x + (pos_x * crop_w), crop_y + (pos_y * crop_h))
+    };
+
+    if let Some(idx) = next_idx {
+        let next_kf = sorted[idx];
+        let prev_kf = if idx > 0 { sorted[idx - 1] } else { sorted[0] };
+
+        // Transition logic matches TypeScript: check if within transition duration window
+        const TRANSITION_DURATION: f64 = 1.0;
+
+        // Case A: Transition between two defined keyframes
+        if idx > 0 && (next_kf.time - prev_kf.time) <= TRANSITION_DURATION {
+            let progress = (time - prev_kf.time) / (next_kf.time - prev_kf.time);
+            let eased = ease_out_cubic(progress.clamp(0.0, 1.0));
+
+            let (p1x, p1y) = to_global(prev_kf.position_x, prev_kf.position_y);
+            let (p2x, p2y) = to_global(next_kf.position_x, next_kf.position_y);
+
+            let z = prev_kf.zoom_factor + (next_kf.zoom_factor - prev_kf.zoom_factor) * eased;
+            let x = p1x + (p2x - p1x) * eased;
+            let y = p1y + (p2y - p1y) * eased;
+            return (x, y, z);
+        }
+
+        // Case B: Transition approaching next keyframe (from hold)
+        let time_to_next = next_kf.time - time;
+        if time_to_next <= TRANSITION_DURATION {
+            let progress = (TRANSITION_DURATION - time_to_next) / TRANSITION_DURATION;
+            let eased = ease_out_cubic(progress.clamp(0.0, 1.0));
+
+            // Start state is either previous keyframe OR default centered
+            let (start_z, start_px, start_py) = if idx > 0 {
+                (prev_kf.zoom_factor, prev_kf.position_x, prev_kf.position_y)
+            } else {
+                (1.0, 0.5, 0.5)
+            };
+
+            let (p1x, p1y) = to_global(start_px, start_py);
+            let (p2x, p2y) = to_global(next_kf.position_x, next_kf.position_y);
+
+            let z = start_z + (next_kf.zoom_factor - start_z) * eased;
+            let x = p1x + (p2x - p1x) * eased;
+            let y = p1y + (p2y - p1y) * eased;
+            return (x, y, z);
+        }
+
+        // Case C: Holding previous keyframe value
+        if idx > 0 {
+            let (cx, cy) = to_global(prev_kf.position_x, prev_kf.position_y);
+            return (cx, cy, prev_kf.zoom_factor);
+        }
+
+        // Before first keyframe (default state)
+        let (cx, cy) = to_global(0.5, 0.5);
+        return (cx, cy, 1.0);
+    }
+
+    // After last keyframe
+    let last = sorted.last().unwrap();
+    let (cx, cy) = to_global(last.position_x, last.position_y);
+    (cx, cy, last.zoom_factor)
 }
 
 // --- MAIN EXPORT FUNCTION ---
@@ -174,8 +265,13 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             println!("[Export] First motion point: {:?}", path[0]);
         }
     } else {
-        println!("[Export] No motion path provided (using default center)");
+        println!("[Export] No motion path provided (Manual Mode)");
     }
+
+    println!(
+        "[Export] Manual Keyframes: {}",
+        config.segment.zoom_keyframes.len()
+    );
 
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
@@ -270,14 +366,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         0.0
     };
 
-    // Default camera center (Global coordinates) = Center of the Crop
-    // This fixes the shift issue: if motion path is missing, we center on the crop, not the full source.
-    let default_cam_x = crop_x_offset + crop_w as f64 / 2.0;
-    let default_cam_y = crop_y_offset + crop_h as f64 / 2.0;
-
     println!(
-        "[Export] Crop: {}x{} at ({},{}), Default Cam: ({},{})",
-        crop_w, crop_h, crop_x_offset, crop_y_offset, default_cam_x, default_cam_y
+        "[Export] Crop: {}x{} at ({},{}), Global Size: {}x{}",
+        crop_w, crop_h, crop_x_offset, crop_y_offset, src_w, src_h
     );
 
     // If config dimensions are 0, use cropped dimensions (matching preview behavior)
@@ -449,6 +540,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut current_time = config.trim_start;
     let end_time = config.trim_start + config.duration;
     let mut frame_count = 0u32;
+    let total_frames = (config.duration * config.framerate as f64 / config.speed) as u32;
 
     let start = std::time::Instant::now();
     println!("[Export] Processing frames with GPU...");
@@ -460,20 +552,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             break;
         }
 
-        // Get zoom/pan for this frame
-        // Pass corrected default coordinates (Center of Crop)
+        // Get zoom/pan for this frame using either Auto-Zoom or Manual Keyframes
         let (raw_cam_x, raw_cam_y, zoom) = interpolate_zoom(
-            current_time - config.trim_start,
+            current_time - config.trim_start, // Time relative to segment start
             &config.segment.smooth_motion_path,
-            default_cam_x,
-            default_cam_y,
+            &config.segment.zoom_keyframes,
+            crop_x_offset,
+            crop_y_offset,
+            crop_w as f64,
+            crop_h as f64,
         );
 
         // Adjust camera coordinate to be relative to the CROPPED frame
         // If the original camera was at (1000, 500) and we cropped the region starting at (500, 0),
         // the new camera center is at (1000-500, 500-0) = (500, 500) inside the crop.
         let cam_x = raw_cam_x - crop_x_offset;
-        let cam_y = raw_cam_y - crop_y_offset;
+        let _cam_y = raw_cam_y - crop_y_offset;
 
         // Upload frame to GPU
         compositor.upload_frame(&buffer);
@@ -482,35 +576,37 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let zoomed_video_w = video_w as f64 * zoom;
         let zoomed_video_h = video_h as f64 * zoom;
 
-        // Calculate max possible shift (slack) based on output dimensions and zoom
-        // This prevents the view from panning past the edges of the video container
-        let effective_zoomed_out_w = out_w as f64 * zoom;
-        let effective_zoomed_out_h = out_h as f64 * zoom;
+        // Backend Calculation for offset_x (Normalized top-left of video content)
+        // Formula matches frontend logic:
+        // FinalX = zoomOffsetX + (x * zoomFactor)
+        // zoomOffsetX = (CanvW - CanvW * Zoom) * PositionRatio
+        // x (centered background) = (CanvW - CanvW * BgScale) / 2
+        //
+        // Normalized Offset = [(1 - Zoom) * Ratio] + [(1 - BgScale) / 2 * Zoom]
 
-        let slack_x = (effective_zoomed_out_w - out_w as f64).max(0.0);
-        let slack_y = (effective_zoomed_out_h - out_h as f64).max(0.0);
+        let ratio_x = (cam_x / crop_w as f64).clamp(0.0, 1.0);
+        let ratio_y = (_cam_y / crop_h as f64).clamp(0.0, 1.0);
 
-        // Calculate desired shift based on camera position relative to crop center
-        // Ratio maps crop pixels to zoomed output pixels
-        // We use effective_zoomed_out_w for the ratio to match frontend's "Zoom the Container" model
-        let raw_shift_x = (cam_x - crop_w as f64 / 2.0) * (effective_zoomed_out_w / crop_w as f64);
-        let raw_shift_y = (cam_y - crop_h as f64 / 2.0) * (effective_zoomed_out_h / crop_h as f64);
+        // Part 1: Zoom Translation (anchor shift)
+        let zoom_shift_x = (1.0 - zoom) * ratio_x;
+        let zoom_shift_y = (1.0 - zoom) * ratio_y;
 
-        let clamped_shift_x = raw_shift_x.clamp(-slack_x / 2.0, slack_x / 2.0);
-        let clamped_shift_y = raw_shift_y.clamp(-slack_y / 2.0, slack_y / 2.0);
+        // Part 2: Background Scale centering (scaled by zoom because it's inside the zoom transform)
+        let bg_scale = config.background_config.scale / 100.0;
+        let bg_center_x = (1.0 - bg_scale) / 2.0 * zoom;
+        let bg_center_y = (1.0 - bg_scale) / 2.0 * zoom; // Ignoring cropBottom for now to match X logic
 
-        // Calculate final offsets
-        // Start with centered position: (out_w - zoomed_video_w) / 2
-        // Subtract shift (Camera move Right -> Image move Left)
-        let offset_x = ((out_w as f64 - zoomed_video_w) / 2.0 - clamped_shift_x) / out_w as f64;
-        let offset_y = ((out_h as f64 - zoomed_video_h) / 2.0 - clamped_shift_y) / out_h as f64;
+        let offset_x = zoom_shift_x + bg_center_x;
+        let offset_y = zoom_shift_y + bg_center_y;
 
-        if frame_count == 0 {
-            println!("[Export] Frame 0 Debug:");
+        if frame_count == total_frames / 2 {
+            println!("[Export] DEBUG MID FRAME:");
             println!("  raw_cam: ({}, {}), zoom: {}", raw_cam_x, raw_cam_y, zoom);
-            println!("  adjusted cam: ({}, {})", cam_x, cam_y);
-            println!("  offset: ({}, {})", offset_x, offset_y);
-            println!("  zoomed size: {}x{}", zoomed_video_w, zoomed_video_h);
+            println!("  local_cam: ({}, {}), crop_w: {}", cam_x, _cam_y, crop_w);
+            println!("  ratio: ({}, {})", ratio_x, ratio_y);
+            println!("  zoom_shift: ({}, {})", zoom_shift_x, zoom_shift_y);
+            println!("  bg_center: ({}, {})", bg_center_x, bg_center_y);
+            println!("  FINAL OFFSET: ({}, {})", offset_x, offset_y);
         }
 
         // Create uniforms
