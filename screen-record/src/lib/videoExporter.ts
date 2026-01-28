@@ -1,7 +1,8 @@
-
 import type {
   ExportOptions,
 } from '@/types/video';
+
+import { videoRenderer } from './videoRenderer';
 
 export const EXPORT_PRESETS: Record<string, { label: string; quality: number }> = {
   balanced: { label: 'Balanced (Recommended)', quality: 0.8 },
@@ -63,21 +64,22 @@ export class VideoExporter {
 
     const fps = 60;
 
+    // 1. Bake the camera path to ensure backend matches preview 100%
+    console.log('[Exporter] Baking camera path...');
+    const bakedPath = segment ? videoRenderer.generateBakedPath(segment, vidW, vidH, fps) : [];
+    console.log(`[Exporter] Baked ${bakedPath.length} frames.`);
+
     // Convert video blob to Uint8Array for Rust
     let videoDataArray: number[] | null = null;
     let audioDataArray: number[] | null = null;
 
     // Check if we are using a blob URL (loaded project) or a local file path
-    // Since we don't have direct access to the file path in loaded projects, we fetch the blob.
     if (video && video.src && video.src.startsWith('blob:')) {
       console.log('[Exporter] Fetching video blob data...');
       try {
         const resp = await fetch(video.src);
         const blob = await resp.blob();
         const buffer = await blob.arrayBuffer();
-        // Convert to regular array for JSON serialization (Rust Vec<u8>)
-        // Note: This might be slow for huge files. 
-        // Better approach for production: Tauri sidecar or streaming, but simple array works for <500MB
         videoDataArray = Array.from(new Uint8Array(buffer));
       } catch (e) {
         console.error("Failed to extract video data", e);
@@ -95,7 +97,6 @@ export class VideoExporter {
         audioDataArray = Array.from(new Uint8Array(buffer));
       } catch (e) {
         console.error("Failed to extract audio data", e);
-        // Audio is optional, don't throw
       }
     }
 
@@ -111,11 +112,9 @@ export class VideoExporter {
       segment: segment,
       backgroundConfig: backgroundConfig,
       mousePositions: mousePositions,
-      // NEW: Pass video data if we are exporting a loaded project
       videoData: videoDataArray,
-      // NEW: Pass audio data if we are exporting a loaded project
       audioData: audioDataArray,
-      // If null, Rust will fallback to the global VIDEO_PATH/audio_path (fresh recording)
+      bakedPath: bakedPath
     };
 
     // @ts-ignore
