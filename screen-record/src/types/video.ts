@@ -67,12 +67,22 @@ export interface VideoMetadata {
   height: number;
 }
 
-// NEW: Structure for the pre-calculated path
+// Baked camera path
 export interface BakedCameraFrame {
   time: number;
   x: number; // Global pixel X
   y: number; // Global pixel Y
   zoom: number;
+}
+
+// NEW: Baked cursor path
+export interface BakedCursorFrame {
+  time: number;
+  x: number;
+  y: number;
+  scale: number; // For click squish effect
+  isClicked: boolean;
+  type: string;
 }
 
 export interface ExportOptions {
@@ -87,8 +97,9 @@ export interface ExportOptions {
   mousePositions?: MousePosition[];
   onProgress?: (progress: number) => void;
   audio?: HTMLAudioElement;
-  // NEW: Optional baked path passed to exporter
   bakedPath?: BakedCameraFrame[];
+  // NEW: Baked cursor
+  bakedCursorPath?: BakedCursorFrame[];
 }
 
 export interface ExportPreset {

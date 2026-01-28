@@ -1,11 +1,11 @@
-import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame } from '@/types/video';
 import { SpringSolver } from './spring';
 
 // --- CONFIGURATION ---
 // Adjust this to sync cursor. 
 // POSITIVE value = moves cursor AHEAD (fixes cursor lagging behind video).
 // NEGATIVE value = moves cursor BACK (fixes cursor arriving too early).
-const CURSOR_OFFSET_SEC = 0.1;
+const CURSOR_OFFSET_SEC = 0.12;
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -75,6 +75,80 @@ export class VideoRenderer {
 
   public updateRenderContext(context: RenderContext) {
     this.activeRenderContext = context;
+  }
+
+  // --- NEW: Bake the cursor path for Rust export ---
+  public generateBakedCursorPath(
+    segment: VideoSegment,
+    mousePositions: MousePosition[],
+    fps: number = 60
+  ): BakedCursorFrame[] {
+    const baked: BakedCursorFrame[] = [];
+    const step = 1 / fps;
+    const start = segment.trimStart;
+    const end = segment.trimEnd;
+
+    // 1. Smooth the raw data first
+    // This is expensive so we do it once. 
+    // Note: This logic duplicates smoothMousePositions/interpolate logic but linearly for export.
+    const smoothed = this.smoothMousePositions(mousePositions);
+
+    // Simulation state for squish physics
+    let simSquishScale = 1.0;
+    let simLastHoldTime = -1;
+    // We assume 60fps fixed step for simulation consistency
+    // SQUISH_SPEED and RELEASE_SPEED are tuned for 120fps (draw loop)
+    // We adjust them for 60fps export or just run logic twice?
+    // Let's adjust scalar: draw loop uses (elapsed / (1000/120)).
+    // At 60fps, elapsed is ~16.6ms. (1000/120) = 8.33ms. Ratio = 2.0.
+    const simRatio = 2.0;
+
+    for (let t = start; t <= end; t += step) {
+      // Apply offset for sync
+      const cursorT = t + CURSOR_OFFSET_SEC;
+
+      // Interpolate position from smoothed data
+      const pos = this.interpolateCursorPositionInternal(cursorT, smoothed);
+
+      if (!pos) {
+        // If no data, hold last known or default
+        if (baked.length > 0) {
+          const last = baked[baked.length - 1];
+          baked.push({ ...last, time: t - start });
+        } else {
+          baked.push({ time: t - start, x: 0, y: 0, scale: 1, isClicked: false, type: 'default' });
+        }
+        continue;
+      }
+
+      // Physics Simulation for Squish
+      const isClicked = pos.isClicked;
+      const timeSinceLastHold = cursorT - simLastHoldTime;
+      const shouldBeSquished = isClicked || (simLastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+
+      if (isClicked) {
+        simLastHoldTime = cursorT;
+      }
+
+      const targetScale = shouldBeSquished ? 0.75 : 1.0;
+
+      if (simSquishScale > targetScale) {
+        simSquishScale = Math.max(targetScale, simSquishScale - this.SQUISH_SPEED * simRatio);
+      } else if (simSquishScale < targetScale) {
+        simSquishScale = Math.min(targetScale, simSquishScale + this.RELEASE_SPEED * simRatio);
+      }
+
+      baked.push({
+        time: t - start,
+        x: pos.x,
+        y: pos.y,
+        scale: Number(simSquishScale.toFixed(3)),
+        isClicked: isClicked,
+        type: pos.cursor_type || 'default'
+      });
+    }
+
+    return baked;
   }
 
   // --- NEW: Bake the camera path for Rust export ---
@@ -827,6 +901,56 @@ export class VideoRenderer {
     }
 
     const positions = this.smoothedPositions;
+    const exactMatch = positions.find((pos: MousePosition) => Math.abs(pos.timestamp - currentTime) < 0.001);
+    if (exactMatch) {
+      return {
+        x: exactMatch.x,
+        y: exactMatch.y,
+        isClicked: Boolean(exactMatch.isClicked),
+        cursor_type: exactMatch.cursor_type || 'default'
+      };
+    }
+
+    const nextIndex = positions.findIndex((pos: MousePosition) => pos.timestamp > currentTime);
+    if (nextIndex === -1) {
+      const last = positions[positions.length - 1];
+      return {
+        x: last.x,
+        y: last.y,
+        isClicked: Boolean(last.isClicked),
+        cursor_type: last.cursor_type || 'default'
+      };
+    }
+
+    if (nextIndex === 0) {
+      const first = positions[0];
+      return {
+        x: first.x,
+        y: first.y,
+        isClicked: Boolean(first.isClicked),
+        cursor_type: first.cursor_type || 'default'
+      };
+    }
+
+    const prev = positions[nextIndex - 1];
+    const next = positions[nextIndex];
+    const t = (currentTime - prev.timestamp) / (next.timestamp - prev.timestamp);
+
+    return {
+      x: prev.x + (next.x - prev.x) * t,
+      y: prev.y + (next.y - prev.y) * t,
+      isClicked: Boolean(prev.isClicked || next.isClicked),
+      cursor_type: next.cursor_type || 'default'
+    };
+  }
+
+  // Internal interpolation without side effects for baking
+  private interpolateCursorPositionInternal(
+    currentTime: number,
+    positions: MousePosition[],
+  ): { x: number; y: number; isClicked: boolean; cursor_type: string } | null {
+    if (!positions || positions.length === 0) return null;
+
     const exactMatch = positions.find((pos: MousePosition) => Math.abs(pos.timestamp - currentTime) < 0.001);
     if (exactMatch) {
       return {
