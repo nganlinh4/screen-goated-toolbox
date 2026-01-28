@@ -58,6 +58,7 @@ export class VideoRenderer {
   constructor() {
     this.pointerImage = new Image();
     this.pointerImage.src = '/pointer.svg';
+    // No-op onload, we check .complete in draw
     this.pointerImage.onload = () => { };
   }
 
@@ -330,52 +331,55 @@ export class VideoRenderer {
         video.currentTime,
         mousePositions
       );
+
       if (interpolatedPosition) {
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to absolute coords for cursor calculation
 
         const mX = interpolatedPosition.x;
         const mY = interpolatedPosition.y;
 
-        if (mX >= srcX && mX <= (srcX + srcW) && mY >= srcY && mY <= (srcY + srcH * (1 - legacyCrop))) {
-          const relX = (mX - srcX) / srcW;
-          const relY = (mY - srcY) / (srcH * (1 - legacyCrop));
+        // Calculate relative position based on Source (Crop) area
+        const relX = (mX - srcX) / srcW;
+        const relY = (mY - srcY) / (srcH * (1 - legacyCrop));
 
-          let cursorX = x + (relX * scaledWidth);
-          let cursorY = y + (relY * scaledHeight);
+        // Map to Canvas destination rect
+        let cursorX = x + (relX * scaledWidth);
+        let cursorY = y + (relY * scaledHeight);
 
-          if (zoomState && zoomState.zoomFactor !== 1) {
-            cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
-            cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
-          }
-
-          const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
-          const cursorSizeScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
-
-          const isActuallyClicked = interpolatedPosition.isClicked;
-          const timeSinceLastHold = video.currentTime - this.lastHoldTime;
-          const shouldBeSquished = isActuallyClicked || (this.lastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
-
-          if (isActuallyClicked) {
-            this.lastHoldTime = video.currentTime;
-          }
-
-          const targetScale = shouldBeSquished ? 0.75 : 1.0;
-          if (this.currentSquishScale > targetScale) {
-            this.currentSquishScale = Math.max(targetScale, this.currentSquishScale - this.SQUISH_SPEED * (this.latestElapsed / (1000 / 120)));
-          } else if (this.currentSquishScale < targetScale) {
-            this.currentSquishScale = Math.min(targetScale, this.currentSquishScale + this.RELEASE_SPEED * (this.latestElapsed / (1000 / 120)));
-          }
-
-          this.drawMouseCursor(
-            ctx,
-            cursorX,
-            cursorY,
-            shouldBeSquished,
-            cursorSizeScale,
-            interpolatedPosition.cursor_type || 'default'
-          );
+        // Apply Zoom manually if active
+        if (zoomState && zoomState.zoomFactor !== 1) {
+          cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
+          cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
         }
+
+        const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
+        const cursorSizeScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
+
+        const isActuallyClicked = interpolatedPosition.isClicked;
+        const timeSinceLastHold = video.currentTime - this.lastHoldTime;
+        const shouldBeSquished = isActuallyClicked || (this.lastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+
+        if (isActuallyClicked) {
+          this.lastHoldTime = video.currentTime;
+        }
+
+        const targetScale = shouldBeSquished ? 0.75 : 1.0;
+        if (this.currentSquishScale > targetScale) {
+          this.currentSquishScale = Math.max(targetScale, this.currentSquishScale - this.SQUISH_SPEED * (this.latestElapsed / (1000 / 120)));
+        } else if (this.currentSquishScale < targetScale) {
+          this.currentSquishScale = Math.min(targetScale, this.currentSquishScale + this.RELEASE_SPEED * (this.latestElapsed / (1000 / 120)));
+        }
+
+        this.drawMouseCursor(
+          ctx,
+          cursorX,
+          cursorY,
+          shouldBeSquished,
+          cursorSizeScale,
+          interpolatedPosition.cursor_type || 'default'
+        );
+
         ctx.restore();
       }
 
@@ -889,15 +893,18 @@ export class VideoRenderer {
 
       case 'pointer': {
         let imgWidth = 24, imgHeight = 24;
+
+        // Use the image if it's loaded, otherwise fall through to default arrow
         if (this.pointerImage.complete && this.pointerImage.naturalWidth > 0) {
           imgWidth = this.pointerImage.naturalWidth;
           imgHeight = this.pointerImage.naturalHeight;
+          const offsetX = 8;
+          const offsetY = 16;
+          ctx.translate(-imgWidth / 2 + offsetX, -imgHeight / 2 + offsetY);
+          ctx.drawImage(this.pointerImage, 0, 0, imgWidth, imgHeight);
+          break;
         }
-        const offsetX = 8;
-        const offsetY = 16;
-        ctx.translate(-imgWidth / 2 + offsetX, -imgHeight / 2 + offsetY);
-        ctx.drawImage(this.pointerImage, 0, 0, imgWidth, imgHeight);
-        break;
+        // FALL THROUGH to default if image missing
       }
 
       default: {
