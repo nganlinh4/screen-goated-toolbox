@@ -74,7 +74,7 @@ const getKeyframeRange = (
 // FFmpeg install status type
 type FfmpegInstallStatus =
   | { type: 'Idle' }
-  | { type: 'Downloading'; progress: number }
+  | { type: 'Downloading'; progress: number; totalSize: number }
   | { type: 'Extracting' }
   | { type: 'Installed' }
   | { type: 'Error'; message: string }
@@ -211,7 +211,12 @@ function App() {
                 clearInterval(pollInterval);
               } else if (typeof progress === 'object') {
                 if ('Downloading' in progress) {
-                  setFfmpegInstallStatus({ type: 'Downloading', progress: progress.Downloading });
+                  const data = progress.Downloading;
+                  setFfmpegInstallStatus({
+                    type: 'Downloading',
+                    progress: data.progress,
+                    totalSize: data.total_size
+                  });
                 } else if ('Error' in progress) {
                   setFfmpegInstallStatus({ type: 'Error', message: progress.Error });
                   clearInterval(pollInterval);
@@ -2568,7 +2573,10 @@ function App() {
                     </div>
                     {ffmpegInstallStatus.type === 'Downloading' && (
                       <div className="flex justify-between text-xs font-medium">
-                        <span className="text-[#0079d3]">{Math.round(ffmpegInstallStatus.progress)}% downloaded</span>
+                        <span className="text-[#0079d3]">
+                          {Math.round(ffmpegInstallStatus.progress)}% downloaded
+                          {ffmpegInstallStatus.totalSize > 0 && ` of ${(ffmpegInstallStatus.totalSize / (1024 * 1024)).toFixed(1)} MB`}
+                        </span>
                         <span className="text-[#818384]">FFmpeg Essentials</span>
                       </div>
                     )}
