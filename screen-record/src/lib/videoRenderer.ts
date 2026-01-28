@@ -1,4 +1,5 @@
 import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame } from '@/types/video';
+import { SpringSolver } from './spring';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -40,6 +41,8 @@ export class VideoRenderer {
 
   private smoothedPositions: MousePosition[] | null = null;
   private hasLoggedPositions = false;
+  private cachedBakedPath: BakedCameraFrame[] | null = null;
+  private lastBakeSignature: string = '';
 
   private isDraggingText = false;
   private draggedTextId: string | null = null;
@@ -76,40 +79,45 @@ export class VideoRenderer {
     const start = segment.trimStart;
     const end = segment.trimEnd;
 
+    const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+    const cropOffsetX = videoWidth * crop.x;
+    const cropOffsetY = videoHeight * crop.y;
+    const cropW = videoWidth * crop.width;
+    const cropH = videoHeight * crop.height;
+
+    // Screen Studio-like "Mellow" spring settings
+    const springConfig = { stiffness: 170, damping: 26, mass: 1 };
+
+    // Initial State: Centered in crop, zoom 1.0
+    const initialState = this.calculateCurrentZoomStateInternal(start, segment, videoWidth * crop.width, videoHeight * crop.height);
+    const initialGlobalX = cropOffsetX + (initialState.positionX * cropW);
+    const initialGlobalY = cropOffsetY + (initialState.positionY * cropH);
+
+    const solverX = new SpringSolver(initialGlobalX, springConfig);
+    const solverY = new SpringSolver(initialGlobalY, springConfig);
+    const solverZoom = new SpringSolver(initialState.zoomFactor, springConfig);
+
     // Iterate through time and capture the exact state
     for (let t = start; t <= end; t += step) {
-      // Reuse the exact internal logic used for preview
-      const state = this.calculateCurrentZoomStateInternal(t, segment, videoWidth, videoHeight);
+      // 1. Get the TARGET state (where standard easing says the camera should be)
+      // Note: calculateCurrentZoomStateInternal takes viewW/H which are the CROPPED dimensions
+      const targetState = this.calculateCurrentZoomStateInternal(t, segment, cropW, cropH);
 
-      // Convert normalized state back to Global Pixels for Rust
-      // Note: Rust needs Global Pixels because it subtracts the Crop Offset itself
+      // 2. Convert Target Normalized state back to Global Pixels
+      const targetGlobalX = cropOffsetX + (targetState.positionX * cropW);
+      const targetGlobalY = cropOffsetY + (targetState.positionY * cropH);
+      const targetZoom = targetState.zoomFactor;
 
-      // State provides:
-      // zoomFactor
-      // positionX (0-1 relative to the visible area)
-      // positionY (0-1 relative to the visible area)
-
-      // We need to provide Rust with the GLOBAL coordinate that the camera is centered on.
-
-      // 1. Calculate Crop Offset in Global Pixels
-      const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-      const cropOffsetX = videoWidth * crop.x;
-      const cropOffsetY = videoHeight * crop.y;
-
-      // 2. Calculate Visible Area Dimensions (The Crop)
-      const cropW = videoWidth * crop.width;
-      const cropH = videoHeight * crop.height;
-
-      // 3. Convert Local Relative Position (0-1) to Global Absolute Position
-      // positionX=0.5 means center of the crop
-      const globalX = cropOffsetX + (state.positionX * cropW);
-      const globalY = cropOffsetY + (state.positionY * cropH);
+      // 3. Update Springs
+      const globalX = solverX.update(targetGlobalX, step);
+      const globalY = solverY.update(targetGlobalY, step);
+      const zoom = solverZoom.update(targetZoom, step);
 
       bakedPath.push({
         time: t - start, // Relative time for export (starts at 0)
         x: globalX,
         y: globalY,
-        zoom: state.zoomFactor
+        zoom: zoom
       });
     }
 
@@ -484,6 +492,60 @@ export class VideoRenderer {
     viewW: number,
     viewH: number
   ): ZoomKeyframe {
+    // 1. If video is paused, we are likely editing. Skip baked spring path to avoid sluggishness/bugs.
+    // Also skip if no baked path exists or if it's the default 1-keyframe state.
+    const isPaused = this.activeRenderContext?.video?.paused ?? true;
+
+    // Improved signature to catch value changes in keyframes
+    const signature = JSON.stringify({
+      trim: [segment.trimStart, segment.trimEnd],
+      crop: segment.crop,
+      smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })), // Significant changes only
+      zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
+      vidDims: [viewW, viewH]
+    });
+
+    if (this.lastBakeSignature !== signature) {
+      this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60);
+      this.lastBakeSignature = signature;
+    }
+
+    // 2. Sample from baked path ONLY if video is playing
+    if (!isPaused && this.cachedBakedPath && this.cachedBakedPath.length > 0) {
+      const relTime = currentTime - segment.trimStart;
+      const step = 1 / 60;
+      const idx = Math.floor(relTime / step);
+
+      if (idx >= 0 && idx < this.cachedBakedPath.length) {
+        // Linear interpolate between baked frames for sub-frame smoothness in preview
+        const p1 = this.cachedBakedPath[idx];
+        const p2 = this.cachedBakedPath[idx + 1] || p1;
+        const t = (relTime % step) / step;
+
+        const globalX = p1.x + (p2.x - p1.x) * t;
+        const globalY = p1.y + (p2.y - p1.y) * t;
+        const zoom = p1.zoom + (p2.zoom - p1.zoom) * t;
+
+        // Convert Global back to Local Normalized for the Renderer
+        const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+        const fullW = viewW / crop.width;
+        const fullH = viewH / crop.height;
+        const cropOffsetX = fullW * crop.x;
+        const cropOffsetY = fullH * crop.y;
+
+        const state: ZoomKeyframe = {
+          time: currentTime,
+          duration: 0,
+          zoomFactor: zoom,
+          positionX: (globalX - cropOffsetX) / viewW,
+          positionY: (globalY - cropOffsetY) / viewH,
+          easingType: 'linear'
+        };
+        this.lastCalculatedState = state;
+        return state;
+      }
+    }
+
     const state = this.calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH);
     this.lastCalculatedState = state;
     return state;
