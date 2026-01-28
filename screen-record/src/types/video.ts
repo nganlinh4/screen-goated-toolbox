@@ -67,6 +67,14 @@ export interface VideoMetadata {
   height: number;
 }
 
+// NEW: Structure for the pre-calculated path
+export interface BakedCameraFrame {
+  time: number;
+  x: number; // Global pixel X
+  y: number; // Global pixel Y
+  zoom: number;
+}
+
 export interface ExportOptions {
   quality?: ExportQuality;
   dimensions: DimensionPreset;
@@ -79,6 +87,8 @@ export interface ExportOptions {
   mousePositions?: MousePosition[];
   onProgress?: (progress: number) => void;
   audio?: HTMLAudioElement;
+  // NEW: Optional baked path passed to exporter
+  bakedPath?: BakedCameraFrame[];
 }
 
 export interface ExportPreset {

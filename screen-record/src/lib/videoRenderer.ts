@@ -1,4 +1,4 @@
-import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame } from '@/types/video';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -62,6 +62,58 @@ export class VideoRenderer {
 
   public updateRenderContext(context: RenderContext) {
     this.activeRenderContext = context;
+  }
+
+  // --- NEW: Bake the camera path for Rust export ---
+  public generateBakedPath(
+    segment: VideoSegment,
+    videoWidth: number,
+    videoHeight: number,
+    fps: number = 60
+  ): BakedCameraFrame[] {
+    const bakedPath: BakedCameraFrame[] = [];
+    const step = 1 / fps;
+    const start = segment.trimStart;
+    const end = segment.trimEnd;
+
+    // Iterate through time and capture the exact state
+    for (let t = start; t <= end; t += step) {
+      // Reuse the exact internal logic used for preview
+      const state = this.calculateCurrentZoomStateInternal(t, segment, videoWidth, videoHeight);
+
+      // Convert normalized state back to Global Pixels for Rust
+      // Note: Rust needs Global Pixels because it subtracts the Crop Offset itself
+
+      // State provides:
+      // zoomFactor
+      // positionX (0-1 relative to the visible area)
+      // positionY (0-1 relative to the visible area)
+
+      // We need to provide Rust with the GLOBAL coordinate that the camera is centered on.
+
+      // 1. Calculate Crop Offset in Global Pixels
+      const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+      const cropOffsetX = videoWidth * crop.x;
+      const cropOffsetY = videoHeight * crop.y;
+
+      // 2. Calculate Visible Area Dimensions (The Crop)
+      const cropW = videoWidth * crop.width;
+      const cropH = videoHeight * crop.height;
+
+      // 3. Convert Local Relative Position (0-1) to Global Absolute Position
+      // positionX=0.5 means center of the crop
+      const globalX = cropOffsetX + (state.positionX * cropW);
+      const globalY = cropOffsetY + (state.positionY * cropH);
+
+      bakedPath.push({
+        time: t - start, // Relative time for export (starts at 0)
+        x: globalX,
+        y: globalY,
+        zoom: state.zoomFactor
+      });
+    }
+
+    return bakedPath;
   }
 
   public startAnimation(renderContext: RenderContext) {
@@ -485,6 +537,13 @@ export class VideoRenderer {
 
         // Apply influence to pull camera back to center/default
         cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
+        // Adjust center to be center of crop
+        // viewW/H is the cropped width/height in pixels
+        const centerX = viewW / 2;
+        const centerY = viewH / 2;
+
+        cam.x = centerX + (cam.x - centerX) * influence;
+        cam.y = centerY + (cam.y - centerY) * influence;
       }
 
       // AUTO-ZOOM FIX:
