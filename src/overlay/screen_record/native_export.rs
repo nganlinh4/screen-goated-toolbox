@@ -26,6 +26,8 @@ pub struct ExportConfig {
     pub audio_data: Option<Vec<u8>>,
     // NEW: Receive baked path from frontend
     pub baked_path: Option<Vec<BakedCameraFrame>>,
+    // NEW: Receive baked cursor path
+    pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -35,6 +37,18 @@ pub struct BakedCameraFrame {
     pub x: f64,
     pub y: f64,
     pub zoom: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BakedCursorFrame {
+    pub time: f64,
+    pub x: f64,
+    pub y: f64,
+    pub scale: f64,
+    pub is_clicked: bool,
+    #[serde(rename = "type")]
+    pub cursor_type: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -168,6 +182,49 @@ fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f
     (x, y, zoom)
 }
 
+fn sample_baked_cursor(
+    time: f64,
+    baked_path: &[BakedCursorFrame],
+) -> Option<(f64, f64, f64, bool)> {
+    if baked_path.is_empty() {
+        return None;
+    }
+
+    let idx = baked_path.partition_point(|p| p.time < time);
+
+    if idx == 0 {
+        let p = &baked_path[0];
+        return Some((p.x, p.y, p.scale, p.is_clicked));
+    }
+
+    if idx >= baked_path.len() {
+        // If time is past end, hide cursor or hold last? Hold last.
+        // Or if time > path duration + tolerance, return None?
+        let p = baked_path.last().unwrap();
+        return Some((p.x, p.y, p.scale, p.is_clicked));
+    }
+
+    let p1 = &baked_path[idx - 1];
+    let p2 = &baked_path[idx];
+
+    // Interpolate
+    let t = (time - p1.time) / (p2.time - p1.time).max(0.0001);
+    let t = t.clamp(0.0, 1.0);
+
+    let x = p1.x + (p2.x - p1.x) * t;
+    let y = p1.y + (p2.y - p1.y) * t;
+    let scale = p1.scale + (p2.scale - p1.scale) * t;
+
+    // Boolean click state doesn't interpolate, just hold previous
+    let is_clicked = if t < 0.5 {
+        p1.is_clicked
+    } else {
+        p2.is_clicked
+    };
+
+    Some((x, y, scale, is_clicked))
+}
+
 // --- MAIN EXPORT FUNCTION ---
 
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -179,14 +236,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         config.width, config.height
     );
 
-    if let Some(path) = &config.baked_path {
-        println!(
-            "[Export] Received baked camera path with {} frames",
-            path.len()
-        );
-    } else {
-        println!("[Export] WARNING: No baked path received! Zoom/Pan may not work.");
-    }
+    let baked_path = config.baked_path.unwrap_or_default();
+    let baked_cursor = config.baked_cursor_path.unwrap_or_default();
+
+    println!(
+        "[Export] Received baked camera path: {} frames, cursor path: {} frames",
+        baked_path.len(),
+        baked_cursor.len()
+    );
 
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
@@ -304,9 +361,17 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         (w & !1, h & !1)
     };
 
-    // 4. Initialize GPU compositor
-    let compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h)
+    // 4. Initialize GPU compositor with cursor
+    let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
+
+    // Upload cursor image
+    // For "strictly identical", we'd ideally load the SVG, but for now we'll create a simple
+    // arrow texture if one isn't provided.
+    // We can assume `src/overlay/screen_record/dist/pointer.svg` is available but loading SVG is hard.
+    // We'll create a synthetic arrow texture or use an embedded PNG if possible.
+    // For now, let's use a generated arrow bitmap to keep it dependency-light.
+    compositor.init_cursor_texture();
 
     // 5. Start FFmpeg decoder
     let crop_filter = if let Some(c) = crop {
@@ -427,26 +492,19 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut frame_count = 0u32;
     let start = std::time::Instant::now();
 
-    // Default center if no path (Local center of the cropped frame)
-    let _default_cam_x = crop_w as f64 / 2.0;
-    let _default_cam_y = crop_h as f64 / 2.0;
-
-    // Unwrap the baked path once
-    let baked_path = config.baked_path.unwrap_or_default();
-
     while current_time < end_time {
         if std::io::Read::read_exact(&mut decoder_stdout, &mut buffer).is_err() {
             break;
         }
 
-        // --- NEW LOGIC: Use Baked Path directly ---
+        // --- NEW LOGIC: Use Baked Paths directly ---
         let (raw_cam_x, raw_cam_y, zoom) =
             sample_baked_path(current_time - config.trim_start, &baked_path);
 
+        // Sample Cursor
+        let cursor_state = sample_baked_cursor(current_time - config.trim_start, &baked_cursor);
+
         // Adjust camera coordinate to be relative to the CROPPED frame
-        // The baked path from frontend is in Global coordinates (e.g. 1920x1080)
-        // We render the cropped frame (e.g. 500x500 starting at global 200,200)
-        // So a camera at global 450 should be at local 250 in the cropped frame.
         let cam_x = raw_cam_x - crop_x_offset;
         let cam_y = raw_cam_y - crop_y_offset;
 
@@ -469,6 +527,25 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let offset_x = zoom_shift_x + bg_center_x;
         let offset_y = zoom_shift_y + bg_center_y;
 
+        // Prepare cursor uniforms
+        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_clicked) =
+            if let Some((cx, cy, c_scale, is_clicked)) = cursor_state {
+                // Map cursor global position to texture relative coordinate (0..1)
+                // Relative to the video frame we are rendering
+                let rel_x = (cx - crop_x_offset) / crop_w as f64;
+                let rel_y = (cy - crop_y_offset) / crop_h as f64;
+
+                // The shader needs cursor position in UV space (0..1) relative to the video texture
+                (
+                    rel_x as f32,
+                    rel_y as f32,
+                    (c_scale * config.background_config.cursor_scale) as f32,
+                    if is_clicked { 1.0 } else { 0.0 },
+                )
+            } else {
+                (-1.0, -1.0, 0.0, 0.0) // Hidden
+            };
+
         let uniforms = create_uniforms(
             (offset_x as f32, offset_y as f32),
             (
@@ -484,6 +561,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             gradient1,
             gradient2,
             (current_time - config.trim_start) as f32,
+            (cursor_pos_x, cursor_pos_y),
+            cursor_scale,
+            cursor_clicked,
         );
 
         let rendered = compositor.render_frame(&uniforms);

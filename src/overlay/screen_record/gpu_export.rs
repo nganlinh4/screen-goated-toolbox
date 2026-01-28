@@ -1,5 +1,7 @@
 use bytemuck::{Pod, Zeroable};
+use resvg::usvg::{self, Options, Tree};
 use std::sync::Arc;
+use tiny_skia::{Pixmap, Transform};
 use wgpu::util::DeviceExt;
 
 // Vertex for fullscreen quad
@@ -11,17 +13,34 @@ struct Vertex {
 }
 
 const QUAD_VERTICES: &[Vertex] = &[
-    Vertex { position: [-1.0, -1.0], tex_coords: [0.0, 1.0] },
-    Vertex { position: [1.0, -1.0], tex_coords: [1.0, 1.0] },
-    Vertex { position: [1.0, 1.0], tex_coords: [1.0, 0.0] },
-    Vertex { position: [-1.0, -1.0], tex_coords: [0.0, 1.0] },
-    Vertex { position: [1.0, 1.0], tex_coords: [1.0, 0.0] },
-    Vertex { position: [-1.0, 1.0], tex_coords: [0.0, 0.0] },
+    Vertex {
+        position: [-1.0, -1.0],
+        tex_coords: [0.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, -1.0],
+        tex_coords: [1.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, 1.0],
+        tex_coords: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-1.0, -1.0],
+        tex_coords: [0.0, 1.0],
+    },
+    Vertex {
+        position: [1.0, 1.0],
+        tex_coords: [1.0, 0.0],
+    },
+    Vertex {
+        position: [-1.0, 1.0],
+        tex_coords: [0.0, 0.0],
+    },
 ];
 
 // Uniforms for the compositor shader
-// Must match WGSL struct layout with proper alignment (vec4 = 16-byte aligned)
-// Total size: 112 bytes
+// Aligned to 16 bytes to match WGSL requirements
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct CompositorUniforms {
@@ -36,19 +55,11 @@ pub struct CompositorUniforms {
     pub gradient_color1: [f32; 4], // 48-64
     pub gradient_color2: [f32; 4], // 64-80
     pub time: f32,                 // 80-84
-    pub _pad1: f32,                // 84-88
-    pub _pad2: f32,                // 88-92
-    pub _pad3: f32,                // 92-96
-    pub _pad4: [f32; 4],           // 96-112
-}
-
-// Cursor uniforms
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct CursorUniforms {
-    position: [f32; 2],
-    scale: f32,
-    is_clicked: f32,
+    pub _pad1: f32,                // 84-88 (Aligns cursor_pos to 8 bytes)
+    pub cursor_pos: [f32; 2],      // 88-96
+    pub cursor_scale: f32,         // 96-100
+    pub cursor_clicked: f32,       // 100-104
+    pub _pad2: [f32; 6],           // 104-128 (Fills remaining 24 bytes)
 }
 
 pub struct GpuCompositor {
@@ -60,6 +71,8 @@ pub struct GpuCompositor {
     uniform_bind_group: wgpu::BindGroup,
     video_texture: wgpu::Texture,
     video_bind_group: wgpu::BindGroup,
+    cursor_texture: wgpu::Texture,
+    cursor_bind_group: wgpu::BindGroup,
     output_texture: wgpu::Texture,
     output_buffer: wgpu::Buffer,
     width: u32,
@@ -67,6 +80,9 @@ pub struct GpuCompositor {
     video_width: u32,
     video_height: u32,
 }
+
+// Embed the pointer SVG
+const CURSOR_BYTES: &[u8] = include_bytes!("dist/pointer.svg");
 
 impl GpuCompositor {
     pub fn new(
@@ -87,8 +103,6 @@ impl GpuCompositor {
             force_fallback_adapter: false,
         }))
         .ok_or("Failed to find GPU adapter")?;
-
-        println!("[GPU] Using adapter: {:?}", adapter.get_info().name);
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -125,7 +139,7 @@ impl GpuCompositor {
             mapped_at_creation: false,
         });
 
-        // Video texture (input)
+        // Video texture
         let video_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Video Texture"),
             size: wgpu::Extent3d {
@@ -140,19 +154,35 @@ impl GpuCompositor {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-
         let video_view = video_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let video_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+
+        // Cursor texture
+        let cursor_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Cursor Texture"),
+            size: wgpu::Extent3d {
+                width: 128,
+                height: 128,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let cursor_view = cursor_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
-        // Output texture (render target)
+        // Output texture
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Output Texture"),
             size: wgpu::Extent3d {
@@ -168,7 +198,7 @@ impl GpuCompositor {
             view_formats: &[],
         });
 
-        // Output buffer for CPU readback
+        // Output buffer
         let output_buffer_size = (output_width * output_height * 4) as u64;
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
@@ -177,49 +207,47 @@ impl GpuCompositor {
             mapped_at_creation: false,
         });
 
-        // Bind group layouts
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Uniform Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
+        // Layouts
+        let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Uniform Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                // Visibility includes VERTEX because vs_main uses 'u' for scaling
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Texture Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     },
                     count: None,
-                }],
-            });
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
 
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Texture Bind Group Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-
-        // Bind groups
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Uniform Bind Group"),
-            layout: &uniform_bind_group_layout,
+            label: Some("Uniform BG"),
+            layout: &uniform_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
@@ -227,8 +255,8 @@ impl GpuCompositor {
         });
 
         let video_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Video Bind Group"),
-            layout: &texture_bind_group_layout,
+            label: Some("Video BG"),
+            layout: &texture_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -236,21 +264,34 @@ impl GpuCompositor {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&video_sampler),
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
         });
 
-        // Pipeline layout
+        let cursor_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Cursor BG"),
+            layout: &texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&cursor_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Compositor Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
+            label: Some("Pipeline Layout"),
+            bind_group_layouts: &[&uniform_layout, &texture_layout, &texture_layout],
             push_constant_ranges: &[],
         });
 
-        // Render pipeline
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Compositor Pipeline"),
+            label: Some("Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -283,15 +324,7 @@ impl GpuCompositor {
                 })],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
+            primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
@@ -307,6 +340,8 @@ impl GpuCompositor {
             uniform_bind_group,
             video_texture,
             video_bind_group,
+            cursor_texture,
+            cursor_bind_group,
             output_texture,
             output_buffer,
             width: output_width,
@@ -314,6 +349,73 @@ impl GpuCompositor {
             video_width,
             video_height,
         })
+    }
+
+    pub fn init_cursor_texture(&self) {
+        // Rasterize SVG cursor using resvg to match frontend look
+        let width = 128;
+        let height = 128;
+
+        let mut pixels = vec![0u8; (width * height * 4) as usize];
+
+        // Try to parse SVG
+        let opt = Options::default();
+        if let Ok(tree) = Tree::from_data(CURSOR_BYTES, &opt) {
+            let mut pixmap = Pixmap::new(width, height).unwrap();
+
+            // Calculate scale to fit 128x128
+            let svg_size = tree.size();
+            let scale_x = width as f32 / svg_size.width();
+            let scale_y = height as f32 / svg_size.height();
+            let scale = scale_x.min(scale_y);
+
+            let transform = Transform::from_scale(scale, scale);
+
+            resvg::render(&tree, transform, &mut pixmap.as_mut());
+
+            let data = pixmap.data();
+            if data.len() == pixels.len() {
+                pixels.copy_from_slice(data);
+            }
+        } else {
+            // Fallback: Generate a simple white arrow if SVG fails
+            println!("[GpuCompositor] Failed to load cursor SVG, using fallback.");
+            for y in 0..height {
+                for x in 0..width {
+                    let fx = x as f32;
+                    let fy = y as f32;
+                    // Simple triangle
+                    let in_arrow = (fx < fy * 0.7 && fx < 32.0 && fy < 48.0 && fx > 0.0);
+                    if in_arrow {
+                        let idx = ((y * width + x) * 4) as usize;
+                        pixels[idx] = 255;
+                        pixels[idx + 1] = 255;
+                        pixels[idx + 2] = 255;
+                        pixels[idx + 3] = 255;
+                    }
+                }
+            }
+        }
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.cursor_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 
     pub fn upload_frame(&self, rgba_data: &[u8]) {
@@ -339,25 +441,19 @@ impl GpuCompositor {
     }
 
     pub fn render_frame(&self, uniforms: &CompositorUniforms) -> Vec<u8> {
-        // Update uniforms
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
 
-        // Create command encoder
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // Render pass
         {
             let output_view = self
                 .output_texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
-
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Compositor Render Pass"),
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &output_view,
                     resolve_target: None,
@@ -371,14 +467,14 @@ impl GpuCompositor {
                 occlusion_query_set: None,
             });
 
-            render_pass.set_pipeline(&self.pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.video_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..6, 0..1);
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            pass.set_bind_group(1, &self.video_bind_group, &[]);
+            pass.set_bind_group(2, &self.cursor_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            pass.draw(0..6, 0..1);
         }
 
-        // Copy output to buffer
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.output_texture,
@@ -403,7 +499,6 @@ impl GpuCompositor {
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        // Read back
         let buffer_slice = self.output_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
@@ -421,7 +516,6 @@ impl GpuCompositor {
     }
 }
 
-// Helper to create uniforms
 pub fn create_uniforms(
     video_offset: (f32, f32),
     video_scale: (f32, f32),
@@ -434,6 +528,9 @@ pub fn create_uniforms(
     gradient_color1: [f32; 4],
     gradient_color2: [f32; 4],
     time: f32,
+    cursor_pos: (f32, f32),
+    cursor_scale: f32,
+    cursor_clicked: f32,
 ) -> CompositorUniforms {
     CompositorUniforms {
         video_offset: [video_offset.0, video_offset.1],
@@ -448,108 +545,117 @@ pub fn create_uniforms(
         gradient_color2,
         time,
         _pad1: 0.0,
-        _pad2: 0.0,
-        _pad3: 0.0,
-        _pad4: [0.0; 4],
+        cursor_pos: [cursor_pos.0, cursor_pos.1],
+        cursor_scale,
+        cursor_clicked,
+        _pad2: [0.0; 6],
     }
 }
 
-// WGSL Shader for compositing
+// Updated Shader with compatible padding fields
 const COMPOSITOR_SHADER: &str = r#"
 struct Uniforms {
-    video_offset: vec2<f32>,      // 0-8
-    video_scale: vec2<f32>,       // 8-16
-    output_size: vec2<f32>,       // 16-24
-    video_size: vec2<f32>,        // 24-32
-    border_radius: f32,           // 32-36
-    shadow_offset: f32,           // 36-40
-    shadow_blur: f32,             // 40-44
-    shadow_opacity: f32,          // 44-48
-    gradient_color1: vec4<f32>,   // 48-64
-    gradient_color2: vec4<f32>,   // 64-80
-    time: f32,                    // 80-84
-    _pad1: f32,                   // 84-88
-    _pad2: f32,                   // 88-92
-    _pad3: f32,                   // 92-96
-    _pad4: vec4<f32>,             // 96-112 (vec4 for alignment)
+    video_offset: vec2<f32>,
+    video_scale: vec2<f32>,
+    output_size: vec2<f32>,
+    video_size: vec2<f32>,
+    border_radius: f32,
+    shadow_offset: f32,
+    shadow_blur: f32,
+    shadow_opacity: f32,
+    gradient_color1: vec4<f32>,
+    gradient_color2: vec4<f32>,
+    time: f32,
+    _pad1: f32,
+    cursor_pos: vec2<f32>,
+    cursor_scale: f32,
+    cursor_clicked: f32,
+    _pad2_a: vec2<f32>, // WGSL doesn't like array strides in uniform blocks, so use vec2+vec4 for 24 bytes
+    _pad2_b: vec4<f32>,
 }
 
-@group(0) @binding(0)
-var<uniform> uniforms: Uniforms;
+@group(0) @binding(0) var<uniform> u: Uniforms;
 
-@group(1) @binding(0)
-var video_texture: texture_2d<f32>;
-@group(1) @binding(1)
-var video_sampler: sampler;
+@group(1) @binding(0) var video_tex: texture_2d<f32>;
+@group(1) @binding(1) var video_samp: sampler;
 
-struct VertexInput {
-    @location(0) position: vec2<f32>,
-    @location(1) tex_coords: vec2<f32>,
-}
+@group(2) @binding(0) var cursor_tex: texture_2d<f32>;
+@group(2) @binding(1) var cursor_samp: sampler;
 
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) tex_coords: vec2<f32>,
-    @location(1) frag_pos: vec2<f32>,
+struct VertexOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) tex_coord: vec2<f32>,
+    @location(1) pixel_pos: vec2<f32>,
 }
 
 @vertex
-fn vs_main(in: VertexInput) -> VertexOutput {
-    var out: VertexOutput;
-    out.clip_position = vec4<f32>(in.position, 0.0, 1.0);
-    out.tex_coords = in.tex_coords;
-    out.frag_pos = in.tex_coords * uniforms.output_size;
+fn vs_main(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>) -> VertexOut {
+    var out: VertexOut;
+    out.clip_pos = vec4<f32>(pos, 0.0, 1.0);
+    out.tex_coord = uv;
+    out.pixel_pos = uv * u.output_size;
     return out;
 }
 
-// Signed distance function for rounded rectangle
-fn sd_rounded_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
-    let q = abs(p) - b + vec2<f32>(r);
+fn sd_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
+    let q = abs(p) - b + r;
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let pixel = in.frag_pos;
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    // 1. Background
+    let t = in.tex_coord.x;
+    var col = mix(u.gradient_color1, u.gradient_color2, t);
     
-    // Draw gradient background
-    let gradient_t = pixel.x / uniforms.output_size.x;
-    var color = mix(uniforms.gradient_color1, uniforms.gradient_color2, gradient_t);
+    // Video positioning
+    let vid_center = u.video_offset * u.output_size + u.video_size * 0.5;
+    let vid_half = u.video_size * 0.5;
+    let dist = sd_box(in.pixel_pos - vid_center, vid_half, u.border_radius);
     
-    // Video rect position and size
-    let video_center = uniforms.video_offset * uniforms.output_size + uniforms.video_size * 0.5;
-    let video_half_size = uniforms.video_size * 0.5;
-    
-    // Shadow (offset box with blur approximation)
-    if uniforms.shadow_opacity > 0.0 {
-        let shadow_center = video_center + vec2<f32>(uniforms.shadow_offset, uniforms.shadow_offset);
-        let shadow_dist = sd_rounded_box(
-            pixel - shadow_center,
-            video_half_size,
-            uniforms.border_radius
-        );
-        let shadow_alpha = 1.0 - smoothstep(-uniforms.shadow_blur, uniforms.shadow_blur * 2.0, shadow_dist);
-        let shadow_color = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha * uniforms.shadow_opacity);
-        color = mix(color, shadow_color, shadow_color.a);
+    // 2. Shadow
+    if u.shadow_opacity > 0.0 {
+        let sh_center = vid_center + vec2<f32>(u.shadow_offset);
+        let sh_dist = sd_box(in.pixel_pos - sh_center, vid_half, u.border_radius);
+        let sh_alpha = 1.0 - smoothstep(-u.shadow_blur, u.shadow_blur, sh_dist);
+        col = mix(col, vec4<f32>(0.0,0.0,0.0, u.shadow_opacity), sh_alpha * u.shadow_opacity);
     }
     
-    // Video with rounded corners
-    let video_dist = sd_rounded_box(
-        pixel - video_center,
-        video_half_size,
-        uniforms.border_radius
-    );
-    
-    if video_dist < 0.0 {
-        // Inside video area - sample video texture
-        let video_uv = (pixel - uniforms.video_offset * uniforms.output_size) / uniforms.video_size;
-        let video_color = textureSample(video_texture, video_sampler, video_uv);
+    // 3. Video Content + Cursor
+    if dist < 0.0 {
+        let vid_uv = (in.pixel_pos - u.video_offset * u.output_size) / u.video_size;
+        var vid_col = textureSample(video_tex, video_samp, vid_uv);
         
-        // Anti-aliased edge
-        let edge_alpha = 1.0 - smoothstep(-1.0, 1.0, video_dist);
-        color = mix(color, video_color, edge_alpha);
+        // Render Cursor
+        if u.cursor_pos.x >= 0.0 {
+            // Screen space cursor rendering
+            let cursor_pixel_size = 32.0 * u.cursor_scale * (1.0 - u.cursor_clicked * 0.2);
+            let cur_center_screen_rel = u.cursor_pos * u.video_size; 
+            
+            // Pixel relative to video top-left
+            let pixel_rel = in.pixel_pos - (u.video_offset * u.output_size);
+            let d_cursor = pixel_rel - cur_center_screen_rel;
+            
+            // Offset logic for standard arrow cursor (top-left hotspot)
+            let hotspot_offset = vec2<f32>(cursor_pixel_size * 0.0, cursor_pixel_size * 0.0);
+            let sample_pos = d_cursor + hotspot_offset;
+
+            if sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size && 
+               sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size {
+               
+               let cursor_uv = sample_pos / cursor_pixel_size;
+               let cur_col = textureSample(cursor_tex, cursor_samp, cursor_uv);
+               
+               // Blend
+               vid_col = mix(vid_col, cur_col, cur_col.a);
+            }
+        }
+        
+        // Anti-aliased video edge
+        let edge = 1.0 - smoothstep(-1.5, 0.0, dist);
+        col = mix(col, vid_col, edge);
     }
     
-    return color;
+    return col;
 }
 "#;

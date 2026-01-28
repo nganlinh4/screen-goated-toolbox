@@ -67,7 +67,11 @@ export class VideoExporter {
     // 1. Bake the camera path to ensure backend matches preview 100%
     console.log('[Exporter] Baking camera path...');
     const bakedPath = segment ? videoRenderer.generateBakedPath(segment, vidW, vidH, fps) : [];
-    console.log(`[Exporter] Baked ${bakedPath.length} frames.`);
+
+    // 2. Bake the cursor path for strictly identical movement
+    console.log('[Exporter] Baking cursor path...');
+    const bakedCursorPath = segment && mousePositions ? videoRenderer.generateBakedCursorPath(segment, mousePositions, fps) : [];
+    console.log(`[Exporter] Baked ${bakedPath.length} camera frames, ${bakedCursorPath.length} cursor frames.`);
 
     // Convert video blob to Uint8Array for Rust
     let videoDataArray: number[] | null = null;
@@ -114,7 +118,8 @@ export class VideoExporter {
       mousePositions: mousePositions,
       videoData: videoDataArray,
       audioData: audioDataArray,
-      bakedPath: bakedPath
+      bakedPath: bakedPath,
+      bakedCursorPath: bakedCursorPath
     };
 
     // @ts-ignore
