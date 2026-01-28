@@ -69,20 +69,42 @@ pub fn extract_ffmpeg(zip_path: &PathBuf, bin_dir: &PathBuf) -> Result<(), Strin
     let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
 
+    let mut found_ffmpeg = false;
+    let mut found_ffprobe = false;
+
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = file.name();
+        let name = file.name().to_string();
 
-        // We only care about ffmpeg.exe
+        // Extract ffmpeg.exe
         if name.ends_with("ffmpeg.exe") {
             let mut out_file =
                 fs::File::create(bin_dir.join("ffmpeg.exe")).map_err(|e| e.to_string())?;
             io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
+            found_ffmpeg = true;
+        }
+
+        // Extract ffprobe.exe (needed for video dimension probing)
+        if name.ends_with("ffprobe.exe") {
+            let mut out_file =
+                fs::File::create(bin_dir.join("ffprobe.exe")).map_err(|e| e.to_string())?;
+            io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
+            found_ffprobe = true;
+        }
+
+        if found_ffmpeg && found_ffprobe {
             return Ok(());
         }
     }
 
-    Err("ffmpeg.exe not found in archive".to_string())
+    if !found_ffmpeg {
+        return Err("ffmpeg.exe not found in archive".to_string());
+    }
+    if !found_ffprobe {
+        return Err("ffprobe.exe not found in archive".to_string());
+    }
+
+    Ok(())
 }
 
 use super::types::CookieBrowser;

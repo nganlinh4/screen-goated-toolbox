@@ -29,7 +29,7 @@ const MOD_WIN: u32 = 0x0008;
 pub mod engine;
 pub mod audio_engine;
 pub mod keyviz;
-// New module
+pub mod gpu_export;
 pub mod native_export;
 
 use engine::{
@@ -496,6 +496,14 @@ fn get_ffmpeg_path() -> PathBuf {
         .join("screen-goated-toolbox")
         .join("bin")
         .join("ffmpeg.exe")
+}
+
+pub fn get_ffprobe_path() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("screen-goated-toolbox")
+        .join("bin")
+        .join("ffprobe.exe")
 }
 
 fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json::Value, String> {
