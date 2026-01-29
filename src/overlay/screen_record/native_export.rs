@@ -1,8 +1,11 @@
+use resvg::usvg::{self, fontdb, Options, Tree};
 use serde::Deserialize;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
+use tiny_skia::{Pixmap, Transform};
 
 use super::gpu_export::{create_uniforms, GpuCompositor};
 use crate::overlay::screen_record::engine::VIDEO_PATH;
@@ -19,6 +22,9 @@ pub struct ExportConfig {
     pub trim_start: f64,
     pub duration: f64,
     pub speed: f64,
+    // ADDED: Accept quality string from frontend ("original" | "balanced")
+    #[serde(default = "default_quality")]
+    pub quality: String,
     pub segment: VideoSegment,
     pub background_config: BackgroundConfig,
     pub mouse_positions: Vec<MousePosition>,
@@ -26,6 +32,10 @@ pub struct ExportConfig {
     pub audio_data: Option<Vec<u8>>,
     pub baked_path: Option<Vec<BakedCameraFrame>>,
     pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
+}
+
+fn default_quality() -> String {
+    "balanced".to_string()
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -57,6 +67,27 @@ pub struct VideoSegment {
     pub zoom_keyframes: Vec<ZoomKeyframe>,
     pub smooth_motion_path: Option<Vec<MotionPoint>>,
     pub crop: Option<CropRect>,
+    #[serde(default)]
+    pub text_segments: Vec<TextSegment>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TextSegment {
+    pub id: String,
+    pub start_time: f64,
+    pub end_time: f64,
+    pub text: String,
+    pub style: TextStyle,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TextStyle {
+    pub font_size: f64,
+    pub color: String,
+    pub x: f64, // 0-100
+    pub y: f64, // 0-100
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -104,6 +135,92 @@ pub struct MousePosition {
     #[serde(rename = "isClicked")]
     pub is_clicked: bool,
     pub cursor_type: String,
+}
+
+// --- TEXT RENDERER ---
+
+struct TextRenderer {
+    font_db: Arc<fontdb::Database>,
+}
+
+impl TextRenderer {
+    fn new() -> Self {
+        let mut font_db = fontdb::Database::new();
+        // Load embedded Google Sans Flex
+        font_db.load_font_data(crate::assets::GOOGLE_SANS_FLEX.to_vec());
+        // Fallback system fonts
+        font_db.load_system_fonts();
+
+        Self {
+            font_db: Arc::new(font_db),
+        }
+    }
+
+    fn render_text(&self, buffer: &mut [u8], width: u32, height: u32, segment: &TextSegment) {
+        let mut pixmap = Pixmap::new(width, height).unwrap();
+
+        // Convert hex color to CSS style
+        let color = &segment.style.color;
+
+        // Calculate position (percent to pixels)
+        let x = (segment.style.x / 100.0) * width as f64;
+        let y = (segment.style.y / 100.0) * height as f64;
+        let font_size = segment.style.font_size;
+
+        // Create SVG wrapper for text with shadow matching HTML canvas
+        let svg_data = format!(
+            r#"
+            <svg width="{}" height="{}" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+                        <feOffset dx="2" dy="2" result="offsetblur"/>
+                        <feComponentTransfer>
+                            <feFuncA type="linear" slope="0.7"/>
+                        </feComponentTransfer>
+                        <feMerge>
+                            <feMergeNode/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                </defs>
+                <text x="{}" y="{}" font-family="Google Sans Flex" font-size="{}" fill="{}" text-anchor="middle" filter="url(#shadow)" font-weight="500">
+                    {}
+                </text>
+            </svg>
+            "#,
+            width, height, x, y, font_size, color, segment.text
+        );
+
+        let opt = Options {
+            fontdb: self.font_db.clone(),
+            ..Default::default()
+        };
+
+        if let Ok(tree) = Tree::from_str(&svg_data, &opt) {
+            resvg::render(&tree, Transform::identity(), &mut pixmap.as_mut());
+
+            let src_data = pixmap.data();
+            for i in (0..buffer.len()).step_by(4) {
+                let src_a = src_data[i + 3] as u32;
+                if src_a > 0 {
+                    let src_r = src_data[i] as u32;
+                    let src_g = src_data[i + 1] as u32;
+                    let src_b = src_data[i + 2] as u32;
+
+                    let dst_r = buffer[i] as u32;
+                    let dst_g = buffer[i + 1] as u32;
+                    let dst_b = buffer[i + 2] as u32;
+
+                    let inv_a = 255 - src_a;
+
+                    buffer[i] = ((src_r * 255 + dst_r * inv_a) / 255) as u8;
+                    buffer[i + 1] = ((src_g * 255 + dst_g * inv_a) / 255) as u8;
+                    buffer[i + 2] = ((src_b * 255 + dst_b * inv_a) / 255) as u8;
+                }
+            }
+        }
+    }
 }
 
 // --- GRADIENT COLORS ---
@@ -214,7 +331,6 @@ fn sample_baked_cursor(
         p2.is_clicked
     };
 
-    // Type is discrete
     let cursor_type = if t < 0.5 {
         p1.cursor_type.clone()
     } else {
@@ -231,6 +347,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let baked_path = config.baked_path.unwrap_or_default();
     let baked_cursor = config.baked_cursor_path.unwrap_or_default();
+    let text_renderer = TextRenderer::new();
 
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
@@ -329,6 +446,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     } else {
         config.height
     };
+    // Ensure even dimensions
     let out_w = out_w - (out_w % 2);
     let out_h = out_h - (out_h % 2);
 
@@ -390,6 +508,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         .ok_or("Failed to open decoder stdout")?;
 
     // 6. Start FFmpeg encoder
+
+    // Determine CRF based on Quality setting
+    let crf = if config.quality == "original" {
+        "17" // High quality, near lossless
+    } else {
+        "23" // Balanced (Standard default)
+    };
+
     let has_audio = source_audio_path.is_some();
     let mut encoder_args = vec![
         "-y".to_string(),
@@ -429,7 +555,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         "-preset".to_string(),
         "fast".to_string(),
         "-crf".to_string(),
-        "18".to_string(),
+        crf.to_string(), // Applied here
         "-pix_fmt".to_string(),
         "yuv420p".to_string(),
     ]);
@@ -506,19 +632,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 let rel_x = (cx - crop_x_offset) / crop_w as f64;
                 let rel_y = (cy - crop_y_offset) / crop_h as f64;
 
-                // Map type to ID (0=Arrow, 1=Text, 2=Pointer/Hand)
                 let type_id = match c_type.as_str() {
                     "text" => 1.0,
                     "pointer" => 2.0,
                     _ => 0.0,
                 };
 
-                // Cursor scale calculation to match preview exactly:
-                // Preview: cursorSizeScale = cursorScale * sizeRatio * zoom
-                // where sizeRatio = min(canvas.width / srcW, canvas.height / srcH)
-                // In export: sizeRatio = min(out_w / crop_w, out_h / crop_h)
                 let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
-                let cursor_final_scale = c_scale * config.background_config.cursor_scale * zoom * size_ratio;
+                let cursor_final_scale =
+                    c_scale * config.background_config.cursor_scale * zoom * size_ratio;
 
                 (
                     rel_x as f32,
@@ -528,8 +650,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     type_id,
                 )
             } else {
-                (-1.0, -1.0, 0.0, 0.0, 0.0) // Hidden
+                (-1.0, -1.0, 0.0, 0.0, 0.0)
             };
+
+        // Increase shadow opacity slightly to match Canvas visuals (heuristic)
+        let shadow_opacity = (config.background_config.shadow / 100.0).min(0.5);
+        let shadow_blur = (config.background_config.shadow * 1.5) as f32;
 
         let uniforms = create_uniforms(
             (offset_x as f32, offset_y as f32),
@@ -541,8 +667,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             (zoomed_video_w as f32, zoomed_video_h as f32),
             config.background_config.border_radius as f32,
             config.background_config.shadow as f32 / 4.0,
-            config.background_config.shadow as f32 / 2.0,
-            (config.background_config.shadow / 100.0).min(0.5) as f32,
+            shadow_blur,
+            shadow_opacity as f32,
             gradient1,
             gradient2,
             (current_time - config.trim_start) as f32,
@@ -552,7 +678,16 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             cursor_type_id,
         );
 
-        let rendered = compositor.render_frame(&uniforms);
+        let mut rendered = compositor.render_frame(&uniforms);
+
+        // --- RENDER TEXT OVERLAY ---
+        // Overlay any text segments active at this time
+        for text_seg in &config.segment.text_segments {
+            if current_time >= text_seg.start_time && current_time <= text_seg.end_time {
+                text_renderer.render_text(&mut rendered, out_w, out_h, text_seg);
+            }
+        }
+
         let _ = encoder_stdin.write_all(&rendered);
 
         frame_count += 1;

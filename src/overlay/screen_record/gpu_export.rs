@@ -354,22 +354,18 @@ impl GpuCompositor {
 
     pub fn init_cursor_texture(&self) {
         // Build atlas: 512x1536 (3 tiles of 512x512)
-        // Slot 0: Arrow (Default) - hotspot at top-left of arrow tip
-        // Slot 1: Text (I-Beam) - hotspot at center
-        // Slot 2: Pointer (Hand) - hotspot at finger tip
-        // Large tiles ensure crisp cursors even at high zoom levels
+        // Slot 0: Arrow (Default)
+        // Slot 1: Text (I-Beam)
+        // Slot 2: Pointer (Hand)
 
         let tile_size = 512u32;
         let center = tile_size as f32 / 2.0; // 256.0
         let mut atlas = Pixmap::new(tile_size, tile_size * 3).unwrap();
 
-        // Scale factor: 512/128 = 4x compared to original, so 8x total (was 2x base)
+        // Scale factor: 8x
         let cursor_scale = 8.0;
 
         // --- SLOT 0: DEFAULT ARROW ---
-        // Arrow path tip is at (8.2, 4.9). We want the hotspot (tip) at tile center (256, 256)
-        // After 8x scale: tip at (65.6, 39.2)
-        // Translate by (256 - 65.6, 256 - 39.2) = (190.4, 216.8)
         {
             let mut pb = PathBuilder::new();
             pb.move_to(8.2, 4.9);
@@ -396,17 +392,13 @@ impl GpuCompositor {
                 shader: tiny_skia::Shader::SolidColor(Color::WHITE),
                 ..Default::default()
             };
-            // Stroke width in path-space coordinates (will be scaled by transform)
             let stroke = Stroke {
                 width: 1.5,
                 ..Default::default()
             };
 
-            // pre_scale: scale path coords first, THEN translate
             let ts = Transform::from_translate(190.4, 216.8).pre_scale(cursor_scale, cursor_scale);
 
-            // IMPORTANT: Draw stroke FIRST, then fill on top (matching preview behavior)
-            // This creates the white outline underneath the black fill
             atlas.stroke_path(&path, &paint_stroke, &stroke, ts, None);
             atlas.stroke_path(&click_path, &paint_stroke, &stroke, ts, None);
             atlas.fill_path(&path, &paint_fill, FillRule::Winding, ts, None);
@@ -414,10 +406,6 @@ impl GpuCompositor {
         }
 
         // --- SLOT 1: TEXT I-BEAM ---
-        // I-beam center is around (6, 8) in path coords. Hotspot should be at center.
-        // Want hotspot at (256, 256 + 512) = (256, 768) for slot 1
-        // After 8x scale: center at (48, 64)
-        // Translate by (256 - 48, 768 - 64) = (208, 704)
         {
             let mut pb = PathBuilder::new();
             pb.move_to(2.0, 0.0);
@@ -443,39 +431,25 @@ impl GpuCompositor {
                 shader: tiny_skia::Shader::SolidColor(Color::WHITE),
                 ..Default::default()
             };
-            // Stroke width in path-space coordinates (will be scaled by transform)
             let stroke = Stroke {
                 width: 1.5,
                 ..Default::default()
             };
 
-            // pre_scale: scale path coords first, THEN translate
             let ts = Transform::from_translate(208.0, 704.0).pre_scale(cursor_scale, cursor_scale);
 
-            // IMPORTANT: Draw stroke FIRST, then fill on top (matching preview behavior)
             atlas.stroke_path(&path, &paint_stroke, &stroke, ts, None);
             atlas.fill_path(&path, &paint_fill, FillRule::Winding, ts, None);
         }
 
         // --- SLOT 2: HAND POINTER ---
-        // Render SVG with hotspot at finger tip, positioned at tile center (256, 256 + 1024) = (256, 1280)
-        // TS offset in SCALED coords: (-imgWidth/2 + 8, -imgHeight/2 + 16)
-        // The offsets (8, 16) are applied AFTER the ctx.scale() in TS, so they scale with cursor size
         {
             let opt = Options::default();
             if let Ok(tree) = Tree::from_data(POINTER_SVG, &opt) {
                 let svg_size = tree.size();
-                // Render at maximum size to fill tile (480px, leaving margin)
                 let target_size = 480.0;
                 let scale = target_size / svg_size.width().max(svg_size.height());
 
-                // TS applies translate(-imgW/2 + 8, -imgH/2 + 16) in scaled space
-                // This places image so that cursor_pos + (-imgW/2 + 8, -imgH/2 + 16) = image_top_left
-                // Rearranged: image should be placed with hotspot at (imgW/2 - 8, imgH/2 - 16) from its top-left
-                // For SVG with imgW=imgH=48 base: hotspot at (24-8, 24-16) = (16, 8) from top-left
-                // At our scale: hotspot at (16 * scale, 8 * scale) from image top-left
-                // We want this hotspot at tile center (256, 1280)
-                // So image_top_left = (256 - 16*scale, 1280 - 8*scale)
                 let hotspot_in_img_x = (svg_size.width() / 2.0 - 8.0) * scale;
                 let hotspot_in_img_y = (svg_size.height() / 2.0 - 16.0) * scale;
                 let x = center - hotspot_in_img_x;
@@ -696,11 +670,9 @@ fn sd_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// Hotspot offset function: returns offset to align cursor hotspot with cursor_pos
-// All cursors in the atlas have their hotspot drawn at tile center (64, 64) = (0.5, 0.5) in UV
-// So we need to offset by half the rendered size to align correctly
+// Hotspot offset function
 fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
-    // All cursor types have hotspot at center of the 128x128 tile
+    // All cursor types have hotspot at center of the 512x512 tile
     // To align hotspot with cursor_pos, offset by half the rendered size
     return vec2<f32>(size * 0.5, size * 0.5);
 }
@@ -720,6 +692,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     if u.shadow_opacity > 0.0 {
         let sh_center = vid_center + vec2<f32>(u.shadow_offset);
         let sh_dist = sd_box(in.pixel_pos - sh_center, vid_half, u.border_radius);
+        // Improved shadow softness matching canvas
         let sh_alpha = 1.0 - smoothstep(-u.shadow_blur, u.shadow_blur, sh_dist);
         col = mix(col, vec4<f32>(0.0,0.0,0.0, u.shadow_opacity), sh_alpha * u.shadow_opacity);
     }
@@ -731,22 +704,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         
         // Render Cursor
         if u.cursor_pos.x >= 0.0 {
-            // Cursor size in screen pixels
-            // cursor_scale already contains: baked_squish * config.cursor_scale * zoom * sizeRatio
-            // Base size 48 matches the pointer SVG natural size (48x48)
-            // This ensures cursor size matches preview exactly
             let cursor_pixel_size = 48.0 * u.cursor_scale;
-            
-            // Cursor hotspot position in video-relative pixels
             let cursor_px = u.cursor_pos * u.video_size;
-            
-            // Pixel relative to video top-left
             let pixel_rel = in.pixel_pos - (u.video_offset * u.output_size);
-            
-            // Get hotspot offset for this cursor type
             let hotspot = get_hotspot(u.cursor_type_id, cursor_pixel_size);
-            
-            // Sample position: pixel relative to cursor's top-left corner
             let sample_pos = (pixel_rel - cursor_px) + hotspot;
 
             if sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size && 
@@ -754,8 +715,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                
                let uv_in_tile = sample_pos / cursor_pixel_size;
                
-               // Atlas mapping: 128x384 (3 vertical tiles of 128)
-               // type_id: 0=Arrow, 1=Text, 2=Pointer/Hand
+               // Atlas mapping: 512x1536 (3 vertical tiles of 512)
                let tile_idx = floor(u.cursor_type_id + 0.5);
                let atlas_uv = vec2<f32>(
                    uv_in_tile.x,
