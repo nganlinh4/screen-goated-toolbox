@@ -1,10 +1,9 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{self, Options, Tree};
 use std::sync::Arc;
-use tiny_skia::{Pixmap, Transform};
+use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
 use wgpu::util::DeviceExt;
 
-// Vertex for fullscreen quad
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Vertex {
@@ -39,8 +38,6 @@ const QUAD_VERTICES: &[Vertex] = &[
     },
 ];
 
-// Uniforms for the compositor shader
-// Aligned to 16 bytes to match WGSL requirements
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct CompositorUniforms {
@@ -55,11 +52,13 @@ pub struct CompositorUniforms {
     pub gradient_color1: [f32; 4], // 48-64
     pub gradient_color2: [f32; 4], // 64-80
     pub time: f32,                 // 80-84
-    pub _pad1: f32,                // 84-88 (Aligns cursor_pos to 8 bytes)
+    pub _pad1: f32,                // 84-88
     pub cursor_pos: [f32; 2],      // 88-96
     pub cursor_scale: f32,         // 96-100
-    pub cursor_clicked: f32,       // 100-104
-    pub _pad2: [f32; 6],           // 104-128 (Fills remaining 24 bytes)
+    pub cursor_clicked: f32,       // 100-104 - DEPRECATED in shader but kept for struct alignment
+    pub cursor_type_id: f32,       // 104-108
+    pub _pad2: f32,                // 108-112
+    pub _pad3: [f32; 4],           // 112-128 (Total 128 bytes)
 }
 
 pub struct GpuCompositor {
@@ -81,8 +80,8 @@ pub struct GpuCompositor {
     video_height: u32,
 }
 
-// Embed the pointer SVG
-const CURSOR_BYTES: &[u8] = include_bytes!("dist/pointer.svg");
+// Embed the pointer SVG for the "Hand" cursor
+const POINTER_SVG: &[u8] = include_bytes!("dist/pointer.svg");
 
 impl GpuCompositor {
     pub fn new(
@@ -91,7 +90,6 @@ impl GpuCompositor {
         video_width: u32,
         video_height: u32,
     ) -> Result<Self, String> {
-        // Initialize wgpu
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
@@ -118,20 +116,17 @@ impl GpuCompositor {
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
-        // Create shader
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Compositor Shader"),
             source: wgpu::ShaderSource::Wgsl(COMPOSITOR_SHADER.into()),
         });
 
-        // Vertex buffer
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: bytemuck::cast_slice(QUAD_VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        // Uniform buffer
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Uniform Buffer"),
             size: std::mem::size_of::<CompositorUniforms>() as u64,
@@ -139,7 +134,6 @@ impl GpuCompositor {
             mapped_at_creation: false,
         });
 
-        // Video texture
         let video_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Video Texture"),
             size: wgpu::Extent3d {
@@ -156,12 +150,13 @@ impl GpuCompositor {
         });
         let video_view = video_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Cursor texture
+        // Cursor Texture Atlas: 512x1536 (3 vertical tiles of 512x512)
+        // Large tiles for crisp cursors even at high zoom levels
         let cursor_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Cursor Texture"),
+            label: Some("Cursor Atlas Texture"),
             size: wgpu::Extent3d {
-                width: 128,
-                height: 128,
+                width: 512,
+                height: 512 * 3, // 3 tiles vertical
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -173,7 +168,7 @@ impl GpuCompositor {
         });
         let cursor_view = cursor_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let video_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
@@ -182,7 +177,16 @@ impl GpuCompositor {
             ..Default::default()
         });
 
-        // Output texture
+        // Cursor sampler: use Nearest to avoid atlas bleeding between tiles
+        let cursor_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Output Texture"),
             size: wgpu::Extent3d {
@@ -198,7 +202,6 @@ impl GpuCompositor {
             view_formats: &[],
         });
 
-        // Output buffer
         let output_buffer_size = (output_width * output_height * 4) as u64;
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
@@ -207,12 +210,10 @@ impl GpuCompositor {
             mapped_at_creation: false,
         });
 
-        // Layouts
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Uniform Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                // Visibility includes VERTEX because vs_main uses 'u' for scaling
                 visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
@@ -264,7 +265,7 @@ impl GpuCompositor {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&video_sampler),
                 },
             ],
         });
@@ -279,7 +280,7 @@ impl GpuCompositor {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(&cursor_sampler),
                 },
             ],
         });
@@ -352,48 +353,137 @@ impl GpuCompositor {
     }
 
     pub fn init_cursor_texture(&self) {
-        // Rasterize SVG cursor using resvg to match frontend look
-        let width = 128;
-        let height = 128;
+        // Build atlas: 512x1536 (3 tiles of 512x512)
+        // Slot 0: Arrow (Default) - hotspot at top-left of arrow tip
+        // Slot 1: Text (I-Beam) - hotspot at center
+        // Slot 2: Pointer (Hand) - hotspot at finger tip
+        // Large tiles ensure crisp cursors even at high zoom levels
 
-        let mut pixels = vec![0u8; (width * height * 4) as usize];
+        let tile_size = 512u32;
+        let center = tile_size as f32 / 2.0; // 256.0
+        let mut atlas = Pixmap::new(tile_size, tile_size * 3).unwrap();
 
-        // Try to parse SVG
-        let opt = Options::default();
-        if let Ok(tree) = Tree::from_data(CURSOR_BYTES, &opt) {
-            let mut pixmap = Pixmap::new(width, height).unwrap();
+        // Scale factor: 512/128 = 4x compared to original, so 8x total (was 2x base)
+        let cursor_scale = 8.0;
 
-            // Calculate scale to fit 128x128
-            let svg_size = tree.size();
-            let scale_x = width as f32 / svg_size.width();
-            let scale_y = height as f32 / svg_size.height();
-            let scale = scale_x.min(scale_y);
+        // --- SLOT 0: DEFAULT ARROW ---
+        // Arrow path tip is at (8.2, 4.9). We want the hotspot (tip) at tile center (256, 256)
+        // After 8x scale: tip at (65.6, 39.2)
+        // Translate by (256 - 65.6, 256 - 39.2) = (190.4, 216.8)
+        {
+            let mut pb = PathBuilder::new();
+            pb.move_to(8.2, 4.9);
+            pb.line_to(19.8, 16.5);
+            pb.line_to(13.0, 16.5);
+            pb.line_to(12.6, 16.6);
+            pb.line_to(8.2, 20.9);
+            pb.close();
+            let path = pb.finish().unwrap();
 
-            let transform = Transform::from_scale(scale, scale);
+            let mut pb2 = PathBuilder::new();
+            pb2.move_to(17.3, 21.6);
+            pb2.line_to(13.7, 23.1);
+            pb2.line_to(9.0, 12.0);
+            pb2.line_to(12.7, 10.5);
+            pb2.close();
+            let click_path = pb2.finish().unwrap();
 
-            resvg::render(&tree, transform, &mut pixmap.as_mut());
+            let paint_fill = Paint {
+                shader: tiny_skia::Shader::SolidColor(Color::BLACK),
+                ..Default::default()
+            };
+            let paint_stroke = Paint {
+                shader: tiny_skia::Shader::SolidColor(Color::WHITE),
+                ..Default::default()
+            };
+            // Stroke width in path-space coordinates (will be scaled by transform)
+            let stroke = Stroke {
+                width: 1.5,
+                ..Default::default()
+            };
 
-            let data = pixmap.data();
-            if data.len() == pixels.len() {
-                pixels.copy_from_slice(data);
-            }
-        } else {
-            // Fallback: Generate a simple white arrow if SVG fails
-            println!("[GpuCompositor] Failed to load cursor SVG, using fallback.");
-            for y in 0..height {
-                for x in 0..width {
-                    let fx = x as f32;
-                    let fy = y as f32;
-                    // Simple triangle
-                    let in_arrow = (fx < fy * 0.7 && fx < 32.0 && fy < 48.0 && fx > 0.0);
-                    if in_arrow {
-                        let idx = ((y * width + x) * 4) as usize;
-                        pixels[idx] = 255;
-                        pixels[idx + 1] = 255;
-                        pixels[idx + 2] = 255;
-                        pixels[idx + 3] = 255;
-                    }
-                }
+            // pre_scale: scale path coords first, THEN translate
+            let ts = Transform::from_translate(190.4, 216.8).pre_scale(cursor_scale, cursor_scale);
+
+            // IMPORTANT: Draw stroke FIRST, then fill on top (matching preview behavior)
+            // This creates the white outline underneath the black fill
+            atlas.stroke_path(&path, &paint_stroke, &stroke, ts, None);
+            atlas.stroke_path(&click_path, &paint_stroke, &stroke, ts, None);
+            atlas.fill_path(&path, &paint_fill, FillRule::Winding, ts, None);
+            atlas.fill_path(&click_path, &paint_fill, FillRule::Winding, ts, None);
+        }
+
+        // --- SLOT 1: TEXT I-BEAM ---
+        // I-beam center is around (6, 8) in path coords. Hotspot should be at center.
+        // Want hotspot at (256, 256 + 512) = (256, 768) for slot 1
+        // After 8x scale: center at (48, 64)
+        // Translate by (256 - 48, 768 - 64) = (208, 704)
+        {
+            let mut pb = PathBuilder::new();
+            pb.move_to(2.0, 0.0);
+            pb.line_to(10.0, 0.0);
+            pb.line_to(10.0, 2.0);
+            pb.line_to(7.0, 2.0);
+            pb.line_to(7.0, 14.0);
+            pb.line_to(10.0, 14.0);
+            pb.line_to(10.0, 16.0);
+            pb.line_to(2.0, 16.0);
+            pb.line_to(2.0, 14.0);
+            pb.line_to(5.0, 14.0);
+            pb.line_to(5.0, 2.0);
+            pb.line_to(2.0, 2.0);
+            pb.close();
+            let path = pb.finish().unwrap();
+
+            let paint_fill = Paint {
+                shader: tiny_skia::Shader::SolidColor(Color::BLACK),
+                ..Default::default()
+            };
+            let paint_stroke = Paint {
+                shader: tiny_skia::Shader::SolidColor(Color::WHITE),
+                ..Default::default()
+            };
+            // Stroke width in path-space coordinates (will be scaled by transform)
+            let stroke = Stroke {
+                width: 1.5,
+                ..Default::default()
+            };
+
+            // pre_scale: scale path coords first, THEN translate
+            let ts = Transform::from_translate(208.0, 704.0).pre_scale(cursor_scale, cursor_scale);
+
+            // IMPORTANT: Draw stroke FIRST, then fill on top (matching preview behavior)
+            atlas.stroke_path(&path, &paint_stroke, &stroke, ts, None);
+            atlas.fill_path(&path, &paint_fill, FillRule::Winding, ts, None);
+        }
+
+        // --- SLOT 2: HAND POINTER ---
+        // Render SVG with hotspot at finger tip, positioned at tile center (256, 256 + 1024) = (256, 1280)
+        // TS offset in SCALED coords: (-imgWidth/2 + 8, -imgHeight/2 + 16)
+        // The offsets (8, 16) are applied AFTER the ctx.scale() in TS, so they scale with cursor size
+        {
+            let opt = Options::default();
+            if let Ok(tree) = Tree::from_data(POINTER_SVG, &opt) {
+                let svg_size = tree.size();
+                // Render at maximum size to fill tile (480px, leaving margin)
+                let target_size = 480.0;
+                let scale = target_size / svg_size.width().max(svg_size.height());
+
+                // TS applies translate(-imgW/2 + 8, -imgH/2 + 16) in scaled space
+                // This places image so that cursor_pos + (-imgW/2 + 8, -imgH/2 + 16) = image_top_left
+                // Rearranged: image should be placed with hotspot at (imgW/2 - 8, imgH/2 - 16) from its top-left
+                // For SVG with imgW=imgH=48 base: hotspot at (24-8, 24-16) = (16, 8) from top-left
+                // At our scale: hotspot at (16 * scale, 8 * scale) from image top-left
+                // We want this hotspot at tile center (256, 1280)
+                // So image_top_left = (256 - 16*scale, 1280 - 8*scale)
+                let hotspot_in_img_x = (svg_size.width() / 2.0 - 8.0) * scale;
+                let hotspot_in_img_y = (svg_size.height() / 2.0 - 16.0) * scale;
+                let x = center - hotspot_in_img_x;
+                let y = (center + tile_size as f32 * 2.0) - hotspot_in_img_y;
+
+                let ts = Transform::from_translate(x, y).pre_scale(scale, scale);
+
+                resvg::render(&tree, ts, &mut atlas.as_mut());
             }
         }
 
@@ -404,15 +494,15 @@ impl GpuCompositor {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &pixels,
+            atlas.data(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
+                bytes_per_row: Some(512 * 4),
+                rows_per_image: Some(512 * 3),
             },
             wgpu::Extent3d {
-                width,
-                height,
+                width: 512,
+                height: 512 * 3,
                 depth_or_array_layers: 1,
             },
         );
@@ -531,6 +621,7 @@ pub fn create_uniforms(
     cursor_pos: (f32, f32),
     cursor_scale: f32,
     cursor_clicked: f32,
+    cursor_type_id: f32,
 ) -> CompositorUniforms {
     CompositorUniforms {
         video_offset: [video_offset.0, video_offset.1],
@@ -548,11 +639,13 @@ pub fn create_uniforms(
         cursor_pos: [cursor_pos.0, cursor_pos.1],
         cursor_scale,
         cursor_clicked,
-        _pad2: [0.0; 6],
+        cursor_type_id,
+        _pad2: 0.0,
+        _pad3: [0.0; 4],
     }
 }
 
-// Updated Shader with compatible padding fields
+// Updated Shader with atlas support
 const COMPOSITOR_SHADER: &str = r#"
 struct Uniforms {
     video_offset: vec2<f32>,
@@ -570,8 +663,9 @@ struct Uniforms {
     cursor_pos: vec2<f32>,
     cursor_scale: f32,
     cursor_clicked: f32,
-    _pad2_a: vec2<f32>, // WGSL doesn't like array strides in uniform blocks, so use vec2+vec4 for 24 bytes
-    _pad2_b: vec4<f32>,
+    cursor_type_id: f32,
+    _pad2: f32,
+    _pad3: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -602,6 +696,15 @@ fn sd_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
+// Hotspot offset function: returns offset to align cursor hotspot with cursor_pos
+// All cursors in the atlas have their hotspot drawn at tile center (64, 64) = (0.5, 0.5) in UV
+// So we need to offset by half the rendered size to align correctly
+fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
+    // All cursor types have hotspot at center of the 128x128 tile
+    // To align hotspot with cursor_pos, offset by half the rendered size
+    return vec2<f32>(size * 0.5, size * 0.5);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // 1. Background
@@ -628,23 +731,38 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         
         // Render Cursor
         if u.cursor_pos.x >= 0.0 {
-            // Screen space cursor rendering
-            let cursor_pixel_size = 32.0 * u.cursor_scale * (1.0 - u.cursor_clicked * 0.2);
-            let cur_center_screen_rel = u.cursor_pos * u.video_size; 
+            // Cursor size in screen pixels
+            // cursor_scale already contains: baked_squish * config.cursor_scale * zoom * sizeRatio
+            // Base size 48 matches the pointer SVG natural size (48x48)
+            // This ensures cursor size matches preview exactly
+            let cursor_pixel_size = 48.0 * u.cursor_scale;
+            
+            // Cursor hotspot position in video-relative pixels
+            let cursor_px = u.cursor_pos * u.video_size;
             
             // Pixel relative to video top-left
             let pixel_rel = in.pixel_pos - (u.video_offset * u.output_size);
-            let d_cursor = pixel_rel - cur_center_screen_rel;
             
-            // Offset logic for standard arrow cursor (top-left hotspot)
-            let hotspot_offset = vec2<f32>(cursor_pixel_size * 0.0, cursor_pixel_size * 0.0);
-            let sample_pos = d_cursor + hotspot_offset;
+            // Get hotspot offset for this cursor type
+            let hotspot = get_hotspot(u.cursor_type_id, cursor_pixel_size);
+            
+            // Sample position: pixel relative to cursor's top-left corner
+            let sample_pos = (pixel_rel - cursor_px) + hotspot;
 
             if sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size && 
                sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size {
                
-               let cursor_uv = sample_pos / cursor_pixel_size;
-               let cur_col = textureSample(cursor_tex, cursor_samp, cursor_uv);
+               let uv_in_tile = sample_pos / cursor_pixel_size;
+               
+               // Atlas mapping: 128x384 (3 vertical tiles of 128)
+               // type_id: 0=Arrow, 1=Text, 2=Pointer/Hand
+               let tile_idx = floor(u.cursor_type_id + 0.5);
+               let atlas_uv = vec2<f32>(
+                   uv_in_tile.x,
+                   (uv_in_tile.y + tile_idx) / 3.0
+               );
+               
+               let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
                
                // Blend
                vid_col = mix(vid_col, cur_col, cur_col.a);
