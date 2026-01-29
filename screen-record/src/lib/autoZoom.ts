@@ -3,18 +3,20 @@ import { VideoSegment, MousePosition, ZoomKeyframe } from '@/types/video';
 // Physics Configuration
 const PHYSICS = {
   // Mass-Spring-Damper Constants
-  TENSION: 25,    // Softer pull (was 40) - "Laziness"
-  FRICTION: 25,   // Heavy damping (was 15) - "Stability"
-  MASS: 3.0,      // Very Heavy camera (was 2.0) - "Inertia"
+  // Lower tension = lazier spring (floaty)
+  TENSION: 20.0,
+  // Critically damped for T=20, M=5 => 2 * sqrt(20 * 5) = 20
+  FRICTION: 20.0,
+  MASS: 5.0,      // Heavy camera for inertia
 
   // Behaviour
-  LOOK_AHEAD: 0.2, // seconds (was 0.15) - smoother anticipation
+  LOOK_AHEAD: 0.25, // seconds - smoother anticipation
   IDLE_ZOOM_SPEED: 0.3, // Slower idle zoom
   ZOOM_OUT_SPEED: 1.5,  // Slower zoom out
 
   // Limits
-  MAX_VELOCITY_ZOOM_PENALTY: 1000, // Pixels per second
-  BASE_ZOOM: 1.4,                  // Default (was 1.5)
+  MAX_VELOCITY_ZOOM_PENALTY: 1500, // Higher threshold before zooming out
+  BASE_ZOOM: 1.4,
   MIN_ZOOM: 1.0,
   MAX_ZOOM: 2.0
 };
@@ -74,6 +76,8 @@ export class AutoZoomGenerator {
       lastPos: { x: data[0].x, y: data[0].y }
     };
 
+    let smoothedZoomTarget = PHYSICS.BASE_ZOOM;
+
     // Run Simulation
     for (let t = segment.trimStart; t <= segment.trimEnd; t += dt) {
 
@@ -95,22 +99,22 @@ export class AutoZoomGenerator {
       interaction.lastPos = { x: currentMouse.x, y: currentMouse.y };
 
       // B. Determine Target Zoom
-      let targetZoom = PHYSICS.BASE_ZOOM;
+      let rawTargetZoom = PHYSICS.BASE_ZOOM;
 
       // Rule 1: Velocity Penalty (Go fast -> Zoom out)
       // factor goes from 0.0 (stopped) to 1.0 (max speed)
       const speedFactor = Math.min(1.0, velocity / PHYSICS.MAX_VELOCITY_ZOOM_PENALTY);
       // If moving fast, reduce zoom towards 1.0
-      targetZoom = targetZoom * (1 - speedFactor) + PHYSICS.MIN_ZOOM * speedFactor;
+      rawTargetZoom = rawTargetZoom * (1 - speedFactor) + PHYSICS.MIN_ZOOM * speedFactor;
 
       // Rule 2: Click Focus (Clicking -> Zoom In)
       if (isClicked) {
-        targetZoom = Math.max(targetZoom, 1.7);
+        rawTargetZoom = Math.max(rawTargetZoom, 1.7);
       }
 
       // Rule 3: Deep Read (Long Hover -> Zoom In Deep)
       if (interaction.hoverTime > 2.0) {
-        targetZoom = PHYSICS.MAX_ZOOM;
+        rawTargetZoom = PHYSICS.MAX_ZOOM;
       }
 
       // Rule 4: Edge Penalty (Near edge -> Zoom out to show context)
@@ -122,8 +126,12 @@ export class AutoZoomGenerator {
         // Closer to edge = more zoom out
         // If at 0 distance, force MIN_ZOOM
         const factor = Math.min(edgeDistX, edgeDistY) / edgeMargin; // 0..1
-        targetZoom = Math.min(targetZoom, PHYSICS.MIN_ZOOM + (targetZoom - PHYSICS.MIN_ZOOM) * factor);
+        rawTargetZoom = Math.min(rawTargetZoom, PHYSICS.MIN_ZOOM + (rawTargetZoom - PHYSICS.MIN_ZOOM) * factor);
       }
+
+      // Smooth the zoom target to prevent jitter
+      // Simple LERP filter
+      smoothedZoomTarget = smoothedZoomTarget + (rawTargetZoom - smoothedZoomTarget) * 0.05;
 
       // C. Determine Target Position
       // We start with the Future Mouse Position (Anticipation)
@@ -144,7 +152,7 @@ export class AutoZoomGenerator {
           // If weight is 1.0, we strictly follow keyframe
           targetX = targetX * (1 - kfInfluence.weight) + kfX * kfInfluence.weight;
           targetY = targetY * (1 - kfInfluence.weight) + kfY * kfInfluence.weight;
-          targetZoom = targetZoom * (1 - kfInfluence.weight) + kfZ * kfInfluence.weight;
+          smoothedZoomTarget = smoothedZoomTarget * (1 - kfInfluence.weight) + kfZ * kfInfluence.weight;
         }
       }
 
@@ -152,7 +160,8 @@ export class AutoZoomGenerator {
       // Force = -k*(x - target) - d*v
       const ax = (-PHYSICS.TENSION * (state.x - targetX) - PHYSICS.FRICTION * state.vx) / PHYSICS.MASS;
       const ay = (-PHYSICS.TENSION * (state.y - targetY) - PHYSICS.FRICTION * state.vy) / PHYSICS.MASS;
-      const az = (-PHYSICS.TENSION * (state.zoom - targetZoom) - PHYSICS.FRICTION * state.vz) / (PHYSICS.MASS * 3); // More mass on zoom for sluggish feel
+      // Use higher mass for zoom for smoother feel
+      const az = (-PHYSICS.TENSION * (state.zoom - smoothedZoomTarget) - PHYSICS.FRICTION * state.vz) / (PHYSICS.MASS * 2.0);
 
       state.vx += ax * dt;
       state.vy += ay * dt;
