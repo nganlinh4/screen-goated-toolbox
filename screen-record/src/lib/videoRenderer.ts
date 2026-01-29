@@ -1,7 +1,8 @@
 import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame } from '@/types/video';
 
 // --- CONFIGURATION ---
-const CURSOR_OFFSET_SEC = 0.12;
+// Increased offset slightly so the eye leads the cursor (more natural reading)
+const CURSOR_OFFSET_SEC = 0.15;
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -71,13 +72,17 @@ export class VideoRenderer {
 
   // --- Easing Functions ---
 
-  private easeInOutQuart(x: number): number {
-    return x < 0.5 ? 8 * x * x * x * x : 1 - Math.pow(-2 * x + 2, 4) / 2;
+  // CHANGED: From Quart (t^4) to Cubic (t^3) for a softer, less aggressive acceleration
+  private easeInOutCubic(x: number): number {
+    return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
   }
 
-  // Smooth ease for blending influence (Hermite / Smoothstep-like)
-  private easeInfluence(x: number): number {
-    return x * x * (3 - 2 * x);
+  // Spring-like Easing for natural camera release
+  private springSeam(t: number): number {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    // Quintic ease out for long, smooth tail
+    return 1 - Math.pow(1 - t, 5);
   }
 
   // --- BAKED CURSOR PATH GENERATION ---
@@ -669,7 +674,15 @@ export class VideoRenderer {
     const sortedKeyframes = [...segment.zoomKeyframes].sort((a: ZoomKeyframe, b: ZoomKeyframe) => a.time - b.time);
 
     if (sortedKeyframes.length > 0) {
-      const BLEND_WINDOW = 2.0; // Seconds to blend in/out
+      // Dynamic blending window size based on movement
+      const calculateDynamicWindow = (kf1: ZoomKeyframe, kf2?: ZoomKeyframe) => {
+        if (!kf2) return 3.0; // Default tail if single keyframe
+        const dx = Math.abs(kf1.positionX - kf2.positionX);
+        const dy = Math.abs(kf1.positionY - kf2.positionY);
+        const dz = Math.abs(kf1.zoomFactor - kf2.zoomFactor);
+        const distanceScore = Math.sqrt(dx * dx + dy * dy) + (dz * 0.5);
+        return Math.max(1.5, Math.min(4.0, distanceScore * 3.0)); // Adaptive 1.5s to 4s
+      };
 
       const nextKfIdx = sortedKeyframes.findIndex(k => k.time > currentTime);
       const prevKf = nextKfIdx > 0 ? sortedKeyframes[nextKfIdx - 1] : (nextKfIdx === -1 ? sortedKeyframes[sortedKeyframes.length - 1] : null);
@@ -680,14 +693,15 @@ export class VideoRenderer {
         const timeDiff = nextKf.time - prevKf.time;
 
         // Check if this is a "continuous" segment or a gap
-        // If keyframes are close (< 3s) OR NO AUTO PATH, treat as continuous manual movement
-        if (timeDiff < 3.0 || !hasAutoPath) {
+        // If keyframes are close (< 4s) OR NO AUTO PATH, treat as continuous manual movement
+        if (timeDiff < 4.0 || !hasAutoPath) {
           // Continuous manual movement
           manualInfluence = 1.0;
 
           const rawT = (currentTime - prevKf.time) / timeDiff;
           const t = Math.max(0, Math.min(1, rawT));
-          const easedT = this.easeInOutQuart(t);
+          // Use Cubic instead of Quart for smoother movement
+          const easedT = this.easeInOutCubic(t);
 
           const posX = prevKf.positionX + (nextKf.positionX - prevKf.positionX) * easedT;
           const posY = prevKf.positionY + (nextKf.positionY - prevKf.positionY) * easedT;
@@ -705,25 +719,33 @@ export class VideoRenderer {
           const timeFromPrev = currentTime - prevKf.time;
           const timeToNext = nextKf.time - currentTime;
 
+          // Use auto-state if available to calculate dynamic distance
+          const currentTarget = autoState || this.DEFAULT_STATE;
+
           // Priority: Determine if we are "exiting" prev or "entering" next
           if (timeFromPrev < timeToNext) {
-            // Exiting Prev
-            const t = Math.min(1, timeFromPrev / BLEND_WINDOW);
-            manualInfluence = 1.0 - this.easeInfluence(t);
+            // Exiting Prev - Adaptive Decay
+            const decayWindow = calculateDynamicWindow(prevKf, currentTarget);
+            const t = Math.min(1, timeFromPrev / decayWindow);
+            manualInfluence = this.springSeam(1.0 - t); // Use spring seam for natural release
             manualState = prevKf;
           } else {
-            // Entering Next
-            const t = Math.min(1, timeToNext / BLEND_WINDOW);
-            manualInfluence = 1.0 - this.easeInfluence(t); // Influence grows as timeToNext shrinks
+            // Entering Next - Adaptive Ramp
+            const rampWindow = calculateDynamicWindow(nextKf, currentTarget);
+            const t = Math.min(1, timeToNext / rampWindow);
+            manualInfluence = this.springSeam(1.0 - t); // Influence grows as timeToNext shrinks
             manualState = nextKf;
           }
         }
       } else if (prevKf) {
         // AFTER LAST KEYFRAME
         if (hasAutoPath) {
+          const currentTarget = autoState || this.DEFAULT_STATE;
+          const decayWindow = calculateDynamicWindow(prevKf, currentTarget);
+
           const timeFromPrev = currentTime - prevKf.time;
-          const t = Math.min(1, timeFromPrev / BLEND_WINDOW);
-          manualInfluence = 1.0 - this.easeInfluence(t);
+          const t = Math.min(1, timeFromPrev / decayWindow);
+          manualInfluence = this.springSeam(1.0 - t);
         } else {
           // Hold last keyframe forever if no auto path
           manualInfluence = 1.0;
@@ -731,9 +753,12 @@ export class VideoRenderer {
         manualState = prevKf;
       } else if (nextKf) {
         // BEFORE FIRST KEYFRAME
+        const currentTarget = autoState || this.DEFAULT_STATE;
+        const rampWindow = calculateDynamicWindow(nextKf, currentTarget);
+
         const timeToNext = nextKf.time - currentTime;
-        const t = Math.min(1, timeToNext / BLEND_WINDOW);
-        manualInfluence = 1.0 - this.easeInfluence(t);
+        const t = Math.min(1, timeToNext / rampWindow);
+        manualInfluence = this.springSeam(1.0 - t);
         manualState = nextKf;
       }
     }
