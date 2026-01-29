@@ -143,13 +143,28 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             AUDIO_PATH = Some(audio_path.to_string_lossy().to_string());
         }
 
+        // DYNAMIC BITRATE CALCULATION
+        // Old Value: 15_000_000 (15 Mbps) -> Resulted in blur on High-DPI/Text
+        // New Value: Based on resolution. Target 0.35 bits per pixel for high quality capture.
+        // 1920x1080 @ 60fps = ~43 Mbps
+        // 2560x1440 @ 60fps = ~79 Mbps
+        // 3840x2160 @ 60fps = ~179 Mbps
+        let pixel_count = width as u64 * height as u64;
+        let target_bitrate = (pixel_count as f64 * 60.0 * 0.35) as u32;
+
+        // Cap bitrate at 150Mbps to avoid massive files for 4K while maintaining very high quality
+        let final_bitrate = target_bitrate.clamp(10_000_000, 150_000_000);
+
         let video_settings = VideoSettingsBuilder::new(width, height)
             .frame_rate(60)
-            .bitrate(15_000_000); // 15Mbps
+            .bitrate(final_bitrate);
 
         println!(
-            "Initializing VideoEncoder: {}x{} @ 60fps, Monitor Index: {}",
-            width, height, monitor_index
+            "Initializing VideoEncoder: {}x{} @ 60fps, Bitrate: {} Mbps, Monitor Index: {}",
+            width,
+            height,
+            final_bitrate / 1_000_000,
+            monitor_index
         );
 
         let encoder = VideoEncoder::new(

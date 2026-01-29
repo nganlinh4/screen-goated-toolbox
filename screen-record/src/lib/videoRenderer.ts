@@ -1,8 +1,6 @@
 import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame } from '@/types/video';
-import { SpringSolver } from './spring';
 
 // --- CONFIGURATION ---
-// Adjust this to sync cursor. 
 const CURSOR_OFFSET_SEC = 0.12;
 
 export interface RenderContext {
@@ -43,10 +41,8 @@ export class VideoRenderer {
   private lastCalculatedState: ZoomKeyframe | null = null;
   public getLastCalculatedState() { return this.lastCalculatedState; }
 
-  // Caching for smoothed mouse path
   private smoothedPositions: MousePosition[] | null = null;
   private lastMousePositionsRef: MousePosition[] | null = null;
-
   private hasLoggedPositions = false;
   private cachedBakedPath: BakedCameraFrame[] | null = null;
   private lastBakeSignature: string = '';
@@ -73,6 +69,17 @@ export class VideoRenderer {
     this.activeRenderContext = context;
   }
 
+  // --- Easing Functions ---
+
+  private easeInOutQuart(x: number): number {
+    return x < 0.5 ? 8 * x * x * x * x : 1 - Math.pow(-2 * x + 2, 4) / 2;
+  }
+
+  // Smooth ease for blending influence (Hermite / Smoothstep-like)
+  private easeInfluence(x: number): number {
+    return x * x * (3 - 2 * x);
+  }
+
   // --- BAKED CURSOR PATH GENERATION ---
   public generateBakedCursorPath(
     segment: VideoSegment,
@@ -84,10 +91,8 @@ export class VideoRenderer {
     const start = segment.trimStart;
     const end = segment.trimEnd;
 
-    // 1. Smooth the raw data first
     const smoothed = this.smoothMousePositions(mousePositions);
 
-    // Simulation state for squish physics
     let simSquishScale = 1.0;
     let simLastHoldTime = -1;
     const simRatio = 2.0;
@@ -147,38 +152,23 @@ export class VideoRenderer {
     const start = segment.trimStart;
     const end = segment.trimEnd;
 
-    const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-    const cropOffsetX = videoWidth * crop.x;
-    const cropOffsetY = videoHeight * crop.y;
-    const cropW = videoWidth * crop.width;
-    const cropH = videoHeight * crop.height;
-
-    const springConfig = { stiffness: 170, damping: 26, mass: 1 };
-
-    const initialState = this.calculateCurrentZoomStateInternal(start, segment, videoWidth * crop.width, videoHeight * crop.height);
-    const initialGlobalX = cropOffsetX + (initialState.positionX * cropW);
-    const initialGlobalY = cropOffsetY + (initialState.positionY * cropH);
-
-    const solverX = new SpringSolver(initialGlobalX, springConfig);
-    const solverY = new SpringSolver(initialGlobalY, springConfig);
-    const solverZoom = new SpringSolver(initialState.zoomFactor, springConfig);
-
     for (let t = start; t <= end; t += step) {
-      const targetState = this.calculateCurrentZoomStateInternal(t, segment, cropW, cropH);
+      const state = this.calculateCurrentZoomStateInternal(t, segment, videoWidth, videoHeight);
 
-      const targetGlobalX = cropOffsetX + (targetState.positionX * cropW);
-      const targetGlobalY = cropOffsetY + (targetState.positionY * cropH);
-      const targetZoom = targetState.zoomFactor;
+      const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+      const cropW = videoWidth * crop.width;
+      const cropH = videoHeight * crop.height;
+      const cropOffsetX = videoWidth * crop.x;
+      const cropOffsetY = videoHeight * crop.y;
 
-      const globalX = solverX.update(targetGlobalX, step);
-      const globalY = solverY.update(targetGlobalY, step);
-      const zoom = solverZoom.update(targetZoom, step);
+      const globalX = cropOffsetX + (state.positionX * cropW);
+      const globalY = cropOffsetY + (state.positionY * cropH);
 
       bakedPath.push({
         time: t - start,
         x: globalX,
         y: globalY,
-        zoom: zoom
+        zoom: state.zoomFactor
       });
     }
 
@@ -284,6 +274,7 @@ export class VideoRenderer {
       const scaledHeight = (canvas.height * (1 - legacyCrop)) * scale;
       const x = (canvas.width - scaledWidth) / 2;
       const y = (canvas.height - scaledHeight) / 2;
+
       const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height);
 
       ctx.save();
@@ -541,13 +532,18 @@ export class VideoRenderer {
     viewH: number
   ): ZoomKeyframe {
     const isPaused = this.activeRenderContext?.video?.paused ?? true;
+
+    // === FIX STARTS HERE ===
     const signature = JSON.stringify({
       trim: [segment.trimStart, segment.trimEnd],
       crop: segment.crop,
       smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })),
       zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
+      // Add this line to detect changes in the green curve:
+      zoomInfluence: segment.zoomInfluencePoints?.map(p => ({ t: p.time, v: p.value })),
       vidDims: [viewW, viewH]
     });
+    // === FIX ENDS HERE ===
 
     if (this.lastBakeSignature !== signature) {
       this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60);
@@ -598,8 +594,13 @@ export class VideoRenderer {
     viewW: number,
     viewH: number
   ): ZoomKeyframe {
-    if (segment.smoothMotionPath && segment.smoothMotionPath.length > 0) {
-      const path = segment.smoothMotionPath;
+
+    // --- 1. CALCULATE AUTO-SMART ZOOM STATE (Background Track) ---
+    const hasAutoPath = segment.smoothMotionPath && segment.smoothMotionPath.length > 0;
+    let autoState: ZoomKeyframe | null = null;
+
+    if (hasAutoPath) {
+      const path = segment.smoothMotionPath!;
       const idx = path.findIndex((p: any) => p.time >= currentTime);
       let cam = { x: viewW / 2, y: viewH / 2, zoom: 1.0 };
 
@@ -620,11 +621,11 @@ export class VideoRenderer {
         };
       }
 
+      // Apply Influence
       if (segment.zoomInfluencePoints && segment.zoomInfluencePoints.length > 0) {
         const points = segment.zoomInfluencePoints;
         let influence = 1.0;
         const iIdx = points.findIndex((p: { time: number }) => p.time >= currentTime);
-
         if (iIdx === -1) {
           influence = points[points.length - 1].value;
         } else if (iIdx === 0) {
@@ -636,7 +637,6 @@ export class VideoRenderer {
           const cosT = (1 - Math.cos(it * Math.PI)) / 2;
           influence = ip1.value * (1 - cosT) + ip2.value * cosT;
         }
-
         cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
         const centerX = viewW / 2;
         const centerY = viewH / 2;
@@ -650,7 +650,7 @@ export class VideoRenderer {
       const cropOffsetX = fullW * crop.x;
       const cropOffsetY = fullH * crop.y;
 
-      let resultState: ZoomKeyframe = {
+      autoState = {
         time: currentTime,
         duration: 0,
         zoomFactor: cam.zoom,
@@ -658,71 +658,121 @@ export class VideoRenderer {
         positionY: (cam.y - cropOffsetY) / viewH,
         easingType: 'linear'
       };
-
-      if (segment.zoomKeyframes && segment.zoomKeyframes.length > 0) {
-        const WINDOW = 1.5;
-        const nearby = segment.zoomKeyframes
-          .map((kf: ZoomKeyframe) => ({ kf, dist: Math.abs(kf.time - currentTime) }))
-          .filter((item: { kf: ZoomKeyframe; dist: number }) => item.dist < WINDOW)
-          .sort((a: { dist: number }, b: { dist: number }) => a.dist - b.dist)[0];
-
-        if (nearby) {
-          const ratio = nearby.dist / WINDOW;
-          const weight = (1 + Math.cos(ratio * Math.PI)) / 2;
-          resultState.zoomFactor = resultState.zoomFactor * (1 - weight) + nearby.kf.zoomFactor * weight;
-          resultState.positionX = resultState.positionX * (1 - weight) + nearby.kf.positionX * weight;
-          resultState.positionY = resultState.positionY * (1 - weight) + nearby.kf.positionY * weight;
-        }
-      }
-
-      return resultState;
     }
+
+    // --- 2. CALCULATE MANUAL KEYFRAME STATE (Foreground Track) ---
+    // Improved logic to blend seamlessly with Auto-Zoom
+
+    let manualState: ZoomKeyframe | null = null;
+    let manualInfluence = 0.0;
 
     const sortedKeyframes = [...segment.zoomKeyframes].sort((a: ZoomKeyframe, b: ZoomKeyframe) => a.time - b.time);
-    if (sortedKeyframes.length === 0) return this.DEFAULT_STATE;
 
-    const nextKeyframe = sortedKeyframes.find(k => k.time > currentTime);
-    const prevKeyframe = [...sortedKeyframes].reverse().find(k => k.time <= currentTime);
-    const TRANSITION_DURATION = 1.0;
+    if (sortedKeyframes.length > 0) {
+      const BLEND_WINDOW = 2.0; // Seconds to blend in/out
 
-    if (prevKeyframe && nextKeyframe && (nextKeyframe.time - prevKeyframe.time) <= TRANSITION_DURATION) {
-      const progress = (currentTime - prevKeyframe.time) / (nextKeyframe.time - prevKeyframe.time);
-      const easedProgress = this.easeOutCubic(Math.min(1, Math.max(0, progress)));
-      return {
-        time: currentTime,
-        duration: nextKeyframe.time - prevKeyframe.time,
-        zoomFactor: prevKeyframe.zoomFactor + (nextKeyframe.zoomFactor - prevKeyframe.zoomFactor) * easedProgress,
-        positionX: prevKeyframe.positionX + (nextKeyframe.positionX - prevKeyframe.positionX) * easedProgress,
-        positionY: prevKeyframe.positionY + (nextKeyframe.positionY - prevKeyframe.positionY) * easedProgress,
-        easingType: 'easeOut' as const
-      };
-    }
+      const nextKfIdx = sortedKeyframes.findIndex(k => k.time > currentTime);
+      const prevKf = nextKfIdx > 0 ? sortedKeyframes[nextKfIdx - 1] : (nextKfIdx === -1 ? sortedKeyframes[sortedKeyframes.length - 1] : null);
+      const nextKf = nextKfIdx !== -1 ? sortedKeyframes[nextKfIdx] : null;
 
-    if (nextKeyframe) {
-      const timeToNext = nextKeyframe.time - currentTime;
-      if (timeToNext <= TRANSITION_DURATION) {
-        const progress = (TRANSITION_DURATION - timeToNext) / TRANSITION_DURATION;
-        const easedProgress = this.easeOutCubic(Math.min(1, Math.max(0, progress)));
-        const startState = prevKeyframe || this.DEFAULT_STATE;
-        return {
-          time: currentTime,
-          duration: TRANSITION_DURATION,
-          zoomFactor: startState.zoomFactor + (nextKeyframe.zoomFactor - startState.zoomFactor) * easedProgress,
-          positionX: startState.positionX + (nextKeyframe.positionX - startState.positionX) * easedProgress,
-          positionY: startState.positionY + (nextKeyframe.positionY - startState.positionY) * easedProgress,
-          easingType: 'easeOut' as const
-        };
+      if (prevKf && nextKf) {
+        // BETWEEN TWO KEYFRAMES
+        const timeDiff = nextKf.time - prevKf.time;
+
+        // Check if this is a "continuous" segment or a gap
+        // If keyframes are close (< 3s), treat as continuous manual movement
+        if (timeDiff < 3.0) {
+          // Continuous manual movement
+          manualInfluence = 1.0;
+
+          const rawT = (currentTime - prevKf.time) / timeDiff;
+          const t = Math.max(0, Math.min(1, rawT));
+          const easedT = this.easeInOutQuart(t);
+
+          const posX = prevKf.positionX + (nextKf.positionX - prevKf.positionX) * easedT;
+          const posY = prevKf.positionY + (nextKf.positionY - prevKf.positionY) * easedT;
+
+          // Exponential Zoom Interpolation
+          const startZoom = Math.max(0.1, prevKf.zoomFactor);
+          const endZoom = Math.max(0.1, nextKf.zoomFactor); // Fix variable name here
+          const currentZoom = startZoom * Math.pow(endZoom / startZoom, easedT);
+
+          manualState = {
+            time: currentTime, duration: 0, zoomFactor: currentZoom, positionX: posX, positionY: posY, easingType: 'easeOut'
+          };
+        } else {
+          // Large gap - decay after Prev, ramp up to Next
+          const timeFromPrev = currentTime - prevKf.time;
+          const timeToNext = nextKf.time - currentTime;
+
+          // Priority: Determine if we are "exiting" prev or "entering" next
+          if (timeFromPrev < timeToNext) {
+            // Exiting Prev
+            const t = Math.min(1, timeFromPrev / BLEND_WINDOW);
+            manualInfluence = 1.0 - this.easeInfluence(t);
+            manualState = prevKf;
+          } else {
+            // Entering Next
+            const t = Math.min(1, timeToNext / BLEND_WINDOW);
+            manualInfluence = 1.0 - this.easeInfluence(t); // Influence grows as timeToNext shrinks
+            manualState = nextKf;
+          }
+        }
+      } else if (prevKf) {
+        // AFTER LAST KEYFRAME
+        const timeFromPrev = currentTime - prevKf.time;
+        const t = Math.min(1, timeFromPrev / BLEND_WINDOW);
+        manualInfluence = 1.0 - this.easeInfluence(t);
+        manualState = prevKf;
+      } else if (nextKf) {
+        // BEFORE FIRST KEYFRAME
+        const timeToNext = nextKf.time - currentTime;
+        const t = Math.min(1, timeToNext / BLEND_WINDOW);
+        manualInfluence = 1.0 - this.easeInfluence(t);
+        manualState = nextKf;
       }
     }
 
-    if (prevKeyframe) return prevKeyframe;
+    // --- 3. FINAL BLENDING ---
+
+    if (autoState) {
+      if (manualState && manualInfluence > 0.001) {
+        // Blend Auto and Manual
+        const finalZoom = autoState.zoomFactor * (1 - manualInfluence) + manualState.zoomFactor * manualInfluence;
+        const finalX = autoState.positionX * (1 - manualInfluence) + manualState.positionX * manualInfluence;
+        const finalY = autoState.positionY * (1 - manualInfluence) + manualState.positionY * manualInfluence;
+
+        return {
+          time: currentTime,
+          duration: 0,
+          zoomFactor: finalZoom,
+          positionX: finalX,
+          positionY: finalY,
+          easingType: 'linear'
+        };
+      } else {
+        // Pure Auto
+        return autoState;
+      }
+    } else if (manualState) {
+      // No Auto path, but have manual state.
+
+      if (manualInfluence < 0.999) {
+        const def = this.DEFAULT_STATE;
+        const finalZoom = def.zoomFactor * (1 - manualInfluence) + manualState.zoomFactor * manualInfluence;
+        const finalX = def.positionX * (1 - manualInfluence) + manualState.positionX * manualInfluence;
+        const finalY = def.positionY * (1 - manualInfluence) + manualState.positionY * manualInfluence;
+        return {
+          time: currentTime, duration: 0, zoomFactor: finalZoom, positionX: finalX, positionY: finalY, easingType: 'linear'
+        };
+      }
+      return manualState;
+    }
+
     return this.DEFAULT_STATE;
   }
 
-  private easeOutCubic(x: number): number {
-    return 1 - Math.pow(1 - x, 3);
-  }
-
+  // --- Utility functions needed for the interpolation ---
   private catmullRomInterpolate(p0: number, p1: number, p2: number, p3: number, t: number): number {
     const t2 = t * t;
     const t3 = t2 * t;
