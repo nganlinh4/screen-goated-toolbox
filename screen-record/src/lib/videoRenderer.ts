@@ -3,8 +3,6 @@ import { SpringSolver } from './spring';
 
 // --- CONFIGURATION ---
 // Adjust this to sync cursor. 
-// POSITIVE value = moves cursor AHEAD (fixes cursor lagging behind video).
-// NEGATIVE value = moves cursor BACK (fixes cursor arriving too early).
 const CURSOR_OFFSET_SEC = 0.12;
 
 export interface RenderContext {
@@ -47,7 +45,7 @@ export class VideoRenderer {
 
   // Caching for smoothed mouse path
   private smoothedPositions: MousePosition[] | null = null;
-  private lastMousePositionsRef: MousePosition[] | null = null; // Track reference to detect changes
+  private lastMousePositionsRef: MousePosition[] | null = null;
 
   private hasLoggedPositions = false;
   private cachedBakedPath: BakedCameraFrame[] | null = null;
@@ -57,7 +55,6 @@ export class VideoRenderer {
   private draggedTextId: string | null = null;
   private dragOffset = { x: 0, y: 0 };
 
-  // Smooth cursor animation state
   private currentSquishScale = 1.0;
   private lastHoldTime = -1;
   private readonly CLICK_FUSE_THRESHOLD = 0.15;
@@ -67,7 +64,6 @@ export class VideoRenderer {
   constructor() {
     this.pointerImage = new Image();
     this.pointerImage.src = '/pointer.svg';
-    // No-op onload, we check .complete in draw
     this.pointerImage.onload = () => { };
   }
 
@@ -77,7 +73,7 @@ export class VideoRenderer {
     this.activeRenderContext = context;
   }
 
-  // --- NEW: Bake the cursor path for Rust export ---
+  // --- BAKED CURSOR PATH GENERATION ---
   public generateBakedCursorPath(
     segment: VideoSegment,
     mousePositions: MousePosition[],
@@ -89,29 +85,18 @@ export class VideoRenderer {
     const end = segment.trimEnd;
 
     // 1. Smooth the raw data first
-    // This is expensive so we do it once. 
-    // Note: This logic duplicates smoothMousePositions/interpolate logic but linearly for export.
     const smoothed = this.smoothMousePositions(mousePositions);
 
     // Simulation state for squish physics
     let simSquishScale = 1.0;
     let simLastHoldTime = -1;
-    // We assume 60fps fixed step for simulation consistency
-    // SQUISH_SPEED and RELEASE_SPEED are tuned for 120fps (draw loop)
-    // We adjust them for 60fps export or just run logic twice?
-    // Let's adjust scalar: draw loop uses (elapsed / (1000/120)).
-    // At 60fps, elapsed is ~16.6ms. (1000/120) = 8.33ms. Ratio = 2.0.
     const simRatio = 2.0;
 
     for (let t = start; t <= end; t += step) {
-      // Apply offset for sync
       const cursorT = t + CURSOR_OFFSET_SEC;
-
-      // Interpolate position from smoothed data
       const pos = this.interpolateCursorPositionInternal(cursorT, smoothed);
 
       if (!pos) {
-        // If no data, hold last known or default
         if (baked.length > 0) {
           const last = baked[baked.length - 1];
           baked.push({ ...last, time: t - start });
@@ -121,7 +106,6 @@ export class VideoRenderer {
         continue;
       }
 
-      // Physics Simulation for Squish
       const isClicked = pos.isClicked;
       const timeSinceLastHold = cursorT - simLastHoldTime;
       const shouldBeSquished = isClicked || (simLastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
@@ -151,7 +135,7 @@ export class VideoRenderer {
     return baked;
   }
 
-  // --- NEW: Bake the camera path for Rust export ---
+  // --- BAKED CAMERA PATH GENERATION ---
   public generateBakedPath(
     segment: VideoSegment,
     videoWidth: number,
@@ -169,10 +153,8 @@ export class VideoRenderer {
     const cropW = videoWidth * crop.width;
     const cropH = videoHeight * crop.height;
 
-    // Screen Studio-like "Mellow" spring settings
     const springConfig = { stiffness: 170, damping: 26, mass: 1 };
 
-    // Initial State: Centered in crop, zoom 1.0
     const initialState = this.calculateCurrentZoomStateInternal(start, segment, videoWidth * crop.width, videoHeight * crop.height);
     const initialGlobalX = cropOffsetX + (initialState.positionX * cropW);
     const initialGlobalY = cropOffsetY + (initialState.positionY * cropH);
@@ -181,24 +163,19 @@ export class VideoRenderer {
     const solverY = new SpringSolver(initialGlobalY, springConfig);
     const solverZoom = new SpringSolver(initialState.zoomFactor, springConfig);
 
-    // Iterate through time and capture the exact state
     for (let t = start; t <= end; t += step) {
-      // 1. Get the TARGET state (where standard easing says the camera should be)
-      // Note: calculateCurrentZoomStateInternal takes viewW/H which are the CROPPED dimensions
       const targetState = this.calculateCurrentZoomStateInternal(t, segment, cropW, cropH);
 
-      // 2. Convert Target Normalized state back to Global Pixels
       const targetGlobalX = cropOffsetX + (targetState.positionX * cropW);
       const targetGlobalY = cropOffsetY + (targetState.positionY * cropH);
       const targetZoom = targetState.zoomFactor;
 
-      // 3. Update Springs
       const globalX = solverX.update(targetGlobalX, step);
       const globalY = solverY.update(targetGlobalY, step);
       const zoom = solverZoom.update(targetZoom, step);
 
       bakedPath.push({
-        time: t - start, // Relative time for export (starts at 0)
+        time: t - start,
         x: globalX,
         y: globalY,
         zoom: zoom
@@ -209,7 +186,6 @@ export class VideoRenderer {
   }
 
   public startAnimation(renderContext: RenderContext) {
-    // console.log('[VideoRenderer] Starting animation');
     this.stopAnimation();
     this.lastDrawTime = 0;
     this.smoothedPositions = null;
@@ -217,7 +193,6 @@ export class VideoRenderer {
     this.activeRenderContext = renderContext;
 
     const animate = () => {
-      // Stop animation loop if video is paused or context missing
       if (!this.activeRenderContext || this.activeRenderContext.video.paused) {
         this.animationFrame = null;
         return;
@@ -256,8 +231,6 @@ export class VideoRenderer {
 
     const { video, canvas, tempCanvas, segment, backgroundConfig, mousePositions } = context;
     if (!video || !canvas || !segment) return;
-
-    // Safety check: video must have data
     if (video.readyState < 2) return;
 
     const isExportMode = options.exportMode || false;
@@ -276,11 +249,9 @@ export class VideoRenderer {
     this.latestElapsed = this.lastDrawTime === 0 ? 1000 / 60 : now - this.lastDrawTime;
     this.lastDrawTime = now;
 
-    // Get dimensions from video element
     const vidW = video.videoWidth;
     const vidH = video.videoHeight;
 
-    // Basic safety check for 0-dimension videos
     if (!vidW || !vidH) {
       this.isDrawing = false;
       return;
@@ -295,7 +266,6 @@ export class VideoRenderer {
     const canvasW = Math.round(srcW);
     const canvasH = Math.round(srcH);
 
-    // Resize canvas if needed
     if (canvas.width !== canvasW || canvas.height !== canvasH) {
       canvas.width = canvasW;
       canvas.height = canvasH;
@@ -328,7 +298,6 @@ export class VideoRenderer {
         ctx.scale(zoomState.zoomFactor, zoomState.zoomFactor);
       }
 
-      // Draw Background
       ctx.fillStyle = this.getBackgroundStyle(
         ctx,
         backgroundConfig.backgroundType,
@@ -336,7 +305,6 @@ export class VideoRenderer {
       );
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Temp Canvas setup for Rounded Corners
       if (tempCanvas.width !== canvas.width || tempCanvas.height !== canvas.height) {
         tempCanvas.width = canvas.width;
         tempCanvas.height = canvas.height;
@@ -352,14 +320,12 @@ export class VideoRenderer {
       const radius = backgroundConfig.borderRadius;
       const offset = 0.5;
 
-      // Draw Shadow
       if (backgroundConfig.shadow) {
         tempCtx.save();
         tempCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
         tempCtx.shadowBlur = backgroundConfig.shadow;
         tempCtx.shadowOffsetY = backgroundConfig.shadow * 0.5;
 
-        // Path
         tempCtx.beginPath();
         tempCtx.moveTo(x + radius + offset, y + offset);
         tempCtx.lineTo(x + scaledWidth - radius - offset, y + offset);
@@ -377,7 +343,6 @@ export class VideoRenderer {
         tempCtx.restore();
       }
 
-      // Draw Video
       tempCtx.beginPath();
       tempCtx.moveTo(x + radius + offset, y + offset);
       tempCtx.lineTo(x + scaledWidth - radius - offset, y + offset);
@@ -392,7 +357,6 @@ export class VideoRenderer {
 
       tempCtx.clip();
 
-      // Ensure video is drawable
       try {
         tempCtx.drawImage(
           video,
@@ -400,7 +364,6 @@ export class VideoRenderer {
           x, y, scaledWidth, scaledHeight
         );
       } catch (e) {
-        // Ignore drawImage errors (e.g. if video not fully loaded)
       }
 
       tempCtx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
@@ -410,11 +373,7 @@ export class VideoRenderer {
 
       ctx.drawImage(tempCanvas, 0, 0);
 
-      // Cursor
-      // Apply offset to compensate for recording latency/smoothing lag
-      // CURSOR_OFFSET_SEC > 0 moves cursor to the future (counter-acting lag)
       const cursorTime = video.currentTime + CURSOR_OFFSET_SEC;
-
       const interpolatedPosition = this.interpolateCursorPosition(
         cursorTime,
         mousePositions
@@ -422,20 +381,17 @@ export class VideoRenderer {
 
       if (interpolatedPosition) {
         ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to absolute coords for cursor calculation
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
 
         const mX = interpolatedPosition.x;
         const mY = interpolatedPosition.y;
 
-        // Calculate relative position based on Source (Crop) area
         const relX = (mX - srcX) / srcW;
         const relY = (mY - srcY) / (srcH * (1 - legacyCrop));
 
-        // Map to Canvas destination rect
         let cursorX = x + (relX * scaledWidth);
         let cursorY = y + (relY * scaledHeight);
 
-        // Apply Zoom manually if active
         if (zoomState && zoomState.zoomFactor !== 1) {
           cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
           cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
@@ -584,15 +540,11 @@ export class VideoRenderer {
     viewW: number,
     viewH: number
   ): ZoomKeyframe {
-    // 1. If video is paused, we are likely editing. Skip baked spring path to avoid sluggishness/bugs.
-    // Also skip if no baked path exists or if it's the default 1-keyframe state.
     const isPaused = this.activeRenderContext?.video?.paused ?? true;
-
-    // Improved signature to catch value changes in keyframes
     const signature = JSON.stringify({
       trim: [segment.trimStart, segment.trimEnd],
       crop: segment.crop,
-      smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })), // Significant changes only
+      smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })),
       zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
       vidDims: [viewW, viewH]
     });
@@ -602,14 +554,12 @@ export class VideoRenderer {
       this.lastBakeSignature = signature;
     }
 
-    // 2. Sample from baked path ONLY if video is playing
     if (!isPaused && this.cachedBakedPath && this.cachedBakedPath.length > 0) {
       const relTime = currentTime - segment.trimStart;
       const step = 1 / 60;
       const idx = Math.floor(relTime / step);
 
       if (idx >= 0 && idx < this.cachedBakedPath.length) {
-        // Linear interpolate between baked frames for sub-frame smoothness in preview
         const p1 = this.cachedBakedPath[idx];
         const p2 = this.cachedBakedPath[idx + 1] || p1;
         const t = (relTime % step) / step;
@@ -618,7 +568,6 @@ export class VideoRenderer {
         const globalY = p1.y + (p2.y - p1.y) * t;
         const zoom = p1.zoom + (p2.zoom - p1.zoom) * t;
 
-        // Convert Global back to Local Normalized for the Renderer
         const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
         const fullW = viewW / crop.width;
         const fullH = viewH / crop.height;
@@ -649,7 +598,6 @@ export class VideoRenderer {
     viewW: number,
     viewH: number
   ): ZoomKeyframe {
-    // 1. AUTO ZOOM (Smooth Motion Path)
     if (segment.smoothMotionPath && segment.smoothMotionPath.length > 0) {
       const path = segment.smoothMotionPath;
       const idx = path.findIndex((p: any) => p.time >= currentTime);
@@ -689,27 +637,16 @@ export class VideoRenderer {
           influence = ip1.value * (1 - cosT) + ip2.value * cosT;
         }
 
-        // Apply influence to pull camera back to center/default
         cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
-        // Adjust center to be center of crop
-        // viewW/H is the cropped width/height in pixels
         const centerX = viewW / 2;
         const centerY = viewH / 2;
-
         cam.x = centerX + (cam.x - centerX) * influence;
         cam.y = centerY + (cam.y - centerY) * influence;
       }
 
-      // AUTO-ZOOM FIX:
-      // cam.x/y from autoZoom are in GLOBAL pixels (relative to 0,0 of source video).
-      // viewW/viewH are cropped dimensions.
-      // We must subtract the crop offset to get local coordinates for the preview.
-
       const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-      // Calculate original source dimensions based on viewW/viewH (which are cropped dimensions)
       const fullW = viewW / crop.width;
       const fullH = viewH / crop.height;
-
       const cropOffsetX = fullW * crop.x;
       const cropOffsetY = fullH * crop.y;
 
@@ -717,13 +654,11 @@ export class VideoRenderer {
         time: currentTime,
         duration: 0,
         zoomFactor: cam.zoom,
-        // Convert GLOBAL camera position to LOCAL relative position (0-1 within the crop)
         positionX: (cam.x - cropOffsetX) / viewW,
         positionY: (cam.y - cropOffsetY) / viewH,
         easingType: 'linear'
       };
 
-      // Blend with Manual Keyframes if they exist (Overriding Auto Zoom)
       if (segment.zoomKeyframes && segment.zoomKeyframes.length > 0) {
         const WINDOW = 1.5;
         const nearby = segment.zoomKeyframes
@@ -743,7 +678,6 @@ export class VideoRenderer {
       return resultState;
     }
 
-    // 2. MANUAL ZOOM (Keyframes Only)
     const sortedKeyframes = [...segment.zoomKeyframes].sort((a: ZoomKeyframe, b: ZoomKeyframe) => a.time - b.time);
     if (sortedKeyframes.length === 0) return this.DEFAULT_STATE;
 
@@ -884,67 +818,27 @@ export class VideoRenderer {
     currentTime: number,
     mousePositions: MousePosition[],
   ): { x: number; y: number; isClicked: boolean; cursor_type: string } | null {
-    if (mousePositions.length === 0) return null;
-
-    if (!this.hasLoggedPositions) {
-      this.hasLoggedPositions = true;
-    }
-
-    // INVALIDATE CACHE if input data changes
+    // 1. Invalidate cache if input changed
     if (this.lastMousePositionsRef !== mousePositions) {
       this.smoothedPositions = null;
       this.lastMousePositionsRef = mousePositions;
     }
 
-    if (!this.smoothedPositions || this.smoothedPositions.length === 0) {
+    // 2. Generate cache if needed
+    if (!this.smoothedPositions && mousePositions.length > 0) {
+      if (!this.hasLoggedPositions) {
+        this.hasLoggedPositions = true;
+      }
       this.smoothedPositions = this.smoothMousePositions(mousePositions);
     }
 
-    const positions = this.smoothedPositions;
-    const exactMatch = positions.find((pos: MousePosition) => Math.abs(pos.timestamp - currentTime) < 0.001);
-    if (exactMatch) {
-      return {
-        x: exactMatch.x,
-        y: exactMatch.y,
-        isClicked: Boolean(exactMatch.isClicked),
-        cursor_type: exactMatch.cursor_type || 'default'
-      };
-    }
+    // 3. Use cached data
+    const dataToUse = this.smoothedPositions || mousePositions;
 
-    const nextIndex = positions.findIndex((pos: MousePosition) => pos.timestamp > currentTime);
-    if (nextIndex === -1) {
-      const last = positions[positions.length - 1];
-      return {
-        x: last.x,
-        y: last.y,
-        isClicked: Boolean(last.isClicked),
-        cursor_type: last.cursor_type || 'default'
-      };
-    }
-
-    if (nextIndex === 0) {
-      const first = positions[0];
-      return {
-        x: first.x,
-        y: first.y,
-        isClicked: Boolean(first.isClicked),
-        cursor_type: first.cursor_type || 'default'
-      };
-    }
-
-    const prev = positions[nextIndex - 1];
-    const next = positions[nextIndex];
-    const t = (currentTime - prev.timestamp) / (next.timestamp - prev.timestamp);
-
-    return {
-      x: prev.x + (next.x - prev.x) * t,
-      y: prev.y + (next.y - prev.y) * t,
-      isClicked: Boolean(prev.isClicked || next.isClicked),
-      cursor_type: next.cursor_type || 'default'
-    };
+    return this.interpolateCursorPositionInternal(currentTime, dataToUse);
   }
 
-  // Internal interpolation without side effects for baking
+  // Internal version to support both live and export baking
   private interpolateCursorPositionInternal(
     currentTime: number,
     positions: MousePosition[],
@@ -1030,6 +924,8 @@ export class VideoRenderer {
 
     switch (effectiveType) {
       case 'text': {
+        // I-beam shape
+        // Adjust for hotspot: I-beam center is roughly (3, 8)
         ctx.translate(-6, -8);
         const ibeam = new Path2D(`
           M 2 0 L 10 0 L 10 2 L 7 2 L 7 14 L 10 14 L 10 16 L 2 16 L 2 14 L 5 14 L 5 2 L 2 2 Z
@@ -1043,12 +939,14 @@ export class VideoRenderer {
       }
 
       case 'pointer': {
+        // Hand cursor image
         let imgWidth = 24, imgHeight = 24;
         if (this.pointerImage.complete && this.pointerImage.naturalWidth > 0) {
           imgWidth = this.pointerImage.naturalWidth;
           imgHeight = this.pointerImage.naturalHeight;
           const offsetX = 8;
           const offsetY = 16;
+          // Note: TS draws offset, we need to match this in Rust
           ctx.translate(-imgWidth / 2 + offsetX, -imgHeight / 2 + offsetY);
           ctx.drawImage(this.pointerImage, 0, 0, imgWidth, imgHeight);
         }
@@ -1056,6 +954,8 @@ export class VideoRenderer {
       }
 
       default: {
+        // Standard Arrow
+        // We translate by (-8, -5) to bring tip to (0,0)
         ctx.translate(-8, -5);
         const mainArrow = new Path2D('M 8.2 4.9 L 19.8 16.5 L 13 16.5 L 12.6 16.6 L 8.2 20.9 Z');
         const clickIndicator = new Path2D('M 17.3 21.6 L 13.7 23.1 L 9 12 L 12.7 10.5 Z');

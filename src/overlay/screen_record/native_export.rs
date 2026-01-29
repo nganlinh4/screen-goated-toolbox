@@ -24,9 +24,7 @@ pub struct ExportConfig {
     pub mouse_positions: Vec<MousePosition>,
     pub video_data: Option<Vec<u8>>,
     pub audio_data: Option<Vec<u8>>,
-    // NEW: Receive baked path from frontend
     pub baked_path: Option<Vec<BakedCameraFrame>>,
-    // NEW: Receive baked cursor path
     pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
 }
 
@@ -155,7 +153,6 @@ fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f
         return (0.0, 0.0, 1.0);
     }
 
-    // Binary search for the frame
     let idx = baked_path.partition_point(|p| p.time < time);
 
     if idx == 0 {
@@ -168,7 +165,6 @@ fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f
         return (p.x, p.y, p.zoom);
     }
 
-    // Linear Interpolate between frames for smoothness (even at 60fps)
     let p1 = &baked_path[idx - 1];
     let p2 = &baked_path[idx];
 
@@ -185,7 +181,7 @@ fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f
 fn sample_baked_cursor(
     time: f64,
     baked_path: &[BakedCursorFrame],
-) -> Option<(f64, f64, f64, bool)> {
+) -> Option<(f64, f64, f64, bool, String)> {
     if baked_path.is_empty() {
         return None;
     }
@@ -194,20 +190,17 @@ fn sample_baked_cursor(
 
     if idx == 0 {
         let p = &baked_path[0];
-        return Some((p.x, p.y, p.scale, p.is_clicked));
+        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone()));
     }
 
     if idx >= baked_path.len() {
-        // If time is past end, hide cursor or hold last? Hold last.
-        // Or if time > path duration + tolerance, return None?
         let p = baked_path.last().unwrap();
-        return Some((p.x, p.y, p.scale, p.is_clicked));
+        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone()));
     }
 
     let p1 = &baked_path[idx - 1];
     let p2 = &baked_path[idx];
 
-    // Interpolate
     let t = (time - p1.time) / (p2.time - p1.time).max(0.0001);
     let t = t.clamp(0.0, 1.0);
 
@@ -215,35 +208,29 @@ fn sample_baked_cursor(
     let y = p1.y + (p2.y - p1.y) * t;
     let scale = p1.scale + (p2.scale - p1.scale) * t;
 
-    // Boolean click state doesn't interpolate, just hold previous
     let is_clicked = if t < 0.5 {
         p1.is_clicked
     } else {
         p2.is_clicked
     };
 
-    Some((x, y, scale, is_clicked))
-}
+    // Type is discrete
+    let cursor_type = if t < 0.5 {
+        p1.cursor_type.clone()
+    } else {
+        p2.cursor_type.clone()
+    };
 
-// --- MAIN EXPORT FUNCTION ---
+    Some((x, y, scale, is_clicked, cursor_type))
+}
 
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
     let mut config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
     println!("[Export] Starting GPU-accelerated export...");
-    println!(
-        "[Export] Config dimensions from frontend: {}x{}",
-        config.width, config.height
-    );
 
     let baked_path = config.baked_path.unwrap_or_default();
     let baked_cursor = config.baked_cursor_path.unwrap_or_default();
-
-    println!(
-        "[Export] Received baked camera path: {} frames, cursor path: {} frames",
-        baked_path.len(),
-        baked_cursor.len()
-    );
 
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
@@ -321,7 +308,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         src_h
     };
 
-    // Calculate absolute offset of the crop in source coordinates
     let crop_x_offset = if let Some(c) = crop {
         src_w as f64 * c.x
     } else {
@@ -346,7 +332,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let out_w = out_w - (out_w % 2);
     let out_h = out_h - (out_h % 2);
 
-    // Calculate video size maintaining CROPPED aspect ratio (not source)
     let scale_factor = config.background_config.scale / 100.0;
     let crop_aspect = crop_w as f64 / crop_h as f64;
     let out_aspect = out_w as f64 / out_h as f64;
@@ -365,12 +350,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
 
-    // Upload cursor image
-    // For "strictly identical", we'd ideally load the SVG, but for now we'll create a simple
-    // arrow texture if one isn't provided.
-    // We can assume `src/overlay/screen_record/dist/pointer.svg` is available but loading SVG is hard.
-    // We'll create a synthetic arrow texture or use an embedded PNG if possible.
-    // For now, let's use a generated arrow bitmap to keep it dependency-light.
     compositor.init_cursor_texture();
 
     // 5. Start FFmpeg decoder
@@ -490,27 +469,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut current_time = config.trim_start;
     let end_time = config.trim_start + config.duration;
     let mut frame_count = 0u32;
-    let start = std::time::Instant::now();
 
     while current_time < end_time {
         if std::io::Read::read_exact(&mut decoder_stdout, &mut buffer).is_err() {
             break;
         }
 
-        // --- NEW LOGIC: Use Baked Paths directly ---
         let (raw_cam_x, raw_cam_y, zoom) =
             sample_baked_path(current_time - config.trim_start, &baked_path);
 
-        // Sample Cursor
         let cursor_state = sample_baked_cursor(current_time - config.trim_start, &baked_cursor);
 
-        // Adjust camera coordinate to be relative to the CROPPED frame
         let cam_x = raw_cam_x - crop_x_offset;
         let cam_y = raw_cam_y - crop_y_offset;
 
         compositor.upload_frame(&buffer);
 
-        // Calculate final offsets (Copied from previous fix, this math is correct)
         let zoomed_video_w = video_w as f64 * zoom;
         let zoomed_video_h = video_h as f64 * zoom;
 
@@ -527,23 +501,34 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let offset_x = zoom_shift_x + bg_center_x;
         let offset_y = zoom_shift_y + bg_center_y;
 
-        // Prepare cursor uniforms
-        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_clicked) =
-            if let Some((cx, cy, c_scale, is_clicked)) = cursor_state {
-                // Map cursor global position to texture relative coordinate (0..1)
-                // Relative to the video frame we are rendering
+        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_clicked, cursor_type_id) =
+            if let Some((cx, cy, c_scale, is_clicked, c_type)) = cursor_state {
                 let rel_x = (cx - crop_x_offset) / crop_w as f64;
                 let rel_y = (cy - crop_y_offset) / crop_h as f64;
 
-                // The shader needs cursor position in UV space (0..1) relative to the video texture
+                // Map type to ID (0=Arrow, 1=Text, 2=Pointer/Hand)
+                let type_id = match c_type.as_str() {
+                    "text" => 1.0,
+                    "pointer" => 2.0,
+                    _ => 0.0,
+                };
+
+                // Cursor scale calculation to match preview exactly:
+                // Preview: cursorSizeScale = cursorScale * sizeRatio * zoom
+                // where sizeRatio = min(canvas.width / srcW, canvas.height / srcH)
+                // In export: sizeRatio = min(out_w / crop_w, out_h / crop_h)
+                let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
+                let cursor_final_scale = c_scale * config.background_config.cursor_scale * zoom * size_ratio;
+
                 (
                     rel_x as f32,
                     rel_y as f32,
-                    (c_scale * config.background_config.cursor_scale) as f32,
+                    cursor_final_scale as f32,
                     if is_clicked { 1.0 } else { 0.0 },
+                    type_id,
                 )
             } else {
-                (-1.0, -1.0, 0.0, 0.0) // Hidden
+                (-1.0, -1.0, 0.0, 0.0, 0.0) // Hidden
             };
 
         let uniforms = create_uniforms(
@@ -564,6 +549,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             (cursor_pos_x, cursor_pos_y),
             cursor_scale,
             cursor_clicked,
+            cursor_type_id,
         );
 
         let rendered = compositor.render_frame(&uniforms);
