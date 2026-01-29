@@ -680,8 +680,8 @@ export class VideoRenderer {
         const timeDiff = nextKf.time - prevKf.time;
 
         // Check if this is a "continuous" segment or a gap
-        // If keyframes are close (< 3s), treat as continuous manual movement
-        if (timeDiff < 3.0) {
+        // If keyframes are close (< 3s) OR NO AUTO PATH, treat as continuous manual movement
+        if (timeDiff < 3.0 || !hasAutoPath) {
           // Continuous manual movement
           manualInfluence = 1.0;
 
@@ -701,7 +701,7 @@ export class VideoRenderer {
             time: currentTime, duration: 0, zoomFactor: currentZoom, positionX: posX, positionY: posY, easingType: 'easeOut'
           };
         } else {
-          // Large gap - decay after Prev, ramp up to Next
+          // Large gap WITH Auto Path - decay after Prev, ramp up to Next
           const timeFromPrev = currentTime - prevKf.time;
           const timeToNext = nextKf.time - currentTime;
 
@@ -720,9 +720,14 @@ export class VideoRenderer {
         }
       } else if (prevKf) {
         // AFTER LAST KEYFRAME
-        const timeFromPrev = currentTime - prevKf.time;
-        const t = Math.min(1, timeFromPrev / BLEND_WINDOW);
-        manualInfluence = 1.0 - this.easeInfluence(t);
+        if (hasAutoPath) {
+          const timeFromPrev = currentTime - prevKf.time;
+          const t = Math.min(1, timeFromPrev / BLEND_WINDOW);
+          manualInfluence = 1.0 - this.easeInfluence(t);
+        } else {
+          // Hold last keyframe forever if no auto path
+          manualInfluence = 1.0;
+        }
         manualState = prevKf;
       } else if (nextKf) {
         // BEFORE FIRST KEYFRAME
