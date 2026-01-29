@@ -979,10 +979,12 @@ export class VideoRenderer {
     height: number
   ) {
     ctx.save();
-    ctx.font = `${textSegment.style.fontSize}px sans-serif`;
+    ctx.font = `${textSegment.style.fontSize}px 'Google Sans Flex', sans-serif`;
     ctx.fillStyle = textSegment.style.color;
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle'; // Align vertical center for consistency
 
+    // Position (0-100% based)
     const x = (textSegment.style.x / 100) * width;
     const y = (textSegment.style.y / 100) * height;
 
@@ -990,7 +992,7 @@ export class VideoRenderer {
     const textHeight = textSegment.style.fontSize;
     const hitArea = {
       x: x - metrics.width / 2 - 10,
-      y: y - textHeight - 10,
+      y: y - textHeight / 2 - 10,
       width: metrics.width + 20,
       height: textHeight + 20
     };
@@ -1000,8 +1002,9 @@ export class VideoRenderer {
       ctx.fillRect(hitArea.x, hitArea.y, hitArea.width, hitArea.height);
     }
 
+    // Shadow matching Rust implementation
     ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = 4; // Matching Rust stdDeviation=2 approx
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 2;
     ctx.fillStyle = textSegment.style.color;
