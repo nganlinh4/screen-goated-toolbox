@@ -1060,8 +1060,18 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
                 TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                 return LRESULT(1);
             }
-            if kbd_struct.vkCode == TRIGGER_VK_CODE {
-                if !IS_HOTKEY_HELD.load(Ordering::SeqCst) {
+            // Only deactivate on trigger key if:
+            // 1. The key matches TRIGGER_VK_CODE
+            // 2. The key is NOT currently held (tap to cancel)
+            // 3. Continuous mode was NOT triggered from UI (bubble panel)
+            //    When triggered from bubble, hotkey_name is "ESC" meaning only ESC should exit
+            if kbd_struct.vkCode == TRIGGER_VK_CODE && TRIGGER_VK_CODE != 0 {
+                let hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
+                let is_ui_triggered = hotkey_name == "ESC" || hotkey_name.is_empty();
+                
+                if !IS_HOTKEY_HELD.load(Ordering::SeqCst) && !is_ui_triggered {
+                    // Only deactivate if this was a keyboard-triggered continuous mode
+                    // and user is tapping the key (not holding)
                     crate::overlay::continuous_mode::deactivate();
                     TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                     return LRESULT(1);
