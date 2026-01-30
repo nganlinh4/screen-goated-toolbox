@@ -104,6 +104,51 @@ pub unsafe fn handle_keydown() -> LRESULT {
     LRESULT(0)
 }
 
+pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
+    // When monitor topology changes, check if window is still on-screen.
+    // If not (e.g. secondary monitor removed), move it to primary monitor.
+    let mut rect = RECT::default();
+    if GetWindowRect(hwnd, &mut rect).is_ok() {
+        let center_x = (rect.left + rect.right) / 2;
+        let center_y = (rect.top + rect.bottom) / 2;
+        let center = POINT { x: center_x, y: center_y };
+
+        // Check if the center point maps to any monitor
+        let h_monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONULL);
+
+        if h_monitor.is_invalid() {
+            // Window is off-screen. Move to Primary Monitor center.
+            let h_primary = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+            let mut mi = MONITORINFO::default();
+            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+
+            if GetMonitorInfoW(h_primary, &mut mi).as_bool() {
+                let work = mi.rcWork;
+                let w = rect.right - rect.left;
+                let h = rect.bottom - rect.top;
+
+                // Center on primary monitor work area
+                let new_x = work.left + (work.right - work.left - w) / 2;
+                let new_y = work.top + (work.bottom - work.top - h) / 2;
+
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    new_x,
+                    new_y,
+                    0,
+                    0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                );
+
+                // IMPORTANT: Update button canvas about the new position
+                button_canvas::update_window_position(hwnd);
+            }
+        }
+    }
+    LRESULT(0)
+}
+
 pub unsafe fn handle_create_webview(hwnd: HWND) -> LRESULT {
     // Get the text to render
     let (full_text, is_hovered) = {

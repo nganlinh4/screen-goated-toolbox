@@ -1,7 +1,3 @@
-// Button Canvas - Floating transparent WebView overlay for markdown result buttons
-// Single fullscreen canvas that serves buttons for ALL markdown result windows
-// Click-through background with radius-based opacity buttons
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{
@@ -48,8 +44,6 @@ thread_local! {
 }
 
 lazy_static::lazy_static! {
-
-
     // Tracks which result windows are in markdown mode and their positions
     // Key: hwnd as isize, Value: (x, y, w, h)
     static ref MARKDOWN_WINDOWS: Mutex<HashMap<isize, (i32, i32, i32, i32)>> = Mutex::new(HashMap::new());
@@ -352,19 +346,11 @@ fn generate_canvas_html() -> String {
 
     let is_dark = crate::overlay::is_dark_mode();
 
-    // Icon color based on theme - REMOVED to allow CSS currentColor to work
-    // let icon_color = if is_dark {
-    //     "rgba(255, 255, 255, 0.8)"
-    // } else {
-    //     "rgba(0, 0, 0, 0.7)"
-    // };
-
     // Initialize state
     LAST_THEME_IS_DARK.store(is_dark, Ordering::SeqCst);
     let theme_css = get_canvas_theme_css(is_dark);
 
     // Get icon SVGs with theme-appropriate colors
-    // CHANGED: Do NOT replace currentColor. This allows CSS to control icon color (hover, active, etc.)
     let get_colored_svg = |name: &str| -> String {
         crate::overlay::html_components::icons::get_icon_svg(name).to_string()
     };
@@ -853,8 +839,6 @@ function updateButtonOpacity() {{
 }}
 
 // Calculate best position for button group based on window position and screen bounds
-// Calculate best position for button group based on window position and screen bounds
-// Calculate best position for button group based on window position and screen bounds
 function calculateButtonPosition(winRect) {{
     const screenW = window.innerWidth;
     const screenH = window.innerHeight;
@@ -1029,7 +1013,6 @@ function generateButtonsHTML(hwnd, state, isVertical) {{
     return buttons;
 }}
 
-// Handle broom drag
 // Handle broom drag - NATIVE IMPLEMENTATION
 function handleBroomDrag(e, hwnd) {{
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return; // Left, Middle, Right
@@ -1182,21 +1165,6 @@ window.updateWindows = updateWindows;
 function generateRefineInputHTML(hwnd, state) {{
     const micSvg = window.iconSvgs.mic;
     const sendSvg = window.iconSvgs.send;
-    // We store the input value in a data attribute on the container if it exists, to preserve it on redraw
-    // BUT since we redraw the whole HTML, we need a way to preserve text? 
-    // Actually, updateWindows diffs and doesn't redraw if content same.
-    // However, if we type, we don't trigger updateWindows.
-    // Use an input ID unique to the hwnd
-    
-    // We need to ensure we don't blow away the input value when we re-render?
-    // updateWindows checks: if (group.dataset.lastState !== newStateStr)
-    // If state changes (e.g. typing doesn't change state), we don't redraw.
-    // If external state changes (e.g. text update), we might redraw.
-    // Currently, we don't send typing back to Rust until Submit.
-    
-    // Initial value? 
-    // state.inputText is what we want to edit.
-    // We should bind it.
     
     return `<div class="refine-bar">
         <input type="text" 
@@ -1243,8 +1211,6 @@ function handleInput(e, hwnd) {{
 }}
 
 function handleRefineKey(e, hwnd) {{
-    // Only request focus on keydown if not already focused? 
-    // Actually safe to re-request to ensure we keep focus
     ensureNativeFocus(hwnd);
     if (e.key === 'Enter') {{
         e.preventDefault();
@@ -1291,8 +1257,7 @@ function submitRefine(hwnd) {{
     }}
 }}
 
-// Called from Rust to update refine text (e.g. history navigation)
-// isInsert: 1 for insert at cursor, 0 for overwrite
+// Called from Rust to update refine text
 window.setRefineText = (hwnd, text, isInsert) => {{
     const inputId = 'input-' + hwnd;
     const el = document.getElementById(inputId);
@@ -1331,12 +1296,10 @@ window.updateWindows = function(data) {{
         if (el) {{
             el.focus();
             focusedFound = true;
-            // Restore text if we have it locally tracked (to prevent overwrite by stale state)
             const trackingHwnd = focusedInput.replace('input-', '');
             if (inputValues.has(trackingHwnd)) {{
                 el.value = inputValues.get(trackingHwnd);
             }}
-            
             try {{
                 el.setSelectionRange(selectionStart, selectionEnd);
             }} catch(e) {{}}
@@ -1344,7 +1307,6 @@ window.updateWindows = function(data) {{
     }}
     
     if (!focusedFound) {{
-        // Find any visible edit bar and focus it
         const editBars = document.querySelectorAll('.refine-input');
         if (editBars.length > 0) {{
             editBars[0].focus();
@@ -1381,25 +1343,26 @@ fn create_canvas_window() {
             RegisterClassW(&wc);
         });
 
-        // Get screen dimensions
-        let screen_w = GetSystemMetrics(SM_CXSCREEN);
-        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        // Get virtual screen dimensions
+        let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
         // Create fullscreen transparent window
         // WS_EX_TOPMOST keeps it above result windows
         // WS_EX_TOOLWINDOW hides from taskbar
         // WS_EX_NOACTIVATE prevents focus stealing
         // WS_EX_TRANSPARENT removed to allow hit-testing (we handle passthrough via WM_NCHITTEST)
-        // WS_EX_LAYERED removed - interfering with WebView2 creation when WS_EX_TRANSPARENT is missing?
         let hwnd = CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
             w!("ButtonCanvas"),
             WS_POPUP | WS_CLIPCHILDREN,
-            0,
-            0,
-            screen_w,
-            screen_h - 1,
+            v_x,
+            v_y,
+            v_w,
+            v_h,
             None,
             None,
             Some(instance.into()),
@@ -1468,8 +1431,8 @@ fn create_canvas_window() {
                             0.0, 0.0,
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            screen_w as u32,
-                            (screen_h - 1) as u32,
+                            v_w as u32,
+                            (v_h - 1) as u32,
                         )),
                     })
                     .with_transparent(true)
@@ -1533,7 +1496,6 @@ fn handle_ipc_message(body: &str) {
         let action = json.get("action").and_then(|v| v.as_str()).unwrap_or("");
 
         // Handle clickable regions update (global, not per-window)
-        // Handle clickable regions update (global, not per-window)
         if action == "update_clickable_regions" {
             if let Some(regions) = json.get("regions").and_then(|v| v.as_array()) {
                 let canvas_hwnd = HWND(CANVAS_HWND.load(Ordering::SeqCst) as *mut std::ffi::c_void);
@@ -1588,9 +1550,6 @@ fn handle_ipc_message(body: &str) {
         }
 
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-
-        // Ensure canvas window is foreground for keyboard focus (Ctrl+A etc) - REMOVED to prevent focus stealing from games
-        // Only specific actions like 'edit' might need focus, handled locally in their logic if needed.
 
         match action {
             "copy" => unsafe {
@@ -1937,8 +1896,14 @@ fn send_windows_update() {
 
             // Scale physical coordinates to logical coordinates for WebView
             let scale = get_dpi_scale();
-            let logical_x = (x as f64 / scale) as i32;
-            let logical_y = (y as f64 / scale) as i32;
+            let v_x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+            let v_y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+
+            let rel_x = x - v_x;
+            let rel_y = y - v_y;
+
+            let logical_x = (rel_x as f64 / scale) as i32;
+            let logical_y = (rel_y as f64 / scale) as i32;
             let logical_w = (w as f64 / scale) as i32;
             let logical_h = (h as f64 / scale) as i32;
 
@@ -1977,14 +1942,17 @@ unsafe extern "system" fn canvas_wnd_proc(
 ) -> LRESULT {
     match msg {
         WM_APP_UPDATE_WINDOWS => {
+            let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+
             let _ = SetWindowPos(
                 hwnd,
                 Some(HWND_TOPMOST),
+                v_x,
+                v_y,
                 0,
                 0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                SWP_NOSIZE | SWP_NOACTIVATE, // Removing NOMOVE to ensure correct position
             );
             send_windows_update();
             LRESULT(0)
@@ -1998,21 +1966,26 @@ unsafe extern "system" fn canvas_wnd_proc(
                 // 1. Capture current focus BEFORE showing our window
                 let foreground = GetForegroundWindow();
 
-                // 2. Show the window (SW_SHOWNOACTIVATE should prevent focus stealing, but doesn't always work with WebView)
+                // 2. Show the window
+                let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
                 let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                let _ = SetWindowPos(
-                    hwnd,
-                    Some(HWND_TOPMOST),
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                );
+                let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), v_x, v_y, v_w, v_h, SWP_NOACTIVATE);
 
                 // 3. Show WebView (deferred visibility)
                 CANVAS_WEBVIEW.with(|cell| {
                     if let Some(webview) = cell.borrow().as_ref() {
+                        let _ = webview.set_bounds(Rect {
+                            position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(
+                                0.0, 0.0,
+                            )),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                v_w as u32, v_h as u32,
+                            )),
+                        });
                         let _ = webview.set_visible(true);
                     }
                 });
@@ -2185,8 +2158,12 @@ unsafe extern "system" fn canvas_wnd_proc(
 
                 // Force Immediate Cursor Update to JS (so buttons reappear correctly under mouse)
                 let scale = get_dpi_scale();
-                let logical_x = (pt.x as f64 / scale) as i32;
-                let logical_y = (pt.y as f64 / scale) as i32;
+                let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                let rel_x = pt.x - v_x;
+                let rel_y = pt.y - v_y;
+                let logical_x = (rel_x as f64 / scale) as i32;
+                let logical_y = (rel_y as f64 / scale) as i32;
                 CANVAS_WEBVIEW.with(|cell| {
                     if let Some(webview) = cell.borrow().as_ref() {
                         let script =
@@ -2210,8 +2187,12 @@ unsafe extern "system" fn canvas_wnd_proc(
                     let mut pt = POINT::default();
                     if GetCursorPos(&mut pt).is_ok() {
                         let scale = get_dpi_scale();
-                        let logical_x = (pt.x as f64 / scale) as i32;
-                        let logical_y = (pt.y as f64 / scale) as i32;
+                        let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                        let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                        let rel_x = pt.x - v_x;
+                        let rel_y = pt.y - v_y;
+                        let logical_x = (rel_x as f64 / scale) as i32;
+                        let logical_y = (rel_y as f64 / scale) as i32;
 
                         CANVAS_WEBVIEW.with(|cell| {
                             if let Some(webview) = cell.borrow().as_ref() {
@@ -2229,15 +2210,18 @@ unsafe extern "system" fn canvas_wnd_proc(
         }
 
         WM_DISPLAYCHANGE => {
-            let screen_w = GetSystemMetrics(SM_CXSCREEN);
-            let screen_h = GetSystemMetrics(SM_CYSCREEN);
+            let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
             let _ = SetWindowPos(
                 hwnd,
                 None,
-                0,
-                0,
-                screen_w,
-                screen_h - 1,
+                v_x,
+                v_y,
+                v_w,
+                v_h,
                 SWP_NOZORDER | SWP_NOACTIVATE,
             );
             CANVAS_WEBVIEW.with(|cell| {
@@ -2247,8 +2231,7 @@ unsafe extern "system" fn canvas_wnd_proc(
                             0.0, 0.0,
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            screen_w as u32,
-                            screen_h as u32,
+                            v_w as u32, v_h as u32,
                         )),
                     });
                 }

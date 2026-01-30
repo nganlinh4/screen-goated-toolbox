@@ -32,6 +32,35 @@ else {
     exit 1
 }
 
+# --- Build Screen Record Frontend ---
+Write-Host "Building Screen Record Frontend..." -ForegroundColor Cyan
+$srDir = Join-Path $PSScriptRoot "screen-record"
+$srDist = Join-Path $srDir "dist"
+$srTargetDist = Join-Path $PSScriptRoot "src\overlay\screen_record\dist"
+
+Push-Location $srDir
+try {
+    if (-not (Test-Path "node_modules")) {
+        npm install
+    }
+    npm run build
+}
+finally {
+    Pop-Location
+}
+
+if (Test-Path $srDist) {
+    if (-not (Test-Path $srTargetDist)) {
+        New-Item -ItemType Directory -Path $srTargetDist -Force | Out-Null
+    }
+    Copy-Item -Path "$srDist\*" -Destination $srTargetDist -Recurse -Force
+    Write-Host "Screen Record assets synchronized." -ForegroundColor Green
+}
+else {
+    Write-Host "FAILED: Screen Record build did not produce dist folder." -ForegroundColor Red
+    exit 1
+}
+
 # --- Continue Main Build ---
 # Extract version from Cargo.toml
 $cargoContent = Get-Content "Cargo.toml" -Raw

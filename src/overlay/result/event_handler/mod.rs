@@ -46,6 +46,9 @@ pub unsafe extern "system" fn result_wnd_proc(
 
         WM_KEYDOWN => misc::handle_keydown(),
 
+        // Handle monitor changes to prevent lost windows
+        WM_DISPLAYCHANGE => misc::handle_display_change(hwnd),
+
         // Enforce minimum window size to prevent rendering issues
         WM_GETMINMAXINFO => {
             let mmi = lparam.0 as *mut MINMAXINFO;
