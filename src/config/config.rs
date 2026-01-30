@@ -269,11 +269,7 @@ pub struct Config {
 }
 
 fn default_screen_record_hotkeys() -> Vec<Hotkey> {
-    vec![Hotkey {
-        code: 0x7B, // F12
-        name: "F12".to_string(),
-        modifiers: 0,
-    }]
+    vec![]
 }
 
 // ============================================================================
