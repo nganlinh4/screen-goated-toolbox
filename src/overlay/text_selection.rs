@@ -179,9 +179,14 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
         // Check if user is holding the hotkey for continuous mode
         let mut final_preset_idx = preset_idx;
         if !crate::overlay::continuous_mode::is_active() {
-            // Check if hotkey is being held
-            let held = crate::overlay::continuous_mode::was_triggered_recently(1500);
-            if held {
+            // Check if hotkey is being held - require BOTH:
+            // 1. Heartbeat detection (multiple triggers within timeframe)
+            // 2. Physical key still being held (GetAsyncKeyState)
+            // This prevents false activation from key repeat during normal press
+            let heartbeat_held = crate::overlay::continuous_mode::was_triggered_recently(1500);
+            let physically_held = crate::overlay::continuous_mode::are_modifiers_still_held();
+
+            if heartbeat_held && physically_held {
                 let persistent_name = crate::overlay::continuous_mode::get_hotkey_name();
                 let latest_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
                 crate::log_info!(
@@ -1073,27 +1078,18 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
     if code == HC_ACTION as i32 {
         let kbd_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
+            // ESC always exits continuous mode
             if kbd_struct.vkCode == VK_ESCAPE.0 as u32 {
                 crate::overlay::continuous_mode::deactivate();
                 TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                 return LRESULT(1);
             }
-            // Only deactivate on trigger key if:
-            // 1. The key matches TRIGGER_VK_CODE
-            // 2. The key is NOT currently held (tap to cancel)
-            // 3. Continuous mode was NOT triggered from UI (bubble panel)
-            //    When triggered from bubble, hotkey_name is "ESC" meaning only ESC should exit
+            // For the trigger key: DON'T deactivate here - let main.rs WM_HOTKEY handler decide
+            // This allows re-triggering (instant process on new preselected text) in continuous mode
+            // The hook only tracks the held state for continuous mode detection
             if kbd_struct.vkCode == TRIGGER_VK_CODE && TRIGGER_VK_CODE != 0 {
-                let hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
-                let is_ui_triggered = hotkey_name == "ESC" || hotkey_name.is_empty();
-                
-                if !IS_HOTKEY_HELD.load(Ordering::SeqCst) && !is_ui_triggered {
-                    // Only deactivate if this was a keyboard-triggered continuous mode
-                    // and user is tapping the key (not holding)
-                    crate::overlay::continuous_mode::deactivate();
-                    TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-                    return LRESULT(1);
-                }
+                // Mark as held when pressed
+                IS_HOTKEY_HELD.store(true, Ordering::SeqCst);
             }
         } else if wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize {
             if kbd_struct.vkCode == TRIGGER_VK_CODE {

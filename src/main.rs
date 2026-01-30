@@ -1043,14 +1043,13 @@ unsafe extern "system" fn hotkey_proc(
                                 let success =
                                     overlay::text_selection::try_instant_process(preset_idx);
 
-                                if success {
-                                    // If we successfully processed text:
-                                    // - In continuous mode: the retrigger inside try_instant_process
-                                    //   will show the badge again, so don't cancel here
-                                    // - Not in continuous mode: cancel the selection badge
-                                    if !overlay::continuous_mode::is_active() {
-                                        overlay::text_selection::cancel_selection();
-                                    }
+                                // 3. Handle badge visibility after processing attempt
+                                // - If success AND continuous mode: retrigger inside try_instant_process
+                                //   will show the badge again, so don't cancel here
+                                // - If success AND NOT continuous mode: cancel the badge (done processing)
+                                // - If NOT success: keep badge visible for user to select text manually
+                                if success && !overlay::continuous_mode::is_active() {
+                                    overlay::text_selection::cancel_selection();
                                 }
                             });
                         }
