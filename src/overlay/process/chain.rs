@@ -189,10 +189,39 @@ pub fn run_chain_step(
 
     // For visible windows: use per-chain queue for sequential snake positioning (first-come-first-serve)
     // Windows in the same chain use snake placement, different chains are independent
+
+    // PERSISTENCE: Check if the preset has a saved geometry (only for the first block in chain)
+    let mut starting_rect = current_rect;
+    if block_idx == 0 {
+        if let Ok(app) = crate::APP.lock() {
+            // Find preset by ID
+            let found_preset = app.config.presets.iter().find(|p| p.id == preset_id);
+            if found_preset.is_none() {
+                // Preset not found (could be a temporary ID or deleted)
+            }
+
+            if let Some(p) = found_preset {
+                // Use preset_type to distinguish (image presets should NOT remember position)
+                let is_image_category = p.preset_type == "image";
+
+                if !is_image_category {
+                    if let Some(geom) = &p.window_geometry {
+                        starting_rect = RECT {
+                            left: geom.x,
+                            top: geom.y,
+                            right: geom.x + geom.width,
+                            bottom: geom.y + geom.height,
+                        };
+                    }
+                }
+            }
+        }
+    }
+
     let my_rect = if block.show_overlay {
-        get_next_window_position_for_chain(&chain_id, current_rect)
+        get_next_window_position_for_chain(&chain_id, starting_rect)
     } else {
-        current_rect // Hidden blocks don't consume a position
+        starting_rect // Hidden blocks don't consume a position
     };
 
     let mut my_hwnd: Option<HWND> = None;
@@ -621,8 +650,9 @@ progressBar.onclick = (e) => {{
 
         let cancel_token_thread = cancel_token.clone();
         let input_hwnd_refocus_thread = input_hwnd_refocus.clone();
+        let preset_id_for_window = preset_id.clone();
         std::thread::spawn(move || {
-            // NOTE: wry handles COM internally, explicit initialization may interfere
+            let is_root = visible_count_before == 0;
 
             let hwnd = create_result_window(
                 my_rect,
@@ -636,6 +666,8 @@ progressBar.onclick = (e) => {{
                 bg_color,
                 &render_md,
                 initial_content_clone,
+                Some(preset_id_for_window),
+                is_root,
             );
 
             // Assign cancellation token immediately for linking/grouping
@@ -1293,7 +1325,7 @@ progressBar.onclick = (e) => {{
         let base_rect = if my_hwnd.is_some() {
             my_rect
         } else {
-            current_rect
+            starting_rect
         };
 
         // For the first downstream block, pass the processing indicator (if any)

@@ -12,7 +12,7 @@ pub mod defaults;
 mod preset;
 
 pub use block::{BlockBuilder, ProcessingBlock};
-pub use preset::{Preset, PresetBuilder};
+pub use preset::{Preset, PresetBuilder, WindowGeometry};
 
 // Re-export default preset functions for convenience
 pub use defaults::get_default_presets;

@@ -187,10 +187,12 @@ pub struct WindowState {
     pub on_download_btn: bool, // Hover state for download HTML button
 
     // Speaker/TTS button state
-    pub on_speaker_btn: bool, // Hover state for speaker button
-    pub tts_request_id: u64,  // Active TTS request ID (0 = not speaking)
-    pub tts_loading: bool,    // True when TTS is loading/connecting (shows spinner)
-    pub opacity_percent: u8,  // Transparency level (0-100)
+    pub on_speaker_btn: bool,      // Hover state for speaker button
+    pub tts_request_id: u64,       // Active TTS request ID (0 = not speaking)
+    pub tts_loading: bool,         // True when TTS is loading/connecting (shows spinner)
+    pub opacity_percent: u8,       // Transparency level (0-100)
+    pub preset_id: Option<String>, // ID of the preset that spawned this window
+    pub is_chain_root: bool,       // True if this is the first window in a chain
 }
 
 // SAFETY: Raw pointers are not Send/Sync, but we only use them within the main thread

@@ -26,9 +26,14 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
     let mut is_forward_click = false;
     let mut is_download_click = false;
     let mut is_speaker_click = false;
+    let mut was_moving_or_resizing = false;
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
+            was_moving_or_resizing = matches!(
+                state.interaction_mode,
+                InteractionMode::Resizing(_) | InteractionMode::DraggingWindow
+            );
             let was_resizing = matches!(state.interaction_mode, InteractionMode::Resizing(_));
             state.interaction_mode = InteractionMode::None;
             if was_resizing && state.is_markdown_mode {
@@ -47,6 +52,10 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
                 is_speaker_click = state.on_speaker_btn;
             }
         }
+    }
+
+    if was_moving_or_resizing {
+        super::save_window_geometry(hwnd, "LBUTTONUP");
     }
 
     if perform_click {
@@ -310,12 +319,14 @@ pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
     let mut close_group = false;
 
     let mut fit_targets = Vec::new();
+    let mut was_moving_group = false;
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
             match &state.interaction_mode {
                 InteractionMode::DraggingGroup(snapshot)
                 | InteractionMode::ResizingGroup(snapshot, _) => {
+                    was_moving_group = state.has_moved_significantly;
                     if state.has_moved_significantly {
                         fit_targets = snapshot.iter().map(|(h, _)| *h).collect();
                     } else {
@@ -328,6 +339,12 @@ pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
                 _ => {}
             }
             state.interaction_mode = InteractionMode::None;
+        }
+    }
+
+    if was_moving_group {
+        for &h in &fit_targets {
+            super::save_window_geometry(h, "RBUTTONUP_GROUP");
         }
     }
 
@@ -378,12 +395,14 @@ pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
 
     let mut close_all = false;
     let mut fit_targets = Vec::new();
+    let mut was_moving_group = false;
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
             match &state.interaction_mode {
                 InteractionMode::DraggingGroup(snapshot)
                 | InteractionMode::ResizingGroup(snapshot, _) => {
+                    was_moving_group = state.has_moved_significantly;
                     if state.has_moved_significantly {
                         fit_targets = snapshot.iter().map(|(h, _)| *h).collect();
                     } else {
@@ -396,6 +415,12 @@ pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
                 _ => {}
             }
             state.interaction_mode = InteractionMode::None;
+        }
+    }
+
+    if was_moving_group {
+        for &h in &fit_targets {
+            super::save_window_geometry(h, "MBUTTONUP_GROUP");
         }
     }
 

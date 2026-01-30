@@ -656,6 +656,8 @@ pub fn record_and_stream_gemini_live(
                 get_chain_color(0),
                 &render_mode,
                 "Listening...".to_string(),
+                Some(preset_for_thread.id.clone()),
+                true,
             );
 
             unsafe {
@@ -1383,6 +1385,8 @@ pub fn record_and_stream_parakeet(
                 get_chain_color(0),
                 &render_mode,
                 "Listening...".to_string(),
+                Some(preset_for_thread.id.clone()),
+                true,
             );
 
             unsafe {

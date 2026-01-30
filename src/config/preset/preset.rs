@@ -11,6 +11,14 @@ use serde::{Deserialize, Serialize};
 use super::block::ProcessingBlock;
 use crate::config::types::Hotkey;
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
 // ============================================================================
 // PRESET STRUCT
 // ============================================================================
@@ -117,6 +125,10 @@ pub struct Preset {
     /// Favorite preset for quick access via floating bubble
     #[serde(default)]
     pub is_favorite: bool,
+
+    /// Saved window position and size for this preset
+    #[serde(default)]
+    pub window_geometry: Option<WindowGeometry>,
 }
 
 // ============================================================================
@@ -179,6 +191,7 @@ impl Default for Preset {
             is_master: false,
             show_controller_ui: false,
             is_favorite: false,
+            window_geometry: None,
         }
     }
 }

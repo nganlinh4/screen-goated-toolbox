@@ -158,6 +158,8 @@ pub fn show_help_input() {
                     crate::overlay::result::get_chain_color(0),
                     "markdown",
                     loading_msg.to_string(),
+                    None,
+                    true,
                 );
 
                 // Show the window (create_result_window creates it hidden by default)
