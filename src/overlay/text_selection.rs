@@ -84,6 +84,12 @@ pub fn is_processing() -> bool {
     state.is_processing
 }
 
+/// Check if the trigger hotkey is currently being held down
+/// Used to distinguish between key repeat (hold) and a new key press (tap)
+pub fn is_hotkey_held() -> bool {
+    IS_HOTKEY_HELD.load(Ordering::SeqCst)
+}
+
 struct ProcessingGuard;
 
 impl Drop for ProcessingGuard {
@@ -778,7 +784,8 @@ fn internal_create_tag_thread() {
 
                         // Check if button canvas is being dragged (user moving result window)
                         // If so, don't process - user is interacting with UI, not selecting text
-                        let is_canvas_dragging = crate::overlay::result::button_canvas::is_dragging();
+                        let is_canvas_dragging =
+                            crate::overlay::result::button_canvas::is_dragging();
 
                         // Check if mouse release is on our own UI (result windows, button canvas, etc.)
                         let hwnd_under_mouse = WindowFromPoint(pt);
@@ -809,6 +816,7 @@ fn internal_create_tag_thread() {
                         } else {
                             initial_text
                         };
+
                         Some(format!(
                             "updateState({}, '{}')",
                             state.is_selecting, new_text
@@ -966,12 +974,12 @@ fn internal_create_tag_thread() {
                             }
 
                             process_selected_text(p_idx, clipboard_text);
-                        } else {
-                            // Reset state if failed or empty
-                            let mut state = SELECTION_STATE.lock().unwrap();
-                            state.is_selecting = false;
-                            state.is_processing = false;
                         }
+
+                        // Always reset state at the end of the worker thread
+                        let mut state = SELECTION_STATE.lock().unwrap();
+                        state.is_selecting = false;
+                        state.is_processing = false;
                     });
                 }
 
