@@ -875,11 +875,22 @@ unsafe extern "system" fn hotkey_proc(
 
                 // Check if continuous mode is active or pending
                 let mut just_activated_continuous = false;
+                let preset_idx_early = ((id - 1) / 1000) as usize;
                 if overlay::continuous_mode::is_active() {
                     // Continuous mode is ACTIVE.
-                    // Ignore ALL hotkey presses - let the keyboard hooks handle exit (ESC or hotkey tap).
-                    // This prevents deactivation during text processing when tag is hidden.
-                    return LRESULT(0);
+                    let cm_preset = overlay::continuous_mode::get_preset_idx();
+                    if cm_preset == preset_idx_early {
+                        // Same preset as continuous mode - allow re-trigger for instant process
+                        // This supports the case where user preselects text and presses hotkey again
+                        // (especially important for bubble-panel triggered continuous mode)
+                        just_activated_continuous = true;
+                        // Do NOT return - proceed to trigger logic below
+                    } else {
+                        // Different preset - deactivate continuous mode and process the new preset
+                        overlay::continuous_mode::deactivate();
+                        overlay::text_selection::cancel_selection();
+                        // Proceed with normal processing
+                    }
                 } else if overlay::continuous_mode::is_pending_start() {
                     // Scenario 2. Continuous Mode is PENDING (e.g. from Bubble).
                     // We must NOT cancel. We promote to ACTIVE and let the logic proceed to trigger the preset.
@@ -1033,8 +1044,13 @@ unsafe extern "system" fn hotkey_proc(
                                     overlay::text_selection::try_instant_process(preset_idx);
 
                                 if success {
-                                    // If we successfully processed text, we don't need the badge anymore.
-                                    overlay::text_selection::cancel_selection();
+                                    // If we successfully processed text:
+                                    // - In continuous mode: the retrigger inside try_instant_process
+                                    //   will show the badge again, so don't cancel here
+                                    // - Not in continuous mode: cancel the selection badge
+                                    if !overlay::continuous_mode::is_active() {
+                                        overlay::text_selection::cancel_selection();
+                                    }
                                 }
                             });
                         }
