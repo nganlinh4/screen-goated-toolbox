@@ -1015,10 +1015,20 @@ unsafe extern "system" fn hotkey_proc(
                     // NEW TEXT LOGIC
                     if text_mode == "select" {
                         // Toggle Logic for Selection
-                        if overlay::text_selection::is_active()
-                            || overlay::text_selection::is_warming_up()
-                        {
-                            // Ignore repeat hotkeys to allow "hold to activate" or during warmup
+                        if overlay::text_selection::is_active() {
+                            // Tag is visible - check if this is a tap (toggle off) or hold (keep going)
+                            if !overlay::text_selection::is_hotkey_held() {
+                                // Key was released and pressed again (tap) - cancel/toggle off
+                                overlay::continuous_mode::deactivate();
+                                overlay::text_selection::cancel_selection();
+                                return LRESULT(0);
+                            } else {
+                                // Key is still being held (continuous mode activation) - just update heartbeat
+                                overlay::continuous_mode::update_last_trigger_time();
+                                return LRESULT(0);
+                            }
+                        } else if overlay::text_selection::is_warming_up() {
+                            // During warmup, just update heartbeat and wait
                             overlay::continuous_mode::update_last_trigger_time();
                             return LRESULT(0);
                         } else if overlay::continuous_mode::is_active()
