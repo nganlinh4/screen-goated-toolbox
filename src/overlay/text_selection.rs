@@ -748,7 +748,14 @@ fn internal_create_tag_thread() {
                         GetWindowThreadProcessId(hwnd_under_mouse, Some(&mut pid));
                         let our_pid = std::process::id();
 
-                        if pid != our_pid {
+                        // Also check if mouse is over result window / button canvas area
+                        // (button canvas uses WS_EX_TRANSPARENT so WindowFromPoint won't detect it)
+                        let over_result_window =
+                            crate::overlay::result::button_canvas::is_point_over_result_window(
+                                pt.x, pt.y,
+                            );
+
+                        if pid != our_pid && !over_result_window {
                             state.is_selecting = true;
                             // Record mouse start position for drag detection
                             MOUSE_START_X.store(pt.x, Ordering::SeqCst);
@@ -764,13 +771,24 @@ fn internal_create_tag_thread() {
                         let dy = (pt.y - start_y).abs();
                         let distance = dx + dy; // Manhattan distance
 
-                        if distance >= 10 {
-                            // Real drag/selection detected
+                        // Check if button canvas is being dragged (user moving result window)
+                        // If so, don't process - user is interacting with UI, not selecting text
+                        let is_canvas_dragging = crate::overlay::result::button_canvas::is_dragging();
+
+                        // Check if mouse release is on our own UI (result windows, button canvas, etc.)
+                        let hwnd_under_mouse = WindowFromPoint(pt);
+                        let mut release_pid: u32 = 0;
+                        GetWindowThreadProcessId(hwnd_under_mouse, Some(&mut release_pid));
+                        let our_pid = std::process::id();
+                        let released_on_our_ui = release_pid == our_pid;
+
+                        if distance >= 10 && !released_on_our_ui && !is_canvas_dragging {
+                            // Real drag/selection detected AND not released on our UI AND not dragging canvas
                             state.is_processing = true;
                             should_spawn_thread = true;
                             preset_idx_for_thread = state.preset_idx;
                         } else {
-                            // Just a click, not a selection - reset state
+                            // Just a click, not a selection, OR released on our UI, OR canvas dragging - reset state
                             state.is_selecting = false;
                         }
                     }

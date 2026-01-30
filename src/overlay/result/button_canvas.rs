@@ -207,6 +207,34 @@ pub fn send_refine_text_update(hwnd: HWND, text: &str, is_insert: bool) {
 }
 
 /// Set drag mode (temporarily disable region clipping to prevent UI cutoff)
+/// Check if the button canvas is currently in drag mode (user dragging a result window)
+pub fn is_dragging() -> bool {
+    IS_DRAGGING_EXTERNAL.load(Ordering::SeqCst)
+}
+
+/// Check if a point is within any registered result window bounds
+/// This is needed because button canvas uses WS_EX_TRANSPARENT, so WindowFromPoint won't detect it
+pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
+    // First check if canvas itself is visible
+    let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
+    if canvas_hwnd == 0 {
+        return false;
+    }
+
+    // Check if point is within any registered markdown window bounds
+    // We add some padding to account for button canvas overlay area
+    let windows = MARKDOWN_WINDOWS.lock().unwrap();
+    for (_hwnd, (wx, wy, ww, wh)) in windows.iter() {
+        // Expand bounds slightly to include the button canvas area around the window
+        let padding = 60; // Button canvas extends beyond the window
+        if x >= wx - padding && x <= wx + ww + padding && y >= wy - padding && y <= wy + wh + padding
+        {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn set_drag_mode(active: bool) {
     let canvas_hwnd = CANVAS_HWND.load(Ordering::SeqCst);
     if canvas_hwnd == 0 {
