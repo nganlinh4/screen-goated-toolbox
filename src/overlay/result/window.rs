@@ -59,6 +59,8 @@ pub fn create_result_window(
     custom_bg_color: u32,
     render_mode: &str,
     initial_text: String,
+    preset_id: Option<String>,
+    is_chain_root: bool,
 ) -> HWND {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
@@ -201,6 +203,8 @@ pub fn create_result_window(
                     tts_request_id: 0,
                     tts_loading: false,
                     opacity_percent: 85,
+                    preset_id: preset_id.clone(),
+                    is_chain_root,
                 },
             );
         }

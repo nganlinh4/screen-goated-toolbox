@@ -23,7 +23,10 @@ pub unsafe extern "system" fn result_wnd_proc(
         // WM_CTLCOLOREDIT removed (native edit control deprecated)
         WM_SETCURSOR => mouse_input::handle_set_cursor(hwnd),
 
-        WM_LBUTTONDOWN => mouse_input::handle_lbutton_down(hwnd, lparam),
+        WM_LBUTTONDOWN => {
+            crate::log_info!("[Persistence] WM_LBUTTONDOWN for HWND: {:?}", hwnd);
+            mouse_input::handle_lbutton_down(hwnd, lparam)
+        }
 
         WM_RBUTTONDOWN => mouse_input::handle_rbutton_down(hwnd, lparam),
 
@@ -32,7 +35,10 @@ pub unsafe extern "system" fn result_wnd_proc(
 
         0x02A3 => mouse_input::handle_mouse_leave(hwnd), // WM_MOUSELEAVE
 
-        WM_LBUTTONUP => click_actions::handle_lbutton_up(hwnd),
+        WM_LBUTTONUP => {
+            crate::log_info!("[Persistence] WM_LBUTTONUP for HWND: {:?}", hwnd);
+            click_actions::handle_lbutton_up(hwnd)
+        }
 
         WM_RBUTTONUP => click_actions::handle_rbutton_up(hwnd),
 
@@ -108,6 +114,10 @@ pub unsafe extern "system" fn result_wnd_proc(
         }
 
         WM_EXITSIZEMOVE => {
+            crate::log_info!(
+                "[Persistence] Received WM_EXITSIZEMOVE for HWND: {:?}",
+                hwnd
+            );
             // Reset interaction mode to show buttons again
             crate::overlay::result::state::set_window_interaction_mode(
                 hwnd,
@@ -126,10 +136,56 @@ pub unsafe extern "system" fn result_wnd_proc(
                 crate::overlay::result::markdown_view::fit_font_to_window(hwnd);
             }
 
+            // PERSISTENCE: Save window geometry to preset if it has a preset_id
+            save_window_geometry(hwnd, "WM_EXITSIZEMOVE");
+
             crate::overlay::result::button_canvas::update_canvas();
             DefWindowProcW(hwnd, msg, wparam, lparam)
         }
 
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+/// PERSISTENCE helper: Save current window geometry to its associated preset.
+/// Called when a move/resize operation ends (either natively or via manual drag).
+pub fn save_window_geometry(hwnd: HWND, _source: &str) {
+    unsafe {
+        let (p_id, rect, is_root) = {
+            let states = crate::overlay::result::state::WINDOW_STATES.lock().unwrap();
+            if let Some(s) = states.get(&(hwnd.0 as isize)) {
+                let mut r = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut r);
+                (s.preset_id.clone(), r, s.is_chain_root)
+            } else {
+                (None, RECT::default(), false)
+            }
+        };
+
+        if let Some(pid) = p_id {
+            if !is_root {
+                return;
+            }
+
+            let mut app = crate::APP.lock().unwrap();
+            let found_preset = app.config.presets.iter_mut().find(|p| p.id == pid);
+
+            if let Some(preset) = found_preset {
+                // Only save geometry for non-image presets (text, audio, etc)
+                let is_image_category = preset.preset_type == "image";
+                if !is_image_category {
+                    let geom = crate::config::preset::WindowGeometry {
+                        x: rect.left,
+                        y: rect.top,
+                        width: rect.right - rect.left,
+                        height: rect.bottom - rect.top,
+                    };
+                    preset.window_geometry = Some(geom.clone());
+                    crate::config::save_config(&app.config);
+                }
+            } else {
+                // Preset not found (could be a temporary ID or deleted)
+            }
+        }
     }
 }

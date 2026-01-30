@@ -227,7 +227,10 @@ pub fn is_point_over_result_window(x: i32, y: i32) -> bool {
     for (_hwnd, (wx, wy, ww, wh)) in windows.iter() {
         // Expand bounds slightly to include the button canvas area around the window
         let padding = 60; // Button canvas extends beyond the window
-        if x >= wx - padding && x <= wx + ww + padding && y >= wy - padding && y <= wy + wh + padding
+        if x >= wx - padding
+            && x <= wx + ww + padding
+            && y >= wy - padding
+            && y <= wy + wh + padding
         {
             return true;
         }
@@ -2150,9 +2153,26 @@ unsafe extern "system" fn canvas_wnd_proc(
                 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
                 // End drag
                 ACTIVE_DRAG_TARGET.store(0, Ordering::SeqCst);
-                DRAG_IS_GROUP.store(false, Ordering::SeqCst);
+                let is_group = DRAG_IS_GROUP.swap(false, Ordering::SeqCst);
                 let _ = ReleaseCapture();
                 update_canvas(); // Restore buttons after drag
+
+                // PERSISTENCE: Save window geometry after manual drag
+                let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
+                if is_group {
+                    let snapshot = ACTIVE_DRAG_SNAPSHOT.lock().unwrap();
+                    for &h_val in snapshot.iter() {
+                        crate::overlay::result::event_handler::save_window_geometry(
+                            HWND(h_val as *mut std::ffi::c_void),
+                            "CANVAS_DRAG_GROUP",
+                        );
+                    }
+                } else {
+                    crate::overlay::result::event_handler::save_window_geometry(
+                        target_hwnd,
+                        "CANVAS_DRAG_SINGLE",
+                    );
+                }
 
                 // Click vs Drag Check
                 let mut pt = POINT::default();

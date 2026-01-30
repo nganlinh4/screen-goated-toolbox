@@ -587,6 +587,13 @@ pub fn markdown_to_html(
     {}
     {}
 </body>
+<script>
+    document.addEventListener('mousedown', (e) => {{
+        if (e.button === 0 && (e.target === document.body || e.target === document.documentElement)) {{
+            window.ipc.postMessage(JSON.stringify({{ action: "broom_drag_start" }}));
+        }}
+    }});
+    </script>
 </html>"#,
             theme_css,
             get_font_style(),
@@ -707,6 +714,13 @@ pub fn markdown_to_html(
 <body>
     {}
     {}
+    <script>
+    document.addEventListener('mousedown', (e) => {{
+        if (e.button === 0 && (e.target === document.body || e.target === document.documentElement)) {{
+            window.ipc.postMessage(JSON.stringify({{ action: "broom_drag_start" }}));
+        }}
+    }});
+    </script>
 </body>
 </html>"#,
         theme_css,
