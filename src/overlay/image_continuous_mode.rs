@@ -110,7 +110,7 @@ pub fn enter(preset_idx: usize, hotkey_name: String, hotkey_id: i32) {
         }
     };
     if !p_id.is_empty() {
-        crate::overlay::continuous_mode::show_activation_notification(&p_id, &h_name);
+        crate::overlay::continuous_mode::show_image_continuous_notification(&p_id, &h_name);
     }
 
     // Spawn the dedicated thread that owns the Window AND the Hooks

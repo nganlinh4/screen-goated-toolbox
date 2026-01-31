@@ -161,6 +161,86 @@ pub fn show_activation_notification(preset_id: &str, hotkey_name: &str) {
     );
 }
 
+/// Show the continuous mode activation notification for IMAGE mode (includes right mouse instruction)
+pub fn show_image_continuous_notification(preset_id: &str, hotkey_name: &str) {
+    let lang = {
+        if let Ok(app) = crate::APP.lock() {
+            app.config.ui_language.clone()
+        } else {
+            "en".to_string()
+        }
+    };
+
+    crate::log_info!(
+        "[Continuous] Image Notification Request - Preset: {}, Hotkey: '{}'",
+        preset_id,
+        hotkey_name
+    );
+
+    let localized_name = crate::gui::settings_ui::get_localized_preset_name(preset_id, &lang);
+
+    // 1. Title Suffix
+    let suffix = match lang.as_str() {
+        "vi" => "Chế độ liên tục",
+        "ko" => "연속 모드",
+        _ => "Continuous Mode",
+    };
+    let title = format!("{} - {}", localized_name, suffix);
+
+    // 2. Prepare message from locale
+    let locale = crate::gui::locale::LocaleText::get(&lang);
+    let mut message = locale.continuous_mode_activated.to_string();
+
+    // Remove Sparkle
+    message = message.replace("✨ ", "").replace("✨", "");
+
+    // Remove Preset Name part
+    message = message
+        .replace("\"{preset}\"", "")
+        .replace("'{preset}'", "")
+        .replace("{preset}", "");
+
+    // 3. Hotkey Logic
+    if hotkey_name.is_empty()
+        || hotkey_name.to_lowercase() == "hotkey"
+        || hotkey_name.to_lowercase() == "esc"
+        || hotkey_name.to_lowercase() == "bubble"
+    {
+        message = message
+            .replace(" hay {hotkey}", "")
+            .replace(" or {hotkey}", "")
+            .replace(" 또는 {hotkey}", "");
+        message = message.replace("{hotkey}", "");
+    } else {
+        message = message.replace("{hotkey}", hotkey_name);
+    }
+
+    // Clean up double spaces
+    loop {
+        let new_msg = message.replace("  ", " ");
+        if new_msg == message {
+            break;
+        }
+        message = new_msg;
+    }
+    let mut message = message.trim().to_string();
+
+    // 4. Add RIGHT MOUSE instruction for image continuous mode
+    let right_mouse_hint = match lang.as_str() {
+        "vi" => ", DÙNG CHUỘT PHẢI.",
+        "ko" => ", 오른쪽 마우스 사용.",
+        _ => ", USE RIGHT MOUSE.",
+    };
+    message.push_str(right_mouse_hint);
+
+    // Call the detailed notification
+    crate::overlay::auto_copy_badge::show_detailed_notification(
+        &title,
+        &message,
+        crate::overlay::auto_copy_badge::NotificationType::Update,
+    );
+}
+
 /// Check if a preset type supports continuous mode (only image and text)
 pub fn supports_continuous_mode(preset_type: &str) -> bool {
     preset_type == "image" || preset_type == "text"
