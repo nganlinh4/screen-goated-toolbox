@@ -1105,16 +1105,34 @@ unsafe extern "system" fn hotkey_proc(
                             if !overlay::text_selection::is_hotkey_held() {
                                 // Key was released and pressed again (tap) - cancel/toggle off
                                 crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
-                                // Don't deactivate text continuous mode when image continuous is active
-                                // This allows both to coexist
-                                if !overlay::image_continuous_mode::is_active() {
-                                    overlay::continuous_mode::deactivate();
-                                }
+                                // Always deactivate text continuous mode when user explicitly toggles off
+                                // This is a deliberate user action to dismiss the badge
+                                overlay::continuous_mode::deactivate();
                                 overlay::text_selection::cancel_selection();
                                 return LRESULT(0);
                             } else {
-                                // Key is still being held (continuous mode activation) - just update heartbeat
-                                crate::log_info!("[TextHotkey] Held - updating heartbeat only");
+                                // Key is still being held - check if we should activate text continuous mode
+                                if !overlay::continuous_mode::is_active() {
+                                    // Continuous mode not active yet - activate it now
+                                    crate::log_info!("[TextHotkey] Held - activating text continuous mode");
+                                    overlay::continuous_mode::activate(preset_idx, hotkey_name.clone());
+                                    
+                                    // Show notification
+                                    let preset_id = {
+                                        if let Ok(app) = APP.lock() {
+                                            app.config.presets.get(preset_idx)
+                                                .map(|p| p.id.clone())
+                                                .unwrap_or_default()
+                                        } else {
+                                            String::new()
+                                        }
+                                    };
+                                    if !preset_id.is_empty() && preset_id != "preset_text_select_master" {
+                                        overlay::continuous_mode::show_activation_notification(&preset_id, &hotkey_name);
+                                    }
+                                } else {
+                                    crate::log_info!("[TextHotkey] Held - updating heartbeat only (continuous already active)");
+                                }
                                 overlay::continuous_mode::update_last_trigger_time();
                                 return LRESULT(0);
                             }
@@ -1134,13 +1152,17 @@ unsafe extern "system" fn hotkey_proc(
                         } else {
                             // NEW: Try instant processing if text is already selected
                             // Prevent duplicate processing if already running
-                            if overlay::text_selection::is_processing() {
+                            let is_proc = overlay::text_selection::is_processing();
+                            crate::log_info!("[TextHotkey] is_processing={}", is_proc);
+                            if is_proc {
                                 return LRESULT(0);
                             }
 
                             std::thread::spawn(move || {
+                                crate::log_info!("[TextHotkey] Spawned thread starting");
                                 // 1. Show Badge IMMEDIATELY (Decoupled)
                                 overlay::show_text_selection_tag(preset_idx);
+                                crate::log_info!("[TextHotkey] Badge show called");
 
                                 // 2. Try processing in background
                                 let success =
