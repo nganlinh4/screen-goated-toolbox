@@ -87,6 +87,49 @@ const WM_APP_SHOW: u32 = WM_USER + 200;
 const WM_APP_HIDE: u32 = WM_USER + 201;
 const WM_APP_SHOW_IMAGE_BADGE: u32 = WM_USER + 202;
 const WM_APP_HIDE_IMAGE_BADGE: u32 = WM_USER + 203;
+const WM_APP_UPDATE_CONTINUOUS: u32 = WM_USER + 204;
+
+/// Get localized badge text based on language and continuous mode status
+fn get_localized_badge_text(lang: &str, is_continuous: bool) -> String {
+    if is_continuous {
+        match lang {
+            "vi" => "Bôi đen văn bản (Liên tục)",
+            "ko" => "텍스트 선택 (연속)",
+            _ => "Select text (Continuous)",
+        }
+    } else {
+        match lang {
+            "vi" => "Bôi đen văn bản...",
+            "ko" => "텍스트 선택...",
+            _ => "Select text...",
+        }
+    }
+    .to_string()
+}
+
+/// Get localized image badge text (always continuous mode since image badge only shows in continuous mode)
+fn get_localized_image_badge_text(lang: &str) -> String {
+    match lang {
+        "vi" => "Chọn vùng MH (Liên tục)",
+        "ko" => "화면 선택 (연속)",
+        _ => "Select area (Continuous)",
+    }
+    .to_string()
+}
+
+/// Update the badge text to show continuous mode suffix
+/// Called after continuous mode is successfully activated
+pub fn update_badge_for_continuous_mode() {
+    // Use PostMessage to update badge text from any thread
+    // WebView operations must be on the thread that created it
+    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        unsafe {
+            let hwnd = HWND(hwnd_val as *mut _);
+            let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_CONTINUOUS, WPARAM(0), LPARAM(0));
+        }
+    }
+}
 
 // --- PUBLIC API ---
 
@@ -315,6 +358,8 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
                         &preset_name,
                         &hotkey_name,
                     );
+                    // Update badge text to show continuous mode suffix
+                    update_badge_for_continuous_mode();
                 }
             }
         }
@@ -530,12 +575,27 @@ unsafe extern "system" fn tag_wnd_proc(
             TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
             // Cancel any pending Hide timer to prevent it from hiding us later
             let _ = KillTimer(Some(hwnd), 1);
+            
+            // ALWAYS reposition to cursor when showing (fixes stuck position bug)
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
 
-            // Trigger Fade In Script
+            // Update badge text based on continuous mode status
+            let is_continuous = crate::overlay::continuous_mode::is_active();
+            let lang = {
+                let app = APP.lock().unwrap();
+                app.config.ui_language.clone()
+            };
+            let badge_text = get_localized_badge_text(&lang, is_continuous);
+            crate::log_info!("[Badge] WM_APP_SHOW: is_continuous={}, badge_text='{}'", is_continuous, badge_text);
+            
+            // Trigger Fade In Script and update text
             {
                 let state = SELECTION_STATE.lock().unwrap();
                 if let Some(wv) = state.webview.as_ref() {
-                    let _ = wv.evaluate_script("playEntry();");
+                    // Update text to show continuous mode indicator
+                    let _ = wv.evaluate_script(&format!("updateState(false, '{}'); playEntry();", badge_text));
                 }
             }
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -558,6 +618,19 @@ unsafe extern "system" fn tag_wnd_proc(
             crate::log_info!("[Badge] WM_APP_SHOW_IMAGE_BADGE received");
             // Show the image continuous badge
             let _ = KillTimer(Some(hwnd), 2); // Cancel any pending hide timer for image badge
+            
+            // ALWAYS reposition to cursor when showing (fixes stuck position bug)
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
+            
+            // Get localized text for image badge
+            let lang = {
+                let app = APP.lock().unwrap();
+                app.config.ui_language.clone()
+            };
+            let image_badge_text = get_localized_image_badge_text(&lang);
+            
             {
                 let state = SELECTION_STATE.lock().unwrap();
                 if let Some(wv) = state.webview.as_ref() {
@@ -565,7 +638,11 @@ unsafe extern "system" fn tag_wnd_proc(
                     if !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst) {
                         let _ = wv.evaluate_script("playExit();");
                     }
-                    let _ = wv.evaluate_script("showImageBadge();");
+                    // Update image badge text and show it
+                    let _ = wv.evaluate_script(&format!(
+                        "document.getElementById('image-text').textContent = '{}'; showImageBadge();",
+                        image_badge_text
+                    ));
                 }
             }
             let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
@@ -581,6 +658,25 @@ unsafe extern "system" fn tag_wnd_proc(
             }
             // Start timer to check if we should hide the window (if no badges visible)
             SetTimer(Some(hwnd), 2, 150, None);
+            LRESULT(0)
+        }
+        WM_APP_UPDATE_CONTINUOUS => {
+            crate::log_info!("[Badge] WM_APP_UPDATE_CONTINUOUS received");
+            // Update badge text to show continuous mode suffix
+            if TEXT_BADGE_VISIBLE.load(Ordering::SeqCst) {
+                let lang = {
+                    let app = APP.lock().unwrap();
+                    app.config.ui_language.clone()
+                };
+                let continuous_text = get_localized_badge_text(&lang, true);
+                crate::log_info!("[Badge] Updating text to: '{}'", continuous_text);
+                {
+                    let state = SELECTION_STATE.lock().unwrap();
+                    if let Some(wv) = state.webview.as_ref() {
+                        let _ = wv.evaluate_script(&format!("updateState(false, '{}')", continuous_text));
+                    }
+                }
+            }
             LRESULT(0)
         }
         WM_TIMER => {
@@ -964,6 +1060,8 @@ fn internal_create_tag_thread() {
                                     &hotkey_name,
                                 );
                                 CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+                                // Update badge text to show continuous mode suffix
+                                update_badge_for_continuous_mode();
                                 // Ensure the text badge actually shows up
                                 let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
                             }
@@ -977,7 +1075,10 @@ fn internal_create_tag_thread() {
                 let mut preset_idx_for_thread = 0;
 
                 // Scope for State Lock
-                let update_js = {
+                // CRITICAL: Only track mouse for text selection if TEXT badge is visible
+                // Do NOT interfere when only image badge is showing
+                let text_badge_active = TEXT_BADGE_VISIBLE.load(Ordering::SeqCst);
+                let update_js = if text_badge_active {
                     let mut state = SELECTION_STATE.lock().unwrap();
 
                     if !state.is_selecting && lbutton_down {
@@ -1054,6 +1155,9 @@ fn internal_create_tag_thread() {
                     } else {
                         None
                     }
+                } else {
+                    // Text badge not visible - don't track mouse for text selection
+                    None
                 };
 
                 // Update WebView outside lock
@@ -1190,6 +1294,8 @@ fn internal_create_tag_thread() {
                                         &hotkey_name,
                                     );
                                     CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+                                    // Update badge text to show continuous mode suffix
+                                    update_badge_for_continuous_mode();
                                 }
                             }
 
@@ -1408,6 +1514,21 @@ fn get_html(initial_text: &str) -> String {
             flex-direction: column;
             align-items: center;
             gap: 6px;
+            /* Smooth height transitions when badges show/hide */
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }}
+        
+        /* Sliding animations for badge stack */
+        .badges-wrapper.only-image {{
+            /* When only image badge is visible, center it */
+        }}
+        
+        .badges-wrapper.only-text {{
+            /* When only text badge is visible, center it */
+        }}
+        
+        .badges-wrapper.both-visible {{
+            /* When both badges are visible, stack them */
         }}
         
         /* Clip the glow to the container shape to prevent "inside out" giant square */
@@ -1421,15 +1542,15 @@ fn get_html(initial_text: &str) -> String {
             transform: translateY(10px);
             /* Remove default animation, handled by classes */
             box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-            transition: box-shadow 0.2s, transform 0.2s;
+            transition: box-shadow 0.2s, transform 0.2s, margin 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
         }}
 
         .badge-container.entering {{
-            animation: fadeIn 0.15s cubic-bezier(0.2, 0, 0, 1) forwards;
+            animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
         }}
         
         .badge-container.exiting {{
-            animation: fadeOut 0.15s cubic-bezier(0.2, 0, 0, 1) forwards;
+            animation: slideOut 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
         }}
 
         .badge-glow {{
@@ -1469,6 +1590,31 @@ fn get_html(initial_text: &str) -> String {
             box-shadow: 0 0 4px 1px var(--bg-color); /* Soft edge blending */
         }}
 
+        /* Slide In animation - enters from below with bounce */
+        @keyframes slideIn {{
+            from {{ 
+                opacity: 0; 
+                transform: translateY(15px) scale(0.95);
+            }}
+            to {{ 
+                opacity: 1; 
+                transform: translateY(0) scale(1);
+            }}
+        }}
+        
+        /* Slide Out animation - exits upward smoothly */
+        @keyframes slideOut {{
+            from {{ 
+                opacity: 1; 
+                transform: translateY(0) scale(1);
+            }}
+            to {{ 
+                opacity: 0; 
+                transform: translateY(-8px) scale(0.95);
+            }}
+        }}
+        
+        /* Legacy fadeIn for compatibility */
         @keyframes fadeIn {{
             to {{ opacity: 1; transform: translateY(0); }}
         }}
@@ -1594,9 +1740,38 @@ fn get_html(initial_text: &str) -> String {
                     clearTimeout(window.textBadgeTimer);
                     window.textBadgeTimer = null;
                 }}
+                // Cancel any pending exit animation timer
+                if (window.textBadgeExitTimer) {{
+                    clearTimeout(window.textBadgeExitTimer);
+                    window.textBadgeExitTimer = null;
+                }}
                 el.style.display = 'block';
                 el.classList.remove('exiting');
-                el.classList.add('entering');
+                // Small delay to allow display:block to take effect before animation
+                requestAnimationFrame(() => {{
+                    el.classList.add('entering');
+                    updateWrapperState();
+                }});
+            }}
+        }}
+
+        // Helper to update badge wrapper state classes
+        function updateWrapperState() {{
+            const wrapper = document.querySelector('.badges-wrapper');
+            const imageBadge = document.getElementById('image-badge');
+            const textBadge = document.getElementById('text-badge');
+            
+            const imageVisible = imageBadge && imageBadge.style.display !== 'none';
+            const textVisible = textBadge && textBadge.style.display !== 'none';
+            
+            wrapper.classList.remove('only-image', 'only-text', 'both-visible');
+            
+            if (imageVisible && textVisible) {{
+                wrapper.classList.add('both-visible');
+            }} else if (imageVisible) {{
+                wrapper.classList.add('only-image');
+            }} else if (textVisible) {{
+                wrapper.classList.add('only-text');
             }}
         }}
 
@@ -1604,10 +1779,19 @@ fn get_html(initial_text: &str) -> String {
             const el = document.getElementById('text-badge');
             console.log('[JS] playExit called, el=', el);
             if(el) {{
-                // Immediately hide - no animation delay
-                el.style.display = 'none';
                 el.classList.remove('entering');
                 el.classList.add('exiting');
+                // Cancel any pending timer first
+                if (window.textBadgeExitTimer) {{
+                    clearTimeout(window.textBadgeExitTimer);
+                }}
+                // Use a short delay to allow exit animation to play
+                window.textBadgeExitTimer = setTimeout(() => {{
+                    el.style.display = 'none';
+                    el.classList.remove('exiting');
+                    window.textBadgeExitTimer = null;
+                    updateWrapperState();
+                }}, 200);
             }}
         }}
         
@@ -1622,7 +1806,11 @@ fn get_html(initial_text: &str) -> String {
                 el.style.display = 'block';
                 el.classList.add('visible');
                 el.classList.remove('exiting');
-                el.classList.add('entering');
+                // Small delay to allow display:block to take effect before animation
+                requestAnimationFrame(() => {{
+                    el.classList.add('entering');
+                    updateWrapperState();
+                }});
             }}
         }}
         
@@ -1634,10 +1822,11 @@ fn get_html(initial_text: &str) -> String {
                 // Remove visible class after animation
                 if (window.imageBadgeTimer) clearTimeout(window.imageBadgeTimer);
                 window.imageBadgeTimer = setTimeout(() => {{
-                    el.classList.remove('visible');
+                    el.classList.remove('visible', 'exiting');
                     el.style.display = 'none';
                     window.imageBadgeTimer = null;
-                }}, 150);
+                    updateWrapperState();
+                }}, 200);
             }}
         }}
         

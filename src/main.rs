@@ -1117,6 +1117,9 @@ unsafe extern "system" fn hotkey_proc(
                                     crate::log_info!("[TextHotkey] Held - activating text continuous mode");
                                     overlay::continuous_mode::activate(preset_idx, hotkey_name.clone());
                                     
+                                    // Update badge to show continuous mode text
+                                    overlay::text_selection::update_badge_for_continuous_mode();
+                                    
                                     // Show notification
                                     let preset_id = {
                                         if let Ok(app) = APP.lock() {

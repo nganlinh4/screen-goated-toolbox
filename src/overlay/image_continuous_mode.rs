@@ -591,7 +591,7 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
     let len = (w * h) as usize;
     std::ptr::write_bytes(bits, 0, len);
 
-    // Draw box if dragging
+    // Draw box if dragging - using white rounded SDF corners (matching normal image selection mode)
     if RIGHT_DOWN.load(Ordering::SeqCst) {
         let s_x = START_X.load(Ordering::SeqCst);
         let s_y = START_Y.load(Ordering::SeqCst);
@@ -603,22 +603,91 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
         let right = s_x.max(l_x) - sx;
         let bottom = s_y.max(l_y) - sy;
 
-        let border_col = 0xFF00AAFF; // Orange/Blueish ARGB
-        let border = 2;
+        let rect_w = (right - left).abs();
+        let rect_h = (bottom - top).abs();
 
-        let pixels = std::slice::from_raw_parts_mut(bits, len);
+        if rect_w > 0 && rect_h > 0 {
+            let pixels = std::slice::from_raw_parts_mut(bits, len);
 
-        // Simple bounding box loop
-        for y in (top.max(0))..(bottom.min(h)) {
-            for x in (left.max(0))..(right.min(w)) {
-                if x < left + border
-                    || x >= right - border
-                    || y < top + border
-                    || y >= bottom - border
-                {
-                    let idx = (y * w + x) as usize;
-                    if idx < len {
-                        pixels[idx] = border_col;
+            // ANTI-ALIASED ROUNDED BOX (matching selection.rs styling)
+            let default_radius = 12.0f32;
+            let border_width = 2.0f32;
+
+            // Box coordinates
+            let l_f = left as f32;
+            let t_f = top as f32;
+            let r_f = right as f32;
+            let b_f = bottom as f32;
+
+            let hw = (r_f - l_f) / 2.0;
+            let hh = (b_f - t_f) / 2.0;
+            let cx = l_f + hw;
+            let cy = t_f + hh;
+
+            // ADAPTIVE RADIUS: Scale down if box is smaller than radius
+            let radius = default_radius.min(hw).min(hh);
+
+            // Processing bounds with margin for anti-aliasing
+            let b_left = (left - 10).max(0);
+            let b_top = (top - 10).max(0);
+            let b_right = (right + 10).min(w);
+            let b_bottom = (bottom + 10).min(h);
+
+            let rad_int = radius.ceil() as i32;
+            let top_band_end = (top + rad_int).min(b_bottom);
+            let bottom_band_start = (bottom - rad_int).max(top_band_end);
+
+            for py_int in b_top..b_bottom {
+                let row_base = (py_int * w) as usize;
+
+                // --- FAST PATH: Middle Band (no corners, just straight vertical edges) ---
+                if py_int >= top_band_end && py_int < bottom_band_start {
+                    let lb = left as usize;
+                    let rb = right as usize;
+                    if row_base + lb < pixels.len() {
+                        // Draw Left/Right Borders (2 pixels wide, opaque white)
+                        for x in 0..2 {
+                            if row_base + lb + x < pixels.len() {
+                                pixels[row_base + lb + x] = 0xFFFFFFFF;
+                            }
+                            if row_base + rb - 1 - x < pixels.len() {
+                                pixels[row_base + rb - 1 - x] = 0xFFFFFFFF;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // --- SLOW PATH: Top/Bottom Bands (SDF for corners) ---
+                let py = py_int as f32 + 0.5; // pixel center
+                for px_int in b_left..b_right {
+                    let idx = row_base + px_int as usize;
+                    if idx >= pixels.len() {
+                        continue;
+                    }
+
+                    let px = px_int as f32 + 0.5;
+
+                    // Rounded Rect SDF (Signed Distance Field)
+                    let dx = (px - cx).abs() - (hw - radius);
+                    let dy = (py - cy).abs() - (hh - radius);
+
+                    let dist = if dx > 0.0 && dy > 0.0 {
+                        (dx * dx + dy * dy).sqrt() - radius
+                    } else {
+                        dx.max(dy) - radius
+                    };
+
+                    // Composition: Only draw the border (no background dimming for continuous mode)
+                    let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
+                    let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
+                    let border_alpha = alpha_outer - alpha_inner;
+
+                    if border_alpha > 0.001 {
+                        // Final Color (Pre-multiplied alpha white)
+                        let a = (border_alpha * 255.0) as u32;
+                        let c = (border_alpha * 255.0) as u32;
+                        pixels[idx] = (a << 24) | (c << 16) | (c << 8) | c;
                     }
                 }
             }
