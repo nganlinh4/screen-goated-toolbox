@@ -13,7 +13,7 @@ static CONTINUOUS_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static CONTINUOUS_PENDING_START: AtomicBool = AtomicBool::new(false);
 
 /// The preset index that is running in continuous mode
-static CONTINUOUS_PRESET_IDX: AtomicUsize = AtomicUsize::new(0);
+static CONTINUOUS_PRESET_IDX: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 /// The hotkey name to display in the exit message (e.g., "Ctrl+Shift+T")
 static CONTINUOUS_HOTKEY_NAME: Mutex<String> = Mutex::new(String::new());
@@ -40,7 +40,15 @@ pub fn set_pending_start(preset_idx: usize, hotkey_name: String) {
 
 /// Get the preset index running in continuous mode
 pub fn get_preset_idx() -> usize {
-    CONTINUOUS_PRESET_IDX.load(Ordering::SeqCst)
+    let idx = CONTINUOUS_PRESET_IDX.load(Ordering::SeqCst);
+    if idx == usize::MAX {
+        // Fallback to currently active preset if possible, or return 0
+        if let Ok(app) = crate::APP.lock() {
+            return app.config.active_preset_idx;
+        }
+        return 0;
+    }
+    idx
 }
 
 /// Get the hotkey name for the exit message
@@ -71,7 +79,7 @@ pub fn activate(preset_idx: usize, hotkey_name: String) {
 pub fn deactivate() {
     CONTINUOUS_MODE_ACTIVE.store(false, Ordering::SeqCst);
     CONTINUOUS_PENDING_START.store(false, Ordering::SeqCst);
-    CONTINUOUS_PRESET_IDX.store(0, Ordering::SeqCst);
+    CONTINUOUS_PRESET_IDX.store(usize::MAX, Ordering::SeqCst);
     *CONTINUOUS_HOTKEY_NAME.lock().unwrap() = String::new();
 }
 

@@ -542,15 +542,35 @@ pub fn register_all_hotkeys(hwnd: HWND) {
             }
 
             let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
+            crate::log_info!(
+                "[Hotkey] Registering: id={}, preset='{}'({}), key='{}'(0x{:X}), mods=0x{:X}",
+                id,
+                preset.id,
+                p_idx,
+                hotkey.name,
+                hotkey.code,
+                hotkey.modifiers
+            );
             unsafe {
-                let _ = RegisterHotKey(
+                let res = RegisterHotKey(
                     Some(hwnd),
                     id,
                     HOT_KEY_MODIFIERS(hotkey.modifiers),
                     hotkey.code,
                 );
+                if res.is_err() {
+                    let err_code = unsafe { GetLastError().0 };
+                    crate::log_info!(
+                        "[Hotkey] COLLISION: Failed to register hotkey '{}' for preset {}, ID {}. Error Code: {}",
+                        hotkey.name,
+                        p_idx,
+                        id,
+                        err_code
+                    );
+                } else {
+                    registered_ids.push(id);
+                }
             }
-            registered_ids.push(id);
         }
     }
     app.registered_hotkey_ids = registered_ids;
@@ -876,6 +896,29 @@ unsafe extern "system" fn hotkey_proc(
                 // Check if continuous mode is active or pending
                 let mut just_activated_continuous = false;
                 let preset_idx_early = ((id - 1) / 1000) as usize;
+
+                // FIX: Check specifically for the new Image Continuous Mode
+                if overlay::image_continuous_mode::is_active() {
+                    let active_idx = overlay::image_continuous_mode::get_preset_idx();
+                    let trigger_id = overlay::image_continuous_mode::get_trigger_id();
+
+                    crate::log_info!("[Hotkey] ImageContinuous Active: active_idx={}, trigger_id={}, current_id={}, early_idx={}", 
+                        active_idx, trigger_id, id, preset_idx_early);
+
+                    if preset_idx_early == active_idx {
+                        // If active, pressing the SAME hotkey ID again acts as a toggle
+                        if id == trigger_id && overlay::image_continuous_mode::can_exit_now() {
+                            crate::log_info!("[Hotkey] Toggling ImageContinuous OFF (id matches)");
+                            overlay::image_continuous_mode::exit();
+                            return LRESULT(0);
+                        }
+                        // If it's the SAME preset but NOT the toggle-off event, just ignore the repeat
+                        // to prevent re-entering the blocking loop (since we already have a non-blocking one).
+                        return LRESULT(0);
+                    }
+                    crate::log_info!("[Hotkey] ImageContinuous active but diff preset triggered. Allowing fallthrough.");
+                }
+
                 if overlay::continuous_mode::is_active() {
                     // Continuous mode is ACTIVE.
                     let cm_preset = overlay::continuous_mode::get_preset_idx();
@@ -886,19 +929,45 @@ unsafe extern "system" fn hotkey_proc(
                         just_activated_continuous = true;
                         // Do NOT return - proceed to trigger logic below
                     } else {
-                        // Different preset - deactivate continuous mode and process the new preset
-                        overlay::continuous_mode::deactivate();
-                        overlay::text_selection::cancel_selection();
+                        // Different preset - check if it's an image preset (which can coexist)
+                        let is_new_image = {
+                            if let Ok(app) = crate::APP.lock() {
+                                app.config
+                                    .presets
+                                    .get(preset_idx_early)
+                                    .map(|p| p.preset_type == "image")
+                                    .unwrap_or(false)
+                            } else {
+                                false
+                            }
+                        };
+
+                        if !is_new_image {
+                            // Only deactivate if the new preset is not image-based
+                            overlay::continuous_mode::deactivate();
+                            overlay::text_selection::cancel_selection();
+                        }
                         // Proceed with normal processing
                     }
                 } else if overlay::continuous_mode::is_pending_start() {
                     // Scenario 2. Continuous Mode is PENDING (e.g. from Bubble).
-                    // We must NOT cancel. We promote to ACTIVE and let the logic proceed to trigger the preset.
-                    let current = overlay::continuous_mode::get_preset_idx();
-                    let hotkey = overlay::continuous_mode::get_hotkey_name();
-                    overlay::continuous_mode::activate(current, hotkey);
-                    just_activated_continuous = true;
-                    // Do NOT return. Proceed to trigger logic below.
+                    let pending_idx = overlay::continuous_mode::get_preset_idx();
+
+                    // CRITICAL: Only promote if the hotkey matches the pending index.
+                    // Otherwise, we might be hijacking a different preset's action.
+                    if pending_idx == preset_idx_early {
+                        crate::log_info!(
+                            "[Hotkey] Promoting PENDING continuous mode for preset {}",
+                            pending_idx
+                        );
+                        let hotkey = overlay::continuous_mode::get_hotkey_name();
+                        overlay::continuous_mode::activate(pending_idx, hotkey);
+                        just_activated_continuous = true;
+                    } else {
+                        crate::log_info!("[Hotkey] Ignoring PENDING continuous mode for diff preset (pending={}, early={})", 
+                            pending_idx, preset_idx_early);
+                        // Optional: overlay::continuous_mode::clear_pending_start();
+                    }
                 }
 
                 // CRITICAL: If preset wheel is active, dismiss it and return early
@@ -1014,27 +1083,51 @@ unsafe extern "system" fn hotkey_proc(
                 } else if preset_type == "text" {
                     // NEW TEXT LOGIC
                     if text_mode == "select" {
-                        // Toggle Logic for Selection
-                        if overlay::text_selection::is_active() {
-                            // Tag is visible - check if this is a tap (toggle off) or hold (keep going)
+                        let ts_active = overlay::text_selection::is_active();
+                        let ts_warming = overlay::text_selection::is_warming_up();
+                        let ts_held = overlay::text_selection::is_hotkey_held();
+                        let cm_active = overlay::continuous_mode::is_active();
+                        crate::log_info!(
+                            "[TextHotkey] Entering text handling: ts_active={}, ts_warming={}, ts_held={}, cm_active={}, just_activated={}",
+                            ts_active, ts_warming, ts_held, cm_active, just_activated_continuous
+                        );
+                        
+                        // Simple Toggle Logic for Selection
+                        let is_visible = overlay::text_selection::is_active();
+                        
+                        crate::log_info!(
+                            "[TextHotkey] State check: visible={}",
+                            is_visible
+                        );
+                        
+                        if is_visible {
+                            // Badge is visible - toggle OFF
                             if !overlay::text_selection::is_hotkey_held() {
                                 // Key was released and pressed again (tap) - cancel/toggle off
-                                overlay::continuous_mode::deactivate();
+                                crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
+                                // Don't deactivate text continuous mode when image continuous is active
+                                // This allows both to coexist
+                                if !overlay::image_continuous_mode::is_active() {
+                                    overlay::continuous_mode::deactivate();
+                                }
                                 overlay::text_selection::cancel_selection();
                                 return LRESULT(0);
                             } else {
                                 // Key is still being held (continuous mode activation) - just update heartbeat
+                                crate::log_info!("[TextHotkey] Held - updating heartbeat only");
                                 overlay::continuous_mode::update_last_trigger_time();
                                 return LRESULT(0);
                             }
                         } else if overlay::text_selection::is_warming_up() {
                             // During warmup, just update heartbeat and wait
+                            crate::log_info!("[TextHotkey] Warming up - waiting");
                             overlay::continuous_mode::update_last_trigger_time();
                             return LRESULT(0);
                         } else if overlay::continuous_mode::is_active()
                             && !just_activated_continuous
+                            && !overlay::image_continuous_mode::is_active()  // Allow text continuous to work alongside image continuous
                         {
-                            // Continuous mode is active - the worker thread's retrigger handles showing the tag
+                            // Text Continuous mode is active - the worker thread's retrigger handles showing the tag
                             // Just ignore hotkey repeats to prevent duplicate notifications
                             overlay::continuous_mode::update_last_trigger_time();
                             return LRESULT(0);
@@ -1126,7 +1219,7 @@ unsafe extern "system" fn hotkey_proc(
                                     }
 
                                     // 2. Show Overlay (BLOCKING)
-                                    overlay::show_selection_overlay(p_idx);
+                                    overlay::show_selection_overlay(p_idx, id);
                                 }
                                 Err(e) => {
                                     eprintln!("Capture Error: {}", e);
@@ -1135,15 +1228,23 @@ unsafe extern "system" fn hotkey_proc(
                             }
 
                             // 3. Check for exit or update preset
-                            if !overlay::continuous_mode::is_active() {
+                            if !overlay::continuous_mode::is_active()
+                                && !overlay::image_continuous_mode::is_active()
+                            {
                                 break;
                             }
 
-                            // Update p_idx in case it changed (e.g. from Master Preset wheel selection)
-                            let current_active_idx = overlay::continuous_mode::get_preset_idx();
-                            if current_active_idx != p_idx {
-                                p_idx = current_active_idx;
+                            // NEW: If non-blocking image_continuous_mode is active, we EXIT this blocking loop
+                            // It will handle itself from its own thread.
+                            if overlay::image_continuous_mode::is_active() {
+                                crate::log_info!("[MainLoop] ImageContinuous active, breaking blocking capture loop");
+                                break;
                             }
+
+                            // STICKY LOCK: In continuous image mode, we keep triggering the SAME preset
+                            // that we started with, unless specifically requested otherwise.
+                            // We NO LONGER sync p_idx with global state here because it causes "hijacking"
+                            // if the user interacts with other UI (like the bubble) mid-session.
 
                             // Small delay before retriggering to prevent tight looping
                             std::thread::sleep(std::time::Duration::from_millis(200));
