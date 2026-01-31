@@ -88,6 +88,7 @@ const WM_APP_HIDE: u32 = WM_USER + 201;
 const WM_APP_SHOW_IMAGE_BADGE: u32 = WM_USER + 202;
 const WM_APP_HIDE_IMAGE_BADGE: u32 = WM_USER + 203;
 const WM_APP_UPDATE_CONTINUOUS: u32 = WM_USER + 204;
+const WM_APP_RESTORE_AFTER_CAPTURE: u32 = WM_USER + 205;
 
 /// Get localized badge text based on language and continuous mode status
 fn get_localized_badge_text(lang: &str, is_continuous: bool) -> String {
@@ -127,6 +128,32 @@ pub fn update_badge_for_continuous_mode() {
         unsafe {
             let hwnd = HWND(hwnd_val as *mut _);
             let _ = PostMessageW(Some(hwnd), WM_APP_UPDATE_CONTINUOUS, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Hide all badges SYNCHRONOUSLY before screen capture.
+/// This ensures badges don't appear in captured images.
+/// Call restore_badges_after_capture() after capture is complete.
+pub fn hide_all_badges_for_capture() {
+    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        unsafe {
+            let hwnd = HWND(hwnd_val as *mut _);
+            // Hide window immediately (synchronous)
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+}
+
+/// Restore badges after screen capture is complete.
+/// Uses PostMessage since we're likely on a different thread.
+pub fn restore_badges_after_capture() {
+    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
+    if hwnd_val != 0 {
+        unsafe {
+            let hwnd = HWND(hwnd_val as *mut _);
+            let _ = PostMessageW(Some(hwnd), WM_APP_RESTORE_AFTER_CAPTURE, WPARAM(0), LPARAM(0));
         }
     }
 }
@@ -444,7 +471,7 @@ pub fn set_image_continuous_badge(visible: bool) {
                 let _ = GetCursorPos(&mut pt);
                 let target_x = pt.x + OFFSET_X;
                 let target_y = pt.y + OFFSET_Y;
-                let _ = MoveWindow(hwnd, target_x, target_y, 200, 120, false);
+                let _ = MoveWindow(hwnd, target_x, target_y, BADGE_WIDTH, BADGE_HEIGHT, false);
 
                 let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_IMAGE_BADGE, WPARAM(0), LPARAM(0));
             } else {
@@ -482,6 +509,9 @@ pub fn is_warming_up() -> bool {
 
 const OFFSET_X: i32 = -20;
 const OFFSET_Y: i32 = -90;
+// Badge window dimensions - larger than content to accommodate shadow
+const BADGE_WIDTH: i32 = 240;
+const BADGE_HEIGHT: i32 = 140;
 
 pub fn show_text_selection_tag(preset_idx: usize) {
     TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
@@ -547,7 +577,7 @@ pub fn show_text_selection_tag(preset_idx: usize) {
             let target_x = pt.x + OFFSET_X;
             let target_y = pt.y + OFFSET_Y;
 
-            let _ = MoveWindow(hwnd, target_x, target_y, 200, 120, false);
+            let _ = MoveWindow(hwnd, target_x, target_y, BADGE_WIDTH, BADGE_HEIGHT, false);
 
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
@@ -579,7 +609,7 @@ unsafe extern "system" fn tag_wnd_proc(
             // ALWAYS reposition to cursor when showing (fixes stuck position bug)
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
-            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, BADGE_WIDTH, BADGE_HEIGHT, false);
 
             // Update badge text based on continuous mode status
             let is_continuous = crate::overlay::continuous_mode::is_active();
@@ -622,7 +652,7 @@ unsafe extern "system" fn tag_wnd_proc(
             // ALWAYS reposition to cursor when showing (fixes stuck position bug)
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
-            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, BADGE_WIDTH, BADGE_HEIGHT, false);
             
             // Get localized text for image badge
             let lang = {
@@ -638,9 +668,9 @@ unsafe extern "system" fn tag_wnd_proc(
                     if !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst) {
                         let _ = wv.evaluate_script("playExit();");
                     }
-                    // Update image badge text and show it
+                    // Update image badge text with wave animation and show it
                     let _ = wv.evaluate_script(&format!(
-                        "document.getElementById('image-text').textContent = '{}'; showImageBadge();",
+                        "updateImageText('{}'); showImageBadge();",
                         image_badge_text
                     ));
                 }
@@ -676,6 +706,16 @@ unsafe extern "system" fn tag_wnd_proc(
                         let _ = wv.evaluate_script(&format!("updateState(false, '{}')", continuous_text));
                     }
                 }
+            }
+            LRESULT(0)
+        }
+        WM_APP_RESTORE_AFTER_CAPTURE => {
+            crate::log_info!("[Badge] WM_APP_RESTORE_AFTER_CAPTURE received");
+            // Restore badge window visibility if any badge should be visible
+            let text_visible = TEXT_BADGE_VISIBLE.load(Ordering::SeqCst);
+            let image_visible = IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst);
+            if text_visible || image_visible {
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
             }
             LRESULT(0)
         }
@@ -827,7 +867,7 @@ fn internal_create_tag_thread() {
                             position: wry::dpi::Position::Physical(
                                 wry::dpi::PhysicalPosition::new(0, 0),
                             ),
-                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(200, 120)),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(BADGE_WIDTH as u32, BADGE_HEIGHT as u32)),
                         })
                         .with_url(&page_url)
                         .with_transparent(true)
@@ -869,7 +909,7 @@ fn internal_create_tag_thread() {
         if PENDING_SHOW_ON_WARMUP.swap(false, Ordering::SeqCst) {
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
-            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, BADGE_WIDTH, BADGE_HEIGHT, false);
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
         }
 
@@ -877,7 +917,7 @@ fn internal_create_tag_thread() {
         if IMAGE_CONTINUOUS_PENDING_SHOW.swap(false, Ordering::SeqCst) {
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
-            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, BADGE_WIDTH, BADGE_HEIGHT, false);
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_IMAGE_BADGE, WPARAM(0), LPARAM(0));
         }
 
@@ -1007,7 +1047,7 @@ fn internal_create_tag_thread() {
                 let target_y = pt.y + OFFSET_Y;
 
                 // Use MoveWindow for Webview host
-                let _ = MoveWindow(hwnd, target_x, target_y, 200, 120, false);
+                let _ = MoveWindow(hwnd, target_x, target_y, BADGE_WIDTH, BADGE_HEIGHT, false);
 
                 // EARLY CONTINUOUS MODE TRIGGER
                 let cm_active = crate::overlay::continuous_mode::is_active();
@@ -1827,6 +1867,22 @@ fn get_html(initial_text: &str) -> String {
                     window.imageBadgeTimer = null;
                     updateWrapperState();
                 }}, 200);
+            }}
+        }}
+        
+        // Update image badge text with wave animation (same as text badge)
+        function updateImageText(newText) {{
+            const title = document.getElementById('image-text');
+            if (title) {{
+                // Apply gentle idle wave animation to each character
+                const chars = newText.split('');
+                title.innerHTML = chars.map((char, i) => 
+                    `<span style="
+                        display: inline-block;
+                        animation: idleWave 3s ease-in-out infinite;
+                        animation-delay: ${{i * 0.1}}s;
+                    ">${{char === ' ' ? '&nbsp;' : char}}</span>`
+                ).join('');
             }}
         }}
         

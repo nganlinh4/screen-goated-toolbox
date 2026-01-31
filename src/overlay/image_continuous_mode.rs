@@ -317,11 +317,20 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
             LAST_X.store(pt.x, Ordering::SeqCst);
             LAST_Y.store(pt.y, Ordering::SeqCst);
 
+            // CRITICAL: Hide all badges BEFORE capture to prevent them appearing in screenshot
+            crate::overlay::text_selection::hide_all_badges_for_capture();
+            
+            // Small delay to ensure window is hidden before capture
+            std::thread::sleep(std::time::Duration::from_millis(16));
+
             // Capture screen NOW at start of drag
             // This ensures we get what the user sees before drawing box
             if let Ok(capture) = capture_screen_now() {
                 *GESTURE_CAPTURE.lock().unwrap() = Some(capture);
             }
+            
+            // Restore badges after capture is complete
+            crate::overlay::text_selection::restore_badges_after_capture();
 
             // Trigger redraw of overlay (it will draw the box now that RIGHT_DOWN is true)
             let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
