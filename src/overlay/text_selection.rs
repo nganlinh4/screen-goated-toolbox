@@ -1005,9 +1005,17 @@ fn internal_create_tag_thread() {
                         }
                     }
 
-                    // Reset State in JS
+                    // Reset State in JS - BUT respect continuous mode!
+                    // If continuous mode is active, show the continuous suffix
                     if let Some(wv) = state.webview.as_ref() {
-                        let reset_js = format!("updateState(false, '{}')", initial_text);
+                        let is_continuous = crate::overlay::continuous_mode::is_active();
+                        let lang = {
+                            let app = APP.lock().unwrap();
+                            app.config.ui_language.clone()
+                        };
+                        let badge_text = get_localized_badge_text(&lang, is_continuous);
+                        crate::log_info!("[Badge] Visibility transition (visible=true): is_continuous={}, badge_text='{}'", is_continuous, badge_text);
+                        let reset_js = format!("updateState(false, '{}')", badge_text);
                         let _ = wv.evaluate_script(&reset_js);
                     }
                 } else {
@@ -1178,14 +1186,16 @@ fn internal_create_tag_thread() {
 
                     if state.is_selecting != last_sent_is_selecting {
                         last_sent_is_selecting = state.is_selecting;
-                        let new_text = if state.is_selecting {
+                        let new_text: String = if state.is_selecting {
                             match lang.as_str() {
                                 "vi" => "Thả chuột để xử lý",
                                 "ko" => "처리를 위해 마우스를 놓으세요",
                                 _ => "Release to process",
-                            }
+                            }.to_string()
                         } else {
-                            initial_text
+                            // Respect continuous mode - use proper badge text
+                            let is_continuous = crate::overlay::continuous_mode::is_active();
+                            get_localized_badge_text(&lang, is_continuous)
                         };
 
                         Some(format!(

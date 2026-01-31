@@ -538,13 +538,16 @@ fn create_panel_webview(panel_hwnd: HWND) {
                     } else if body.starts_with("trigger_continuous:") {
                         if let Ok(idx) = body[19..].parse::<usize>() {
                             IS_EXPANDED.store(false, Ordering::SeqCst);
+                            // activate_continuous_from_panel handles entering continuous mode directly
+                            // For image: enters image continuous mode (no need to trigger_preset)
+                            // For text: activates continuous mode and shows badge, user then selects text
+                            //           and presses hotkey to process - we do NOT trigger here
                             activate_continuous_from_panel(idx);
-                            trigger_preset(idx);
                         }
                     } else if body.starts_with("trigger_continuous_only:") {
                         if let Ok(idx) = body[24..].parse::<usize>() {
+                            // Same as above - just activate continuous mode, don't trigger preset
                             activate_continuous_from_panel(idx);
-                            trigger_preset(idx);
                         }
                     } else if body.starts_with("set_keep_open:") {
                         if let Ok(val) = body[14..].parse::<u32>() {
@@ -701,11 +704,35 @@ fn activate_continuous_from_panel(preset_idx: usize) {
         }
     };
 
-    if crate::overlay::continuous_mode::supports_continuous_mode(&p_type) {
-        // Find first hotkey name for the instruction message
-        let hotkey_name = "ESC".to_string();
+    if !crate::overlay::continuous_mode::supports_continuous_mode(&p_type) {
+        return;
+    }
 
-        crate::overlay::continuous_mode::set_pending_start(preset_idx, hotkey_name.clone());
+    // Use "Bubble" as the hotkey name for panel-triggered continuous mode
+    let hotkey_name = "Bubble".to_string();
+
+    if p_type == "image" {
+        // IMAGE CONTINUOUS MODE: Directly enter non-blocking image continuous mode
+        // This is the same as holding the hotkey on the dim overlay
+        crate::overlay::image_continuous_mode::enter(
+            preset_idx,
+            hotkey_name.clone(),
+            (preset_idx as i32 * 1000) + 1, // Fake hotkey ID for toggle detection
+        );
+    } else if p_type == "text" {
+        // TEXT CONTINUOUS MODE: Show badge and activate continuous mode
+        // This is equivalent to holding the text hotkey until continuous mode activates
+        
+        // 1. Activate continuous mode FIRST
+        crate::overlay::continuous_mode::activate(preset_idx, hotkey_name.clone());
+        
+        // 2. Show the badge with continuous mode text
+        crate::overlay::text_selection::show_text_selection_tag(preset_idx);
+        
+        // 3. Update badge to show continuous mode suffix
+        crate::overlay::text_selection::update_badge_for_continuous_mode();
+        
+        // 4. Show activation notification
         crate::overlay::continuous_mode::show_activation_notification(&p_id, &hotkey_name);
     }
 }

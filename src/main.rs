@@ -1101,15 +1101,30 @@ unsafe extern "system" fn hotkey_proc(
                         );
                         
                         if is_visible {
-                            // Badge is visible - toggle OFF
+                            // Badge is visible
                             if !overlay::text_selection::is_hotkey_held() {
-                                // Key was released and pressed again (tap) - cancel/toggle off
-                                crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
-                                // Always deactivate text continuous mode when user explicitly toggles off
-                                // This is a deliberate user action to dismiss the badge
-                                overlay::continuous_mode::deactivate();
-                                overlay::text_selection::cancel_selection();
-                                return LRESULT(0);
+                                // Key is NOT held (tap)
+                                if cm_active {
+                                    // Continuous mode is active - user wants to process selected text
+                                    // Try instant processing instead of toggling off
+                                    crate::log_info!("[TextHotkey] Continuous mode active - trying instant process");
+                                    let is_proc = overlay::text_selection::is_processing();
+                                    if !is_proc {
+                                        std::thread::spawn(move || {
+                                            let success = overlay::text_selection::try_instant_process(preset_idx);
+                                            // Keep badge visible for continuous mode
+                                            if !success {
+                                                crate::log_info!("[TextHotkey] Instant process failed - no text selected");
+                                            }
+                                        });
+                                    }
+                                    return LRESULT(0);
+                                } else {
+                                    // NOT in continuous mode - toggle OFF
+                                    crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
+                                    overlay::text_selection::cancel_selection();
+                                    return LRESULT(0);
+                                }
                             } else {
                                 // Key is still being held - check if we should activate text continuous mode
                                 if !overlay::continuous_mode::is_active() {
