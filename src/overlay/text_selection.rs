@@ -25,7 +25,7 @@ struct TextSelectionState {
 unsafe impl Send for TextSelectionState {}
 
 static SELECTION_STATE: Mutex<TextSelectionState> = Mutex::new(TextSelectionState {
-    preset_idx: 0,
+    preset_idx: usize::MAX,
     is_selecting: false,
     is_processing: false,
     hook_handle: HHOOK(std::ptr::null_mut()),
@@ -60,23 +60,111 @@ static HOLD_DETECTED_THIS_SESSION: AtomicBool = AtomicBool::new(false);
 // DEDUPLICATION: Timestamp of last instant process to debounce rapid calls
 static LAST_INSTANT_PROCESS_TIME: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
+// TOGGLE DETECTION: Timestamp of when badge was last shown (for toggle-off detection)
+static LAST_BADGE_SHOW_TIME: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+// TOGGLE DETECTION: The preset index that last showed the badge
+static LAST_BADGE_PRESET_IDX: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
+// TOGGLE DETECTION: Timestamp of when badge was explicitly cancelled by user (to prevent re-show)
+static LAST_USER_CANCEL_TIME: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+// TOGGLE DETECTION: The preset index that was cancelled by user
+static LAST_USER_CANCEL_PRESET_IDX: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
 // DRAG DETECTION: Mouse start position when selection begins
 static MOUSE_START_X: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 static MOUSE_START_Y: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 static PENDING_SHOW_ON_WARMUP: AtomicBool = AtomicBool::new(false);
 
+// IMAGE CONTINUOUS MODE: Secondary badge visibility
+static IMAGE_CONTINUOUS_BADGE_VISIBLE: AtomicBool = AtomicBool::new(false);
+static IMAGE_CONTINUOUS_PENDING_SHOW: AtomicBool = AtomicBool::new(false);
+static TEXT_BADGE_VISIBLE: AtomicBool = AtomicBool::new(false);
+
 // Messages
 const WM_APP_SHOW: u32 = WM_USER + 200;
 const WM_APP_HIDE: u32 = WM_USER + 201;
+const WM_APP_SHOW_IMAGE_BADGE: u32 = WM_USER + 202;
+const WM_APP_HIDE_IMAGE_BADGE: u32 = WM_USER + 203;
 
 // --- PUBLIC API ---
 
 pub fn is_active() -> bool {
-    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
-    if hwnd_val == 0 {
+    TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
+}
+
+/// Check if the badge was recently shown for a specific preset.
+/// This is used for toggle detection when the badge might have been auto-cancelled
+/// by instant process but the user still wants to dismiss via hotkey tap.
+/// Returns true if the badge was shown for this preset within the last `window_ms` milliseconds.
+pub fn was_recently_shown_for_preset(preset_idx: usize, window_ms: u64) -> bool {
+    let last_preset = LAST_BADGE_PRESET_IDX.load(Ordering::SeqCst);
+    if last_preset != preset_idx {
         return false;
     }
-    unsafe { IsWindowVisible(HWND(hwnd_val as *mut std::ffi::c_void)).as_bool() }
+    
+    let last_time = LAST_BADGE_SHOW_TIME.load(Ordering::SeqCst);
+    if last_time == 0 {
+        return false;
+    }
+    
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    
+    now.saturating_sub(last_time) < window_ms
+}
+
+/// Check if the badge was recently CANCELLED by user for a specific preset.
+/// This prevents the badge from immediately showing again after user dismisses it.
+/// Returns true if the badge was cancelled for this preset within the last `window_ms` milliseconds.
+pub fn was_recently_cancelled_by_user(preset_idx: usize, window_ms: u64) -> bool {
+    let last_preset = LAST_USER_CANCEL_PRESET_IDX.load(Ordering::SeqCst);
+    if last_preset != preset_idx {
+        crate::log_info!("[TextSelection] recently_cancelled check: preset mismatch (last={}, current={})", last_preset, preset_idx);
+        return false;
+    }
+    
+    let last_time = LAST_USER_CANCEL_TIME.load(Ordering::SeqCst);
+    if last_time == 0 {
+        crate::log_info!("[TextSelection] recently_cancelled check: no cancel timestamp");
+        return false;
+    }
+    
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    
+    let elapsed = now.saturating_sub(last_time);
+    let result = elapsed < window_ms;
+    crate::log_info!("[TextSelection] recently_cancelled check: elapsed={}ms, window={}ms, result={}", elapsed, window_ms, result);
+    result
+}
+
+/// Mark that the user explicitly cancelled the badge (for preventing immediate re-show)
+pub fn mark_user_cancelled(preset_idx: usize) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    crate::log_info!("[TextSelection] mark_user_cancelled: preset={}, time={}", preset_idx, now);
+    LAST_USER_CANCEL_TIME.store(now, Ordering::SeqCst);
+    LAST_USER_CANCEL_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
+}
+
+/// Clear the "recently shown" state (called when badge is explicitly cancelled by user)
+pub fn clear_recently_shown() {
+    LAST_BADGE_SHOW_TIME.store(0, Ordering::SeqCst);
+    LAST_BADGE_PRESET_IDX.store(usize::MAX, Ordering::SeqCst);
+}
+
+/// Clear the "recently cancelled" state (called when starting a new image continuous session)
+pub fn clear_recently_cancelled() {
+    LAST_USER_CANCEL_TIME.store(0, Ordering::SeqCst);
+    LAST_USER_CANCEL_PRESET_IDX.store(usize::MAX, Ordering::SeqCst);
 }
 
 pub fn is_processing() -> bool {
@@ -250,20 +338,80 @@ pub fn try_instant_process(preset_idx: usize) -> bool {
     }
 }
 
+fn reset_selection_internal_state() {
+    let mut state = SELECTION_STATE.lock().unwrap();
+    state.preset_idx = usize::MAX;
+    state.is_selecting = false;
+    state.is_processing = false;
+    TEXT_BADGE_VISIBLE.store(false, Ordering::SeqCst);
+    CONTINUOUS_ACTIVATED_THIS_SESSION.store(false, Ordering::SeqCst);
+    HOLD_DETECTED_THIS_SESSION.store(false, Ordering::SeqCst);
+    IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
+    unsafe {
+        TRIGGER_VK_CODE = 0;
+        TRIGGER_MODIFIERS = 0;
+    }
+}
+
 pub fn cancel_selection() {
-    TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+    crate::log_info!("[Badge] cancel_selection() called");
+    reset_selection_internal_state();
+    // TAG_ABORT_SIGNAL is NO LONGER set here.
+    // This allows the shared window to persist if the image badge is still active.
+    let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
+    crate::log_info!("[Badge] cancel_selection: hwnd_val={}", hwnd_val);
+    if hwnd_val != 0 {
+        unsafe {
+            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+            // Use PostMessageW to send to the window thread where WebView runs
+            crate::log_info!("[Badge] cancel_selection: posting WM_APP_HIDE");
+            let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
+/// Show or hide the image continuous mode badge (secondary badge above text badge)
+/// This reuses the same WebView window to save RAM
+pub fn set_image_continuous_badge(visible: bool) {
+    crate::log_info!("[Badge] set_image_continuous_badge(visible={})", visible);
+    if visible {
+        TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst);
+    }
+    IMAGE_CONTINUOUS_BADGE_VISIBLE.store(visible, Ordering::SeqCst);
+
+    // Ensure warmup if not ready
+    if !IS_WARMED_UP.load(Ordering::SeqCst) {
+        if visible {
+            IMAGE_CONTINUOUS_PENDING_SHOW.store(true, Ordering::SeqCst);
+        }
+        warmup();
+        return;
+    }
+
     let hwnd_val = TAG_HWND.load(Ordering::SeqCst);
     if hwnd_val != 0 {
         unsafe {
-            // Just hide it, don't destroy
-            let _ = PostMessageW(
-                Some(HWND(hwnd_val as *mut std::ffi::c_void)),
-                WM_APP_HIDE,
-                WPARAM(0),
-                LPARAM(0),
-            );
+            let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+            if visible {
+                // POSITIONING FIX: Move badge to cursor when showing
+                // Otherwise it stays at -1000, -1000 or last known position
+                let mut pt = POINT::default();
+                let _ = GetCursorPos(&mut pt);
+                let target_x = pt.x + OFFSET_X;
+                let target_y = pt.y + OFFSET_Y;
+                let _ = MoveWindow(hwnd, target_x, target_y, 200, 120, false);
+
+                let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_IMAGE_BADGE, WPARAM(0), LPARAM(0));
+            } else {
+                let _ = PostMessageW(Some(hwnd), WM_APP_HIDE_IMAGE_BADGE, WPARAM(0), LPARAM(0));
+            }
         }
     }
+}
+
+/// Check if image continuous badge is currently shown
+pub fn is_image_continuous_badge_visible() -> bool {
+    IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst)
 }
 
 pub fn warmup() {
@@ -291,6 +439,17 @@ const OFFSET_X: i32 = -20;
 const OFFSET_Y: i32 = -90;
 
 pub fn show_text_selection_tag(preset_idx: usize) {
+    TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
+    TAG_ABORT_SIGNAL.store(false, Ordering::SeqCst); // Clear signal for new session
+    
+    // Record when and for which preset the badge is being shown (for toggle detection)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    LAST_BADGE_SHOW_TIME.store(now, Ordering::SeqCst);
+    LAST_BADGE_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
+    
     // 1. Ensure Warmed Up / Trigger Warmup
     if !IS_WARMED_UP.load(Ordering::SeqCst) {
         PENDING_SHOW_ON_WARMUP.store(true, Ordering::SeqCst);
@@ -367,6 +526,8 @@ unsafe extern "system" fn tag_wnd_proc(
 ) -> LRESULT {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match msg {
         WM_APP_SHOW => {
+            crate::log_info!("[Badge] WM_APP_SHOW received");
+            TEXT_BADGE_VISIBLE.store(true, Ordering::SeqCst);
             // Cancel any pending Hide timer to prevent it from hiding us later
             let _ = KillTimer(Some(hwnd), 1);
 
@@ -381,26 +542,71 @@ unsafe extern "system" fn tag_wnd_proc(
             LRESULT(0)
         }
         WM_APP_HIDE => {
-            // Trigger Fade Out Script & Delay Hide
+            crate::log_info!("[Badge] WM_APP_HIDE received");
+            TEXT_BADGE_VISIBLE.store(false, Ordering::SeqCst);
             {
                 let state = SELECTION_STATE.lock().unwrap();
                 if let Some(wv) = state.webview.as_ref() {
                     let _ = wv.evaluate_script("playExit();");
                 }
             }
-            // 150ms delay for animation
+            // Start timer to check if we should hide the window (if no badges visible)
             SetTimer(Some(hwnd), 1, 150, None);
+            LRESULT(0)
+        }
+        WM_APP_SHOW_IMAGE_BADGE => {
+            crate::log_info!("[Badge] WM_APP_SHOW_IMAGE_BADGE received");
+            // Show the image continuous badge
+            let _ = KillTimer(Some(hwnd), 2); // Cancel any pending hide timer for image badge
+            {
+                let state = SELECTION_STATE.lock().unwrap();
+                if let Some(wv) = state.webview.as_ref() {
+                    // CRITICAL: Ensure text badge is NOT showing if TEXT_BADGE_VISIBLE is false
+                    if !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst) {
+                        let _ = wv.evaluate_script("playExit();");
+                    }
+                    let _ = wv.evaluate_script("showImageBadge();");
+                }
+            }
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            LRESULT(0)
+        }
+        WM_APP_HIDE_IMAGE_BADGE => {
+            crate::log_info!("[Badge] WM_APP_HIDE_IMAGE_BADGE received");
+            {
+                let state = SELECTION_STATE.lock().unwrap();
+                if let Some(wv) = state.webview.as_ref() {
+                    let _ = wv.evaluate_script("hideImageBadge();");
+                }
+            }
+            // Start timer to check if we should hide the window (if no badges visible)
+            SetTimer(Some(hwnd), 2, 150, None);
             LRESULT(0)
         }
         WM_TIMER => {
             if wparam.0 == 1 {
+                // Timer 1: Text badge hide
                 let _ = KillTimer(Some(hwnd), 1);
                 // Reset text state internally when truly hidden
                 {
                     let initial_text = INITIAL_TEXT_GLOBAL.lock().unwrap();
                     reset_ui_state(&initial_text);
                 }
-                let _ = ShowWindow(hwnd, SW_HIDE);
+                // Only hide window if image badge is also not visible
+                if !IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst)
+                    && !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
+                {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                }
+            } else if wparam.0 == 2 {
+                // Timer 2: Image badge hide check
+                let _ = KillTimer(Some(hwnd), 2);
+                // Only hide window if text badge is also not active
+                if !TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
+                    && !IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst)
+                {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                }
             }
             LRESULT(0)
         }
@@ -565,7 +771,18 @@ fn internal_create_tag_thread() {
         // If a show was requested during warmup, the state (preset_idx) is already set
         // Just post the show message to ourselves to pop it up.
         if PENDING_SHOW_ON_WARMUP.swap(false, Ordering::SeqCst) {
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
             let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+        }
+
+        // If image continuous badge was requested during warmup
+        if IMAGE_CONTINUOUS_PENDING_SHOW.swap(false, Ordering::SeqCst) {
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            let _ = MoveWindow(hwnd, pt.x + OFFSET_X, pt.y + OFFSET_Y, 200, 120, false);
+            let _ = PostMessageW(Some(hwnd), WM_APP_SHOW_IMAGE_BADGE, WPARAM(0), LPARAM(0));
         }
 
         let mut msg = MSG::default();
@@ -699,8 +916,11 @@ fn internal_create_tag_thread() {
                 // EARLY CONTINUOUS MODE TRIGGER
                 let cm_active = crate::overlay::continuous_mode::is_active();
                 let session_activated = CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst);
+                let image_badge_visible = IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst);
 
-                if !cm_active && !session_activated {
+                // FIX: Only trigger text-based hold detection if we aren't showing the image continuous badge
+                // or if we are explicitly in a text selection state.
+                if !cm_active && !session_activated && !image_badge_visible {
                     // Latch the hold detection early via heartbeats
                     let heartbeat = crate::overlay::continuous_mode::was_triggered_recently(2000);
                     if heartbeat {
@@ -708,35 +928,45 @@ fn internal_create_tag_thread() {
                     }
 
                     if HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst) {
-                        let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
-                        if hotkey_name.is_empty() {
-                            hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
-                        }
-                        if hotkey_name.is_empty() {
-                            hotkey_name = "Hotkey".to_string();
-                        }
-
                         let p_idx = SELECTION_STATE.lock().unwrap().preset_idx;
-                        let p_name = {
-                            if let Ok(app) = APP.lock() {
-                                app.config
-                                    .presets
-                                    .get(p_idx)
-                                    .map(|p| p.id.clone())
-                                    .unwrap_or_default()
-                            } else {
-                                "Preset".to_string()
+                        if p_idx != usize::MAX {
+                            let mut hotkey_name =
+                                crate::overlay::continuous_mode::get_hotkey_name();
+                            if hotkey_name.is_empty() {
+                                hotkey_name =
+                                    crate::overlay::continuous_mode::get_latest_hotkey_name();
                             }
-                        };
+                            if hotkey_name.is_empty() {
+                                hotkey_name = "Hotkey".to_string();
+                            }
 
-                        // Disable continuous mode for Master Preset
-                        if p_name != "preset_text_select_master" {
-                            crate::overlay::continuous_mode::activate(p_idx, hotkey_name.clone());
-                            crate::overlay::continuous_mode::show_activation_notification(
-                                &p_name,
-                                &hotkey_name,
-                            );
-                            CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+                            let p_name = {
+                                if let Ok(app) = APP.lock() {
+                                    app.config
+                                        .presets
+                                        .get(p_idx)
+                                        .map(|p| p.id.clone())
+                                        .unwrap_or_default()
+                                } else {
+                                    "Preset".to_string()
+                                }
+                            };
+
+                            // Disable continuous mode for Master Preset
+                            if p_name != "preset_text_select_master" {
+                                crate::log_info!("[Badge] Early trigger activating global continuous mode for preset {}", p_idx);
+                                crate::overlay::continuous_mode::activate(
+                                    p_idx,
+                                    hotkey_name.clone(),
+                                );
+                                crate::overlay::continuous_mode::show_activation_notification(
+                                    &p_name,
+                                    &hotkey_name,
+                                );
+                                CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+                                // Ensure the text badge actually shows up
+                                let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                            }
                         }
                     }
                 }
@@ -839,7 +1069,9 @@ fn internal_create_tag_thread() {
                     std::thread::spawn(move || {
                         let hwnd_copy = HWND(hwnd_val as *mut std::ffi::c_void);
 
-                        if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) {
+                        if TAG_ABORT_SIGNAL.load(Ordering::Relaxed)
+                            || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed)
+                        {
                             return;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -877,7 +1109,9 @@ fn internal_create_tag_thread() {
 
                         let mut clipboard_text = String::new();
                         for _ in 0..10 {
-                            if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) {
+                            if TAG_ABORT_SIGNAL.load(Ordering::Relaxed)
+                                || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed)
+                            {
                                 return;
                             }
                             std::thread::sleep(std::time::Duration::from_millis(25));
@@ -889,6 +1123,7 @@ fn internal_create_tag_thread() {
 
                         if !clipboard_text.trim().is_empty()
                             && !TAG_ABORT_SIGNAL.load(Ordering::Relaxed)
+                            && TEXT_BADGE_VISIBLE.load(Ordering::Relaxed)
                         {
                             // HIDE FIRST
                             let _ =
@@ -1089,6 +1324,8 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
             // ESC always exits continuous mode
             if kbd_struct.vkCode == VK_ESCAPE.0 as u32 {
                 crate::overlay::continuous_mode::deactivate();
+                crate::overlay::image_continuous_mode::exit();
+                cancel_selection();
                 TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                 return LRESULT(1);
             }
@@ -1157,12 +1394,20 @@ fn get_html(initial_text: &str) -> String {
             background: transparent;
             overflow: hidden;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             height: 100vh;
             width: 100vw;
             font-family: 'Google Sans Flex Rounded', 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
             font-weight: 500;
+        }}
+        
+        .badges-wrapper {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
         }}
         
         /* Clip the glow to the container shape to prevent "inside out" giant square */
@@ -1296,31 +1541,103 @@ fn get_html(initial_text: &str) -> String {
             --c2: var(--g2);
             --c3: var(--g3);
         }}
+        
+        /* Image badge specific styles */
+        #image-badge {{
+            display: none; /* Hidden by default */
+        }}
+        
+        #image-badge.visible {{
+            display: block;
+        }}
+        
+        #image-badge .badge-glow {{
+            /* Cyan-Green gradient for image mode */
+            --c1: #00cc88;
+            --c2: #00bbff;
+            --c3: #8800ff;
+        }}
+        
+        #image-badge .badge-inner {{
+            /* Slightly different color accent */
+            background: var(--bg-color);
+        }}
 
     </style>
 </head>
 <body>
-    <div class="badge-container">
-        <div class="badge-glow"></div>
-        <div class="badge-inner">
-            <span id="text">{text}</span>
+    <div class="badges-wrapper">
+        <!-- Image Continuous Badge (above text badge) -->
+        <div id="image-badge" class="badge-container">
+            <div class="badge-glow"></div>
+            <div class="badge-inner">
+                <span id="image-text">Chọn vùng MH</span>
+            </div>
+        </div>
+        
+        <!-- Text Selection Badge -->
+        <div id="text-badge" class="badge-container">
+            <div class="badge-glow"></div>
+            <div class="badge-inner">
+                <span id="text">{text}</span>
+            </div>
         </div>
     </div>
 
     <script>
+        // Text badge entry/exit
         function playEntry() {{
-            const el = document.querySelector('.badge-container');
+            const el = document.getElementById('text-badge');
             if(el) {{
+                // Cancel any pending hide timer
+                if (window.textBadgeTimer) {{
+                    clearTimeout(window.textBadgeTimer);
+                    window.textBadgeTimer = null;
+                }}
+                el.style.display = 'block';
                 el.classList.remove('exiting');
                 el.classList.add('entering');
             }}
         }}
 
         function playExit() {{
-            const el = document.querySelector('.badge-container');
+            const el = document.getElementById('text-badge');
+            console.log('[JS] playExit called, el=', el);
+            if(el) {{
+                // Immediately hide - no animation delay
+                el.style.display = 'none';
+                el.classList.remove('entering');
+                el.classList.add('exiting');
+            }}
+        }}
+        
+        // Image badge show/hide
+        function showImageBadge() {{
+            const el = document.getElementById('image-badge');
+            if(el) {{
+                if (window.imageBadgeTimer) {{
+                    clearTimeout(window.imageBadgeTimer);
+                    window.imageBadgeTimer = null;
+                }}
+                el.style.display = 'block';
+                el.classList.add('visible');
+                el.classList.remove('exiting');
+                el.classList.add('entering');
+            }}
+        }}
+        
+        function hideImageBadge() {{
+            const el = document.getElementById('image-badge');
             if(el) {{
                 el.classList.remove('entering');
                 el.classList.add('exiting');
+                // Remove visible class after animation
+                if (window.imageBadgeTimer) clearTimeout(window.imageBadgeTimer);
+                window.imageBadgeTimer = setTimeout(() => {{
+                    el.classList.remove('visible');
+                    el.style.display = 'none';
+                    window.imageBadgeTimer = null;
+                }}, 150);
             }}
         }}
         

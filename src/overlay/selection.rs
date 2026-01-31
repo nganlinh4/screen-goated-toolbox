@@ -33,6 +33,8 @@ const TARGET_OPACITY: u8 = 120;
 const FADE_STEP: u8 = 40;
 
 // --- STATE ---
+static mut CURRENT_PRESET_IDX: usize = 0;
+static mut CURRENT_HOTKEY_ID: i32 = 0;
 static mut START_POS: POINT = POINT { x: 0, y: 0 };
 static mut CURR_POS: POINT = POINT { x: 0, y: 0 };
 static mut IS_DRAGGING: bool = false;
@@ -40,7 +42,6 @@ static mut IS_FADING_OUT: bool = false;
 static mut CURRENT_ALPHA: u8 = 0;
 static SELECTION_OVERLAY_ACTIVE: AtomicBool = AtomicBool::new(false);
 static mut SELECTION_OVERLAY_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
-static mut CURRENT_PRESET_IDX: usize = 0;
 static mut SELECTION_HOOK: HHOOK = HHOOK(std::ptr::null_mut());
 
 // CONTINUOUS MODE HOTKEY TRACKING
@@ -120,6 +121,21 @@ unsafe fn extract_crop_from_hbitmap(
     capture: &GdiCapture,
     crop_rect: RECT,
 ) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> {
+    extract_crop_from_hbitmap_internal(capture, crop_rect)
+}
+
+/// Public version of extract_crop_from_hbitmap for use by image_continuous_mode
+pub fn extract_crop_from_hbitmap_public(
+    capture: &GdiCapture,
+    crop_rect: RECT,
+) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> {
+    unsafe { extract_crop_from_hbitmap_internal(capture, crop_rect) }
+}
+
+unsafe fn extract_crop_from_hbitmap_internal(
+    capture: &GdiCapture,
+    crop_rect: RECT,
+) -> image::ImageBuffer<image::Rgba<u8>, Vec<u8>> {
     let hdc_screen = GetDC(None);
     let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
 
@@ -194,9 +210,10 @@ pub fn is_selection_overlay_active() -> bool {
 }
 
 #[allow(static_mut_refs)]
-pub fn show_selection_overlay(preset_idx: usize) {
+pub fn show_selection_overlay(preset_idx: usize, hotkey_id: i32) {
     unsafe {
         CURRENT_PRESET_IDX = preset_idx;
+        CURRENT_HOTKEY_ID = hotkey_id;
         SELECTION_OVERLAY_ACTIVE.store(true, Ordering::SeqCst);
         CURRENT_ALPHA = 0;
         IS_FADING_OUT = false;
@@ -595,7 +612,8 @@ unsafe extern "system" fn selection_wnd_proc(
 
                     if let Some(preset_idx) = final_preset_idx {
                         // 3. CHECK FOR CONTINUOUS MODE ACTIVATION (IMPROVED)
-                        if !super::continuous_mode::is_active() {
+                        // We allow Image Continuous Mode to trigger even if global state (Text) is active.
+                        if true {
                             // Instant activation if key is physically held during mouse-up
                             let is_held = {
                                 if TRIGGER_VK_CODE != 0 {
@@ -632,12 +650,20 @@ unsafe extern "system" fn selection_wnd_proc(
                                     }
                                 };
 
-                                super::continuous_mode::activate(preset_idx, hotkey_name.clone());
-                                super::continuous_mode::show_activation_notification(
-                                    &p_name,
-                                    &hotkey_name,
+                                // NEW: Transition to non-blocking image continuous mode
+                                // We NO LONGER call super::continuous_mode::activate() here to avoid
+                                // interfering with other (e.g. text) continuous modes.
+                                // Image Continuous Mode handles its own notification and state.
+
+                                super::image_continuous_mode::enter(
+                                    preset_idx,
+                                    hotkey_name.clone(),
+                                    unsafe { CURRENT_HOTKEY_ID },
                                 );
-                                CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+
+                                // Trigger close/fade-out of the dim overlay immediately
+                                IS_FADING_OUT = true;
+                                let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
                             }
                         }
 
@@ -672,6 +698,15 @@ unsafe extern "system" fn selection_wnd_proc(
                     }
 
                     // 3. SEAMLESS CONTINUOUS MODE OR FADE OUT
+
+                    // CHECK IF NEW MODE IS ACTIVE
+                    if super::image_continuous_mode::is_active() {
+                        // If the new mode is active, we MUST close this blocking overlay.
+                        IS_FADING_OUT = true;
+                        let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
+                        return LRESULT(0);
+                    }
+
                     if super::continuous_mode::is_active() {
                         // --- STICKY SEAMLESS SUCCESSION ---
                         // Mode is active - we stay in the overlay even if the key is released.
@@ -783,9 +818,9 @@ unsafe extern "system" fn selection_wnd_proc(
                 }
 
                 // Background Hold Detection - Check even if not dragging
-                if !super::continuous_mode::is_active()
-                    && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
-                {
+                // Check for HOLD detection (Continuous Mode start)
+                // Detached from global state to allow co-existence.
+                if !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst) {
                     let heartbeat = super::continuous_mode::was_triggered_recently(1500);
                     if heartbeat {
                         HOLD_DETECTED_THIS_SESSION.store(true, Ordering::SeqCst);
@@ -823,15 +858,17 @@ unsafe extern "system" fn selection_wnd_proc(
                                 }
                             };
 
-                            super::continuous_mode::activate(
+                            // NEW: Transition to non-blocking image continuous mode
+                            // Detached from global state for co-existence.
+                            super::image_continuous_mode::enter(
                                 CURRENT_PRESET_IDX,
                                 hotkey_name.clone(),
+                                unsafe { CURRENT_HOTKEY_ID },
                             );
-                            super::continuous_mode::show_activation_notification(
-                                &p_name,
-                                &hotkey_name,
-                            );
-                            CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
+
+                            // Trigger close/fade-out of the dim overlay
+                            IS_FADING_OUT = true;
+                            let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
                         }
                     }
                 }
