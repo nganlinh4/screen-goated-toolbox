@@ -12,6 +12,7 @@ pub fn generate_panel_html(
     let keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open;
     let keep_open_js = if keep_open { "true" } else { "false" };
     let keep_open_class = if keep_open { " active" } else { "" };
+    let js = get_js();
 
     format!(
         r#"<!DOCTYPE html>
@@ -33,204 +34,8 @@ pub fn generate_panel_html(
     <div class="list">{favorites}</div>
 </div>
 <script>
-function fitText() {{
-    requestAnimationFrame(() => {{
-        document.querySelectorAll('.name').forEach(el => {{
-            el.className = 'name';
-            if (el.scrollWidth > el.clientWidth) {{
-                el.classList.add('condense');
-        if (el.scrollWidth > el.clientWidth) {{
-                    el.classList.remove('condense');
-                    el.classList.add('condense-more');
-                }}
-            }}
-        }});
-        sendHeight();
-    }});
-}}
-
-function resizeBubble(dir) {{
-    if (dir === 'inc') window.ipc.postMessage('increase_size');
-    else window.ipc.postMessage('decrease_size');
-}}
-window.onload = fitText;
-
-function sendHeight() {{
-    const container = document.querySelector('.container');
-    if (container) {{
-         window.ipc.postMessage('resize:' + Math.max(container.scrollHeight, container.offsetHeight));
-    }}
-}}
-
-function startDrag(e) {{
-    if (e.button === 0) window.ipc.postMessage('drag');
-}}
-
-let keepOpen = {keep_open_js};
-
-function toggleKeepOpen() {{
-    keepOpen = !keepOpen;
-    const toggle = document.getElementById('keepOpenToggle');
-    const label = document.getElementById('keepOpenLabel');
-    toggle.classList.toggle('active', keepOpen);
-    label.classList.toggle('active', keepOpen);
-    // Notify Rust to persist the new state
-    window.ipc.postMessage('set_keep_open:' + (keepOpen ? '1' : '0'));
-}}
-
-let holdTimer = null;
-let holdIdx = null;
-const HOLD_THRESHOLD = 500;
-
-function onMouseDown(idx) {{
-    holdIdx = idx;
-    const item = event.currentTarget;
-    const fill = item.querySelector('.progress-fill');
-    
-    if (fill) {{
-        fill.style.width = '0%';
-        fill.style.transition = 'width ' + HOLD_THRESHOLD + 'ms linear';
-        requestAnimationFrame(() => fill.style.width = '100%');
-    }}
-
-    holdTimer = setTimeout(() => {{
-        holdTimer = null;
-        triggerContinuous(idx);
-    }}, HOLD_THRESHOLD);
-}}
-
-function onMouseUp(idx) {{
-    if (holdTimer) {{
-        clearTimeout(holdTimer);
-        holdTimer = null;
-        triggerNormal(idx);
-    }}
-    resetFill();
-}}
-
-function onMouseLeave() {{
-    if (holdTimer) {{
-        clearTimeout(holdTimer);
-        holdTimer = null;
-    }}
-    resetFill();
-}}
-
-function resetFill() {{
-    document.querySelectorAll('.progress-fill').forEach(f => {{
-        f.style.transition = 'none';
-        f.style.width = '0%';
-    }});
-}}
-
-function triggerNormal(idx) {{
-    if (keepOpen) {{
-        window.ipc.postMessage('trigger_only:' + idx);
-    }} else {{
-        closePanel();
-        window.ipc.postMessage('trigger:' + idx);
-    }}
-}}
-
-function triggerContinuous(idx) {{
-    if (keepOpen) {{
-        window.ipc.postMessage('trigger_continuous_only:' + idx);
-    }} else {{
-        closePanel();
-        window.ipc.postMessage('trigger_continuous:' + idx);
-    }}
-}}
-
-let currentTimeout = null;
-let currentSide = 'right';
-let lastBubblePos = {{ x: 0, y: 0 }};
-
-function animateIn(bx, by) {{
-    if (currentTimeout) {{
-        clearTimeout(currentTimeout);
-        currentTimeout = null;
-    }}
-    lastBubblePos = {{ x: bx, y: by }};
-    
-    const items = document.querySelectorAll('.preset-item, .empty');
-    if (items.length === 0) return;
-
-    items.forEach((item, i) => {{
-        const rect = item.getBoundingClientRect();
-        if (rect.width === 0) return; // Not rendered yet?
-
-        // Target center
-        const iy = rect.top + rect.height / 2;
-        const ix = rect.left + rect.width / 2;
-        
-        // Offset TO move item TO bubble center
-        const dx = bx - ix;
-        const dy = by - iy;
-
-        // 1. Force initial state (at bubble, invisible)
-        item.style.transition = 'none';
-        item.style.opacity = '0';
-        item.style.transform = `translate(${{dx}}px, ${{dy}}px) scale(0.01)`;
-        item.classList.remove('visible');
-        
-        item.offsetHeight; // Flush
-        
-        // 2. Set transition and target state
-        item.style.transition = ''; 
-        item.style.transitionDelay = `${{i * 15}}ms`;
-        
-        requestAnimationFrame(() => {{
-            // Add class and set target state explicitly
-            item.classList.add('visible');
-            item.style.opacity = '1';
-            item.style.transform = 'translate(0px, 0px) scale(1)';
-            
-            // Cleanup: remove inline styles after animation finishes to let CSS hover work
-            setTimeout(() => {{
-                if (item.classList.contains('visible')) {{
-                    item.style.opacity = '';
-                    item.style.transform = '';
-                    item.style.transition = '';
-                    item.style.transitionDelay = '';
-                }}
-            }}, 300 + (i * 15));
-        }});
-    }});
-}}
-
-function closePanel() {{
-    if (currentTimeout) clearTimeout(currentTimeout);
-    
-    const items = Array.from(document.querySelectorAll('.preset-item, .empty'));
-    const {{ x: bx, y: by }} = lastBubblePos;
-
-    items.forEach((item, i) => {{
-        const rect = item.getBoundingClientRect();
-        const iy = rect.top + rect.height / 2;
-        const ix = rect.left + rect.width / 2;
-        
-        const dx = bx - ix;
-        const dy = by - iy;
-
-        // Animate back to bubble with fade out
-        item.style.transitionDelay = `${{(items.length - 1 - i) * 8}}ms`;
-        item.classList.remove('visible');
-        item.style.opacity = '0';
-        item.style.transform = `translate(${{dx}}px, ${{dy}}px) scale(0.01)`;
-    }});
-
-    currentTimeout = setTimeout(() => {{
-        window.ipc.postMessage('close_now');
-        currentTimeout = null;
-    }}, items.length * 8 + 300);
-}}
-
-window.setSide = (side) => {{ 
-    currentSide = side;
-    const container = document.querySelector('.container');
-    container.classList.remove('side-left', 'side-right');
-    container.classList.add('side-' + side);
-}};
+{js}
+keepOpen = {keep_open_js};
 </script>
 </body>
 </html>"#,
@@ -238,7 +43,8 @@ window.setSide = (side) => {{
         favorites = favorites_html,
         keep_open_label = keep_open_label,
         keep_open_class = keep_open_class,
-        keep_open_js = keep_open_js
+        keep_open_js = keep_open_js,
+        js = js
     )
 }
 
@@ -257,7 +63,6 @@ pub fn generate_panel_css(is_dark: bool) -> String {
         empty_border,
         label_color,
         label_active_color,
-        label_shadow,
         toggle_bg,
         toggle_active_bg,
         toggle_knob_shadow,
@@ -274,7 +79,6 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(255, 255, 255, 0.1)",
             "rgba(255, 255, 255, 0.6)",
             "rgba(255, 255, 255, 0.95)", // White active label
-            "0 1px 3px rgba(0, 0, 0, 0.5)",
             "rgba(60, 60, 70, 0.8)",
             "rgba(64, 196, 255, 0.9)", // Blue (Light Blue A200)
             "0 1px 3px rgba(0, 0, 0, 0.3)",
@@ -291,9 +95,8 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(0, 0, 0, 0.5)",
             "rgba(255, 255, 255, 0.92)",
             "rgba(0, 0, 0, 0.08)",
-            "rgba(0, 0, 0, 0.6)",               // Darker label for visibility
-            "rgba(0, 0, 0, 0.95)",              // Dark active label
-            "0 0 4px rgba(255, 255, 255, 0.8)", // White glow for contrast
+            "rgba(0, 0, 0, 0.6)",  // Darker label for visibility
+            "rgba(0, 0, 0, 0.95)", // Dark active label
             "rgba(200, 200, 210, 0.8)",
             "rgba(33, 150, 243, 0.9)", // Blue (Material Blue 500)
             "0 1px 3px rgba(0, 0, 0, 0.15)",
@@ -324,26 +127,19 @@ html, body {{
 .container {{
     display: flex;
     flex-direction: column;
-    padding: 30px 20px; /* Default padding, will be overridden by side class */
+    padding: 30px 20px;
+    /* Ensure container has height for hover detection even if items are small */
+    min-height: 100px; 
 }}
-
-/* Bubble on right = panel on left */
-.container.side-right {{
-    padding-left: 30px;
-    padding-right: 10px;
-}}
-
-/* Bubble on left = panel on right */
-.container.side-left {{
-    padding-left: 10px;
-    padding-right: 30px;
-}}
+.container.side-right {{ padding-left: 30px; padding-right: 10px; }}
+.container.side-left {{ padding-left: 10px; padding-right: 30px; }}
 
 .list {{
     display: block;
     column-gap: 8px;
 }}
 
+/* THE PRESET ITEM */
 .preset-item, .empty {{
     display: flex;
     align-items: center;
@@ -358,210 +154,111 @@ html, body {{
     box-shadow: {item_shadow};
     margin-bottom: 4px;
     break-inside: avoid;
-    page-break-inside: avoid;
     
-    /* Animation state */
-    opacity: 0;
-    pointer-events: none;
-    transform: scale(0.01);
-    transition: 
-        transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-        opacity 0.25s ease-out,
-        background 0.2s ease,
-        box-shadow 0.2s ease,
-        font-variation-settings 0.2s ease;
+    /* INITIAL STATE: Hidden */
+    opacity: 0; 
+    transform: scale(0.95);
     will-change: transform, opacity;
+    
+    /* Defaults */
+    --dx: 0px;
+    --dy: 0px;
 }}
 
-.preset-item.visible, .empty.visible {{
-    opacity: 1;
-    transform: scale(1) translate(0px, 0px);
-    pointer-events: auto;
+/* BLOOM ANIMATION (Enter) */
+@keyframes bloom {{
+    0% {{
+        opacity: 0;
+        transform: translate(var(--dx), var(--dy)) scale(0.1);
+    }}
+    60% {{
+        opacity: 1;
+    }}
+    100% {{
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
+    }}
 }}
 
-.preset-item.visible:hover {{
+/* RETREAT ANIMATION (Exit) */
+@keyframes retreat {{
+    0% {{
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
+    }}
+    100% {{
+        opacity: 0;
+        transform: translate(var(--dx), var(--dy)) scale(0.1);
+    }}
+}}
+
+.preset-item.blooming {{
+    animation: bloom 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}}
+
+.preset-item.retreating {{
+    /* 'both' is CRITICAL here: it makes the element stick to the 0% keyframe 
+       (opacity: 1) during the animation-delay, preventing the blink */
+    animation: retreat 0.35s cubic-bezier(0.4, 0, 1, 1) both;
+}}
+
+/* HOVER EFFECT */
+.preset-item.animate-done:hover {{
     background: {item_hover_bg};
     border-color: {item_hover_border};
     box-shadow: {item_hover_shadow};
     font-variation-settings: 'wght' 650, 'wdth' 105, 'ROND' 100;
-    /* !important to override any lingering inline styles from bloom animation */
-    transform: scale(1.05) translate(0px, 0px) !important;
-    /* Fast hover-in for snappy response */
-    transition: 
-        transform 0.08s cubic-bezier(0.34, 1.2, 0.64, 1),
-        background 0.05s ease,
-        box-shadow 0.05s ease,
-        font-variation-settings 0.08s ease,
-        border-color 0.05s ease;
+    transform: scale(1.03);
+    transition: all 0.1s ease-out;
 }}
 
-.preset-item.visible:active {{
-    transform: scale(0.98) translate(0px, 0px) !important;
+.preset-item.animate-done:active {{
+    transform: scale(0.98);
 }}
 
-.preset-item {{
-    position: relative;
-    overflow: hidden;
-}}
-
-/* Progress Fill (Continuous Mode) */
-.progress-fill {{
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 0%;
-    height: 100%;
-    background: rgba(64, 196, 255, 0.3); /* Blue tinted fill */
+/* Keep Open Row - HOVER VISIBILITY FIX */
+.keep-open-row {{
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: 8px 16px; margin-bottom: 12px; background: {row_bg};
+    backdrop-filter: blur(12px); box-shadow: {item_shadow}; border-radius: 20px;
+    width: fit-content; margin-left: auto; margin-right: auto;
+    
+    /* Initially hidden & offset */
+    opacity: 0;
+    transform: translateY(15px) scale(0.95);
     pointer-events: none;
-    z-index: 0;
-    transition: width 0.05s linear;
+    
+    /* Smooth transition for hover state */
+    transition: 
+        opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+        transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }}
 
-.preset-item .icon, .preset-item .name {{
-    position: relative;
-    z-index: 1;
+/* Only visible when hovering the container */
+.container:hover .keep-open-row {{
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
 }}
 
-.icon {{
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 10px;
-    opacity: 0.9;
-}}
-
-.name {{
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}}
-
-.empty {{
-    color: {empty_text_color};
-    text-align: center;
-    padding: 12px;
-    font-size: 12px;
-    background: {empty_bg};
-    border-radius: 12px;
-    border: 1px solid {empty_border};
-}}
+.preset-item {{ position: relative; overflow: hidden; }}
+.progress-fill {{ position: absolute; top: 0; left: 0; width: 0%; height: 100%; background: rgba(64, 196, 255, 0.3); pointer-events: none; z-index: 0; transition: width 0.05s linear; }}
+.preset-item .icon, .preset-item .name {{ position: relative; z-index: 1; }}
+.icon {{ display: flex; align-items: center; margin-right: 10px; opacity: 0.9; }}
+.name {{ flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+.empty {{ color: {empty_text_color}; text-align: center; padding: 12px; background: {empty_bg}; border: 1px solid {empty_border}; }}
 
 .condense {{ letter-spacing: -0.5px; }}
 .condense-more {{ letter-spacing: -1px; }}
 
-/* Keep Open Toggle Row */
-.keep-open-row {{
-    display: flex;
-    align-items: center;
-    justify-content: center; /* Center content in pill */
-    gap: 12px;
-    padding: 8px 16px;
-    margin-bottom: 12px;
-    background: {row_bg};
-    backdrop-filter: blur(12px);
-    box-shadow: {item_shadow};
-    border-radius: 20px;
-    width: fit-content;
-    margin-left: auto;
-    margin-right: auto;
-    
-    /* Animation state - similar to preset-item */
-    opacity: 0;
-    pointer-events: none;
-    transform: scale(0.01);
-    transition: 
-        transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-        opacity 0.25s ease-out;
-    will-change: transform, opacity;
-}}
-.keep-open-row.visible {{
-    opacity: 0;
-    transform: scale(1) translate(0px, 0px);
-    pointer-events: auto;
-    transition: opacity 0.2s ease;
-}}
-
-/* Show keep-open row when hovering the container */
-.container:hover .keep-open-row.visible {{
-    opacity: 1;
-}}
-
-/* Keep Open Label */
-.keep-open-label {{
-    color: {label_color};
-    font-size: 13px;
-    font-variation-settings: 'wght' 500, 'wdth' 100, 'ROND' 100;
-    letter-spacing: 0px;
-    text-shadow: {label_shadow};
-    transition: 
-        font-variation-settings 0.25s cubic-bezier(0.34, 1.2, 0.64, 1),
-        letter-spacing 0.25s ease,
-        color 0.2s ease;
-}}
-.keep-open-label.active {{
-    color: {label_active_color};
-    font-variation-settings: 'wght' 700, 'wdth' 120, 'ROND' 100;
-    letter-spacing: 0.5px;
-}}
-
-/* Toggle Switch */
-.toggle-switch {{
-    position: relative;
-    width: 36px;
-    height: 20px;
-    background: {toggle_bg};
-    border-radius: 10px;
-    cursor: pointer;
-    transition: background 0.2s ease;
-}}
-.toggle-switch.active {{
-    background: {toggle_active_bg};
-}}
-.toggle-switch::after {{
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    background: white;
-    border-radius: 50%;
-    transition: transform 0.2s ease;
-    box-shadow: {toggle_knob_shadow};
-}}
-.toggle-switch.active::after {{
-    transform: translateX(16px);
-}}
-
-/* Size buttons */
-.size-btn {{
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    border: none;
-    background: {item_bg};
-    color: {text_color};
-    font-family: inherit;
-    font-size: 18px;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: {toggle_knob_shadow};
-    margin-left: 4px;
-}}
-.size-btn:hover {{
-    background: {item_hover_bg};
-    transform: scale(1.1);
-    box-shadow: {item_hover_shadow};
-}}
-.size-btn:active {{
-    transform: scale(0.95);
-}}
+.keep-open-label {{ color: {label_color}; font-size: 13px; font-variation-settings: 'wght' 500; transition: all 0.2s; }}
+.keep-open-label.active {{ color: {label_active_color}; font-variation-settings: 'wght' 700; }}
+.toggle-switch {{ position: relative; width: 36px; height: 20px; background: {toggle_bg}; border-radius: 10px; cursor: pointer; transition: background 0.2s; }}
+.toggle-switch.active {{ background: {toggle_active_bg}; }}
+.toggle-switch::after {{ content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 0.2s; box-shadow: {toggle_knob_shadow}; }}
+.toggle-switch.active::after {{ transform: translateX(16px); }}
+.size-btn {{ width: 24px; height: 24px; border-radius: 50%; border: none; background: {item_bg}; color: {text_color}; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; margin-left: 4px; }}
+.size-btn:hover {{ background: {item_hover_bg}; transform: scale(1.1); }}
 "#,
         font_css = font_css,
         text_color = text_color,
@@ -575,7 +272,6 @@ html, body {{
         empty_border = empty_border,
         label_color = label_color,
         label_active_color = label_active_color,
-        label_shadow = label_shadow,
         toggle_bg = toggle_bg,
         toggle_active_bg = toggle_active_bg,
         toggle_knob_shadow = toggle_knob_shadow,
@@ -662,4 +358,185 @@ pub fn escape_js(text: &str) -> String {
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "")
+}
+
+fn get_js() -> &'static str {
+    r#"
+function select(idx) { window.ipc.postMessage('select:' + idx); }
+function dismiss() { window.ipc.postMessage('dismiss'); }
+
+function fitText() {
+    requestAnimationFrame(() => {
+        document.querySelectorAll('.name').forEach(el => {
+            el.className = 'name';
+            if (el.scrollWidth > el.clientWidth) {
+                el.classList.add('condense');
+                if (el.scrollWidth > el.clientWidth) {
+                    el.classList.remove('condense');
+                    el.classList.add('condense-more');
+                }
+            }
+        });
+        sendHeight();
+    });
+}
+function resizeBubble(dir) {
+    if (dir === 'inc') window.ipc.postMessage('increase_size');
+    else window.ipc.postMessage('decrease_size');
+}
+window.onload = fitText;
+
+function sendHeight() {
+    const container = document.querySelector('.container');
+    if (container) {
+         window.ipc.postMessage('resize:' + Math.max(container.scrollHeight, container.offsetHeight));
+    }
+}
+
+function startDrag(e) { if (e.button === 0) window.ipc.postMessage('drag'); }
+let keepOpen = false; 
+function toggleKeepOpen() {
+    keepOpen = !keepOpen;
+    const toggle = document.getElementById('keepOpenToggle');
+    const label = document.getElementById('keepOpenLabel');
+    toggle.classList.toggle('active', keepOpen);
+    label.classList.toggle('active', keepOpen);
+    window.ipc.postMessage('set_keep_open:' + (keepOpen ? '1' : '0'));
+}
+
+/* Mouse Logic */
+let holdTimer = null;
+const HOLD_THRESHOLD = 500;
+function onMouseDown(idx) {
+    const item = event.currentTarget;
+    const fill = item.querySelector('.progress-fill');
+    if (fill) {
+        fill.style.width = '0%';
+        fill.style.transition = 'width ' + HOLD_THRESHOLD + 'ms linear';
+        requestAnimationFrame(() => fill.style.width = '100%');
+    }
+    holdTimer = setTimeout(() => {
+        holdTimer = null;
+        triggerContinuous(idx);
+    }, HOLD_THRESHOLD);
+}
+function onMouseUp(idx) {
+    if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+        triggerNormal(idx);
+    }
+    resetFill();
+}
+function onMouseLeave() {
+    if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+    }
+    resetFill();
+}
+function resetFill() {
+    document.querySelectorAll('.progress-fill').forEach(f => {
+        f.style.transition = 'none';
+        f.style.width = '0%';
+    });
+}
+function triggerNormal(idx) {
+    if (keepOpen) window.ipc.postMessage('trigger_only:' + idx);
+    else { closePanel(); window.ipc.postMessage('trigger:' + idx); }
+}
+function triggerContinuous(idx) {
+    if (keepOpen) window.ipc.postMessage('trigger_continuous_only:' + idx);
+    else { closePanel(); window.ipc.postMessage('trigger_continuous:' + idx); }
+}
+
+/* --- ANIMATION LOGIC --- */
+let currentTimeout = null;
+let currentSide = 'right';
+
+function animateIn(bx, by) {
+    if (currentTimeout) {
+        clearTimeout(currentTimeout);
+        currentTimeout = null;
+    }
+    
+    const items = document.querySelectorAll('.preset-item, .empty');
+    if (items.length === 0) return;
+
+    // 1. BATCH READ: Calculate geometry
+    const metrics = [];
+    for(let i=0; i<items.length; i++) {
+        const item = items[i];
+        const rect = item.getBoundingClientRect();
+        
+        if (rect.width === 0) {
+            metrics.push(null);
+            continue;
+        }
+
+        const iy = rect.top + rect.height / 2;
+        const ix = rect.left + rect.width / 2;
+        const dx = bx - ix;
+        const dy = by - iy;
+        metrics.push({ dx, dy });
+    }
+
+    // 2. BATCH WRITE: Apply vars and animate
+    requestAnimationFrame(() => {
+        items.forEach((item, i) => {
+            const m = metrics[i];
+            if (!m) return;
+
+            // Reset state
+            item.classList.remove('retreating', 'animate-done');
+            
+            // Set variables for the shader
+            item.style.setProperty('--dx', m.dx + 'px');
+            item.style.setProperty('--dy', m.dy + 'px');
+            
+            // Stagger
+            item.style.animationDelay = (i * 10) + 'ms';
+            
+            // Trigger
+            item.classList.add('blooming');
+            
+            // Cleanup
+            setTimeout(() => {
+                item.classList.add('animate-done');
+            }, 400 + (i * 10));
+        });
+        // Note: KeepOpenRow visibility handled purely by CSS hover now
+    });
+}
+
+function closePanel() {
+    if (currentTimeout) clearTimeout(currentTimeout);
+    
+    const items = Array.from(document.querySelectorAll('.preset-item, .empty'));
+
+    items.forEach((item, i) => {
+        // Reverse stagger
+        item.style.animationDelay = ((items.length - 1 - i) * 6) + 'ms';
+        
+        // Remove 'animate-done' (which has hover effects) and 'blooming'
+        item.classList.remove('blooming', 'animate-done');
+        
+        // Add retreating class. CSS 'animation-fill-mode: both' ensures 
+        // it stays visible (opacity: 1) until the delay passes and animation starts.
+        item.classList.add('retreating');
+    });
+
+    currentTimeout = setTimeout(() => {
+        window.ipc.postMessage('close_now');
+        currentTimeout = null;
+    }, items.length * 6 + 350);
+}
+
+window.setSide = (side) => { 
+    currentSide = side;
+    const container = document.querySelector('.container');
+    container.classList.remove('side-left', 'side-right');
+    container.classList.add('side-' + side);
+};
+"#
 }
