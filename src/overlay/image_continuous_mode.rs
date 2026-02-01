@@ -30,6 +30,12 @@ static START_Y: AtomicI32 = AtomicI32::new(0);
 static LAST_X: AtomicI32 = AtomicI32::new(0);
 static LAST_Y: AtomicI32 = AtomicI32::new(0);
 
+// Animation State for Dim Screen
+static mut CURRENT_DIM_ALPHA: u8 = 0;
+const TARGET_DIM_ALPHA: u8 = 100;
+const DIM_FADE_STEP: u8 = 20; // Fast fade (approx 5 frames @ 60fps)
+const DIM_TIMER_ID: usize = 5;
+
 // Zoom state (while right is held + wheel)
 static ZOOM_LEVEL: Mutex<f32> = Mutex::new(1.0);
 const ZOOM_STEP: f32 = 0.25;
@@ -76,6 +82,9 @@ pub fn enter(preset_idx: usize, hotkey_name: String, hotkey_id: i32) {
     RIGHT_DOWN.store(false, Ordering::SeqCst);
     *ZOOM_LEVEL.lock().unwrap() = 1.0;
     *GESTURE_CAPTURE.lock().unwrap() = None;
+    unsafe {
+        CURRENT_DIM_ALPHA = 0;
+    }
 
     IS_ACTIVE.store(true, Ordering::SeqCst);
 
@@ -268,7 +277,7 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
     let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
     let vk = kbd.vkCode;
     let flags = kbd.flags;
-    
+
     // Check if this is an injected event (from SendInput)
     let is_injected = (flags.0 & 0x10) != 0; // LLKHF_INJECTED = 0x10
 
@@ -319,7 +328,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
 
             // CRITICAL: Hide all badges BEFORE capture to prevent them appearing in screenshot
             crate::overlay::text_selection::hide_all_badges_for_capture();
-            
+
             // Small delay to ensure window is hidden before capture
             std::thread::sleep(std::time::Duration::from_millis(16));
 
@@ -328,16 +337,16 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
             if let Ok(capture) = capture_screen_now() {
                 *GESTURE_CAPTURE.lock().unwrap() = Some(capture);
             }
-            
+
             // Restore badges after capture is complete
             crate::overlay::text_selection::restore_badges_after_capture();
 
-            // Trigger redraw of overlay (it will draw the box now that RIGHT_DOWN is true)
+            // Trigger fade-in animation
             let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
             if hwnd_val != 0 {
-                let hwnd = HWND(hwnd_val as *mut _);
-                // Force sync
-                sync_rect_overlay(hwnd);
+                unsafe {
+                    SetTimer(Some(HWND(hwnd_val as *mut _)), DIM_TIMER_ID, 16, None);
+                }
             }
 
             return LRESULT(1); // Swallow event
@@ -360,10 +369,12 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
             if RIGHT_DOWN.load(Ordering::SeqCst) {
                 RIGHT_DOWN.store(false, Ordering::SeqCst);
 
-                // Clear overlay
+                // Trigger fade-out animation
                 let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
                 if hwnd_val != 0 {
-                    sync_rect_overlay(HWND(hwnd_val as *mut _));
+                    unsafe {
+                        SetTimer(Some(HWND(hwnd_val as *mut _)), DIM_TIMER_ID, 16, None);
+                    }
                 }
 
                 reset_magnification();
@@ -596,11 +607,19 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
     let mem_dc = CreateCompatibleDC(Some(hdc_screen));
     let old_bmp = SelectObject(mem_dc, hbm.into());
 
-    // Clear to transparent
     let len = (w * h) as usize;
-    std::ptr::write_bytes(bits, 0, len);
+    let pixels_u32 = std::slice::from_raw_parts_mut(bits, len);
 
-    // Draw box if dragging - using white rounded SDF corners (matching normal image selection mode)
+    // Apply Dimming based on CURRENT_DIM_ALPHA
+    if CURRENT_DIM_ALPHA > 0 {
+        let alpha = CURRENT_DIM_ALPHA as u32;
+        let dim_val = (alpha << 24) | 0x00000000; // Black with alpha
+        pixels_u32.fill(dim_val);
+    } else {
+        pixels_u32.fill(0); // Transparent
+    }
+
+    // Draw selection box if dragging
     if RIGHT_DOWN.load(Ordering::SeqCst) {
         let s_x = START_X.load(Ordering::SeqCst);
         let s_y = START_Y.load(Ordering::SeqCst);
@@ -615,10 +634,22 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
         let rect_w = (right - left).abs();
         let rect_h = (bottom - top).abs();
 
-        if rect_w > 0 && rect_h > 0 {
-            let pixels = std::slice::from_raw_parts_mut(bits, len);
+        if rect_w > 0 && rect_h > 0 && CURRENT_DIM_ALPHA > 0 {
+            // 1. Punch the Hole (Clear selection area to Transparent)
+            let clear_l = left.max(0).min(w);
+            let clear_r = right.max(0).min(w);
+            let clear_t = top.max(0).min(h);
+            let clear_b = bottom.max(0).min(h);
 
-            // ANTI-ALIASED ROUNDED BOX (matching selection.rs styling)
+            for y in clear_t..clear_b {
+                let start = (y * w + clear_l) as usize;
+                let end = (y * w + clear_r) as usize;
+                if start < end && end <= pixels_u32.len() {
+                    pixels_u32[start..end].fill(0);
+                }
+            }
+
+            // 2. Draw Borders (SDF)
             let default_radius = 12.0f32;
             let border_width = 2.0f32;
 
@@ -632,11 +663,8 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
             let hh = (b_f - t_f) / 2.0;
             let cx = l_f + hw;
             let cy = t_f + hh;
-
-            // ADAPTIVE RADIUS: Scale down if box is smaller than radius
             let radius = default_radius.min(hw).min(hh);
 
-            // Processing bounds with margin for anti-aliasing
             let b_left = (left - 10).max(0);
             let b_top = (top - 10).max(0);
             let b_right = (right + 10).min(w);
@@ -648,55 +676,46 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
 
             for py_int in b_top..b_bottom {
                 let row_base = (py_int * w) as usize;
-
-                // --- FAST PATH: Middle Band (no corners, just straight vertical edges) ---
+                // Fast Path Middle
                 if py_int >= top_band_end && py_int < bottom_band_start {
                     let lb = left as usize;
                     let rb = right as usize;
-                    if row_base + lb < pixels.len() {
-                        // Draw Left/Right Borders (2 pixels wide, opaque white)
+                    if row_base + lb < pixels_u32.len() {
                         for x in 0..2 {
-                            if row_base + lb + x < pixels.len() {
-                                pixels[row_base + lb + x] = 0xFFFFFFFF;
+                            if row_base + lb + x < pixels_u32.len() {
+                                pixels_u32[row_base + lb + x] = 0xFFFFFFFF;
                             }
-                            if row_base + rb - 1 - x < pixels.len() {
-                                pixels[row_base + rb - 1 - x] = 0xFFFFFFFF;
+                            if row_base + rb - 1 - x < pixels_u32.len() {
+                                pixels_u32[row_base + rb - 1 - x] = 0xFFFFFFFF;
                             }
                         }
                     }
                     continue;
                 }
-
-                // --- SLOW PATH: Top/Bottom Bands (SDF for corners) ---
-                let py = py_int as f32 + 0.5; // pixel center
+                // Slow Path Corners
+                let py = py_int as f32 + 0.5;
                 for px_int in b_left..b_right {
                     let idx = row_base + px_int as usize;
-                    if idx >= pixels.len() {
+                    if idx >= pixels_u32.len() {
                         continue;
                     }
-
                     let px = px_int as f32 + 0.5;
-
-                    // Rounded Rect SDF (Signed Distance Field)
                     let dx = (px - cx).abs() - (hw - radius);
                     let dy = (py - cy).abs() - (hh - radius);
-
                     let dist = if dx > 0.0 && dy > 0.0 {
                         (dx * dx + dy * dy).sqrt() - radius
                     } else {
                         dx.max(dy) - radius
                     };
 
-                    // Composition: Only draw the border (no background dimming for continuous mode)
                     let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
                     let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
                     let border_alpha = alpha_outer - alpha_inner;
 
                     if border_alpha > 0.001 {
-                        // Final Color (Pre-multiplied alpha white)
                         let a = (border_alpha * 255.0) as u32;
                         let c = (border_alpha * 255.0) as u32;
-                        pixels[idx] = (a << 24) | (c << 16) | (c << 8) | c;
+                        pixels_u32[idx] = (a << 24) | (c << 16) | (c << 8) | c;
                     }
                 }
             }
@@ -708,6 +727,7 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
     let pt_dst = POINT { x: sx, y: sy };
     let blend = BLENDFUNCTION {
         BlendOp: AC_SRC_OVER as u8,
+        BlendFlags: 0,
         SourceConstantAlpha: 255,
         AlphaFormat: AC_SRC_ALPHA as u8,
         ..Default::default()
@@ -737,5 +757,31 @@ unsafe extern "system" fn rect_overlay_wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    DefWindowProcW(hwnd, msg, wparam, lparam)
+    match msg {
+        WM_TIMER => {
+            if wparam.0 == DIM_TIMER_ID {
+                let target = if RIGHT_DOWN.load(Ordering::SeqCst) {
+                    TARGET_DIM_ALPHA
+                } else {
+                    0
+                };
+                let mut changed = false;
+                if CURRENT_DIM_ALPHA < target {
+                    CURRENT_DIM_ALPHA = CURRENT_DIM_ALPHA.saturating_add(DIM_FADE_STEP).min(target);
+                    changed = true;
+                } else if CURRENT_DIM_ALPHA > target {
+                    CURRENT_DIM_ALPHA = CURRENT_DIM_ALPHA.saturating_sub(DIM_FADE_STEP).max(target);
+                    changed = true;
+                }
+
+                if changed {
+                    sync_rect_overlay(hwnd);
+                } else {
+                    let _ = KillTimer(Some(hwnd), DIM_TIMER_ID);
+                }
+            }
+            LRESULT(0)
+        }
+        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
 }
