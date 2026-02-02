@@ -27,6 +27,15 @@ pub fn signal_restore_window() {
 }
 
 impl SettingsApp {
+    /// Sync screen_record_hotkeys from the global AppState.
+    /// This ensures we have the latest hotkeys when checking for conflicts,
+    /// since screen record hotkeys can be modified externally via WebView.
+    pub(crate) fn sync_screen_record_hotkeys(&mut self) {
+        if let Ok(state) = self.app_state_ref.lock() {
+            self.config.screen_record_hotkeys = state.config.screen_record_hotkeys.clone();
+        }
+    }
+
     pub(crate) fn save_and_sync(&mut self) {
         if let crate::gui::settings_ui::ViewMode::Preset(idx) = self.view_mode {
             self.config.active_preset_idx = idx;
