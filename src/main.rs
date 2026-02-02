@@ -804,6 +804,8 @@ fn run_hotkey_listener() {
             eprintln!("Warning: Failed to install low-level mouse hook");
         }
 
+        // Unregister first to clear any stale registrations from previous crash
+        unregister_all_hotkeys(hwnd);
         register_all_hotkeys(hwnd);
 
         let mut msg = MSG::default();
@@ -819,6 +821,8 @@ fn run_hotkey_listener() {
                 } else if msg.message == WM_UNREGISTER_HOTKEYS {
                     unregister_all_hotkeys(hwnd);
                 } else if msg.message == WM_REGISTER_HOTKEYS {
+                    // Unregister first to avoid collision errors if already registered
+                    unregister_all_hotkeys(hwnd);
                     register_all_hotkeys(hwnd);
                 } else {
                     let _ = TranslateMessage(&msg);

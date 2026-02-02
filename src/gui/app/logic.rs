@@ -395,6 +395,8 @@ impl SettingsApp {
                 self.recording_hotkey_for_preset = None;
                 self.hotkey_conflict_msg = None;
             } else if let Some((vk, mods, key_name)) = key_recorded {
+                // Sync screen_record_hotkeys from global state to catch external changes
+                self.sync_screen_record_hotkeys();
                 if let Some(msg) = self.check_hotkey_conflict(vk, mods, preset_idx) {
                     self.hotkey_conflict_msg = Some(msg);
                 } else {
@@ -526,6 +528,8 @@ impl SettingsApp {
                     name: name_parts.join(" + "),
                 };
 
+                // Sync screen_record_hotkeys from global state to catch external changes
+                self.sync_screen_record_hotkeys();
                 if let Some(msg) = self.config.check_hotkey_conflict(vk, mods, None) {
                     crate::log_info!("Hotkey conflict: {}", msg);
                 } else {
