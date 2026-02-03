@@ -88,10 +88,6 @@ pub fn enter(preset_idx: usize, hotkey_name: String, hotkey_id: i32) {
 
     IS_ACTIVE.store(true, Ordering::SeqCst);
 
-    // Clear any "recently cancelled" state from previous sessions
-    // This allows text badges to be shown fresh in this new image continuous session
-    crate::overlay::text_selection::clear_recently_cancelled();
-
     // Track trigger hotkey for safety (prevent flicker when holding)
     if let Some((_, vk)) = crate::overlay::continuous_mode::get_current_hotkey_info() {
         TRIGGER_VK.store(vk, Ordering::SeqCst);
@@ -153,10 +149,6 @@ pub fn exit() {
     }
 
     crate::log_info!("[ImageContinuous] Mode exited (Quit signal posted)");
-}
-
-pub fn get_hotkey_name() -> String {
-    HOTKEY_NAME.lock().unwrap().clone()
 }
 
 pub fn get_preset_idx() -> usize {
@@ -241,7 +233,7 @@ fn overlay_thread_entry() {
             if msg.message == WM_QUIT {
                 break;
             }
-            TranslateMessage(&msg);
+            let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
 
@@ -531,7 +523,7 @@ fn ensure_magnification_initialized() {
                 if let Some(init) = GetProcAddress(lib, windows::core::s!("MagInitialize")) {
                     MAG_INITIALIZE_FN = Some(std::mem::transmute(init));
                     if let Some(f) = MAG_INITIALIZE_FN {
-                        f();
+                        let _ = f();
                     }
                 }
                 if let Some(u) = GetProcAddress(lib, windows::core::s!("MagUninitialize")) {

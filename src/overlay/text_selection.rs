@@ -66,12 +66,6 @@ static LAST_BADGE_SHOW_TIME: std::sync::atomic::AtomicU64 =
 // TOGGLE DETECTION: The preset index that last showed the badge
 static LAST_BADGE_PRESET_IDX: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(usize::MAX);
-// TOGGLE DETECTION: Timestamp of when badge was explicitly cancelled by user (to prevent re-show)
-static LAST_USER_CANCEL_TIME: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-// TOGGLE DETECTION: The preset index that was cancelled by user
-static LAST_USER_CANCEL_PRESET_IDX: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(usize::MAX);
 // DRAG DETECTION: Mouse start position when selection begins
 static MOUSE_START_X: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 static MOUSE_START_Y: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
@@ -162,79 +156,6 @@ pub fn restore_badges_after_capture() {
 
 pub fn is_active() -> bool {
     TEXT_BADGE_VISIBLE.load(Ordering::SeqCst)
-}
-
-/// Check if the badge was recently shown for a specific preset.
-/// This is used for toggle detection when the badge might have been auto-cancelled
-/// by instant process but the user still wants to dismiss via hotkey tap.
-/// Returns true if the badge was shown for this preset within the last `window_ms` milliseconds.
-pub fn was_recently_shown_for_preset(preset_idx: usize, window_ms: u64) -> bool {
-    let last_preset = LAST_BADGE_PRESET_IDX.load(Ordering::SeqCst);
-    if last_preset != preset_idx {
-        return false;
-    }
-    
-    let last_time = LAST_BADGE_SHOW_TIME.load(Ordering::SeqCst);
-    if last_time == 0 {
-        return false;
-    }
-    
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    
-    now.saturating_sub(last_time) < window_ms
-}
-
-/// Check if the badge was recently CANCELLED by user for a specific preset.
-/// This prevents the badge from immediately showing again after user dismisses it.
-/// Returns true if the badge was cancelled for this preset within the last `window_ms` milliseconds.
-pub fn was_recently_cancelled_by_user(preset_idx: usize, window_ms: u64) -> bool {
-    let last_preset = LAST_USER_CANCEL_PRESET_IDX.load(Ordering::SeqCst);
-    if last_preset != preset_idx {
-        crate::log_info!("[TextSelection] recently_cancelled check: preset mismatch (last={}, current={})", last_preset, preset_idx);
-        return false;
-    }
-    
-    let last_time = LAST_USER_CANCEL_TIME.load(Ordering::SeqCst);
-    if last_time == 0 {
-        crate::log_info!("[TextSelection] recently_cancelled check: no cancel timestamp");
-        return false;
-    }
-    
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    
-    let elapsed = now.saturating_sub(last_time);
-    let result = elapsed < window_ms;
-    crate::log_info!("[TextSelection] recently_cancelled check: elapsed={}ms, window={}ms, result={}", elapsed, window_ms, result);
-    result
-}
-
-/// Mark that the user explicitly cancelled the badge (for preventing immediate re-show)
-pub fn mark_user_cancelled(preset_idx: usize) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    crate::log_info!("[TextSelection] mark_user_cancelled: preset={}, time={}", preset_idx, now);
-    LAST_USER_CANCEL_TIME.store(now, Ordering::SeqCst);
-    LAST_USER_CANCEL_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
-}
-
-/// Clear the "recently shown" state (called when badge is explicitly cancelled by user)
-pub fn clear_recently_shown() {
-    LAST_BADGE_SHOW_TIME.store(0, Ordering::SeqCst);
-    LAST_BADGE_PRESET_IDX.store(usize::MAX, Ordering::SeqCst);
-}
-
-/// Clear the "recently cancelled" state (called when starting a new image continuous session)
-pub fn clear_recently_cancelled() {
-    LAST_USER_CANCEL_TIME.store(0, Ordering::SeqCst);
-    LAST_USER_CANCEL_PRESET_IDX.store(usize::MAX, Ordering::SeqCst);
 }
 
 pub fn is_processing() -> bool {
@@ -479,11 +400,6 @@ pub fn set_image_continuous_badge(visible: bool) {
             }
         }
     }
-}
-
-/// Check if image continuous badge is currently shown
-pub fn is_image_continuous_badge_visible() -> bool {
-    IMAGE_CONTINUOUS_BADGE_VISIBLE.load(Ordering::SeqCst)
 }
 
 pub fn warmup() {

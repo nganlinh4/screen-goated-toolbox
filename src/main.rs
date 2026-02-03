@@ -542,15 +542,6 @@ pub fn register_all_hotkeys(hwnd: HWND) {
             }
 
             let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
-            crate::log_info!(
-                "[Hotkey] Registering: id={}, preset='{}'({}), key='{}'(0x{:X}), mods=0x{:X}",
-                id,
-                preset.id,
-                p_idx,
-                hotkey.name,
-                hotkey.code,
-                hotkey.modifiers
-            );
             unsafe {
                 let res = RegisterHotKey(
                     Some(hwnd),
@@ -559,7 +550,7 @@ pub fn register_all_hotkeys(hwnd: HWND) {
                     hotkey.code,
                 );
                 if res.is_err() {
-                    let err_code = unsafe { GetLastError().0 };
+                    let err_code = GetLastError().0;
                     crate::log_info!(
                         "[Hotkey] COLLISION: Failed to register hotkey '{}' for preset {}, ID {}. Error Code: {}",
                         hotkey.name,
@@ -1095,15 +1086,12 @@ unsafe extern "system" fn hotkey_proc(
                             "[TextHotkey] Entering text handling: ts_active={}, ts_warming={}, ts_held={}, cm_active={}, just_activated={}",
                             ts_active, ts_warming, ts_held, cm_active, just_activated_continuous
                         );
-                        
+
                         // Simple Toggle Logic for Selection
                         let is_visible = overlay::text_selection::is_active();
-                        
-                        crate::log_info!(
-                            "[TextHotkey] State check: visible={}",
-                            is_visible
-                        );
-                        
+
+                        crate::log_info!("[TextHotkey] State check: visible={}", is_visible);
+
                         if is_visible {
                             // Badge is visible
                             if !overlay::text_selection::is_hotkey_held() {
@@ -1115,7 +1103,10 @@ unsafe extern "system" fn hotkey_proc(
                                     let is_proc = overlay::text_selection::is_processing();
                                     if !is_proc {
                                         std::thread::spawn(move || {
-                                            let success = overlay::text_selection::try_instant_process(preset_idx);
+                                            let success =
+                                                overlay::text_selection::try_instant_process(
+                                                    preset_idx,
+                                                );
                                             // Keep badge visible for continuous mode
                                             if !success {
                                                 crate::log_info!("[TextHotkey] Instant process failed - no text selected");
@@ -1125,7 +1116,9 @@ unsafe extern "system" fn hotkey_proc(
                                     return LRESULT(0);
                                 } else {
                                     // NOT in continuous mode - toggle OFF
-                                    crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
+                                    crate::log_info!(
+                                        "[TextHotkey] Toggle OFF - cancelling text selection"
+                                    );
                                     overlay::text_selection::cancel_selection();
                                     return LRESULT(0);
                                 }
@@ -1133,24 +1126,36 @@ unsafe extern "system" fn hotkey_proc(
                                 // Key is still being held - check if we should activate text continuous mode
                                 if !overlay::continuous_mode::is_active() {
                                     // Continuous mode not active yet - activate it now
-                                    crate::log_info!("[TextHotkey] Held - activating text continuous mode");
-                                    overlay::continuous_mode::activate(preset_idx, hotkey_name.clone());
-                                    
+                                    crate::log_info!(
+                                        "[TextHotkey] Held - activating text continuous mode"
+                                    );
+                                    overlay::continuous_mode::activate(
+                                        preset_idx,
+                                        hotkey_name.clone(),
+                                    );
+
                                     // Update badge to show continuous mode text
                                     overlay::text_selection::update_badge_for_continuous_mode();
-                                    
+
                                     // Show notification
                                     let preset_id = {
                                         if let Ok(app) = APP.lock() {
-                                            app.config.presets.get(preset_idx)
+                                            app.config
+                                                .presets
+                                                .get(preset_idx)
                                                 .map(|p| p.id.clone())
                                                 .unwrap_or_default()
                                         } else {
                                             String::new()
                                         }
                                     };
-                                    if !preset_id.is_empty() && preset_id != "preset_text_select_master" {
-                                        overlay::continuous_mode::show_activation_notification(&preset_id, &hotkey_name);
+                                    if !preset_id.is_empty()
+                                        && preset_id != "preset_text_select_master"
+                                    {
+                                        overlay::continuous_mode::show_activation_notification(
+                                            &preset_id,
+                                            &hotkey_name,
+                                        );
                                     }
                                 } else {
                                     crate::log_info!("[TextHotkey] Held - updating heartbeat only (continuous already active)");
@@ -1165,7 +1170,8 @@ unsafe extern "system" fn hotkey_proc(
                             return LRESULT(0);
                         } else if overlay::continuous_mode::is_active()
                             && !just_activated_continuous
-                            && !overlay::image_continuous_mode::is_active()  // Allow text continuous to work alongside image continuous
+                            && !overlay::image_continuous_mode::is_active()
+                        // Allow text continuous to work alongside image continuous
                         {
                             // Text Continuous mode is active - the worker thread's retrigger handles showing the tag
                             // Just ignore hotkey repeats to prevent duplicate notifications
@@ -1250,7 +1256,7 @@ unsafe extern "system" fn hotkey_proc(
                     overlay::set_is_busy(true);
 
                     let app_clone = APP.clone();
-                    let mut p_idx = preset_idx;
+                    let p_idx = preset_idx;
                     std::thread::spawn(move || {
                         loop {
                             // 1. Capture Logic

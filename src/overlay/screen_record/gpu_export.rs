@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use resvg::usvg::{self, Options, Tree};
+use resvg::usvg::{Options, Tree};
 use std::sync::Arc;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
 use wgpu::util::DeviceExt;
