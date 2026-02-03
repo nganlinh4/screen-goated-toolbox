@@ -638,18 +638,6 @@ unsafe extern "system" fn selection_wnd_proc(
                                     hotkey_name = "Hotkey".to_string();
                                 }
 
-                                let p_name = {
-                                    if let Ok(app) = APP.lock() {
-                                        app.config
-                                            .presets
-                                            .get(preset_idx)
-                                            .map(|p| p.id.clone())
-                                            .unwrap_or_default()
-                                    } else {
-                                        "Preset".to_string()
-                                    }
-                                };
-
                                 // NEW: Transition to non-blocking image continuous mode
                                 // We NO LONGER call super::continuous_mode::activate() here to avoid
                                 // interfering with other (e.g. text) continuous modes.
@@ -845,18 +833,6 @@ unsafe extern "system" fn selection_wnd_proc(
                             if hotkey_name.is_empty() {
                                 hotkey_name = "Hotkey".to_string();
                             }
-
-                            let p_name = {
-                                if let Ok(app) = APP.lock() {
-                                    app.config
-                                        .presets
-                                        .get(CURRENT_PRESET_IDX)
-                                        .map(|p| p.id.clone())
-                                        .unwrap_or_default()
-                                } else {
-                                    "Preset".to_string()
-                                }
-                            };
 
                             // NEW: Transition to non-blocking image continuous mode
                             // Detached from global state for co-existence.

@@ -55,8 +55,8 @@ lazy_static::lazy_static! {
     pub static ref CLICK_CAPTURED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 }
 
-pub static mut VIDEO_PATH: Option<String> = None;
-pub static mut AUDIO_PATH: Option<String> = None;
+pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+pub static AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
 
@@ -65,8 +65,6 @@ pub struct CaptureHandler {
     start: Instant,
     last_mouse_capture: Instant,
     frame_count: u32,
-    last_frame_time: Instant,
-    dropped_frames: u32,
 }
 
 fn get_cursor_type() -> String {
@@ -138,10 +136,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .as_millis()
         ));
 
-        unsafe {
-            VIDEO_PATH = Some(video_path.to_string_lossy().to_string());
-            AUDIO_PATH = Some(audio_path.to_string_lossy().to_string());
-        }
+        *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
+        *AUDIO_PATH.lock().unwrap() = Some(audio_path.to_string_lossy().to_string());
 
         // DYNAMIC BITRATE CALCULATION
         // Old Value: 15_000_000 (15 Mbps) -> Resulted in blur on High-DPI/Text
@@ -190,8 +186,6 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             start: Instant::now(),
             last_mouse_capture: Instant::now(),
             frame_count: 0,
-            last_frame_time: Instant::now(),
-            dropped_frames: 0,
         })
     }
 

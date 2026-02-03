@@ -31,13 +31,6 @@ pub fn is_pending_start() -> bool {
     CONTINUOUS_PENDING_START.load(Ordering::SeqCst)
 }
 
-/// Set pending start for a preset
-pub fn set_pending_start(preset_idx: usize, hotkey_name: String) {
-    CONTINUOUS_PRESET_IDX.store(preset_idx, Ordering::SeqCst);
-    *CONTINUOUS_HOTKEY_NAME.lock().unwrap() = hotkey_name;
-    CONTINUOUS_PENDING_START.store(true, Ordering::SeqCst);
-}
-
 /// Get the preset index running in continuous mode
 pub fn get_preset_idx() -> usize {
     let idx = CONTINUOUS_PRESET_IDX.load(Ordering::SeqCst);

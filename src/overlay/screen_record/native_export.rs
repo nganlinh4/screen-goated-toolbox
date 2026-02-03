@@ -1,4 +1,4 @@
-use resvg::usvg::{self, fontdb, Options, Tree};
+use resvg::usvg::{fontdb, Options, Tree};
 use serde::Deserialize;
 use std::fs;
 use std::io::Write;
@@ -27,7 +27,6 @@ pub struct ExportConfig {
     pub quality: String,
     pub segment: VideoSegment,
     pub background_config: BackgroundConfig,
-    pub mouse_positions: Vec<MousePosition>,
     pub video_data: Option<Vec<u8>>,
     pub audio_data: Option<Vec<u8>>,
     pub baked_path: Option<Vec<BakedCameraFrame>>,
@@ -62,10 +61,6 @@ pub struct BakedCursorFrame {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoSegment {
-    pub trim_start: f64,
-    pub trim_end: f64,
-    pub zoom_keyframes: Vec<ZoomKeyframe>,
-    pub smooth_motion_path: Option<Vec<MotionPoint>>,
     pub crop: Option<CropRect>,
     #[serde(default)]
     pub text_segments: Vec<TextSegment>,
@@ -74,7 +69,6 @@ pub struct VideoSegment {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TextSegment {
-    pub id: String,
     pub start_time: f64,
     pub end_time: f64,
     pub text: String,
@@ -100,41 +94,12 @@ pub struct CropRect {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ZoomKeyframe {
-    pub time: f64,
-    pub zoom_factor: f64,
-    pub position_x: f64,
-    pub position_y: f64,
-    pub easing_type: String,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct MotionPoint {
-    pub time: f64,
-    pub x: f64,
-    pub y: f64,
-    pub zoom: f64,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct BackgroundConfig {
     pub scale: f64,
     pub border_radius: f64,
     pub background_type: String,
-    pub custom_background: Option<String>,
     pub shadow: f64,
     pub cursor_scale: f64,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct MousePosition {
-    pub x: i32,
-    pub y: i32,
-    pub timestamp: f64,
-    #[serde(rename = "isClicked")]
-    pub is_clicked: bool,
-    pub cursor_type: String,
 }
 
 // --- TEXT RENDERER ---
@@ -359,7 +324,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         temp_video_path = Some(path.clone());
         path.to_string_lossy().to_string()
     } else {
-        unsafe { VIDEO_PATH.clone() }.ok_or("No source video found")?
+        VIDEO_PATH.lock().unwrap().clone().ok_or("No source video found")?
     };
 
     let source_audio_path = if let Some(audio_data) = config.audio_data.take() {
@@ -465,7 +430,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     // 4. Initialize GPU compositor with cursor
-    let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h)
+    let compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
 
     compositor.init_cursor_texture();

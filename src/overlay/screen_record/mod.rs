@@ -623,8 +623,6 @@ fn start_ffmpeg_installation() {
 }
 
 fn extract_ffmpeg_zip(zip_path: &PathBuf, bin_dir: &PathBuf) -> Result<(), String> {
-    use std::io::{Read as IoRead, Write};
-    
     let file = std::fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     
@@ -788,8 +786,8 @@ fn handle_ipc_command(cmd: String, args: serde_json::Value) -> Result<serde_json
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
-            let video_path = unsafe { VIDEO_PATH.clone() }.ok_or("No video path")?;
-            let audio_path = unsafe { AUDIO_PATH.clone() }.ok_or("No audio path")?;
+            let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
+            let audio_path = AUDIO_PATH.lock().unwrap().clone().ok_or("No audio path")?;
             
             let port = start_media_server(video_path, audio_path.clone())?;
             
