@@ -242,7 +242,11 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
         if (window._sgtFitting) return;
         window._sgtFitting = true;
 
+        // Use longer delay + requestAnimationFrame to ensure content is fully rendered
+        // This is critical after streaming ends, as the DOM needs time to settle
         setTimeout(function() {
+        requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
             // Skip font fitting for image/audio input adapters - detect by checking for slider-container
             // These have special fixed layouts that shouldn't be affected by auto-scaling
             if (document.querySelector('.slider-container') || document.querySelector('.audio-player')) {
@@ -252,12 +256,16 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
 
             var body = document.body;
             var doc = document.documentElement;
+
+            // Force layout recalculation before reading dimensions
+            void body.offsetHeight;
+
             var winH = window.innerHeight;
             var winW = body.clientWidth || window.innerWidth;
 
-            // Helper: check if content fits
-            function fits() { return doc.scrollHeight <= winH; }
-            function getGap() { return winH - doc.scrollHeight; }
+            // Helper: check if content fits (re-reads scrollHeight each time for accuracy)
+            function fits() { void body.offsetHeight; return doc.scrollHeight <= winH; }
+            function getGap() { void body.offsetHeight; return winH - doc.scrollHeight; }
 
             // Helper: reset last child margin (used during binary search phases)
             function clearLastMargin() {
@@ -290,6 +298,9 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 resetBlocks[i].style.paddingBottom = '0';
             }
             clearLastMargin();
+
+            // Force reflow after reset to ensure measurements are accurate
+            void body.offsetHeight;
 
             var startSize = parseFloat(window.getComputedStyle(body).fontSize) || 14;
 
@@ -462,7 +473,7 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
             }
 
             window._sgtFitting = false;
-        }, 50);
+        }); }); }, 100);
     })();
     "#;
 
