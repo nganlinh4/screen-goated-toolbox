@@ -259,8 +259,8 @@ html, body {{
 .condense {{ letter-spacing: -0.5px; }}
 .condense-more {{ letter-spacing: -1px; }}
 
-.keep-open-label {{ color: {label_color}; font-size: 13px; font-variation-settings: 'wght' 500; transition: all 0.2s; }}
-.keep-open-label.active {{ color: {label_active_color}; font-variation-settings: 'wght' 700; }}
+.keep-open-label {{ color: {label_color}; font-size: 13px; font-variation-settings: 'wght' 500, 'wdth' 100; transition: all 0.2s; }}
+.keep-open-label.active {{ color: {label_active_color}; font-variation-settings: 'wght' 700, 'wdth' 115; }}
 .toggle-switch {{ position: relative; width: 36px; height: 20px; background: {toggle_bg}; border-radius: 10px; cursor: pointer; transition: background 0.2s; }}
 .toggle-switch.active {{ background: {toggle_active_bg}; }}
 .toggle-switch::after {{ content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 0.2s; box-shadow: {toggle_knob_shadow}; }}
