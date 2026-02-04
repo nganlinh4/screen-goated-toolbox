@@ -18,7 +18,7 @@ use std::sync::{
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use super::types::generate_chain_id;
+use super::types::{generate_chain_id, get_rect_with_saved_geometry};
 use super::window::create_processing_window;
 
 // --- CORE PIPELINE LOGIC ---
@@ -31,9 +31,12 @@ pub fn execute_chain_pipeline(
     preset: Preset,
     context: RefineContext,
 ) {
+    // Apply saved geometry so processing window appears at the same position as result window
+    let corrected_rect = get_rect_with_saved_geometry(&preset.id, rect);
+
     // 1. Create Processing Window (Gradient Glow)
     let graphics_mode = config.graphics_mode.clone();
-    let processing_hwnd = unsafe { create_processing_window(rect, graphics_mode) };
+    let processing_hwnd = unsafe { create_processing_window(corrected_rect, graphics_mode) };
     unsafe {
         let _ = SendMessageW(processing_hwnd, WM_TIMER, Some(WPARAM(1)), Some(LPARAM(0)));
     }
@@ -51,7 +54,7 @@ pub fn execute_chain_pipeline(
         run_chain_step(
             0,
             initial_input,
-            rect,
+            corrected_rect,
             blocks,
             connections,
             conf_clone,

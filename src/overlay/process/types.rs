@@ -54,6 +54,29 @@ lazy_static::lazy_static! {
     static ref CHAIN_WINDOW_POSITIONS: Mutex<HashMap<String, RECT>> = Mutex::new(HashMap::new());
 }
 
+/// Get the corrected rect using saved preset geometry (if available).
+/// For non-image presets, uses the saved window_geometry from the preset.
+/// Returns the original rect if no saved geometry exists or if it's an image preset.
+pub fn get_rect_with_saved_geometry(preset_id: &str, original_rect: RECT) -> RECT {
+    if let Ok(app) = crate::APP.lock() {
+        if let Some(preset) = app.config.presets.iter().find(|p| p.id == preset_id) {
+            // Only apply saved geometry for non-image presets
+            let is_image_category = preset.preset_type == "image";
+            if !is_image_category {
+                if let Some(geom) = &preset.window_geometry {
+                    return RECT {
+                        left: geom.x,
+                        top: geom.y,
+                        right: geom.x + geom.width,
+                        bottom: geom.y + geom.height,
+                    };
+                }
+            }
+        }
+    }
+    original_rect
+}
+
 /// Generate a new unique chain ID for a processing chain
 pub fn generate_chain_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
