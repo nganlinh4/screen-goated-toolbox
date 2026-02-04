@@ -210,6 +210,8 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 markdown_view::stream_markdown_content(hwnd, &md_text);
                 // Initialize Grid.js on any tables
                 markdown_view::init_gridjs(hwnd);
+                // Ensure WebView bounds are set (forces layout recalculation)
+                markdown_view::resize_markdown_webview(hwnd, false);
                 // Fit font to fill any unfilled space
                 markdown_view::fit_font_to_window(hwnd);
                 // Now reset for next session
@@ -227,6 +229,8 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 // Regular markdown mode (not streaming) - full render
                 markdown_view::reset_stream_counter(hwnd);
                 markdown_view::create_markdown_webview(hwnd, &md_text, is_hovered);
+                // Ensure WebView bounds are set (forces layout recalculation)
+                markdown_view::resize_markdown_webview(hwnd, false);
                 // Fit font to fill any unfilled space
                 markdown_view::fit_font_to_window(hwnd);
                 // Register with button canvas
