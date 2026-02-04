@@ -241,6 +241,14 @@ html, body {{
     pointer-events: auto;
 }}
 
+/* Hide keep-open-row during close animation (prevents flicker when hovering transparent window) */
+.container.closing .keep-open-row,
+.container.closing:hover .keep-open-row {{
+    opacity: 0;
+    transform: translateY(15px) scale(0.95);
+    pointer-events: none;
+}}
+
 .preset-item {{ position: relative; overflow: hidden; }}
 .progress-fill {{ position: absolute; top: 0; left: 0; width: 0%; height: 100%; background: rgba(64, 196, 255, 0.3); pointer-events: none; z-index: 0; transition: width 0.05s linear; }}
 .preset-item .icon, .preset-item .name {{ position: relative; z-index: 1; }}
@@ -459,7 +467,11 @@ function animateIn(bx, by) {
         clearTimeout(currentTimeout);
         currentTimeout = null;
     }
-    
+
+    // Remove closing class so keep-open-row can appear on hover
+    const container = document.querySelector('.container');
+    container.classList.remove('closing');
+
     const items = document.querySelectorAll('.preset-item, .empty');
     if (items.length === 0) return;
 
@@ -511,7 +523,11 @@ function animateIn(bx, by) {
 
 function closePanel() {
     if (currentTimeout) clearTimeout(currentTimeout);
-    
+
+    // Add closing class to prevent keep-open-row from appearing on hover
+    const container = document.querySelector('.container');
+    container.classList.add('closing');
+
     const items = Array.from(document.querySelectorAll('.preset-item, .empty'));
 
     items.forEach((item, i) => {
