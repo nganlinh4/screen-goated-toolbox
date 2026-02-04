@@ -1,5 +1,5 @@
 
-const CORNER_RADIUS: f32 = 12.0;
+const CORNER_RADIUS: f32 = 8.0;
 
 #[inline(always)]
 pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> u32 {

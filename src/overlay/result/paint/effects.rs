@@ -59,7 +59,7 @@ pub fn render_refinement_glow(
                 let idx = (y * width + x) as usize;
                 let px = x as f32 - center_x;
                 let py = y as f32 - center_y;
-                let d = sd_rounded_box(px, py, bx, by, 12.0);
+                let d = sd_rounded_box(px, py, bx, by, 8.0);
 
                 if d <= 0.0 {
                     let dist = d.abs();
