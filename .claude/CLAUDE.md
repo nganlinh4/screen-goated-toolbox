@@ -32,6 +32,13 @@ cargo test               # Run tests
 - Async audio processing with `parking_lot` mutexes
 - Node graph workflows via `egui-snarl`
 
+## File Size Limits
+- **Maximum 600 lines per file** - if a file approaches this limit, split it into a module directory
+- When splitting: `foo.rs` → `foo/mod.rs` + `foo/submodule.rs`
+- Keep public API in `mod.rs`, move implementation details to submodules
+- Prefer logical splits (e.g., `paint.rs`, `messages.rs`, `window.rs`) over arbitrary line-based splits
+- Each submodule should have a clear, single responsibility
+
 ## Testing
 - Always run `cargo clippy --all-targets` before commits
 - Test on Windows 10/11 for compatibility

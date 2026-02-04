@@ -6,84 +6,46 @@ mod config;
 mod debug_log;
 pub mod gui;
 mod history;
+mod hotkey;
 mod icon_gen;
+mod initialization;
 mod model_config;
 mod overlay;
 mod registry_integration;
+mod screen_capture;
 mod updater;
 pub mod win_types;
+mod unpack_dlls;
 
 use config::{load_config, Config, ThemeMode};
 use gui::locale::LocaleText;
 use history::HistoryManager;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::panic;
 use std::sync::{Arc, Mutex};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
 use windows::core::*;
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::System::Com::CoInitialize;
-use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::System::Threading::*;
-use windows::Win32::UI::Input::KeyboardAndMouse::*;
-use windows::Win32::UI::WindowsAndMessaging::*;
 
-// Window dimensions - Increased to accommodate two-column sidebar and longer text labels
+pub use hotkey::RESTORE_EVENT;
+pub use screen_capture::GdiCapture;
+
+// Window dimensions
 pub const WINDOW_WIDTH: f32 = 1230.0;
 pub const WINDOW_HEIGHT: f32 = 650.0;
 
-// Modifier Constants for Hook
-const MOD_ALT: u32 = 0x0001;
-const MOD_CONTROL: u32 = 0x0002;
-const MOD_SHIFT: u32 = 0x0004;
-const MOD_WIN: u32 = 0x0008;
-
-// Wrappers for thread-safe types now imported from win_types
-use crate::win_types::{SendHandle, SendHhook, SendHwnd};
-
-// Global event for inter-process restore signaling (manual-reset event)
-lazy_static! {
-    pub static ref RESTORE_EVENT: Option<SendHandle> = unsafe {
-        CreateEventW(None, true, false, w!("Global\\ScreenGoatedToolboxRestoreEvent")).ok().map(SendHandle)
-    };
-    // Global handle for the listener window (for the mouse hook to post messages to)
-    static ref LISTENER_HWND: Mutex<SendHwnd> = Mutex::new(SendHwnd::default());
-    // Global handle for the mouse hook
-    static ref MOUSE_HOOK: Mutex<SendHhook> = Mutex::new(SendHhook::default());
-}
-
-// 1. Define a wrapper for the GDI Handle to ensure we clean it up
-pub struct GdiCapture {
-    pub hbitmap: HBITMAP,
-    pub width: i32,
-    pub height: i32,
-}
-
-// Make it safe to send between threads (Handles are process-global in Windows GDI)
-unsafe impl Send for GdiCapture {}
-unsafe impl Sync for GdiCapture {}
-
-impl Drop for GdiCapture {
-    fn drop(&mut self) {
-        unsafe {
-            if !self.hbitmap.is_invalid() {
-                let _ = DeleteObject(self.hbitmap.into());
-            }
-        }
-    }
-}
+// Wrappers for thread-safe types
+use crate::win_types::SendHwnd;
 
 pub struct AppState {
     pub config: Config,
     pub screenshot_handle: Option<GdiCapture>,
     pub hotkeys_updated: bool,
-    pub registered_hotkey_ids: Vec<i32>, // Track IDs of currently registered hotkeys
-    // New: Track API usage limits (Key: Model Full Name, Value: "Remaining / Total")
+    pub registered_hotkey_ids: Vec<i32>,
     pub model_usage_stats: HashMap<String, String>,
-    pub history: Arc<HistoryManager>,         // NEW
-    pub last_active_window: Option<SendHwnd>, // NEW: Store window handle for auto-paste focus restoration
+    pub history: Arc<HistoryManager>,
+    pub last_active_window: Option<SendHwnd>,
 }
 
 lazy_static! {
@@ -97,82 +59,10 @@ lazy_static! {
             registered_hotkey_ids: Vec::new(),
             model_usage_stats: HashMap::new(),
             history,
-            last_active_window: None, // NEW
+            last_active_window: None,
         }
     }));
 }
-
-/// Enable dark mode for Win32 native menus (context menus, tray menus)
-/// This uses the undocumented SetPreferredAppMode API from uxtheme.dll
-fn enable_dark_mode_for_app() {
-    use windows::core::w;
-    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
-
-    // PreferredAppMode enum values
-    const ALLOW_DARK: u32 = 1; // AllowDark mode
-
-    unsafe {
-        // Load uxtheme.dll
-        if let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) {
-            // SetPreferredAppMode is at ordinal 135 (undocumented)
-            // MAKEINTRESOURCEA(135) is just the number 135 cast to PCSTR
-            let ordinal = 135u16;
-            let ordinal_ptr = ordinal as usize as *const u8;
-            let proc_name = windows::core::PCSTR::from_raw(ordinal_ptr);
-
-            if let Some(set_preferred_app_mode) = GetProcAddress(uxtheme, proc_name) {
-                // Cast to function pointer: fn(u32) -> u32
-                let func: extern "system" fn(u32) -> u32 =
-                    std::mem::transmute(set_preferred_app_mode);
-                func(ALLOW_DARK);
-            }
-        }
-    }
-}
-
-/// Cleanup temporary files left by the application (e.g. restart scripts, partial downloads)
-fn cleanup_temporary_files() {
-    // 1. Clean up restart scripts in %TEMP%
-    let temp_dir = std::env::temp_dir();
-    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with("sgt_restart_") && name_str.ends_with(".bat") {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
-
-    // 2. Clean up partial downloads in the app's bin directory
-    let bin_dir = dirs::data_local_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("screen-goated-toolbox")
-        .join("bin");
-
-    if bin_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&bin_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "tmp") {
-                    let _ = std::fs::remove_file(&path);
-                }
-            }
-        }
-    }
-
-    // 3. Clean up any update-related files in current directory
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let temp_download = exe_dir.join("temp_download");
-            if temp_download.exists() {
-                let _ = std::fs::remove_file(temp_download);
-            }
-        }
-    }
-}
-
-mod unpack_dlls;
 
 fn main() -> eframe::Result<()> {
     crate::log_info!("========================================");
@@ -182,124 +72,33 @@ fn main() -> eframe::Result<()> {
     );
     crate::log_info!("========================================");
 
-    // --- UNPACK DLLS ---
-    // Extract embedded CRT and DirectML DLLs so the app is truly portable
+    // Unpack embedded DLLs
     unpack_dlls::unpack_dlls();
 
-    // --- CLEANUP TEMP FILES ---
-    // Remove leftover restart scripts or partial downloads
-    cleanup_temporary_files();
+    // Cleanup temp files
+    initialization::cleanup_temporary_files();
 
-    // --- ENSURE CONTEXT MENU ENTRY ---
+    // Ensure context menu entry
     crate::log_info!("Ensuring context menu entry...");
     registry_integration::ensure_context_menu_entry();
     crate::log_info!("Context menu entry ensured.");
 
-    // --- INIT COM ---
-    // Essential for Tray Icon and Shell interactions, especially in Admin/Task Scheduler context.
-    unsafe {
-        let _ = CoInitialize(None);
-        // Force Per-Monitor V2 DPI Awareness for correct screen metrics and sharp visuals
-        if let Ok(hidpi) = LoadLibraryW(w!("user32.dll")) {
-            if let Some(set_context) = GetProcAddress(
-                hidpi,
-                PCSTR::from_raw("SetProcessDpiAwarenessContext\0".as_ptr()),
-            ) {
-                let func: extern "system" fn(isize) -> BOOL = std::mem::transmute(set_context);
-                // -4 is DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-                let _ = func(-4);
-            }
-        }
-    }
+    // Initialize COM and DPI
+    initialization::init_com_and_dpi();
 
-    // --- ENABLE DARK MODE FOR NATIVE MENUS ---
-    // Uses undocumented Windows API to make context menus respect system dark theme
-    enable_dark_mode_for_app();
+    // Enable dark mode for native menus
+    initialization::enable_dark_mode_for_app();
 
-    // --- APPLY PENDING UPDATE ---
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let staging_path = exe_dir.join("update_pending.exe");
-            let backup_path = exe_path.with_extension("exe.old");
+    // Apply pending updates
+    initialization::apply_pending_updates();
 
-            // If there's a pending update, apply it
-            if staging_path.exists() {
-                // Backup current exe
-                let _ = std::fs::copy(&exe_path, &backup_path);
-                // Replace with staged exe
-                if std::fs::rename(&staging_path, &exe_path).is_ok() {
-                    // Success - cleanup temp file
-                    let _ = std::fs::remove_file("temp_download");
-                }
-            }
+    // Set up crash handler
+    initialization::setup_crash_handler();
 
-            // --- CLEANUP OLD EXE FILES ---
-            let current_exe_name = exe_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if let Ok(entries) = std::fs::read_dir(exe_dir) {
-                for entry in entries.filter_map(|e| e.ok()) {
-                    let file_name = entry.file_name();
-                    let name_str = file_name.to_string_lossy();
-
-                    // Delete old ScreenGoatedToolbox_v*.exe files (keep only current)
-                    if (name_str.starts_with("ScreenGoatedToolbox_v") && name_str.ends_with(".exe"))
-                        && name_str.as_ref() != current_exe_name
-                    {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
-
-                    // Delete .old backup files
-                    if name_str.ends_with(".exe.old") {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
-                }
-            }
-        }
-    }
-
-    // --- CRASH HANDLER START ---
-    panic::set_hook(Box::new(|panic_info| {
-        // 1. Format the error message
-        let location = if let Some(location) = panic_info.location() {
-            format!("File: {}\nLine: {}", location.file(), location.line())
-        } else {
-            "Unknown location".to_string()
-        };
-
-        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-            s.to_string()
-        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
-            s.clone()
-        } else {
-            "Unknown panic payload".to_string()
-        };
-
-        let error_msg = format!(
-            "CRASH DETECTED!\n\nError: {}\n\nLocation:\n{}",
-            payload, location
-        );
-
-        // Show a Windows Message Box so the user knows it crashed
-        let wide_msg: Vec<u16> = error_msg.encode_utf16().chain(std::iter::once(0)).collect();
-        let wide_title: Vec<u16> = "SGT Crash Report"
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-
-        unsafe {
-            MessageBoxW(
-                None,
-                PCWSTR(wide_msg.as_ptr()),
-                PCWSTR(wide_title.as_ptr()),
-                MB_ICONERROR | MB_OK,
-            );
-        }
-    }));
-    // --- CRASH HANDLER END ---
-
-    // Ensure the named event exists (for first instance, for second instance to signal)
+    // Ensure the named event exists
     let _ = RESTORE_EVENT.as_ref();
 
-    // Keep the handle alive for the duration of the program
+    // Single instance check
     let _single_instance_mutex = unsafe {
         let instance = CreateMutexW(
             None,
@@ -329,7 +128,6 @@ fn main() -> eframe::Result<()> {
                     let _ = SetEvent(event.0);
                 }
                 let _ = CloseHandle(handle);
-                // Exit successfully after signaling
                 return Ok(());
             }
             Some(handle)
@@ -338,23 +136,23 @@ fn main() -> eframe::Result<()> {
         }
     };
 
+    // Start hotkey listener thread
     std::thread::spawn(|| {
-        run_hotkey_listener();
+        hotkey::run_hotkey_listener();
     });
 
-    // Initialize TTS for instant speech synthesis
+    // Initialize TTS
     api::tts::init_tts();
 
-    // Initialize Gemini Live LLM connection pool
+    // Initialize Gemini Live connection pool
     api::gemini_live::init_gemini_live();
 
-    // --- CHECK FOR RESTARTED FLAG AND FILE ARGUMENTS ---
+    // Check for --restarted flag and file arguments
     let args: Vec<String> = std::env::args().collect();
     let mut pending_file_path: Option<std::path::PathBuf> = None;
 
     if args.iter().any(|arg| arg == "--restarted") {
         std::thread::spawn(|| {
-            // Wait for app and overlays to settle before showing notification
             std::thread::sleep(std::time::Duration::from_millis(2500));
             overlay::auto_copy_badge::show_update_notification(
                 "Đã khởi động lại app để khôi phục hoàn toàn",
@@ -362,9 +160,7 @@ fn main() -> eframe::Result<()> {
         });
     }
 
-    // Check for potential file path in arguments (drag-and-drop or context menu)
     for arg in args.iter().skip(1) {
-        // Skip flags
         if arg.starts_with("--") {
             continue;
         }
@@ -372,81 +168,32 @@ fn main() -> eframe::Result<()> {
         if path.exists() && path.is_file() {
             crate::log_info!("Check arguments: Found valid file path: {:?}", path);
             pending_file_path = Some(path);
-            break; // Handle only one file for now
+            break;
         } else {
             crate::log_info!("Check arguments: Invalid path or not a file: {:?}", arg);
         }
     }
 
-    // --- CLEAR WEBVIEW DATA IF SCHEDULED (before any WebViews are created) ---
+    // Clear WebView data if scheduled
     {
         let mut config = APP.lock().unwrap();
         if config.config.clear_webview_on_startup {
-            // Clear WebView data - should succeed since no WebViews exist yet
             overlay::clear_webview_permissions();
-            // Reset the flag
             config.config.clear_webview_on_startup = false;
-            // Save immediately
             config::save_config(&config.config);
         }
     }
 
-    // Offload warmups to a sequenced thread to prevent splash screen lag
-    std::thread::spawn(|| {
-        // 0. Warmup fonts first (download/cache for instant display)
-        // This runs in background and should complete before first WebView loads
-        overlay::html_components::font_manager::warmup_fonts();
+    // Spawn warmup thread
+    initialization::spawn_warmup_thread();
 
-        // Helper: Wait for tray popup to close before proceeding
-        // This prevents WebView2 focus stealing from closing the popup
-        let wait_for_popup_close = || {
-            while overlay::tray_popup::is_popup_open() {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-        };
-
-        // 1. Start warmups immediately so they are DONE before the splash appears.
-        // This ensures the tray popup and bubble are high-priority and ready.
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        // 1. Warmup tray popup (with is_warmup=true to avoid focus stealing)
-        wait_for_popup_close();
-        overlay::tray_popup::warmup_tray_popup();
-
-        // 1.5 Warmup preset wheel (persistent hidden window)
-        overlay::preset_wheel::warmup();
-
-        // 2. Wait for splash screen / main box to appear and settle
-        std::thread::sleep(std::time::Duration::from_millis(3000));
-
-        // 3. Warmup text input window first (more likely to be used quickly)
-        wait_for_popup_close();
-        overlay::text_input::warmup();
-
-        // 3.5 Warmup auto copy badge
-        wait_for_popup_close();
-        overlay::auto_copy_badge::warmup();
-
-        // 3.75 Warmup text selection tag (native GDI)
-        wait_for_popup_close();
-        overlay::text_selection::warmup();
-
-        // 7. Wait before realtime warmup (Wait duration preserved for safety)
-        std::thread::sleep(std::time::Duration::from_millis(5000));
-
-        // 9. Warmup Recording Overlay
-        wait_for_popup_close();
-        overlay::recording::warmup_recording_overlay();
-    });
-
-    // 1. Load config early to get theme setting and language for tray i18n
+    // Load config for tray setup
     let initial_config = APP.lock().unwrap().config.clone();
 
-    // --- TRAY MENU SETUP (with i18n) ---
+    // Tray menu setup
     let tray_locale = LocaleText::get(&initial_config.ui_language);
     let tray_menu = Menu::new();
 
-    // Favorite bubble toggle - check if any presets are favorited
     let has_favorites = initial_config.presets.iter().any(|p| p.is_favorite);
     let favorite_bubble_text = if has_favorites {
         tray_locale.tray_favorite_bubble
@@ -456,7 +203,7 @@ fn main() -> eframe::Result<()> {
     let tray_favorite_bubble_item = CheckMenuItem::with_id(
         "1003",
         favorite_bubble_text,
-        has_favorites, // enabled only if has favorites
+        has_favorites,
         initial_config.show_favorite_bubble && has_favorites,
         None,
     );
@@ -467,25 +214,25 @@ fn main() -> eframe::Result<()> {
     let _ = tray_menu.append(&tray_settings_item);
     let _ = tray_menu.append(&tray_quit_item);
 
-    // --- WINDOW SETUP ---
+    // Window setup
     let mut viewport_builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size([WINDOW_WIDTH, WINDOW_HEIGHT])
         .with_resizable(true)
-        .with_visible(false) // Start invisible
+        .with_visible(false)
         .with_transparent(true)
-        .with_decorations(false); // Enable custom title bar by disabling native decorations
+        .with_decorations(false);
 
-    // 2. Detect System Theme
+    // Detect system theme
     let system_dark = gui::utils::is_system_in_dark_mode();
 
-    // 3. Resolve Initial Theme
+    // Resolve initial theme
     let effective_dark = match initial_config.theme_mode {
         ThemeMode::Dark => true,
         ThemeMode::Light => false,
         ThemeMode::System => system_dark,
     };
 
-    // 4. Use Effective Theme for initial icon
+    // Set window icon
     let icon_data = crate::icon_gen::get_window_icon(effective_dark);
     viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon_data));
 
@@ -503,14 +250,14 @@ fn main() -> eframe::Result<()> {
             // Store global context for background threads
             *gui::GUI_CONTEXT.lock().unwrap() = Some(cc.egui_ctx.clone());
 
-            // 5. Set Initial Visuals Explicitly
+            // Set initial visuals
             if effective_dark {
                 cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
             } else {
                 cc.egui_ctx.set_visuals(eframe::egui::Visuals::light());
             }
 
-            // 6. Set Native Icon
+            // Set native icon
             gui::utils::update_window_icon_native(effective_dark);
 
             Ok(Box::new(gui::SettingsApp::new(
@@ -527,854 +274,5 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-pub fn register_all_hotkeys(hwnd: HWND) {
-    let mut app = APP.lock().unwrap();
-    let presets = &app.config.presets;
-
-    let mut registered_ids = Vec::new();
-    for (p_idx, preset) in presets.iter().enumerate() {
-        for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
-            // ID encoding: 1000 * preset_idx + hotkey_idx + 1
-
-            // Skip Mouse Buttons for RegisterHotKey (handled via hook)
-            if [0x04, 0x05, 0x06].contains(&hotkey.code) {
-                continue;
-            }
-
-            let id = (p_idx as i32 * 1000) + (h_idx as i32) + 1;
-            unsafe {
-                let res = RegisterHotKey(
-                    Some(hwnd),
-                    id,
-                    HOT_KEY_MODIFIERS(hotkey.modifiers),
-                    hotkey.code,
-                );
-                if res.is_err() {
-                    let err_code = GetLastError().0;
-                    crate::log_info!(
-                        "[Hotkey] COLLISION: Failed to register hotkey '{}' for preset {}, ID {}. Error Code: {}",
-                        hotkey.name,
-                        p_idx,
-                        id,
-                        err_code
-                    );
-                } else {
-                    registered_ids.push(id);
-                }
-            }
-        }
-    }
-    app.registered_hotkey_ids = registered_ids;
-
-    // Register Global Screen Record Hotkeys (IDs: 9900-9999)
-    for (idx, sr_hotkey) in app.config.screen_record_hotkeys.iter().enumerate() {
-        if idx >= 100 {
-            break;
-        } // Max 100 SR hotkeys
-        let id = 9900 + idx as i32;
-        unsafe {
-            let _ = RegisterHotKey(
-                Some(hwnd),
-                id,
-                HOT_KEY_MODIFIERS(sr_hotkey.modifiers),
-                sr_hotkey.code,
-            );
-        }
-    }
-}
-
-pub fn unregister_all_hotkeys(hwnd: HWND) {
-    let app = APP.lock().unwrap();
-    for &id in &app.registered_hotkey_ids {
-        unsafe {
-            let _ = UnregisterHotKey(Some(hwnd), id);
-        }
-    }
-    // Unregister Global SR Hotkeys
-    for idx in 0..100 {
-        unsafe {
-            let _ = UnregisterHotKey(Some(hwnd), 9900 + idx);
-        }
-    }
-}
-
-// Low-Level Mouse Hook Procedure
-unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code >= 0 {
-        let msg = wparam.0 as u32;
-        let vk_code = match msg {
-            WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
-                crate::overlay::screen_record::engine::IS_MOUSE_CLICKED
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-                if msg == WM_MBUTTONDOWN {
-                    Some(0x04)
-                } else {
-                    None
-                }
-            }
-            WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => {
-                // crate::log_info!("Mouse UP"); // Verify hook activity
-                crate::overlay::screen_record::engine::IS_MOUSE_CLICKED
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
-                None
-            }
-            WM_XBUTTONDOWN => {
-                crate::overlay::screen_record::engine::IS_MOUSE_CLICKED
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-                let info = *(lparam.0 as *const MSLLHOOKSTRUCT);
-                let xbutton = (info.mouseData >> 16) & 0xFFFF;
-                if xbutton == 1 {
-                    Some(0x05)
-                }
-                // VK_XBUTTON1
-                else if xbutton == 2 {
-                    Some(0x06)
-                }
-                // VK_XBUTTON2
-                else {
-                    None
-                }
-            }
-            WM_XBUTTONUP => {
-                crate::overlay::screen_record::engine::IS_MOUSE_CLICKED
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
-                None
-            }
-            _ => None,
-        };
-
-        if let Some(vk) = vk_code {
-            // Check modifiers using GetAsyncKeyState for real-time state
-            let mut mods = 0;
-            if (GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0 {
-                mods |= MOD_ALT;
-            }
-            if (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 {
-                mods |= MOD_CONTROL;
-            }
-            if (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0 {
-                mods |= MOD_SHIFT;
-            }
-            if (GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0
-                || (GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0
-            {
-                mods |= MOD_WIN;
-            }
-
-            // Check config for a match
-            let mut found_id = None;
-            if let Ok(app) = APP.lock() {
-                for (p_idx, preset) in app.config.presets.iter().enumerate() {
-                    for (h_idx, hotkey) in preset.hotkeys.iter().enumerate() {
-                        if hotkey.code == vk && hotkey.modifiers == mods {
-                            // Synthesize ID same as register_all_hotkeys
-                            found_id = Some((p_idx as i32 * 1000) + (h_idx as i32) + 1);
-                            break;
-                        }
-                    }
-                    if found_id.is_some() {
-                        break;
-                    }
-                }
-
-                // Check Global Screen Record Hotkeys
-                if found_id.is_none() {
-                    for (idx, sr_hk) in app.config.screen_record_hotkeys.iter().enumerate() {
-                        if sr_hk.code == vk && sr_hk.modifiers == mods {
-                            found_id = Some(9900 + idx as i32);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if let Some(id) = found_id {
-                if let Ok(hwnd_target) = LISTENER_HWND.lock() {
-                    if !hwnd_target.0.is_invalid() {
-                        // Post WM_HOTKEY to the listener window logic
-                        let _ = PostMessageW(
-                            Some(hwnd_target.0),
-                            WM_HOTKEY,
-                            WPARAM(id as usize),
-                            LPARAM(0),
-                        );
-                        return LRESULT(1); // Consume/Block input
-                    }
-                }
-            }
-        }
-    }
-    CallNextHookEx(None, code, wparam, lparam)
-}
-
-const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
-const WM_APP_PROCESS_PENDING_FILE: u32 = WM_USER + 102;
-const WM_UNREGISTER_HOTKEYS: u32 = WM_USER + 103;
-const WM_REGISTER_HOTKEYS: u32 = WM_USER + 104;
-
-fn run_hotkey_listener() {
-    unsafe {
-        // Error handling: GetModuleHandleW should not fail, but handle it
-        let instance = match GetModuleHandleW(None) {
-            Ok(h) => h,
-            Err(_) => {
-                eprintln!("Error: Failed to get module handle for hotkey listener");
-                return;
-            }
-        };
-
-        let class_name = w!("HotkeyListenerClass");
-
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(hotkey_proc),
-            hInstance: instance.into(),
-            lpszClassName: class_name,
-            ..Default::default()
-        };
-
-        // RegisterClassW can fail if class already exists, which is okay
-        let _ = RegisterClassW(&wc);
-
-        let hwnd = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            class_name,
-            w!("Listener"),
-            WS_OVERLAPPEDWINDOW,
-            0,
-            0,
-            0,
-            0,
-            None,
-            None,
-            Some(instance.into()),
-            None,
-        )
-        .unwrap_or_default();
-
-        // Error handling: hwnd is invalid if creation failed
-        if hwnd.is_invalid() {
-            eprintln!("Error: Failed to create hotkey listener window");
-            return;
-        }
-
-        // Store HWND for the hook
-        if let Ok(mut guard) = LISTENER_HWND.lock() {
-            *guard = SendHwnd(hwnd);
-        }
-
-        // Spawn thread to wait for RESTORE_EVENT
-        let listener_hwnd_val = hwnd.0 as isize;
-        std::thread::spawn(move || {
-            if let Some(event) = RESTORE_EVENT.as_ref() {
-                loop {
-                    // Wait indefinitely for signal
-                    if WaitForSingleObject(event.0, INFINITE) == WAIT_OBJECT_0 {
-                        // Signal received! Post message to main thread/listener window
-                        let _ = PostMessageW(
-                            Some(HWND(listener_hwnd_val as *mut _)),
-                            WM_APP_PROCESS_PENDING_FILE,
-                            WPARAM(0),
-                            LPARAM(0),
-                        );
-                        // Reset event to wait for next signal
-                        let _ = ResetEvent(event.0);
-                    }
-                }
-            }
-        });
-
-        // Install Mouse Hook
-        if let Ok(hhook) =
-            SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), Some(instance.into()), 0)
-        {
-            println!("DEBUG: Mouse hook installed successfully");
-            if let Ok(mut hook_guard) = MOUSE_HOOK.lock() {
-                *hook_guard = SendHhook(hhook);
-            }
-        } else {
-            eprintln!("Warning: Failed to install low-level mouse hook");
-        }
-
-        // Unregister first to clear any stale registrations from previous crash
-        unregister_all_hotkeys(hwnd);
-        register_all_hotkeys(hwnd);
-
-        let mut msg = MSG::default();
-        loop {
-            if GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                if msg.message == WM_RELOAD_HOTKEYS {
-                    unregister_all_hotkeys(hwnd);
-                    register_all_hotkeys(hwnd);
-
-                    if let Ok(mut app) = APP.lock() {
-                        app.hotkeys_updated = false;
-                    }
-                } else if msg.message == WM_UNREGISTER_HOTKEYS {
-                    unregister_all_hotkeys(hwnd);
-                } else if msg.message == WM_REGISTER_HOTKEYS {
-                    // Unregister first to avoid collision errors if already registered
-                    unregister_all_hotkeys(hwnd);
-                    register_all_hotkeys(hwnd);
-                } else {
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-            }
-        }
-    }
-}
-
-unsafe extern "system" fn hotkey_proc(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    match msg {
-        WM_APP_PROCESS_PENDING_FILE => {
-            // Read temp file
-            let temp_file = std::env::temp_dir().join("sgt_pending_file.txt");
-            if temp_file.exists() {
-                if let Ok(content) = std::fs::read_to_string(&temp_file) {
-                    let path = std::path::PathBuf::from(content.trim());
-                    if path.exists() {
-                        crate::log_info!("HOTKEY LISTENER: Processing pending file: {:?}", path);
-                        // Spawn a thread to avoid blocking the hotkey listener (hook) thread
-                        let path_clone = path.clone();
-                        std::thread::spawn(move || {
-                            crate::gui::app::input_handler::process_file_path(&path_clone);
-                        });
-                    }
-                }
-                // Cleanup
-                let _ = std::fs::remove_file(temp_file);
-            }
-            LRESULT(0)
-        }
-        WM_HOTKEY => {
-            let id = wparam.0 as i32;
-            if id >= 9900 && id <= 9999 {
-                // Toggle Screen Recording
-                crate::overlay::screen_record::toggle_recording();
-                return LRESULT(0);
-            }
-            if id > 0 {
-                // debounce logic
-                static mut LAST_HOTKEY_TIMESTAMP: Option<std::time::Instant> = None;
-
-                let now = std::time::Instant::now();
-                let is_repeat = unsafe {
-                    if let Some(t) = LAST_HOTKEY_TIMESTAMP {
-                        // 150ms debounce
-                        if now.duration_since(t).as_millis() < 150 {
-                            true
-                        } else {
-                            LAST_HOTKEY_TIMESTAMP = Some(now);
-                            false
-                        }
-                    } else {
-                        LAST_HOTKEY_TIMESTAMP = Some(now);
-                        false
-                    }
-                };
-
-                // Valid Hotkey Received - Update Heartbeat
-                if !is_repeat {
-                    overlay::continuous_mode::reset_heartbeat();
-                }
-                overlay::continuous_mode::update_last_trigger_time();
-
-                if is_repeat {
-                    return LRESULT(0);
-                }
-
-                // Check if continuous mode is active or pending
-                let mut just_activated_continuous = false;
-                let preset_idx_early = ((id - 1) / 1000) as usize;
-
-                // FIX: Check specifically for the new Image Continuous Mode
-                if overlay::image_continuous_mode::is_active() {
-                    let active_idx = overlay::image_continuous_mode::get_preset_idx();
-                    let trigger_id = overlay::image_continuous_mode::get_trigger_id();
-
-                    crate::log_info!("[Hotkey] ImageContinuous Active: active_idx={}, trigger_id={}, current_id={}, early_idx={}", 
-                        active_idx, trigger_id, id, preset_idx_early);
-
-                    if preset_idx_early == active_idx {
-                        // If active, pressing the SAME hotkey ID again acts as a toggle
-                        if id == trigger_id && overlay::image_continuous_mode::can_exit_now() {
-                            crate::log_info!("[Hotkey] Toggling ImageContinuous OFF (id matches)");
-                            overlay::image_continuous_mode::exit();
-                            return LRESULT(0);
-                        }
-                        // If it's the SAME preset but NOT the toggle-off event, just ignore the repeat
-                        // to prevent re-entering the blocking loop (since we already have a non-blocking one).
-                        return LRESULT(0);
-                    }
-                    crate::log_info!("[Hotkey] ImageContinuous active but diff preset triggered. Allowing fallthrough.");
-                }
-
-                if overlay::continuous_mode::is_active() {
-                    // Continuous mode is ACTIVE.
-                    let cm_preset = overlay::continuous_mode::get_preset_idx();
-                    if cm_preset == preset_idx_early {
-                        // Same preset as continuous mode - allow re-trigger for instant process
-                        // This supports the case where user preselects text and presses hotkey again
-                        // (especially important for bubble-panel triggered continuous mode)
-                        just_activated_continuous = true;
-                        // Do NOT return - proceed to trigger logic below
-                    } else {
-                        // Different preset - check if it's an image preset (which can coexist)
-                        let is_new_image = {
-                            if let Ok(app) = crate::APP.lock() {
-                                app.config
-                                    .presets
-                                    .get(preset_idx_early)
-                                    .map(|p| p.preset_type == "image")
-                                    .unwrap_or(false)
-                            } else {
-                                false
-                            }
-                        };
-
-                        if !is_new_image {
-                            // Only deactivate if the new preset is not image-based
-                            overlay::continuous_mode::deactivate();
-                            overlay::text_selection::cancel_selection();
-                        }
-                        // Proceed with normal processing
-                    }
-                } else if overlay::continuous_mode::is_pending_start() {
-                    // Scenario 2. Continuous Mode is PENDING (e.g. from Bubble).
-                    let pending_idx = overlay::continuous_mode::get_preset_idx();
-
-                    // CRITICAL: Only promote if the hotkey matches the pending index.
-                    // Otherwise, we might be hijacking a different preset's action.
-                    if pending_idx == preset_idx_early {
-                        crate::log_info!(
-                            "[Hotkey] Promoting PENDING continuous mode for preset {}",
-                            pending_idx
-                        );
-                        let hotkey = overlay::continuous_mode::get_hotkey_name();
-                        overlay::continuous_mode::activate(pending_idx, hotkey);
-                        just_activated_continuous = true;
-                    } else {
-                        crate::log_info!("[Hotkey] Ignoring PENDING continuous mode for diff preset (pending={}, early={})", 
-                            pending_idx, preset_idx_early);
-                        // Optional: overlay::continuous_mode::clear_pending_start();
-                    }
-                }
-
-                // CRITICAL: If preset wheel is active, dismiss it and return early
-                // This allows pressing the hotkey again to dismiss the wheel
-                if overlay::preset_wheel::is_wheel_active() {
-                    overlay::preset_wheel::dismiss_wheel();
-                    return LRESULT(0);
-                }
-
-                let preset_idx = ((id - 1) / 1000) as usize;
-
-                // Determine context and fetch hotkey name
-                let (preset_type, text_mode, is_audio_stopping, hotkey_name) = {
-                    if let Ok(app) = APP.lock() {
-                        if preset_idx < app.config.presets.len() {
-                            let p = &app.config.presets[preset_idx];
-                            let p_type = p.preset_type.clone();
-                            let t_mode = p.text_input_mode.clone();
-                            let stopping =
-                                p_type == "audio" && overlay::is_recording_overlay_active();
-
-                            // Find the specific hotkey name that triggered this
-                            let hk_idx = ((id - 1) % 1000) as usize;
-                            let hk_name = if hk_idx < p.hotkeys.len() {
-                                // Store hotkey info for continuous mode detection
-                                let hk = &p.hotkeys[hk_idx];
-                                if overlay::continuous_mode::supports_continuous_mode(&p_type) {
-                                    crate::log_info!("[Hotkey] Setting current hotkey for hold detection: mods={}, code={}, name='{}'", hk.modifiers, hk.code, hk.name);
-                                    overlay::continuous_mode::set_current_hotkey(
-                                        hk.modifiers,
-                                        hk.code,
-                                    );
-                                    overlay::continuous_mode::set_latest_hotkey_name(
-                                        hk.name.clone(),
-                                    );
-                                }
-                                hk.name.clone()
-                            } else {
-                                String::new()
-                            };
-
-                            (p_type, t_mode, stopping, hk_name)
-                        } else {
-                            (
-                                "image".to_string(),
-                                "select".to_string(),
-                                false,
-                                String::new(),
-                            )
-                        }
-                    } else {
-                        (
-                            "image".to_string(),
-                            "select".to_string(),
-                            false,
-                            String::new(),
-                        )
-                    }
-                };
-
-                // FIX: Only capture target window if we are NOT stopping an audio recording.
-                if !is_audio_stopping {
-                    let target_window = crate::overlay::utils::get_target_window_for_paste();
-
-                    if let Ok(mut app) = APP.lock() {
-                        app.last_active_window = target_window.map(crate::win_types::SendHwnd);
-                    }
-                }
-
-                if preset_type == "audio" {
-                    // Check for realtime mode
-                    let is_realtime = {
-                        if let Ok(app) = APP.lock() {
-                            if preset_idx < app.config.presets.len() {
-                                app.config.presets[preset_idx].audio_processing_mode == "realtime"
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    };
-
-                    if is_realtime {
-                        // Realtime mode - toggle realtime overlay
-                        // Check if minimal or webview is active
-                        let is_minimal_active = overlay::realtime_egui::MINIMAL_ACTIVE
-                            .load(std::sync::atomic::Ordering::SeqCst);
-                        let is_webview_active = overlay::is_realtime_overlay_active();
-
-                        if is_webview_active {
-                            // WebView active - stop it (toggle off)
-                            overlay::stop_realtime_overlay();
-                        } else if is_minimal_active {
-                            // Minimal egui active - do NOT allow hotkey to close (user must use window X)
-                            // This prevents buggy behavior
-                        } else {
-                            // Nothing active - Start
-                            std::thread::spawn(move || {
-                                overlay::show_realtime_overlay(preset_idx);
-                            });
-                        }
-                    } else {
-                        // Record-then-process mode
-                        if overlay::is_recording_overlay_active() {
-                            overlay::stop_recording_and_submit();
-                        } else {
-                            std::thread::spawn(move || {
-                                overlay::show_recording_overlay(preset_idx);
-                            });
-                        }
-                    }
-                } else if preset_type == "text" {
-                    // NEW TEXT LOGIC
-                    if text_mode == "select" {
-                        let ts_active = overlay::text_selection::is_active();
-                        let ts_warming = overlay::text_selection::is_warming_up();
-                        let ts_held = overlay::text_selection::is_hotkey_held();
-                        let cm_active = overlay::continuous_mode::is_active();
-                        crate::log_info!(
-                            "[TextHotkey] Entering text handling: ts_active={}, ts_warming={}, ts_held={}, cm_active={}, just_activated={}",
-                            ts_active, ts_warming, ts_held, cm_active, just_activated_continuous
-                        );
-
-                        // Simple Toggle Logic for Selection
-                        let is_visible = overlay::text_selection::is_active();
-
-                        crate::log_info!("[TextHotkey] State check: visible={}", is_visible);
-
-                        if is_visible {
-                            // Badge is visible
-                            if !overlay::text_selection::is_hotkey_held() {
-                                // Key is NOT held (tap)
-                                if cm_active {
-                                    // Continuous mode is active - user wants to process selected text
-                                    // Try instant processing instead of toggling off
-                                    crate::log_info!("[TextHotkey] Continuous mode active - trying instant process");
-                                    let is_proc = overlay::text_selection::is_processing();
-                                    if !is_proc {
-                                        std::thread::spawn(move || {
-                                            let success =
-                                                overlay::text_selection::try_instant_process(
-                                                    preset_idx,
-                                                );
-                                            // Keep badge visible for continuous mode
-                                            if !success {
-                                                crate::log_info!("[TextHotkey] Instant process failed - no text selected");
-                                            }
-                                        });
-                                    }
-                                    return LRESULT(0);
-                                } else {
-                                    // NOT in continuous mode - toggle OFF
-                                    crate::log_info!(
-                                        "[TextHotkey] Toggle OFF - cancelling text selection"
-                                    );
-                                    overlay::text_selection::cancel_selection();
-                                    return LRESULT(0);
-                                }
-                            } else {
-                                // Key is still being held - check if we should activate text continuous mode
-                                if !overlay::continuous_mode::is_active() {
-                                    // Continuous mode not active yet - activate it now
-                                    crate::log_info!(
-                                        "[TextHotkey] Held - activating text continuous mode"
-                                    );
-                                    overlay::continuous_mode::activate(
-                                        preset_idx,
-                                        hotkey_name.clone(),
-                                    );
-
-                                    // Update badge to show continuous mode text
-                                    overlay::text_selection::update_badge_for_continuous_mode();
-
-                                    // Show notification
-                                    let preset_id = {
-                                        if let Ok(app) = APP.lock() {
-                                            app.config
-                                                .presets
-                                                .get(preset_idx)
-                                                .map(|p| p.id.clone())
-                                                .unwrap_or_default()
-                                        } else {
-                                            String::new()
-                                        }
-                                    };
-                                    if !preset_id.is_empty()
-                                        && preset_id != "preset_text_select_master"
-                                    {
-                                        overlay::continuous_mode::show_activation_notification(
-                                            &preset_id,
-                                            &hotkey_name,
-                                        );
-                                    }
-                                } else {
-                                    crate::log_info!("[TextHotkey] Held - updating heartbeat only (continuous already active)");
-                                }
-                                overlay::continuous_mode::update_last_trigger_time();
-                                return LRESULT(0);
-                            }
-                        } else if overlay::text_selection::is_warming_up() {
-                            // During warmup, just update heartbeat and wait
-                            crate::log_info!("[TextHotkey] Warming up - waiting");
-                            overlay::continuous_mode::update_last_trigger_time();
-                            return LRESULT(0);
-                        } else if overlay::continuous_mode::is_active()
-                            && !just_activated_continuous
-                            && !overlay::image_continuous_mode::is_active()
-                        // Allow text continuous to work alongside image continuous
-                        {
-                            // Text Continuous mode is active - the worker thread's retrigger handles showing the tag
-                            // Just ignore hotkey repeats to prevent duplicate notifications
-                            overlay::continuous_mode::update_last_trigger_time();
-                            return LRESULT(0);
-                        } else {
-                            // NEW: Try instant processing if text is already selected
-                            // Prevent duplicate processing if already running
-                            let is_proc = overlay::text_selection::is_processing();
-                            crate::log_info!("[TextHotkey] is_processing={}", is_proc);
-                            if is_proc {
-                                return LRESULT(0);
-                            }
-
-                            std::thread::spawn(move || {
-                                crate::log_info!("[TextHotkey] Spawned thread starting");
-                                // 1. Show Badge IMMEDIATELY (Decoupled)
-                                overlay::show_text_selection_tag(preset_idx);
-                                crate::log_info!("[TextHotkey] Badge show called");
-
-                                // 2. Try processing in background
-                                let success =
-                                    overlay::text_selection::try_instant_process(preset_idx);
-
-                                // 3. Handle badge visibility after processing attempt
-                                // - If success AND continuous mode: retrigger inside try_instant_process
-                                //   will show the badge again, so don't cancel here
-                                // - If success AND NOT continuous mode: cancel the badge (done processing)
-                                // - If NOT success: keep badge visible for user to select text manually
-                                if success && !overlay::continuous_mode::is_active() {
-                                    overlay::text_selection::cancel_selection();
-                                }
-                            });
-                        }
-                    } else {
-                        // Type Mode - Toggle Logic for Input Window
-                        if overlay::text_input::is_active() {
-                            overlay::text_input::cancel_input();
-                        } else {
-                            if let Ok(app) = APP.lock() {
-                                let config = app.config.clone();
-                                let preset = config.presets[preset_idx].clone();
-                                let screen_w = GetSystemMetrics(SM_CXSCREEN);
-                                let screen_h = GetSystemMetrics(SM_CYSCREEN);
-                                let center_rect = RECT {
-                                    left: (screen_w - 700) / 2,
-                                    top: (screen_h - 300) / 2,
-                                    right: (screen_w + 700) / 2,
-                                    bottom: (screen_h + 300) / 2,
-                                };
-
-                                // Get localized preset name for display
-                                let localized_name = gui::settings_ui::get_localized_preset_name(
-                                    &preset.id,
-                                    &config.ui_language,
-                                );
-
-                                let hotkey_name_clone = hotkey_name.clone();
-                                std::thread::spawn(move || {
-                                    overlay::process::start_text_processing(
-                                        String::new(),
-                                        center_rect,
-                                        config,
-                                        preset,
-                                        localized_name,
-                                        hotkey_name_clone,
-                                    );
-                                });
-                            }
-                        }
-                    }
-                } else {
-                    // Image Mode
-                    // STRICT Debounce/Blocking for "Hold to Activate"
-                    if overlay::is_busy() || overlay::is_selection_overlay_active() {
-                        // User is still holding/pressing the key
-                        overlay::continuous_mode::update_last_trigger_time();
-                        return LRESULT(0);
-                    }
-
-                    // Set BUSY flag immediately on Main Thread to block repeats
-                    overlay::set_is_busy(true);
-
-                    let app_clone = APP.clone();
-                    let p_idx = preset_idx;
-                    std::thread::spawn(move || {
-                        loop {
-                            // 1. Capture Logic
-                            match capture_screen_fast() {
-                                Ok(capture) => {
-                                    if let Ok(mut app) = app_clone.lock() {
-                                        app.screenshot_handle = Some(capture);
-                                    } else {
-                                        break;
-                                    }
-
-                                    // 2. Show Overlay (BLOCKING)
-                                    overlay::show_selection_overlay(p_idx, id);
-                                }
-                                Err(e) => {
-                                    eprintln!("Capture Error: {}", e);
-                                    break;
-                                }
-                            }
-
-                            // 3. Check for exit or update preset
-                            if !overlay::continuous_mode::is_active()
-                                && !overlay::image_continuous_mode::is_active()
-                            {
-                                break;
-                            }
-
-                            // NEW: If non-blocking image_continuous_mode is active, we EXIT this blocking loop
-                            // It will handle itself from its own thread.
-                            if overlay::image_continuous_mode::is_active() {
-                                crate::log_info!("[MainLoop] ImageContinuous active, breaking blocking capture loop");
-                                break;
-                            }
-
-                            // STICKY LOCK: In continuous image mode, we keep triggering the SAME preset
-                            // that we started with, unless specifically requested otherwise.
-                            // We NO LONGER sync p_idx with global state here because it causes "hijacking"
-                            // if the user interacts with other UI (like the bubble) mid-session.
-
-                            // Small delay before retriggering to prevent tight looping
-                            std::thread::sleep(std::time::Duration::from_millis(200));
-                        }
-                        // Ensure flag is cleared on exit
-                        overlay::set_is_busy(false);
-                    });
-                }
-            }
-            LRESULT(0)
-        }
-
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-    }
-}
-
-fn capture_screen_fast() -> anyhow::Result<GdiCapture> {
-    unsafe {
-        let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-        let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-        let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-        // Validate dimensions
-        if width <= 0 || height <= 0 {
-            return Err(anyhow::anyhow!(
-                "GDI Error: Invalid screen dimensions ({} x {})",
-                width,
-                height
-            ));
-        }
-
-        let hdc_screen = GetDC(None);
-        if hdc_screen.is_invalid() {
-            return Err(anyhow::anyhow!(
-                "GDI Error: Failed to get screen device context"
-            ));
-        }
-
-        let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-        if hdc_mem.is_invalid() {
-            let _ = ReleaseDC(None, hdc_screen);
-            return Err(anyhow::anyhow!(
-                "GDI Error: Failed to create compatible device context"
-            ));
-        }
-
-        let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
-
-        if hbitmap.is_invalid() {
-            let _ = DeleteDC(hdc_mem);
-            let _ = ReleaseDC(None, hdc_screen);
-            return Err(anyhow::anyhow!(
-                "GDI Error: Failed to create compatible bitmap."
-            ));
-        }
-
-        SelectObject(hdc_mem, hbitmap.into());
-
-        // This is the only "heavy" part, but it's purely GPU/GDI memory move. Very fast.
-        BitBlt(
-            hdc_mem,
-            0,
-            0,
-            width,
-            height,
-            Some(hdc_screen),
-            x,
-            y,
-            SRCCOPY,
-        )?;
-
-        // Cleanup DCs, but KEEP the HBITMAP
-        let _ = DeleteDC(hdc_mem);
-        ReleaseDC(None, hdc_screen);
-
-        Ok(GdiCapture {
-            hbitmap,
-            width,
-            height,
-        })
-    }
-}
+// Re-export hotkey functions for external access
+pub use hotkey::{register_all_hotkeys, unregister_all_hotkeys};
