@@ -423,7 +423,16 @@ window.updatePopupState = function(config) {{
     document.documentElement.style.setProperty('--hover-bg', config.hoverColor);
     document.documentElement.style.setProperty('--border-color', config.borderColor);
     document.documentElement.style.setProperty('--separator-color', config.separatorColor);
-    
+
+    // Update label texts for language changes
+    const labels = document.querySelectorAll('.menu-item .label');
+    if (labels.length >= 4) {{
+        labels[0].textContent = config.settingsText;
+        labels[1].textContent = config.bubbleText;
+        labels[2].textContent = config.stopTtsText;
+        labels[3].textContent = config.quitText;
+    }}
+
     // Update bubble active state
     const bubbleItem = document.querySelector('.bubble-item');
     if (bubbleItem) {{
@@ -435,7 +444,7 @@ window.updatePopupState = function(config) {{
             document.getElementById('bubble-check-container').innerHTML = '';
         }}
     }}
-    
+
     // Update stop TTS disabled state
     const stopTtsItem = document.getElementById('stop-tts-item');
     if (stopTtsItem) {{
@@ -471,16 +480,37 @@ window.addEventListener('blur', function() {{
 /// Generate JavaScript to update popup state without reloading HTML
 fn generate_popup_update_script() -> String {
     use crate::config::ThemeMode;
-    
-    let (bubble_checked, is_dark_mode) = if let Ok(app) = APP.lock() {
+
+    let (bubble_checked, is_dark_mode, settings_text, bubble_text, stop_tts_text, quit_text) = if let Ok(app) = APP.lock() {
         let is_dark = match app.config.theme_mode {
             ThemeMode::Dark => true,
             ThemeMode::Light => false,
             ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
         };
-        (app.config.show_favorite_bubble, is_dark)
+        let lang = &app.config.ui_language;
+        let settings = match lang.as_str() {
+            "vi" => "Cài đặt",
+            "ko" => "설정",
+            _ => "Settings",
+        };
+        let bubble = match lang.as_str() {
+            "vi" => "Hiện bong bóng",
+            "ko" => "즐겨찾기 버블",
+            _ => "Favorite Bubble",
+        };
+        let stop_tts = match lang.as_str() {
+            "vi" => "Dừng đọc",
+            "ko" => "재생 중인 모든 음성 중지",
+            _ => "Stop All Playing TTS",
+        };
+        let quit = match lang.as_str() {
+            "vi" => "Thoát",
+            "ko" => "종료",
+            _ => "Quit",
+        };
+        (app.config.show_favorite_bubble, is_dark, settings, bubble, stop_tts, quit)
     } else {
-        (false, true)
+        (false, true, "Settings", "Favorite Bubble", "Stop All Playing TTS", "Quit")
     };
 
     let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
@@ -492,14 +522,18 @@ fn generate_popup_update_script() -> String {
     };
 
     format!(
-        r#"window.updatePopupState({{ 
-            bgColor: '{}', 
-            textColor: '{}', 
-            hoverColor: '{}', 
-            borderColor: '{}', 
+        r#"window.updatePopupState({{
+            bgColor: '{}',
+            textColor: '{}',
+            hoverColor: '{}',
+            borderColor: '{}',
             separatorColor: '{}',
             bubbleActive: {},
-            ttsDisabled: {}
+            ttsDisabled: {},
+            settingsText: '{}',
+            bubbleText: '{}',
+            stopTtsText: '{}',
+            quitText: '{}'
         }});"#,
         bg_color,
         text_color,
@@ -507,7 +541,11 @@ fn generate_popup_update_script() -> String {
         border_color,
         separator_color,
         bubble_checked,
-        !has_tts_pending
+        !has_tts_pending,
+        settings_text,
+        bubble_text,
+        stop_tts_text,
+        quit_text
     )
 }
 

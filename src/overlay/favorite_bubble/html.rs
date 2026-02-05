@@ -26,10 +26,8 @@ pub fn generate_panel_html(
 <body>
 <div class="container">
     <div class="keep-open-row visible" id="keepOpenRow">
-        <div class="toggle-switch{keep_open_class}" id="keepOpenToggle" onclick="toggleKeepOpen()"></div>
-        <span class="keep-open-label{keep_open_class}" id="keepOpenLabel">{keep_open_label}</span>
-        <button class="size-btn" onclick="resizeBubble('desc')">-</button>
-        <button class="size-btn" onclick="resizeBubble('inc')">+</button>
+        <span class="keep-open-label{keep_open_class}" id="keepOpenLabel" onclick="toggleKeepOpen()">{keep_open_label}</span>
+        <div class="size-pill"><button class="size-btn" onclick="resizeBubble('desc')">-</button><button class="size-btn" onclick="resizeBubble('inc')">+</button></div>
     </div>
     <div class="list">{favorites}</div>
 </div>
@@ -62,10 +60,8 @@ pub fn generate_panel_css(is_dark: bool) -> String {
         empty_bg,
         empty_border,
         label_color,
-        label_active_color,
         toggle_bg,
         toggle_active_bg,
-        toggle_knob_shadow,
         row_bg,
     ) = if is_dark {
         (
@@ -78,10 +74,8 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(20, 20, 30, 0.85)",
             "rgba(255, 255, 255, 0.1)",
             "rgba(255, 255, 255, 0.6)",
-            "rgba(255, 255, 255, 0.95)", // White active label
             "rgba(60, 60, 70, 0.8)",
             "rgba(64, 196, 255, 0.9)", // Blue (Light Blue A200)
-            "0 1px 3px rgba(0, 0, 0, 0.3)",
             "rgba(20, 20, 30, 0.85)", // Match item_bg
         )
     } else {
@@ -95,11 +89,9 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(0, 0, 0, 0.5)",
             "rgba(255, 255, 255, 0.92)",
             "rgba(0, 0, 0, 0.08)",
-            "rgba(0, 0, 0, 0.6)",  // Darker label for visibility
-            "rgba(0, 0, 0, 0.95)", // Dark active label
+            "rgba(0, 0, 0, 0.6)",
             "rgba(200, 200, 210, 0.8)",
             "rgba(33, 150, 243, 0.9)", // Blue (Material Blue 500)
-            "0 1px 3px rgba(0, 0, 0, 0.15)",
             "rgba(255, 255, 255, 0.92)", // Match item_bg
         )
     };
@@ -259,14 +251,12 @@ html, body {{
 .condense {{ letter-spacing: -0.5px; }}
 .condense-more {{ letter-spacing: -1px; }}
 
-.keep-open-label {{ color: {label_color}; font-size: 13px; font-variation-settings: 'wght' 500, 'wdth' 100; transition: all 0.2s; }}
-.keep-open-label.active {{ color: {label_active_color}; font-variation-settings: 'wght' 700, 'wdth' 115; }}
-.toggle-switch {{ position: relative; width: 36px; height: 20px; background: {toggle_bg}; border-radius: 10px; cursor: pointer; transition: background 0.2s; }}
-.toggle-switch.active {{ background: {toggle_active_bg}; }}
-.toggle-switch::after {{ content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform 0.2s; box-shadow: {toggle_knob_shadow}; }}
-.toggle-switch.active::after {{ transform: translateX(16px); }}
-.size-btn {{ width: 24px; height: 24px; border-radius: 50%; border: none; background: {item_bg}; color: {text_color}; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; margin-left: 4px; }}
-.size-btn:hover {{ background: {item_hover_bg}; transform: scale(1.1); }}
+.keep-open-label {{ color: {label_color}; font-size: 12px; font-variation-settings: 'wght' 500, 'wdth' 100; transition: all 0.2s; white-space: nowrap; cursor: pointer; padding: 4px 10px; border-radius: 10px; background: transparent; }}
+.keep-open-label:hover {{ background: {toggle_bg}; }}
+.keep-open-label.active {{ color: white; font-variation-settings: 'wght' 600, 'wdth' 105; background: {toggle_active_bg}; }}
+.size-pill {{ display: flex; background: {item_bg}; border-radius: 10px; overflow: hidden; margin-left: 8px; }}
+.size-btn {{ width: 22px; height: 20px; border: none; background: transparent; color: {text_color}; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; font-size: 14px; }}
+.size-btn:hover {{ background: {item_hover_bg}; }}
 "#,
         font_css = font_css,
         text_color = text_color,
@@ -279,10 +269,8 @@ html, body {{
         empty_bg = empty_bg,
         empty_border = empty_border,
         label_color = label_color,
-        label_active_color = label_active_color,
         toggle_bg = toggle_bg,
         toggle_active_bg = toggle_active_bg,
-        toggle_knob_shadow = toggle_knob_shadow,
         row_bg = row_bg
     )
 }
@@ -402,12 +390,14 @@ function sendHeight() {
 }
 
 function startDrag(e) { if (e.button === 0) window.ipc.postMessage('drag'); }
-let keepOpen = false; 
+
+// Re-assert bubble Z-order on any click interaction
+document.addEventListener('mousedown', () => window.ipc.postMessage('focus_bubble'));
+
+let keepOpen = false;
 function toggleKeepOpen() {
     keepOpen = !keepOpen;
-    const toggle = document.getElementById('keepOpenToggle');
     const label = document.getElementById('keepOpenLabel');
-    toggle.classList.toggle('active', keepOpen);
     label.classList.toggle('active', keepOpen);
     window.ipc.postMessage('set_keep_open:' + (keepOpen ? '1' : '0'));
 }

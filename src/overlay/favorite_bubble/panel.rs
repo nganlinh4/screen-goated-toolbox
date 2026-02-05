@@ -478,7 +478,8 @@ unsafe fn refresh_panel_layout_and_content(
     }
 
     let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
-    update_panel_content(&favorites_html, num_cols);
+    let keep_open_label = crate::gui::locale::LocaleText::get(lang).favorites_keep_open;
+    update_panel_content(&favorites_html, num_cols, keep_open_label);
 
     // Pass side, bubble overlap, and bubble center relative to panel to JS
     // Use actual_panel_y (clamped) to match the real window position
@@ -587,6 +588,9 @@ fn create_panel_webview(panel_hwnd: HWND) {
                         close_panel();
                     } else if body == "close_now" {
                         close_panel_internal();
+                    } else if body == "focus_bubble" {
+                        // Re-assert bubble Z-order on any click interaction
+                        ensure_bubble_on_top();
                     } else if body.starts_with("trigger:") {
                         if let Ok(idx) = body[8..].parse::<usize>() {
                             // trigger() in JS starts the close animation and will send close_now when done.
@@ -908,13 +912,14 @@ fn resize_panel_height(content_height: i32) {
     }
 }
 
-fn update_panel_content(html: &str, cols: usize) {
+fn update_panel_content(html: &str, cols: usize, keep_open_label: &str) {
     PANEL_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
             let escaped = escape_js(html);
+            let escaped_label = escape_js(keep_open_label);
             let script = format!(
-                "document.querySelector('.list').style.columnCount = '{}'; document.querySelector('.list').innerHTML = \"{}\"; if(window.fitText) window.fitText();",
-                cols, escaped
+                "document.querySelector('.list').style.columnCount = '{}'; document.querySelector('.list').innerHTML = \"{}\"; document.getElementById('keepOpenLabel').textContent = \"{}\"; if(window.fitText) window.fitText();",
+                cols, escaped, escaped_label
             );
             let _ = webview.evaluate_script(&script);
         }
