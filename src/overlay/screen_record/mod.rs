@@ -31,7 +31,7 @@ pub mod keyviz;
 pub mod native_export;
 
 // Re-exports
-pub use ffmpeg::{get_ffmpeg_path, get_ffprobe_path, FfmpegInstallStatus};
+pub use ffmpeg::{get_ffmpeg_path, get_ffprobe_path};
 use ipc::handle_ipc_command;
 
 // --- CONSTANTS ---

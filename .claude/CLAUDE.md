@@ -46,3 +46,5 @@ cargo test               # Run tests
 ## Claude Code Rules
 - **Never run `cargo build --release`** - the user will build manually when ready
 - Use `cargo check` or `cargo clippy` for verification instead
+- **Always fix all warnings** - code must compile with zero warnings
+- **Never use `#[allow(dead_code)]`** - remove unused code instead of suppressing warnings

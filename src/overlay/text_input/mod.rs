@@ -66,11 +66,6 @@ pub fn set_editor_text(text: &str) {
     }
 }
 
-/// Clear the webview editor content and refocus (for continuous input mode)
-pub fn clear_editor_text() {
-    messages::clear_editor_text();
-}
-
 /// Update the UI text (header) and trigger a repaint
 pub fn update_ui_text(header_text: String) {
     *CFG_TITLE.lock().unwrap() = header_text.clone();
