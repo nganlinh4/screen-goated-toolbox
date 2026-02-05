@@ -7,7 +7,7 @@ use wry::{WebContext, WebView};
 
 // Constants
 pub static BUBBLE_SIZE: AtomicI32 = AtomicI32::new(40);
-pub const PANEL_WIDTH: i32 = 260;
+pub const PANEL_WIDTH: i32 = 200;
 pub const DRAG_THRESHOLD: i32 = 5; // Pixels of movement before counting as a drag
 
 // Smooth opacity animation state

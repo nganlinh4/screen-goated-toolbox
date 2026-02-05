@@ -17,10 +17,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowW, GetClientRect,
     GetForegroundWindow, GetSystemMetrics, GetWindowRect, LoadCursorW, PostMessageW,
     RegisterClassW, SendMessageW, SetForegroundWindow, SetWindowPos, ShowWindow, HTCAPTION,
-    IDC_ARROW, SM_CXSCREEN, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
-    SW_SHOWNOACTIVATE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_HOTKEY, WM_KILLFOCUS, WM_NCCALCSIZE,
-    WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP, WS_VISIBLE,
+    HWND_TOPMOST, IDC_ARROW, SM_CXSCREEN, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SW_HIDE, SW_SHOWNOACTIVATE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_HOTKEY,
+    WM_KILLFOCUS, WM_NCCALCSIZE, WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
 use wry::{Rect, WebContext, WebViewBuilder};
 
@@ -194,6 +194,26 @@ pub fn destroy_panel() {
     }
 }
 
+/// Ensures the bubble window stays above the panel window in Z-order.
+/// Call this after any operation that might change Z-order while panel is open.
+fn ensure_bubble_on_top() {
+    let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
+    if bubble_val != 0 {
+        unsafe {
+            let bubble_hwnd = HWND(bubble_val as *mut std::ffi::c_void);
+            let _ = SetWindowPos(
+                bubble_hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
+    }
+}
+
 pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
     let panel_val = PANEL_HWND.load(Ordering::SeqCst);
     if panel_val == 0 {
@@ -209,14 +229,19 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
 
         let screen_w = GetSystemMetrics(SM_CXSCREEN);
         let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
+        let bubble_overlap = bubble_size + 4;
+
+        // Panel extends behind bubble - calculate position accordingly
         let (panel_x, panel_y) = if bubble_x > screen_w / 2 {
+            // Bubble on right - panel content is to the left, overlap extends right
             (
-                bubble_x - panel_w - 8,
+                bubble_x - (panel_w - bubble_overlap) - 4,
                 bubble_y - panel_h / 2 + bubble_size / 2,
             )
         } else {
+            // Bubble on left - panel starts at bubble's left edge
             (
-                bubble_x + bubble_size + 8,
+                bubble_x,
                 bubble_y - panel_h / 2 + bubble_size / 2,
             )
         };
@@ -230,6 +255,21 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
             0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
+
+        // Ensure bubble stays above panel
+        let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
+        if bubble_val != 0 {
+            let bubble_hwnd = HWND(bubble_val as *mut std::ffi::c_void);
+            let _ = SetWindowPos(
+                bubble_hwnd,
+                Some(HWND_TOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
+        }
     }
 }
 
@@ -353,15 +393,22 @@ unsafe fn refresh_panel_layout_and_content(
     let screen_w = GetSystemMetrics(SM_CXSCREEN);
     let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
 
+    // Extend panel to overlap behind bubble for seamless bloom/collapse animations
+    // The bubble must stay above the panel (handled via Z-order below)
+    let bubble_overlap = bubble_size + 4;
+    let panel_width_with_overlap = panel_width_physical + bubble_overlap;
+
     let (panel_x, panel_y, side) = if bubble_rect.left > screen_w / 2 {
+        // Bubble on right side - panel extends rightward behind bubble
         (
-            bubble_rect.left - panel_width_physical - 4, // Closer to bubble
+            bubble_rect.left - panel_width_physical - 4, // Left edge stays at original position
             bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
             "right",
         )
     } else {
+        // Bubble on left side - panel extends leftward behind bubble
         (
-            bubble_rect.right + 4,
+            bubble_rect.left, // Start at bubble's left edge
             bubble_rect.top - panel_height_physical / 2 + bubble_size / 2,
             "left",
         )
@@ -375,7 +422,7 @@ unsafe fn refresh_panel_layout_and_content(
         None,
         panel_x,
         actual_panel_y,
-        panel_width_physical,
+        panel_width_with_overlap,
         panel_height_physical,
         SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
     );
@@ -383,12 +430,27 @@ unsafe fn refresh_panel_layout_and_content(
     // Explicitly show the window to ensure it's visible after a SW_HIDE
     let _ = ShowWindow(panel_hwnd, SW_SHOWNOACTIVATE);
 
+    // CRITICAL: Ensure bubble stays above the panel window
+    let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);
+    if bubble_val != 0 {
+        let bubble_hwnd_local = HWND(bubble_val as *mut std::ffi::c_void);
+        let _ = SetWindowPos(
+            bubble_hwnd_local,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+
     PANEL_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
             let _ = webview.set_bounds(Rect {
                 position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
                 size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    panel_width_physical as u32,
+                    panel_width_with_overlap as u32,
                     panel_height_physical as u32,
                 )),
             });
@@ -418,11 +480,14 @@ unsafe fn refresh_panel_layout_and_content(
     let favorites_html = get_favorite_presets_html(presets, lang, is_dark);
     update_panel_content(&favorites_html, num_cols);
 
-    // Pass side and bubble center relative to panel to JS
+    // Pass side, bubble overlap, and bubble center relative to panel to JS
     // Use actual_panel_y (clamped) to match the real window position
+    // bx is the bubble center X relative to the panel's content area
     let bx = if side == "left" {
-        -(bubble_size / 2) - 4
+        // Panel starts at bubble_left, bubble center is at bubble_size/2 from panel_x
+        (bubble_size / 2) as i32
     } else {
+        // Panel content is on the left, bubble is on the right (behind the overlap area)
         (panel_width_physical / scale as i32) + (bubble_size / 2) + 4
     };
     let by = (bubble_rect.top + bubble_size / 2) - actual_panel_y;
@@ -430,8 +495,8 @@ unsafe fn refresh_panel_layout_and_content(
     PANEL_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
             let script = format!(
-                "if(window.setSide) window.setSide('{}'); if(window.animateIn) window.animateIn({}, {});",
-                side, bx, by
+                "if(window.setSide) window.setSide('{}', {}); if(window.animateIn) window.animateIn({}, {});",
+                side, bubble_overlap, bx, by
             );
             let _ = webview.evaluate_script(&script);
         }
@@ -534,6 +599,8 @@ fn create_panel_webview(panel_hwnd: HWND) {
                         // Keep Open mode: trigger preset without closing panel
                         if let Ok(idx) = body[13..].parse::<usize>() {
                             trigger_preset(idx);
+                            // Re-assert bubble Z-order since panel stays open
+                            ensure_bubble_on_top();
                         }
                     } else if body.starts_with("trigger_continuous:") {
                         if let Ok(idx) = body[19..].parse::<usize>() {
@@ -548,6 +615,8 @@ fn create_panel_webview(panel_hwnd: HWND) {
                         if let Ok(idx) = body[24..].parse::<usize>() {
                             // Same as above - just activate continuous mode, don't trigger preset
                             activate_continuous_from_panel(idx);
+                            // Re-assert bubble Z-order since panel stays open
+                            ensure_bubble_on_top();
                         }
                     } else if body.starts_with("set_keep_open:") {
                         if let Ok(val) = body[14..].parse::<u32>() {
@@ -555,6 +624,8 @@ fn create_panel_webview(panel_hwnd: HWND) {
                                 app.config.favorites_keep_open = val == 1;
                                 crate::config::save_config(&app.config);
                             }
+                            // Re-assert bubble Z-order after toggle interaction
+                            ensure_bubble_on_top();
                         }
                     } else if body.starts_with("resize:") {
                         if let Ok(h) = body[7..].parse::<i32>() {
@@ -562,7 +633,7 @@ fn create_panel_webview(panel_hwnd: HWND) {
                         }
                     } else if body == "increase_size" {
                         if let Ok(mut app) = APP.lock() {
-                            let new_size = (app.config.favorite_bubble_size + 8).min(80);
+                            let new_size = (app.config.favorite_bubble_size + 4).min(56);
                             app.config.favorite_bubble_size = new_size;
                             crate::config::save_config(&app.config);
                             BUBBLE_SIZE.store(new_size as i32, Ordering::SeqCst);
@@ -571,7 +642,7 @@ fn create_panel_webview(panel_hwnd: HWND) {
                     } else if body == "decrease_size" {
                         if let Ok(mut app) = APP.lock() {
                             let new_size =
-                                (app.config.favorite_bubble_size.saturating_sub(8)).max(24);
+                                (app.config.favorite_bubble_size.saturating_sub(4)).max(16);
                             app.config.favorite_bubble_size = new_size;
                             crate::config::save_config(&app.config);
                             BUBBLE_SIZE.store(new_size as i32, Ordering::SeqCst);

@@ -548,11 +548,23 @@ function closePanel() {
     }, items.length * 6 + 350);
 }
 
-window.setSide = (side) => { 
+window.setSide = (side, bubbleOverlap) => {
     currentSide = side;
     const container = document.querySelector('.container');
     container.classList.remove('side-left', 'side-right');
     container.classList.add('side-' + side);
+
+    // Set padding to account for bubble overlap area
+    // Content should stay in the non-overlapping area
+    if (side === 'right') {
+        // Panel extends right behind bubble - add padding on right
+        container.style.paddingLeft = '30px';
+        container.style.paddingRight = (10 + bubbleOverlap) + 'px';
+    } else {
+        // Panel extends left behind bubble - add padding on left
+        container.style.paddingLeft = (10 + bubbleOverlap) + 'px';
+        container.style.paddingRight = '30px';
+    }
 };
 "#
 }
