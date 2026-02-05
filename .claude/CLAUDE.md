@@ -42,3 +42,7 @@ cargo test               # Run tests
 ## Testing
 - Always run `cargo clippy --all-targets` before commits
 - Test on Windows 10/11 for compatibility
+
+## Claude Code Rules
+- **Never run `cargo build --release`** - the user will build manually when ready
+- Use `cargo check` or `cargo clippy` for verification instead
