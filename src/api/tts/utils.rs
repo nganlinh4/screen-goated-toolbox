@@ -7,10 +7,13 @@ use crate::overlay::result::state::WINDOW_STATES;
 
 /// Clear the TTS loading state for a window and trigger repaint
 pub fn clear_tts_loading_state(hwnd: isize) {
+    eprintln!("[TTS Utils] clear_tts_loading_state for hwnd: {}", hwnd);
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd) {
             state.tts_loading = false;
+        } else {
+            eprintln!("[TTS Utils] WARNING: Window state not found for hwnd: {}", hwnd);
         }
     }
 
@@ -25,11 +28,14 @@ pub fn clear_tts_loading_state(hwnd: isize) {
 
 /// Clear TTS state completely when speech ends
 pub fn clear_tts_state(hwnd: isize) {
+    eprintln!("[TTS Utils] clear_tts_state (speech ended) for hwnd: {}", hwnd);
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.get_mut(&hwnd) {
             state.tts_loading = false;
             state.tts_request_id = 0;
+        } else {
+            eprintln!("[TTS Utils] WARNING: Window state not found for hwnd: {}", hwnd);
         }
     }
 

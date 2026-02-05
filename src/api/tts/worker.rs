@@ -40,36 +40,56 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
 
         // Check if this request is stale
         if request.generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+            eprintln!(
+                "[TTS Worker] Request stale (gen {} < current {}), skipping",
+                request.generation,
+                manager.interrupt_generation.load(Ordering::SeqCst)
+            );
             let _ = tx.send(AudioEvent::End);
             continue;
         }
+
+        eprintln!(
+            "[TTS Worker] Processing request: hwnd={}, text_len={}, realtime={}",
+            request.req.hwnd,
+            request.req.text.len(),
+            request.req.is_realtime
+        );
 
         // Check TTS Method - route to alternative handlers if not Gemini
         let tts_method = {
             match APP.lock() {
                 Ok(app) => app.config.tts_method.clone(),
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("[TTS Worker] ERROR: Failed to lock APP config: {:?}", e);
                     let _ = tx.send(AudioEvent::End);
                     continue;
                 }
             }
         };
 
+        eprintln!("[TTS Worker] Using TTS method: {:?}", tts_method);
+
         if tts_method == crate::config::TtsMethod::GoogleTranslate {
+            eprintln!("[TTS Worker] Routing to Google Translate TTS");
             handle_google_tts(manager.clone(), request, tx);
             continue;
         }
 
         if tts_method == crate::config::TtsMethod::EdgeTTS {
+            eprintln!("[TTS Worker] Routing to Edge TTS");
             handle_edge_tts(manager.clone(), request, tx);
             continue;
         }
+
+        eprintln!("[TTS Worker] Using Gemini TTS");
 
         // Get API key
         let api_key = {
             match APP.lock() {
                 Ok(app) => app.config.gemini_api_key.clone(),
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("[TTS Worker] ERROR: Failed to lock APP for API key: {:?}", e);
                     let _ = tx.send(AudioEvent::End);
                     std::thread::sleep(Duration::from_secs(1));
                     continue;
@@ -78,7 +98,7 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
         };
 
         if api_key.trim().is_empty() {
-            eprintln!("TTS: No Gemini API key configured");
+            eprintln!("[TTS Worker] ERROR: No Gemini API key configured - TTS will not work");
             let _ = tx.send(AudioEvent::End);
             clear_tts_loading_state(request.req.hwnd);
             clear_tts_state(request.req.hwnd);
@@ -86,12 +106,17 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             continue;
         }
 
+        eprintln!("[TTS Worker] Connecting to Gemini WebSocket...");
+
         // Attempt to connect
         let socket_result = connect_tts_websocket(&api_key);
         let mut socket = match socket_result {
-            Ok(s) => s,
+            Ok(s) => {
+                eprintln!("[TTS Worker] WebSocket connected successfully");
+                s
+            }
             Err(e) => {
-                eprintln!("TTS: Failed to connect: {}", e);
+                eprintln!("[TTS Worker] ERROR: WebSocket connection failed: {}", e);
                 let _ = tx.send(AudioEvent::End);
                 clear_tts_loading_state(request.req.hwnd);
                 clear_tts_state(request.req.hwnd);
@@ -263,6 +288,7 @@ fn handle_google_tts(
     tx: std::sync::mpsc::Sender<AudioEvent>,
 ) {
     let text = request.req.text.clone();
+    eprintln!("[TTS Google] Starting Google TTS for {} chars", text.len());
 
     // Detect language for Google TTS TL parameter
     let lang_code = whatlang::detect_lang(&text).unwrap_or(whatlang::Lang::Eng);
@@ -273,6 +299,8 @@ fn handle_google_tts(
         .and_then(|l| l.to_639_1())
         .unwrap_or("en");
 
+    eprintln!("[TTS Google] Detected language: {}", tl);
+
     // Google TTS URL
     let url = format!(
         "https://translate.google.com/translate_tts?ie=UTF-8&q={}&tl={}&client=tw-ob",
@@ -280,10 +308,16 @@ fn handle_google_tts(
         tl
     );
 
+    eprintln!("[TTS Google] Fetching audio from Google...");
+
     // Download audio (blocking)
     let resp = match UREQ_AGENT.get(&url).call() {
-        Ok(r) => r,
-        Err(_) => {
+        Ok(r) => {
+            eprintln!("[TTS Google] HTTP response received (status: {})", r.status());
+            r
+        }
+        Err(e) => {
+            eprintln!("[TTS Google] ERROR: HTTP request failed: {:?}", e);
             let _ = tx.send(AudioEvent::End);
             clear_tts_state(request.req.hwnd);
             return;
@@ -385,6 +419,8 @@ fn handle_edge_tts(
     let generation = request.generation;
     let manager_clone = manager.clone();
 
+    eprintln!("[TTS Edge] Starting Edge TTS for {} chars", text.len());
+
     // Get Settings
     let (voice_name, pitch, rate) = {
         let app = APP.lock().unwrap();
@@ -410,6 +446,8 @@ fn handle_edge_tts(
         (voice, settings.pitch, settings.rate)
     };
 
+    eprintln!("[TTS Edge] Using voice: {}, pitch: {}, rate: {}", voice_name, pitch, rate);
+
     // Edge TTS WebSocket constants
     let trusted_token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
     let connection_id = format!(
@@ -424,9 +462,12 @@ fn handle_edge_tts(
         trusted_token, connection_id
     );
 
+    eprintln!("[TTS Edge] Connecting to Bing Speech WebSocket...");
+
     let connector = match native_tls::TlsConnector::new() {
         Ok(c) => c,
-        Err(_) => {
+        Err(e) => {
+            eprintln!("[TTS Edge] ERROR: TLS connector creation failed: {:?}", e);
             let _ = tx.send(AudioEvent::End);
             clear_tts_state(request.req.hwnd);
             return;
@@ -436,7 +477,8 @@ fn handle_edge_tts(
     let host = "speech.platform.bing.com";
     let stream = match std::net::TcpStream::connect(format!("{}:443", host)) {
         Ok(s) => s,
-        Err(_) => {
+        Err(e) => {
+            eprintln!("[TTS Edge] ERROR: TCP connection to {} failed: {:?}", host, e);
             let _ = tx.send(AudioEvent::End);
             clear_tts_state(request.req.hwnd);
             return;
@@ -445,7 +487,8 @@ fn handle_edge_tts(
 
     let tls_stream = match connector.connect(host, stream) {
         Ok(s) => s,
-        Err(_) => {
+        Err(e) => {
+            eprintln!("[TTS Edge] ERROR: TLS handshake failed: {:?}", e);
             let _ = tx.send(AudioEvent::End);
             clear_tts_state(request.req.hwnd);
             return;
@@ -453,8 +496,12 @@ fn handle_edge_tts(
     };
 
     let (mut socket, _) = match client(&wss_url, tls_stream) {
-        Ok(s) => s,
-        Err(_) => {
+        Ok(s) => {
+            eprintln!("[TTS Edge] WebSocket connected successfully");
+            s
+        }
+        Err(e) => {
+            eprintln!("[TTS Edge] ERROR: WebSocket connection failed: {:?}", e);
             let _ = tx.send(AudioEvent::End);
             clear_tts_state(request.req.hwnd);
             return;

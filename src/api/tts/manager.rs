@@ -70,11 +70,21 @@ impl TtsManager {
         let id = REQUEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let current_gen = self.interrupt_generation.load(Ordering::SeqCst);
 
+        eprintln!(
+            "[TTS Manager] speak_internal: id={}, gen={}, hwnd={}, realtime={}, text_len={}",
+            id,
+            current_gen,
+            hwnd,
+            is_realtime,
+            text.len()
+        );
+
         let (tx, rx) = mpsc::channel();
 
         // Add to queues
         {
             let mut wq = self.work_queue.lock().unwrap();
+            let queue_len = wq.len();
             wq.push_back((
                 QueuedRequest {
                     req: TtsRequest {
@@ -87,6 +97,7 @@ impl TtsManager {
                 },
                 tx,
             ));
+            eprintln!("[TTS Manager] Added to work_queue (queue size now: {})", queue_len + 1);
         }
         self.work_signal.notify_one();
 

@@ -37,8 +37,14 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
             pq.pop_front()
         };
 
-        if let Some((rx, hwnd, _req_id, generation, is_realtime)) = playback_job {
+        if let Some((rx, hwnd, req_id, generation, is_realtime)) = playback_job {
             let mut loading_cleared = false;
+            let mut chunks_received = 0u32;
+
+            eprintln!(
+                "[TTS Player] Starting playback job: req_id={}, hwnd={}, gen={}, realtime={}",
+                req_id, hwnd, generation, is_realtime
+            );
 
             // Mark that we're now playing audio
             manager.is_playing.store(true, Ordering::SeqCst);
@@ -49,29 +55,42 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                     Ok(AudioEvent::Data(data)) => {
                         // Check interrupt before playing
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+                            eprintln!("[TTS Player] Interrupted during playback (after {} chunks)", chunks_received);
                             audio_player.stop();
                             clear_tts_state(hwnd);
                             break;
                         }
 
+                        chunks_received += 1;
                         if !loading_cleared {
                             loading_cleared = true;
+                            eprintln!("[TTS Player] First audio chunk received, clearing loading state");
                             clear_tts_loading_state(hwnd);
                         }
                         audio_player.play(&data, is_realtime);
                     }
                     Ok(AudioEvent::End) => {
+                        eprintln!(
+                            "[TTS Player] AudioEvent::End received after {} chunks",
+                            chunks_received
+                        );
                         // Check if we were interrupted or finished normally
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
+                            eprintln!("[TTS Player] Was interrupted, stopping immediately");
                             audio_player.stop(); // Immediate cut-off
                         } else {
+                            eprintln!("[TTS Player] Normal finish, draining audio buffer");
                             audio_player.drain(); // Normal finish
                         }
                         clear_tts_state(hwnd);
                         break; // Job done
                     }
-                    Err(_) => {
+                    Err(e) => {
                         // Sender disconnected
+                        eprintln!(
+                            "[TTS Player] ERROR: Channel recv failed after {} chunks: {:?}",
+                            chunks_received, e
+                        );
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
                             audio_player.stop();
                         } else {
@@ -137,11 +156,14 @@ impl AudioPlayer {
 
         // Spawn a dedicated thread for WASAPI playback
         let thread = std::thread::spawn(move || {
+            eprintln!("[TTS Player] WASAPI thread starting...");
             // Initialize COM for this thread
             if wasapi::initialize_mta().is_err() {
-                eprintln!("TTS: Failed to initialize COM");
+                eprintln!("[TTS Player] ERROR: Failed to initialize COM for WASAPI thread");
                 return;
             }
+
+            eprintln!("[TTS Player] COM initialized, creating audio stream...");
 
             // Try to create an AudioClient with loopback exclusion
             let result = Self::create_excluded_stream(
@@ -154,7 +176,7 @@ impl AudioPlayer {
 
             if let Err(e) = result {
                 eprintln!(
-                    "TTS: WASAPI with exclusion failed ({}), falling back to cpal",
+                    "[TTS Player] ERROR: WASAPI stream creation failed: {}",
                     e
                 );
             }
@@ -207,17 +229,27 @@ impl AudioPlayer {
         target_device_id: Option<String>,
         manager: Arc<TtsManager>,
     ) -> anyhow::Result<()> {
+        eprintln!("[TTS WASAPI] Initializing audio output...");
+
         // Use STA for better compatibility with audio drivers
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok();
 
         let enumerator: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 
-        let device = if let Some(id_str) = target_device_id {
+        let device = if let Some(ref id_str) = target_device_id {
+            eprintln!("[TTS WASAPI] Using specified device: {}", id_str);
             // Try to find specific device
-            let id_hstring = windows::core::HSTRING::from(id_str);
-            enumerator.GetDevice(&id_hstring)?
+            let id_hstring = windows::core::HSTRING::from(id_str.clone());
+            match enumerator.GetDevice(&id_hstring) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("[TTS WASAPI] ERROR: Specified device not found: {:?}, falling back to default", e);
+                    enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
+                }
+            }
         } else {
+            eprintln!("[TTS WASAPI] Using default audio device");
             // Use Console role for TTS (Default)
             enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?
         };
@@ -228,6 +260,15 @@ impl AudioPlayer {
         // Note: We no longer try to exclude from loopback
         let mix_format_ptr = client.GetMixFormat()?;
         let mix_format = *mix_format_ptr;
+
+        // Copy fields from packed struct to avoid unaligned references
+        let channels = mix_format.nChannels;
+        let sample_rate = mix_format.nSamplesPerSec;
+        let bits = mix_format.wBitsPerSample;
+        eprintln!(
+            "[TTS WASAPI] Device format: {} channels, {} Hz, {} bits",
+            channels, sample_rate, bits
+        );
 
         // Initialize (Shared Mode)
         client.Initialize(
@@ -243,6 +284,8 @@ impl AudioPlayer {
         let render_client: IAudioRenderClient = client.GetService()?;
 
         client.Start()?;
+
+        eprintln!("[TTS WASAPI] Audio client started successfully (buffer size: {})", buffer_size);
 
         let channels = mix_format.nChannels as usize;
         let is_float = mix_format.wFormatTag == 3 // WAVE_FORMAT_IEEE_FLOAT
