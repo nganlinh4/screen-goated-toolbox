@@ -292,20 +292,6 @@ lazy_static::lazy_static! {
             "14400 requests/day"
         ),
         ModelConfig::new(
-            "cerebras_qwen3",
-            "cerebras",
-            "C-Chính xác hơn",
-            "C-더 정확함",
-            "C-More Accurate",
-            "qwen-3-235b-a22b-instruct-2507",
-            ModelType::Text,
-            true,
-            "1440 lượt/ngày",
-            "1440 요청/일",
-            "1440 requests/day"
-        ),
-
-        ModelConfig::new(
             "cerebras_zai_glm_4_7",
             "cerebras",
             "C-Siêu chính xác",

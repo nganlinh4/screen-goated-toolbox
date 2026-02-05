@@ -33,7 +33,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                         .language("English")
                         .show_overlay(false)
                         .build(),
-                    BlockBuilder::text("cerebras_qwen3")
+                    BlockBuilder::text("cerebras_gpt_oss")
                         .prompt("Translate to {language1}. Output ONLY the translation.")
                         .language("Vietnamese")
                         .markdown() // Upgraded: Thường -> Đẹp (Special: keeping non-streaming as requested by original logic for this specific preset)
@@ -70,7 +70,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown() // Đẹp
                     .auto_copy()
                     .build(),
-                BlockBuilder::text("cerebras_qwen3")
+                BlockBuilder::text("cerebras_gpt_oss")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
@@ -93,7 +93,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown_stream() // Đẹp+Str
                     .auto_copy()
                     .build(),
-                BlockBuilder::text("cerebras_qwen3")
+                BlockBuilder::text("cerebras_gpt_oss")
                     .prompt("Translate to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
@@ -167,7 +167,7 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .auto_copy()
                     .build(),
                 // Node 1: Format the QR content nicely
-                BlockBuilder::text("cerebras_qwen3")
+                BlockBuilder::text("cerebras_gpt_oss")
                     .prompt("Format this QR code content for display. Rules:\n\
                         - If URL: Make it a clickable markdown link [URL](URL) and describe what this link points to\n\
                         - If vCard/contact: Format as a readable contact card with name, phone, email, address\n\
@@ -267,13 +267,13 @@ pub fn create_image_presets() -> Vec<Preset> {
                     .markdown_stream() // Đẹp+Str
                     .build(),
                 // Node 3: Translate (from 0)
-                BlockBuilder::text("cerebras_qwen3")
+                BlockBuilder::text("cerebras_gpt_oss")
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Vietnamese")
                     .markdown_stream() // Đẹp+Str
                     .build(),
                 // Node 4: Summarize keywords (from 3)
-                BlockBuilder::text("cerebras_qwen3")
+                BlockBuilder::text("cerebras_gpt_oss")
                     .prompt("Summarize the essence of this text into 3-5 keywords or a short phrase in {language1}.")
                     .markdown_stream() // Đẹp+Str
                     .language("Vietnamese")
