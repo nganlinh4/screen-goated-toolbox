@@ -502,21 +502,36 @@ pub fn trigger_markdown_toggle(hwnd: HWND) {
 /// Trigger speaker/TTS
 pub fn trigger_speaker(hwnd: HWND) {
     let hwnd_key = hwnd.0 as isize;
+    crate::log_info!("[TTS] trigger_speaker called for hwnd: {}", hwnd_key);
 
-    let (full_text, current_tts_id, is_loading) = {
+    let (full_text, current_tts_id, is_loading, state_exists) = {
         let states = WINDOW_STATES.lock().unwrap();
-        states
-            .get(&hwnd_key)
-            .map(|s| (s.full_text.clone(), s.tts_request_id, s.tts_loading))
-            .unwrap_or_default()
+        if let Some(s) = states.get(&hwnd_key) {
+            (s.full_text.clone(), s.tts_request_id, s.tts_loading, true)
+        } else {
+            (String::new(), 0, false, false)
+        }
     };
 
+    if !state_exists {
+        crate::log_info!(
+            "[TTS] ERROR: Window state not found for hwnd: {} - window may have been closed",
+            hwnd_key
+        );
+        return;
+    }
+
     if is_loading {
-        return; // Ignore during loading
+        crate::log_info!(
+            "[TTS] Ignoring click - already loading (tts_request_id: {})",
+            current_tts_id
+        );
+        return;
     }
 
     if current_tts_id != 0 && crate::api::tts::TTS_MANAGER.is_speaking(current_tts_id) {
         // Stop speaking
+        crate::log_info!("[TTS] Stopping current speech (request_id: {})", current_tts_id);
         crate::api::tts::TTS_MANAGER.stop();
         {
             let mut states = WINDOW_STATES.lock().unwrap();
@@ -527,6 +542,10 @@ pub fn trigger_speaker(hwnd: HWND) {
         }
     } else if !full_text.is_empty() {
         // Start speaking
+        crate::log_info!(
+            "[TTS] Starting speech - text length: {} chars",
+            full_text.len()
+        );
         {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&hwnd_key) {
@@ -535,12 +554,15 @@ pub fn trigger_speaker(hwnd: HWND) {
         }
 
         let request_id = crate::api::tts::TTS_MANAGER.speak(&full_text, hwnd_key);
+        crate::log_info!("[TTS] TTS_MANAGER.speak returned request_id: {}", request_id);
         {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&hwnd_key) {
                 state.tts_request_id = request_id;
             }
         }
+    } else {
+        crate::log_info!("[TTS] ERROR: full_text is empty - nothing to speak");
     }
 
     button_canvas::update_window_position(hwnd);

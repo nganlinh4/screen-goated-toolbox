@@ -46,8 +46,13 @@ pub fn render_update_section_content(
             });
         }
         UpdateStatus::UpdateAvailable { version, body } => {
+            let color = if ui.visuals().dark_mode {
+                egui::Color32::YELLOW
+            } else {
+                egui::Color32::from_rgb(200, 100, 0) // Dark orange for light mode
+            };
             ui.colored_label(
-                egui::Color32::YELLOW,
+                color,
                 format!("{} {}", text.new_version_available, version),
             );
             ui.collapsing(text.release_notes_label, |ui| {

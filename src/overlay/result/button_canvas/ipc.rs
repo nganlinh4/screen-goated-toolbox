@@ -176,13 +176,20 @@ fn handle_forward(hwnd: HWND) {
 }
 
 fn handle_speaker(hwnd: HWND) {
+    crate::log_info!("[TTS] IPC handle_speaker received for hwnd: {:?}", hwnd.0);
     unsafe {
-        let _ = PostMessageW(
+        if let Err(e) = PostMessageW(
             Some(hwnd),
             super::super::event_handler::misc::WM_SPEAKER_CLICK,
             WPARAM(0),
             LPARAM(0),
-        );
+        ) {
+            crate::log_info!(
+                "[TTS] ERROR: PostMessageW failed for hwnd: {:?} - {:?}",
+                hwnd.0,
+                e
+            );
+        }
     }
 }
 
