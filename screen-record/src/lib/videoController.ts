@@ -235,6 +235,7 @@ export class VideoController {
       currentTime: this.getAdjustedTime(this.video.currentTime)
     };
 
+
     // Only draw if video is ready
     if (this.video.readyState >= 2) {
       // Draw even if paused to support live preview when editing

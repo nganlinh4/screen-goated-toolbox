@@ -304,6 +304,10 @@ pub fn handle_ipc_command(
             }
             Ok(serde_json::Value::Null)
         }
+        "get_font_css" => {
+            let css = crate::overlay::html_components::font_manager::get_font_css();
+            Ok(serde_json::json!(css))
+        }
         "is_maximized" => unsafe {
             let hwnd = std::ptr::addr_of!(SR_HWND).read();
             let maximized = if !hwnd.is_invalid() {

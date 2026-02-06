@@ -40,39 +40,36 @@ export function Header({
 
   return (
     <header
-      className="bg-[#1a1a1b] border-b border-[#343536] select-none h-11 flex items-center justify-between cursor-default"
+      className="bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default"
       onMouseDown={() => {
         (window as any).ipc.postMessage('drag_window');
       }}
     >
       <div className="flex items-center gap-4 px-4 h-full">
         <div className="flex items-center gap-3">
-          <Video className="w-5 h-5 text-[#0079d3]" />
-          <span className="text-[#d7dadc] text-sm font-medium">Screen Record</span>
+          <Video className="w-5 h-5 text-[var(--primary-color)]" />
+          <span className="text-[var(--on-surface)] text-sm font-medium">Screen Record</span>
         </div>
 
         <div className="h-full flex items-center">
           {isRecording && currentVideo && (
-            <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/30 px-3 py-1 rounded-full animate-in fade-in slide-in-from-left-2 duration-300">
-              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <div className="flex flex-col">
-                <span className="text-red-500 text-[10px] font-bold leading-none uppercase tracking-wider">Recording</span>
-                <span className="text-[#818384] text-[9px] leading-tight">Screen is being captured</span>
-              </div>
-              <span className="text-[#d7dadc] text-xs font-mono ml-1">{formatTime(recordingDuration)}</span>
+            <div className="flex items-center gap-2 bg-[var(--tertiary-color)]/10 border border-[var(--tertiary-color)]/30 px-2.5 py-1 rounded-lg backdrop-blur-sm animate-in fade-in slide-in-from-left-2 duration-300">
+              <div className="w-2 h-2 rounded-full bg-[var(--tertiary-color)] animate-pulse" />
+              <span className="text-[var(--tertiary-color)] text-[10px] font-bold uppercase tracking-wider">REC</span>
+              <span className="text-[var(--on-surface)] text-xs font-mono">{formatTime(recordingDuration)}</span>
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex items-center gap-3 h-full px-2">
+      <div className="flex items-center gap-2 h-full px-2">
         <div className="flex items-center gap-2 flex-wrap max-w-[400px] justify-end">
           {hotkeys.map((h, i) => (
             <Button
               key={i}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => onRemoveHotkey(i)}
-              className="bg-[#272729] hover:bg-red-500/20 text-[#d7dadc] hover:text-red-400 px-2 h-7 text-xs border border-transparent hover:border-red-500/30 flex-shrink-0"
+              className="bg-[var(--surface-container)] hover:bg-[var(--surface-container-high)] text-[var(--on-surface)] px-2 h-6 text-[11px] border border-transparent hover:border-[var(--outline-variant)] flex-shrink-0 transition-colors"
               title="Click to remove"
             >
               <span className="truncate max-w-[80px]">{h.name}</span>
@@ -82,7 +79,7 @@ export function Header({
           <Button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenHotkeyDialog}
-            className="bg-[#0079d3] hover:bg-[#0079d3]/90 text-white px-2 h-7 text-xs flex-shrink-0"
+            className="bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] flex-shrink-0 transition-colors"
             title="Add Global Hotkey"
           >
             <Keyboard className="w-3 h-3 mr-1" />
@@ -91,10 +88,10 @@ export function Header({
           <Button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onToggleKeyviz}
-            className={`px-2 h-7 text-xs flex-shrink-0 transition-colors ${
+            className={`px-2 h-6 text-[11px] flex-shrink-0 transition-colors ${
               keyvizStatus.enabled
-                ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-[#272729] hover:bg-[#343536] text-[#d7dadc]'
+                ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
+                : 'bg-[var(--surface-container)] hover:bg-[var(--surface-container-high)] text-[var(--on-surface)]'
             }`}
             title={keyvizStatus.installed ? "Toggle Keyviz" : "Install & Enable Keyviz"}
           >
@@ -109,13 +106,13 @@ export function Header({
               onMouseDown={(e) => e.stopPropagation()}
               onClick={onExport}
               disabled={isProcessing}
-              className={`flex items-center px-4 py-2 h-8 text-xs font-medium ${
+              className={`flex items-center px-3 py-1.5 h-7 text-[11px] font-medium transition-colors ${
                 isProcessing
-                  ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                  : 'bg-[#9C17FF] hover:bg-[#9C17FF]/90 text-white'
+                  ? 'bg-[var(--outline-variant)] text-[var(--outline)] cursor-not-allowed'
+                  : 'bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85 text-white'
               }`}
             >
-              <Download className="w-4 h-4 mr-2" />Export
+              <Download className="w-3.5 h-3.5 mr-1.5" />Export
             </Button>
           )}
           <Button
@@ -123,9 +120,9 @@ export function Header({
             size="sm"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenProjects}
-            className="h-8 text-xs text-[#d7dadc] hover:bg-[#272729]"
+            className="h-7 text-[11px] text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors"
           >
-            <FolderOpen className="w-4 h-4 mr-2" />Projects
+            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />Projects
           </Button>
         </div>
 
@@ -136,7 +133,7 @@ export function Header({
               e.stopPropagation();
               (window as any).ipc.postMessage('minimize_window');
             }}
-            className="px-3 h-full text-[#d7dadc] hover:bg-[#272729] transition-colors flex items-center"
+            className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
             title="Minimize"
           >
             <Minus className="w-4 h-4" />
@@ -151,7 +148,7 @@ export function Header({
                 setIsWindowMaximized(maximized);
               }, 50);
             }}
-            className="px-3 h-full text-[#d7dadc] hover:bg-[#272729] transition-colors flex items-center"
+            className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
             title={isWindowMaximized ? "Restore" : "Maximize"}
           >
             {isWindowMaximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
@@ -162,7 +159,7 @@ export function Header({
               e.stopPropagation();
               (window as any).ipc.postMessage('close_window');
             }}
-            className="px-3 h-full text-[#d7dadc] hover:bg-[#e81123] hover:text-white transition-colors flex items-center"
+            className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--tertiary-color)] hover:text-white transition-colors flex items-center"
             title="Close"
           >
             <X className="w-4 h-4" />
