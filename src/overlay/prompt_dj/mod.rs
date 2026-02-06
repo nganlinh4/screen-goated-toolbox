@@ -461,7 +461,9 @@ unsafe fn internal_create_pdj_loop() {
         crate::config::ThemeMode::System => "dark",
     };
 
+    // Font CSS from local HTTP server — CSS @font-face url() only works over http/https, not custom protocols
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
+    let font_style_tag = format!("<style>{}</style>", font_css);
 
     let init_script = format!(
         r#"
@@ -469,7 +471,7 @@ unsafe fn internal_create_pdj_loop() {
         (function() {{
             window._currentVolume = 1.0;
             window._activeMasterGains = [];
-            
+
             const OriginalAC = window.AudioContext || window.webkitAudioContext;
             if (OriginalAC) {{
                 const proto = OriginalAC.prototype;
@@ -495,7 +497,7 @@ unsafe fn internal_create_pdj_loop() {
 
         window.addEventListener('load', () => {{
             const style = document.createElement('style');
-            style.innerHTML = `{}` + `
+            style.innerHTML = `
                 body {{
                     margin: 0;
                     padding: 0;
@@ -511,7 +513,7 @@ unsafe fn internal_create_pdj_loop() {
                     height: 32px;
                     background: transparent;
                     z-index: 2147483647;
-                    -webkit-app-region: drag; 
+                    -webkit-app-region: drag;
                     cursor: grab;
                     pointer-events: auto;
                 }}
@@ -573,12 +575,12 @@ unsafe fn internal_create_pdj_loop() {
 
             const header = document.createElement('div');
             header.id = 'dj-drag-header';
-            
+
             const minBtn = document.createElement('button');
             minBtn.id = 'dj-min-btn';
             minBtn.innerHTML = '—';
             minBtn.onclick = (e) => {{
-                e.stopPropagation(); 
+                e.stopPropagation();
                 if (window.ipc) window.ipc.postMessage('minimize_window');
             }};
             header.appendChild(minBtn);
@@ -587,7 +589,7 @@ unsafe fn internal_create_pdj_loop() {
             closeBtn.id = 'dj-close-btn';
             closeBtn.innerHTML = '✕';
             closeBtn.onclick = (e) => {{
-                e.stopPropagation(); 
+                e.stopPropagation();
                 window.postMessage({{ type: 'pm-dj-stop-audio' }}, '*');
                 if (window.ipc) window.ipc.postMessage('close_window');
             }};
@@ -608,7 +610,7 @@ unsafe fn internal_create_pdj_loop() {
                     updateTheme(e.data.theme);
                 }}
             }});
-            
+
             // Hover Logic (Removed Vol Container part)
 
             document.body.appendChild(header);
@@ -621,7 +623,7 @@ unsafe fn internal_create_pdj_loop() {
         }});
 
         "#,
-        font_css, api_key, lang, theme_str
+        api_key, lang, theme_str
     );
 
     let hwnd_ipc = hwnd;
@@ -644,10 +646,15 @@ unsafe fn internal_create_pdj_loop() {
         let build_res = PDJ_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
-                .with_custom_protocol("promptdj".to_string(), move |_id, request| {
+                .with_custom_protocol("promptdj".to_string(), {
+                    let font_style_tag = font_style_tag.clone();
+                    move |_id, request| {
                     let path = request.uri().path();
                     let (content, mime) = if path == "/" || path == "/index.html" {
-                        (Cow::Borrowed(INDEX_HTML), "text/html")
+                        // Inject font CSS into HTML <head> for instant font rendering
+                        let html = String::from_utf8_lossy(INDEX_HTML);
+                        let modified = html.replace("</head>", &format!("{font_style_tag}</head>"));
+                        (Cow::Owned(modified.into_bytes()), "text/html")
                     } else if path.ends_with("index.js") {
                         (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
                     } else if path.ends_with("index.css") {
@@ -668,7 +675,7 @@ unsafe fn internal_create_pdj_loop() {
                         );
                     };
                     wnd_http_response(200, mime, content)
-                })
+                }})
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |msg: wry::http::Request<String>| {
                     let body = msg.body().as_str();

@@ -3,9 +3,9 @@ import { Wand2 } from "lucide-react";
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { videoRenderer } from '@/lib/videoRenderer';
-import { BackgroundConfig, VideoSegment } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment } from '@/types/video';
 import { projectManager } from '@/lib/projectManager';
-import { Timeline } from '@/components/Timeline';
+import { TimelineArea } from '@/components/timeline';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useFfmpegSetup, useHotkeys, useKeyviz, useMonitors } from '@/hooks/useAppHooks';
 import {
@@ -33,6 +33,7 @@ function App() {
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const mousePositionsRef = useRef<MousePosition[]>([]);
 
   // Utility hooks
   const { needsSetup, ffmpegInstallStatus, handleCancelInstall } = useFfmpegSetup();
@@ -40,8 +41,8 @@ function App() {
   const { keyvizStatus, toggleKeyviz } = useKeyviz();
   const { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors } = useMonitors();
 
-  // Video playback
-  const playback = useVideoPlayback({ segment, backgroundConfig, mousePositions: [], isCropping });
+  // Video playback — mousePositionsRef is shared so useVideoPlayback always reads latest
+  const playback = useVideoPlayback({ segment, backgroundConfig, mousePositionsRef, isCropping });
   const {
     currentTime, setCurrentTime, duration, isPlaying, isVideoReady, setIsVideoReady,
     thumbnails, setThumbnails, currentVideo, setCurrentVideo, currentAudio, setCurrentAudio,
@@ -61,6 +62,14 @@ function App() {
     mousePositions, setMousePositions, audioFilePath, error, setError,
     startNewRecording, handleStopRecording
   } = recording;
+
+  // Sync mouse positions from recording hook to shared ref + video controller
+  useEffect(() => {
+    mousePositionsRef.current = mousePositions;
+    if (videoControllerRef.current && segment) {
+      videoControllerRef.current.updateRenderOptions({ segment, backgroundConfig, mousePositions });
+    }
+  }, [mousePositions, segment, backgroundConfig]);
 
   // Projects
   const projects = useProjects({
@@ -162,21 +171,18 @@ function App() {
   const onStopRecording = useCallback(async () => {
     const result = await handleStopRecording();
     if (result) {
-      const { mouseData, initialSegment } = result;
-      // Auto-save project
-      if (currentVideo) {
-        const response = await fetch(currentVideo);
-        const videoBlob = await response.blob();
-        const thumbnail = generateThumbnail();
-        const project = await projectManager.saveProject({
-          name: `Recording ${new Date().toLocaleString()}`,
-          videoBlob, segment: initialSegment, backgroundConfig, mousePositions: mouseData, thumbnail
-        });
-        projects.setCurrentProjectId(project.id);
-        await projects.loadProjects();
-      }
+      const { mouseData, initialSegment, videoUrl } = result;
+      const response = await fetch(videoUrl);
+      const videoBlob = await response.blob();
+      const thumbnail = generateThumbnail();
+      const project = await projectManager.saveProject({
+        name: `Recording ${new Date().toLocaleString()}`,
+        videoBlob, segment: initialSegment, backgroundConfig, mousePositions: mouseData, thumbnail
+      });
+      projects.setCurrentProjectId(project.id);
+      await projects.loadProjects();
     }
-  }, [handleStopRecording, currentVideo, backgroundConfig, generateThumbnail, projects]);
+  }, [handleStopRecording, backgroundConfig, generateThumbnail, projects]);
 
   // Effects
   useEffect(() => {
@@ -282,7 +288,7 @@ function App() {
   }, [segment, handleTextDragMove, canvasRef]);
 
   return (
-    <div className="min-h-screen bg-[#1a1a1b]">
+    <div className="min-h-screen bg-[var(--surface)]">
       <Header
         isRecording={isRecording} recordingDuration={recordingDuration} currentVideo={currentVideo}
         isProcessing={exportHook.isProcessing} hotkeys={hotkeys} keyvizStatus={keyvizStatus}
@@ -291,46 +297,46 @@ function App() {
         onOpenProjects={() => projects.setShowProjectsDialog(true)}
       />
 
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        {error && <p className="text-red-500 mb-4">{error}</p>}
+      <main className="flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
+        {error && <p className="text-[var(--tertiary-color)] mb-2 flex-shrink-0">{error}</p>}
 
-        <div className="space-y-6">
-          <div className="grid grid-cols-4 gap-6 items-start">
-            {/* Video Preview */}
-            <div className="col-span-3 rounded-lg overflow-hidden bg-black/20 flex items-center justify-center">
-              <div className="relative w-full flex justify-center max-h-[70vh]">
-                <div
-                  ref={previewContainerRef}
-                  className={`relative flex items-center justify-center cursor-crosshair group ${!currentVideo ? 'w-full aspect-video' : ''}`}
-                  onMouseDown={handlePreviewMouseDown}
-                >
-                  <canvas ref={canvasRef} className="max-w-full max-h-[70vh] object-contain" />
-                  <canvas ref={tempCanvasRef} className="hidden" />
-                  <video ref={videoRef} className="hidden" playsInline preload="auto" />
-                  <audio ref={audioRef} className="hidden" />
+        <div className="flex gap-3 flex-1 min-h-0">
+          {/* Video Preview */}
+          <div className="flex-1 min-w-0 rounded-xl overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+            <div className="relative w-full h-full flex justify-center items-center">
+              <div
+                ref={previewContainerRef}
+                className={`relative flex items-center justify-center cursor-crosshair group ${!currentVideo ? 'w-full h-full' : 'max-h-full'}`}
+                onMouseDown={handlePreviewMouseDown}
+              >
+                <canvas ref={canvasRef} className="max-w-full max-h-full object-contain" />
+                <canvas ref={tempCanvasRef} className="hidden" />
+                <video ref={videoRef} className="hidden" playsInline preload="auto" />
+                <audio ref={audioRef} className="hidden" />
 
-                  {(!currentVideo || isLoadingVideo) && (
-                    <Placeholder isLoadingVideo={isLoadingVideo} loadingProgress={loadingProgress}
-                      isRecording={isRecording} recordingDuration={recordingDuration} />
-                  )}
+                {(!currentVideo || isLoadingVideo) && (
+                  <Placeholder isLoadingVideo={isLoadingVideo} loadingProgress={loadingProgress}
+                    isRecording={isRecording} recordingDuration={recordingDuration} />
+                )}
 
-                  {isCropping && currentVideo && segment && (
-                    <CropOverlay segment={segment}
-                      previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
-                      videoRef={videoRef as React.RefObject<HTMLVideoElement>}
-                      onUpdateSegment={setSegment} />
-                  )}
-                </div>
-
-                {currentVideo && !isLoadingVideo && (
-                  <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
-                    isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
-                    duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop} />
+                {isCropping && currentVideo && segment && (
+                  <CropOverlay segment={segment}
+                    previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
+                    videoRef={videoRef as React.RefObject<HTMLVideoElement>}
+                    onUpdateSegment={setSegment} />
                 )}
               </div>
-            </div>
 
-            {/* Side Panel */}
+              {currentVideo && !isLoadingVideo && (
+                <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
+                  isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
+                  duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop} />
+              )}
+            </div>
+          </div>
+
+          {/* Side Panel */}
+          <div className="w-72 flex-shrink-0 overflow-y-auto min-h-0">
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
@@ -340,30 +346,28 @@ function App() {
               editingTextId={editingTextId} onAddText={handleAddText} onUpdateSegment={setSegment}
             />
           </div>
+        </div>
 
-          {/* Timeline */}
-          <div className="bg-[#1a1a1b] rounded-lg border border-[#343536] p-6">
-            <div className="space-y-2 mb-8">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-[#d7dadc]">Timeline</h2>
-                <Button onClick={handleAutoZoom}
-                  disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
-                  className={`flex items-center px-4 py-2 h-9 text-sm font-medium ${
-                    !currentVideo || exportHook.isProcessing || !mousePositions.length
-                      ? 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-                      : 'bg-green-600 hover:bg-green-700 text-white'
-                  }`}>
-                  <Wand2 className="w-4 h-4 mr-2" />Auto-Smart Zoom
-                </Button>
-              </div>
-            </div>
-
-            <Timeline duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
-              timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
-              editingTextId={editingTextId} setCurrentTime={setCurrentTime}
-              setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
-              setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek} />
-          </div>
+        {/* Timeline */}
+        <div className="mt-3 flex-shrink-0">
+          <TimelineArea
+            duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
+            timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
+            editingTextId={editingTextId} setCurrentTime={setCurrentTime}
+            setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
+            setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek}
+            autoZoomButton={
+              <Button onClick={handleAutoZoom}
+                disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                className={`flex items-center px-3 py-1 h-6 text-xs font-medium transition-colors flex-shrink-0 rounded-lg ${
+                  !currentVideo || exportHook.isProcessing || !mousePositions.length
+                    ? 'bg-[var(--outline-variant)] text-[var(--outline)] cursor-not-allowed'
+                    : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
+                }`}>
+                <Wand2 className="w-3 h-3 mr-1" />Auto Zoom
+              </Button>
+            }
+          />
         </div>
       </main>
 
@@ -372,8 +376,8 @@ function App() {
       <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
         monitors={monitors} onSelectMonitor={startNewRecording} />
       {currentVideo && !isVideoReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <div className="text-white">Preparing video...</div>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="text-[var(--on-surface)]">Preparing video...</div>
         </div>
       )}
       <ExportDialog show={exportHook.showExportDialog} onClose={() => exportHook.setShowExportDialog(false)}

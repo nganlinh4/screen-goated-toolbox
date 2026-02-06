@@ -16,7 +16,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
 };
-use windows::Win32::Graphics::Gdi::HBRUSH;
+use windows::Win32::Graphics::Gdi::CreateSolidBrush;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -94,13 +94,25 @@ unsafe extern "system" fn sr_wnd_proc(
             PostQuitMessage(0);
             LRESULT(0)
         }
-        WM_ERASEBKGND => LRESULT(1),
-        WM_NCCALCSIZE => LRESULT(0),
+        WM_NCCALCSIZE => {
+            if wparam.0 == 1 {
+                let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
+                if IsZoomed(hwnd).as_bool() {
+                    let frame_x = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                    let frame_y = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                    params.rgrc[0].left += frame_x;
+                    params.rgrc[0].top += frame_y;
+                    params.rgrc[0].right -= frame_x;
+                    params.rgrc[0].bottom -= frame_y;
+                }
+            }
+            LRESULT(0)
+        }
         WM_NCHITTEST => {
             let mut rect = RECT::default();
             let _ = GetWindowRect(hwnd, &mut rect);
-            let x = (lparam.0 & 0xFFFF) as i32;
-            let y = ((lparam.0 >> 16) & 0xFFFF) as i32;
+            let x = lparam.0 as i16 as i32;
+            let y = (lparam.0 >> 16) as i16 as i32;
 
             let border = 8;
             let title_height = 44;
@@ -141,15 +153,17 @@ unsafe extern "system" fn sr_wnd_proc(
                 if let Some(webview) = wv.borrow().as_ref() {
                     let mut r = RECT::default();
                     let _ = GetClientRect(hwnd, &mut r);
-                    let width = r.right - r.left;
-                    let height = r.bottom - r.top;
+                    let maximized = IsZoomed(hwnd).as_bool();
+                    let inset = if maximized { 0 } else { 5 };
+                    let w = ((r.right - r.left) - inset * 2).max(0);
+                    let h = ((r.bottom - r.top) - inset * 2).max(0);
                     let _ = webview.set_bounds(Rect {
                         position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                            0, 0,
+                            inset, inset,
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            width as u32,
-                            height as u32,
+                            w as u32,
+                            h as u32,
                         )),
                     });
                 }
@@ -289,7 +303,7 @@ unsafe fn internal_create_sr_loop() {
         wc.hInstance = instance.into();
         wc.lpszClassName = class_name;
         wc.hCursor = LoadCursorW(None, IDC_ARROW).unwrap();
-        wc.hbrBackground = HBRUSH(std::ptr::null_mut());
+        wc.hbrBackground = unsafe { CreateSolidBrush(COLORREF(0x00111111)) };
         let _ = RegisterClassW(&wc);
     });
 
@@ -305,7 +319,7 @@ unsafe fn internal_create_sr_loop() {
         WS_EX_APPWINDOW,
         class_name,
         windows::core::w!("Screen Record"),
-        WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
+        WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN,
         x,
         y,
         width,
@@ -338,16 +352,52 @@ unsafe fn internal_create_sr_loop() {
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 
+    // Font CSS from local HTTP server — CSS @font-face url() only works over http/https, not custom protocols
+    let font_css = crate::overlay::html_components::font_manager::get_font_css();
+    let font_style_tag = format!("<style>{}</style>", font_css);
+
+    let init_script = r#"
+        (function() {
+            const originalPostMessage = window.ipc.postMessage;
+            window.__TAURI_INTERNALS__ = {
+                invoke: async (cmd, args) => {
+                    return new Promise((resolve, reject) => {
+                        const id = Math.random().toString(36).substring(7);
+                        const handler = (e) => {
+                            if (e.detail && e.detail.id === id) {
+                                window.removeEventListener('ipc-reply', handler);
+                                if (e.detail.error) reject(e.detail.error);
+                                else resolve(e.detail.result);
+                            }
+                        };
+                        window.addEventListener('ipc-reply', handler);
+                        originalPostMessage(JSON.stringify({ id, cmd, args }));
+                    });
+                }
+            };
+            window.__TAURI__ = {
+                core: {
+                    invoke: window.__TAURI_INTERNALS__.invoke
+                }
+            };
+        })();
+    "#;
+
     let webview_result = {
         let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
 
         SR_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
-                .with_custom_protocol("screenrecord".to_string(), move |_id, request| {
+                .with_custom_protocol("screenrecord".to_string(), {
+                    let font_style_tag = font_style_tag.clone();
+                    move |_id, request| {
                     let path = request.uri().path();
                     let (content, mime) = if path == "/" || path == "/index.html" {
-                        (Cow::Borrowed(INDEX_HTML), "text/html")
+                        // Inject font CSS into HTML <head> for instant font rendering
+                        let html = String::from_utf8_lossy(INDEX_HTML);
+                        let modified = html.replace("</head>", &format!("{font_style_tag}</head>"));
+                        (Cow::Owned(modified.into_bytes()), "text/html")
                     } else if path.ends_with("index.js") {
                         (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
                     } else if path.ends_with("index.css") {
@@ -368,35 +418,8 @@ unsafe fn internal_create_sr_loop() {
                         );
                     };
                     wnd_http_response(200, mime, content)
-                })
-                .with_initialization_script(
-                    r#"
-                    (function() {
-                        const originalPostMessage = window.ipc.postMessage;
-                        window.__TAURI_INTERNALS__ = {
-                            invoke: async (cmd, args) => {
-                                return new Promise((resolve, reject) => {
-                                    const id = Math.random().toString(36).substring(7);
-                                    const handler = (e) => {
-                                        if (e.detail && e.detail.id === id) {
-                                            window.removeEventListener('ipc-reply', handler);
-                                            if (e.detail.error) reject(e.detail.error);
-                                            else resolve(e.detail.result);
-                                        }
-                                    };
-                                    window.addEventListener('ipc-reply', handler);
-                                    originalPostMessage(JSON.stringify({ id, cmd, args }));
-                                });
-                            }
-                        };
-                        window.__TAURI__ = {
-                            core: {
-                                invoke: window.__TAURI_INTERNALS__.invoke
-                            }
-                        };
-                    })();
-                "#,
-                )
+                }})
+                .with_initialization_script(init_script)
                 .with_ipc_handler({
                     let send_hwnd = SendHwnd(hwnd);
                     move |msg: wry::http::Request<String>| {
@@ -470,11 +493,12 @@ unsafe fn internal_create_sr_loop() {
 
     let mut r = RECT::default();
     let _ = GetClientRect(hwnd, &mut r);
+    let inset = 5i32;
     let _ = webview_arc.set_bounds(Rect {
-        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(inset, inset)),
         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-            (r.right - r.left) as u32,
-            (r.bottom - r.top) as u32,
+            ((r.right - r.left) - inset * 2).max(0) as u32,
+            ((r.bottom - r.top) - inset * 2).max(0) as u32,
         )),
     });
 

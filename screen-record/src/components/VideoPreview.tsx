@@ -21,7 +21,7 @@ export function Placeholder({
   recordingDuration
 }: PlaceholderProps) {
   return (
-    <div className="absolute inset-0 bg-[#1a1a1b] flex flex-col items-center justify-center">
+    <div className="absolute inset-0 bg-[var(--surface)] flex flex-col items-center justify-center">
       <div className="absolute inset-0 opacity-5">
         <div
           className="w-full h-full"
@@ -37,27 +37,26 @@ export function Placeholder({
 
       {isLoadingVideo ? (
         <div className="flex flex-col items-center">
-          <Loader2 className="w-12 h-12 text-[#0079d3] animate-spin mb-4" />
-          <p className="text-[#d7dadc] font-medium">Processing Video</p>
-          <p className="text-[#818384] text-sm mt-1">This may take a few moments...</p>
+          <Loader2 className="w-8 h-8 text-[var(--primary-color)] animate-spin mb-3" />
+          <p className="text-[var(--on-surface)] text-sm font-medium">Processing Video</p>
+          <p className="text-[var(--outline)] text-xs mt-1">This may take a few moments...</p>
         </div>
       ) : isRecording ? (
         <div className="flex flex-col items-center">
-          <div className="w-4 h-4 rounded-full bg-red-500 animate-pulse mb-4" />
-          <p className="text-[#d7dadc] font-medium">Recording in progress...</p>
-          <p className="text-[#818384] text-sm mt-1">Screen is being captured</p>
-          <span className="text-[#d7dadc] text-xl font-mono mt-4">{formatTime(recordingDuration)}</span>
+          <div className="w-3 h-3 rounded-full bg-[var(--tertiary-color)] animate-pulse mb-3" />
+          <p className="text-[var(--on-surface)] text-sm font-medium">Recording in progress</p>
+          <span className="text-[var(--on-surface)] text-lg font-mono mt-2">{formatTime(recordingDuration)}</span>
         </div>
       ) : (
         <div className="flex flex-col items-center">
-          <Video className="w-12 h-12 text-[#343536] mb-4" />
-          <p className="text-[#d7dadc] font-medium">No Video Selected</p>
-          <p className="text-[#818384] text-sm mt-1">Click 'Start Recording' to begin</p>
+          <Video className="w-8 h-8 text-[var(--outline-variant)] mb-3" />
+          <p className="text-[var(--on-surface)] text-sm font-medium">No Video Selected</p>
+          <p className="text-[var(--outline)] text-xs mt-1">Click 'Start Recording' to begin</p>
         </div>
       )}
       {isLoadingVideo && loadingProgress > 0 && (
         <div className="mt-2">
-          <p className="text-[#818384] text-sm">
+          <p className="text-[var(--outline)] text-xs">
             Loading video: {Math.min(Math.round(loadingProgress), 100)}%
           </p>
         </div>
@@ -91,12 +90,12 @@ export function PlaybackControls({
   onToggleCrop
 }: PlaybackControlsProps) {
   return (
-    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/80 rounded-full px-4 py-2 backdrop-blur-sm z-50">
+    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2.5 bg-black/60 backdrop-blur-xl rounded-xl px-4 py-2 border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50">
       <Button
         onClick={onToggleCrop}
         variant="ghost"
         size="icon"
-        className={`w-8 h-8 rounded-full transition-colors ${
+        className={`w-8 h-8 rounded-lg transition-colors ${
           isCropping
             ? 'bg-green-500/80 text-white hover:bg-green-600'
             : 'text-white/80 hover:text-white hover:bg-white/10'
@@ -104,26 +103,30 @@ export function PlaybackControls({
         title={isCropping ? "Apply Crop" : "Crop Video"}
       >
         {isCropping ? (
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
           </svg>
         ) : (
-          <Crop className="w-4 h-4" />
+          <Crop className="w-3.5 h-3.5" />
         )}
       </Button>
-      <div className="w-px h-4 bg-white/20 mx-1" />
-      <Button
-        onClick={onTogglePlayPause}
-        disabled={isProcessing || !isVideoReady}
-        variant="ghost"
-        size="icon"
-        className={`w-8 h-8 rounded-full transition-colors text-white bg-transparent hover:text-white hover:bg-transparent ${
-          isProcessing || !isVideoReady ? 'opacity-50 cursor-not-allowed' : ''
-        }`}
-      >
-        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-      </Button>
-      <div className="text-white/90 text-sm font-medium">
+      {!isCropping && (
+        <>
+          <div className="w-px h-5 bg-white/[0.12]" />
+          <Button
+            onClick={onTogglePlayPause}
+            disabled={isProcessing || !isVideoReady}
+            variant="ghost"
+            size="icon"
+            className={`w-8 h-8 rounded-lg transition-colors text-white bg-transparent hover:text-white hover:bg-white/10 ${
+              isProcessing || !isVideoReady ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+          >
+            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+          </Button>
+        </>
+      )}
+      <div className="text-white/90 text-xs font-medium tabular-nums">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
     </div>
@@ -267,7 +270,7 @@ export function CropOverlay({
     <div className="absolute inset-0 z-20 pointer-events-none">
       <div style={{ position: 'absolute', left: renderLeft, top: renderTop, width: renderW, height: renderH }}>
         <div
-          className="absolute border-2 border-[#0079d3] bg-[#0079d3]/10 pointer-events-auto"
+          className="absolute border-2 border-[var(--primary-color)] bg-[var(--primary-color)]/10 pointer-events-auto"
           style={{
             left: `${crop.x * 100}%`,
             top: `${crop.y * 100}%`,
@@ -293,7 +296,7 @@ export function CropOverlay({
           {handles.map(handle => (
             <div
               key={handle.t}
-              className={`absolute w-3 h-3 bg-white border border-[#0079d3] rounded-full z-30 hover:scale-125 transition-transform ${handle.c} ${handle.s}`}
+              className={`absolute w-3 h-3 bg-white border border-[var(--primary-color)] rounded-full z-30 hover:scale-125 transition-transform ${handle.c} ${handle.s}`}
               onMouseDown={(e) => handleResizeStart(e, handle.t)}
             />
           ))}
@@ -360,7 +363,7 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
   onUpdateSegment
 }, _ref) => {
   return (
-    <div className="col-span-3 rounded-lg overflow-hidden bg-black/20 flex items-center justify-center">
+    <div className="col-span-3 rounded-xl overflow-hidden bg-black/20 flex items-center justify-center">
       <div className="relative w-full flex justify-center max-h-[70vh]">
         <div
           ref={previewContainerRef}

@@ -228,6 +228,7 @@ export class VideoRenderer {
     if (!video || !canvas || !segment) return;
     if (video.readyState < 2) return;
 
+
     const isExportMode = options.exportMode || false;
     const quality = options.highQuality || isExportMode ? 'high' : 'medium';
 

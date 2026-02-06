@@ -16,14 +16,14 @@ import { useThrottle } from './useAppHooks';
 interface UseVideoPlaybackProps {
   segment: VideoSegment | null;
   backgroundConfig: BackgroundConfig;
-  mousePositions: MousePosition[];
+  mousePositionsRef: { current: MousePosition[] };
   isCropping: boolean;
 }
 
 export function useVideoPlayback({
   segment,
   backgroundConfig,
-  mousePositions,
+  mousePositionsRef,
   isCropping
 }: UseVideoPlaybackProps) {
   const [currentTime, setCurrentTime] = useState(0);
@@ -80,10 +80,10 @@ export function useVideoPlayback({
 
     videoRenderer.drawFrame({
       video: videoRef.current, canvas: canvasRef.current, tempCanvas: tempCanvasRef.current,
-      segment: renderSegment, backgroundConfig: renderBackground, mousePositions,
+      segment: renderSegment, backgroundConfig: renderBackground, mousePositions: mousePositionsRef.current,
       currentTime: videoRef.current.currentTime
     });
-  }, [segment, backgroundConfig, mousePositions, isCropping]);
+  }, [segment, backgroundConfig, isCropping]);
 
   const togglePlayPause = useCallback(() => {
     videoControllerRef.current?.togglePlayPause();
@@ -116,8 +116,8 @@ export function useVideoPlayback({
   // Render options sync
   useEffect(() => {
     if (!segment || !videoControllerRef.current) return;
-    videoControllerRef.current.updateRenderOptions({ segment, backgroundConfig, mousePositions });
-  }, [segment, backgroundConfig, mousePositions]);
+    videoControllerRef.current.updateRenderOptions({ segment, backgroundConfig, mousePositions: mousePositionsRef.current });
+  }, [segment, backgroundConfig]);
 
   // Animation effect
   useEffect(() => {
@@ -139,13 +139,13 @@ export function useVideoPlayback({
 
       videoRenderer.startAnimation({
         video, canvas: canvasRef.current!, tempCanvas: tempCanvasRef.current,
-        segment: loopSegment, backgroundConfig: loopBackground, mousePositions,
+        segment: loopSegment, backgroundConfig: loopBackground, mousePositions: mousePositionsRef.current,
         currentTime: video.currentTime
       });
     }
 
     return () => { videoRenderer.stopAnimation(); };
-  }, [segment, backgroundConfig, mousePositions, isCropping]);
+  }, [segment, backgroundConfig, isCropping]);
 
   // Background config redraw
   useEffect(() => {
@@ -240,7 +240,7 @@ export function useRecording(props: UseRecordingProps) {
     }
   };
 
-  const handleStopRecording = async (): Promise<{ mouseData: MousePosition[], initialSegment: VideoSegment } | null> => {
+  const handleStopRecording = async (): Promise<{ mouseData: MousePosition[], initialSegment: VideoSegment, videoUrl: string } | null> => {
     if (!isRecording) return null;
 
     try {
@@ -289,7 +289,7 @@ export function useRecording(props: UseRecordingProps) {
           });
         }
 
-        return { mouseData, initialSegment };
+        return { mouseData, initialSegment, videoUrl: objectUrl };
       }
       return null;
     } catch (err) {
