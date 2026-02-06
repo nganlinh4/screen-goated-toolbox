@@ -17,11 +17,15 @@ import { Header } from '@/components/Header';
 import { Placeholder, CropOverlay, PlaybackControls } from '@/components/VideoPreview';
 import { SidePanel, ActivePanel } from '@/components/SidePanel';
 import {
-  ProcessingOverlay, ExportDialog, ProjectsDialog,
+  ProcessingOverlay, ExportDialog,
   MonitorSelectDialog, HotkeyDialog, FfmpegSetupDialog
 } from '@/components/Dialogs';
+import { ProjectsView } from '@/components/ProjectsView';
+import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
 
 function App() {
+  const settings = useSettingsProvider();
+  const { t } = settings;
   // Core state
   const { state: segment, setState: setSegment, undo, redo, canUndo, canRedo } = useUndoRedo<VideoSegment | null>(null);
   const [activePanel, setActivePanel] = useState<ActivePanel>('zoom');
@@ -260,7 +264,8 @@ function App() {
         const videoBlob = await response.blob();
         await projectManager.updateProject(projects.currentProjectId!, {
           name: projects.projects.find(p => p.id === projects.currentProjectId)?.name || "Auto Saved",
-          videoBlob, segment, backgroundConfig, mousePositions, thumbnail: generateThumbnail()
+          videoBlob, segment, backgroundConfig, mousePositions,
+          thumbnail: projects.projects.find(p => p.id === projects.currentProjectId)?.thumbnail || generateThumbnail()
         });
         await projects.loadProjects();
       } catch {}
@@ -288,6 +293,7 @@ function App() {
   }, [segment, handleTextDragMove, canvasRef]);
 
   return (
+    <SettingsContext.Provider value={settings}>
     <div className="min-h-screen bg-[var(--surface)]">
       <Header
         isRecording={isRecording} recordingDuration={recordingDuration} currentVideo={currentVideo}
@@ -327,10 +333,33 @@ function App() {
                 )}
               </div>
 
-              {currentVideo && !isLoadingVideo && (
+              {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
                 <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
                   isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
-                  duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop} />
+                  duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
+                  autoZoomButton={
+                    <Button onClick={handleAutoZoom}
+                      disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                      className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
+                        !currentVideo || exportHook.isProcessing || !mousePositions.length
+                          ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                          : segment?.smoothMotionPath?.length
+                            ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
+                            : 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
+                      }`}>
+                      <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
+                    </Button>
+                  } />
+              )}
+
+              {/* Projects view — lives inside the preview area for native FLIP animation */}
+              {projects.showProjectsDialog && (
+                <ProjectsView
+                  projects={projects.projects}
+                  onLoadProject={projects.handleLoadProject}
+                  onProjectsChange={projects.loadProjects}
+                  onClose={() => projects.setShowProjectsDialog(false)}
+                />
               )}
             </div>
           </div>
@@ -356,17 +385,6 @@ function App() {
             editingTextId={editingTextId} setCurrentTime={setCurrentTime}
             setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
             setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek}
-            autoZoomButton={
-              <Button onClick={handleAutoZoom}
-                disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
-                className={`flex items-center px-3 py-1 h-6 text-xs font-medium transition-colors flex-shrink-0 rounded-lg ${
-                  !currentVideo || exportHook.isProcessing || !mousePositions.length
-                    ? 'bg-[var(--outline-variant)] text-[var(--outline)] cursor-not-allowed'
-                    : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
-                }`}>
-                <Wand2 className="w-3 h-3 mr-1" />Auto Zoom
-              </Button>
-            }
           />
         </div>
       </main>
@@ -377,19 +395,17 @@ function App() {
         monitors={monitors} onSelectMonitor={startNewRecording} />
       {currentVideo && !isVideoReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="text-[var(--on-surface)]">Preparing video...</div>
+          <div className="text-[var(--on-surface)]">{t.preparingVideoOverlay}</div>
         </div>
       )}
       <ExportDialog show={exportHook.showExportDialog} onClose={() => exportHook.setShowExportDialog(false)}
         onExport={exportHook.startExport} exportOptions={exportHook.exportOptions}
         setExportOptions={exportHook.setExportOptions} segment={segment} />
-      <ProjectsDialog show={projects.showProjectsDialog} onClose={() => projects.setShowProjectsDialog(false)}
-        projects={projects.projects} onLoadProject={projects.handleLoadProject}
-        onProjectsChange={projects.loadProjects} />
       <HotkeyDialog show={showHotkeyDialog} onClose={closeHotkeyDialog} />
       <FfmpegSetupDialog show={needsSetup} ffmpegInstallStatus={ffmpegInstallStatus}
         onCancelInstall={handleCancelInstall} />
     </div>
+    </SettingsContext.Provider>
   );
 }
 

@@ -100,6 +100,9 @@ impl SettingsApp {
                     let _ = PostMessageW(Some(hwnd), WM_THEME_UPDATE, WPARAM(0), LPARAM(0));
                 }
             }
+
+            // D. Update Screen Record WebView
+            crate::overlay::screen_record::update_settings();
         }
 
         // --- TRAY MENU I18N UPDATE ---

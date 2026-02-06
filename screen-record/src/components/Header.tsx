@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen } from 'lucide-react';
 import { Hotkey } from '@/hooks/useAppHooks';
 import { formatTime } from '@/utils/helpers';
+import { useSettings } from '@/hooks/useSettings';
 
 interface HeaderProps {
   isRecording: boolean;
@@ -32,6 +33,7 @@ export function Header({
   onExport,
   onOpenProjects
 }: HeaderProps) {
+  const { t } = useSettings();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
 
   useEffect(() => {
@@ -48,29 +50,29 @@ export function Header({
       <div className="flex items-center gap-4 px-4 h-full">
         <div className="flex items-center gap-3">
           <Video className="w-5 h-5 text-[var(--primary-color)]" />
-          <span className="text-[var(--on-surface)] text-sm font-medium">Screen Record</span>
+          <span className="text-[var(--on-surface)] text-sm font-medium">{t.appTitle}</span>
         </div>
 
         <div className="h-full flex items-center">
           {isRecording && currentVideo && (
             <div className="flex items-center gap-2 bg-[var(--tertiary-color)]/10 border border-[var(--tertiary-color)]/30 px-2.5 py-1 rounded-lg backdrop-blur-sm animate-in fade-in slide-in-from-left-2 duration-300">
               <div className="w-2 h-2 rounded-full bg-[var(--tertiary-color)] animate-pulse" />
-              <span className="text-[var(--tertiary-color)] text-[10px] font-bold uppercase tracking-wider">REC</span>
+              <span className="text-[var(--tertiary-color)] text-[10px] font-bold uppercase tracking-wider">{t.rec}</span>
               <span className="text-[var(--on-surface)] text-xs font-mono">{formatTime(recordingDuration)}</span>
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex items-center gap-2 h-full px-2">
-        <div className="flex items-center gap-2 flex-wrap max-w-[400px] justify-end">
+      <div className="flex items-center gap-2 h-full pl-2">
+        <div className="flex items-center gap-1.5 flex-wrap max-w-[500px] justify-end">
           {hotkeys.map((h, i) => (
             <Button
               key={i}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={() => onRemoveHotkey(i)}
               className="bg-[var(--surface-container)] hover:bg-[var(--surface-container-high)] text-[var(--on-surface)] px-2 h-6 text-[11px] border border-transparent hover:border-[var(--outline-variant)] flex-shrink-0 transition-colors"
-              title="Click to remove"
+              title={t.clickToRemove}
             >
               <span className="truncate max-w-[80px]">{h.name}</span>
               <X className="w-3 h-3 ml-1 flex-shrink-0" />
@@ -79,24 +81,24 @@ export function Header({
           <Button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onOpenHotkeyDialog}
-            className="bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] flex-shrink-0 transition-colors"
+            className="bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] flex-shrink-0 transition-colors whitespace-nowrap"
             title="Add Global Hotkey"
           >
             <Keyboard className="w-3 h-3 mr-1" />
-            Add Hotkey
+            {t.addHotkey}
           </Button>
           <Button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={onToggleKeyviz}
-            className={`px-2 h-6 text-[11px] flex-shrink-0 transition-colors ${
+            className={`px-2 h-6 text-[11px] flex-shrink-0 transition-colors whitespace-nowrap ${
               keyvizStatus.enabled
                 ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
                 : 'bg-[var(--surface-container)] hover:bg-[var(--surface-container-high)] text-[var(--on-surface)]'
             }`}
-            title={keyvizStatus.installed ? "Toggle Keyviz" : "Install & Enable Keyviz"}
+            title={keyvizStatus.installed ? t.toggleKeyviz : t.installKeyviz}
           >
             <Keyboard className="w-3 h-3 mr-1" />
-            {keyvizStatus.enabled ? "Keystrokes: ON" : "Show Keystrokes"}
+            {keyvizStatus.enabled ? t.keystrokesOn : t.showKeystrokes}
           </Button>
         </div>
 
@@ -112,7 +114,7 @@ export function Header({
                   : 'bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85 text-white'
               }`}
             >
-              <Download className="w-3.5 h-3.5 mr-1.5" />Export
+              <Download className="w-3.5 h-3.5 mr-1.5" />{t.export}
             </Button>
           )}
           <Button
@@ -122,11 +124,11 @@ export function Header({
             onClick={onOpenProjects}
             className="h-7 text-[11px] text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors"
           >
-            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />Projects
+            <FolderOpen className="w-3.5 h-3.5 mr-1.5" />{t.projects}
           </Button>
         </div>
 
-        <div className="flex items-center h-full ml-4">
+        <div className={`flex items-center h-full ${isWindowMaximized ? '' : 'ml-4'}`}>
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -134,7 +136,7 @@ export function Header({
               (window as any).ipc.postMessage('minimize_window');
             }}
             className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
-            title="Minimize"
+            title={t.minimize}
           >
             <Minus className="w-4 h-4" />
           </button>
@@ -149,7 +151,7 @@ export function Header({
               }, 50);
             }}
             className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
-            title={isWindowMaximized ? "Restore" : "Maximize"}
+            title={isWindowMaximized ? t.restore : t.maximize}
           >
             {isWindowMaximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
           </button>
@@ -159,8 +161,8 @@ export function Header({
               e.stopPropagation();
               (window as any).ipc.postMessage('close_window');
             }}
-            className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--tertiary-color)] hover:text-white transition-colors flex items-center"
-            title="Close"
+            className={`px-3 h-full text-[var(--on-surface)] hover:bg-[var(--tertiary-color)] hover:text-white transition-colors flex items-center ${isWindowMaximized ? 'pr-5' : ''}`}
+            title={t.close}
           >
             <X className="w-4 h-4" />
           </button>
