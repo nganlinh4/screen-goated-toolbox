@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { VideoSegment } from '@/types/video';
 
 export interface TimelineDragState {
@@ -53,8 +53,8 @@ export function useTimelineDrag({
     const timeline = timelineRef.current;
     if (!timeline) return null;
     const rect = timeline.getBoundingClientRect();
-    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    return (x / rect.width) * duration;
+    const x = clientX - rect.left;
+    return Math.max(0, Math.min((x / rect.width) * duration, duration));
   }, [timelineRef, duration]);
 
   // Seek
@@ -205,6 +205,27 @@ export function useTimelineDrag({
     setDraggingTextId(null);
     setIsDraggingSeek(false);
   }, []);
+
+  // Attach window-level listeners during any drag so cursor can leave the timeline
+  useEffect(() => {
+    const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingZoom || isDraggingSeek;
+    if (!anyDragging) return;
+
+    const onMove = (e: MouseEvent) => {
+      handleTrimDrag(e.clientX);
+      handleTextDrag(e.clientX);
+      handleZoomDrag(e.clientX);
+      if (isDraggingSeek) handleSeek(e.clientX);
+    };
+    const onUp = () => handleMouseUp();
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handleZoomDrag, handleSeek, handleMouseUp]);
 
   const dragState: TimelineDragState = {
     isDraggingTrimStart,

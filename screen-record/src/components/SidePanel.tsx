@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Trash2, Type } from 'lucide-react';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
+import { useSettings } from '@/hooks/useSettings';
 
 // ============================================================================
 // Types
@@ -23,15 +24,16 @@ interface PanelTabsProps {
 }
 
 function PanelTabs({ activePanel, onPanelChange }: PanelTabsProps) {
+  const { t } = useSettings();
   const tabs: { id: ActivePanel; label: string }[] = [
-    { id: 'zoom', label: 'Zoom' },
-    { id: 'background', label: 'Background' },
-    { id: 'cursor', label: 'Cursor' },
-    { id: 'text', label: 'Text' }
+    { id: 'zoom', label: t.tabZoom },
+    { id: 'background', label: t.tabBackground },
+    { id: 'cursor', label: t.tabCursor },
+    { id: 'text', label: t.tabText }
   ];
 
   return (
-    <div className="flex border-b border-white/[0.06]">
+    <div className="flex border-b border-[var(--glass-border)]">
       {tabs.map(tab => (
         <button
           key={tab.id}
@@ -72,14 +74,15 @@ function ZoomPanel({
   onDeleteKeyframe,
   onUpdateZoom
 }: ZoomPanelProps) {
+  const { t } = useSettings();
   if (editingKeyframeId !== null && segment) {
     const keyframe = segment.zoomKeyframes[editingKeyframeId];
     if (!keyframe) return null;
 
     return (
-      <div className="bg-white/[0.04] backdrop-blur-xl rounded-xl border border-white/[0.06] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+      <div className="bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
         <div className="flex justify-between items-center mb-3">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)]">Zoom Configuration</h2>
+          <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)]">{t.zoomConfiguration}</h2>
           <Button
             onClick={onDeleteKeyframe}
             variant="ghost"
@@ -91,7 +94,7 @@ function ZoomPanel({
         </div>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2">Zoom Factor</label>
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2">{t.zoomFactor}</label>
             <div className="space-y-2">
               <input
                 type="range"
@@ -116,7 +119,7 @@ function ZoomPanel({
           <div className="space-y-3">
             <div>
               <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-                <span>Horizontal Position</span>
+                <span>{t.horizontalPosition}</span>
                 <span>{Math.round((keyframe?.positionX ?? 0.5) * 100)}%</span>
               </label>
               <input
@@ -131,7 +134,7 @@ function ZoomPanel({
             </div>
             <div>
               <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-                <span>Vertical Position</span>
+                <span>{t.verticalPosition}</span>
                 <span>{Math.round((keyframe?.positionY ?? 0.5) * 100)}%</span>
               </label>
               <input
@@ -151,8 +154,8 @@ function ZoomPanel({
   }
 
   return (
-    <div className="bg-white/[0.04] backdrop-blur-xl rounded-xl border border-white/[0.06] p-4 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <p className="text-xs text-[var(--on-surface-variant)]">Scroll or drag in the preview to add a zoom keyframe</p>
+    <div className="bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-4 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+      <p className="text-xs text-[var(--on-surface-variant)]">{t.zoomHint}</p>
     </div>
   );
 }
@@ -173,13 +176,14 @@ function BackgroundPanel({
   recentUploads,
   onBackgroundUpload
 }: BackgroundPanelProps) {
+  const { t } = useSettings();
   return (
-    <div className="bg-white/[0.04] backdrop-blur-xl rounded-xl border border-white/[0.06] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-3">Background & Layout</h2>
+    <div className="bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+      <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-3">{t.backgroundAndLayout}</h2>
       <div className="space-y-3">
         <div>
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>Video Size</span>
+            <span>{t.videoSize}</span>
             <span>{backgroundConfig.scale}%</span>
           </label>
           <input type="range" min="50" max="100" value={backgroundConfig.scale}
@@ -189,7 +193,7 @@ function BackgroundPanel({
         </div>
         <div>
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>Roundness</span>
+            <span>{t.roundness}</span>
             <span>{backgroundConfig.borderRadius}px</span>
           </label>
           <input type="range" min="0" max="64" value={backgroundConfig.borderRadius}
@@ -199,7 +203,7 @@ function BackgroundPanel({
         </div>
         <div>
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>Shadow</span>
+            <span>{t.shadow}</span>
             <span>{backgroundConfig.shadow || 0}px</span>
           </label>
           <input type="range" min="0" max="100" value={backgroundConfig.shadow || 0}
@@ -209,7 +213,7 @@ function BackgroundPanel({
         </div>
         <div>
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>Volume</span>
+            <span>{t.volume}</span>
             <span>{Math.round((backgroundConfig.volume ?? 1) * 100)}%</span>
           </label>
           <input type="range" min="0" max="1" step="0.01" value={backgroundConfig.volume ?? 1}
@@ -218,7 +222,7 @@ function BackgroundPanel({
           />
         </div>
         <div>
-          <label className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-2 block">Background Style</label>
+          <label className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-2 block">{t.backgroundStyle}</label>
           <div className="grid grid-cols-4 gap-2">
             {Object.entries(GRADIENT_PRESETS).map(([key, gradient]) => (
               <button
@@ -232,7 +236,7 @@ function BackgroundPanel({
               />
             ))}
 
-            <label className="aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-white/[0.08] hover:ring-[var(--primary-color)]/40 hover:scale-105 relative overflow-hidden group bg-white/[0.04]">
+            <label className="aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105 relative overflow-hidden group bg-[var(--glass-bg)]">
               <input type="file" accept="image/*" onChange={onBackgroundUpload} className="hidden" />
               <div className="absolute inset-0 flex items-center justify-center">
                 <svg className="w-4 h-4 text-[var(--on-surface-variant)] group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -268,13 +272,14 @@ interface CursorPanelProps {
 }
 
 function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps) {
+  const { t } = useSettings();
   return (
-    <div className="bg-white/[0.04] backdrop-blur-xl rounded-xl border border-white/[0.06] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-3">Cursor Settings</h2>
+    <div className="bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+      <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-3">{t.cursorSettings}</h2>
       <div className="space-y-3">
         <div>
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>Cursor Size</span>
+            <span>{t.cursorSize}</span>
             <span>{backgroundConfig.cursorScale ?? 2}x</span>
           </label>
           <input type="range" min="1" max="8" step="0.1" value={backgroundConfig.cursorScale ?? 2}
@@ -284,7 +289,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
         </div>
         <div>
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>Movement Smoothing</span>
+            <span>{t.movementSmoothing}</span>
             <span>{backgroundConfig.cursorSmoothness ?? 5}</span>
           </label>
           <input type="range" min="0" max="10" step="1" value={backgroundConfig.cursorSmoothness ?? 5}
@@ -308,52 +313,53 @@ interface TextPanelProps {
 }
 
 function TextPanel({ segment, editingTextId, onAddText, onUpdateSegment }: TextPanelProps) {
-  const editingText = editingTextId ? segment?.textSegments?.find(t => t.id === editingTextId) : null;
+  const { t } = useSettings();
+  const editingText = editingTextId ? segment?.textSegments?.find(ts => ts.id === editingTextId) : null;
 
   return (
-    <div className="bg-white/[0.04] backdrop-blur-xl rounded-xl border border-white/[0.06] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+    <div className="bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="flex justify-between items-center mb-3">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)]">Text Overlay</h2>
+        <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)]">{t.textOverlay}</h2>
         <Button onClick={onAddText} className="bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85 text-white rounded-lg text-xs transition-colors">
-          <Type className="w-3.5 h-3.5 mr-1.5" />Add Text
+          <Type className="w-3.5 h-3.5 mr-1.5" />{t.addText}
         </Button>
       </div>
 
       {editingText && segment ? (
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">Text Content</label>
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.textContent}</label>
             <textarea
               value={editingText.text}
               onChange={(e) => {
                 onUpdateSegment({
                   ...segment,
-                  textSegments: segment.textSegments.map(t =>
-                    t.id === editingTextId ? { ...t, text: e.target.value } : t
+                  textSegments: segment.textSegments.map(ts =>
+                    ts.id === editingTextId ? { ...ts, text: e.target.value } : ts
                   )
                 });
               }}
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-[var(--on-surface)] text-sm focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors"
+              className="w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)] text-sm focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors"
               rows={3}
             />
           </div>
 
-          <p className="text-[10px] text-[var(--on-surface-variant)]">Drag text in preview to reposition</p>
+          <p className="text-[10px] text-[var(--on-surface-variant)]">{t.dragTextHint}</p>
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">Font Size</label>
+              <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.fontSize}</label>
               <select
                 value={editingText.style.fontSize}
                 onChange={(e) => {
                   onUpdateSegment({
                     ...segment,
-                    textSegments: segment.textSegments.map(t =>
-                      t.id === editingTextId ? { ...t, style: { ...t.style, fontSize: Number(e.target.value) } } : t
+                    textSegments: segment.textSegments.map(ts =>
+                      ts.id === editingTextId ? { ...ts, style: { ...ts.style, fontSize: Number(e.target.value) } } : ts
                     )
                   });
                 }}
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-[var(--on-surface)] text-sm"
+                className="w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)] text-sm"
               >
                 {[16, 24, 32, 48, 64, 80, 96, 128, 160, 200].map(size => (
                   <option key={size} value={size}>{size}</option>
@@ -361,25 +367,25 @@ function TextPanel({ segment, editingTextId, onAddText, onUpdateSegment }: TextP
               </select>
             </div>
             <div>
-              <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">Color</label>
+              <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.color}</label>
               <input
                 type="color"
                 value={editingText.style.color}
                 onChange={(e) => {
                   onUpdateSegment({
                     ...segment,
-                    textSegments: segment.textSegments.map(t =>
-                      t.id === editingTextId ? { ...t, style: { ...t.style, color: e.target.value } } : t
+                    textSegments: segment.textSegments.map(ts =>
+                      ts.id === editingTextId ? { ...ts, style: { ...ts.style, color: e.target.value } } : ts
                     )
                   });
                 }}
-                className="w-12 h-10 bg-white/[0.04] border border-white/[0.08] rounded-lg p-1"
+                className="w-12 h-10 bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg p-1"
               />
             </div>
           </div>
         </div>
       ) : (
-        <p className="text-xs text-[var(--on-surface-variant)]">Add a text overlay or select one from the timeline</p>
+        <p className="text-xs text-[var(--on-surface-variant)]">{t.textPanelHint}</p>
       )}
     </div>
   );

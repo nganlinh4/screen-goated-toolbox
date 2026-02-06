@@ -485,7 +485,7 @@ export function useZoomKeyframes(props: UseZoomKeyframesProps) {
         .find(k => k.time < currentVideoTime);
 
       const newKeyframe: ZoomKeyframe = {
-        time: currentVideoTime, duration: 1.0,
+        time: currentVideoTime, duration: 2.0,
         zoomFactor: override?.zoomFactor ?? previousKeyframe?.zoomFactor ?? 1.5,
         positionX: override?.positionX ?? previousKeyframe?.positionX ?? 0.5,
         positionY: override?.positionY ?? previousKeyframe?.positionY ?? 0.5,
@@ -621,7 +621,26 @@ interface UseAutoZoomProps {
 
 export function useAutoZoom(props: UseAutoZoomProps) {
   const handleAutoZoom = useCallback(() => {
-    if (!props.segment || !props.mousePositions.length || !props.videoRef.current) return;
+    if (!props.segment) return;
+
+    // Toggle: if auto zoom is already active, clear it
+    const hasAutoPath = props.segment.smoothMotionPath && props.segment.smoothMotionPath.length > 0;
+    if (hasAutoPath) {
+      const newSegment: VideoSegment = {
+        ...props.segment,
+        smoothMotionPath: [],
+        zoomInfluencePoints: []
+      };
+      props.setSegment(newSegment);
+      if (props.currentProjectId) {
+        projectManager.updateProject(props.currentProjectId, {
+          segment: newSegment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions
+        }).then(() => props.loadProjects());
+      }
+      return;
+    }
+
+    if (!props.mousePositions.length || !props.videoRef.current) return;
 
     const vid = props.videoRef.current;
     const motionPath = autoZoomGenerator.generateMotionPath(

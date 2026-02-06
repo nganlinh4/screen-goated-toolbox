@@ -1,11 +1,18 @@
 import React from 'react';
 import { VideoSegment } from '@/types/video';
 
+function formatTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
 interface TrimTrackProps {
   segment: VideoSegment;
   duration: number;
   thumbnails: string[];
   onTrimDragStart: (type: 'start' | 'end') => void;
+  isDraggingTrim?: boolean;
 }
 
 export const TrimTrack: React.FC<TrimTrackProps> = ({
@@ -13,6 +20,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
   duration,
   thumbnails,
   onTrimDragStart,
+  isDraggingTrim,
 }) => (
   <div className="relative h-10 rounded overflow-hidden">
     {/* Thumbnail strip */}
@@ -51,6 +59,21 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
         right: `${((duration - segment.trimEnd) / duration) * 100}%`,
       }}
     />
+
+    {/* Trim duration - shown during drag */}
+    {isDraggingTrim && (
+      <div
+        className="absolute inset-y-0 flex items-center justify-center z-20 pointer-events-none"
+        style={{
+          left: `${(segment.trimStart / duration) * 100}%`,
+          width: `${((segment.trimEnd - segment.trimStart) / duration) * 100}%`,
+        }}
+      >
+        <span className="text-[10px] font-bold text-white bg-black/60 backdrop-blur-sm px-1.5 py-0.5 rounded">
+          {formatTime(segment.trimEnd - segment.trimStart)} / {formatTime(duration)}
+        </span>
+      </div>
+    )}
 
     {/* Trim handle: start */}
     <div

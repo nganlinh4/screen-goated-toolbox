@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
 import { VideoSegment } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
+import { useSettings } from '@/hooks/useSettings';
 
 // ============================================================================
 // Placeholder
@@ -20,6 +21,7 @@ export function Placeholder({
   isRecording,
   recordingDuration
 }: PlaceholderProps) {
+  const { t } = useSettings();
   return (
     <div className="absolute inset-0 bg-[var(--surface)] flex flex-col items-center justify-center">
       <div className="absolute inset-0 opacity-5">
@@ -38,26 +40,26 @@ export function Placeholder({
       {isLoadingVideo ? (
         <div className="flex flex-col items-center">
           <Loader2 className="w-8 h-8 text-[var(--primary-color)] animate-spin mb-3" />
-          <p className="text-[var(--on-surface)] text-sm font-medium">Processing Video</p>
-          <p className="text-[var(--outline)] text-xs mt-1">This may take a few moments...</p>
+          <p className="text-[var(--on-surface)] text-sm font-medium">{t.processingVideo}</p>
+          <p className="text-[var(--outline)] text-xs mt-1">{t.processingHint}</p>
         </div>
       ) : isRecording ? (
         <div className="flex flex-col items-center">
           <div className="w-3 h-3 rounded-full bg-[var(--tertiary-color)] animate-pulse mb-3" />
-          <p className="text-[var(--on-surface)] text-sm font-medium">Recording in progress</p>
+          <p className="text-[var(--on-surface)] text-sm font-medium">{t.recordingInProgress}</p>
           <span className="text-[var(--on-surface)] text-lg font-mono mt-2">{formatTime(recordingDuration)}</span>
         </div>
       ) : (
         <div className="flex flex-col items-center">
           <Video className="w-8 h-8 text-[var(--outline-variant)] mb-3" />
-          <p className="text-[var(--on-surface)] text-sm font-medium">No Video Selected</p>
-          <p className="text-[var(--outline)] text-xs mt-1">Click 'Start Recording' to begin</p>
+          <p className="text-[var(--on-surface)] text-sm font-medium">{t.noVideoSelected}</p>
+          <p className="text-[var(--outline)] text-xs mt-1">{t.startRecordingHint}</p>
         </div>
       )}
       {isLoadingVideo && loadingProgress > 0 && (
         <div className="mt-2">
           <p className="text-[var(--outline)] text-xs">
-            Loading video: {Math.min(Math.round(loadingProgress), 100)}%
+            {t.loadingVideo} {Math.min(Math.round(loadingProgress), 100)}%
           </p>
         </div>
       )}
@@ -77,6 +79,7 @@ interface PlaybackControlsProps {
   duration: number;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
+  autoZoomButton?: React.ReactNode;
 }
 
 export function PlaybackControls({
@@ -87,8 +90,10 @@ export function PlaybackControls({
   currentTime,
   duration,
   onTogglePlayPause,
-  onToggleCrop
+  onToggleCrop,
+  autoZoomButton
 }: PlaybackControlsProps) {
+  const { t } = useSettings();
   return (
     <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2.5 bg-black/60 backdrop-blur-xl rounded-xl px-4 py-2 border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50">
       <Button
@@ -100,7 +105,7 @@ export function PlaybackControls({
             ? 'bg-green-500/80 text-white hover:bg-green-600'
             : 'text-white/80 hover:text-white hover:bg-white/10'
         }`}
-        title={isCropping ? "Apply Crop" : "Crop Video"}
+        title={isCropping ? t.applyCrop : t.cropVideo}
       >
         {isCropping ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -129,6 +134,12 @@ export function PlaybackControls({
       <div className="text-white/90 text-xs font-medium tabular-nums">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
+      {!isCropping && autoZoomButton && (
+        <>
+          <div className="w-px h-5 bg-white/[0.12]" />
+          {autoZoomButton}
+        </>
+      )}
     </div>
   );
 }

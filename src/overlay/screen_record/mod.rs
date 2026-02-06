@@ -38,6 +38,7 @@ use ipc::handle_ipc_command;
 const WM_APP_SHOW: u32 = WM_USER + 110;
 const WM_APP_TOGGLE: u32 = WM_USER + 111;
 const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
+const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 113;
 
 // --- STATE ---
 static REGISTER_SR_CLASS: Once = Once::new();
@@ -84,7 +85,16 @@ unsafe extern "system" fn sr_wnd_proc(
             let _ = ShowWindow(hwnd, SW_SHOW);
             let _ = SetForegroundWindow(hwnd);
             let _ = SetFocus(Some(hwnd));
+            // Push current theme/lang on show
+            push_settings_to_webview();
             LRESULT(0)
+        }
+        WM_APP_UPDATE_SETTINGS => {
+            push_settings_to_webview();
+            LRESULT(0)
+        }
+        WM_ERASEBKGND => {
+            return LRESULT(1); // Suppress — WebView covers full client area
         }
         WM_CLOSE => {
             let _ = ShowWindow(hwnd, SW_HIDE);
@@ -153,13 +163,11 @@ unsafe extern "system" fn sr_wnd_proc(
                 if let Some(webview) = wv.borrow().as_ref() {
                     let mut r = RECT::default();
                     let _ = GetClientRect(hwnd, &mut r);
-                    let maximized = IsZoomed(hwnd).as_bool();
-                    let inset = if maximized { 0 } else { 5 };
-                    let w = ((r.right - r.left) - inset * 2).max(0);
-                    let h = ((r.bottom - r.top) - inset * 2).max(0);
+                    let w = (r.right - r.left).max(0);
+                    let h = (r.bottom - r.top).max(0);
                     let _ = webview.set_bounds(Rect {
                         position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                            inset, inset,
+                            0, 0,
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
                             w as u32,
@@ -291,6 +299,52 @@ pub fn toggle_recording() {
     }
 }
 
+pub fn update_settings() {
+    unsafe {
+        let hwnd = std::ptr::addr_of!(SR_HWND).read();
+        if !hwnd.is_invalid() {
+            let _ = PostMessageW(
+                Some(hwnd.0),
+                WM_APP_UPDATE_SETTINGS,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
+}
+
+fn push_settings_to_webview() {
+    let (lang, theme_mode) = {
+        let app = crate::APP.lock().unwrap();
+        (
+            app.config.ui_language.clone(),
+            app.config.theme_mode.clone(),
+        )
+    };
+
+    let theme_str = match theme_mode {
+        crate::config::ThemeMode::Dark => "dark",
+        crate::config::ThemeMode::Light => "light",
+        crate::config::ThemeMode::System => {
+            if crate::gui::utils::is_system_in_dark_mode() {
+                "dark"
+            } else {
+                "light"
+            }
+        }
+    };
+
+    SR_WEBVIEW.with(|wv| {
+        if let Some(webview) = wv.borrow().as_ref() {
+            let script = format!(
+                "window.postMessage({{ type: 'sr-set-settings', theme: '{}', lang: '{}' }}, '*');",
+                theme_str, lang
+            );
+            let _ = webview.evaluate_script(&script);
+        }
+    });
+}
+
 // --- WINDOW CREATION ---
 
 unsafe fn internal_create_sr_loop() {
@@ -356,32 +410,64 @@ unsafe fn internal_create_sr_loop() {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
     let font_style_tag = format!("<style>{}</style>", font_css);
 
-    let init_script = r#"
-        (function() {
+    // Read initial theme/lang from config
+    let (init_lang, init_theme_mode) = {
+        let app = crate::APP.lock().unwrap();
+        (
+            app.config.ui_language.clone(),
+            app.config.theme_mode.clone(),
+        )
+    };
+    let init_theme = match init_theme_mode {
+        crate::config::ThemeMode::Dark => "dark",
+        crate::config::ThemeMode::Light => "light",
+        crate::config::ThemeMode::System => {
+            if crate::gui::utils::is_system_in_dark_mode() {
+                "dark"
+            } else {
+                "light"
+            }
+        }
+    };
+
+    let init_script = format!(
+        r#"
+        (function() {{
             const originalPostMessage = window.ipc.postMessage;
-            window.__TAURI_INTERNALS__ = {
-                invoke: async (cmd, args) => {
-                    return new Promise((resolve, reject) => {
+            window.__TAURI_INTERNALS__ = {{
+                invoke: async (cmd, args) => {{
+                    return new Promise((resolve, reject) => {{
                         const id = Math.random().toString(36).substring(7);
-                        const handler = (e) => {
-                            if (e.detail && e.detail.id === id) {
+                        const handler = (e) => {{
+                            if (e.detail && e.detail.id === id) {{
                                 window.removeEventListener('ipc-reply', handler);
                                 if (e.detail.error) reject(e.detail.error);
                                 else resolve(e.detail.result);
-                            }
-                        };
+                            }}
+                        }};
                         window.addEventListener('ipc-reply', handler);
-                        originalPostMessage(JSON.stringify({ id, cmd, args }));
-                    });
-                }
-            };
-            window.__TAURI__ = {
-                core: {
+                        originalPostMessage(JSON.stringify({{ id, cmd, args }}));
+                    }});
+                }}
+            }};
+            window.__TAURI__ = {{
+                core: {{
                     invoke: window.__TAURI_INTERNALS__.invoke
-                }
-            };
-        })();
-    "#;
+                }}
+            }};
+            // Set initial settings synchronously so React can read on mount
+            window.__SR_INITIAL_THEME__ = '{init_theme}';
+            window.__SR_INITIAL_LANG__ = '{init_lang}';
+            if (document.documentElement) {{
+                if ('{init_theme}' === 'dark') {{
+                    document.documentElement.classList.add('dark');
+                }} else {{
+                    document.documentElement.classList.remove('dark');
+                }}
+            }}
+        }})();
+    "#
+    );
 
     let webview_result = {
         let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
@@ -419,7 +505,7 @@ unsafe fn internal_create_sr_loop() {
                     };
                     wnd_http_response(200, mime, content)
                 }})
-                .with_initialization_script(init_script)
+                .with_initialization_script(&init_script)
                 .with_ipc_handler({
                     let send_hwnd = SendHwnd(hwnd);
                     move |msg: wry::http::Request<String>| {
@@ -493,12 +579,11 @@ unsafe fn internal_create_sr_loop() {
 
     let mut r = RECT::default();
     let _ = GetClientRect(hwnd, &mut r);
-    let inset = 5i32;
     let _ = webview_arc.set_bounds(Rect {
-        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(inset, inset)),
+        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-            ((r.right - r.left) - inset * 2).max(0) as u32,
-            ((r.bottom - r.top) - inset * 2).max(0) as u32,
+            (r.right - r.left).max(0) as u32,
+            (r.bottom - r.top).max(0) as u32,
         )),
     });
 
