@@ -71,7 +71,7 @@ function App() {
     currentTime, setCurrentTime, duration, isPlaying, isVideoReady, setIsVideoReady,
     thumbnails, setThumbnails, currentVideo, setCurrentVideo, currentAudio, setCurrentAudio,
     videoRef, audioRef, canvasRef, tempCanvasRef, videoControllerRef,
-    renderFrame, togglePlayPause, seek, generateThumbnail, generateThumbnails
+    renderFrame, togglePlayPause, seek, flushSeek, generateThumbnail, generateThumbnails
   } = playback;
 
   // Recording
@@ -246,8 +246,15 @@ function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isInput = ['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName);
-      if (e.code === 'Space' && !isInput) { e.preventDefault(); togglePlayPause(); }
+      const tag = (e.target as HTMLElement).tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable;
+      if (e.code === 'Space' && !isInput) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        // Blur focused buttons so keyup doesn't re-trigger their click
+        if (tag === 'BUTTON' || tag === 'A') (e.target as HTMLElement).blur();
+        togglePlayPause();
+      }
       if ((e.code === 'Delete' || e.code === 'Backspace') && !isInput) {
         if (editingPointerId) {
           handleDeletePointerSegment();
@@ -387,7 +394,7 @@ function App() {
                 className="preview-canvas relative flex items-center justify-center cursor-crosshair group w-full h-full"
                 onMouseDown={handlePreviewMouseDown}
               >
-                <canvas ref={canvasRef} className="max-w-full max-h-full object-contain" />
+                <canvas ref={canvasRef} className="preview-canvas-element block max-w-full max-h-full" style={{ willChange: 'transform' }} />
                 <canvas ref={tempCanvasRef} className="hidden" />
                 <video ref={videoRef} className="hidden" playsInline preload="auto" />
                 <audio ref={audioRef} className="hidden" />
@@ -475,7 +482,7 @@ function App() {
             editingTextId={editingTextId} editingPointerId={editingPointerId} setCurrentTime={setCurrentTime}
             setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
             setEditingPointerId={setEditingPointerId}
-            setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek}
+            setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek} onSeekEnd={flushSeek}
             onAddText={handleAddText} onAddPointerSegment={handleAddPointerSegment}
             beginBatch={beginBatch} commitBatch={commitBatch}
           />

@@ -97,7 +97,7 @@ export function PlaybackControls({
 }: PlaybackControlsProps) {
   const { t } = useSettings();
   return (
-    <div className="playback-controls absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2.5 bg-black/60 backdrop-blur-xl rounded-xl px-4 py-2 border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50">
+    <div className="playback-controls absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 bg-black/60 backdrop-blur-xl rounded-xl px-3 py-2 border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50 whitespace-nowrap">
       <Button
         onClick={onToggleCrop}
         variant="ghost"
@@ -133,7 +133,7 @@ export function PlaybackControls({
           </Button>
         </>
       )}
-      <div className="time-display text-white/90 text-xs font-medium tabular-nums">
+      <div className="time-display text-white/90 text-[11px] font-medium tabular-nums flex-shrink-0">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
       {!isCropping && autoZoomButton && (

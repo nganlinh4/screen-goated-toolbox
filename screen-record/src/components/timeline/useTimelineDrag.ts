@@ -29,6 +29,7 @@ interface UseTimelineDragOptions {
   setEditingPointerId?: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   onSeek?: (time: number) => void;
+  onSeekEnd?: () => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -45,6 +46,7 @@ export function useTimelineDrag({
   setEditingPointerId,
   setActivePanel,
   onSeek,
+  onSeekEnd,
   beginBatch,
   commitBatch,
 }: UseTimelineDragOptions) {
@@ -264,6 +266,8 @@ export function useTimelineDrag({
     if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom) {
       commitBatch();
     }
+    // Flush any pending throttled seek so the final position is applied
+    if (isDraggingSeek) onSeekEnd?.();
     setIsDraggingTrimStart(false);
     setIsDraggingTrimEnd(false);
     setIsDraggingTextStart(false);
@@ -277,7 +281,7 @@ export function useTimelineDrag({
     setDraggingTextId(null);
     setDraggingPointerId(null);
     setIsDraggingSeek(false);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, commitBatch]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, isDraggingSeek, commitBatch, onSeekEnd]);
 
   // Attach window-level listeners during any drag so cursor can leave the timeline
   useEffect(() => {

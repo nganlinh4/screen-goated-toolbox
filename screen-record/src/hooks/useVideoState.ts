@@ -94,6 +94,10 @@ export function useVideoPlayback({
     videoControllerRef.current?.seek(time);
   }, []);
 
+  const flushSeek = useCallback(() => {
+    videoControllerRef.current?.flushPendingSeek();
+  }, []);
+
   const generateThumbnail = useCallback((): string | undefined => {
     if (!canvasRef.current) return undefined;
     try { return canvasRef.current.toDataURL('image/jpeg', 0.5); } catch { return undefined; }
@@ -169,7 +173,7 @@ export function useVideoPlayback({
     currentTime, setCurrentTime, duration, setDuration, isPlaying, isVideoReady, setIsVideoReady,
     thumbnails, setThumbnails, currentVideo, setCurrentVideo, currentAudio, setCurrentAudio,
     videoRef, audioRef, canvasRef, tempCanvasRef, videoControllerRef,
-    renderFrame, togglePlayPause, seek, generateThumbnail, generateThumbnails
+    renderFrame, togglePlayPause, seek, flushSeek, generateThumbnail, generateThumbnails
   };
 }
 
@@ -387,6 +391,10 @@ export function useProjects(props: UseProjectsProps) {
 
     setShowProjectsDialog(false);
     setCurrentProjectId(projectId);
+
+    // Ensure keyboard focus returns to the document after the Projects overlay
+    // animates out (clone removal can leave focus in limbo → spacebar ignored).
+    requestAnimationFrame(() => document.body.focus());
   }, [props]);
 
   useEffect(() => { loadProjects(); }, [loadProjects]);

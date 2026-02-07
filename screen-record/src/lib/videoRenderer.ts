@@ -74,16 +74,19 @@ export class VideoRenderer {
 
   private currentSquishScale = 1.0;
   private lastHoldTime = -1;
-  private lastPausedDrawTime = 0;
-  private qualityUpgradeTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastPausedState: boolean | null = null;
   private readonly CLICK_FUSE_THRESHOLD = 0.15;
   private readonly SQUISH_SPEED = 0.015;
   private readonly RELEASE_SPEED = 0.01;
+  private cursorOffscreen: OffscreenCanvas;
+  private cursorOffscreenCtx: OffscreenCanvasRenderingContext2D;
 
   constructor() {
     this.pointerImage = new Image();
     this.pointerImage.src = '/pointer.svg';
     this.pointerImage.onload = () => { };
+    this.cursorOffscreen = new OffscreenCanvas(128, 128);
+    this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
   }
 
   private activeRenderContext: RenderContext | null = null;
@@ -364,39 +367,25 @@ export class VideoRenderer {
 
       const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height);
 
-      // Supersample strategy:
-      // - Export: full ss up to 3x for maximum quality
-      // - Playback: ss=1 always (GPU stalls on large canvases kill framerate)
-      // - Active editing (rapid paused renders): ss=1 for responsive interaction
-      // - Static paused preview: compensate for scale < 100% with ss up to 2x,
-      //   then schedule a quality upgrade after editing settles
+      // Supersample only during export to keep preview responsive
       const zf = zoomState?.zoomFactor ?? 1;
-      let ss: number;
-      if (isExportMode) {
-        ss = zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
-      } else if (!video.paused) {
-        ss = 1;
-      } else {
-        // Detect rapid editing: multiple paused renders within 150ms
-        const isActiveEditing = now - this.lastPausedDrawTime < 150;
-        this.lastPausedDrawTime = now;
-        if (isActiveEditing) {
-          ss = 1;
-          // After editing stops, auto-upgrade to sharp preview
-          if (scale < 1) {
-            if (this.qualityUpgradeTimer) clearTimeout(this.qualityUpgradeTimer);
-            this.qualityUpgradeTimer = setTimeout(() => {
-              this.qualityUpgradeTimer = null;
-              if (this.activeRenderContext?.video.paused) {
-                this.drawFrame(this.activeRenderContext);
-              }
-            }, 200);
-          }
-        } else {
-          // Static preview: compensate for scale-down so video stays sharp
-          ss = scale < 1 ? Math.min(Math.ceil(1 / scale), 2) : 1;
-        }
+      const ss = isExportMode && zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
+
+      // Diagnostic: log content-level params on play↔pause transitions
+      if (!isExportMode && this.lastPausedState !== null && this.lastPausedState !== video.paused) {
+        console.log('[drawFrame] TRANSITION', video.paused ? 'PLAY→PAUSE' : 'PAUSE→PLAY', {
+          scale, legacyCrop, x, y, scaledWidth, scaledHeight, ss,
+          zoomFactor: zoomState?.zoomFactor, posX: zoomState?.positionX, posY: zoomState?.positionY,
+          canvasW, canvasH, 'video.currentTime': video.currentTime,
+          tempW: canvasW * ss, tempH: canvasH * ss,
+        });
+        // Also log after React re-render to catch layout shift
+        requestAnimationFrame(() => {
+          const rect = canvas.getBoundingClientRect();
+          console.log('[drawFrame] POST-PAINT rect', { top: rect.top, height: rect.height, width: rect.width });
+        });
       }
+      this.lastPausedState = video.paused;
 
       ctx.save();
 
@@ -1078,9 +1067,29 @@ export class VideoRenderer {
     scale: number = 2,
     cursorType: string = 'default'
   ) {
-    ctx.save();
-    this.drawCursorShape(ctx, x, y, isClicked, scale, cursorType);
-    ctx.restore();
+    // When globalAlpha < 1 (cursor fade in/out), drawing strokes+fills directly
+    // causes white borders to bleed through semi-transparent black fills.
+    // Fix: draw at full opacity onto offscreen canvas, then stamp with globalAlpha.
+    if (ctx.globalAlpha < 0.999) {
+      const margin = 64;
+      const size = Math.ceil(scale * 48) + margin * 2;
+      if (this.cursorOffscreen.width !== size || this.cursorOffscreen.height !== size) {
+        this.cursorOffscreen.width = size;
+        this.cursorOffscreen.height = size;
+        this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
+      }
+      const oCtx = this.cursorOffscreenCtx;
+      oCtx.clearRect(0, 0, size, size);
+      oCtx.globalAlpha = 1;
+      this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType);
+      ctx.save();
+      ctx.drawImage(this.cursorOffscreen, x - margin, y - margin);
+      ctx.restore();
+    } else {
+      ctx.save();
+      this.drawCursorShape(ctx, x, y, isClicked, scale, cursorType);
+      ctx.restore();
+    }
   }
 
   private drawCursorShape(

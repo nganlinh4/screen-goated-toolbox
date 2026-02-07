@@ -76,6 +76,7 @@ pub struct GpuCompositor {
     output_buffer: wgpu::Buffer,
     width: u32,
     height: u32,
+    padded_bytes_per_row: u32,
     video_width: u32,
     video_height: u32,
 }
@@ -202,7 +203,10 @@ impl GpuCompositor {
             view_formats: &[],
         });
 
-        let output_buffer_size = (output_width * output_height * 4) as u64;
+        let unpadded_bytes_per_row = output_width * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+        let output_buffer_size = (padded_bytes_per_row * output_height) as u64;
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
             size: output_buffer_size,
@@ -347,6 +351,7 @@ impl GpuCompositor {
             output_buffer,
             width: output_width,
             height: output_height,
+            padded_bytes_per_row,
             video_width,
             video_height,
         })
@@ -550,7 +555,7 @@ impl GpuCompositor {
                 buffer: &self.output_buffer,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(self.width * 4),
+                    bytes_per_row: Some(self.padded_bytes_per_row),
                     rows_per_image: Some(self.height),
                 },
             },
@@ -572,7 +577,16 @@ impl GpuCompositor {
         rx.recv().unwrap().unwrap();
 
         let data = buffer_slice.get_mapped_range();
-        let result = data.to_vec();
+        let unpadded = self.width * 4;
+        let result = if self.padded_bytes_per_row == unpadded {
+            data.to_vec()
+        } else {
+            let mut out = Vec::with_capacity((unpadded * self.height) as usize);
+            for row in data.chunks(self.padded_bytes_per_row as usize) {
+                out.extend_from_slice(&row[..unpadded as usize]);
+            }
+            out
+        };
         drop(data);
         self.output_buffer.unmap();
 
