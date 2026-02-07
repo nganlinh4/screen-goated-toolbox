@@ -51,6 +51,14 @@ const vi: Translations = {
   fontSize: 'Cỡ Chữ',
   color: 'Màu',
   textPanelHint: 'Thêm lớp phủ chữ hoặc chọn từ timeline',
+  fontWeight: 'Đậm',
+  textAlignment: 'Căn Chỉnh',
+  opacity: 'Độ Mờ',
+  letterSpacing: 'Giãn Chữ',
+  backgroundPill: 'Nền',
+  pillColor: 'Màu Nền',
+  pillRadius: 'Độ Bo Tròn',
+  deleteText: 'Xóa Chữ',
 
   // VideoPreview
   processingVideo: 'Đang Xử Lý Video',

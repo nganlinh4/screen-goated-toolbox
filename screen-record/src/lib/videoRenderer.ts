@@ -1,4 +1,4 @@
-import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay } from '@/types/video';
 
 // --- CONFIGURATION ---
 // Increased offset slightly so the eye leads the cursor (more natural reading)
@@ -486,9 +486,18 @@ export class VideoRenderer {
       this.backgroundConfig = context.backgroundConfig;
 
       if (segment.textSegments) {
+        const FADE_DURATION = 0.3;
+        const isPlaying = !video.paused;
         for (const textSegment of segment.textSegments) {
           if (video.currentTime >= textSegment.startTime && video.currentTime <= textSegment.endTime) {
-            this.drawTextOverlay(ctx, textSegment, canvas.width, canvas.height);
+            let fadeAlpha = 1.0;
+            if (isPlaying) {
+              const elapsed = video.currentTime - textSegment.startTime;
+              const remaining = textSegment.endTime - video.currentTime;
+              if (elapsed < FADE_DURATION) fadeAlpha = elapsed / FADE_DURATION;
+              if (remaining < FADE_DURATION) fadeAlpha = Math.min(fadeAlpha, remaining / FADE_DURATION);
+            }
+            this.drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha);
           }
         }
       }
@@ -1079,63 +1088,215 @@ export class VideoRenderer {
     ctx: CanvasRenderingContext2D,
     textSegment: TextSegment,
     width: number,
-    height: number
+    height: number,
+    fadeAlpha: number = 1.0
   ) {
+    const { style } = textSegment;
+    const fontWeight = style.fontWeight ?? 'normal';
+    const textAlign = style.textAlign ?? 'center';
+    const opacity = style.opacity ?? 1;
+    const letterSpacing = style.letterSpacing ?? 0;
+    const background = style.background;
+    const fontSize = style.fontSize;
+
     ctx.save();
-    ctx.font = `${textSegment.style.fontSize}px 'Google Sans Flex', sans-serif`;
-    ctx.fillStyle = textSegment.style.color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle'; // Align vertical center for consistency
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to identity — text is viewport-relative
+    ctx.globalAlpha = opacity * fadeAlpha;
+    ctx.font = `${fontWeight} ${fontSize}px 'Google Sans Flex', sans-serif`;
+    ctx.textBaseline = 'middle';
 
-    // Position (0-100% based)
-    const x = (textSegment.style.x / 100) * width;
-    const y = (textSegment.style.y / 100) * height;
+    // Split text by newlines for multi-line
+    const lines = textSegment.text.split('\n');
+    const lineHeight = fontSize * 1.25;
 
-    const metrics = ctx.measureText(textSegment.text);
-    const textHeight = textSegment.style.fontSize;
-    const hitArea = {
-      x: x - metrics.width / 2 - 10,
-      y: y - textHeight / 2 - 10,
-      width: metrics.width + 20,
-      height: textHeight + 20
+    // Measure each line width (account for letter spacing)
+    const measureLine = (line: string): number => {
+      const baseWidth = ctx.measureText(line).width;
+      if (letterSpacing !== 0 && line.length > 1) {
+        return baseWidth + letterSpacing * (line.length - 1);
+      }
+      return baseWidth;
     };
 
-    if (this.draggedTextId === textSegment.id) {
-      ctx.fillStyle = 'rgba(0, 121, 211, 0.1)';
-      ctx.fillRect(hitArea.x, hitArea.y, hitArea.width, hitArea.height);
+    const lineWidths = lines.map(measureLine);
+    const maxLineWidth = Math.max(...lineWidths);
+    const totalHeight = lines.length * lineHeight;
+
+    // Anchor position (0-100% based)
+    const anchorX = (style.x / 100) * width;
+    const anchorY = (style.y / 100) * height;
+
+    // Background pill padding
+    const bgPadX = background?.enabled ? (background.paddingX ?? 16) : 0;
+    const bgPadY = background?.enabled ? (background.paddingY ?? 8) : 0;
+
+    // Hit area encompasses all lines + padding
+    const hitPad = 10;
+    let blockLeft: number;
+    if (textAlign === 'left') {
+      blockLeft = anchorX;
+    } else if (textAlign === 'right') {
+      blockLeft = anchorX - maxLineWidth;
+    } else {
+      blockLeft = anchorX - maxLineWidth / 2;
+    }
+    const blockTop = anchorY - totalHeight / 2;
+
+    const hitArea = {
+      x: blockLeft - bgPadX - hitPad,
+      y: blockTop - bgPadY - hitPad,
+      width: maxLineWidth + bgPadX * 2 + hitPad * 2,
+      height: totalHeight + bgPadY * 2 + hitPad * 2
+    };
+
+    // Background pill
+    if (background?.enabled) {
+      const pillX = blockLeft - bgPadX;
+      const pillY = blockTop - bgPadY;
+      const pillW = maxLineWidth + bgPadX * 2;
+      const pillH = totalHeight + bgPadY * 2;
+      const r = Math.min(background.borderRadius ?? 8, pillW / 2, pillH / 2);
+
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillW, pillH, r);
+      ctx.fillStyle = background.color ?? 'rgba(0,0,0,0.6)';
+      ctx.fill();
     }
 
-    // Shadow matching Rust implementation
+    // Draw each line
     ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur = 4; // Matching Rust stdDeviation=2 approx
+    ctx.shadowBlur = 4;
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 2;
-    ctx.fillStyle = textSegment.style.color;
-    ctx.fillText(textSegment.text, x, y);
+    ctx.fillStyle = style.color;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const ly = blockTop + i * lineHeight + lineHeight / 2;
+      let lx: number;
+      if (textAlign === 'left') {
+        lx = blockLeft;
+      } else if (textAlign === 'right') {
+        lx = blockLeft + maxLineWidth;
+      } else {
+        lx = blockLeft + maxLineWidth / 2;
+      }
+
+      if (letterSpacing !== 0 && line.length > 1) {
+        // Char-by-char rendering for letter spacing
+        this.drawTextWithSpacing(ctx, line, lx, ly, letterSpacing, textAlign, lineWidths[i]);
+      } else {
+        ctx.textAlign = textAlign;
+        ctx.fillText(line, lx, ly);
+      }
+    }
 
     ctx.restore();
     return hitArea;
   }
 
-  public handleMouseDown(e: MouseEvent, segment: VideoSegment, canvas: HTMLCanvasElement) {
+  private drawTextWithSpacing(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    spacing: number,
+    align: CanvasTextAlign,
+    totalWidth: number
+  ) {
+    ctx.textAlign = 'left';
+    let startX: number;
+    if (align === 'center') {
+      startX = x - totalWidth / 2;
+    } else if (align === 'right') {
+      startX = x - totalWidth;
+    } else {
+      startX = x;
+    }
+
+    let cx = startX;
+    for (let i = 0; i < text.length; i++) {
+      ctx.fillText(text[i], cx, y);
+      cx += ctx.measureText(text[i]).width + spacing;
+    }
+  }
+
+  private getTextHitArea(
+    ctx: CanvasRenderingContext2D,
+    textSegment: TextSegment,
+    width: number,
+    height: number
+  ) {
+    const { style } = textSegment;
+    const fontWeight = style.fontWeight ?? 'normal';
+    const textAlign = style.textAlign ?? 'center';
+    const letterSpacing = style.letterSpacing ?? 0;
+    const fontSize = style.fontSize;
+    const background = style.background;
+
+    ctx.save();
+    ctx.font = `${fontWeight} ${fontSize}px 'Google Sans Flex', sans-serif`;
+
+    const lines = textSegment.text.split('\n');
+    const lineHeight = fontSize * 1.25;
+
+    const measureLine = (line: string): number => {
+      const baseWidth = ctx.measureText(line).width;
+      if (letterSpacing !== 0 && line.length > 1) {
+        return baseWidth + letterSpacing * (line.length - 1);
+      }
+      return baseWidth;
+    };
+
+    const maxLineWidth = Math.max(...lines.map(measureLine));
+    const totalHeight = lines.length * lineHeight;
+
+    const anchorX = (style.x / 100) * width;
+    const anchorY = (style.y / 100) * height;
+
+    const bgPadX = background?.enabled ? (background.paddingX ?? 16) : 0;
+    const bgPadY = background?.enabled ? (background.paddingY ?? 8) : 0;
+    const hitPad = 10;
+
+    let blockLeft: number;
+    if (textAlign === 'left') {
+      blockLeft = anchorX;
+    } else if (textAlign === 'right') {
+      blockLeft = anchorX - maxLineWidth;
+    } else {
+      blockLeft = anchorX - maxLineWidth / 2;
+    }
+    const blockTop = anchorY - totalHeight / 2;
+
+    ctx.restore();
+
+    return {
+      x: blockLeft - bgPadX - hitPad,
+      y: blockTop - bgPadY - hitPad,
+      width: maxLineWidth + bgPadX * 2 + hitPad * 2,
+      height: totalHeight + bgPadY * 2 + hitPad * 2
+    };
+  }
+
+  public handleMouseDown(e: MouseEvent, segment: VideoSegment, canvas: HTMLCanvasElement): string | null {
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) * (canvas.width / rect.width);
     const y = (e.clientY - rect.top) * (canvas.height / rect.height);
 
     for (const text of segment.textSegments) {
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      const hitArea = this.drawTextOverlay(ctx, text, canvas.width, canvas.height);
+      if (!ctx) return null;
+      const hitArea = this.getTextHitArea(ctx, text, canvas.width, canvas.height);
       if (x >= hitArea.x && x <= hitArea.x + hitArea.width &&
         y >= hitArea.y && y <= hitArea.y + hitArea.height) {
         this.isDraggingText = true;
         this.draggedTextId = text.id;
         this.dragOffset.x = x - (text.style.x / 100 * canvas.width);
         this.dragOffset.y = y - (text.style.y / 100 * canvas.height);
-        canvas.style.cursor = 'move';
-        break;
+        return text.id;
       }
     }
+    return null;
   }
 
   public handleMouseMove(
@@ -1156,10 +1317,61 @@ export class VideoRenderer {
     onTextMove(this.draggedTextId, newX, newY);
   }
 
-  public handleMouseUp(canvas: HTMLCanvasElement) {
+  public handleMouseUp() {
     this.isDraggingText = false;
     this.draggedTextId = null;
-    canvas.style.cursor = 'default';
+  }
+
+  /**
+   * Pre-render each text overlay to an RGBA bitmap at the given output resolution.
+   * Rust just alpha-composites these per frame with fade applied — no dual pipeline.
+   */
+  public bakeTextOverlays(
+    segment: VideoSegment,
+    outputWidth: number,
+    outputHeight: number
+  ): BakedTextOverlay[] {
+    const result: BakedTextOverlay[] = [];
+    if (!segment.textSegments?.length) return result;
+
+    const shadowPad = 24; // extra padding for drop shadow
+
+    for (const textSeg of segment.textSegments) {
+      // Render to full-size offscreen canvas (drawTextOverlay needs full dims for % positioning)
+      const offscreen = document.createElement('canvas');
+      offscreen.width = outputWidth;
+      offscreen.height = outputHeight;
+      const ctx = offscreen.getContext('2d')!;
+
+      // Draw at full opacity (fadeAlpha=1); opacity is baked into pixel alpha
+      this.drawTextOverlay(ctx, textSeg, outputWidth, outputHeight, 1.0);
+
+      // Compute tight bounds via getTextHitArea
+      const hitArea = this.getTextHitArea(ctx, textSeg, outputWidth, outputHeight);
+
+      // Crop region (hit area + shadow padding, clamped to canvas)
+      const cropX = Math.max(0, Math.floor(hitArea.x - shadowPad));
+      const cropY = Math.max(0, Math.floor(hitArea.y - shadowPad));
+      const cropRight = Math.min(outputWidth, Math.ceil(hitArea.x + hitArea.width + shadowPad));
+      const cropBottom = Math.min(outputHeight, Math.ceil(hitArea.y + hitArea.height + shadowPad));
+      const cropW = cropRight - cropX;
+      const cropH = cropBottom - cropY;
+
+      if (cropW <= 0 || cropH <= 0) continue;
+
+      const imageData = ctx.getImageData(cropX, cropY, cropW, cropH);
+      result.push({
+        startTime: textSeg.startTime,
+        endTime: textSeg.endTime,
+        x: cropX,
+        y: cropY,
+        width: cropW,
+        height: cropH,
+        data: Array.from(imageData.data)
+      });
+    }
+
+    return result;
   }
 }
 

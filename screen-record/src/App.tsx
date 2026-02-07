@@ -27,7 +27,7 @@ function App() {
   const settings = useSettingsProvider();
   const { t } = settings;
   // Core state
-  const { state: segment, setState: setSegment, undo, redo, canUndo, canRedo } = useUndoRedo<VideoSegment | null>(null);
+  const { state: segment, setState: setSegment, undo, redo, canUndo, canRedo, beginBatch, commitBatch } = useUndoRedo<VideoSegment | null>(null);
   const [activePanel, setActivePanel] = useState<ActivePanel>('zoom');
   const [isCropping, setIsCropping] = useState(false);
   const [recentUploads, setRecentUploads] = useState<string[]>([]);
@@ -38,6 +38,9 @@ function App() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const mousePositionsRef = useRef<MousePosition[]>([]);
+  const wheelBatchActiveRef = useRef(false);
+  const wheelBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restoreImageRef = useRef<string | null>(null);
 
   // Utility hooks
   const { needsSetup, ffmpegInstallStatus, handleCancelInstall } = useFfmpegSetup();
@@ -96,7 +99,7 @@ function App() {
 
   // Text overlays
   const textOverlays = useTextOverlays({ segment, setSegment, currentTime, duration, setActivePanel });
-  const { editingTextId, setEditingTextId, handleAddText, handleTextDragMove } = textOverlays;
+  const { editingTextId, setEditingTextId, handleAddText, handleDeleteText, handleTextDragMove } = textOverlays;
 
   // Auto zoom
   const { handleAutoZoom } = useAutoZoom({
@@ -131,6 +134,7 @@ function App() {
 
     const { positionX: startPosX, positionY: startPosY, zoomFactor: z } = lastState;
     const rect = e.currentTarget.getBoundingClientRect();
+    beginBatch();
 
     const handleMouseMove = (me: MouseEvent) => {
       const dx = me.clientX - startX, dy = me.clientY - startY;
@@ -145,10 +149,11 @@ function App() {
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      commitBatch();
     };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
-  }, [currentVideo, isCropping, activePanel, isPlaying, togglePlayPause, handleAddKeyframe]);
+  }, [currentVideo, isCropping, activePanel, isPlaying, togglePlayPause, handleAddKeyframe, beginBatch, commitBatch]);
 
   const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -162,6 +167,20 @@ function App() {
       reader.readAsDataURL(file);
     }
   }, []);
+
+  const handleToggleProjects = useCallback(() => {
+    if (projects.showProjectsDialog) {
+      window.dispatchEvent(new CustomEvent('sr-close-projects'));
+    } else {
+      if (canvasRef.current && currentVideo) {
+        try { restoreImageRef.current = canvasRef.current.toDataURL('image/jpeg', 0.8); }
+        catch { restoreImageRef.current = null; }
+      } else {
+        restoreImageRef.current = null;
+      }
+      projects.setShowProjectsDialog(true);
+    }
+  }, [projects.showProjectsDialog, currentVideo]);
 
   const handleStartRecording = useCallback(async () => {
     if (isRecording) return;
@@ -178,10 +197,13 @@ function App() {
       const { mouseData, initialSegment, videoUrl } = result;
       const response = await fetch(videoUrl);
       const videoBlob = await response.blob();
-      const thumbnail = generateThumbnail();
+      const thumbnail = await videoControllerRef.current?.generateThumbnail({
+        segment: initialSegment, backgroundConfig, mousePositions: mouseData
+      }) || generateThumbnail();
       const project = await projectManager.saveProject({
         name: `Recording ${new Date().toLocaleString()}`,
-        videoBlob, segment: initialSegment, backgroundConfig, mousePositions: mouseData, thumbnail
+        videoBlob, segment: initialSegment, backgroundConfig, mousePositions: mouseData, thumbnail,
+        duration: initialSegment.trimEnd
       });
       projects.setCurrentProjectId(project.id);
       await projects.loadProjects();
@@ -204,8 +226,10 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isInput = ['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName);
       if (e.code === 'Space' && !isInput) { e.preventDefault(); togglePlayPause(); }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && editingKeyframeId !== null && !isInput) {
-        if (segment?.zoomKeyframes[editingKeyframeId]) {
+      if ((e.code === 'Delete' || e.code === 'Backspace') && !isInput) {
+        if (editingTextId && !editingKeyframeId) {
+          handleDeleteText();
+        } else if (editingKeyframeId !== null && segment?.zoomKeyframes[editingKeyframeId]) {
           setSegment({ ...segment, zoomKeyframes: segment.zoomKeyframes.filter((_, i) => i !== editingKeyframeId) });
           setEditingKeyframeId(null);
         }
@@ -218,7 +242,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause]);
+  }, [editingKeyframeId, editingTextId, handleDeleteText, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause]);
 
   // Wheel zoom
   useEffect(() => {
@@ -230,6 +254,18 @@ function App() {
       e.preventDefault();
       const lastState = videoRenderer.getLastCalculatedState();
       if (!lastState) return;
+
+      if (!wheelBatchActiveRef.current) {
+        beginBatch();
+        wheelBatchActiveRef.current = true;
+      }
+      if (wheelBatchTimerRef.current) clearTimeout(wheelBatchTimerRef.current);
+      wheelBatchTimerRef.current = setTimeout(() => {
+        commitBatch();
+        wheelBatchActiveRef.current = false;
+        wheelBatchTimerRef.current = null;
+      }, 400);
+
       const newZoom = Math.max(1.0, Math.min(12.0, lastState.zoomFactor - e.deltaY * 0.002 * lastState.zoomFactor));
       handleAddKeyframe({ zoomFactor: newZoom, positionX: lastState.positionX, positionY: lastState.positionY });
       setActivePanel('zoom');
@@ -237,7 +273,7 @@ function App() {
 
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => container.removeEventListener('wheel', handleWheel);
-  }, [currentVideo, isCropping, handleAddKeyframe]);
+  }, [currentVideo, isCropping, handleAddKeyframe, beginBatch, commitBatch]);
 
   // Initialize segment
   useEffect(() => {
@@ -262,10 +298,13 @@ function App() {
       try {
         const response = await fetch(currentVideo);
         const videoBlob = await response.blob();
+        const thumbnail = await videoControllerRef.current?.generateThumbnail({
+          segment, backgroundConfig, mousePositions
+        }) || generateThumbnail();
         await projectManager.updateProject(projects.currentProjectId!, {
           name: projects.projects.find(p => p.id === projects.currentProjectId)?.name || "Auto Saved",
-          videoBlob, segment, backgroundConfig, mousePositions,
-          thumbnail: projects.projects.find(p => p.id === projects.currentProjectId)?.thumbnail || generateThumbnail()
+          videoBlob, segment, backgroundConfig, mousePositions, thumbnail,
+          duration: videoControllerRef.current?.duration || duration
         });
         await projects.loadProjects();
       } catch {}
@@ -277,9 +316,17 @@ function App() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !segment) return;
-    const onDown = (e: MouseEvent) => videoRenderer.handleMouseDown(e, segment, canvas);
+    const onDown = (e: MouseEvent) => {
+      const hitId = videoRenderer.handleMouseDown(e, segment, canvas);
+      if (hitId) {
+        e.stopPropagation();
+        e.preventDefault();
+        setEditingTextId(hitId);
+        setActivePanel('text');
+      }
+    };
     const onMove = (e: MouseEvent) => videoRenderer.handleMouseMove(e, segment, canvas, handleTextDragMove);
-    const onUp = () => videoRenderer.handleMouseUp(canvas);
+    const onUp = () => videoRenderer.handleMouseUp();
     canvas.addEventListener('mousedown', onDown);
     canvas.addEventListener('mousemove', onMove);
     canvas.addEventListener('mouseup', onUp);
@@ -290,7 +337,7 @@ function App() {
       canvas.removeEventListener('mouseup', onUp);
       canvas.removeEventListener('mouseleave', onUp);
     };
-  }, [segment, handleTextDragMove, canvasRef]);
+  }, [segment, handleTextDragMove, canvasRef, setEditingTextId, setActivePanel]);
 
   return (
     <SettingsContext.Provider value={settings}>
@@ -300,7 +347,7 @@ function App() {
         isProcessing={exportHook.isProcessing} hotkeys={hotkeys} keyvizStatus={keyvizStatus}
         onRemoveHotkey={handleRemoveHotkey} onOpenHotkeyDialog={openHotkeyDialog}
         onToggleKeyviz={toggleKeyviz} onExport={exportHook.handleExport}
-        onOpenProjects={() => projects.setShowProjectsDialog(true)}
+        onOpenProjects={handleToggleProjects}
       />
 
       <main className="flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
@@ -329,7 +376,8 @@ function App() {
                   <CropOverlay segment={segment}
                     previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
                     videoRef={videoRef as React.RefObject<HTMLVideoElement>}
-                    onUpdateSegment={setSegment} />
+                    onUpdateSegment={setSegment}
+                    beginBatch={beginBatch} commitBatch={commitBatch} />
                 )}
               </div>
 
@@ -359,33 +407,39 @@ function App() {
                   onLoadProject={projects.handleLoadProject}
                   onProjectsChange={projects.loadProjects}
                   onClose={() => projects.setShowProjectsDialog(false)}
+                  currentProjectId={projects.currentProjectId}
+                  restoreImage={restoreImageRef.current}
                 />
               )}
             </div>
           </div>
 
           {/* Side Panel */}
-          <div className="w-72 flex-shrink-0 overflow-y-auto min-h-0">
+          <div className={`w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : 'overflow-y-auto'}`}>
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
               onDeleteKeyframe={handleDeleteKeyframe} onUpdateZoom={throttledUpdateZoom}
               backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig}
               recentUploads={recentUploads} onBackgroundUpload={handleBackgroundUpload}
-              editingTextId={editingTextId} onAddText={handleAddText} onUpdateSegment={setSegment}
+              editingTextId={editingTextId} onAddText={handleAddText} onDeleteText={handleDeleteText} onUpdateSegment={setSegment}
+              beginBatch={beginBatch} commitBatch={commitBatch}
             />
+            {projects.showProjectsDialog && <div className="absolute inset-0 bg-[var(--surface)] z-50" />}
           </div>
         </div>
 
         {/* Timeline */}
-        <div className="mt-3 flex-shrink-0">
+        <div className={`mt-3 flex-shrink-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : ''}`}>
           <TimelineArea
             duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
             timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
             editingTextId={editingTextId} setCurrentTime={setCurrentTime}
             setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
             setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek}
+            beginBatch={beginBatch} commitBatch={commitBatch}
           />
+          {projects.showProjectsDialog && <div className="absolute inset-0 bg-[var(--surface)] z-50" />}
         </div>
       </main>
 
@@ -393,7 +447,7 @@ function App() {
       <ProcessingOverlay show={exportHook.isProcessing} exportProgress={exportHook.exportProgress} />
       <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
         monitors={monitors} onSelectMonitor={startNewRecording} />
-      {currentVideo && !isVideoReady && (
+      {currentVideo && !isVideoReady && !projects.showProjectsDialog && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="text-[var(--on-surface)]">{t.preparingVideoOverlay}</div>
         </div>

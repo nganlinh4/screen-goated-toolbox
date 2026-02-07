@@ -36,6 +36,8 @@ interface ZoomTrackProps {
   onKeyframeDragStart: (index: number) => void;
   onUpdateInfluencePoints: (points: { time: number; value: number }[]) => void;
   onUpdateKeyframes: (keyframes: ZoomKeyframe[]) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export const ZoomTrack: React.FC<ZoomTrackProps> = ({
@@ -46,6 +48,8 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   onKeyframeDragStart,
   onUpdateInfluencePoints,
   onUpdateKeyframes,
+  beginBatch,
+  commitBatch,
 }) => {
   const hasInfluenceCurve = segment.smoothMotionPath && segment.smoothMotionPath.length > 0;
   const points = segment.zoomInfluencePoints || [];
@@ -134,6 +138,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     const time = (clickX / rect.width) * duration;
     const hitThresholdX = 14;
     let newPoints = [...points];
+    beginBatch();
 
     let activeIdx = newPoints.findIndex(p => {
       const px = (p.time / duration) * rect.width;
@@ -198,6 +203,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
       draggingIdxRef.current = null;
       const sorted = [...pointsRef.current].sort((a, b) => a.time - b.time);
       onUpdateInfluencePoints(sorted);
+      commitBatch();
     };
 
     window.addEventListener('mousemove', mm);
@@ -206,6 +212,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
 
   const handlePointMouseDown = (e: React.MouseEvent, i: number) => {
     e.stopPropagation();
+    beginBatch();
     draggingIdxRef.current = i;
     const rect = e.currentTarget.parentElement!.getBoundingClientRect();
 
@@ -231,6 +238,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
       draggingIdxRef.current = null;
       const sorted = [...pointsRef.current].sort((a, b) => a.time - b.time);
       onUpdateInfluencePoints(sorted);
+      commitBatch();
     };
 
     window.addEventListener('mousemove', mm);
@@ -288,6 +296,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                 style={{ left: `calc(${(rangeStart / duration) * 100}% - 6px)` }}
                 onMouseDown={(e) => {
                   e.stopPropagation();
+                  beginBatch();
                   const rect = e.currentTarget.parentElement!.getBoundingClientRect();
                   const onMove = (me: MouseEvent) => {
                     const x = me.clientX - rect.left;
@@ -301,6 +310,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   const onUp = () => {
                     window.removeEventListener('mousemove', onMove);
                     window.removeEventListener('mouseup', onUp);
+                    commitBatch();
                   };
                   window.addEventListener('mousemove', onMove);
                   window.addEventListener('mouseup', onUp);

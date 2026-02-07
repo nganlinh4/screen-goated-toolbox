@@ -9,6 +9,14 @@ interface ProjectsViewProps {
   onLoadProject: (projectId: string) => void | Promise<void>;
   onProjectsChange: () => void;
   onClose: () => void;
+  currentProjectId?: string | null;
+  restoreImage?: string | null;
+}
+
+function formatDuration(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
 /** Compute the object-fit:contain rect for an aspect ratio inside a container. */
@@ -22,21 +30,112 @@ function containRect(
   return { left: (cw - w) / 2, top: (ch - h) / 2, width: w, height: h };
 }
 
-export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClose }: ProjectsViewProps) {
+export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClose, currentProjectId, restoreImage }: ProjectsViewProps) {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [animatingId, setAnimatingId] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(() => !!restoreImage && !!currentProjectId);
   const animatingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const animatedCloseRef = useRef<() => void>(() => {});
   const { t } = useSettings();
+
+  // Restore animation: shrink current video frame into its card position
+  useEffect(() => {
+    if (!restoreImage || !currentProjectId || !containerRef.current) {
+      setIsRestoring(false);
+      return;
+    }
+
+    const container = containerRef.current;
+
+    requestAnimationFrame(() => {
+      const containerRect = container.getBoundingClientRect();
+
+      const img = new Image();
+      img.src = restoreImage;
+
+      const runAnimation = () => {
+        const natW = img.naturalWidth || 16;
+        const natH = img.naturalHeight || 9;
+        const source = containRect(containerRect.width, containerRect.height, natW, natH);
+
+        const card = container.querySelector(`[data-project-id="${currentProjectId}"]`) as HTMLElement | null;
+        if (!card) { setIsRestoring(false); return; }
+
+        // Ensure card is visible in scroll container
+        card.scrollIntoView({ block: 'nearest', behavior: 'instant' as ScrollBehavior });
+
+        const thumbArea = card.querySelector('.aspect-video') as HTMLElement | null;
+        if (!thumbArea) { setIsRestoring(false); return; }
+
+        // Re-measure after potential scroll
+        const freshContainerRect = container.getBoundingClientRect();
+        const thumbRect = thumbArea.getBoundingClientRect();
+        const thumbRelLeft = thumbRect.left - freshContainerRect.left;
+        const thumbRelTop = thumbRect.top - freshContainerRect.top;
+
+        // Clone at canvas (source) position
+        const clone = document.createElement('div');
+        clone.style.cssText = `
+          position: absolute; z-index: 60; pointer-events: none;
+          left: ${source.left}px; top: ${source.top}px;
+          width: ${source.width}px; height: ${source.height}px;
+          overflow: hidden; transform-origin: 0 0;
+          will-change: transform;
+        `;
+        const imgEl = document.createElement('img');
+        imgEl.src = restoreImage;
+        imgEl.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+        clone.appendChild(imgEl);
+        container.appendChild(clone);
+
+        // Animate source → target (reverse of expand)
+        const dx = thumbRelLeft - source.left;
+        const dy = thumbRelTop - source.top;
+        const sx = thumbRect.width / source.width;
+        const sy = thumbRect.height / source.height;
+
+        clone.animate([
+          { transform: 'none', borderRadius: '0px' },
+          { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: '8px' }
+        ], {
+          duration: 500,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          fill: 'forwards'
+        }).onfinish = () => {
+          clone.animate(
+            [{ opacity: 1 }, { opacity: 0 }],
+            { duration: 150, fill: 'forwards' }
+          ).onfinish = () => clone.remove();
+        };
+
+        // Fade in grid content
+        setTimeout(() => setIsRestoring(false), 50);
+      };
+
+      if (img.complete) runAnimation();
+      else {
+        img.onload = runAnimation;
+        img.onerror = () => setIsRestoring(false);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !animatingRef.current) onClose();
+      if (e.key === 'Escape' && !animatingRef.current) animatedCloseRef.current();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, []);
+
+  // External close requests (toggle button dispatches this event)
+  useEffect(() => {
+    const handler = () => animatedCloseRef.current();
+    window.addEventListener('sr-close-projects', handler);
+    return () => window.removeEventListener('sr-close-projects', handler);
+  }, []);
 
   const handleRename = async (id: string) => {
     if (!renameValue.trim()) return;
@@ -125,16 +224,98 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     }).onfinish = () => {
       animatingRef.current = false;
 
-      // Await the full project load, then wait for canvas to paint before dissolving
+      // Await the full project load, then give React time to commit + paint before dissolving
       Promise.resolve(onLoadProject(projectId)).then(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            fadeOut();
-          });
-        });
+        // renderImmediate already drew the frame on the canvas inside handleLoadProject.
+        // Wait 100ms to ensure React effects have flushed, then fade on next frame.
+        setTimeout(() => requestAnimationFrame(fadeOut), 100);
       });
     };
   };
+
+  // Animated close: expand current project's card → canvas, then unmount
+  const handleAnimatedClose = () => {
+    if (animatingRef.current) return;
+
+    const container = containerRef.current;
+    const portalTarget = container?.parentElement;
+
+    if (!currentProjectId || !container || !portalTarget) {
+      onClose();
+      return;
+    }
+
+    const card = container.querySelector(`[data-project-id="${currentProjectId}"]`) as HTMLElement | null;
+    const thumbnailImg = card?.querySelector('.aspect-video img') as HTMLImageElement | null;
+
+    if (!card || !thumbnailImg) {
+      onClose();
+      return;
+    }
+
+    card.scrollIntoView({ block: 'nearest', behavior: 'instant' as ScrollBehavior });
+
+    const parentRect = portalTarget.getBoundingClientRect();
+    const thumbRect = thumbnailImg.getBoundingClientRect();
+    const natW = thumbnailImg.naturalWidth || 16;
+    const natH = thumbnailImg.naturalHeight || 9;
+    const target = containRect(parentRect.width, parentRect.height, natW, natH);
+    const thumbRelLeft = thumbRect.left - parentRect.left;
+    const thumbRelTop = thumbRect.top - parentRect.top;
+
+    const dx = thumbRelLeft - target.left;
+    const dy = thumbRelTop - target.top;
+    const sx = thumbRect.width / target.width;
+    const sy = thumbRect.height / target.height;
+
+    const bg = document.createElement('div');
+    bg.style.cssText = 'position:absolute;inset:0;z-index:59;background:var(--surface);pointer-events:none;';
+    portalTarget.appendChild(bg);
+
+    const clone = document.createElement('div');
+    clone.style.cssText = `
+      position: absolute; z-index: 60; pointer-events: none;
+      left: ${target.left}px; top: ${target.top}px;
+      width: ${target.width}px; height: ${target.height}px;
+      overflow: hidden; transform-origin: 0 0;
+      will-change: transform;
+    `;
+    const img = document.createElement('img');
+    img.src = thumbnailImg.src;
+    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+    clone.appendChild(img);
+    portalTarget.appendChild(clone);
+
+    animatingRef.current = true;
+    setAnimatingId(currentProjectId);
+
+    const fadeOut = () => {
+      clone.animate(
+        [{ opacity: 1 }, { opacity: 0 }],
+        { duration: 200, fill: 'forwards' }
+      ).onfinish = () => clone.remove();
+      bg.animate(
+        [{ opacity: 1 }, { opacity: 0 }],
+        { duration: 200, fill: 'forwards' }
+      ).onfinish = () => bg.remove();
+    };
+
+    clone.animate([
+      { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: '8px' },
+      { transform: 'none', borderRadius: '0px' }
+    ], {
+      duration: 500,
+      easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      fill: 'forwards'
+    }).onfinish = () => {
+      animatingRef.current = false;
+      onClose();
+      setTimeout(() => requestAnimationFrame(fadeOut), 100);
+    };
+  };
+
+  // Keep ref current so event listeners always call the latest version
+  animatedCloseRef.current = handleAnimatedClose;
 
   return (
     <div ref={containerRef} className="absolute inset-0 z-20 overflow-hidden rounded-xl">
@@ -142,8 +323,8 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
       <div className="absolute inset-0 bg-[var(--surface)]" />
 
       {/* Content fades out during thumbnail expansion */}
-      <div className={`relative flex flex-col h-full transition-opacity duration-200 ${
-        animatingId ? 'opacity-0' : 'opacity-100'
+      <div className={`relative flex flex-col h-full transition-opacity ${
+        animatingId ? 'opacity-0 duration-200' : isRestoring ? 'opacity-0' : 'opacity-100 duration-300'
       }`}>
         {/* Header */}
         <div className="flex justify-between items-center px-4 py-3 flex-shrink-0">
@@ -156,7 +337,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
               className="w-16"
             />
             <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-5">{projectManager.getLimit()}</span>
-            <button onClick={onClose} className="p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
+            <button onClick={handleAnimatedClose} className="p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -169,7 +350,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
               {projects.map((project) => (
-                <div key={project.id} className="group relative bg-[var(--surface-container)] border border-[var(--glass-border)] rounded-lg overflow-hidden hover:border-[var(--outline)] transition-colors">
+                <div key={project.id} data-project-id={project.id} className="group relative bg-[var(--surface-container)] border border-[var(--glass-border)] rounded-lg overflow-hidden hover:border-[var(--outline)] transition-colors">
                   <div
                     className="aspect-video bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
                     onClick={(e) => handleProjectClick(project.id, e)}
@@ -184,6 +365,19 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                       <Play className="w-7 h-7 text-white opacity-0 group-hover:opacity-90 transition-opacity" />
                     </div>
+                    {project.duration != null && project.duration > 0 && (
+                      <span
+                        className="absolute bottom-2 right-2.5 text-white tabular-nums pointer-events-none"
+                        style={{
+                          fontSize: '1.35rem',
+                          fontVariationSettings: "'wght' 700, 'ROND' 100",
+                          textShadow: '0 1px 4px rgba(0,0,0,0.7), 0 0 12px rgba(0,0,0,0.4)',
+                          letterSpacing: '-0.02em',
+                        }}
+                      >
+                        {formatDuration(project.duration)}
+                      </span>
+                    )}
                   </div>
                   <div className="p-2 flex items-start justify-between gap-1">
                     <div className="min-w-0 flex-1">

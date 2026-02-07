@@ -71,7 +71,11 @@ export class VideoExporter {
     // 2. Bake the cursor path for strictly identical movement
     console.log('[Exporter] Baking cursor path...');
     const bakedCursorPath = segment && mousePositions ? videoRenderer.generateBakedCursorPath(segment, mousePositions, fps) : [];
-    console.log(`[Exporter] Baked ${bakedPath.length} camera frames, ${bakedCursorPath.length} cursor frames.`);
+
+    // 3. Bake text overlays — pre-render on canvas so Rust just alpha-composites
+    console.log('[Exporter] Baking text overlays...');
+    const bakedTextOverlays = segment ? videoRenderer.bakeTextOverlays(segment, width, height) : [];
+    console.log(`[Exporter] Baked ${bakedPath.length} camera frames, ${bakedCursorPath.length} cursor frames, ${bakedTextOverlays.length} text overlays.`);
 
     // Convert video blob to Uint8Array for Rust
     let videoDataArray: number[] | null = null;
@@ -119,7 +123,8 @@ export class VideoExporter {
       videoData: videoDataArray,
       audioData: audioDataArray,
       bakedPath: bakedPath,
-      bakedCursorPath: bakedCursorPath
+      bakedCursorPath: bakedCursorPath,
+      bakedTextOverlays: bakedTextOverlays
     };
 
     // @ts-ignore

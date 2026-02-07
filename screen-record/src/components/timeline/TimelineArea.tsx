@@ -29,6 +29,8 @@ interface TimelineAreaProps {
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export const TimelineArea: React.FC<TimelineAreaProps> = ({
@@ -46,6 +48,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   setActivePanel,
   setSegment,
   onSeek,
+  beginBatch,
+  commitBatch,
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
@@ -70,6 +74,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     setEditingTextId,
     setActivePanel,
     onSeek,
+    beginBatch,
+    commitBatch,
   });
 
   return (
@@ -128,6 +134,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onUpdateKeyframes={(keyframes) => {
                   setSegment({ ...segment, zoomKeyframes: keyframes });
                 }}
+                beginBatch={beginBatch}
+                commitBatch={commitBatch}
               />
             ) : (
               <div className="h-10 rounded bg-[var(--surface-container)]/60" />

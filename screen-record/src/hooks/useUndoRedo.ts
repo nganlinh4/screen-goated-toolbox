@@ -10,6 +10,10 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
     const presentRef = useRef(present);
     presentRef.current = present;
 
+    // Batch support: during a batch, setState updates present only (no history push).
+    // On commitBatch, the pre-batch snapshot is pushed as one undo entry.
+    const batchSnapshotRef = useRef<T | null>(null);
+
     const set = useCallback((newState: T | ((prev: T) => T), withHistory: boolean = true) => {
         // If newState is a function, evaluate it
         const computedState = newState instanceof Function ? newState(presentRef.current) : newState;
@@ -17,6 +21,12 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
         // Don't save if state hasn't changed (deep comparison/shallow expected?)
         // Basic strict equality for now.
         if (computedState === presentRef.current) return;
+
+        // Inside a batch: just update present, skip history
+        if (batchSnapshotRef.current !== null) {
+            setPresent(computedState);
+            return;
+        }
 
         if (withHistory) {
             setPast((prev) => {
@@ -27,6 +37,26 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
             setFuture([]);
         }
         setPresent(computedState);
+    }, [maxHistory]);
+
+    const beginBatch = useCallback(() => {
+        if (batchSnapshotRef.current === null) {
+            batchSnapshotRef.current = presentRef.current;
+        }
+    }, []);
+
+    const commitBatch = useCallback(() => {
+        const snapshot = batchSnapshotRef.current;
+        if (snapshot === null) return;
+        batchSnapshotRef.current = null;
+        // Only push if state actually changed during the batch
+        if (snapshot === presentRef.current) return;
+        setPast((prev) => {
+            const newPast = [...prev, snapshot];
+            if (newPast.length > maxHistory) newPast.shift();
+            return newPast;
+        });
+        setFuture([]);
     }, [maxHistory]);
 
     const undo = useCallback(() => {
@@ -57,6 +87,8 @@ export function useUndoRedo<T>(initialState: T, maxHistory: number = 20) {
         undo,
         redo,
         canUndo: past.length > 0,
-        canRedo: future.length > 0
+        canRedo: future.length > 0,
+        beginBatch,
+        commitBatch
     };
 }

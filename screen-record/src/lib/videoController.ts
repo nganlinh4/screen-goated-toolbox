@@ -37,6 +37,8 @@ export class VideoController {
   private options: VideoControllerOptions;
   private state: VideoState;
   private renderOptions?: RenderOptions;
+  private isChangingSource = false;
+  private isGeneratingThumbnail = false;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
@@ -70,6 +72,8 @@ export class VideoController {
 
   private handleLoadedData = () => {
     console.log('[VideoController] Video loaded data');
+    // During source changes, canplaythrough handler manages ready state & rendering
+    if (this.isChangingSource) return;
     this.renderFrame();
     this.setReady(true);
   };
@@ -108,6 +112,7 @@ export class VideoController {
   };
 
   private handleTimeUpdate = () => {
+    if (this.isGeneratingThumbnail) return;
     if (!this.state.isSeeking) {
       const currentTime = this.video.currentTime;
 
@@ -143,6 +148,7 @@ export class VideoController {
   };
 
   private handleSeeked = () => {
+    if (this.isGeneratingThumbnail) return;
     this.setSeeking(false);
     this.setCurrentTime(this.video.currentTime);
     this.renderFrame();
@@ -252,6 +258,56 @@ export class VideoController {
     }
   }
 
+  /** Render the first frame to an offscreen canvas with full pipeline, return as data URL. */
+  public async generateThumbnail(options: RenderOptions): Promise<string | undefined> {
+    if (this.video.readyState < 2) return undefined;
+
+    this.isGeneratingThumbnail = true;
+    const savedTime = this.video.currentTime;
+
+    try {
+      // Seek to first visible frame
+      this.video.currentTime = options.segment.trimStart;
+      await new Promise<void>(r => this.video.addEventListener('seeked', () => r(), { once: true }));
+
+      // Render to offscreen canvas (doesn't disturb the main display)
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = this.canvas.width;
+      thumbCanvas.height = this.canvas.height;
+      const thumbTemp = document.createElement('canvas');
+
+      videoRenderer.drawFrame({
+        video: this.video, canvas: thumbCanvas, tempCanvas: thumbTemp,
+        segment: options.segment, backgroundConfig: options.backgroundConfig,
+        mousePositions: options.mousePositions, currentTime: options.segment.trimStart
+      });
+
+      return thumbCanvas.toDataURL('image/jpeg', 0.7);
+    } catch {
+      return undefined;
+    } finally {
+      // Restore position and re-render main canvas
+      this.video.currentTime = savedTime;
+      await new Promise<void>(r => this.video.addEventListener('seeked', () => r(), { once: true })).catch(() => {});
+      this.isGeneratingThumbnail = false;
+      this.renderFrame();
+    }
+  }
+
+  /** Draw one frame immediately with the given options (bypasses React state). */
+  public renderImmediate(options: RenderOptions) {
+    if (this.video.readyState < 2) return;
+    this.renderOptions = options;
+    const ctx = {
+      video: this.video, canvas: this.canvas, tempCanvas: this.tempCanvas,
+      segment: options.segment, backgroundConfig: options.backgroundConfig,
+      mousePositions: options.mousePositions,
+      currentTime: options.segment.trimStart
+    };
+    videoRenderer.updateRenderContext(ctx);
+    videoRenderer.drawFrame(ctx);
+  }
+
   // Public API
   public updateRenderOptions(options: RenderOptions) {
     this.renderOptions = options;
@@ -334,17 +390,6 @@ export class VideoController {
   // Add this new method
   public async loadVideo({ videoBlob, videoUrl, onLoadingProgress }: { videoBlob?: Blob, videoUrl?: string, onLoadingProgress?: (p: number) => void }): Promise<string> {
     try {
-      // Reset states
-      this.setReady(false);
-      this.setSeeking(false);
-      this.setPlaying(false);
-
-      // Clear previous video properly to avoid 'Video error' events
-      this.video.pause();
-      this.video.src = "";
-      this.video.load();
-      this.video.removeAttribute('src');
-
       // Clear previous audio
       if (this.audio) {
         this.audio.pause();
@@ -437,7 +482,9 @@ export class VideoController {
   private async handleVideoSourceChange(videoUrl: string): Promise<void> {
     if (!this.video || !this.canvas) return;
 
-    // Reset states
+    this.isChangingSource = true;
+
+    // Reset states — single place for cleanup
     this.setReady(false);
     this.setSeeking(false);
     this.setPlaying(false);
@@ -445,7 +492,6 @@ export class VideoController {
     // Reset video element
     this.video.pause();
     this.video.src = "";
-    this.video.load();
     this.video.removeAttribute('src');
 
     return new Promise<void>((resolve) => {
@@ -463,6 +509,7 @@ export class VideoController {
           ctx.imageSmoothingQuality = 'high';
         }
 
+        this.isChangingSource = false;
         this.setReady(true);
         resolve();
       };
@@ -471,7 +518,7 @@ export class VideoController {
       this.video.addEventListener('canplaythrough', handleCanPlayThrough);
       this.video.preload = 'auto';
       this.video.src = videoUrl;
-      this.video.load(); // Explicitly load the video
+      this.video.load();
     });
   }
 
