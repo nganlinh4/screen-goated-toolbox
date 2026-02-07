@@ -1,11 +1,8 @@
-use resvg::usvg::{fontdb, Options, Tree};
 use serde::Deserialize;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
-use tiny_skia::{Pixmap, Transform};
 
 use super::gpu_export::{create_uniforms, GpuCompositor};
 use crate::overlay::screen_record::engine::VIDEO_PATH;
@@ -31,6 +28,8 @@ pub struct ExportConfig {
     pub audio_data: Option<Vec<u8>>,
     pub baked_path: Option<Vec<BakedCameraFrame>>,
     pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
+    #[serde(default)]
+    pub baked_text_overlays: Vec<BakedTextOverlay>,
 }
 
 fn default_quality() -> String {
@@ -62,26 +61,27 @@ pub struct BakedCursorFrame {
 #[serde(rename_all = "camelCase")]
 pub struct VideoSegment {
     pub crop: Option<CropRect>,
-    #[serde(default)]
-    pub text_segments: Vec<TextSegment>,
+    #[serde(default, rename = "textSegments")]
+    pub _text_segments: Vec<TextSegment>,
+}
+
+// TextSegment: only needed for serde compat — rendering uses BakedTextOverlay
+#[derive(Deserialize, Debug, Clone)]
+pub struct TextSegment {
+    #[serde(flatten)]
+    _rest: serde_json::Value,
 }
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct TextSegment {
+pub struct BakedTextOverlay {
     pub start_time: f64,
     pub end_time: f64,
-    pub text: String,
-    pub style: TextStyle,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct TextStyle {
-    pub font_size: f64,
-    pub color: String,
-    pub x: f64, // 0-100
-    pub y: f64, // 0-100
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -102,88 +102,50 @@ pub struct BackgroundConfig {
     pub cursor_scale: f64,
 }
 
-// --- TEXT RENDERER ---
+// --- TEXT RENDERER (baked bitmap compositing) ---
+// Text overlays are pre-rendered on the JS canvas (identical to preview).
+// Rust only alpha-composites the baked bitmaps with per-frame fade applied.
 
-struct TextRenderer {
-    font_db: Arc<fontdb::Database>,
-}
+fn composite_baked_text(
+    buffer: &mut [u8],
+    buf_w: u32,
+    buf_h: u32,
+    overlay: &BakedTextOverlay,
+    fade_alpha: f64,
+) {
+    if fade_alpha <= 0.001 || overlay.data.is_empty() { return; }
 
-impl TextRenderer {
-    fn new() -> Self {
-        let mut font_db = fontdb::Database::new();
-        // Load embedded Google Sans Flex
-        font_db.load_font_data(crate::assets::GOOGLE_SANS_FLEX.to_vec());
-        // Fallback system fonts
-        font_db.load_system_fonts();
+    let ow = overlay.width as usize;
+    let oh = overlay.height as usize;
+    let expected = ow * oh * 4;
+    if overlay.data.len() < expected { return; }
 
-        Self {
-            font_db: Arc::new(font_db),
-        }
-    }
+    for row in 0..oh {
+        let dst_y = overlay.y + row as i32;
+        if dst_y < 0 || dst_y >= buf_h as i32 { continue; }
 
-    fn render_text(&self, buffer: &mut [u8], width: u32, height: u32, segment: &TextSegment) {
-        let mut pixmap = Pixmap::new(width, height).unwrap();
+        for col in 0..ow {
+            let dst_x = overlay.x + col as i32;
+            if dst_x < 0 || dst_x >= buf_w as i32 { continue; }
 
-        // Convert hex color to CSS style
-        let color = &segment.style.color;
+            let src_off = (row * ow + col) * 4;
+            let src_a_raw = overlay.data[src_off + 3] as f64 / 255.0;
+            let src_a = src_a_raw * fade_alpha;
+            if src_a < 0.004 { continue; } // ~1/255
 
-        // Calculate position (percent to pixels)
-        let x = (segment.style.x / 100.0) * width as f64;
-        let y = (segment.style.y / 100.0) * height as f64;
-        let font_size = segment.style.font_size;
+            let src_r = overlay.data[src_off] as f64;
+            let src_g = overlay.data[src_off + 1] as f64;
+            let src_b = overlay.data[src_off + 2] as f64;
 
-        // Create SVG wrapper for text with shadow matching HTML canvas
-        let svg_data = format!(
-            r#"
-            <svg width="{}" height="{}" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
-                        <feOffset dx="2" dy="2" result="offsetblur"/>
-                        <feComponentTransfer>
-                            <feFuncA type="linear" slope="0.7"/>
-                        </feComponentTransfer>
-                        <feMerge>
-                            <feMergeNode/>
-                            <feMergeNode in="SourceGraphic"/>
-                        </feMerge>
-                    </filter>
-                </defs>
-                <text x="{}" y="{}" font-family="Google Sans Flex" font-size="{}" fill="{}" text-anchor="middle" filter="url(#shadow)" font-weight="500">
-                    {}
-                </text>
-            </svg>
-            "#,
-            width, height, x, y, font_size, color, segment.text
-        );
+            let dst_off = (dst_y as usize * buf_w as usize + dst_x as usize) * 4;
+            let dst_r = buffer[dst_off] as f64;
+            let dst_g = buffer[dst_off + 1] as f64;
+            let dst_b = buffer[dst_off + 2] as f64;
+            let inv = 1.0 - src_a;
 
-        let opt = Options {
-            fontdb: self.font_db.clone(),
-            ..Default::default()
-        };
-
-        if let Ok(tree) = Tree::from_str(&svg_data, &opt) {
-            resvg::render(&tree, Transform::identity(), &mut pixmap.as_mut());
-
-            let src_data = pixmap.data();
-            for i in (0..buffer.len()).step_by(4) {
-                let src_a = src_data[i + 3] as u32;
-                if src_a > 0 {
-                    let src_r = src_data[i] as u32;
-                    let src_g = src_data[i + 1] as u32;
-                    let src_b = src_data[i + 2] as u32;
-
-                    let dst_r = buffer[i] as u32;
-                    let dst_g = buffer[i + 1] as u32;
-                    let dst_b = buffer[i + 2] as u32;
-
-                    let inv_a = 255 - src_a;
-
-                    buffer[i] = ((src_r * 255 + dst_r * inv_a) / 255) as u8;
-                    buffer[i + 1] = ((src_g * 255 + dst_g * inv_a) / 255) as u8;
-                    buffer[i + 2] = ((src_b * 255 + dst_b * inv_a) / 255) as u8;
-                }
-            }
+            buffer[dst_off]     = (src_r * src_a + dst_r * inv) as u8;
+            buffer[dst_off + 1] = (src_g * src_a + dst_g * inv) as u8;
+            buffer[dst_off + 2] = (src_b * src_a + dst_b * inv) as u8;
         }
     }
 }
@@ -312,7 +274,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let baked_path = config.baked_path.unwrap_or_default();
     let baked_cursor = config.baked_cursor_path.unwrap_or_default();
-    let text_renderer = TextRenderer::new();
 
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
@@ -374,7 +335,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let dim_str = String::from_utf8_lossy(&probe.stdout);
     let dims: Vec<&str> = dim_str.trim().split('x').collect();
-    let src_w: u32 = dims.get(0).and_then(|s| s.parse().ok()).unwrap_or(1920);
+    let src_w: u32 = dims.first().and_then(|s| s.parse().ok()).unwrap_or(1920);
     let src_h: u32 = dims.get(1).and_then(|s| s.parse().ok()).unwrap_or(1080);
 
     // 3. Calculate dimensions
@@ -645,11 +606,16 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
         let mut rendered = compositor.render_frame(&uniforms);
 
-        // --- RENDER TEXT OVERLAY ---
-        // Overlay any text segments active at this time
-        for text_seg in &config.segment.text_segments {
-            if current_time >= text_seg.start_time && current_time <= text_seg.end_time {
-                text_renderer.render_text(&mut rendered, out_w, out_h, text_seg);
+        // --- RENDER TEXT OVERLAY (baked bitmaps) ---
+        let fade_dur = 0.3_f64;
+        for overlay in &config.baked_text_overlays {
+            if current_time >= overlay.start_time && current_time <= overlay.end_time {
+                let elapsed = current_time - overlay.start_time;
+                let remaining = overlay.end_time - current_time;
+                let mut fade = 1.0_f64;
+                if elapsed < fade_dur { fade = elapsed / fade_dur; }
+                if remaining < fade_dur { fade = fade.min(remaining / fade_dur); }
+                composite_baked_text(&mut rendered, out_w, out_h, overlay, fade);
             }
         }
 

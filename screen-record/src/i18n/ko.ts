@@ -51,6 +51,14 @@ const ko: Translations = {
   fontSize: '글꼴 크기',
   color: '색상',
   textPanelHint: '텍스트 오버레이를 추가하거나 타임라인에서 선택하세요',
+  fontWeight: '굵게',
+  textAlignment: '정렬',
+  opacity: '투명도',
+  letterSpacing: '자간',
+  backgroundPill: '배경',
+  pillColor: '배경 색상',
+  pillRadius: '둥글기',
+  deleteText: '텍스트 삭제',
 
   // VideoPreview
   processingVideo: '비디오 처리 중',

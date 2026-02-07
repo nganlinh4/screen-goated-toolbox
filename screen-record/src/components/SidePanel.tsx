@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
-import { Trash2, Type } from 'lucide-react';
-import { VideoSegment, BackgroundConfig } from '@/types/video';
+import { Trash2, Type, Bold, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { VideoSegment, BackgroundConfig, TextSegment } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 
 // ============================================================================
@@ -64,6 +64,8 @@ interface ZoomPanelProps {
   setZoomFactor: (value: number) => void;
   onDeleteKeyframe: () => void;
   onUpdateZoom: (updates: { zoomFactor?: number; positionX?: number; positionY?: number }) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 function ZoomPanel({
@@ -72,7 +74,9 @@ function ZoomPanel({
   zoomFactor,
   setZoomFactor,
   onDeleteKeyframe,
-  onUpdateZoom
+  onUpdateZoom,
+  beginBatch,
+  commitBatch
 }: ZoomPanelProps) {
   const { t } = useSettings();
   if (editingKeyframeId !== null && segment) {
@@ -102,6 +106,8 @@ function ZoomPanel({
                 max="3"
                 step="0.1"
                 value={zoomFactor}
+                onPointerDown={beginBatch}
+                onPointerUp={commitBatch}
                 onChange={(e) => {
                   const newValue = Number(e.target.value);
                   setZoomFactor(newValue);
@@ -128,6 +134,8 @@ function ZoomPanel({
                 max="1"
                 step="0.01"
                 value={keyframe?.positionX ?? 0.5}
+                onPointerDown={beginBatch}
+                onPointerUp={commitBatch}
                 onChange={(e) => onUpdateZoom({ positionX: Number(e.target.value) })}
                 className="w-full"
               />
@@ -143,6 +151,8 @@ function ZoomPanel({
                 max="1"
                 step="0.01"
                 value={keyframe?.positionY ?? 0.5}
+                onPointerDown={beginBatch}
+                onPointerUp={commitBatch}
                 onChange={(e) => onUpdateZoom({ positionY: Number(e.target.value) })}
                 className="w-full"
               />
@@ -309,20 +319,46 @@ interface TextPanelProps {
   segment: VideoSegment | null;
   editingTextId: string | null;
   onAddText: () => void;
+  onDeleteText: () => void;
   onUpdateSegment: (segment: VideoSegment) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
-function TextPanel({ segment, editingTextId, onAddText, onUpdateSegment }: TextPanelProps) {
+function TextPanel({ segment, editingTextId, onAddText, onDeleteText, onUpdateSegment, beginBatch, commitBatch }: TextPanelProps) {
   const { t } = useSettings();
   const editingText = editingTextId ? segment?.textSegments?.find(ts => ts.id === editingTextId) : null;
+
+  const updateStyle = (updates: Partial<TextSegment['style']>) => {
+    if (!segment || !editingTextId) return;
+    onUpdateSegment({
+      ...segment,
+      textSegments: segment.textSegments.map(ts =>
+        ts.id === editingTextId ? { ...ts, style: { ...ts.style, ...updates } } : ts
+      )
+    });
+  };
 
   return (
     <div className="bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)]">{t.textOverlay}</h2>
-        <Button onClick={onAddText} className="bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85 text-white rounded-lg text-xs transition-colors">
-          <Type className="w-3.5 h-3.5 mr-1.5" />{t.addText}
-        </Button>
+        <div className="flex gap-1">
+          {editingText && (
+            <Button
+              onClick={onDeleteText}
+              variant="ghost"
+              size="icon"
+              className="text-[var(--on-surface-variant)] hover:text-[var(--tertiary-color)] hover:bg-[var(--tertiary-color)]/10 transition-colors"
+              title={t.deleteText}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
+          <Button onClick={onAddText} className="bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85 text-white rounded-lg text-xs transition-colors">
+            <Type className="w-3.5 h-3.5 mr-1.5" />{t.addText}
+          </Button>
+        </div>
       </div>
 
       {editingText && segment ? (
@@ -331,6 +367,8 @@ function TextPanel({ segment, editingTextId, onAddText, onUpdateSegment }: TextP
             <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.textContent}</label>
             <textarea
               value={editingText.text}
+              onFocus={beginBatch}
+              onBlur={commitBatch}
               onChange={(e) => {
                 onUpdateSegment({
                   ...segment,
@@ -346,19 +384,13 @@ function TextPanel({ segment, editingTextId, onAddText, onUpdateSegment }: TextP
 
           <p className="text-[10px] text-[var(--on-surface-variant)]">{t.dragTextHint}</p>
 
+          {/* Font Size + Color */}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.fontSize}</label>
               <select
                 value={editingText.style.fontSize}
-                onChange={(e) => {
-                  onUpdateSegment({
-                    ...segment,
-                    textSegments: segment.textSegments.map(ts =>
-                      ts.id === editingTextId ? { ...ts, style: { ...ts.style, fontSize: Number(e.target.value) } } : ts
-                    )
-                  });
-                }}
+                onChange={(e) => updateStyle({ fontSize: Number(e.target.value) })}
                 className="w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)] text-sm"
               >
                 {[16, 24, 32, 48, 64, 80, 96, 128, 160, 200].map(size => (
@@ -371,17 +403,133 @@ function TextPanel({ segment, editingTextId, onAddText, onUpdateSegment }: TextP
               <input
                 type="color"
                 value={editingText.style.color}
-                onChange={(e) => {
-                  onUpdateSegment({
-                    ...segment,
-                    textSegments: segment.textSegments.map(ts =>
-                      ts.id === editingTextId ? { ...ts, style: { ...ts.style, color: e.target.value } } : ts
-                    )
-                  });
-                }}
+                onFocus={beginBatch}
+                onBlur={commitBatch}
+                onChange={(e) => updateStyle({ color: e.target.value })}
                 className="w-12 h-10 bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg p-1"
               />
             </div>
+          </div>
+
+          {/* Bold + Alignment */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => updateStyle({ fontWeight: (editingText.style.fontWeight ?? 'normal') === 'bold' ? 'normal' : 'bold' })}
+              className={`flex items-center justify-center w-9 h-9 rounded-lg border transition-colors ${
+                (editingText.style.fontWeight ?? 'normal') === 'bold'
+                  ? 'bg-[var(--primary-color)]/20 border-[var(--primary-color)] text-[var(--primary-color)]'
+                  : 'bg-[var(--glass-bg)] border-[var(--glass-border)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]'
+              }`}
+              title={t.fontWeight}
+            >
+              <Bold className="w-4 h-4" />
+            </button>
+            <div className="flex rounded-lg border border-[var(--glass-border)] overflow-hidden">
+              {(['left', 'center', 'right'] as const).map(align => {
+                const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
+                const isActive = (editingText.style.textAlign ?? 'center') === align;
+                return (
+                  <button
+                    key={align}
+                    onClick={() => updateStyle({ textAlign: align })}
+                    className={`flex items-center justify-center w-9 h-9 transition-colors ${
+                      isActive
+                        ? 'bg-[var(--primary-color)]/20 text-[var(--primary-color)]'
+                        : 'bg-[var(--glass-bg)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]'
+                    }`}
+                    title={align}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Opacity */}
+          <div>
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
+              <span>{t.opacity}</span>
+              <span>{Math.round((editingText.style.opacity ?? 1) * 100)}%</span>
+            </label>
+            <input
+              type="range" min="0" max="1" step="0.01"
+              value={editingText.style.opacity ?? 1}
+              onPointerDown={beginBatch}
+              onPointerUp={commitBatch}
+              onChange={(e) => updateStyle({ opacity: Number(e.target.value) })}
+              className="w-full"
+            />
+          </div>
+
+          {/* Letter Spacing */}
+          <div>
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
+              <span>{t.letterSpacing}</span>
+              <span>{editingText.style.letterSpacing ?? 0}px</span>
+            </label>
+            <input
+              type="range" min="-5" max="20" step="1"
+              value={editingText.style.letterSpacing ?? 0}
+              onPointerDown={beginBatch}
+              onPointerUp={commitBatch}
+              onChange={(e) => updateStyle({ letterSpacing: Number(e.target.value) })}
+              className="w-full"
+            />
+          </div>
+
+          {/* Background Pill */}
+          <div>
+            <label className="flex items-center gap-2 text-xs text-[var(--on-surface-variant)] mb-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editingText.style.background?.enabled ?? false}
+                onChange={(e) => updateStyle({
+                  background: {
+                    enabled: e.target.checked,
+                    color: editingText.style.background?.color ?? 'rgba(0,0,0,0.6)',
+                    paddingX: editingText.style.background?.paddingX ?? 16,
+                    paddingY: editingText.style.background?.paddingY ?? 8,
+                    borderRadius: editingText.style.background?.borderRadius ?? 8
+                  }
+                })}
+                className="rounded"
+              />
+              {t.backgroundPill}
+            </label>
+            {editingText.style.background?.enabled && (
+              <div className="space-y-2 pl-1">
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-[var(--on-surface-variant)] whitespace-nowrap">{t.pillColor}</label>
+                  <input
+                    type="color"
+                    value={editingText.style.background.color.startsWith('rgba') ? '#000000' : editingText.style.background.color}
+                    onFocus={beginBatch}
+                    onBlur={commitBatch}
+                    onChange={(e) => updateStyle({
+                      background: { ...editingText.style.background!, color: e.target.value }
+                    })}
+                    className="w-8 h-7 bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded p-0.5"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--on-surface-variant)] mb-1 flex justify-between">
+                    <span>{t.pillRadius}</span>
+                    <span>{editingText.style.background.borderRadius}px</span>
+                  </label>
+                  <input
+                    type="range" min="0" max="32" step="1"
+                    value={editingText.style.background.borderRadius}
+                    onPointerDown={beginBatch}
+                    onPointerUp={commitBatch}
+                    onChange={(e) => updateStyle({
+                      background: { ...editingText.style.background!, borderRadius: Number(e.target.value) }
+                    })}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -409,7 +557,10 @@ interface SidePanelProps {
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   editingTextId: string | null;
   onAddText: () => void;
+  onDeleteText: () => void;
   onUpdateSegment: (segment: VideoSegment) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export function SidePanel({
@@ -427,7 +578,10 @@ export function SidePanel({
   onBackgroundUpload,
   editingTextId,
   onAddText,
-  onUpdateSegment
+  onDeleteText,
+  onUpdateSegment,
+  beginBatch,
+  commitBatch
 }: SidePanelProps) {
   return (
     <div className="space-y-3">
@@ -441,6 +595,8 @@ export function SidePanel({
           setZoomFactor={setZoomFactor}
           onDeleteKeyframe={onDeleteKeyframe}
           onUpdateZoom={onUpdateZoom}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
         />
       )}
 
@@ -462,7 +618,10 @@ export function SidePanel({
           segment={segment}
           editingTextId={editingTextId}
           onAddText={onAddText}
+          onDeleteText={onDeleteText}
           onUpdateSegment={onUpdateSegment}
+          beginBatch={beginBatch}
+          commitBatch={commitBatch}
         />
       )}
     </div>

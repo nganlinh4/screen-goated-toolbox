@@ -10,6 +10,14 @@ export interface ZoomKeyframe {
   easingType: 'linear' | 'easeOut' | 'easeInOut';
 }
 
+export interface TextBackground {
+  enabled: boolean;
+  color: string;
+  paddingX: number;
+  paddingY: number;
+  borderRadius: number;
+}
+
 export interface TextSegment {
   id: string;
   startTime: number;
@@ -20,6 +28,11 @@ export interface TextSegment {
     color: string;
     x: number;  // 0-100 percentage
     y: number;  // 0-100 percentage
+    fontWeight?: 'normal' | 'bold';
+    textAlign?: 'left' | 'center' | 'right';
+    opacity?: number;       // 0-1, default 1
+    letterSpacing?: number; // px, default 0
+    background?: TextBackground;
   };
 }
 
@@ -85,6 +98,16 @@ export interface BakedCursorFrame {
   type: string;
 }
 
+export interface BakedTextOverlay {
+  startTime: number;
+  endTime: number;
+  x: number;      // pixel x of bitmap top-left in output canvas
+  y: number;      // pixel y of bitmap top-left in output canvas
+  width: number;  // bitmap width
+  height: number; // bitmap height
+  data: number[]; // raw RGBA bytes (opacity already baked in)
+}
+
 export interface ExportOptions {
   quality?: ExportQuality;
   dimensions: DimensionPreset;
@@ -114,6 +137,7 @@ export interface Project {
   name: string;
   createdAt: number;
   lastModified: number;
+  duration?: number;
   videoBlob: Blob;
   audioBlob?: Blob;
   segment: VideoSegment;

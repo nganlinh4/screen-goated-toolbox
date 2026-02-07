@@ -49,6 +49,14 @@ const en = {
   fontSize: 'Font Size',
   color: 'Color',
   textPanelHint: 'Add a text overlay or select one from the timeline',
+  fontWeight: 'Bold',
+  textAlignment: 'Alignment',
+  opacity: 'Opacity',
+  letterSpacing: 'Letter Spacing',
+  backgroundPill: 'Background',
+  pillColor: 'Background Color',
+  pillRadius: 'Roundness',
+  deleteText: 'Delete Text',
 
   // VideoPreview
   processingVideo: 'Processing Video',

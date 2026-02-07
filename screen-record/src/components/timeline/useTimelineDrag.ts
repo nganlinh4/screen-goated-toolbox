@@ -24,6 +24,8 @@ interface UseTimelineDragOptions {
   setEditingTextId: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   onSeek?: (time: number) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export function useTimelineDrag({
@@ -37,6 +39,8 @@ export function useTimelineDrag({
   setEditingTextId,
   setActivePanel,
   onSeek,
+  beginBatch,
+  commitBatch,
 }: UseTimelineDragOptions) {
   const [isDraggingTrimStart, setIsDraggingTrimStart] = useState(false);
   const [isDraggingTrimEnd, setIsDraggingTrimEnd] = useState(false);
@@ -71,11 +75,12 @@ export function useTimelineDrag({
 
   // Zoom keyframe drag
   const handleZoomDragStart = useCallback((index: number) => {
+    beginBatch();
     setIsDraggingZoom(true);
     setDraggingZoomIdx(index);
     setEditingKeyframeId(index);
     setActivePanel('zoom');
-  }, [setEditingKeyframeId, setActivePanel]);
+  }, [setEditingKeyframeId, setActivePanel, beginBatch]);
 
   const handleZoomDrag = useCallback((clientX: number) => {
     if (!isDraggingZoom || draggingZoomIdx === null || !segment) return;
@@ -104,9 +109,10 @@ export function useTimelineDrag({
 
   // Trim drag
   const handleTrimDragStart = useCallback((type: 'start' | 'end') => {
+    beginBatch();
     if (type === 'start') setIsDraggingTrimStart(true);
     else setIsDraggingTrimEnd(true);
-  }, []);
+  }, [beginBatch]);
 
   const handleTrimDrag = useCallback((clientX: number) => {
     if (!isDraggingTrimStart && !isDraggingTrimEnd) return;
@@ -128,6 +134,7 @@ export function useTimelineDrag({
 
   // Text drag
   const handleTextDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
+    beginBatch();
     setDraggingTextId(id);
     if (type === 'start') setIsDraggingTextStart(true);
     else if (type === 'end') setIsDraggingTextEnd(true);
@@ -135,7 +142,7 @@ export function useTimelineDrag({
       setIsDraggingTextBody(true);
       if (offset !== undefined) textDragOffsetRef.current = offset;
     }
-  }, []);
+  }, [beginBatch]);
 
   const handleTextDrag = useCallback((clientX: number) => {
     if ((!isDraggingTextStart && !isDraggingTextEnd && !isDraggingTextBody) || !draggingTextId || !segment) return;
@@ -195,6 +202,10 @@ export function useTimelineDrag({
   }, [handleTrimDrag, handleTextDrag, handleZoomDrag, isDraggingSeek, handleSeek]);
 
   const handleMouseUp = useCallback(() => {
+    // Commit batch if any drag operation was active (not seek — seek doesn't modify segment)
+    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingZoom) {
+      commitBatch();
+    }
     setIsDraggingTrimStart(false);
     setIsDraggingTrimEnd(false);
     setIsDraggingTextStart(false);
@@ -204,7 +215,7 @@ export function useTimelineDrag({
     setDraggingZoomIdx(null);
     setDraggingTextId(null);
     setIsDraggingSeek(false);
-  }, []);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingZoom, commitBatch]);
 
   // Attach window-level listeners during any drag so cursor can leave the timeline
   useEffect(() => {

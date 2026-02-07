@@ -152,13 +152,17 @@ interface CropOverlayProps {
   previewContainerRef: React.RefObject<HTMLDivElement>;
   videoRef: React.RefObject<HTMLVideoElement>;
   onUpdateSegment: (segment: VideoSegment) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export function CropOverlay({
   segment,
   previewContainerRef,
   videoRef,
-  onUpdateSegment
+  onUpdateSegment,
+  beginBatch,
+  commitBatch
 }: CropOverlayProps) {
   const container = previewContainerRef.current;
   const video = videoRef.current;
@@ -193,6 +197,7 @@ export function CropOverlay({
   const handleResizeStart = (e: React.MouseEvent, type: string) => {
     e.preventDefault();
     e.stopPropagation();
+    beginBatch();
     const startX = e.clientX;
     const startY = e.clientY;
     const startCrop = { ...crop };
@@ -238,6 +243,7 @@ export function CropOverlay({
     const handleUp = () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      commitBatch();
     };
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
@@ -246,6 +252,7 @@ export function CropOverlay({
   const handleBoxMove = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    beginBatch();
     const startX = e.clientX;
     const startY = e.clientY;
     const startCrop = { ...crop };
@@ -261,6 +268,7 @@ export function CropOverlay({
     const handleUp = () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      commitBatch();
     };
     window.addEventListener('mousemove', handleMove);
     window.addEventListener('mouseup', handleUp);
@@ -348,6 +356,8 @@ interface VideoPreviewProps {
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
   onUpdateSegment: (segment: VideoSegment) => void;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
 export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
@@ -371,7 +381,9 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
   onPreviewMouseDown,
   onTogglePlayPause,
   onToggleCrop,
-  onUpdateSegment
+  onUpdateSegment,
+  beginBatch,
+  commitBatch
 }, _ref) => {
   return (
     <div className="col-span-3 rounded-xl overflow-hidden bg-black/20 flex items-center justify-center">
@@ -401,6 +413,8 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
               previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
               videoRef={videoRef as React.RefObject<HTMLVideoElement>}
               onUpdateSegment={onUpdateSegment}
+              beginBatch={beginBatch}
+              commitBatch={commitBatch}
             />
           )}
         </div>

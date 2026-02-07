@@ -371,6 +371,14 @@ export function useProjects(props: UseProjectsProps) {
       correctedSegment.trimEnd = videoDuration;
     }
 
+    // Draw the first frame on the canvas immediately (before React state updates)
+    // so the canvas has content when the projects overlay fades out.
+    props.videoControllerRef.current?.renderImmediate({
+      segment: correctedSegment,
+      backgroundConfig: project.backgroundConfig,
+      mousePositions: project.mousePositions
+    });
+
     props.setSegment(correctedSegment);
     props.setBackgroundConfig(project.backgroundConfig);
     props.setMousePositions(project.mousePositions);
@@ -585,7 +593,10 @@ export function useTextOverlays(props: UseTextOverlaysProps) {
       startTime: props.currentTime,
       endTime: Math.min(props.currentTime + 3, props.duration),
       text: 'New Text',
-      style: { fontSize: 24, color: '#ffffff', x: 50, y: 50 }
+      style: {
+        fontSize: 48, color: '#ffffff', x: 50, y: 50,
+        fontWeight: 'normal', textAlign: 'center', opacity: 1, letterSpacing: 0
+      }
     };
 
     props.setSegment({ ...props.segment, textSegments: [...(props.segment.textSegments || []), newText] });
@@ -601,7 +612,16 @@ export function useTextOverlays(props: UseTextOverlaysProps) {
     });
   }, [props.segment, props.setSegment]);
 
-  return { editingTextId, setEditingTextId, handleAddText, handleTextDragMove };
+  const handleDeleteText = useCallback(() => {
+    if (!props.segment || !editingTextId) return;
+    props.setSegment({
+      ...props.segment,
+      textSegments: props.segment.textSegments.filter(ts => ts.id !== editingTextId)
+    });
+    setEditingTextId(null);
+  }, [props.segment, editingTextId, props.setSegment]);
+
+  return { editingTextId, setEditingTextId, handleAddText, handleDeleteText, handleTextDragMove };
 }
 
 // ============================================================================
