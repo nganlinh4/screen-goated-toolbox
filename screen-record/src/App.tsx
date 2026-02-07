@@ -23,6 +23,23 @@ import {
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
 
+const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
+
+function ResizeBorders() {
+  const resize = (dir: string) => (e: React.MouseEvent) => { e.preventDefault(); ipc(`resize_${dir}`); };
+  return (
+    <>
+      {/* Edges: left / right full-height, bottom full-width (top handled by Header) */}
+      <div className="fixed top-0 left-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('w')} />
+      <div className="fixed top-0 right-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('e')} />
+      <div className="fixed bottom-0 left-[14px] right-[14px] h-[6px] z-50 cursor-ns-resize" onMouseDown={resize('s')} />
+      {/* Corners */}
+      <div className="fixed bottom-0 left-0 w-[14px] h-[14px] z-50 cursor-nesw-resize" onMouseDown={resize('sw')} />
+      <div className="fixed bottom-0 right-0 w-[14px] h-[14px] z-50 cursor-nwse-resize" onMouseDown={resize('se')} />
+    </>
+  );
+}
+
 function App() {
   const settings = useSettingsProvider();
   const { t } = settings;
@@ -342,6 +359,7 @@ function App() {
   return (
     <SettingsContext.Provider value={settings}>
     <div className="min-h-screen bg-[var(--surface)]">
+      <ResizeBorders />
       <Header
         isRecording={isRecording} recordingDuration={recordingDuration} currentVideo={currentVideo}
         isProcessing={exportHook.isProcessing} hotkeys={hotkeys} keyvizStatus={keyvizStatus}
@@ -359,7 +377,7 @@ function App() {
             <div className="relative w-full h-full flex justify-center items-center">
               <div
                 ref={previewContainerRef}
-                className={`relative flex items-center justify-center cursor-crosshair group ${!currentVideo ? 'w-full h-full' : 'max-h-full'}`}
+                className="relative flex items-center justify-center cursor-crosshair group w-full h-full"
                 onMouseDown={handlePreviewMouseDown}
               >
                 <canvas ref={canvasRef} className="max-w-full max-h-full object-contain" />
@@ -415,14 +433,14 @@ function App() {
           </div>
 
           {/* Side Panel */}
-          <div className={`w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          <div className={`w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
               onDeleteKeyframe={handleDeleteKeyframe} onUpdateZoom={throttledUpdateZoom}
               backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig}
               recentUploads={recentUploads} onBackgroundUpload={handleBackgroundUpload}
-              editingTextId={editingTextId} onAddText={handleAddText} onDeleteText={handleDeleteText} onUpdateSegment={setSegment}
+              editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
             />
             {projects.showProjectsDialog && <div className="absolute inset-0 bg-[var(--surface)] z-50" />}
@@ -437,6 +455,7 @@ function App() {
             editingTextId={editingTextId} setCurrentTime={setCurrentTime}
             setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
             setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek}
+            onAddText={handleAddText}
             beginBatch={beginBatch} commitBatch={commitBatch}
           />
           {projects.showProjectsDialog && <div className="absolute inset-0 bg-[var(--surface)] z-50" />}

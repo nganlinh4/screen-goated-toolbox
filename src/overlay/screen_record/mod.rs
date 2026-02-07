@@ -14,7 +14,8 @@ use std::sync::{Arc, Mutex, Once};
 use std::thread;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
 };
 use windows::Win32::Graphics::Gdi::CreateSolidBrush;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -119,44 +120,67 @@ unsafe extern "system" fn sr_wnd_proc(
             LRESULT(0)
         }
         WM_NCHITTEST => {
-            let mut rect = RECT::default();
-            let _ = GetWindowRect(hwnd, &mut rect);
             let x = lparam.0 as i16 as i32;
             let y = (lparam.0 >> 16) as i16 as i32;
 
-            let border = 8;
+            // GetWindowRect includes the invisible DWM shadow (~7px each side).
+            // Use DWMWA_EXTENDED_FRAME_BOUNDS for the actual visible rect so resize
+            // zones are measured from the visible edge, not from inside the shadow.
+            let mut rect = RECT::default();
+            let _ = GetWindowRect(hwnd, &mut rect);
+            let mut frame = rect;
+            let _ = DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_EXTENDED_FRAME_BOUNDS,
+                &mut frame as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<RECT>() as u32,
+            );
+
+            let border = 6; // px into visible area; shadow zone is always resize
             let title_height = 44;
 
-            if y < rect.top + border {
-                if x < rect.left + border {
+            // Resize zones: shadow (outside visible) + `border` px inside visible
+            let top = frame.top + border;
+            let bottom = frame.bottom - border;
+            let left = frame.left + border;
+            let right = frame.right - border;
+
+            if y < top {
+                if x < left {
                     return LRESULT(HTTOPLEFT as isize);
                 }
-                if x > rect.right - border {
+                if x > right {
                     return LRESULT(HTTOPRIGHT as isize);
                 }
                 return LRESULT(HTTOP as isize);
             }
-            if y > rect.bottom - border {
-                if x < rect.left + border {
+            if y > bottom {
+                if x < left {
                     return LRESULT(HTBOTTOMLEFT as isize);
                 }
-                if x > rect.right - border {
+                if x > right {
                     return LRESULT(HTBOTTOMRIGHT as isize);
                 }
                 return LRESULT(HTBOTTOM as isize);
             }
-            if x < rect.left + border {
+            if x < left {
                 return LRESULT(HTLEFT as isize);
             }
-            if x > rect.right - border {
+            if x > right {
                 return LRESULT(HTRIGHT as isize);
             }
 
-            if y < rect.top + title_height {
+            if y < frame.top + title_height {
                 return LRESULT(HTCLIENT as isize);
             }
 
             LRESULT(HTCLIENT as isize)
+        }
+        WM_GETMINMAXINFO => {
+            let info = &mut *(lparam.0 as *mut MINMAXINFO);
+            info.ptMinTrackSize.x = 800;
+            info.ptMinTrackSize.y = 500;
+            LRESULT(0)
         }
         WM_SIZE => {
             SR_WEBVIEW.with(|wv| {
@@ -519,6 +543,27 @@ unsafe fn internal_create_sr_loop() {
                                 Some(WPARAM(HTCAPTION as usize)),
                                 Some(LPARAM(0)),
                             );
+                        } else if let Some(dir) = body.strip_prefix("resize_") {
+                            let ht = match dir {
+                                "n" => HTTOP as usize,
+                                "s" => HTBOTTOM as usize,
+                                "w" => HTLEFT as usize,
+                                "e" => HTRIGHT as usize,
+                                "nw" => HTTOPLEFT as usize,
+                                "ne" => HTTOPRIGHT as usize,
+                                "sw" => HTBOTTOMLEFT as usize,
+                                "se" => HTBOTTOMRIGHT as usize,
+                                _ => 0,
+                            };
+                            if ht != 0 {
+                                let _ = ReleaseCapture();
+                                let _ = SendMessageW(
+                                    hwnd,
+                                    WM_NCLBUTTONDOWN,
+                                    Some(WPARAM(ht)),
+                                    Some(LPARAM(0)),
+                                );
+                            }
                         } else if body == "minimize_window" {
                             let _ = ShowWindow(hwnd, SW_MINIMIZE);
                         } else if body == "toggle_maximize" {

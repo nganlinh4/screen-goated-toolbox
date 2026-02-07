@@ -22,13 +22,13 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
   onTrimDragStart,
   isDraggingTrim,
 }) => (
-  <div className="relative h-10 rounded overflow-hidden">
+  <div className="trim-track relative h-10 rounded overflow-hidden">
     {/* Thumbnail strip */}
-    <div className="absolute inset-0 bg-[var(--surface-container)] flex gap-[1px]">
+    <div className="trim-thumbnails absolute inset-0 bg-[var(--surface-container)] flex gap-[1px]">
       {thumbnails.map((thumbnail, index) => (
         <div
           key={index}
-          className="h-full flex-shrink-0"
+          className="trim-thumb h-full flex-shrink-0"
           style={{
             width: `calc(${100 / thumbnails.length}% - 1px)`,
             backgroundImage: `url(${thumbnail})`,
@@ -42,18 +42,18 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
 
     {/* Trimmed-out overlay: start */}
     <div
-      className="absolute inset-y-0 left-0 bg-black/60"
+      className="trim-region-start absolute inset-y-0 left-0 bg-black/60"
       style={{ width: `${(segment.trimStart / duration) * 100}%` }}
     />
     {/* Trimmed-out overlay: end */}
     <div
-      className="absolute inset-y-0 right-0 bg-black/60"
+      className="trim-region-end absolute inset-y-0 right-0 bg-black/60"
       style={{ width: `${((duration - segment.trimEnd) / duration) * 100}%` }}
     />
 
     {/* Active region border */}
     <div
-      className="absolute inset-y-0 border border-white/20"
+      className="trim-active-region absolute inset-y-0 border border-white/20"
       style={{
         left: `${(segment.trimStart / duration) * 100}%`,
         right: `${((duration - segment.trimEnd) / duration) * 100}%`,
@@ -63,7 +63,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
     {/* Trim duration - shown during drag */}
     {isDraggingTrim && (
       <div
-        className="absolute inset-y-0 flex items-center justify-center z-20 pointer-events-none"
+        className="trim-duration-label absolute inset-y-0 flex items-center justify-center z-20 pointer-events-none"
         style={{
           left: `${(segment.trimStart / duration) * 100}%`,
           width: `${((segment.trimEnd - segment.trimStart) / duration) * 100}%`,
@@ -77,7 +77,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
 
     {/* Trim handle: start */}
     <div
-      className="absolute inset-y-0 w-3 cursor-col-resize z-10 group"
+      className="trim-handle-start absolute inset-y-0 w-3 cursor-col-resize z-10 group"
       style={{ left: `calc(${(segment.trimStart / duration) * 100}% - 6px)` }}
       onMouseDown={(e) => { e.stopPropagation(); onTrimDragStart('start'); }}
     >
@@ -86,7 +86,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
 
     {/* Trim handle: end */}
     <div
-      className="absolute inset-y-0 w-3 cursor-col-resize z-10 group"
+      className="trim-handle-end absolute inset-y-0 w-3 cursor-col-resize z-10 group"
       style={{ left: `calc(${(segment.trimEnd / duration) * 100}% - 6px)` }}
       onMouseDown={(e) => { e.stopPropagation(); onTrimDragStart('end'); }}
     >

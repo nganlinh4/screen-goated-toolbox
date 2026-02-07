@@ -585,17 +585,21 @@ interface UseTextOverlaysProps {
 export function useTextOverlays(props: UseTextOverlaysProps) {
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
 
-  const handleAddText = useCallback(() => {
+  const handleAddText = useCallback((atTime?: number) => {
     if (!props.segment) return;
+    const t0 = atTime ?? props.currentTime;
+    const segDur = 3;
+    const startTime = Math.max(0, t0 - segDur / 2);
 
     const newText: TextSegment = {
       id: crypto.randomUUID(),
-      startTime: props.currentTime,
-      endTime: Math.min(props.currentTime + 3, props.duration),
+      startTime,
+      endTime: Math.min(startTime + segDur, props.duration),
       text: 'New Text',
       style: {
         fontSize: 48, color: '#ffffff', x: 50, y: 50,
-        fontWeight: 'normal', textAlign: 'center', opacity: 1, letterSpacing: 0
+        fontVariations: { wght: 400, wdth: 100, slnt: 0, ROND: 0 },
+        textAlign: 'center', opacity: 1, letterSpacing: 0
       }
     };
 

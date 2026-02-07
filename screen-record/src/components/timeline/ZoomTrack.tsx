@@ -246,11 +246,11 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   };
 
   return (
-    <div className="relative h-10 rounded bg-[var(--surface-container)]/60">
+    <div className="zoom-track relative h-10 rounded bg-[var(--surface-container)]/60">
       {/* Influence curve layer */}
       {hasInfluenceCurve && (
         <div
-          className="absolute inset-0 z-10 pointer-events-auto"
+          className="zoom-influence-layer absolute inset-0 z-10 pointer-events-auto"
           onMouseDown={handleInfluenceMouseDown}
         >
           <svg className="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 40">
@@ -280,7 +280,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
       )}
 
       {/* Keyframe markers layer */}
-      <div className="absolute inset-0 z-20 pointer-events-none">
+      <div className="zoom-keyframes-layer absolute inset-0 z-20 pointer-events-none">
         {segment.zoomKeyframes.map((keyframe, index) => {
           const active = editingKeyframeId === index;
           const { rangeStart, rangeEnd } = getKeyframeRange(segment.zoomKeyframes, index, duration);
@@ -292,7 +292,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
             <React.Fragment key={index}>
               {/* Left range handle */}
               <div
-                className="absolute inset-y-0 w-3 cursor-col-resize z-30 pointer-events-auto group/handle"
+                className="zoom-range-handle absolute inset-y-0 w-3 cursor-col-resize z-30 pointer-events-auto group/handle"
                 style={{ left: `calc(${(rangeStart / duration) * 100}% - 6px)` }}
                 onMouseDown={(e) => {
                   e.stopPropagation();
@@ -320,7 +320,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
               </div>
               {/* Gradient range background (visual only — pointer-events-none to not block green curve) */}
               <div
-                className={`absolute inset-y-0 pointer-events-none ${
+                className={`zoom-range-bg absolute inset-y-0 pointer-events-none ${
                   active ? 'opacity-100' : 'opacity-60'
                 }`}
                 style={{
@@ -331,7 +331,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
               />
               {/* Diamond marker + zoom pill */}
               <div
-                className="absolute pointer-events-auto cursor-pointer group"
+                className="zoom-keyframe-marker absolute pointer-events-auto cursor-pointer group"
                 style={{
                   left: `${(keyframe.time / duration) * 100}%`,
                   transform: 'translateX(-50%)',
@@ -354,8 +354,8 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   </div>
                   {/* Diamond marker */}
                   <div
-                    className={`w-2 h-2 rotate-45 bg-[var(--primary-color)] group-hover:scale-125 transition-transform ${
-                      active ? 'ring-1 ring-white' : ''
+                    className={`w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary-color)] group-hover:scale-125 transition-transform shadow-sm ${
+                      active ? 'ring-1 ring-white shadow-[0_0_6px_rgba(59,130,246,0.4)]' : ''
                     }`}
                   />
                 </div>

@@ -48,3 +48,8 @@ cargo test               # Run tests
 - Use `cargo check` or `cargo clippy` for verification instead
 - **Always fix all warnings** - code must compile with zero warnings
 - **Never use `#[allow(dead_code)]`** - remove unused code instead of suppressing warnings
+
+## Frontend (screen-record) Rules
+- **Always add descriptive class names** to JSX elements for DevTools debugging (e.g., `className="zoom-track ..."`, `className="text-segment ..."`)
+- Class names should be semantic, kebab-case, and describe the element's purpose
+- This applies to all components — tracks, handles, labels, overlays, buttons, etc.

@@ -42,9 +42,32 @@ export function Header({
 
   return (
     <header
-      className="bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default"
-      onMouseDown={() => {
-        (window as any).ipc.postMessage('drag_window');
+      className="bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[60]"
+      onMouseDown={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const x = e.clientX - rect.left;
+        const w = rect.width;
+        if (y <= 5) {
+          if (x <= 14) (window as any).ipc.postMessage('resize_nw');
+          else if (x >= w - 14) (window as any).ipc.postMessage('resize_ne');
+          else (window as any).ipc.postMessage('resize_n');
+        } else {
+          (window as any).ipc.postMessage('drag_window');
+        }
+      }}
+      onMouseMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        if (y <= 5) {
+          const x = e.clientX - rect.left;
+          const w = rect.width;
+          if (x <= 14) e.currentTarget.style.cursor = 'nwse-resize';
+          else if (x >= w - 14) e.currentTarget.style.cursor = 'nesw-resize';
+          else e.currentTarget.style.cursor = 'ns-resize';
+        } else {
+          e.currentTarget.style.cursor = '';
+        }
       }}
     >
       <div className="flex items-center gap-4 px-4 h-full">

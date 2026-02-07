@@ -191,8 +191,9 @@ export function useTimelineDrag({
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingZoom) return;
     setIsDraggingSeek(true);
+    setEditingTextId(null);
     handleSeek(e.clientX);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingZoom, handleSeek]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingZoom, setEditingTextId, handleSeek]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     handleTrimDrag(e.clientX);
