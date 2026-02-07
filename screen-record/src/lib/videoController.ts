@@ -118,7 +118,10 @@ export class VideoController {
       }
     }
     this.setPlaying(false);
-    this.renderFrame();
+    // Intentionally NOT re-drawing here. The last animation frame stays visible.
+    // Re-drawing on pause can cause a visual shift because the video decoder may
+    // have advanced video.currentTime slightly beyond the last rendered frame.
+    // Seeking (handleSeeked) and edits (updateRenderOptions) still trigger draws.
   };
 
   private handleTimeUpdate = () => {
@@ -377,7 +380,7 @@ export class VideoController {
     // isSeeking-based coalescing: if the decoder is already busy with a previous
     // seek, just store the latest time. When the 'seeked' event fires (handleSeeked),
     // we render the decoded frame and immediately start the next seek.
-    // This keeps the decoder maximally busy → real-time video frame updates.
+    // This keeps the decoder maximally busy → best possible frame rate.
     if (this.state.isSeeking) {
       this.pendingSeekTime = time;
       return;
