@@ -83,7 +83,7 @@ export const ZoomDebugOverlay: React.FC<ZoomDebugOverlayProps> = ({ segment, dur
                 <path d={zoomPath} fill="none" stroke="#3b82f6" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
             </svg>
 
-            <div className="absolute top-0.5 left-1 flex gap-2 items-center">
+            <div className="debug-legend absolute top-0.5 left-1 flex gap-2 items-center">
                 <span className="text-[8px] font-mono text-blue-400 pointer-events-none">zoom {maxZoom.toFixed(1)}x</span>
                 <span className="text-[8px] font-mono text-amber-400 pointer-events-none">speed</span>
                 <button

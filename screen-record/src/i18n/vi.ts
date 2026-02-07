@@ -115,11 +115,13 @@ const vi: Translations = {
   // Timeline
   trackZoom: 'Phóng To',
   trackText: 'Chữ',
+  trackPointer: 'Con Trỏ',
   trackVideo: 'Video',
 
   // App
   preparingVideoOverlay: 'Đang chuẩn bị video...',
   autoZoom: 'Phóng To Tự Động',
+  smartPointer: 'Con Trỏ Thông Minh',
 
   // Export presets
   presetBalanced: 'Cân Bằng (Khuyến Nghị)',

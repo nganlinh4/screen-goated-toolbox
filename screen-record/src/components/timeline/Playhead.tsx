@@ -14,7 +14,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration }) => 
     }}
   >
     <div
-      className="w-0 h-0 flex-shrink-0"
+      className="playhead-arrow w-0 h-0 flex-shrink-0"
       style={{
         borderLeft: '5px solid transparent',
         borderRight: '5px solid transparent',

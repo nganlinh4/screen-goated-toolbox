@@ -42,7 +42,7 @@ export function Header({
 
   return (
     <header
-      className="bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[60]"
+      className="app-header bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[60]"
       onMouseDown={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const y = e.clientY - rect.top;
@@ -70,16 +70,16 @@ export function Header({
         }
       }}
     >
-      <div className="flex items-center gap-4 px-4 h-full">
-        <div className="flex items-center gap-3">
+      <div className="header-left flex items-center gap-4 px-4 h-full">
+        <div className="app-branding flex items-center gap-3">
           <Video className="w-5 h-5 text-[var(--primary-color)]" />
           <span className="text-[var(--on-surface)] text-sm font-medium">{t.appTitle}</span>
         </div>
 
-        <div className="h-full flex items-center">
+        <div className="recording-status-area h-full flex items-center">
           {isRecording && currentVideo && (
-            <div className="flex items-center gap-2 bg-[var(--tertiary-color)]/10 border border-[var(--tertiary-color)]/30 px-2.5 py-1 rounded-lg backdrop-blur-sm animate-in fade-in slide-in-from-left-2 duration-300">
-              <div className="w-2 h-2 rounded-full bg-[var(--tertiary-color)] animate-pulse" />
+            <div className="recording-indicator flex items-center gap-2 bg-[var(--tertiary-color)]/10 border border-[var(--tertiary-color)]/30 px-2.5 py-1 rounded-lg backdrop-blur-sm animate-in fade-in slide-in-from-left-2 duration-300">
+              <div className="recording-dot w-2 h-2 rounded-full bg-[var(--tertiary-color)] animate-pulse" />
               <span className="text-[var(--tertiary-color)] text-[10px] font-bold uppercase tracking-wider">{t.rec}</span>
               <span className="text-[var(--on-surface)] text-xs font-mono">{formatTime(recordingDuration)}</span>
             </div>
@@ -87,8 +87,8 @@ export function Header({
         </div>
       </div>
 
-      <div className="flex items-center gap-2 h-full pl-2">
-        <div className="flex items-center gap-1.5 flex-wrap max-w-[500px] justify-end">
+      <div className="header-right flex items-center gap-2 h-full pl-2">
+        <div className="hotkey-list flex items-center gap-1.5 flex-wrap max-w-[500px] justify-end">
           {hotkeys.map((h, i) => (
             <Button
               key={i}
@@ -125,7 +125,7 @@ export function Header({
           </Button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="header-actions flex items-center gap-2">
           {currentVideo && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}
@@ -151,14 +151,14 @@ export function Header({
           </Button>
         </div>
 
-        <div className={`flex items-center h-full ${isWindowMaximized ? '' : 'ml-4'}`}>
+        <div className={`window-controls flex items-center h-full ${isWindowMaximized ? '' : 'ml-4'}`}>
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               (window as any).ipc.postMessage('minimize_window');
             }}
-            className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
+            className="window-btn-minimize px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
             title={t.minimize}
           >
             <Minus className="w-4 h-4" />
@@ -173,7 +173,7 @@ export function Header({
                 setIsWindowMaximized(maximized);
               }, 50);
             }}
-            className="px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
+            className="window-btn-maximize px-3 h-full text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors flex items-center"
             title={isWindowMaximized ? t.restore : t.maximize}
           >
             {isWindowMaximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
@@ -184,7 +184,7 @@ export function Header({
               e.stopPropagation();
               (window as any).ipc.postMessage('close_window');
             }}
-            className={`px-3 h-full text-[var(--on-surface)] hover:bg-[var(--tertiary-color)] hover:text-white transition-colors flex items-center ${isWindowMaximized ? 'pr-5' : ''}`}
+            className={`window-btn-close px-3 h-full text-[var(--on-surface)] hover:bg-[var(--tertiary-color)] hover:text-white transition-colors flex items-center ${isWindowMaximized ? 'pr-5' : ''}`}
             title={t.close}
           >
             <X className="w-4 h-4" />

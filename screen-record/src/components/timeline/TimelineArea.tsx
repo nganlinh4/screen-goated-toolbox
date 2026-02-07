@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { VideoSegment } from '@/types/video';
 import { ZoomTrack } from './ZoomTrack';
 import { TextTrack } from './TextTrack';
+import { PointerTrack } from './PointerTrack';
 import { TrimTrack } from './TrimTrack';
 import { Playhead } from './Playhead';
 import { useTimelineDrag } from './useTimelineDrag';
@@ -23,13 +24,16 @@ interface TimelineAreaProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   editingKeyframeId: number | null;
   editingTextId: string | null;
+  editingPointerId: string | null;
   setCurrentTime: (time: number) => void;
   setEditingKeyframeId: (id: number | null) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingPointerId: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
   onAddText?: (atTime?: number) => void;
+  onAddPointerSegment?: (atTime?: number) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -43,13 +47,16 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   videoRef,
   editingKeyframeId,
   editingTextId,
+  editingPointerId,
   setCurrentTime,
   setEditingKeyframeId,
   setEditingTextId,
+  setEditingPointerId,
   setActivePanel,
   setSegment,
   onSeek,
   onAddText,
+  onAddPointerSegment,
   beginBatch,
   commitBatch,
 }) => {
@@ -61,6 +68,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     handleZoomDragStart,
     handleTextDragStart,
     handleTextClick,
+    handlePointerDragStart,
+    handlePointerClick,
     handleKeyframeClick,
     handleMouseDown,
     handleMouseMove,
@@ -74,6 +83,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     setSegment,
     setEditingKeyframeId,
     setEditingTextId,
+    setEditingPointerId,
     setActivePanel,
     onSeek,
     beginBatch,
@@ -105,6 +115,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
           )}
           <div className="timeline-label-text h-7 flex items-center">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackText}</span>
+          </div>
+          <div className="timeline-label-pointer h-7 flex items-center">
+            <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackPointer}</span>
           </div>
           <div className="timeline-label-video h-10 flex items-center">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackVideo}</span>
@@ -160,6 +173,18 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               />
             ) : (
               <div className="text-track-empty h-7 rounded bg-[var(--surface)]/80" />
+            )}
+
+            {/* Pointer Track */}
+            {segment && (
+              <PointerTrack
+                segment={segment}
+                duration={duration}
+                editingPointerId={editingPointerId}
+                onPointerClick={handlePointerClick}
+                onHandleDragStart={handlePointerDragStart}
+                onAddPointerSegment={onAddPointerSegment}
+              />
             )}
 
             {/* Video/Trim Track */}

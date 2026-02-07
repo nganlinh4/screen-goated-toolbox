@@ -39,6 +39,7 @@ export class VideoController {
   private renderOptions?: RenderOptions;
   private isChangingSource = false;
   private isGeneratingThumbnail = false;
+  private audioPlayPromise: Promise<void> | null = null;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
@@ -83,7 +84,8 @@ export class VideoController {
     if (this.audio) {
       this.audio.currentTime = this.video.currentTime;
       this.audio.playbackRate = this.video.playbackRate;
-      this.audio.play().catch(e => console.warn('[VideoController] Audio play failed:', e));
+      // Store promise so handlePause can await it before pausing (avoids AbortError)
+      this.audioPlayPromise = this.audio.play().catch(() => {});
     }
 
     // Ensure animation is running
@@ -105,7 +107,14 @@ export class VideoController {
   private handlePause = () => {
     console.log('[VideoController] Pause event');
     if (this.audio) {
-      this.audio.pause();
+      // Wait for pending play() promise before pausing to avoid AbortError
+      const promise = this.audioPlayPromise;
+      this.audioPlayPromise = null;
+      if (promise) {
+        promise.then(() => this.audio?.pause()).catch(() => {});
+      } else {
+        this.audio.pause();
+      }
     }
     this.setPlaying(false);
     this.renderFrame();
@@ -199,9 +208,11 @@ export class VideoController {
     }
   };
 
-  private handleError = (error: ErrorEvent) => {
-    console.error('Video error:', error);
-    this.options.onError?.(error.message);
+  private handleError = (e: Event) => {
+    const video = e.target as HTMLVideoElement;
+    const mediaError = video.error;
+    console.error('Video error:', mediaError?.message || 'Unknown error', `(code: ${mediaError?.code})`);
+    this.options.onError?.(mediaError?.message || 'Unknown video error');
   };
 
   private setPlaying(playing: boolean) {
@@ -370,6 +381,7 @@ export class VideoController {
   }
 
   public destroy() {
+    videoRenderer.stopAnimation();
     this.video.removeEventListener('loadeddata', this.handleLoadedData);
     this.video.removeEventListener('play', this.handlePlay);
     this.video.removeEventListener('pause', this.handlePause);

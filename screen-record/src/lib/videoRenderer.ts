@@ -1,4 +1,5 @@
 import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay } from '@/types/video';
+import { getCursorVisibility } from '@/lib/cursorHiding';
 
 // --- CONFIGURATION ---
 // Increased offset slightly so the eye leads the cursor (more natural reading)
@@ -44,9 +45,11 @@ export class VideoRenderer {
 
   private smoothedPositions: MousePosition[] | null = null;
   private lastMousePositionsRef: MousePosition[] | null = null;
-  private hasLoggedPositions = false;
   private cachedBakedPath: BakedCameraFrame[] | null = null;
   private lastBakeSignature: string = '';
+  private lastBakeSegment: VideoSegment | null = null;
+  private lastBakeViewW: number = 0;
+  private lastBakeViewH: number = 0;
 
   /**
    * Apply font-variation-settings as CSS on the canvas element.
@@ -71,6 +74,8 @@ export class VideoRenderer {
 
   private currentSquishScale = 1.0;
   private lastHoldTime = -1;
+  private lastPausedDrawTime = 0;
+  private qualityUpgradeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly CLICK_FUSE_THRESHOLD = 0.15;
   private readonly SQUISH_SPEED = 0.015;
   private readonly RELEASE_SPEED = 0.01;
@@ -165,7 +170,7 @@ export class VideoRenderer {
           const last = baked[baked.length - 1];
           baked.push({ ...last, time: t - start });
         } else {
-          baked.push({ time: t - start, x: 0, y: 0, scale: 1, isClicked: false, type: 'default' });
+          baked.push({ time: t - start, x: 0, y: 0, scale: 1, isClicked: false, type: 'default', opacity: 1 });
         }
         continue;
       }
@@ -186,13 +191,16 @@ export class VideoRenderer {
         simSquishScale = Math.min(targetScale, simSquishScale + this.RELEASE_SPEED * simRatio);
       }
 
+      const cursorVis = getCursorVisibility(t, segment.cursorVisibilitySegments);
+
       baked.push({
         time: t - start,
         x: pos.x,
         y: pos.y,
-        scale: Number(simSquishScale.toFixed(3)),
+        scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
         isClicked: isClicked,
-        type: pos.cursor_type || 'default'
+        type: pos.cursor_type || 'default',
+        opacity: Number(cursorVis.opacity.toFixed(3)),
       });
     }
 
@@ -259,8 +267,8 @@ export class VideoRenderer {
   public startAnimation(renderContext: RenderContext) {
     this.stopAnimation();
     this.lastDrawTime = 0;
-    this.smoothedPositions = null;
-    this.lastMousePositionsRef = null;
+    // Don't reset cursor smoothing cache — it's invalidated by reference check
+    // in interpolateCursorPosition when mouse data actually changes
     this.activeRenderContext = renderContext;
 
     const animate = () => {
@@ -303,7 +311,6 @@ export class VideoRenderer {
     const { video, canvas, tempCanvas, segment, backgroundConfig, mousePositions } = context;
     if (!video || !canvas || !segment) return;
     if (video.readyState < 2) return;
-
 
     const isExportMode = options.exportMode || false;
     const quality = options.highQuality || isExportMode ? 'high' : 'medium';
@@ -357,9 +364,39 @@ export class VideoRenderer {
 
       const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height);
 
-      // Supersample tempCanvas so zoomed preview isn't blurry when scale < 100%
+      // Supersample strategy:
+      // - Export: full ss up to 3x for maximum quality
+      // - Playback: ss=1 always (GPU stalls on large canvases kill framerate)
+      // - Active editing (rapid paused renders): ss=1 for responsive interaction
+      // - Static paused preview: compensate for scale < 100% with ss up to 2x,
+      //   then schedule a quality upgrade after editing settles
       const zf = zoomState?.zoomFactor ?? 1;
-      const ss = !isExportMode && zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
+      let ss: number;
+      if (isExportMode) {
+        ss = zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
+      } else if (!video.paused) {
+        ss = 1;
+      } else {
+        // Detect rapid editing: multiple paused renders within 150ms
+        const isActiveEditing = now - this.lastPausedDrawTime < 150;
+        this.lastPausedDrawTime = now;
+        if (isActiveEditing) {
+          ss = 1;
+          // After editing stops, auto-upgrade to sharp preview
+          if (scale < 1) {
+            if (this.qualityUpgradeTimer) clearTimeout(this.qualityUpgradeTimer);
+            this.qualityUpgradeTimer = setTimeout(() => {
+              this.qualityUpgradeTimer = null;
+              if (this.activeRenderContext?.video.paused) {
+                this.drawFrame(this.activeRenderContext);
+              }
+            }, 200);
+          }
+        } else {
+          // Static preview: compensate for scale-down so video stays sharp
+          ss = scale < 1 ? Math.min(Math.ceil(1 / scale), 2) : 1;
+        }
+      }
 
       ctx.save();
 
@@ -458,51 +495,57 @@ export class VideoRenderer {
       );
 
       if (interpolatedPosition) {
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        // Cursor visibility (smart pointer hiding)
+        const cursorVis = getCursorVisibility(video.currentTime, segment.cursorVisibilitySegments);
 
-        const mX = interpolatedPosition.x;
-        const mY = interpolatedPosition.y;
+        if (cursorVis.opacity > 0.001) {
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-        const relX = (mX - srcX) / srcW;
-        const relY = (mY - srcY) / (srcH * (1 - legacyCrop));
+          const mX = interpolatedPosition.x;
+          const mY = interpolatedPosition.y;
 
-        let cursorX = x + (relX * scaledWidth);
-        let cursorY = y + (relY * scaledHeight);
+          const relX = (mX - srcX) / srcW;
+          const relY = (mY - srcY) / (srcH * (1 - legacyCrop));
 
-        if (zoomState && zoomState.zoomFactor !== 1) {
-          cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
-          cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
+          let cursorX = x + (relX * scaledWidth);
+          let cursorY = y + (relY * scaledHeight);
+
+          if (zoomState && zoomState.zoomFactor !== 1) {
+            cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
+            cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
+          }
+
+          const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
+          const cursorSizeScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1) * cursorVis.scale;
+
+          const isActuallyClicked = interpolatedPosition.isClicked;
+          const timeSinceLastHold = video.currentTime - this.lastHoldTime;
+          const shouldBeSquished = isActuallyClicked || (this.lastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+
+          if (isActuallyClicked) {
+            this.lastHoldTime = video.currentTime;
+          }
+
+          const targetScale = shouldBeSquished ? 0.75 : 1.0;
+          if (this.currentSquishScale > targetScale) {
+            this.currentSquishScale = Math.max(targetScale, this.currentSquishScale - this.SQUISH_SPEED * (this.latestElapsed / (1000 / 120)));
+          } else if (this.currentSquishScale < targetScale) {
+            this.currentSquishScale = Math.min(targetScale, this.currentSquishScale + this.RELEASE_SPEED * (this.latestElapsed / (1000 / 120)));
+          }
+
+          ctx.globalAlpha = cursorVis.opacity;
+          this.drawMouseCursor(
+            ctx,
+            cursorX,
+            cursorY,
+            shouldBeSquished,
+            cursorSizeScale,
+            interpolatedPosition.cursor_type || 'default'
+          );
+
+          ctx.restore();
         }
-
-        const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
-        const cursorSizeScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1);
-
-        const isActuallyClicked = interpolatedPosition.isClicked;
-        const timeSinceLastHold = video.currentTime - this.lastHoldTime;
-        const shouldBeSquished = isActuallyClicked || (this.lastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
-
-        if (isActuallyClicked) {
-          this.lastHoldTime = video.currentTime;
-        }
-
-        const targetScale = shouldBeSquished ? 0.75 : 1.0;
-        if (this.currentSquishScale > targetScale) {
-          this.currentSquishScale = Math.max(targetScale, this.currentSquishScale - this.SQUISH_SPEED * (this.latestElapsed / (1000 / 120)));
-        } else if (this.currentSquishScale < targetScale) {
-          this.currentSquishScale = Math.min(targetScale, this.currentSquishScale + this.RELEASE_SPEED * (this.latestElapsed / (1000 / 120)));
-        }
-
-        this.drawMouseCursor(
-          ctx,
-          cursorX,
-          cursorY,
-          shouldBeSquished,
-          cursorSizeScale,
-          interpolatedPosition.cursor_type || 'default'
-        );
-
-        ctx.restore();
       }
 
       this.backgroundConfig = context.backgroundConfig;
@@ -631,21 +674,27 @@ export class VideoRenderer {
   ): ZoomKeyframe {
     const isPaused = this.activeRenderContext?.video?.paused ?? true;
 
-    // === FIX STARTS HERE ===
-    const signature = JSON.stringify({
-      trim: [segment.trimStart, segment.trimEnd],
-      crop: segment.crop,
-      smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })),
-      zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, d: k.duration, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
-      // Add this line to detect changes in the green curve:
-      zoomInfluence: segment.zoomInfluencePoints?.map(p => ({ t: p.time, v: p.value })),
-      vidDims: [viewW, viewH]
-    });
-    // === FIX ENDS HERE ===
+    // Only recompute bake signature when segment reference or view dims change.
+    // Avoids JSON.stringify + .map() allocations on every frame (was 120x/sec).
+    if (segment !== this.lastBakeSegment || viewW !== this.lastBakeViewW || viewH !== this.lastBakeViewH) {
+      this.lastBakeSegment = segment;
+      this.lastBakeViewW = viewW;
+      this.lastBakeViewH = viewH;
 
-    if (this.lastBakeSignature !== signature) {
-      this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60);
-      this.lastBakeSignature = signature;
+      const signature = JSON.stringify({
+        trim: [segment.trimStart, segment.trimEnd],
+        crop: segment.crop,
+        smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })),
+        zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, d: k.duration, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
+        zoomInfluence: segment.zoomInfluencePoints?.map(p => ({ t: p.time, v: p.value })),
+        cursorVis: segment.cursorVisibilitySegments?.map(s => ({ s: s.startTime, e: s.endTime })),
+        vidDims: [viewW, viewH]
+      });
+
+      if (this.lastBakeSignature !== signature) {
+        this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60);
+        this.lastBakeSignature = signature;
+      }
     }
 
     if (!isPaused && this.cachedBakedPath && this.cachedBakedPath.length > 0) {
@@ -962,9 +1011,6 @@ export class VideoRenderer {
 
     // 2. Generate cache if needed
     if (!this.smoothedPositions && mousePositions.length > 0) {
-      if (!this.hasLoggedPositions) {
-        this.hasLoggedPositions = true;
-      }
       this.smoothedPositions = this.smoothMousePositions(mousePositions);
     }
 

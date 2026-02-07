@@ -68,7 +68,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             width: `${((text.endTime - text.startTime) / duration) * 100}%`,
           }}
         >
-          <div className="absolute inset-0 flex items-center justify-center overflow-hidden px-1">
+          <div className="text-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
             <span
               className="truncate text-[10px] text-[var(--on-surface)]"
               style={{
@@ -86,13 +86,13 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             className="text-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
             onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'start'); }}
           >
-            <div className="w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+            <div className="text-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
           </div>
           <div
             className="text-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
             onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'end'); }}
           >
-            <div className="w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+            <div className="text-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
           </div>
         </div>
       ))}

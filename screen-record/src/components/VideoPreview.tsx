@@ -23,10 +23,10 @@ export function Placeholder({
 }: PlaceholderProps) {
   const { t } = useSettings();
   return (
-    <div className="absolute inset-0 bg-[var(--surface)] flex flex-col items-center justify-center">
-      <div className="absolute inset-0 opacity-5">
+    <div className="placeholder-container absolute inset-0 bg-[var(--surface)] flex flex-col items-center justify-center">
+      <div className="placeholder-background absolute inset-0 opacity-5">
         <div
-          className="w-full h-full"
+          className="grid-pattern w-full h-full"
           style={{
             backgroundImage: `
               linear-gradient(to right, #fff 1px, transparent 1px),
@@ -38,26 +38,26 @@ export function Placeholder({
       </div>
 
       {isLoadingVideo ? (
-        <div className="flex flex-col items-center">
+        <div className="loading-state flex flex-col items-center">
           <Loader2 className="w-8 h-8 text-[var(--primary-color)] animate-spin mb-3" />
           <p className="text-[var(--on-surface)] text-sm font-medium">{t.processingVideo}</p>
           <p className="text-[var(--outline)] text-xs mt-1">{t.processingHint}</p>
         </div>
       ) : isRecording ? (
-        <div className="flex flex-col items-center">
-          <div className="w-3 h-3 rounded-full bg-[var(--tertiary-color)] animate-pulse mb-3" />
+        <div className="recording-state flex flex-col items-center">
+          <div className="recording-pulse w-3 h-3 rounded-full bg-[var(--tertiary-color)] animate-pulse mb-3" />
           <p className="text-[var(--on-surface)] text-sm font-medium">{t.recordingInProgress}</p>
           <span className="text-[var(--on-surface)] text-lg font-mono mt-2">{formatTime(recordingDuration)}</span>
         </div>
       ) : (
-        <div className="flex flex-col items-center">
+        <div className="no-video-state flex flex-col items-center">
           <Video className="w-8 h-8 text-[var(--outline-variant)] mb-3" />
           <p className="text-[var(--on-surface)] text-sm font-medium">{t.noVideoSelected}</p>
           <p className="text-[var(--outline)] text-xs mt-1">{t.startRecordingHint}</p>
         </div>
       )}
       {isLoadingVideo && loadingProgress > 0 && (
-        <div className="mt-2">
+        <div className="loading-progress mt-2">
           <p className="text-[var(--outline)] text-xs">
             {t.loadingVideo} {Math.min(Math.round(loadingProgress), 100)}%
           </p>
@@ -80,6 +80,7 @@ interface PlaybackControlsProps {
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
   autoZoomButton?: React.ReactNode;
+  smartPointerButton?: React.ReactNode;
 }
 
 export function PlaybackControls({
@@ -91,11 +92,12 @@ export function PlaybackControls({
   duration,
   onTogglePlayPause,
   onToggleCrop,
-  autoZoomButton
+  autoZoomButton,
+  smartPointerButton,
 }: PlaybackControlsProps) {
   const { t } = useSettings();
   return (
-    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2.5 bg-black/60 backdrop-blur-xl rounded-xl px-4 py-2 border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50">
+    <div className="playback-controls absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2.5 bg-black/60 backdrop-blur-xl rounded-xl px-4 py-2 border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50">
       <Button
         onClick={onToggleCrop}
         variant="ghost"
@@ -117,7 +119,7 @@ export function PlaybackControls({
       </Button>
       {!isCropping && (
         <>
-          <div className="w-px h-5 bg-white/[0.12]" />
+          <div className="control-divider w-px h-5 bg-white/[0.12]" />
           <Button
             onClick={onTogglePlayPause}
             disabled={isProcessing || !isVideoReady}
@@ -131,13 +133,19 @@ export function PlaybackControls({
           </Button>
         </>
       )}
-      <div className="text-white/90 text-xs font-medium tabular-nums">
+      <div className="time-display text-white/90 text-xs font-medium tabular-nums">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
       {!isCropping && autoZoomButton && (
         <>
-          <div className="w-px h-5 bg-white/[0.12]" />
+          <div className="control-divider w-px h-5 bg-white/[0.12]" />
           {autoZoomButton}
+        </>
+      )}
+      {!isCropping && smartPointerButton && (
+        <>
+          <div className="control-divider w-px h-5 bg-white/[0.12]" />
+          {smartPointerButton}
         </>
       )}
     </div>
@@ -286,10 +294,10 @@ export function CropOverlay({
   ];
 
   return (
-    <div className="absolute inset-0 z-20 pointer-events-none">
-      <div style={{ position: 'absolute', left: renderLeft, top: renderTop, width: renderW, height: renderH }}>
+    <div className="crop-overlay-container absolute inset-0 z-20 pointer-events-none">
+      <div className="crop-video-bounds" style={{ position: 'absolute', left: renderLeft, top: renderTop, width: renderW, height: renderH }}>
         <div
-          className="absolute border-2 border-[var(--primary-color)] bg-[var(--primary-color)]/10 pointer-events-auto"
+          className="crop-selection-box absolute border-2 border-[var(--primary-color)] bg-[var(--primary-color)]/10 pointer-events-auto"
           style={{
             left: `${crop.x * 100}%`,
             top: `${crop.y * 100}%`,
@@ -300,12 +308,12 @@ export function CropOverlay({
           onMouseDown={handleBoxMove}
         >
           {/* Grid Lines */}
-          <div className="absolute inset-0 flex flex-col pointer-events-none opacity-30">
+          <div className="crop-grid-rows absolute inset-0 flex flex-col pointer-events-none opacity-30">
             <div className="flex-1 border-b border-white/50" />
             <div className="flex-1 border-b border-white/50" />
             <div className="flex-1" />
           </div>
-          <div className="absolute inset-0 flex pointer-events-none opacity-30">
+          <div className="crop-grid-cols absolute inset-0 flex pointer-events-none opacity-30">
             <div className="flex-1 border-r border-white/50" />
             <div className="flex-1 border-r border-white/50" />
             <div className="flex-1" />
@@ -315,15 +323,15 @@ export function CropOverlay({
           {handles.map(handle => (
             <div
               key={handle.t}
-              className={`absolute w-3 h-3 bg-white border border-[var(--primary-color)] rounded-full z-30 hover:scale-125 transition-transform ${handle.c} ${handle.s}`}
+              className={`crop-handle absolute w-3 h-3 bg-white border border-[var(--primary-color)] rounded-full z-30 hover:scale-125 transition-transform ${handle.c} ${handle.s}`}
               onMouseDown={(e) => handleResizeStart(e, handle.t)}
             />
           ))}
 
           {/* Central Crosshair */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 opacity-50 pointer-events-none">
-            <div className="absolute w-full h-[1px] bg-white top-1/2 -translate-y-1/2 shadow-sm" />
-            <div className="absolute h-full w-[1px] bg-white left-1/2 -translate-x-1/2 shadow-sm" />
+          <div className="crop-crosshair absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 opacity-50 pointer-events-none">
+            <div className="crosshair-h absolute w-full h-[1px] bg-white top-1/2 -translate-y-1/2 shadow-sm" />
+            <div className="crosshair-v absolute h-full w-[1px] bg-white left-1/2 -translate-x-1/2 shadow-sm" />
           </div>
         </div>
       </div>

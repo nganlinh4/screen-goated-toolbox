@@ -113,11 +113,13 @@ const en = {
   // Timeline
   trackZoom: 'Zoom',
   trackText: 'Text',
+  trackPointer: 'Pointer',
   trackVideo: 'Video',
 
   // App
   preparingVideoOverlay: 'Preparing video...',
   autoZoom: 'Auto Zoom',
+  smartPointer: 'Smart Pointer',
 
   // Export presets
   presetBalanced: 'Balanced (Recommended)',

@@ -264,7 +264,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
           {points.map((p, i) => (
             <div
               key={i}
-              className={`absolute w-2.5 h-2.5 bg-white border-2 border-[#4ade80] rounded-full -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-transform shadow-sm ${
+              className={`zoom-influence-point absolute w-2.5 h-2.5 bg-white border-2 border-[#4ade80] rounded-full -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-transform shadow-sm ${
                 hoveredIdx === i ? 'scale-125 ring-2 ring-red-500/50' : 'hover:scale-125'
               }`}
               style={{
@@ -316,7 +316,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   window.addEventListener('mouseup', onUp);
                 }}
               >
-                <div className="absolute inset-y-1 w-0.5 bg-[var(--primary-color)]/40 group-hover/handle:bg-[var(--primary-color)] transition-colors left-1/2 -translate-x-1/2" />
+                <div className="range-handle-bar absolute inset-y-1 w-0.5 bg-[var(--primary-color)]/40 group-hover/handle:bg-[var(--primary-color)] transition-colors left-1/2 -translate-x-1/2" />
               </div>
               {/* Gradient range background (visual only — pointer-events-none to not block green curve) */}
               <div
@@ -341,10 +341,10 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                 onClick={(e) => { e.stopPropagation(); onKeyframeClick(keyframe.time, index); }}
                 onMouseDown={(e) => { e.stopPropagation(); onKeyframeDragStart(index); }}
               >
-                <div className="relative flex flex-col items-center h-full justify-center">
+                <div className="keyframe-marker-content relative flex flex-col items-center h-full justify-center">
                   {/* Zoom % pill */}
                   <div
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-medium whitespace-nowrap mb-0.5 ${
+                    className={`zoom-percentage-pill px-1.5 py-0.5 rounded text-[9px] font-medium whitespace-nowrap mb-0.5 ${
                       active
                         ? 'bg-[var(--primary-color)] text-white'
                         : 'bg-[var(--primary-color)]/20 text-[var(--primary-color)]'
@@ -354,7 +354,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   </div>
                   {/* Diamond marker */}
                   <div
-                    className={`w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary-color)] group-hover:scale-125 transition-transform shadow-sm ${
+                    className={`keyframe-diamond w-2.5 h-2.5 rotate-45 rounded-[2px] bg-[var(--primary-color)] group-hover:scale-125 transition-transform shadow-sm ${
                       active ? 'ring-1 ring-white shadow-[0_0_6px_rgba(59,130,246,0.4)]' : ''
                     }`}
                   />
