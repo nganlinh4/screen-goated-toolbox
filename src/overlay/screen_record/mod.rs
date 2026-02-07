@@ -358,6 +358,14 @@ fn push_settings_to_webview() {
         }
     };
 
+    // Update window icon based on theme
+    unsafe {
+        let hwnd = std::ptr::addr_of!(SR_HWND).read();
+        if !hwnd.is_invalid() {
+            crate::gui::utils::set_window_icon(hwnd.0, theme_str == "dark");
+        }
+    }
+
     SR_WEBVIEW.with(|wv| {
         if let Some(webview) = wv.borrow().as_ref() {
             let script = format!(
@@ -453,6 +461,9 @@ unsafe fn internal_create_sr_loop() {
             }
         }
     };
+
+    // Set window icon based on initial theme
+    crate::gui::utils::set_window_icon(hwnd, init_theme == "dark");
 
     let init_script = format!(
         r#"

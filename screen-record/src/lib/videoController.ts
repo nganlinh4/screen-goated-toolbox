@@ -40,6 +40,7 @@ export class VideoController {
   private isChangingSource = false;
   private isGeneratingThumbnail = false;
   private audioPlayPromise: Promise<void> | null = null;
+  private pendingSeekTime: number | null = null;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
@@ -159,8 +160,22 @@ export class VideoController {
   private handleSeeked = () => {
     if (this.isGeneratingThumbnail) return;
     this.setSeeking(false);
-    this.setCurrentTime(this.video.currentTime);
+
+    // Render the just-decoded frame immediately
     this.renderFrame();
+
+    // If there's a queued seek (from drag moves while decoder was busy),
+    // start the next seek immediately to keep the decoder maximally busy.
+    if (this.pendingSeekTime !== null) {
+      const t = this.pendingSeekTime;
+      this.pendingSeekTime = null;
+      this.setSeeking(true);
+      this.setCurrentTime(t);
+      this.video.currentTime = t;
+      if (this.audio) this.audio.currentTime = t;
+    } else {
+      this.setCurrentTime(this.video.currentTime);
+    }
   };
 
   private handleLoadedMetadata = () => {
@@ -356,13 +371,33 @@ export class VideoController {
       time = Math.max(trimStart, Math.min(time, trimEnd));
     }
 
+    // Update playhead state immediately so the UI feels responsive
+    this.setCurrentTime(time);
+
+    // isSeeking-based coalescing: if the decoder is already busy with a previous
+    // seek, just store the latest time. When the 'seeked' event fires (handleSeeked),
+    // we render the decoded frame and immediately start the next seek.
+    // This keeps the decoder maximally busy → real-time video frame updates.
+    if (this.state.isSeeking) {
+      this.pendingSeekTime = time;
+      return;
+    }
+
+    // Decoder is idle — start seeking now
     this.setSeeking(true);
     this.video.currentTime = time;
     if (this.audio) this.audio.currentTime = time;
+  }
 
-    // IMPORTANT: Do NOT call renderFrame() here. 
-    // Let the 'seeked' event trigger it to avoid drawing frames mid-seek
-    // which can cause artifacts/corruption.
+  /** Flush any pending seek immediately (call on drag end). */
+  public flushPendingSeek() {
+    if (this.pendingSeekTime !== null && !this.state.isSeeking) {
+      const t = this.pendingSeekTime;
+      this.pendingSeekTime = null;
+      this.setSeeking(true);
+      this.video.currentTime = t;
+      if (this.audio) this.audio.currentTime = t;
+    }
   }
 
   public togglePlayPause() {

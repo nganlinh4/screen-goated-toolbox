@@ -32,6 +32,7 @@ interface TimelineAreaProps {
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
+  onSeekEnd?: () => void;
   onAddText?: (atTime?: number) => void;
   onAddPointerSegment?: (atTime?: number) => void;
   beginBatch: () => void;
@@ -55,6 +56,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   setActivePanel,
   setSegment,
   onSeek,
+  onSeekEnd,
   onAddText,
   onAddPointerSegment,
   beginBatch,
@@ -86,6 +88,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     setEditingPointerId,
     setActivePanel,
     onSeek,
+    onSeekEnd,
     beginBatch,
     commitBatch,
   });
