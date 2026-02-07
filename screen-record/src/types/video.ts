@@ -29,6 +29,12 @@ export interface TextSegment {
     x: number;  // 0-100 percentage
     y: number;  // 0-100 percentage
     fontWeight?: 'normal' | 'bold';
+    fontVariations?: {
+      wght?: number;  // 100-900, default 400
+      wdth?: number;  // 75-125, default 100
+      slnt?: number;  // -12 to 0, default 0
+      ROND?: number;  // 0-100, default 0
+    };
     textAlign?: 'left' | 'center' | 'right';
     opacity?: number;       // 0-1, default 1
     letterSpacing?: number; // px, default 0

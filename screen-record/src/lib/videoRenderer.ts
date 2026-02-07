@@ -48,6 +48,23 @@ export class VideoRenderer {
   private cachedBakedPath: BakedCameraFrame[] | null = null;
   private lastBakeSignature: string = '';
 
+  /**
+   * Apply font-variation-settings as CSS on the canvas element.
+   * Canvas 2D has no native API for font-variation-settings — the only
+   * working workaround is setting it on the element's CSS style so the
+   * context inherits it during font resolution for fillText/measureText.
+   */
+  private applyFontVariations(ctx: CanvasRenderingContext2D, vars: TextSegment['style']['fontVariations']) {
+    const parts: string[] = [];
+    const wdth = vars?.wdth ?? 100;
+    const slnt = vars?.slnt ?? 0;
+    const rond = vars?.ROND ?? 0;
+    if (wdth !== 100) parts.push(`'wdth' ${wdth}`);
+    if (slnt !== 0) parts.push(`'slnt' ${slnt}`);
+    if (rond !== 0) parts.push(`'ROND' ${rond}`);
+    ctx.canvas.style.fontVariationSettings = parts.length > 0 ? parts.join(', ') : 'normal';
+  }
+
   private isDraggingText = false;
   private draggedTextId: string | null = null;
   private dragOffset = { x: 0, y: 0 };
@@ -324,8 +341,6 @@ export class VideoRenderer {
     if (canvas.width !== canvasW || canvas.height !== canvasH) {
       canvas.width = canvasW;
       canvas.height = canvasH;
-      tempCanvas.width = canvasW;
-      tempCanvas.height = canvasH;
     }
 
     if (!isExportMode) {
@@ -341,6 +356,10 @@ export class VideoRenderer {
       const y = (canvas.height - scaledHeight) / 2;
 
       const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height);
+
+      // Supersample tempCanvas so zoomed preview isn't blurry when scale < 100%
+      const zf = zoomState?.zoomFactor ?? 1;
+      const ss = !isExportMode && zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
 
       ctx.save();
 
@@ -361,17 +380,20 @@ export class VideoRenderer {
       );
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      if (tempCanvas.width !== canvas.width || tempCanvas.height !== canvas.height) {
-        tempCanvas.width = canvas.width;
-        tempCanvas.height = canvas.height;
+      const tempW = canvasW * ss;
+      const tempH = canvasH * ss;
+      if (tempCanvas.width !== tempW || tempCanvas.height !== tempH) {
+        tempCanvas.width = tempW;
+        tempCanvas.height = tempH;
       }
       const tempCtx = tempCanvas.getContext('2d', { alpha: true, willReadFrequently: false });
       if (!tempCtx) return;
 
-      tempCtx.clearRect(0, 0, canvas.width, canvas.height);
+      tempCtx.clearRect(0, 0, tempW, tempH);
       tempCtx.save();
       tempCtx.imageSmoothingEnabled = true;
       tempCtx.imageSmoothingQuality = 'high';
+      if (ss > 1) tempCtx.scale(ss, ss);
 
       const radius = backgroundConfig.borderRadius;
       const offset = 0.5;
@@ -427,7 +449,7 @@ export class VideoRenderer {
       tempCtx.stroke();
       tempCtx.restore();
 
-      ctx.drawImage(tempCanvas, 0, 0);
+      ctx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);
 
       const cursorTime = video.currentTime + CURSOR_OFFSET_SEC;
       const interpolatedPosition = this.interpolateCursorPosition(
@@ -500,6 +522,8 @@ export class VideoRenderer {
             this.drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha);
           }
         }
+        // Reset font-variation-settings so it doesn't leak into non-text rendering
+        canvas.style.fontVariationSettings = 'normal';
       }
 
     } finally {
@@ -1092,17 +1116,24 @@ export class VideoRenderer {
     fadeAlpha: number = 1.0
   ) {
     const { style } = textSegment;
-    const fontWeight = style.fontWeight ?? 'normal';
     const textAlign = style.textAlign ?? 'center';
     const opacity = style.opacity ?? 1;
     const letterSpacing = style.letterSpacing ?? 0;
     const background = style.background;
     const fontSize = style.fontSize;
 
+    const vars = style.fontVariations;
+    const wght = vars?.wght ?? (style.fontWeight === 'bold' ? 700 : 400);
+
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to identity — text is viewport-relative
     ctx.globalAlpha = opacity * fadeAlpha;
-    ctx.font = `${fontWeight} ${fontSize}px 'Google Sans Flex', sans-serif`;
+
+    // Set font-variation-settings on canvas element CSS — the only way to control
+    // variable font axes (wdth, slnt, ROND) in Canvas 2D (no native API exists).
+    this.applyFontVariations(ctx, vars);
+    ctx.font = `${wght} ${fontSize}px 'Google Sans Flex', sans-serif`;
+
     ctx.textBaseline = 'middle';
 
     // Split text by newlines for multi-line
@@ -1228,14 +1259,17 @@ export class VideoRenderer {
     height: number
   ) {
     const { style } = textSegment;
-    const fontWeight = style.fontWeight ?? 'normal';
     const textAlign = style.textAlign ?? 'center';
     const letterSpacing = style.letterSpacing ?? 0;
     const fontSize = style.fontSize;
     const background = style.background;
 
+    const vars = style.fontVariations;
+    const wght = vars?.wght ?? (style.fontWeight === 'bold' ? 700 : 400);
+
     ctx.save();
-    ctx.font = `${fontWeight} ${fontSize}px 'Google Sans Flex', sans-serif`;
+    this.applyFontVariations(ctx, vars);
+    ctx.font = `${wght} ${fontSize}px 'Google Sans Flex', sans-serif`;
 
     const lines = textSegment.text.split('\n');
     const lineHeight = fontSize * 1.25;
@@ -1338,9 +1372,12 @@ export class VideoRenderer {
 
     for (const textSeg of segment.textSegments) {
       // Render to full-size offscreen canvas (drawTextOverlay needs full dims for % positioning)
+      // Must be in DOM so CSS font-variation-settings on the element takes effect.
       const offscreen = document.createElement('canvas');
       offscreen.width = outputWidth;
       offscreen.height = outputHeight;
+      offscreen.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;';
+      document.body.appendChild(offscreen);
       const ctx = offscreen.getContext('2d')!;
 
       // Draw at full opacity (fadeAlpha=1); opacity is baked into pixel alpha
@@ -1357,9 +1394,13 @@ export class VideoRenderer {
       const cropW = cropRight - cropX;
       const cropH = cropBottom - cropY;
 
-      if (cropW <= 0 || cropH <= 0) continue;
+      if (cropW <= 0 || cropH <= 0) {
+        offscreen.remove();
+        continue;
+      }
 
       const imageData = ctx.getImageData(cropX, cropY, cropW, cropH);
+      offscreen.remove();
       result.push({
         startTime: textSeg.startTime,
         endTime: textSeg.endTime,

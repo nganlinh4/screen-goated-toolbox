@@ -29,6 +29,7 @@ interface TimelineAreaProps {
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
+  onAddText?: (atTime?: number) => void;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -48,6 +49,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   setActivePanel,
   setSegment,
   onSeek,
+  onAddText,
   beginBatch,
   commitBatch,
 }) => {
@@ -79,16 +81,16 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   });
 
   return (
-    <div className="select-none">
+    <div className="timeline-area select-none mx-2">
       {/* Track container with label gutter + content area */}
-      <div className="flex">
-        {/* Label gutter - outside the time-mapped area */}
-        <div className="w-9 flex-shrink-0 flex flex-col gap-[2px]">
-          <div className="h-10 flex items-center gap-0.5">
+      <div className="timeline-tracks-row flex gap-3">
+        {/* Label gutter */}
+        <div className="timeline-label-gutter w-10 flex-shrink-0 flex flex-col gap-[2px]">
+          <div className="timeline-label-zoom h-10 flex items-center gap-0.5">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackZoom}</span>
             <button
               onClick={() => setShowDebug(v => !v)}
-              className={`w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
+              className={`timeline-debug-btn w-3 h-3 rounded-sm text-[7px] font-bold leading-none flex items-center justify-center transition-colors ${
                 showDebug ? 'bg-blue-500 text-white' : 'bg-[var(--surface-container)] text-[var(--outline)] hover:text-[var(--on-surface)]'
               }`}
               title="Debug zoom curve"
@@ -97,14 +99,14 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
             </button>
           </div>
           {showDebug && (
-            <div className="h-10 flex items-center">
+            <div className="timeline-label-debug h-10 flex items-center">
               <span className="text-[10px] font-medium text-[var(--outline)] leading-none opacity-50">dbg</span>
             </div>
           )}
-          <div className="h-7 flex items-center">
+          <div className="timeline-label-text h-7 flex items-center">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackText}</span>
           </div>
-          <div className="h-10 flex items-center">
+          <div className="timeline-label-video h-10 flex items-center">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackVideo}</span>
           </div>
         </div>
@@ -112,12 +114,12 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         {/* Content area - timelineRef only covers this, so seek math is correct */}
         <div
           ref={timelineRef}
-          className="flex-1 relative cursor-pointer"
+          className="timeline-content flex-1 relative cursor-pointer"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
         >
-          <div className="flex flex-col gap-[2px]">
+          <div className="timeline-tracks flex flex-col gap-[2px]">
             {/* Zoom Track */}
             {segment ? (
               <ZoomTrack
@@ -138,7 +140,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 commitBatch={commitBatch}
               />
             ) : (
-              <div className="h-10 rounded bg-[var(--surface-container)]/60" />
+              <div className="zoom-track-empty h-10 rounded bg-[var(--surface-container)]/60" />
             )}
 
             {/* Debug Overlay */}
@@ -154,9 +156,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 editingTextId={editingTextId}
                 onTextClick={handleTextClick}
                 onHandleDragStart={handleTextDragStart}
+                onAddText={onAddText}
               />
             ) : (
-              <div className="h-7 rounded bg-[var(--surface)]/80" />
+              <div className="text-track-empty h-7 rounded bg-[var(--surface)]/80" />
             )}
 
             {/* Video/Trim Track */}
@@ -169,11 +172,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 isDraggingTrim={dragState.isDraggingTrimStart || dragState.isDraggingTrimEnd}
               />
             ) : (
-              <div className="h-10 rounded bg-[var(--surface-container)]/60" />
+              <div className="trim-track-empty h-10 rounded bg-[var(--surface-container)]/60" />
             )}
           </div>
 
-          {/* Playhead spanning all tracks - positioned within content area */}
+          {/* Playhead spanning all tracks */}
           {segment && (
             <Playhead currentTime={currentTime} duration={duration} />
           )}
@@ -181,9 +184,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       </div>
 
       {/* Time ruler */}
-      <div className="flex mt-0.5">
-        <div className="w-9 flex-shrink-0" />
-        <div className="flex-1 relative h-4 select-none">
+      <div className="timeline-ruler-row flex gap-3 mt-0.5">
+        <div className="timeline-ruler-gutter w-10 flex-shrink-0" />
+        <div className="timeline-ruler flex-1 relative h-4 select-none">
           {duration > 0 && (() => {
             const tickCount = duration <= 5 ? 5 : duration <= 15 ? 8 : duration <= 30 ? 10 : 12;
             return Array.from({ length: tickCount + 1 }).map((_, i) => {
@@ -193,7 +196,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               return (
                 <div
                   key={i}
-                  className="absolute flex flex-col items-center"
+                  className="timeline-tick absolute flex flex-col items-center"
                   style={{ left: `${left}%`, transform: 'translateX(-50%)', top: 0 }}
                 >
                   <div className={`w-px ${isMajor ? 'h-1.5 bg-[var(--outline)]/40' : 'h-1 bg-[var(--outline)]/20'}`} />

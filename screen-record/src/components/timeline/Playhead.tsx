@@ -7,7 +7,7 @@ interface PlayheadProps {
 
 export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration }) => (
   <div
-    className="absolute top-0 bottom-0 flex flex-col items-center pointer-events-none z-40"
+    className="playhead absolute top-0 bottom-0 flex flex-col items-center pointer-events-none z-40"
     style={{
       left: `${(currentTime / duration) * 100}%`,
       transform: 'translateX(-50%)',
@@ -21,6 +21,6 @@ export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration }) => 
         borderTop: '6px solid #ef4444',
       }}
     />
-    <div className="w-0.5 flex-1 bg-red-500" />
+    <div className="playhead-line w-0.5 flex-1 bg-red-500" />
   </div>
 );

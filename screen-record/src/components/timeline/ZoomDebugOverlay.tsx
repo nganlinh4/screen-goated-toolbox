@@ -69,7 +69,7 @@ export const ZoomDebugOverlay: React.FC<ZoomDebugOverlayProps> = ({ segment, dur
     if (!zoomPath) return null;
 
     return (
-        <div className="relative h-10 rounded bg-[var(--surface-container)]/60 overflow-hidden">
+        <div className="zoom-debug-overlay relative h-10 rounded bg-[var(--surface-container)]/60 overflow-hidden">
             <svg
                 className="w-full h-full"
                 preserveAspectRatio="none"

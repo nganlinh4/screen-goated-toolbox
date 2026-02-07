@@ -5,6 +5,7 @@ Cargo.lock
 *.swp
 *.swo
 tools/
+nul
 
 # Cursor build artifacts
 build_cursor.exe
