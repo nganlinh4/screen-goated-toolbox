@@ -42,6 +42,12 @@ export interface TextSegment {
   };
 }
 
+export interface CursorVisibilitySegment {
+  id: string;
+  startTime: number;
+  endTime: number;
+}
+
 export interface CropRect {
   x: number; // 0-1
   y: number; // 0-1
@@ -56,6 +62,7 @@ export interface VideoSegment {
   smoothMotionPath?: { time: number; x: number; y: number; zoom: number }[];
   zoomInfluencePoints?: { time: number; value: number }[];
   textSegments: TextSegment[];
+  cursorVisibilitySegments?: CursorVisibilitySegment[];
   crop?: CropRect;
 }
 
@@ -102,6 +109,7 @@ export interface BakedCursorFrame {
   scale: number; // For click squish effect
   isClicked: boolean;
   type: string;
+  opacity: number; // Cursor visibility (0-1)
 }
 
 export interface BakedTextOverlay {

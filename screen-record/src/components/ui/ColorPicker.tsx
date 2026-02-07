@@ -137,26 +137,26 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
       <button
         ref={triggerRef}
         onClick={() => isOpen ? close() : open()}
-        className="w-7 h-6 rounded border border-[var(--glass-border)] cursor-pointer transition-shadow hover:shadow-[0_0_0_2px_var(--primary-color)/30]"
+        className="color-picker-trigger w-7 h-6 rounded border border-[var(--glass-border)] cursor-pointer transition-shadow hover:shadow-[0_0_0_2px_var(--primary-color)/30]"
         style={{ backgroundColor: value }}
       />
       {isOpen && createPortal(
         <div
           ref={popoverRef}
-          className="fixed z-[9999] bg-[var(--surface-dim)] backdrop-blur-xl border border-[var(--glass-border)] rounded-xl p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+          className="color-picker-popover fixed z-[9999] bg-[var(--surface-dim)] backdrop-blur-xl border border-[var(--glass-border)] rounded-xl p-2.5 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
           style={{ top: pos.top, left: pos.left, width: 200 }}
         >
           {/* SV square */}
           <div
             ref={svRef}
-            className="w-full h-[120px] rounded-lg cursor-crosshair relative mb-2 border border-[var(--glass-border)]"
+            className="color-sv-square w-full h-[120px] rounded-lg cursor-crosshair relative mb-2 border border-[var(--glass-border)]"
             style={{
               background: `linear-gradient(to bottom, transparent, #000), linear-gradient(to right, #fff, ${hsvToHex(hsv[0], 1, 1)})`,
             }}
             onMouseDown={handleSVDrag}
           >
             <div
-              className="absolute w-3 h-3 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+              className="sv-cursor absolute w-3 h-3 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
               style={{ left: `${hsv[1] * 100}%`, top: `${(1 - hsv[2]) * 100}%` }}
             />
           </div>
@@ -164,18 +164,18 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
           {/* Hue bar */}
           <div
             ref={hueRef}
-            className="w-full h-3 rounded-full cursor-pointer relative mb-2.5 border border-[var(--glass-border)]"
+            className="color-hue-bar w-full h-3 rounded-full cursor-pointer relative mb-2.5 border border-[var(--glass-border)]"
             style={{ background: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)' }}
             onMouseDown={handleHueDrag}
           >
             <div
-              className="absolute w-3.5 h-3.5 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+              className="hue-cursor absolute w-3.5 h-3.5 rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
               style={{ left: `${(hsv[0] / 360) * 100}%`, top: '50%' }}
             />
           </div>
 
           {/* Presets */}
-          <div className="grid grid-cols-6 gap-1.5 mb-2">
+          <div className="color-presets-grid grid grid-cols-6 gap-1.5 mb-2">
             {PRESETS.map(color => (
               <button
                 key={color}
@@ -207,7 +207,7 @@ export function ColorPicker({ value, onChange, onOpen, onClose }: ColorPickerPro
               }
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') close(); }}
-            className="w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--on-surface)] font-mono focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors"
+            className="hex-input w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--on-surface)] font-mono focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors"
             placeholder="#000000"
           />
         </div>,

@@ -7,9 +7,13 @@ export interface TimelineDragState {
   isDraggingTextStart: boolean;
   isDraggingTextEnd: boolean;
   isDraggingTextBody: boolean;
+  isDraggingPointerStart: boolean;
+  isDraggingPointerEnd: boolean;
+  isDraggingPointerBody: boolean;
   isDraggingZoom: boolean;
   isDraggingSeek: boolean;
   draggingTextId: string | null;
+  draggingPointerId: string | null;
   draggingZoomIdx: number | null;
 }
 
@@ -22,6 +26,7 @@ interface UseTimelineDragOptions {
   setSegment: (segment: VideoSegment | null) => void;
   setEditingKeyframeId: (id: number | null) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingPointerId?: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   onSeek?: (time: number) => void;
   beginBatch: () => void;
@@ -37,6 +42,7 @@ export function useTimelineDrag({
   setSegment,
   setEditingKeyframeId,
   setEditingTextId,
+  setEditingPointerId,
   setActivePanel,
   onSeek,
   beginBatch,
@@ -47,11 +53,16 @@ export function useTimelineDrag({
   const [isDraggingTextStart, setIsDraggingTextStart] = useState(false);
   const [isDraggingTextEnd, setIsDraggingTextEnd] = useState(false);
   const [isDraggingTextBody, setIsDraggingTextBody] = useState(false);
+  const [isDraggingPointerStart, setIsDraggingPointerStart] = useState(false);
+  const [isDraggingPointerEnd, setIsDraggingPointerEnd] = useState(false);
+  const [isDraggingPointerBody, setIsDraggingPointerBody] = useState(false);
   const [isDraggingZoom, setIsDraggingZoom] = useState(false);
   const [isDraggingSeek, setIsDraggingSeek] = useState(false);
   const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
+  const [draggingPointerId, setDraggingPointerId] = useState<string | null>(null);
   const [draggingZoomIdx, setDraggingZoomIdx] = useState<number | null>(null);
   const textDragOffsetRef = useRef(0);
+  const pointerDragOffsetRef = useRef(0);
 
   const getTimeFromClientX = useCallback((clientX: number): number | null => {
     const timeline = timelineRef.current;
@@ -169,6 +180,50 @@ export function useTimelineDrag({
     });
   }, [isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, draggingTextId, segment, getTimeFromClientX, setSegment, duration]);
 
+  // Pointer drag
+  const handlePointerDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
+    beginBatch();
+    setDraggingPointerId(id);
+    if (type === 'start') setIsDraggingPointerStart(true);
+    else if (type === 'end') setIsDraggingPointerEnd(true);
+    else if (type === 'body') {
+      setIsDraggingPointerBody(true);
+      if (offset !== undefined) pointerDragOffsetRef.current = offset;
+    }
+  }, [beginBatch]);
+
+  const handlePointerDrag = useCallback((clientX: number) => {
+    if ((!isDraggingPointerStart && !isDraggingPointerEnd && !isDraggingPointerBody) || !draggingPointerId || !segment) return;
+    const newTime = getTimeFromClientX(clientX);
+    if (newTime === null) return;
+
+    setSegment({
+      ...segment,
+      cursorVisibilitySegments: segment.cursorVisibilitySegments?.map(seg => {
+        if (seg.id !== draggingPointerId) return seg;
+        if (isDraggingPointerStart) {
+          return { ...seg, startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1) };
+        } else if (isDraggingPointerEnd) {
+          return { ...seg, endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1) };
+        } else if (isDraggingPointerBody) {
+          const dur = seg.endTime - seg.startTime;
+          let newStart = newTime - pointerDragOffsetRef.current;
+          if (newStart < 0) newStart = 0;
+          if (newStart + dur > duration) newStart = duration - dur;
+          return { ...seg, startTime: newStart, endTime: newStart + dur };
+        }
+        return seg;
+      }),
+    });
+  }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, draggingPointerId, segment, getTimeFromClientX, setSegment, duration]);
+
+  // Pointer click (select)
+  const handlePointerClick = useCallback((id: string) => {
+    if (!isDraggingPointerStart && !isDraggingPointerEnd) {
+      setEditingPointerId?.(id);
+    }
+  }, [isDraggingPointerStart, isDraggingPointerEnd, setEditingPointerId]);
+
   // Text click (select)
   const handleTextClick = useCallback((id: string) => {
     if (!isDraggingTextStart && !isDraggingTextEnd) {
@@ -189,22 +244,24 @@ export function useTimelineDrag({
 
   // Unified mouse handlers for TimelineArea
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingZoom) return;
+    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom) return;
     setIsDraggingSeek(true);
     setEditingTextId(null);
+    setEditingPointerId?.(null);
     handleSeek(e.clientX);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingZoom, setEditingTextId, handleSeek]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, setEditingTextId, setEditingPointerId, handleSeek]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     handleTrimDrag(e.clientX);
     handleTextDrag(e.clientX);
+    handlePointerDrag(e.clientX);
     handleZoomDrag(e.clientX);
     if (isDraggingSeek) handleSeek(e.clientX);
-  }, [handleTrimDrag, handleTextDrag, handleZoomDrag, isDraggingSeek, handleSeek]);
+  }, [handleTrimDrag, handleTextDrag, handlePointerDrag, handleZoomDrag, isDraggingSeek, handleSeek]);
 
   const handleMouseUp = useCallback(() => {
     // Commit batch if any drag operation was active (not seek — seek doesn't modify segment)
-    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingZoom) {
+    if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom) {
       commitBatch();
     }
     setIsDraggingTrimStart(false);
@@ -212,20 +269,25 @@ export function useTimelineDrag({
     setIsDraggingTextStart(false);
     setIsDraggingTextEnd(false);
     setIsDraggingTextBody(false);
+    setIsDraggingPointerStart(false);
+    setIsDraggingPointerEnd(false);
+    setIsDraggingPointerBody(false);
     setIsDraggingZoom(false);
     setDraggingZoomIdx(null);
     setDraggingTextId(null);
+    setDraggingPointerId(null);
     setIsDraggingSeek(false);
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingZoom, commitBatch]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, commitBatch]);
 
   // Attach window-level listeners during any drag so cursor can leave the timeline
   useEffect(() => {
-    const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingZoom || isDraggingSeek;
+    const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom || isDraggingSeek;
     if (!anyDragging) return;
 
     const onMove = (e: MouseEvent) => {
       handleTrimDrag(e.clientX);
       handleTextDrag(e.clientX);
+      handlePointerDrag(e.clientX);
       handleZoomDrag(e.clientX);
       if (isDraggingSeek) handleSeek(e.clientX);
     };
@@ -237,7 +299,7 @@ export function useTimelineDrag({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handleZoomDrag, handleSeek, handleMouseUp]);
+  }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handlePointerDrag, handleZoomDrag, handleSeek, handleMouseUp]);
 
   const dragState: TimelineDragState = {
     isDraggingTrimStart,
@@ -245,9 +307,13 @@ export function useTimelineDrag({
     isDraggingTextStart,
     isDraggingTextEnd,
     isDraggingTextBody,
+    isDraggingPointerStart,
+    isDraggingPointerEnd,
+    isDraggingPointerBody,
     isDraggingZoom,
     isDraggingSeek,
     draggingTextId,
+    draggingPointerId,
     draggingZoomIdx,
   };
 
@@ -258,6 +324,8 @@ export function useTimelineDrag({
     handleZoomDragStart,
     handleTextDragStart,
     handleTextClick,
+    handlePointerDragStart,
+    handlePointerClick,
     handleKeyframeClick,
     handleMouseDown,
     handleMouseMove,

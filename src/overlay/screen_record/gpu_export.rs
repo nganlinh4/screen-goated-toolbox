@@ -55,7 +55,7 @@ pub struct CompositorUniforms {
     pub _pad1: f32,                // 84-88
     pub cursor_pos: [f32; 2],      // 88-96
     pub cursor_scale: f32,         // 96-100
-    pub cursor_clicked: f32,       // 100-104 - DEPRECATED in shader but kept for struct alignment
+    pub cursor_opacity: f32,       // 100-104 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
     pub cursor_type_id: f32,       // 104-108
     pub _pad2: f32,                // 108-112
     pub _pad3: [f32; 4],           // 112-128 (Total 128 bytes)
@@ -594,7 +594,7 @@ pub fn create_uniforms(
     time: f32,
     cursor_pos: (f32, f32),
     cursor_scale: f32,
-    cursor_clicked: f32,
+    cursor_opacity: f32,
     cursor_type_id: f32,
 ) -> CompositorUniforms {
     CompositorUniforms {
@@ -612,7 +612,7 @@ pub fn create_uniforms(
         _pad1: 0.0,
         cursor_pos: [cursor_pos.0, cursor_pos.1],
         cursor_scale,
-        cursor_clicked,
+        cursor_opacity,
         cursor_type_id,
         _pad2: 0.0,
         _pad3: [0.0; 4],
@@ -636,7 +636,7 @@ struct Uniforms {
     _pad1: f32,
     cursor_pos: vec2<f32>,
     cursor_scale: f32,
-    cursor_clicked: f32,
+    cursor_opacity: f32,
     cursor_type_id: f32,
     _pad2: f32,
     _pad3: vec4<f32>,
@@ -723,9 +723,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                );
                
                let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
-               
-               // Blend
-               vid_col = mix(vid_col, cur_col, cur_col.a);
+
+               // Blend with cursor opacity
+               let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
+               vid_col = mix(vid_col, faded, faded.a);
             }
         }
         

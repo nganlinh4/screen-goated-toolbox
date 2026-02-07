@@ -55,6 +55,12 @@ pub struct BakedCursorFrame {
     pub is_clicked: bool,
     #[serde(rename = "type")]
     pub cursor_type: String,
+    #[serde(default = "default_opacity")]
+    pub opacity: f64,
+}
+
+fn default_opacity() -> f64 {
+    1.0
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -225,7 +231,7 @@ fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f
 fn sample_baked_cursor(
     time: f64,
     baked_path: &[BakedCursorFrame],
-) -> Option<(f64, f64, f64, bool, String)> {
+) -> Option<(f64, f64, f64, bool, String, f64)> {
     if baked_path.is_empty() {
         return None;
     }
@@ -234,12 +240,12 @@ fn sample_baked_cursor(
 
     if idx == 0 {
         let p = &baked_path[0];
-        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone()));
+        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity));
     }
 
     if idx >= baked_path.len() {
         let p = baked_path.last().unwrap();
-        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone()));
+        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity));
     }
 
     let p1 = &baked_path[idx - 1];
@@ -251,6 +257,7 @@ fn sample_baked_cursor(
     let x = p1.x + (p2.x - p1.x) * t;
     let y = p1.y + (p2.y - p1.y) * t;
     let scale = p1.scale + (p2.scale - p1.scale) * t;
+    let opacity = p1.opacity + (p2.opacity - p1.opacity) * t;
 
     let is_clicked = if t < 0.5 {
         p1.is_clicked
@@ -264,7 +271,7 @@ fn sample_baked_cursor(
         p2.cursor_type.clone()
     };
 
-    Some((x, y, scale, is_clicked, cursor_type))
+    Some((x, y, scale, is_clicked, cursor_type, opacity))
 }
 
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -553,28 +560,33 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let offset_x = zoom_shift_x + bg_center_x;
         let offset_y = zoom_shift_y + bg_center_y;
 
-        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_clicked, cursor_type_id) =
-            if let Some((cx, cy, c_scale, is_clicked, c_type)) = cursor_state {
-                let rel_x = (cx - crop_x_offset) / crop_w as f64;
-                let rel_y = (cy - crop_y_offset) / crop_h as f64;
+        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_opacity, cursor_type_id) =
+            if let Some((cx, cy, c_scale, _is_clicked, c_type, c_opacity)) = cursor_state {
+                // Skip cursor entirely when opacity is near zero
+                if c_opacity < 0.001 {
+                    (-1.0, -1.0, 0.0, 0.0_f32, 0.0)
+                } else {
+                    let rel_x = (cx - crop_x_offset) / crop_w as f64;
+                    let rel_y = (cy - crop_y_offset) / crop_h as f64;
 
-                let type_id = match c_type.as_str() {
-                    "text" => 1.0,
-                    "pointer" => 2.0,
-                    _ => 0.0,
-                };
+                    let type_id = match c_type.as_str() {
+                        "text" => 1.0,
+                        "pointer" => 2.0,
+                        _ => 0.0,
+                    };
 
-                let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
-                let cursor_final_scale =
-                    c_scale * config.background_config.cursor_scale * zoom * size_ratio;
+                    let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
+                    let cursor_final_scale =
+                        c_scale * config.background_config.cursor_scale * zoom * size_ratio;
 
-                (
-                    rel_x as f32,
-                    rel_y as f32,
-                    cursor_final_scale as f32,
-                    if is_clicked { 1.0 } else { 0.0 },
-                    type_id,
-                )
+                    (
+                        rel_x as f32,
+                        rel_y as f32,
+                        cursor_final_scale as f32,
+                        c_opacity as f32,
+                        type_id,
+                    )
+                }
             } else {
                 (-1.0, -1.0, 0.0, 0.0, 0.0)
             };
@@ -600,7 +612,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             (current_time - config.trim_start) as f32,
             (cursor_pos_x, cursor_pos_y),
             cursor_scale,
-            cursor_clicked,
+            cursor_opacity,
             cursor_type_id,
         );
 

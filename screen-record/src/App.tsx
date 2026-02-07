@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Wand2 } from "lucide-react";
+import { Wand2, MousePointer2 } from "lucide-react";
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { videoRenderer } from '@/lib/videoRenderer';
@@ -10,7 +10,7 @@ import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useFfmpegSetup, useHotkeys, useKeyviz, useMonitors } from '@/hooks/useAppHooks';
 import {
   useVideoPlayback, useRecording, useProjects, useExport,
-  useZoomKeyframes, useTextOverlays, useAutoZoom
+  useZoomKeyframes, useTextOverlays, useAutoZoom, useCursorHiding
 } from '@/hooks/useVideoState';
 
 import { Header } from '@/components/Header';
@@ -30,12 +30,12 @@ function ResizeBorders() {
   return (
     <>
       {/* Edges: left / right full-height, bottom full-width (top handled by Header) */}
-      <div className="fixed top-0 left-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('w')} />
-      <div className="fixed top-0 right-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('e')} />
-      <div className="fixed bottom-0 left-[14px] right-[14px] h-[6px] z-50 cursor-ns-resize" onMouseDown={resize('s')} />
+      <div className="resize-border-left fixed top-0 left-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('w')} />
+      <div className="resize-border-right fixed top-0 right-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('e')} />
+      <div className="resize-border-bottom fixed bottom-0 left-[14px] right-[14px] h-[6px] z-50 cursor-ns-resize" onMouseDown={resize('s')} />
       {/* Corners */}
-      <div className="fixed bottom-0 left-0 w-[14px] h-[14px] z-50 cursor-nesw-resize" onMouseDown={resize('sw')} />
-      <div className="fixed bottom-0 right-0 w-[14px] h-[14px] z-50 cursor-nwse-resize" onMouseDown={resize('se')} />
+      <div className="resize-corner-sw fixed bottom-0 left-0 w-[14px] h-[14px] z-50 cursor-nesw-resize" onMouseDown={resize('sw')} />
+      <div className="resize-corner-se fixed bottom-0 right-0 w-[14px] h-[14px] z-50 cursor-nwse-resize" onMouseDown={resize('se')} />
     </>
   );
 }
@@ -87,13 +87,11 @@ function App() {
     startNewRecording, handleStopRecording
   } = recording;
 
-  // Sync mouse positions from recording hook to shared ref + video controller
-  useEffect(() => {
-    mousePositionsRef.current = mousePositions;
-    if (videoControllerRef.current && segment) {
-      videoControllerRef.current.updateRenderOptions({ segment, backgroundConfig, mousePositions });
-    }
-  }, [mousePositions, segment, backgroundConfig]);
+  // Sync mouse positions to shared ref synchronously during render (NOT in
+  // an effect) so useVideoPlayback's effects always read the latest positions.
+  // Previously this was a useEffect which ran AFTER useVideoPlayback's effects,
+  // causing stale/empty mouse positions on project load → frozen cursor.
+  mousePositionsRef.current = mousePositions;
 
   // Projects
   const projects = useProjects({
@@ -124,6 +122,13 @@ function App() {
     currentProjectId: projects.currentProjectId, backgroundConfig,
     loadProjects: projects.loadProjects, setActivePanel
   });
+
+  // Cursor hiding
+  const cursorHiding = useCursorHiding({
+    segment, setSegment, mousePositions, currentTime, duration
+  });
+  const { editingPointerId, setEditingPointerId, handleSmartPointerHiding,
+    handleAddPointerSegment, handleDeletePointerSegment } = cursorHiding;
 
   // Handlers
   const handleToggleCrop = useCallback(() => {
@@ -244,7 +249,9 @@ function App() {
       const isInput = ['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName);
       if (e.code === 'Space' && !isInput) { e.preventDefault(); togglePlayPause(); }
       if ((e.code === 'Delete' || e.code === 'Backspace') && !isInput) {
-        if (editingTextId && !editingKeyframeId) {
+        if (editingPointerId) {
+          handleDeletePointerSegment();
+        } else if (editingTextId && !editingKeyframeId) {
           handleDeleteText();
         } else if (editingKeyframeId !== null && segment?.zoomKeyframes[editingKeyframeId]) {
           setSegment({ ...segment, zoomKeyframes: segment.zoomKeyframes.filter((_, i) => i !== editingKeyframeId) });
@@ -259,7 +266,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, editingTextId, handleDeleteText, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause]);
+  }, [editingKeyframeId, editingTextId, editingPointerId, handleDeleteText, handleDeletePointerSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause]);
 
   // Wheel zoom
   useEffect(() => {
@@ -358,7 +365,7 @@ function App() {
 
   return (
     <SettingsContext.Provider value={settings}>
-    <div className="min-h-screen bg-[var(--surface)]">
+    <div className="app-container min-h-screen bg-[var(--surface)]">
       <ResizeBorders />
       <Header
         isRecording={isRecording} recordingDuration={recordingDuration} currentVideo={currentVideo}
@@ -368,16 +375,16 @@ function App() {
         onOpenProjects={handleToggleProjects}
       />
 
-      <main className="flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
-        {error && <p className="text-[var(--tertiary-color)] mb-2 flex-shrink-0">{error}</p>}
+      <main className="app-main flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
+        {error && <p className="error-message text-[var(--tertiary-color)] mb-2 flex-shrink-0">{error}</p>}
 
-        <div className="flex gap-3 flex-1 min-h-0">
+        <div className="content-layout flex gap-3 flex-1 min-h-0">
           {/* Video Preview */}
-          <div className="flex-1 min-w-0 rounded-xl overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-            <div className="relative w-full h-full flex justify-center items-center">
+          <div className="video-preview-container flex-1 min-w-0 rounded-xl overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+            <div className="preview-inner relative w-full h-full flex justify-center items-center">
               <div
                 ref={previewContainerRef}
-                className="relative flex items-center justify-center cursor-crosshair group w-full h-full"
+                className="preview-canvas relative flex items-center justify-center cursor-crosshair group w-full h-full"
                 onMouseDown={handlePreviewMouseDown}
               >
                 <canvas ref={canvasRef} className="max-w-full max-h-full object-contain" />
@@ -415,6 +422,19 @@ function App() {
                       }`}>
                       <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
                     </Button>
+                  }
+                  smartPointerButton={
+                    <Button onClick={handleSmartPointerHiding}
+                      disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                      className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
+                        !currentVideo || exportHook.isProcessing || !mousePositions.length
+                          ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                          : segment?.cursorVisibilitySegments
+                            ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
+                            : 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
+                      }`}>
+                      <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
+                    </Button>
                   } />
               )}
 
@@ -433,7 +453,7 @@ function App() {
           </div>
 
           {/* Side Panel */}
-          <div className={`w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
+          <div className={`side-panel-container w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
@@ -443,22 +463,23 @@ function App() {
               editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
             />
-            {projects.showProjectsDialog && <div className="absolute inset-0 bg-[var(--surface)] z-50" />}
+            {projects.showProjectsDialog && <div className="projects-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
           </div>
         </div>
 
         {/* Timeline */}
-        <div className={`mt-3 flex-shrink-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : ''}`}>
+        <div className={`timeline-container mt-3 flex-shrink-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : ''}`}>
           <TimelineArea
             duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
             timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
-            editingTextId={editingTextId} setCurrentTime={setCurrentTime}
+            editingTextId={editingTextId} editingPointerId={editingPointerId} setCurrentTime={setCurrentTime}
             setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
+            setEditingPointerId={setEditingPointerId}
             setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek}
-            onAddText={handleAddText}
+            onAddText={handleAddText} onAddPointerSegment={handleAddPointerSegment}
             beginBatch={beginBatch} commitBatch={commitBatch}
           />
-          {projects.showProjectsDialog && <div className="absolute inset-0 bg-[var(--surface)] z-50" />}
+          {projects.showProjectsDialog && <div className="projects-timeline-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
         </div>
       </main>
 
@@ -467,8 +488,8 @@ function App() {
       <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
         monitors={monitors} onSelectMonitor={startNewRecording} />
       {currentVideo && !isVideoReady && !projects.showProjectsDialog && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="text-[var(--on-surface)]">{t.preparingVideoOverlay}</div>
+        <div className="video-loading-overlay absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="loading-message text-[var(--on-surface)]">{t.preparingVideoOverlay}</div>
         </div>
       )}
       <ExportDialog show={exportHook.showExportDialog} onClose={() => exportHook.setShowExportDialog(false)}

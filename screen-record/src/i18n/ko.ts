@@ -115,11 +115,13 @@ const ko: Translations = {
   // Timeline
   trackZoom: '확대',
   trackText: '텍스트',
+  trackPointer: '포인터',
   trackVideo: '비디오',
 
   // App
   preparingVideoOverlay: '비디오 준비 중...',
   autoZoom: '자동 확대',
+  smartPointer: '스마트 포인터',
 
   // Export presets
   presetBalanced: '균형 (권장)',

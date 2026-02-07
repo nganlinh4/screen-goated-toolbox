@@ -21,9 +21,9 @@ export function ProcessingOverlay({ show, exportProgress }: ProcessingOverlayPro
   const { t } = useSettings();
   if (!show) return null;
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-[var(--surface-dim)] p-6 rounded-lg border border-[var(--glass-border)] shadow-lg">
-        <p className="text-lg text-[var(--on-surface)]">
+    <div className="processing-overlay-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="processing-dialog bg-[var(--surface-dim)] p-6 rounded-lg border border-[var(--glass-border)] shadow-lg">
+        <p className="processing-message text-lg text-[var(--on-surface)]">
           {exportProgress > 0 ? `${t.exportingVideo} ${Math.round(exportProgress)}%` : t.processingVideoShort}
         </p>
       </div>
@@ -48,22 +48,22 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
   if (!show) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-medium text-[var(--on-surface)]">{t.exportOptions}</h3>
-          <button onClick={onClose} className="p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
+    <div className="export-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
+        <div className="dialog-header flex items-center justify-between mb-4">
+          <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.exportOptions}</h3>
+          <button onClick={onClose} className="dialog-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="space-y-4 mb-6">
-          <div>
+        <div className="export-options-form space-y-4 mb-6">
+          <div className="export-quality-field">
             <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.quality}</label>
             <select
               value={exportOptions.quality}
               onChange={(e) => setExportOptions(prev => ({ ...prev, quality: e.target.value as ExportOptions['quality'] }))}
-              className="w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)]"
+              className="export-quality-select w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)]"
             >
               {Object.entries(EXPORT_PRESETS).map(([key, preset]) => (
                 <option key={key} value={key}>{preset.label}</option>
@@ -71,12 +71,12 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
             </select>
           </div>
 
-          <div>
+          <div className="export-dimensions-field">
             <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.dimensions}</label>
             <select
               value={exportOptions.dimensions}
               onChange={(e) => setExportOptions(prev => ({ ...prev, dimensions: e.target.value as ExportOptions['dimensions'] }))}
-              className="w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)]"
+              className="export-dimensions-select w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)]"
             >
               {Object.entries(DIMENSION_PRESETS).map(([key, preset]) => (
                 <option key={key} value={key}>{preset.label}</option>
@@ -84,10 +84,10 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
             </select>
           </div>
 
-          <div>
+          <div className="export-speed-field">
             <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.speed}</label>
-            <div className="bg-[var(--glass-bg)] rounded-lg p-3">
-              <div className="flex items-center justify-between mb-3">
+            <div className="speed-control bg-[var(--glass-bg)] rounded-lg p-3">
+              <div className="speed-display flex items-center justify-between mb-3">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm text-[var(--on-surface)] tabular-nums">
                     {formatTime(segment ? (segment.trimEnd - segment.trimStart) / exportOptions.speed : 0)}
@@ -101,7 +101,7 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
                 </div>
                 <span className="text-sm font-medium text-[var(--on-surface)] tabular-nums">{Math.round(exportOptions.speed * 100)}%</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="speed-slider-row flex items-center gap-3">
                 <span className="text-xs text-[var(--outline)] min-w-[36px]">{t.slower}</span>
                 <input
                   type="range"
@@ -118,7 +118,7 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
           </div>
         </div>
 
-        <div className="flex justify-end gap-2">
+        <div className="dialog-actions flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} className="bg-transparent border-[var(--glass-border)] text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--on-surface)] rounded-lg text-xs h-8">{t.cancel}</Button>
           <Button onClick={onExport} className="bg-[var(--primary-color)] hover:opacity-90 text-white rounded-lg text-xs h-8">{t.exportVideo}</Button>
         </div>
@@ -142,23 +142,23 @@ export function MonitorSelectDialog({ show, onClose, monitors, onSelectMonitor }
   if (!show) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-medium text-[var(--on-surface)]">{t.selectMonitor}</h3>
-          <button onClick={onClose} className="p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
+    <div className="monitor-select-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="monitor-select-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
+        <div className="dialog-header flex items-center justify-between mb-4">
+          <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.selectMonitor}</h3>
+          <button onClick={onClose} className="dialog-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="space-y-1.5">
+        <div className="monitor-list space-y-1.5">
           {monitors.map((monitor) => (
             <button
               key={monitor.id}
               onClick={() => { onClose(); onSelectMonitor(monitor.id); }}
-              className="w-full p-3 rounded-lg border border-[var(--glass-border)] hover:bg-[var(--glass-bg)] hover:border-[var(--outline)] transition-colors text-left"
+              className="monitor-item w-full p-3 rounded-lg border border-[var(--glass-border)] hover:bg-[var(--glass-bg)] hover:border-[var(--outline)] transition-colors text-left"
             >
-              <div className="text-sm text-[var(--on-surface)]">{monitor.name}</div>
-              <div className="text-xs text-[var(--outline)] mt-0.5">{monitor.width}x{monitor.height} at ({monitor.x}, {monitor.y})</div>
+              <div className="monitor-name text-sm text-[var(--on-surface)]">{monitor.name}</div>
+              <div className="monitor-specs text-xs text-[var(--outline)] mt-0.5">{monitor.width}x{monitor.height} at ({monitor.x}, {monitor.y})</div>
             </button>
           ))}
         </div>
@@ -180,18 +180,18 @@ export function HotkeyDialog({ show, onClose }: HotkeyDialogProps) {
   if (!show) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-sm w-full mx-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+    <div className="hotkey-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="hotkey-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-sm w-full mx-4">
+        <div className="dialog-header flex items-center justify-between mb-4">
+          <div className="dialog-header-icon flex items-center gap-2">
             <Keyboard className="w-4 h-4 text-[var(--on-surface-variant)]" />
-            <h3 className="text-sm font-medium text-[var(--on-surface)]">{t.pressKeys}</h3>
+            <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.pressKeys}</h3>
           </div>
-          <button onClick={onClose} className="p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
+          <button onClick={onClose} className="dialog-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
-        <p className="text-[var(--outline)] text-xs">{t.pressKeysHint}</p>
+        <p className="hotkey-hint text-[var(--outline)] text-xs">{t.pressKeysHint}</p>
       </div>
     </div>
   );
@@ -211,9 +211,9 @@ export function FfmpegSetupDialog({ show, ffmpegInstallStatus, onCancelInstall }
   if (!show) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100]">
-      <div className="bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-sm w-full mx-4">
-        <div className="flex items-center gap-2.5 mb-3">
+    <div className="ffmpeg-setup-backdrop fixed inset-0 bg-black/90 flex items-center justify-center z-[100]">
+      <div className="ffmpeg-setup-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-sm w-full mx-4">
+        <div className="setup-status-header flex items-center gap-2.5 mb-3">
           {ffmpegInstallStatus.type === 'Error' ? (
             <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           ) : ffmpegInstallStatus.type === 'Downloading' || ffmpegInstallStatus.type === 'Extracting' ? (
@@ -229,7 +229,7 @@ export function FfmpegSetupDialog({ show, ffmpegInstallStatus, onCancelInstall }
           </h3>
         </div>
 
-        <p className="text-[var(--outline)] mb-4 text-xs leading-relaxed">
+        <p className="setup-description text-[var(--outline)] mb-4 text-xs leading-relaxed">
           {ffmpegInstallStatus.type === 'Downloading' ? t.ffmpegDesc :
             ffmpegInstallStatus.type === 'Extracting' ? t.extractingDesc :
               ffmpegInstallStatus.type === 'Error' ? ffmpegInstallStatus.message :
@@ -237,15 +237,15 @@ export function FfmpegSetupDialog({ show, ffmpegInstallStatus, onCancelInstall }
         </p>
 
         {(ffmpegInstallStatus.type === 'Downloading' || ffmpegInstallStatus.type === 'Extracting') && (
-          <div className="space-y-2 mb-4">
-            <div className="h-1 w-full bg-[var(--glass-bg-hover)] rounded-full overflow-hidden">
+          <div className="progress-section space-y-2 mb-4">
+            <div className="progress-bar-track h-1 w-full bg-[var(--glass-bg-hover)] rounded-full overflow-hidden">
               <div
-                className="h-full bg-[var(--primary-color)] transition-all duration-300 ease-out"
+                className="progress-bar-fill h-full bg-[var(--primary-color)] transition-all duration-300 ease-out"
                 style={{ width: `${ffmpegInstallStatus.type === 'Downloading' ? ffmpegInstallStatus.progress : 95}%` }}
               />
             </div>
             {ffmpegInstallStatus.type === 'Downloading' && (
-              <div className="flex justify-between text-[10px]">
+              <div className="progress-details flex justify-between text-[10px]">
                 <span className="text-[var(--on-surface-variant)]">
                   {Math.round(ffmpegInstallStatus.progress)}% {t.downloaded}
                   {ffmpegInstallStatus.totalSize > 0 && ` of ${(ffmpegInstallStatus.totalSize / (1024 * 1024)).toFixed(1)} MB`}
@@ -256,7 +256,7 @@ export function FfmpegSetupDialog({ show, ffmpegInstallStatus, onCancelInstall }
           </div>
         )}
 
-        <div className="flex flex-col gap-2">
+        <div className="setup-actions flex flex-col gap-2">
           {ffmpegInstallStatus.type === 'Error' || ffmpegInstallStatus.type === 'Cancelled' ? (
             <Button onClick={() => window.location.reload()} className="w-full bg-[var(--primary-color)] hover:opacity-90 text-white rounded-lg text-xs h-9">
               {t.tryAgain}

@@ -6,7 +6,8 @@ import { projectManager } from '@/lib/projectManager';
 import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
 import { videoExporter } from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
-import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment } from '@/types/video';
+import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment } from '@/types/video';
+import { generateCursorVisibility } from '@/lib/cursorHiding';
 import { getKeyframeRange } from '@/utils/helpers';
 import { useThrottle } from './useAppHooks';
 
@@ -119,39 +120,36 @@ export function useVideoPlayback({
     videoControllerRef.current.updateRenderOptions({ segment, backgroundConfig, mousePositions: mousePositionsRef.current });
   }, [segment, backgroundConfig]);
 
-  // Animation effect
+  // Render context sync — update the running animation loop's context when
+  // segment/backgroundConfig/isCropping change, WITHOUT restarting the loop.
+  // VideoController.handlePlay owns startAnimation; the loop self-exits on pause.
+  // This eliminates the stop→start thrashing that caused audio play/pause AbortErrors.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !segment) return;
 
+    const loopSegment = isCropping ? {
+      ...segment, crop: undefined,
+      zoomKeyframes: segment.zoomKeyframes.map(k => ({ ...k, zoomFactor: 1.0, positionX: 0.5, positionY: 0.5 }))
+    } : segment;
+
+    const loopBackground = isCropping ? {
+      ...backgroundConfig, scale: 100, borderRadius: 0, shadow: 0,
+      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0
+    } : backgroundConfig;
+
+    // Update context for the animation loop (picked up on next RAF tick)
+    videoRenderer.updateRenderContext({
+      video, canvas: canvasRef.current!, tempCanvas: tempCanvasRef.current,
+      segment: loopSegment, backgroundConfig: loopBackground,
+      mousePositions: mousePositionsRef.current,
+      currentTime: video.currentTime
+    });
+
     if (video.paused) {
       renderFrame();
-    } else {
-      const loopSegment = isCropping ? {
-        ...segment, crop: undefined,
-        zoomKeyframes: segment.zoomKeyframes.map(k => ({ ...k, zoomFactor: 1.0, positionX: 0.5, positionY: 0.5 }))
-      } : segment;
-
-      const loopBackground = isCropping ? {
-        ...backgroundConfig, scale: 100, borderRadius: 0, shadow: 0,
-        backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0
-      } : backgroundConfig;
-
-      videoRenderer.startAnimation({
-        video, canvas: canvasRef.current!, tempCanvas: tempCanvasRef.current,
-        segment: loopSegment, backgroundConfig: loopBackground, mousePositions: mousePositionsRef.current,
-        currentTime: video.currentTime
-      });
     }
-
-    return () => { videoRenderer.stopAnimation(); };
   }, [segment, backgroundConfig, isCropping]);
-
-  // Background config redraw
-  useEffect(() => {
-    if (videoRef.current && !videoRef.current.paused) return;
-    requestAnimationFrame(() => renderFrame());
-  }, [backgroundConfig, renderFrame]);
 
   // Generate thumbnails when ready
   useEffect(() => {
@@ -689,4 +687,71 @@ export function useAutoZoom(props: UseAutoZoomProps) {
   }, [props]);
 
   return { handleAutoZoom };
+}
+
+// ============================================================================
+// useCursorHiding
+// ============================================================================
+interface UseCursorHidingProps {
+  segment: VideoSegment | null;
+  setSegment: (segment: VideoSegment | null) => void;
+  mousePositions: MousePosition[];
+  currentTime: number;
+  duration: number;
+}
+
+export function useCursorHiding(props: UseCursorHidingProps) {
+  const [editingPointerId, setEditingPointerId] = useState<string | null>(null);
+
+  const handleSmartPointerHiding = useCallback(() => {
+    if (!props.segment) return;
+
+    // Toggle: if already active, clear it
+    if (props.segment.cursorVisibilitySegments) {
+      props.setSegment({ ...props.segment, cursorVisibilitySegments: undefined });
+      setEditingPointerId(null);
+      return;
+    }
+
+    // Generate visibility segments from mouse data
+    const segments = generateCursorVisibility(props.segment, props.mousePositions);
+    props.setSegment({ ...props.segment, cursorVisibilitySegments: segments });
+  }, [props.segment, props.mousePositions, props.setSegment]);
+
+  const handleAddPointerSegment = useCallback((atTime?: number) => {
+    if (!props.segment) return;
+    const t0 = atTime ?? props.currentTime;
+    const segDur = 2;
+    const startTime = Math.max(0, t0 - segDur / 2);
+
+    const newSeg: CursorVisibilitySegment = {
+      id: crypto.randomUUID(),
+      startTime,
+      endTime: Math.min(startTime + segDur, props.duration),
+    };
+
+    props.setSegment({
+      ...props.segment,
+      cursorVisibilitySegments: [...(props.segment.cursorVisibilitySegments || []), newSeg],
+    });
+    setEditingPointerId(newSeg.id);
+  }, [props.segment, props.currentTime, props.duration, props.setSegment]);
+
+  const handleDeletePointerSegment = useCallback(() => {
+    if (!props.segment || !editingPointerId) return;
+    const remaining = props.segment.cursorVisibilitySegments?.filter(s => s.id !== editingPointerId);
+    props.setSegment({
+      ...props.segment,
+      cursorVisibilitySegments: remaining?.length ? remaining : undefined,
+    });
+    setEditingPointerId(null);
+  }, [props.segment, editingPointerId, props.setSegment]);
+
+  return {
+    editingPointerId,
+    setEditingPointerId,
+    handleSmartPointerHiding,
+    handleAddPointerSegment,
+    handleDeletePointerSegment,
+  };
 }

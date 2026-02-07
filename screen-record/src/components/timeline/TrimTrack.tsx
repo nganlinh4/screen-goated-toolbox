@@ -81,7 +81,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
       style={{ left: `calc(${(segment.trimStart / duration) * 100}% - 6px)` }}
       onMouseDown={(e) => { e.stopPropagation(); onTrimDragStart('start'); }}
     >
-      <div className="absolute inset-y-0 w-1.5 bg-white/80 group-hover:bg-[var(--primary-color)] transition-colors rounded-full left-1/2 -translate-x-1/2" />
+      <div className="trim-handle-bar absolute inset-y-0 w-1.5 bg-white/80 group-hover:bg-[var(--primary-color)] transition-colors rounded-full left-1/2 -translate-x-1/2" />
     </div>
 
     {/* Trim handle: end */}
@@ -90,7 +90,7 @@ export const TrimTrack: React.FC<TrimTrackProps> = ({
       style={{ left: `calc(${(segment.trimEnd / duration) * 100}% - 6px)` }}
       onMouseDown={(e) => { e.stopPropagation(); onTrimDragStart('end'); }}
     >
-      <div className="absolute inset-y-0 w-1.5 bg-white/80 group-hover:bg-[var(--primary-color)] transition-colors rounded-full left-1/2 -translate-x-1/2" />
+      <div className="trim-handle-bar absolute inset-y-0 w-1.5 bg-white/80 group-hover:bg-[var(--primary-color)] transition-colors rounded-full left-1/2 -translate-x-1/2" />
     </div>
   </div>
 );
