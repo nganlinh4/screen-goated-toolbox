@@ -394,7 +394,7 @@ function App() {
                 className="preview-canvas relative flex items-center justify-center cursor-crosshair group w-full h-full"
                 onMouseDown={handlePreviewMouseDown}
               >
-                <canvas ref={canvasRef} className="preview-canvas-element block max-w-full max-h-full" style={{ willChange: 'transform' }} />
+                <canvas ref={canvasRef} className="preview-canvas-element absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full" />
                 <canvas ref={tempCanvasRef} className="hidden" />
                 <video ref={videoRef} className="hidden" playsInline preload="auto" />
                 <audio ref={audioRef} className="hidden" />

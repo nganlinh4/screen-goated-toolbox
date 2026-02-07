@@ -74,7 +74,6 @@ export class VideoRenderer {
 
   private currentSquishScale = 1.0;
   private lastHoldTime = -1;
-  private lastPausedState: boolean | null = null;
   private readonly CLICK_FUSE_THRESHOLD = 0.15;
   private readonly SQUISH_SPEED = 0.015;
   private readonly RELEASE_SPEED = 0.01;
@@ -370,22 +369,6 @@ export class VideoRenderer {
       // Supersample only during export to keep preview responsive
       const zf = zoomState?.zoomFactor ?? 1;
       const ss = isExportMode && zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
-
-      // Diagnostic: log content-level params on play↔pause transitions
-      if (!isExportMode && this.lastPausedState !== null && this.lastPausedState !== video.paused) {
-        console.log('[drawFrame] TRANSITION', video.paused ? 'PLAY→PAUSE' : 'PAUSE→PLAY', {
-          scale, legacyCrop, x, y, scaledWidth, scaledHeight, ss,
-          zoomFactor: zoomState?.zoomFactor, posX: zoomState?.positionX, posY: zoomState?.positionY,
-          canvasW, canvasH, 'video.currentTime': video.currentTime,
-          tempW: canvasW * ss, tempH: canvasH * ss,
-        });
-        // Also log after React re-render to catch layout shift
-        requestAnimationFrame(() => {
-          const rect = canvas.getBoundingClientRect();
-          console.log('[drawFrame] POST-PAINT rect', { top: rect.top, height: rect.height, width: rect.width });
-        });
-      }
-      this.lastPausedState = video.paused;
 
       ctx.save();
 
