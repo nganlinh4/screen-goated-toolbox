@@ -2,12 +2,14 @@
 // Animated splash screen with 3D voxel effects, procedural audio, and theme switching.
 
 mod audio;
+mod escape_overlay;
 mod math;
 mod render;
 mod scene;
 
 use audio::SplashAudio;
 use eframe::egui::{self, Color32, Pos2, Vec2};
+use escape_overlay::{EscapeCircle, EscapeOverlay};
 use math::Vec3;
 use scene::{Cloud, MoonFeature, Star, Voxel};
 use std::cell::RefCell;
@@ -62,6 +64,8 @@ pub struct SplashScreen {
     audio: Arc<Mutex<Option<SplashAudio>>>,
     has_played_impact: bool,
     draw_list: RefCell<Vec<(f32, Pos2, f32, Color32, bool, bool)>>,
+    // Escape overlay — separate transparent window for voxels that fly beyond the main window
+    escape_overlay: RefCell<Option<EscapeOverlay>>,
 }
 
 pub enum SplashStatus {
@@ -98,6 +102,7 @@ impl SplashScreen {
             audio: audio_container,
             has_played_impact: false,
             draw_list: RefCell::new(Vec::with_capacity(600)),
+            escape_overlay: RefCell::new(None),
         };
 
         slf.init_scene();
@@ -120,7 +125,9 @@ impl SplashScreen {
     }
 
     pub fn update(&mut self, ctx: &egui::Context) -> SplashStatus {
-        render::update(
+        let was_exiting = self.exit_start_time.is_some();
+
+        let status = render::update(
             ctx,
             self.start_time,
             &mut self.exit_start_time,
@@ -132,11 +139,23 @@ impl SplashScreen {
             &mut self.is_dark,
             &self.audio,
             &mut self.has_played_impact,
-        )
+        );
+
+        // Create escape overlay on first frame of exit
+        if self.exit_start_time.is_some() && !was_exiting {
+            *self.escape_overlay.borrow_mut() = EscapeOverlay::new();
+        }
+
+        // Destroy overlay when splash finishes
+        if matches!(status, SplashStatus::Finished) {
+            *self.escape_overlay.borrow_mut() = None;
+        }
+
+        status
     }
 
     pub fn paint(&self, ctx: &egui::Context, _theme_mode: &crate::config::ThemeMode) -> bool {
-        render::paint(
+        let result = render::paint(
             ctx,
             self.start_time,
             self.exit_start_time,
@@ -148,6 +167,76 @@ impl SplashScreen {
             self.is_dark,
             &self.loading_text,
             &self.draw_list,
-        )
+        );
+
+        // After paint fills draw_list, send escaped voxels to the overlay
+        if self.escape_overlay.borrow().is_some() {
+            self.update_escape_overlay(ctx);
+        }
+
+        result
+    }
+
+    fn update_escape_overlay(&self, ctx: &egui::Context) {
+        let viewport = ctx.input(|i| i.viewport().clone());
+        let inner = viewport.inner_rect.unwrap_or(eframe::egui::Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::new(crate::WINDOW_WIDTH, crate::WINDOW_HEIGHT),
+        ));
+        let ppp = ctx.pixels_per_point();
+
+        // Window position in physical pixels
+        let win_phys_x = inner.min.x * ppp;
+        let win_phys_y = inner.min.y * ppp;
+        let win_w = inner.width();
+        let win_h = inner.height();
+
+        let overlay_ref = self.escape_overlay.borrow();
+        let overlay = match overlay_ref.as_ref() {
+            Some(o) => o,
+            None => return,
+        };
+
+        let overlay_ox = overlay.origin_x as f32;
+        let overlay_oy = overlay.origin_y as f32;
+
+        let draw_list = self.draw_list.borrow();
+        let mut circles = Vec::new();
+
+        for &(_, pos, r, col, _, _) in draw_list.iter() {
+            // Skip voxels whose center is inside the window (egui already renders those)
+            if pos.x >= 0.0 && pos.x <= win_w && pos.y >= 0.0 && pos.y <= win_h {
+                continue;
+            }
+
+            // Fade in based on distance outside the window edge — prevents abrupt pop-in
+            let dist_outside = (-pos.x)
+                .max(pos.x - win_w)
+                .max(-pos.y)
+                .max(pos.y - win_h)
+                .max(0.0);
+            let fade = (dist_outside / 40.0).clamp(0.0, 1.0);
+            let faded_a = (col.a() as f32 * fade) as u8;
+            if faded_a == 0 {
+                continue;
+            }
+
+            // Convert window-local logical position → physical screen position → overlay-local
+            let screen_phys_x = win_phys_x + pos.x * ppp;
+            let screen_phys_y = win_phys_y + pos.y * ppp;
+            let phys_r = r * ppp;
+
+            circles.push(EscapeCircle {
+                x: screen_phys_x - overlay_ox,
+                y: screen_phys_y - overlay_oy,
+                radius: phys_r,
+                r: col.r(),
+                g: col.g(),
+                b: col.b(),
+                a: faded_a,
+            });
+        }
+
+        overlay.update(&circles);
     }
 }
