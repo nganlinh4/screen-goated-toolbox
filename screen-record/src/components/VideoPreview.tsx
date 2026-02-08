@@ -1,7 +1,7 @@
 import { forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
-import { VideoSegment } from '@/types/video';
+import { VideoSegment, BackgroundConfig } from '@/types/video';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
 
@@ -334,6 +334,117 @@ export function CropOverlay({
             <div className="crosshair-v absolute h-full w-[1px] bg-white left-1/2 -translate-x-1/2 shadow-sm" />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// CanvasResizeOverlay
+// ============================================================================
+interface CanvasResizeOverlayProps {
+  previewContainerRef: React.RefObject<HTMLDivElement>;
+  backgroundConfig: BackgroundConfig;
+  setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+  beginBatch: () => void;
+  commitBatch: () => void;
+}
+
+export function CanvasResizeOverlay({
+  previewContainerRef,
+  backgroundConfig,
+  setBackgroundConfig,
+  beginBatch,
+  commitBatch
+}: CanvasResizeOverlayProps) {
+  const container = previewContainerRef.current;
+  if (!container) return null;
+
+  const containerRect = container.getBoundingClientRect();
+  const containerW = containerRect.width;
+  const containerH = containerRect.height;
+  const canvasW = backgroundConfig.canvasWidth || 1920;
+  const canvasH = backgroundConfig.canvasHeight || 1080;
+
+  if (canvasW <= 0 || canvasH <= 0 || containerW <= 0 || containerH <= 0) return null;
+
+  // Compute displayed canvas rect (CSS max-w-full max-h-full + centered)
+  const scale = Math.min(containerW / canvasW, containerH / canvasH, 1);
+  const dispW = canvasW * scale;
+  const dispH = canvasH * scale;
+  const oLeft = (containerW - dispW) / 2;
+  const oTop = (containerH - dispH) / 2;
+
+  const handleDragStart = (e: React.MouseEvent, type: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    beginBatch();
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = canvasW;
+    const startH = canvasH;
+    // Canvas pixels per screen pixel — x2 because canvas is centered (both sides grow equally)
+    const pxPerCanvas = scale > 0 ? 1 / scale : 1;
+
+    const handleMove = (me: MouseEvent) => {
+      const dx = me.clientX - startX;
+      const dy = me.clientY - startY;
+      let newW = startW;
+      let newH = startH;
+
+      if (type.includes('e')) newW = startW + dx * pxPerCanvas * 2;
+      if (type.includes('w')) newW = startW - dx * pxPerCanvas * 2;
+      if (type.includes('s')) newH = startH + dy * pxPerCanvas * 2;
+      if (type.includes('n')) newH = startH - dy * pxPerCanvas * 2;
+
+      // Clamp to reasonable bounds, ensure even (for ffmpeg yuv420p)
+      newW = Math.max(100, Math.min(7680, Math.round(newW)));
+      newH = Math.max(100, Math.min(4320, Math.round(newH)));
+      if (newW % 2 !== 0) newW++;
+      if (newH % 2 !== 0) newH++;
+
+      setBackgroundConfig(prev => ({ ...prev, canvasWidth: newW, canvasHeight: newH }));
+    };
+
+    const handleUp = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      commitBatch();
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+  };
+
+  const handles = [
+    { t: 'n',  cursor: 'cursor-n-resize',  x: dispW / 2, y: 0 },
+    { t: 's',  cursor: 'cursor-s-resize',  x: dispW / 2, y: dispH },
+    { t: 'w',  cursor: 'cursor-w-resize',  x: 0,         y: dispH / 2 },
+    { t: 'e',  cursor: 'cursor-e-resize',  x: dispW,     y: dispH / 2 },
+    { t: 'nw', cursor: 'cursor-nw-resize', x: 0,         y: 0 },
+    { t: 'ne', cursor: 'cursor-ne-resize', x: dispW,     y: 0 },
+    { t: 'sw', cursor: 'cursor-sw-resize', x: 0,         y: dispH },
+    { t: 'se', cursor: 'cursor-se-resize', x: dispW,     y: dispH },
+  ];
+
+  return (
+    <div className="canvas-resize-overlay absolute inset-0 z-10 pointer-events-none">
+      <div
+        className="canvas-resize-bounds"
+        style={{ position: 'absolute', left: oLeft, top: oTop, width: dispW, height: dispH }}
+      >
+        <div className="canvas-resize-border absolute inset-0 border border-dashed border-white/30 pointer-events-none" />
+        <div className="canvas-resize-label absolute -top-5 left-1/2 -translate-x-1/2 bg-black/60 text-white/80 text-[9px] px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none tabular-nums">
+          {canvasW} x {canvasH}
+        </div>
+        {handles.map(handle => (
+          <div
+            key={handle.t}
+            className={`canvas-resize-handle absolute w-2.5 h-2.5 bg-white/80 border border-white/50 rounded-full -translate-x-1/2 -translate-y-1/2 ${handle.cursor} pointer-events-auto hover:scale-150 transition-transform`}
+            style={{ left: handle.x, top: handle.y }}
+            onMouseDown={(e) => handleDragStart(e, handle.t)}
+          />
+        ))}
       </div>
     </div>
   );

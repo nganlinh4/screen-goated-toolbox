@@ -35,25 +35,28 @@ export class VideoExporter {
     const vidW = video?.videoWidth || 1920;
     const vidH = video?.videoHeight || 1080;
 
-    // Calculate CROPPED dimensions (matching preview canvas behavior)
+    // Calculate canvas dimensions (matching preview: custom canvas or crop-based)
     const crop = segment?.crop || { x: 0, y: 0, width: 1, height: 1 };
     const croppedW = Math.round(vidW * crop.width);
     const croppedH = Math.round(vidH * crop.height);
 
+    const useCustomCanvas = backgroundConfig?.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight;
+    const baseW = useCustomCanvas ? backgroundConfig!.canvasWidth! : croppedW;
+    const baseH = useCustomCanvas ? backgroundConfig!.canvasHeight! : croppedH;
+
     console.log('[Exporter] Video dimensions:', vidW, 'x', vidH);
     console.log('[Exporter] Crop rect:', crop);
-    console.log('[Exporter] Cropped dimensions:', croppedW, 'x', croppedH);
+    console.log('[Exporter] Canvas base dimensions:', baseW, 'x', baseH, useCustomCanvas ? '(custom)' : '(auto/crop)');
     console.log('[Exporter] Dimension preset:', options.dimensions, '→', preset);
 
     if (preset.height === 0) {
-      // Original: Use exact cropped dimensions
-      width = croppedW;
-      height = croppedH;
+      // Original: Use canvas dimensions as-is
+      width = baseW;
+      height = baseH;
     } else {
       // 1080p / 720p: Fix the height, adjust width to maintain aspect ratio
-      // This allows vertical videos to remain vertical, just scaled to 1080p height
       height = preset.height;
-      width = Math.round(height * (croppedW / croppedH));
+      width = Math.round(height * (baseW / baseH));
     }
 
     // Ensure dimensions are even (required for ffmpeg yuv420p)

@@ -553,9 +553,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let zoom_shift_x = (1.0 - zoom) * ratio_x;
         let zoom_shift_y = (1.0 - zoom) * ratio_y;
 
-        let bg_scale = config.background_config.scale / 100.0;
-        let bg_center_x = (1.0 - bg_scale) / 2.0 * zoom;
-        let bg_center_y = (1.0 - bg_scale) / 2.0 * zoom;
+        // Center using actual video-to-canvas ratio per axis (contain-fit aware)
+        let bg_center_x = (1.0 - video_w as f64 / out_w as f64) / 2.0 * zoom;
+        let bg_center_y = (1.0 - video_h as f64 / out_h as f64) / 2.0 * zoom;
 
         let offset_x = zoom_shift_x + bg_center_x;
         let offset_y = zoom_shift_y + bg_center_y;

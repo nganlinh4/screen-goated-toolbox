@@ -76,7 +76,7 @@ export function useVideoPlayback({
 
     const renderBackground = isCropping ? {
       ...backgroundConfig, scale: 100, borderRadius: 0, shadow: 0,
-      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0
+      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0, canvasMode: 'auto' as const
     } : backgroundConfig;
 
     videoRenderer.drawFrame({
@@ -130,7 +130,7 @@ export function useVideoPlayback({
 
     const renderBackground = isCropping ? {
       ...backgroundConfig, scale: 100, borderRadius: 0, shadow: 0,
-      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0
+      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0, canvasMode: 'auto' as const
     } : backgroundConfig;
 
     videoControllerRef.current.updateRenderOptions({
@@ -153,7 +153,7 @@ export function useVideoPlayback({
 
     const loopBackground = isCropping ? {
       ...backgroundConfig, scale: 100, borderRadius: 0, shadow: 0,
-      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0
+      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0, canvasMode: 'auto' as const
     } : backgroundConfig;
 
     // Update context for the animation loop (picked up on next RAF tick)

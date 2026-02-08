@@ -53,3 +53,4 @@ cargo test               # Run tests
 - **Always add descriptive class names** to JSX elements for DevTools debugging (e.g., `className="zoom-track ..."`, `className="text-segment ..."`)
 - Class names should be semantic, kebab-case, and describe the element's purpose
 - This applies to all components — tracks, handles, labels, overlays, buttons, etc.
+- **Preview = Export (WYSIWYG)**: The frontend preview must always be streamlined and baked/calculated for the backend export. What the user sees in preview must be completely identical to the exported result. Minimize work/changes in the export/render backend when adding new features or changing things in the frontend — keep the preview as the single source of truth.

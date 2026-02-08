@@ -14,7 +14,7 @@ import {
 } from '@/hooks/useVideoState';
 
 import { Header } from '@/components/Header';
-import { Placeholder, CropOverlay, PlaybackControls } from '@/components/VideoPreview';
+import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay } from '@/components/VideoPreview';
 import { SidePanel, ActivePanel } from '@/components/SidePanel';
 import {
   ProcessingOverlay, ExportDialog,
@@ -412,6 +412,16 @@ function App() {
                     onUpdateSegment={setSegment}
                     beginBatch={beginBatch} commitBatch={commitBatch} />
                 )}
+
+                {!isCropping && currentVideo && backgroundConfig.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight && (
+                  <CanvasResizeOverlay
+                    previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
+                    backgroundConfig={backgroundConfig}
+                    setBackgroundConfig={setBackgroundConfig}
+                    beginBatch={beginBatch}
+                    commitBatch={commitBatch}
+                  />
+                )}
               </div>
 
               {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
@@ -478,6 +488,7 @@ function App() {
               recentUploads={recentUploads} onBackgroundUpload={handleBackgroundUpload}
               editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
+              canvasRef={canvasRef}
             />
             {(projects.showProjectsDialog || isCropping) && <div className="panel-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
           </div>

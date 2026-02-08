@@ -77,6 +77,9 @@ export interface BackgroundConfig {
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1
+  canvasMode?: 'auto' | 'custom'; // default 'auto'
+  canvasWidth?: number;  // pixels, used when canvasMode === 'custom'
+  canvasHeight?: number; // pixels, used when canvasMode === 'custom'
 }
 
 export interface MousePosition {

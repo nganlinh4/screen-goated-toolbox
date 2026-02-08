@@ -32,6 +32,9 @@ const ko: Translations = {
 
   // BackgroundPanel
   backgroundAndLayout: '배경 및 레이아웃',
+  canvasSize: '캔버스 크기',
+  canvasAuto: '자동',
+  canvasCustom: '사용자 정의',
   videoSize: '비디오 크기',
   roundness: '둥글기',
   shadow: '그림자',
