@@ -369,9 +369,8 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
         // 2. Wait for focus to settle
         std::thread::sleep(std::time::Duration::from_millis(350));
 
-        // 2.5 Check if there's a writable area using UI Automation
+        // 2.5 Warn if no writable area detected (but never block — detection can miss valid targets)
         if !is_text_input_focused() {
-            // Rate limit error notifications
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -387,7 +386,7 @@ pub fn force_focus_and_paste(hwnd_target: HWND) {
                 drop(app);
                 crate::overlay::auto_copy_badge::show_error_notification(msg);
             }
-            return;
+            // Don't return — proceed with paste anyway since detection can be wrong
         }
 
         // 3. CLEANUP MODIFIERS SMARTLY
@@ -473,9 +472,8 @@ pub fn type_text_to_window(hwnd_target_opt: Option<HWND>, text: &str) {
             return;
         }
 
-        // Check if there's a writable area using UI Automation
+        // Warn if no writable area detected (but never block — detection can miss valid targets)
         if !is_text_input_focused() {
-            // Rate limit error notifications
             let now_ms = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -491,7 +489,7 @@ pub fn type_text_to_window(hwnd_target_opt: Option<HWND>, text: &str) {
                 drop(app);
                 crate::overlay::auto_copy_badge::show_error_notification(msg);
             }
-            return;
+            // Don't return — proceed with typing anyway since detection can be wrong
         }
 
         if fg_window != target_window {
