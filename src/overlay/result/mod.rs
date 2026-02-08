@@ -568,10 +568,40 @@ pub fn trigger_speaker(hwnd: HWND) {
     button_canvas::update_window_position(hwnd);
 }
 
-/// Trigger close all windows
+/// Trigger close for the window group containing `hwnd` (same cancellation token or linked chain).
+/// Signals the cancellation token to stop streaming, then posts WM_CLOSE to each member.
+pub fn trigger_close_group(hwnd: HWND) {
+    // Signal the group's cancellation token
+    {
+        let states = WINDOW_STATES.lock().unwrap();
+        if let Some(state) = states.get(&(hwnd.0 as isize)) {
+            if let Some(ref token) = state.cancellation_token {
+                token.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    let group = state::get_window_group(hwnd);
+    for (h, _) in group {
+        unsafe {
+            if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(h)).as_bool() {
+                let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+}
+
+/// Trigger close all windows on screen.
+/// Signals all cancellation tokens to stop streaming, then posts WM_CLOSE to each window.
 pub fn trigger_close_all() {
     let targets: Vec<HWND> = {
         let states = WINDOW_STATES.lock().unwrap();
+        // Signal all cancellation tokens
+        for state in states.values() {
+            if let Some(ref token) = state.cancellation_token {
+                token.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
         states
             .keys()
             .map(|&k| HWND(k as *mut std::ffi::c_void))

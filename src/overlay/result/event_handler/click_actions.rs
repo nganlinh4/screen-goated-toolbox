@@ -294,20 +294,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
             }
             let _ = InvalidateRect(Some(hwnd), None, false);
         } else {
-            // Clicking "x" (or outside buttons) -> Close window
-            let linked_hwnd = {
-                let states = WINDOW_STATES.lock().unwrap();
-                if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                    state.linked_window
-                } else {
-                    None
-                }
-            };
-            if let Some(linked) = linked_hwnd {
-                if IsWindow(Some(linked)).as_bool() {
-                    let _ = PostMessageW(Some(linked), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
-            }
+            // Left click outside buttons -> Close this window only
             let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
     }
@@ -350,12 +337,7 @@ pub unsafe fn handle_rbutton_up(hwnd: HWND) -> LRESULT {
     }
 
     if close_group {
-        let group = crate::overlay::result::state::get_window_group(hwnd);
-        for (h, _) in group {
-            if IsWindow(Some(h)).as_bool() {
-                let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
+        crate::overlay::result::trigger_close_group(hwnd);
     } else {
         // Post cursor refresh just in case, though the canvas fix should handle it natively
         unsafe {
@@ -426,20 +408,7 @@ pub unsafe fn handle_mbutton_up(hwnd: HWND) -> LRESULT {
     }
 
     if close_all {
-        let mut targets = Vec::new();
-        {
-            if let Ok(states) = WINDOW_STATES.lock() {
-                for (&hwnd_int, _) in states.iter() {
-                    targets.push(HWND(hwnd_int as *mut std::ffi::c_void));
-                }
-            }
-        }
-
-        for target in targets {
-            if IsWindow(Some(target)).as_bool() {
-                let _ = PostMessageW(Some(target), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-        }
+        crate::overlay::result::trigger_close_all();
     } else {
         // Post cursor refresh
         unsafe {

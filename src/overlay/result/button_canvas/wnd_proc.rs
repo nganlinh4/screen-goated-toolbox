@@ -263,10 +263,7 @@ unsafe fn handle_button_up(
             let target_hwnd = HWND(target_val as *mut std::ffi::c_void);
 
             if is_right_click {
-                let group = crate::overlay::result::state::get_window_group(target_hwnd);
-                for (h, _) in group {
-                    let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
-                }
+                crate::overlay::result::trigger_close_group(target_hwnd);
             } else if is_middle_click {
                 crate::overlay::result::trigger_close_all();
             } else {
