@@ -9,7 +9,7 @@ export class ThumbnailGenerator {
   }
 
   async generateThumbnails(
-    videoUrl: string, 
+    videoUrl: string,
     numThumbnails: number = 20,
     options?: {
       width?: number;
@@ -39,7 +39,7 @@ export class ThumbnailGenerator {
       const time = start + (i * interval);
       this.video.currentTime = time;
       await new Promise(r => this.video.addEventListener('seeked', r, { once: true }));
-      
+
       ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
       thumbnails.push(this.canvas.toDataURL('image/jpeg', options?.quality || 0.5));
     }
@@ -56,4 +56,4 @@ export class ThumbnailGenerator {
   }
 }
 
-export const thumbnailGenerator = new ThumbnailGenerator(); 
+export const thumbnailGenerator = new ThumbnailGenerator();

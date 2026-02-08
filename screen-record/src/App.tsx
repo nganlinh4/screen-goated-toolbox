@@ -251,6 +251,7 @@ function App() {
       if (e.code === 'Space' && !isInput) {
         e.preventDefault();
         e.stopImmediatePropagation();
+        if (isCropping) return; // Block play/pause during crop mode
         // Blur focused buttons so keyup doesn't re-trigger their click
         if (tag === 'BUTTON' || tag === 'A') (e.target as HTMLElement).blur();
         togglePlayPause();
@@ -273,7 +274,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, editingTextId, editingPointerId, handleDeleteText, handleDeletePointerSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause]);
+  }, [editingKeyframeId, editingTextId, editingPointerId, handleDeleteText, handleDeletePointerSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping]);
 
   // Wheel zoom
   useEffect(() => {
@@ -468,7 +469,7 @@ function App() {
           </div>
 
           {/* Side Panel */}
-          <div className={`side-panel-container w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
+          <div className={`side-panel-container w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog || isCropping ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
@@ -478,12 +479,12 @@ function App() {
               editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
             />
-            {projects.showProjectsDialog && <div className="projects-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
+            {(projects.showProjectsDialog || isCropping) && <div className="panel-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
           </div>
         </div>
 
         {/* Timeline */}
-        <div className={`timeline-container mt-3 flex-shrink-0 relative ${projects.showProjectsDialog ? 'overflow-hidden' : ''}`}>
+        <div className={`timeline-container mt-3 flex-shrink-0 relative ${projects.showProjectsDialog || isCropping ? 'overflow-hidden' : ''}`}>
           <TimelineArea
             duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
             timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
@@ -494,7 +495,7 @@ function App() {
             onAddText={handleAddText} onAddPointerSegment={handleAddPointerSegment}
             isPlaying={isPlaying} beginBatch={beginBatch} commitBatch={commitBatch}
           />
-          {projects.showProjectsDialog && <div className="projects-timeline-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
+          {(projects.showProjectsDialog || isCropping) && <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
         </div>
       </main>
 

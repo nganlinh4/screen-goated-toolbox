@@ -118,11 +118,25 @@ export function useVideoPlayback({
     }
   }, [backgroundConfig.volume]);
 
-  // Render options sync
+  // Render options sync — apply isCropping overrides so the controller always
+  // renders the correct view (e.g. after seeked events, thumbnail generation).
   useEffect(() => {
     if (!segment || !videoControllerRef.current) return;
-    videoControllerRef.current.updateRenderOptions({ segment, backgroundConfig, mousePositions: mousePositionsRef.current });
-  }, [segment, backgroundConfig]);
+
+    const renderSegment = isCropping ? {
+      ...segment, crop: undefined,
+      zoomKeyframes: segment.zoomKeyframes.map(k => ({ ...k, zoomFactor: 1.0, positionX: 0.5, positionY: 0.5 }))
+    } : segment;
+
+    const renderBackground = isCropping ? {
+      ...backgroundConfig, scale: 100, borderRadius: 0, shadow: 0,
+      backgroundType: 'solid' as const, customBackground: undefined, cropBottom: 0
+    } : backgroundConfig;
+
+    videoControllerRef.current.updateRenderOptions({
+      segment: renderSegment, backgroundConfig: renderBackground, mousePositions: mousePositionsRef.current
+    });
+  }, [segment, backgroundConfig, isCropping]);
 
   // Render context sync — update the running animation loop's context when
   // segment/backgroundConfig/isCropping change, WITHOUT restarting the loop.
