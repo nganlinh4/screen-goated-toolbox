@@ -194,18 +194,58 @@ interface BackgroundPanelProps {
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   recentUploads: string[];
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
 function BackgroundPanel({
   backgroundConfig,
   setBackgroundConfig,
   recentUploads,
-  onBackgroundUpload
+  onBackgroundUpload,
+  canvasRef
 }: BackgroundPanelProps) {
   const { t } = useSettings();
   return (
     <div className="background-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="background-controls space-y-3">
+        {/* Canvas Size */}
+        <div className="canvas-size-field">
+          <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.canvasSize}</label>
+          <div className="canvas-mode-toggle flex rounded-lg border border-[var(--glass-border)] overflow-hidden mb-2">
+            {(['auto', 'custom'] as const).map(mode => {
+              const isActive = (backgroundConfig.canvasMode ?? 'auto') === mode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    if (mode === 'custom') {
+                      setBackgroundConfig(prev => {
+                        const w = prev.canvasWidth ?? canvasRef.current?.width ?? 1920;
+                        const h = prev.canvasHeight ?? canvasRef.current?.height ?? 1080;
+                        return { ...prev, canvasMode: 'custom', canvasWidth: w, canvasHeight: h };
+                      });
+                    } else {
+                      setBackgroundConfig(prev => ({ ...prev, canvasMode: 'auto' }));
+                    }
+                  }}
+                  className={`canvas-mode-btn flex-1 px-2 py-1 text-[10px] font-medium transition-colors ${
+                    isActive
+                      ? 'bg-[var(--primary-color)]/20 text-[var(--primary-color)]'
+                      : 'bg-[var(--glass-bg)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]'
+                  }`}
+                >
+                  {mode === 'auto' ? t.canvasAuto : t.canvasCustom}
+                </button>
+              );
+            })}
+          </div>
+          {(backgroundConfig.canvasMode ?? 'auto') === 'custom' && (
+            <p className="canvas-dimensions-label text-[10px] text-[var(--on-surface-variant)] text-center tabular-nums">
+              {backgroundConfig.canvasWidth ?? 1920} x {backgroundConfig.canvasHeight ?? 1080}
+            </p>
+          )}
+        </div>
+
         <div className="video-size-field">
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
             <span>{t.videoSize}</span>
@@ -586,6 +626,7 @@ interface SidePanelProps {
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
 export function SidePanel({
@@ -604,7 +645,8 @@ export function SidePanel({
   editingTextId,
   onUpdateSegment,
   beginBatch,
-  commitBatch
+  commitBatch,
+  canvasRef
 }: SidePanelProps) {
   return (
     <div className="side-panel space-y-3">
@@ -629,6 +671,7 @@ export function SidePanel({
           setBackgroundConfig={setBackgroundConfig}
           recentUploads={recentUploads}
           onBackgroundUpload={onBackgroundUpload}
+          canvasRef={canvasRef}
         />
       )}
 

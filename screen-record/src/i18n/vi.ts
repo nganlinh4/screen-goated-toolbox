@@ -32,6 +32,9 @@ const vi: Translations = {
 
   // BackgroundPanel
   backgroundAndLayout: 'Nền & Bố Cục',
+  canvasSize: 'Kích Thước Canvas',
+  canvasAuto: 'Tự Động',
+  canvasCustom: 'Tùy Chỉnh',
   videoSize: 'Kích Thước Video',
   roundness: 'Độ Bo Tròn',
   shadow: 'Đổ Bóng',

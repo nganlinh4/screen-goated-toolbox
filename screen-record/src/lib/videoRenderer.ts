@@ -221,17 +221,19 @@ export class VideoRenderer {
     const start = segment.trimStart;
     const end = segment.trimEnd;
 
+    const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+    const croppedW = videoWidth * crop.width;
+    const croppedH = videoHeight * crop.height;
+    const cropOffsetX = videoWidth * crop.x;
+    const cropOffsetY = videoHeight * crop.y;
+
     for (let t = start; t <= end; t += step) {
-      const state = this.calculateCurrentZoomStateInternal(t, segment, videoWidth, videoHeight);
+      // Pass CROPPED dimensions — calculateCurrentZoomStateInternal's crop
+      // conversion assumes viewW/viewH are crop-region pixel dimensions
+      const state = this.calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH);
 
-      const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-      const cropW = videoWidth * crop.width;
-      const cropH = videoHeight * crop.height;
-      const cropOffsetX = videoWidth * crop.x;
-      const cropOffsetY = videoHeight * crop.y;
-
-      const globalX = cropOffsetX + (state.positionX * cropW);
-      const globalY = cropOffsetY + (state.positionY * cropH);
+      const globalX = cropOffsetX + (state.positionX * croppedW);
+      const globalY = cropOffsetY + (state.positionY * croppedH);
 
       bakedPath.push({
         time: t - start,
@@ -344,8 +346,10 @@ export class VideoRenderer {
     const srcW = vidW * crop.width;
     const srcH = vidH * crop.height;
 
-    const canvasW = Math.round(srcW);
-    const canvasH = Math.round(srcH);
+    // Canvas dimensions: custom overrides auto (crop-based)
+    const useCustomCanvas = backgroundConfig.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight;
+    const canvasW = useCustomCanvas ? backgroundConfig.canvasWidth! : Math.round(srcW);
+    const canvasH = useCustomCanvas ? backgroundConfig.canvasHeight! : Math.round(srcH);
 
     if (canvas.width !== canvasW || canvas.height !== canvasH) {
       canvas.width = canvasW;
@@ -359,10 +363,23 @@ export class VideoRenderer {
     try {
       const legacyCrop = (backgroundConfig.cropBottom || 0) / 100;
       const scale = backgroundConfig.scale / 100;
-      const scaledWidth = canvas.width * scale;
-      const scaledHeight = (canvas.height * (1 - legacyCrop)) * scale;
-      const x = (canvas.width - scaledWidth) / 2;
-      const y = (canvas.height - scaledHeight) / 2;
+
+      // Contain-fit: fit the cropped video into the canvas maintaining aspect ratio
+      const effectiveSrcH = srcH * (1 - legacyCrop);
+      const srcAspect = srcW / effectiveSrcH;
+      const canvasAspect = canvasW / canvasH;
+      let fitW: number, fitH: number;
+      if (srcAspect > canvasAspect) {
+        fitW = canvasW;
+        fitH = canvasW / srcAspect;
+      } else {
+        fitH = canvasH;
+        fitW = canvasH * srcAspect;
+      }
+      const scaledWidth = fitW * scale;
+      const scaledHeight = fitH * scale;
+      const x = (canvasW - scaledWidth) / 2;
+      const y = (canvasH - scaledHeight) / 2;
 
       const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height);
 
@@ -693,8 +710,8 @@ export class VideoRenderer {
           time: currentTime,
           duration: 0,
           zoomFactor: zoom,
-          positionX: (globalX - cropOffsetX) / viewW,
-          positionY: (globalY - cropOffsetY) / viewH,
+          positionX: Math.max(0, Math.min(1, (globalX - cropOffsetX) / viewW)),
+          positionY: Math.max(0, Math.min(1, (globalY - cropOffsetY) / viewH)),
           easingType: 'linear'
         };
         this.lastCalculatedState = state;
@@ -757,8 +774,13 @@ export class VideoRenderer {
           influence = ip1.value * (1 - cosT) + ip2.value * cosT;
         }
         cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
-        const centerX = viewW / 2;
-        const centerY = viewH / 2;
+        // Use crop center in full-video coords so influence=0 returns to crop center,
+        // not viewW/2 which is only half the cropped width (wrong for non-center crops)
+        const cropInf = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+        const fullWInf = viewW / cropInf.width;
+        const fullHInf = viewH / cropInf.height;
+        const centerX = fullWInf * cropInf.x + viewW / 2;
+        const centerY = fullHInf * cropInf.y + viewH / 2;
         cam.x = centerX + (cam.x - centerX) * influence;
         cam.y = centerY + (cam.y - centerY) * influence;
       }
@@ -850,33 +872,31 @@ export class VideoRenderer {
 
     // --- 3. FINAL BLENDING ---
 
+    let result: ZoomKeyframe;
+
     if (autoState) {
       if (manualState && manualInfluence > 0.001) {
         // Blend Auto and Manual in viewport-center space
         const { zoom: finalZoom, posX: finalX, posY: finalY } = this.blendZoomStates(autoState, manualState, manualInfluence);
-
-        return {
-          time: currentTime,
-          duration: 0,
-          zoomFactor: finalZoom,
-          positionX: finalX,
-          positionY: finalY,
-          easingType: 'linear'
-        };
+        result = { time: currentTime, duration: 0, zoomFactor: finalZoom, positionX: finalX, positionY: finalY, easingType: 'linear' };
       } else {
         // Pure Auto
-        return autoState;
+        result = autoState;
       }
     } else if (manualState && manualInfluence > 0.001) {
       // No Auto path — always blend (no threshold skip that creates zoom jumps)
       const def = this.DEFAULT_STATE;
       const { zoom: finalZoom, posX: finalX, posY: finalY } = this.blendZoomStates(def, manualState, manualInfluence);
-      return {
-        time: currentTime, duration: 0, zoomFactor: finalZoom, positionX: finalX, positionY: finalY, easingType: 'linear'
-      };
+      result = { time: currentTime, duration: 0, zoomFactor: finalZoom, positionX: finalX, positionY: finalY, easingType: 'linear' };
+    } else {
+      return this.DEFAULT_STATE;
     }
 
-    return this.DEFAULT_STATE;
+    // Clamp position to valid viewport range — prevents off-screen navigation
+    // when auto-zoom targets points outside the crop region or blending overshoots
+    result.positionX = Math.max(0, Math.min(1, result.positionX));
+    result.positionY = Math.max(0, Math.min(1, result.positionY));
+    return result;
   }
 
   // --- Utility functions needed for the interpolation ---

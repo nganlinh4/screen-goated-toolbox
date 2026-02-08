@@ -30,6 +30,9 @@ const en = {
 
   // BackgroundPanel
   backgroundAndLayout: 'Background & Layout',
+  canvasSize: 'Canvas Size',
+  canvasAuto: 'Auto',
+  canvasCustom: 'Custom',
   videoSize: 'Video Size',
   roundness: 'Roundness',
   shadow: 'Shadow',
