@@ -231,30 +231,56 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
         let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
         let bubble_overlap = bubble_size + 4;
 
+        let dpi = GetDpiForWindow(panel_hwnd);
+        let scale = if dpi == 0 { 1.0 } else { dpi as f32 / 96.0 };
+
         // Panel extends behind bubble - calculate position accordingly
-        let (panel_x, panel_y) = if bubble_x > screen_w / 2 {
+        let (panel_x, panel_y, side) = if bubble_x > screen_w / 2 {
             // Bubble on right - panel content is to the left, overlap extends right
             (
                 bubble_x - (panel_w - bubble_overlap) - 4,
                 bubble_y - panel_h / 2 + bubble_size / 2,
+                "right",
             )
         } else {
             // Bubble on left - panel starts at bubble's left edge
             (
                 bubble_x,
                 bubble_y - panel_h / 2 + bubble_size / 2,
+                "left",
             )
         };
+
+        let actual_panel_y = panel_y.max(10);
 
         let _ = SetWindowPos(
             panel_hwnd,
             None,
             panel_x,
-            panel_y.max(10),
+            actual_panel_y,
             0,
             0,
             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
+
+        // Update bubble center in JS for correct collapse direction
+        let panel_w_css = (panel_w as f32 / scale) as i32;
+        let bx = if side == "left" {
+            (bubble_size / 2) as i32
+        } else {
+            panel_w_css + (bubble_size / 2) + 4
+        };
+        let by = (bubble_y + bubble_size / 2) - actual_panel_y;
+
+        PANEL_WEBVIEW.with(|wv| {
+            if let Some(webview) = wv.borrow().as_ref() {
+                let script = format!(
+                    "if(window.updateBubbleCenter) window.updateBubbleCenter({}, {});",
+                    bx, by
+                );
+                let _ = webview.evaluate_script(&script);
+            }
+        });
 
         // Ensure bubble stays above panel
         let bubble_val = BUBBLE_HWND.load(Ordering::SeqCst);

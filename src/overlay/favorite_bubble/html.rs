@@ -75,7 +75,7 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(255, 255, 255, 0.1)",
             "rgba(255, 255, 255, 0.6)",
             "rgba(60, 60, 70, 0.8)",
-            "rgba(64, 196, 255, 0.9)", // Blue (Light Blue A200)
+            "rgba(64, 196, 255, 0.9)", // Bright cyan
             "rgba(20, 20, 30, 0.85)", // Match item_bg
         )
     } else {
@@ -91,7 +91,7 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(0, 0, 0, 0.08)",
             "rgba(0, 0, 0, 0.6)",
             "rgba(200, 200, 210, 0.8)",
-            "rgba(33, 150, 243, 0.9)", // Blue (Material Blue 500)
+            "rgba(33, 100, 200, 0.9)", // Deeper blue for light mode
             "rgba(255, 255, 255, 0.92)", // Match item_bg
         )
     };
@@ -451,8 +451,18 @@ function triggerContinuous(idx) {
 /* --- ANIMATION LOGIC --- */
 let currentTimeout = null;
 let currentSide = 'right';
+let bubbleCX = 0;
+let bubbleCY = 0;
+
+window.updateBubbleCenter = function(bx, by) {
+    bubbleCX = bx;
+    bubbleCY = by;
+};
 
 function animateIn(bx, by) {
+    bubbleCX = bx;
+    bubbleCY = by;
+
     if (currentTimeout) {
         clearTimeout(currentTimeout);
         currentTimeout = null;
@@ -470,7 +480,7 @@ function animateIn(bx, by) {
     for(let i=0; i<items.length; i++) {
         const item = items[i];
         const rect = item.getBoundingClientRect();
-        
+
         if (rect.width === 0) {
             metrics.push(null);
             continue;
@@ -491,17 +501,17 @@ function animateIn(bx, by) {
 
             // Reset state
             item.classList.remove('retreating', 'animate-done');
-            
+
             // Set variables for the shader
             item.style.setProperty('--dx', m.dx + 'px');
             item.style.setProperty('--dy', m.dy + 'px');
-            
+
             // Stagger
             item.style.animationDelay = (i * 10) + 'ms';
-            
+
             // Trigger
             item.classList.add('blooming');
-            
+
             // Cleanup
             setTimeout(() => {
                 item.classList.add('animate-done');
@@ -520,14 +530,23 @@ function closePanel() {
 
     const items = Array.from(document.querySelectorAll('.preset-item, .empty'));
 
+    // Recalculate --dx/--dy toward the CURRENT bubble center
     items.forEach((item, i) => {
+        const rect = item.getBoundingClientRect();
+        if (rect.width > 0) {
+            const ix = rect.left + rect.width / 2;
+            const iy = rect.top + rect.height / 2;
+            item.style.setProperty('--dx', (bubbleCX - ix) + 'px');
+            item.style.setProperty('--dy', (bubbleCY - iy) + 'px');
+        }
+
         // Reverse stagger
         item.style.animationDelay = ((items.length - 1 - i) * 6) + 'ms';
-        
+
         // Remove 'animate-done' (which has hover effects) and 'blooming'
         item.classList.remove('blooming', 'animate-done');
-        
-        // Add retreating class. CSS 'animation-fill-mode: both' ensures 
+
+        // Add retreating class. CSS 'animation-fill-mode: both' ensures
         // it stays visible (opacity: 1) until the delay passes and animation starts.
         item.classList.add('retreating');
     });
