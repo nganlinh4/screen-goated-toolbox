@@ -111,6 +111,9 @@ pub fn ensure_context_menu_entry() {
         if let Ok((key, _)) = hkcu.create_subkey(&path) {
             let _ = key.set_value("", &"Process with SGT");
             let _ = key.set_value("Icon", &exe_path_str);
+            // Prevent this verb from ever becoming the default double-click action
+            // when a file type has no other default handler
+            let _ = key.set_value("NeverDefault", &"");
 
             // Command
             if let Ok((cmd_key, _)) = key.create_subkey("command") {
