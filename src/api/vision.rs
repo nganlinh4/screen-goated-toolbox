@@ -6,6 +6,10 @@ use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use image::{ImageBuffer, Rgba};
 use std::io::{BufRead, BufReader, Cursor};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 pub fn translate_image_streaming<F>(
     groq_api_key: &str,
@@ -17,6 +21,7 @@ pub fn translate_image_streaming<F>(
     original_bytes: Option<Vec<u8>>, // Zero-Copy support
     streaming_enabled: bool,
     use_json_format: bool,
+    cancel_token: Option<Arc<AtomicBool>>,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -316,6 +321,11 @@ where
             let locale = LocaleText::get(&ui_language);
 
             for line in reader.lines() {
+                if let Some(ref ct) = cancel_token {
+                    if ct.load(Ordering::Relaxed) {
+                        return Err(anyhow::anyhow!("Cancelled"));
+                    }
+                }
                 let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
                 if line.starts_with("data: ") {
                     let json_str = &line["data: ".len()..];
@@ -448,6 +458,11 @@ where
             let locale = LocaleText::get(&ui_language);
 
             for line in reader.lines() {
+                if let Some(ref ct) = cancel_token {
+                    if ct.load(Ordering::Relaxed) {
+                        return Err(anyhow::anyhow!("Cancelled"));
+                    }
+                }
                 let line = line?;
                 if line.starts_with("data: ") {
                     let data = &line[6..];
@@ -582,6 +597,11 @@ where
         if streaming_enabled {
             let reader = BufReader::new(resp.into_body().into_reader());
             for line in reader.lines() {
+                if let Some(ref ct) = cancel_token {
+                    if ct.load(Ordering::Relaxed) {
+                        return Err(anyhow::anyhow!("Cancelled"));
+                    }
+                }
                 let line = line?;
 
                 if line.starts_with("data: ") {

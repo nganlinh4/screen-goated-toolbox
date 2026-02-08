@@ -1,6 +1,6 @@
 use crate::win_types::SendHwnd;
 use image::{ImageBuffer, Rgba};
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
@@ -10,7 +10,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::config::{Config, Preset};
 use crate::model_config::model_is_non_llm;
 use crate::overlay::preset_wheel;
-use crate::overlay::result::{self, RefineContext};
+use crate::overlay::result::{self, ChainCancelToken, RefineContext};
 use crate::overlay::text_input;
 
 use super::chain::{execute_chain_pipeline, execute_chain_pipeline_with_token, run_chain_step};
@@ -64,10 +64,9 @@ pub fn start_text_processing(
             preset.continuous_input
         };
 
-        // For continuous mode: store the previous chain's cancellation token so we can close old windows
-        let last_cancel_token: Arc<Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>> =
-            Arc::new(Mutex::new(None));
-        let last_cancel_token_clone = last_cancel_token.clone();
+        // For continuous mode: store the previous chain's ID so we can close old windows
+        let last_chain_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let last_chain_id_clone = last_chain_id.clone();
 
         // Check if this is a MASTER preset
         let is_master = preset.is_master;
@@ -173,10 +172,10 @@ pub fn start_text_processing(
                     }
                 } else {
                     // Continuous mode: close previous result overlays before spawning new ones
-                    if let Ok(token_guard) = last_cancel_token_clone.lock() {
-                        if let Some(ref old_token) = *token_guard {
+                    if let Ok(id_guard) = last_chain_id_clone.lock() {
+                        if let Some(ref old_id) = *id_guard {
                             // Close windows from previous submission
-                            result::close_windows_with_token(old_token);
+                            result::close_chain_windows(old_id);
                         }
                     }
                 }
@@ -250,7 +249,7 @@ pub fn start_text_processing(
                 // Start processing and track the new cancellation token for continuous mode
                 let config_clone = final_config;
                 let preset_clone = final_preset;
-                let last_token_update = last_cancel_token_clone.clone();
+                let last_id_update = last_chain_id_clone.clone();
 
                 // Reset last result rect for new submission (prevent stale rects from previous chain)
                 // Reset last result rect is REMOVED to allow snaking in continuous mode
@@ -258,12 +257,13 @@ pub fn start_text_processing(
 
                 let input_hwnd_send = SendHwnd(input_hwnd);
                 std::thread::spawn(move || {
-                    // Create a new cancellation token for this chain
-                    let new_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                    // Create a new cancellation token and chain ID for this chain
+                    let new_token = ChainCancelToken::new();
+                    let chain_id = generate_chain_id();
 
-                    // Store it for later cleanup (in continuous mode)
-                    if let Ok(mut token_guard) = last_token_update.lock() {
-                        *token_guard = Some(new_token.clone());
+                    // Store chain ID for later cleanup (in continuous mode)
+                    if let Ok(mut id_guard) = last_id_update.lock() {
+                        *id_guard = Some(chain_id.clone());
                     }
 
                     // Execute the chain
@@ -275,6 +275,7 @@ pub fn start_text_processing(
                         RefineContext::None,
                         new_token,
                         Some(input_hwnd_send),
+                        chain_id,
                     );
                 });
             },
@@ -380,7 +381,7 @@ pub fn show_audio_result(
         RefineContext::Audio(wav_data), // Pass audio data for input overlay
         true, // skip_execution: audio already done, just display and chain forward
         processing_hwnd.map(SendHwnd), // Pass recording overlay - will close when first visible block appears
-        Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
+        ChainCancelToken::new(), // New chains start with cancellation = false
         preset.id.clone(),
         // Check if we should disable auto-paste (e.g. for Gemini Live real-time typing)
         is_streaming_result,
@@ -481,7 +482,7 @@ pub fn start_processing_pipeline(
                         context,
                         false,
                         Some(processing_hwnd_send),
-                        Arc::new(AtomicBool::new(false)),
+                        ChainCancelToken::new(),
                         preset_id,
                         false,    // disable_auto_paste
                         chain_id, // Per-chain position tracking
@@ -547,7 +548,7 @@ pub fn start_processing_pipeline(
             context,
             false,
             Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
-            Arc::new(AtomicBool::new(false)), // New chains start with cancellation = false
+            ChainCancelToken::new(), // New chains start with cancellation = false
             preset_id,
             false,    // disable_auto_paste
             chain_id, // Per-chain position tracking
@@ -622,7 +623,7 @@ pub fn start_processing_pipeline_parallel(
                 context,
                 false,
                 Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
-                Arc::new(AtomicBool::new(false)),
+                ChainCancelToken::new(),
                 preset_id,
                 false,    // disable_auto_paste
                 chain_id, // Per-chain position tracking

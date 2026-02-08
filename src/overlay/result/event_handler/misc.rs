@@ -32,6 +32,11 @@ pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.remove(&(hwnd.0 as isize)) {
+            // Signal cancellation token to stop this branch's processing
+            if let Some(ref token) = state.cancellation_token {
+                token.cancel();
+            }
+
             // Stop TTS if speaking
             if state.tts_request_id != 0 {
                 crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);

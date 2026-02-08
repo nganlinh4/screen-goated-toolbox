@@ -6,6 +6,57 @@ use std::sync::{
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::HBITMAP;
 
+// --- HIERARCHICAL CANCEL TOKEN ---
+
+/// Tree-structured cancellation token for chain processing.
+/// Each node links to its parent. `is_cancelled()` walks up the tree:
+/// if ANY ancestor is cancelled, the check returns true.
+///
+/// Close window B → signals B's token → B's downstream sees parent cancelled → stops.
+/// Sibling branch C has a DIFFERENT token → unaffected.
+pub struct ChainCancelToken {
+    cancelled: AtomicBool,
+    parent: Option<Arc<ChainCancelToken>>,
+}
+
+// SAFETY: AtomicBool is Send+Sync, Arc is Send+Sync. The parent chain is immutable after creation.
+unsafe impl Send for ChainCancelToken {}
+unsafe impl Sync for ChainCancelToken {}
+
+impl ChainCancelToken {
+    /// Create a root token (no parent).
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            cancelled: AtomicBool::new(false),
+            parent: None,
+        })
+    }
+
+    /// Create a child token linked to a parent.
+    pub fn child(parent: &Arc<Self>) -> Arc<Self> {
+        Arc::new(Self {
+            cancelled: AtomicBool::new(false),
+            parent: Some(parent.clone()),
+        })
+    }
+
+    /// Signal cancellation for this node.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    /// Check if this node or any ancestor is cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        if self.cancelled.load(Ordering::Relaxed) {
+            return true;
+        }
+        if let Some(ref parent) = self.parent {
+            return parent.is_cancelled();
+        }
+        false
+    }
+}
+
 // --- DYNAMIC PARTICLES ---
 pub struct DustParticle {
     pub x: f32,
@@ -168,8 +219,10 @@ pub struct WindowState {
     // Graphics mode for refining animation (standard vs minimal)
     pub graphics_mode: String,
 
-    // Cancellation token - set to true when window is destroyed to stop ongoing chains
-    pub cancellation_token: Option<Arc<AtomicBool>>,
+    // Cancellation token — hierarchical; cancel propagates to descendants
+    pub cancellation_token: Option<Arc<ChainCancelToken>>,
+    // Chain ID — shared by all windows in the same chain execution
+    pub chain_id: Option<String>,
 
     // Markdown mode state
     pub is_markdown_mode: bool,      // True when showing markdown view
@@ -221,26 +274,24 @@ pub fn link_windows(hwnd1: HWND, hwnd2: HWND) {
 
 use windows::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
 
-/// Close all windows that share the same cancellation token
-/// Used in continuous input mode to destroy previous result overlays before spawning new ones
-pub fn close_windows_with_token(token: &Arc<AtomicBool>) {
-    // Signal the token to stop any ongoing processing
-    token.store(true, Ordering::SeqCst);
-
-    // Collect HWNDs that share this token
+/// Close all windows belonging to a chain (by chain_id).
+/// Signals each window's cancellation token and posts WM_CLOSE.
+/// Used in continuous input mode to destroy previous result overlays before spawning new ones.
+pub fn close_chain_windows(chain_id: &str) {
     let mut to_close = Vec::new();
     {
         let states = WINDOW_STATES.lock().unwrap();
         for (&h_val, state) in states.iter() {
-            if let Some(ref t) = state.cancellation_token {
-                if Arc::ptr_eq(token, t) {
-                    to_close.push(HWND(h_val as *mut std::ffi::c_void));
+            if state.chain_id.as_deref() == Some(chain_id) {
+                // Signal this window's token to stop its branch
+                if let Some(ref token) = state.cancellation_token {
+                    token.cancel();
                 }
+                to_close.push(HWND(h_val as *mut std::ffi::c_void));
             }
         }
     }
 
-    // Close them
     for hwnd in to_close {
         unsafe {
             if IsWindow(Some(hwnd)).as_bool() {
@@ -262,62 +313,35 @@ pub fn close_windows_with_token(token: &Arc<AtomicBool>) {
     }
 }
 
-/// Get a group of windows that should be moved together (linked or share same token)
+/// Get a group of windows linked via `linked_window` BFS.
+/// Used for right-click group close/drag — follows the linked chain.
 pub fn get_window_group(hwnd: HWND) -> Vec<(HWND, RECT)> {
     let mut group = Vec::new();
-    let mut token_to_match = None;
+    let states = WINDOW_STATES.lock().unwrap();
 
-    {
-        let states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get(&(hwnd.0 as isize)) {
-            token_to_match = state.cancellation_token.clone();
+    let mut visited = std::collections::HashSet::new();
+    let mut queue = std::collections::VecDeque::new();
+
+    queue.push_back(hwnd);
+    visited.insert(hwnd.0);
+
+    while let Some(current) = queue.pop_front() {
+        let mut r = RECT::default();
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(current, &mut r);
         }
+        group.push((current, r));
 
-        // Strategy 1: Cancellation Token (Group Identity)
-        if let Some(token) = token_to_match {
-            for (&h_val, s) in states.iter() {
-                if let Some(ref t) = s.cancellation_token {
-                    if std::sync::Arc::ptr_eq(&token, t) {
-                        let h = HWND(h_val as *mut std::ffi::c_void);
-                        let mut r = RECT::default();
-                        unsafe {
-                            let _ =
-                                windows::Win32::UI::WindowsAndMessaging::GetWindowRect(h, &mut r);
-                        }
-                        group.push((h, r));
-                    }
-                }
-            }
-        }
-
-        // Strategy 2: Linked Window Chain (Fallback/Augment)
-        if group.len() <= 1 {
-            group.clear();
-            let mut visited = std::collections::HashSet::new();
-            let mut queue = std::collections::VecDeque::new();
-
-            queue.push_back(hwnd);
-            visited.insert(hwnd.0);
-
-            while let Some(current) = queue.pop_front() {
-                let mut r = RECT::default();
-                unsafe {
-                    let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(current, &mut r);
-                }
-                group.push((current, r));
-
-                if let Some(s) = states.get(&(current.0 as isize)) {
-                    if let Some(linked) = s.linked_window {
-                        if states.contains_key(&(linked.0 as isize)) && !visited.contains(&linked.0)
-                        {
-                            visited.insert(linked.0);
-                            queue.push_back(linked);
-                        }
-                    }
+        if let Some(s) = states.get(&(current.0 as isize)) {
+            if let Some(linked) = s.linked_window {
+                if states.contains_key(&(linked.0 as isize)) && !visited.contains(&linked.0) {
+                    visited.insert(linked.0);
+                    queue.push_back(linked);
                 }
             }
         }
     }
+
     group
 }
 

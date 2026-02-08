@@ -2,13 +2,10 @@
 // Copy, paste, speak, history saving, and chain continuation logic.
 
 use crate::config::{Config, ProcessingBlock};
-use crate::overlay::result::RefineContext;
+use crate::overlay::result::{ChainCancelToken, RefineContext};
 use crate::overlay::text_input;
 use crate::win_types::SendHwnd;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -187,7 +184,7 @@ pub fn continue_chain(
     context: RefineContext,
     skip_execution: bool,
     processing_indicator_hwnd: Option<SendHwnd>,
-    cancel_token: Arc<AtomicBool>,
+    cancel_token: Arc<ChainCancelToken>,
     preset_id: String,
     disable_auto_paste: bool,
     chain_id: String,
@@ -196,7 +193,7 @@ pub fn continue_chain(
     starting_rect: RECT,
 ) {
     // Check cancellation before continuing
-    if cancel_token.load(Ordering::Relaxed) {
+    if cancel_token.is_cancelled() {
         if let Some(h) = processing_indicator_hwnd {
             unsafe {
                 let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -273,13 +270,14 @@ pub fn continue_chain(
         false
     };
 
-    // Spawn parallel threads for additional branches
+    // Spawn parallel threads for additional branches — each gets a CHILD cancel token
+    // so closing one branch doesn't affect siblings.
     for (branch_index, next_idx) in parallel_branches.iter().enumerate() {
         let result_clone = result_text.clone();
         let blocks_clone = blocks.clone();
         let conns_clone = connections.clone();
         let config_clone = config.clone();
-        let cancel_clone = cancel_token.clone();
+        let branch_token = ChainCancelToken::child(&cancel_token);
         let parent_clone = next_parent.clone();
         let preset_id_clone = preset_id.clone();
         let chain_id_clone = chain_id.clone();
@@ -308,7 +306,7 @@ pub fn continue_chain(
                 branch_context,
                 next_skip_execution,
                 None, // No processing indicator for parallel branches
-                cancel_clone,
+                branch_token,
                 preset_id_clone,
                 disable_auto_paste,
                 chain_id_clone,
@@ -317,7 +315,13 @@ pub fn continue_chain(
         });
     }
 
-    // Continue with first downstream block on current thread
+    // Continue with first downstream block on current thread — also gets a child token
+    let first_token = if parallel_branches.is_empty() {
+        cancel_token // No fork — reuse parent token directly
+    } else {
+        ChainCancelToken::child(&cancel_token) // Fork — isolate this branch
+    };
+
     run_chain_step(
         first_next,
         result_text,
@@ -329,7 +333,7 @@ pub fn continue_chain(
         next_context,
         next_skip_execution,
         processing_indicator_hwnd,
-        cancel_token,
+        first_token,
         preset_id,
         disable_auto_paste,
         chain_id,

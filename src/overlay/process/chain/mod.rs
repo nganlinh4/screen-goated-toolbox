@@ -9,12 +9,9 @@ mod templates;
 pub use step::run_chain_step;
 
 use crate::config::{Config, Preset};
-use crate::overlay::result::RefineContext;
+use crate::overlay::result::{ChainCancelToken, RefineContext};
 use crate::win_types::SendHwnd;
-use std::sync::{
-    atomic::AtomicBool,
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -62,7 +59,7 @@ pub fn execute_chain_pipeline(
             context,
             false,
             Some(processing_hwnd_send),
-            Arc::new(AtomicBool::new(false)),
+            ChainCancelToken::new(),
             preset_id,
             false,
             chain_id,
@@ -93,12 +90,12 @@ pub fn execute_chain_pipeline_with_token(
     config: Config,
     preset: Preset,
     context: RefineContext,
-    cancel_token: Arc<AtomicBool>,
+    cancel_token: Arc<ChainCancelToken>,
     input_hwnd_refocus: Option<SendHwnd>,
+    chain_id: String,
 ) {
     let blocks = preset.blocks.clone();
     let connections = preset.block_connections.clone();
-    let chain_id = generate_chain_id();
 
     run_chain_step(
         0,

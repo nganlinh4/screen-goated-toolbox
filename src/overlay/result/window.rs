@@ -189,6 +189,7 @@ pub fn create_result_window(
                     input_text: String::new(),
                     graphics_mode,
                     cancellation_token: None,
+                    chain_id: None,
                     // Markdown mode state
                     is_markdown_mode: is_any_markdown_mode,
                     is_markdown_streaming: render_mode == "markdown_stream",
