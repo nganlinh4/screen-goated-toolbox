@@ -133,6 +133,7 @@ pub unsafe extern "system" fn result_wnd_proc(
                     .unwrap_or(false)
             };
             if is_markdown {
+                crate::overlay::result::markdown_view::resize_markdown_webview(hwnd, false);
                 crate::overlay::result::markdown_view::fit_font_to_window(hwnd);
             }
 
