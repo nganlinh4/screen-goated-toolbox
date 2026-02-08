@@ -3,13 +3,11 @@
 
 use crate::config::{Config, ProcessingBlock};
 use crate::overlay::result::{
-    create_result_window, get_chain_color, link_windows, RefineContext, WindowType, WINDOW_STATES,
+    create_result_window, get_chain_color, link_windows, ChainCancelToken, RefineContext,
+    WindowType, WINDOW_STATES,
 };
 use crate::win_types::SendHwnd;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -32,14 +30,14 @@ pub fn run_chain_step(
     context: RefineContext,
     skip_execution: bool,
     mut processing_indicator_hwnd: Option<SendHwnd>,
-    cancel_token: Arc<AtomicBool>,
+    cancel_token: Arc<ChainCancelToken>,
     preset_id: String,
     disable_auto_paste: bool,
     chain_id: String,
     input_hwnd_refocus: Option<SendHwnd>,
 ) {
     // Check if cancelled before starting
-    if cancel_token.load(Ordering::Relaxed) {
+    if cancel_token.is_cancelled() {
         if let Some(h) = processing_indicator_hwnd {
             unsafe {
                 let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
@@ -136,6 +134,7 @@ pub fn run_chain_step(
             &parent_hwnd,
             &cancel_token,
             &preset_id,
+            &chain_id,
             &config,
             processing_indicator_hwnd,
             input_hwnd_refocus.clone(),
@@ -161,7 +160,18 @@ pub fn run_chain_step(
         &config,
         &preset_id,
         processing_indicator_hwnd.clone(),
+        &cancel_token,
     );
+
+    // Check cancellation after execution — skip post-processing and chain continuation
+    if cancel_token.is_cancelled() {
+        if let Some(h) = processing_indicator_hwnd {
+            unsafe {
+                let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+        return;
+    }
 
     // 5. Post-Processing
     handle_auto_copy(
@@ -213,8 +223,9 @@ fn create_block_window(
     visible_count_before: usize,
     skip_execution: bool,
     parent_hwnd: &Arc<Mutex<Option<SendHwnd>>>,
-    cancel_token: &Arc<AtomicBool>,
+    cancel_token: &Arc<ChainCancelToken>,
     preset_id: &str,
+    chain_id: &str,
     config: &Config,
     mut processing_indicator_hwnd: Option<SendHwnd>,
     input_hwnd_refocus: Option<SendHwnd>,
@@ -251,6 +262,7 @@ fn create_block_window(
 
     let parent_clone = parent_hwnd.clone();
     let cancel_token_thread = cancel_token.clone();
+    let chain_id_thread = chain_id.to_string();
     let input_hwnd_refocus_thread = input_hwnd_refocus.clone();
     let preset_id_for_window = preset_id.to_string();
     let m_id = model_id.to_string();
@@ -278,11 +290,12 @@ fn create_block_window(
             is_root,
         );
 
-        // Assign cancellation token immediately
+        // Assign cancellation token and chain_id immediately
         {
             let mut s = WINDOW_STATES.lock().unwrap();
             if let Some(st) = s.get_mut(&(hwnd.0 as isize)) {
                 st.cancellation_token = Some(cancel_token_thread.clone());
+                st.chain_id = Some(chain_id_thread.clone());
             }
         }
 
@@ -326,11 +339,12 @@ fn create_block_window(
         rx_hwnd.recv().ok().map(|h| h.0)
     };
 
-    // Associate cancellation token with this window
+    // Associate cancellation token and chain_id with this window
     if let Some(h) = my_hwnd {
         let mut s = WINDOW_STATES.lock().unwrap();
         if let Some(st) = s.get_mut(&(h.0 as isize)) {
             st.cancellation_token = Some(cancel_token.clone());
+            st.chain_id = Some(chain_id.to_string());
         }
     }
 

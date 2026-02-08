@@ -8,6 +8,10 @@ use crate::overlay::utils::get_context_quote;
 use crate::APP;
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 pub fn translate_text_streaming<F>(
     groq_api_key: &str,
@@ -20,6 +24,7 @@ pub fn translate_text_streaming<F>(
     use_json_format: bool,
     search_label: Option<String>,
     ui_language: &str,
+    cancel_token: Option<Arc<AtomicBool>>,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -193,6 +198,11 @@ where
             let locale = LocaleText::get(ui_language);
 
             for line in reader.lines() {
+                if let Some(ref ct) = cancel_token {
+                    if ct.load(Ordering::Relaxed) {
+                        return Err(anyhow::anyhow!("Cancelled"));
+                    }
+                }
                 let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
                 if line.starts_with("data: ") {
                     let json_str = &line["data: ".len()..];
@@ -340,6 +350,11 @@ where
             let is_reasoning_model = model.contains("gpt-oss") || model.contains("zai-glm");
 
             for line in reader.lines() {
+                if let Some(ref ct) = cancel_token {
+                    if ct.load(Ordering::Relaxed) {
+                        return Err(anyhow::anyhow!("Cancelled"));
+                    }
+                }
                 let line = line?;
                 if line.starts_with("data: ") {
                     let data = &line[6..];
@@ -434,6 +449,11 @@ where
             let locale = LocaleText::get(ui_language);
 
             for line in reader.lines() {
+                if let Some(ref ct) = cancel_token {
+                    if ct.load(Ordering::Relaxed) {
+                        return Err(anyhow::anyhow!("Cancelled"));
+                    }
+                }
                 let line = line?;
                 if line.starts_with("data: ") {
                     let data = &line[6..];
@@ -514,6 +534,7 @@ where
                 &prompt,
                 streaming_enabled,
                 use_json_format,
+                cancel_token,
                 on_chunk,
             );
         }
@@ -770,6 +791,7 @@ fn translate_groq_standard<F>(
     prompt: &str,
     streaming_enabled: bool,
     use_json_format: bool,
+    cancel_token: Option<Arc<AtomicBool>>,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -835,6 +857,11 @@ where
         let reader = BufReader::new(resp.into_body().into_reader());
 
         for line in reader.lines() {
+            if let Some(ref ct) = cancel_token {
+                if ct.load(Ordering::Relaxed) {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
+            }
             let line = line?;
             if line.starts_with("data: ") {
                 let data = &line[6..];

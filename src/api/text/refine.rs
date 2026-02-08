@@ -10,6 +10,10 @@ use crate::overlay::utils::get_context_quote;
 use crate::APP;
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 pub fn refine_text_streaming<F>(
     groq_api_key: &str,
@@ -21,6 +25,7 @@ pub fn refine_text_streaming<F>(
     original_provider: &str,
     streaming_enabled: bool,
     ui_language: &str,
+    cancel_token: Option<Arc<AtomicBool>>,
     mut on_chunk: F,
 ) -> Result<String>
 where
@@ -93,6 +98,7 @@ where
             p_provider,
             streaming_enabled,
             ui_language,
+            &cancel_token,
             &mut on_chunk,
         )
     };
@@ -114,6 +120,7 @@ where
                     Some(img_bytes.clone()),
                     streaming_enabled,
                     false,
+                    cancel_token,
                     on_chunk,
                 )
             } else if target_provider == "gemini-live" {
@@ -142,6 +149,7 @@ where
                     Some(img_bytes.clone()),
                     streaming_enabled,
                     false,
+                    cancel_token,
                     on_chunk,
                 )
             }
@@ -162,6 +170,7 @@ fn refine_text_only<F>(
     p_provider: String,
     streaming_enabled: bool,
     ui_language: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -174,6 +183,7 @@ where
             &p_model,
             streaming_enabled,
             ui_language,
+            cancel_token,
             on_chunk,
         )
     } else if p_provider == "gemini-live" {
@@ -193,6 +203,7 @@ where
             &p_model,
             streaming_enabled,
             ui_language,
+            cancel_token,
             on_chunk,
         )
     } else if p_provider == "openrouter" {
@@ -202,6 +213,7 @@ where
             &p_model,
             streaming_enabled,
             ui_language,
+            cancel_token,
             on_chunk,
         )
     } else {
@@ -211,6 +223,7 @@ where
             &p_model,
             streaming_enabled,
             ui_language,
+            cancel_token,
             on_chunk,
         )
     }
@@ -223,6 +236,7 @@ fn refine_gemini<F>(
     p_model: &str,
     streaming_enabled: bool,
     ui_language: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -286,6 +300,11 @@ where
         let locale = LocaleText::get(ui_language);
 
         for line in reader.lines() {
+            if let Some(ref ct) = cancel_token {
+                if ct.load(Ordering::Relaxed) {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
+            }
             let line = line?;
             if line.starts_with("data: ") {
                 let json_str = &line["data: ".len()..];
@@ -366,6 +385,7 @@ fn refine_cerebras<F>(
     p_model: &str,
     streaming_enabled: bool,
     ui_language: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -431,6 +451,11 @@ where
         let is_reasoning_model = p_model.contains("gpt-oss") || p_model.contains("zai-glm");
 
         for line in reader.lines() {
+            if let Some(ref ct) = cancel_token {
+                if ct.load(Ordering::Relaxed) {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
+            }
             let line = line?;
             if line.starts_with("data: ") {
                 let data = &line[6..];
@@ -497,6 +522,7 @@ fn refine_openrouter<F>(
     p_model: &str,
     streaming_enabled: bool,
     ui_language: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -530,6 +556,11 @@ where
         let locale = LocaleText::get(ui_language);
 
         for line in reader.lines() {
+            if let Some(ref ct) = cancel_token {
+                if ct.load(Ordering::Relaxed) {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
+            }
             let line = line?;
             if line.starts_with("data: ") {
                 let data = &line[6..];
@@ -593,6 +624,7 @@ fn refine_groq<F>(
     p_model: &str,
     streaming_enabled: bool,
     ui_language: &str,
+    cancel_token: &Option<Arc<AtomicBool>>,
     on_chunk: &mut F,
 ) -> Result<String>
 where
@@ -641,6 +673,11 @@ where
     if streaming_enabled {
         let reader = BufReader::new(resp.into_body().into_reader());
         for line in reader.lines() {
+            if let Some(ref ct) = cancel_token {
+                if ct.load(Ordering::Relaxed) {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
+            }
             let line = line?;
             if line.starts_with("data: ") {
                 let data = &line[6..];

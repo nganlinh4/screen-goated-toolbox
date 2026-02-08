@@ -4,9 +4,12 @@
 use crate::api::{translate_image_streaming, translate_text_streaming};
 use crate::config::{Config, ProcessingBlock};
 use crate::gui::settings_ui::get_localized_preset_name;
-use crate::overlay::result::{update_window_text, RefineContext, WINDOW_STATES};
+use crate::overlay::result::{update_window_text, ChainCancelToken, RefineContext, WINDOW_STATES};
 use crate::win_types::SendHwnd;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -27,6 +30,7 @@ pub fn execute_block(
     config: &Config,
     preset_id: &str,
     processing_hwnd_shared: Option<SendHwnd>,
+    cancel_token: &Arc<ChainCancelToken>,
 ) -> String {
     if block.block_type == "input_adapter" {
         return input_text.to_string();
@@ -96,6 +100,7 @@ pub fn execute_block(
                 my_hwnd,
                 window_shown_clone,
                 processing_hwnd_clone,
+                cancel_token,
             )
         } else {
             execute_text_block(
@@ -110,6 +115,7 @@ pub fn execute_block(
                 config,
                 acc_clone,
                 my_hwnd,
+                cancel_token,
             )
         };
 
@@ -169,11 +175,17 @@ fn execute_image_block(
     my_hwnd: Option<HWND>,
     window_shown: Arc<Mutex<bool>>,
     processing_hwnd: Arc<Mutex<Option<SendHwnd>>>,
+    cancel_token: &Arc<ChainCancelToken>,
 ) -> anyhow::Result<String> {
     if let RefineContext::Image(img_data) = context {
         let img = image::load_from_memory(img_data)
             .expect("Failed to load png")
             .to_rgba8();
+
+        // Bridge: chain token → API-level AtomicBool
+        let api_cancel = Arc::new(AtomicBool::new(false));
+        let api_cancel_cb = api_cancel.clone();
+        let chain_token_cb = cancel_token.clone();
 
         translate_image_streaming(
             groq_key,
@@ -185,7 +197,12 @@ fn execute_image_block(
             Some(img_data.clone()),
             streaming_enabled,
             use_json,
+            Some(api_cancel),
             move |chunk| {
+                if chain_token_cb.is_cancelled() {
+                    api_cancel_cb.store(true, Ordering::SeqCst);
+                    return;
+                }
                 handle_streaming_chunk(chunk, &accumulated, my_hwnd, &window_shown, &processing_hwnd);
             },
         )
@@ -208,8 +225,14 @@ fn execute_text_block(
     config: &Config,
     accumulated: Arc<Mutex<String>>,
     my_hwnd: Option<HWND>,
+    cancel_token: &Arc<ChainCancelToken>,
 ) -> anyhow::Result<String> {
     let search_label = Some(get_localized_preset_name(preset_id, &config.ui_language));
+
+    // Bridge: chain token → API-level AtomicBool
+    let api_cancel = Arc::new(AtomicBool::new(false));
+    let api_cancel_cb = api_cancel.clone();
+    let chain_token_cb = cancel_token.clone();
 
     translate_text_streaming(
         groq_key,
@@ -222,7 +245,13 @@ fn execute_text_block(
         false,
         search_label,
         &config.ui_language,
+        Some(api_cancel),
         move |chunk| {
+            if chain_token_cb.is_cancelled() {
+                api_cancel_cb.store(true, Ordering::SeqCst);
+                return;
+            }
+
             let mut t = accumulated.lock().unwrap();
             if chunk.starts_with(crate::api::WIPE_SIGNAL) {
                 t.clear();

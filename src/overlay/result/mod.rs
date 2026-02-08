@@ -7,7 +7,9 @@ pub mod paint;
 pub mod state;
 mod window;
 
-pub use state::{close_windows_with_token, link_windows, RefineContext, WindowType, WINDOW_STATES};
+pub use state::{
+    close_chain_windows, link_windows, ChainCancelToken, RefineContext, WindowType, WINDOW_STATES,
+};
 pub use window::{create_result_window, get_chain_color, update_window_text};
 
 // Trigger functions for button canvas IPC
@@ -318,12 +320,10 @@ pub fn trigger_refine_cancel(hwnd: HWND) {
 // Logic extracted from timer_tasks (simplified)
 fn start_refinement(hwnd: HWND, user_prompt: &str) {
     let hwnd_key = hwnd.0 as isize;
-    let (context_data, model_id, provider, streaming, preset_prompt, prev_text) = {
+    let (context_data, model_id, provider, streaming, preset_prompt, prev_text, chain_token) = {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(s) = states.get_mut(&hwnd_key) {
             let prev = s.full_text.clone();
-            // Setup state for processing
-            // s.input_text = prev.clone(); // Removed: Don't pollute input UI state with context
             (
                 s.context_data.clone(),
                 s.model_id.clone(),
@@ -331,6 +331,7 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
                 s.streaming_enabled,
                 s.preset_prompt.clone(),
                 prev,
+                s.cancellation_token.clone(),
             )
         } else {
             return;
@@ -362,6 +363,11 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
             )
         };
 
+        // Bridge: chain cancel token → API-level AtomicBool
+        let api_cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let api_cancel_cb = api_cancel.clone();
+        let chain_token_cb = chain_token.clone();
+
         let mut acc_text = String::new();
         let mut first_chunk = true;
 
@@ -378,9 +384,15 @@ fn start_refinement(hwnd: HWND, user_prompt: &str) {
                 let app = crate::APP.lock().unwrap();
                 &app.config.ui_language.clone()
             },
+            Some(api_cancel),
             move |chunk| {
-                // Check cancellation token? refined_text_streaming should handle it if passed.
-                // But here we rely on the callback.
+                // Check chain cancel token and signal API-level bridge if cancelled
+                if let Some(ref ct) = chain_token_cb {
+                    if ct.is_cancelled() {
+                        api_cancel_cb.store(true, std::sync::atomic::Ordering::SeqCst);
+                        return;
+                    }
+                }
 
                 let mut states = WINDOW_STATES.lock().unwrap();
                 if let Some(state) = states.get_mut(&(capture_hwnd.0 as isize)) {
@@ -568,20 +580,23 @@ pub fn trigger_speaker(hwnd: HWND) {
     button_canvas::update_window_position(hwnd);
 }
 
-/// Trigger close for the window group containing `hwnd` (same cancellation token or linked chain).
-/// Signals the cancellation token to stop streaming, then posts WM_CLOSE to each member.
+/// Trigger close for the window group containing `hwnd` (linked chain BFS).
+/// Signals each window's cancellation token to stop streaming, then posts WM_CLOSE.
 pub fn trigger_close_group(hwnd: HWND) {
-    // Signal the group's cancellation token
+    let group = state::get_window_group(hwnd);
+
+    // Signal all tokens in the group
     {
         let states = WINDOW_STATES.lock().unwrap();
-        if let Some(state) = states.get(&(hwnd.0 as isize)) {
-            if let Some(ref token) = state.cancellation_token {
-                token.store(true, std::sync::atomic::Ordering::SeqCst);
+        for (h, _) in &group {
+            if let Some(state) = states.get(&(h.0 as isize)) {
+                if let Some(ref token) = state.cancellation_token {
+                    token.cancel();
+                }
             }
         }
     }
 
-    let group = state::get_window_group(hwnd);
     for (h, _) in group {
         unsafe {
             if windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(h)).as_bool() {
@@ -596,10 +611,9 @@ pub fn trigger_close_group(hwnd: HWND) {
 pub fn trigger_close_all() {
     let targets: Vec<HWND> = {
         let states = WINDOW_STATES.lock().unwrap();
-        // Signal all cancellation tokens
         for state in states.values() {
             if let Some(ref token) = state.cancellation_token {
-                token.store(true, std::sync::atomic::Ordering::SeqCst);
+                token.cancel();
             }
         }
         states
