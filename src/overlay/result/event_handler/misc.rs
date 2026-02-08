@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -28,10 +27,8 @@ pub unsafe fn handle_erase_bkgnd(_hwnd: HWND, _wparam: WPARAM) -> LRESULT {
 // handle_ctl_color_edit removed (was for native edit control)
 
 pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
-    // Collect windows to close (those sharing the same cancellation token)
-    let windows_to_close: Vec<HWND>;
-    let token_to_signal: Option<Arc<std::sync::atomic::AtomicBool>>;
-
+    // Clean up this window's resources only — callers are responsible for
+    // deciding whether to close siblings (group close) or all windows.
     {
         let mut states = WINDOW_STATES.lock().unwrap();
         if let Some(state) = states.remove(&(hwnd.0 as isize)) {
@@ -40,41 +37,13 @@ pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
                 crate::api::tts::TTS_MANAGER.stop_if_active(state.tts_request_id);
             }
 
-            // Get the cancellation token from this window
-            token_to_signal = state.cancellation_token.clone();
-
-            // Find all other windows with the same cancellation token
-            if let Some(ref token) = token_to_signal {
-                // Signal cancellation first
-                token.store(true, std::sync::atomic::Ordering::Relaxed);
-
-                // Collect windows to close (can't close while iterating with lock held)
-                windows_to_close = states
-                    .iter()
-                    .filter(|(_, s)| {
-                        if let Some(ref other_token) = s.cancellation_token {
-                            Arc::ptr_eq(token, other_token)
-                        } else {
-                            false
-                        }
-                    })
-                    .map(|(k, _)| HWND(*k as *mut core::ffi::c_void))
-                    .collect();
-            } else {
-                windows_to_close = Vec::new();
-            }
-
-            // Cleanup this window's resources
+            // Cleanup GDI resources
             if !state.content_bitmap.is_invalid() {
                 let _ = DeleteObject(state.content_bitmap.into());
             }
             if !state.bg_bitmap.is_invalid() {
                 let _ = DeleteObject(state.bg_bitmap.into());
             }
-
-            // Cleanup refine input if active (state cleanup is handled by removing from WINDOW_STATES)
-        } else {
-            windows_to_close = Vec::new();
         }
     }
 
@@ -84,13 +53,6 @@ pub unsafe fn handle_destroy(hwnd: HWND) -> LRESULT {
 
     // Unregister from button canvas (outside lock to prevent deadlock)
     button_canvas::unregister_markdown_window(hwnd);
-
-    // Close all other windows in the same chain (after dropping the lock)
-    for other_hwnd in windows_to_close {
-        if other_hwnd != hwnd {
-            let _ = PostMessageW(Some(other_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-    }
 
     LRESULT(0)
 }

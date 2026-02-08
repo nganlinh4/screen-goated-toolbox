@@ -200,12 +200,7 @@ fn handle_broom_click(hwnd: HWND) {
 }
 
 fn handle_broom_right(hwnd: HWND) {
-    let group = crate::overlay::result::state::get_window_group(hwnd);
-    for (h, _) in group {
-        unsafe {
-            let _ = PostMessageW(Some(h), WM_CLOSE, WPARAM(0), LPARAM(0));
-        }
-    }
+    crate::overlay::result::trigger_close_group(hwnd);
 }
 
 fn handle_broom_drag_start(hwnd: HWND, is_group: bool, is_all: bool) {
