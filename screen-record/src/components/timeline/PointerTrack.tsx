@@ -4,33 +4,24 @@ import { VideoSegment } from '@/types/video';
 interface PointerTrackProps {
   segment: VideoSegment;
   duration: number;
-  editingPointerId: string | null;
-  onPointerClick: (id: string) => void;
+  onPointerClick: (id: string, splitTime: number) => void;
   onHandleDragStart: (id: string, type: 'start' | 'end' | 'body', offset?: number) => void;
   onAddPointerSegment?: (atTime?: number) => void;
+  onPointerHover?: (id: string | null) => void;
 }
 
 export const PointerTrack: React.FC<PointerTrackProps> = ({
   segment,
   duration,
-  editingPointerId,
   onPointerClick,
   onHandleDragStart,
   onAddPointerSegment,
+  onPointerHover,
 }) => {
   const [hoverX, setHoverX] = useState<number | null>(null);
-  const explicitSegments = segment.cursorVisibilitySegments;
-
-  // When smart pointer hiding is off, show one full-duration segment (always visible)
-  const isAlwaysVisible = !explicitSegments;
-  const segments = explicitSegments ?? [{
-    id: '__always-visible__',
-    startTime: segment.trimStart,
-    endTime: segment.trimEnd,
-  }];
+  const segments = segment.cursorVisibilitySegments ?? [];
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isAlwaysVisible) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const time = (x / rect.width) * duration;
@@ -49,24 +40,23 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
       {segments.map((seg) => (
         <div
           key={seg.id}
-          onMouseDown={isAlwaysVisible ? undefined : (e) => {
+          onMouseDown={(e) => {
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
             const clickTime = (clickX / rect.width) * duration;
             onHandleDragStart(seg.id, 'body', clickTime - seg.startTime);
           }}
-          onClick={isAlwaysVisible ? undefined : (e) => {
+          onClick={(e) => {
             e.stopPropagation();
-            onPointerClick(seg.id);
+            const rect = e.currentTarget.getBoundingClientRect();
+            const frac = (e.clientX - rect.left) / rect.width;
+            const time = seg.startTime + frac * (seg.endTime - seg.startTime);
+            onPointerClick(seg.id, time);
           }}
-          className={`pointer-segment absolute h-full rounded ${
-            isAlwaysVisible
-              ? 'bg-amber-500/15 cursor-default'
-              : editingPointerId === seg.id
-                ? 'bg-amber-500/40 ring-1 ring-amber-500 cursor-move group'
-                : 'bg-amber-500/20 hover:bg-amber-500/30 cursor-move group'
-          }`}
+          onMouseEnter={() => onPointerHover?.(seg.id)}
+          onMouseLeave={() => onPointerHover?.(null)}
+          className="pointer-segment absolute h-full rounded bg-amber-500/20 hover:bg-amber-500/30 cursor-move group"
           style={{
             left: `${(seg.startTime / duration) * 100}%`,
             width: `${((seg.endTime - seg.startTime) / duration) * 100}%`,
@@ -77,23 +67,19 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
               ●
             </span>
           </div>
-          {/* Resize handles — only for explicit segments */}
-          {!isAlwaysVisible && (
-            <>
-              <div
-                className="pointer-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-                onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
-              >
-                <div className="pointer-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
-              </div>
-              <div
-                className="pointer-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-                onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
-              >
-                <div className="pointer-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
-              </div>
-            </>
-          )}
+          {/* Resize handles */}
+          <div
+            className="pointer-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+            onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
+          >
+            <div className="pointer-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+          </div>
+          <div
+            className="pointer-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
+            onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
+          >
+            <div className="pointer-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+          </div>
         </div>
       ))}
 

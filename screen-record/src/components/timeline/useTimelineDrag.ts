@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { VideoSegment } from '@/types/video';
+import { VideoSegment, CursorVisibilitySegment } from '@/types/video';
+import { mergePointerSegments } from '@/lib/cursorHiding';
 
 export interface TimelineDragState {
   isDraggingTrimStart: boolean;
@@ -65,6 +66,8 @@ export function useTimelineDrag({
   const [draggingZoomIdx, setDraggingZoomIdx] = useState<number | null>(null);
   const textDragOffsetRef = useRef(0);
   const pointerDragOffsetRef = useRef(0);
+  const pointerDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
+  const pointerDragDidMove = useRef(false);
 
   const getTimeFromClientX = useCallback((clientX: number): number | null => {
     const timeline = timelineRef.current;
@@ -185,6 +188,11 @@ export function useTimelineDrag({
   // Pointer drag
   const handlePointerDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
     beginBatch();
+    pointerDragDidMove.current = false;
+    // Snapshot originals so merge/unmerge is reversible during drag
+    pointerDragOriginals.current = segment?.cursorVisibilitySegments
+      ? segment.cursorVisibilitySegments.map(s => ({ ...s }))
+      : null;
     setDraggingPointerId(id);
     if (type === 'start') setIsDraggingPointerStart(true);
     else if (type === 'end') setIsDraggingPointerEnd(true);
@@ -192,39 +200,71 @@ export function useTimelineDrag({
       setIsDraggingPointerBody(true);
       if (offset !== undefined) pointerDragOffsetRef.current = offset;
     }
-  }, [beginBatch]);
+  }, [beginBatch, segment]);
 
   const handlePointerDrag = useCallback((clientX: number) => {
     if ((!isDraggingPointerStart && !isDraggingPointerEnd && !isDraggingPointerBody) || !draggingPointerId || !segment) return;
+    const originals = pointerDragOriginals.current;
+    if (!originals) return;
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
+    pointerDragDidMove.current = true;
+
+    // Recompute from originals so merge/unmerge is reversible during drag
+    const modified = originals.map(seg => {
+      if (seg.id !== draggingPointerId) return { ...seg };
+      if (isDraggingPointerStart) {
+        return { ...seg, startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1) };
+      } else if (isDraggingPointerEnd) {
+        return { ...seg, endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1) };
+      } else if (isDraggingPointerBody) {
+        const dur = seg.endTime - seg.startTime;
+        let newStart = newTime - pointerDragOffsetRef.current;
+        if (newStart < 0) newStart = 0;
+        if (newStart + dur > duration) newStart = duration - dur;
+        return { ...seg, startTime: newStart, endTime: newStart + dur };
+      }
+      return { ...seg };
+    });
 
     setSegment({
       ...segment,
-      cursorVisibilitySegments: segment.cursorVisibilitySegments?.map(seg => {
-        if (seg.id !== draggingPointerId) return seg;
-        if (isDraggingPointerStart) {
-          return { ...seg, startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1) };
-        } else if (isDraggingPointerEnd) {
-          return { ...seg, endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1) };
-        } else if (isDraggingPointerBody) {
-          const dur = seg.endTime - seg.startTime;
-          let newStart = newTime - pointerDragOffsetRef.current;
-          if (newStart < 0) newStart = 0;
-          if (newStart + dur > duration) newStart = duration - dur;
-          return { ...seg, startTime: newStart, endTime: newStart + dur };
-        }
-        return seg;
-      }),
+      cursorVisibilitySegments: mergePointerSegments(modified),
     });
   }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, draggingPointerId, segment, getTimeFromClientX, setSegment, duration]);
 
-  // Pointer click (select)
-  const handlePointerClick = useCallback((id: string) => {
-    if (!isDraggingPointerStart && !isDraggingPointerEnd) {
-      setEditingPointerId?.(id);
-    }
-  }, [isDraggingPointerStart, isDraggingPointerEnd, setEditingPointerId]);
+  // Pointer click → split segment at click time
+  const handlePointerClick = useCallback((id: string, splitTime: number) => {
+    if (isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody) return;
+    // Suppress click that fires after a drag (mousedown→move→mouseup→click)
+    if (pointerDragDidMove.current) { pointerDragDidMove.current = false; return; }
+    if (!segment?.cursorVisibilitySegments) return;
+
+    const seg = segment.cursorVisibilitySegments.find(s => s.id === id);
+    if (!seg) return;
+
+    const SPLIT_GAP = 0.3;
+    const half = SPLIT_GAP / 2;
+    const leftEnd = splitTime - half;
+    const rightStart = splitTime + half;
+
+    // Don't split if either resulting piece would be too small
+    if (leftEnd - seg.startTime < 0.15 || seg.endTime - rightStart < 0.15) return;
+
+    beginBatch();
+    const left: CursorVisibilitySegment = { id: seg.id, startTime: seg.startTime, endTime: leftEnd };
+    const right: CursorVisibilitySegment = { id: crypto.randomUUID(), startTime: rightStart, endTime: seg.endTime };
+
+    setSegment({
+      ...segment,
+      cursorVisibilitySegments: segment.cursorVisibilitySegments
+        .filter(s => s.id !== id)
+        .concat([left, right])
+        .sort((a, b) => a.startTime - b.startTime),
+    });
+    setEditingPointerId?.(null);
+    commitBatch();
+  }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, segment, setSegment, setEditingPointerId, beginBatch, commitBatch]);
 
   // Text click (select)
   const handleTextClick = useCallback((id: string) => {
@@ -280,6 +320,7 @@ export function useTimelineDrag({
     setDraggingZoomIdx(null);
     setDraggingTextId(null);
     setDraggingPointerId(null);
+    pointerDragOriginals.current = null;
     setIsDraggingSeek(false);
   }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, isDraggingSeek, commitBatch, onSeekEnd]);
 

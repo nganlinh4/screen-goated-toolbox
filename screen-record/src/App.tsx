@@ -436,9 +436,17 @@ function App() {
                       className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
                         !currentVideo || exportHook.isProcessing || !mousePositions.length
                           ? 'bg-white/10 text-white/30 cursor-not-allowed'
-                          : segment?.cursorVisibilitySegments
-                            ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
-                            : 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
+                          : (() => {
+                              const segs = segment?.cursorVisibilitySegments;
+                              const isDefault = !segs || segs.length === 0 || (
+                                segs.length === 1 &&
+                                Math.abs(segs[0].startTime - (segment?.trimStart ?? 0)) < 0.01 &&
+                                Math.abs(segs[0].endTime - (segment?.trimEnd ?? 0)) < 0.01
+                              );
+                              return isDefault
+                                ? 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
+                                : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white';
+                            })()
                       }`}>
                       <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
                     </Button>
@@ -479,12 +487,12 @@ function App() {
           <TimelineArea
             duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
             timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
-            editingTextId={editingTextId} editingPointerId={editingPointerId} setCurrentTime={setCurrentTime}
+            editingTextId={editingTextId} setCurrentTime={setCurrentTime}
             setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
             setEditingPointerId={setEditingPointerId}
             setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek} onSeekEnd={flushSeek}
             onAddText={handleAddText} onAddPointerSegment={handleAddPointerSegment}
-            beginBatch={beginBatch} commitBatch={commitBatch}
+            isPlaying={isPlaying} beginBatch={beginBatch} commitBatch={commitBatch}
           />
           {projects.showProjectsDialog && <div className="projects-timeline-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
         </div>

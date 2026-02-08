@@ -26,6 +26,25 @@ function easeInCubic(t: number): number {
 }
 
 /**
+ * Merge overlapping or touching cursor visibility segments.
+ * Segments with startTime <= previous endTime are combined.
+ */
+export function mergePointerSegments(segments: CursorVisibilitySegment[]): CursorVisibilitySegment[] {
+  if (segments.length <= 1) return segments;
+  const sorted = [...segments].sort((a, b) => a.startTime - b.startTime);
+  const merged: CursorVisibilitySegment[] = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    if (sorted[i].startTime <= last.endTime) {
+      last.endTime = Math.max(last.endTime, sorted[i].endTime);
+    } else {
+      merged.push({ ...sorted[i] });
+    }
+  }
+  return merged;
+}
+
+/**
  * Analyze mouse positions to find idle periods and generate visibility segments.
  * Returns segments where the cursor should be VISIBLE.
  */

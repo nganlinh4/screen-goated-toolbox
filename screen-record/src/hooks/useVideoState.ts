@@ -7,7 +7,7 @@ import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
 import { videoExporter } from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
 import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment } from '@/types/video';
-import { generateCursorVisibility } from '@/lib/cursorHiding';
+import { generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
 import { getKeyframeRange } from '@/utils/helpers';
 import { useThrottle } from './useAppHooks';
 
@@ -279,7 +279,12 @@ export function useRecording(props: UseRecordingProps) {
 
         const videoDuration = props.videoRef.current?.duration || 0;
         const initialSegment: VideoSegment = {
-          trimStart: 0, trimEnd: videoDuration, zoomKeyframes: [], textSegments: []
+          trimStart: 0, trimEnd: videoDuration, zoomKeyframes: [], textSegments: [],
+          cursorVisibilitySegments: [{
+            id: crypto.randomUUID(),
+            startTime: 0,
+            endTime: videoDuration,
+          }],
         };
         props.setSegment(initialSegment);
 
@@ -371,6 +376,14 @@ export function useProjects(props: UseProjectsProps) {
     const correctedSegment = { ...project.segment };
     if (correctedSegment.trimEnd === 0 || correctedSegment.trimEnd > videoDuration) {
       correctedSegment.trimEnd = videoDuration;
+    }
+    // Materialize pointer segments for backward-compat (old projects have undefined)
+    if (!correctedSegment.cursorVisibilitySegments) {
+      correctedSegment.cursorVisibilitySegments = [{
+        id: crypto.randomUUID(),
+        startTime: correctedSegment.trimStart,
+        endTime: correctedSegment.trimEnd,
+      }];
     }
 
     // Draw the first frame on the canvas immediately (before React state updates)
@@ -714,14 +727,29 @@ export function useCursorHiding(props: UseCursorHidingProps) {
   const handleSmartPointerHiding = useCallback(() => {
     if (!props.segment) return;
 
-    // Toggle: if already active, clear it
-    if (props.segment.cursorVisibilitySegments) {
-      props.setSegment({ ...props.segment, cursorVisibilitySegments: undefined });
+    const segs = props.segment.cursorVisibilitySegments;
+    // Check if current state is "default" (single full-duration segment) or empty
+    const isDefault = !segs || segs.length === 0 || (
+      segs.length === 1 &&
+      Math.abs(segs[0].startTime - props.segment.trimStart) < 0.01 &&
+      Math.abs(segs[0].endTime - props.segment.trimEnd) < 0.01
+    );
+
+    if (!isDefault) {
+      // Has customized/generated segments → reset to default (cursor visible everywhere)
+      props.setSegment({
+        ...props.segment,
+        cursorVisibilitySegments: [{
+          id: crypto.randomUUID(),
+          startTime: props.segment.trimStart,
+          endTime: props.segment.trimEnd,
+        }],
+      });
       setEditingPointerId(null);
       return;
     }
 
-    // Generate visibility segments from mouse data
+    // Default or empty → generate from mouse data
     const segments = generateCursorVisibility(props.segment, props.mousePositions);
     props.setSegment({ ...props.segment, cursorVisibilitySegments: segments });
   }, [props.segment, props.mousePositions, props.setSegment]);
@@ -738,19 +766,20 @@ export function useCursorHiding(props: UseCursorHidingProps) {
       endTime: Math.min(startTime + segDur, props.duration),
     };
 
+    const allSegs = [...(props.segment.cursorVisibilitySegments || []), newSeg];
     props.setSegment({
       ...props.segment,
-      cursorVisibilitySegments: [...(props.segment.cursorVisibilitySegments || []), newSeg],
+      cursorVisibilitySegments: mergePointerSegments(allSegs),
     });
-    setEditingPointerId(newSeg.id);
+    setEditingPointerId(null);
   }, [props.segment, props.currentTime, props.duration, props.setSegment]);
 
   const handleDeletePointerSegment = useCallback(() => {
     if (!props.segment || !editingPointerId) return;
-    const remaining = props.segment.cursorVisibilitySegments?.filter(s => s.id !== editingPointerId);
+    const remaining = props.segment.cursorVisibilitySegments?.filter(s => s.id !== editingPointerId) ?? [];
     props.setSegment({
       ...props.segment,
-      cursorVisibilitySegments: remaining?.length ? remaining : undefined,
+      cursorVisibilitySegments: remaining,
     });
     setEditingPointerId(null);
   }, [props.segment, editingPointerId, props.setSegment]);
