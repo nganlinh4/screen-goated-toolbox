@@ -24,7 +24,6 @@ interface TimelineAreaProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   editingKeyframeId: number | null;
   editingTextId: string | null;
-  editingPointerId: string | null;
   setCurrentTime: (time: number) => void;
   setEditingKeyframeId: (id: number | null) => void;
   setEditingTextId: (id: string | null) => void;
@@ -35,6 +34,7 @@ interface TimelineAreaProps {
   onSeekEnd?: () => void;
   onAddText?: (atTime?: number) => void;
   onAddPointerSegment?: (atTime?: number) => void;
+  isPlaying?: boolean;
   beginBatch: () => void;
   commitBatch: () => void;
 }
@@ -48,7 +48,6 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   videoRef,
   editingKeyframeId,
   editingTextId,
-  editingPointerId,
   setCurrentTime,
   setEditingKeyframeId,
   setEditingTextId,
@@ -59,6 +58,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   onSeekEnd,
   onAddText,
   onAddPointerSegment,
+  isPlaying,
   beginBatch,
   commitBatch,
 }) => {
@@ -183,10 +183,10 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               <PointerTrack
                 segment={segment}
                 duration={duration}
-                editingPointerId={editingPointerId}
                 onPointerClick={handlePointerClick}
                 onHandleDragStart={handlePointerDragStart}
                 onAddPointerSegment={onAddPointerSegment}
+                onPointerHover={setEditingPointerId}
               />
             )}
 
@@ -206,7 +206,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 
           {/* Playhead spanning all tracks */}
           {segment && (
-            <Playhead currentTime={currentTime} duration={duration} />
+            <Playhead currentTime={currentTime} duration={duration} isPlaying={!!isPlaying} videoRef={videoRef} />
           )}
         </div>
       </div>
