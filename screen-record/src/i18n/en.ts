@@ -58,6 +58,7 @@ const en = {
   letterSpacing: 'Letter Spacing',
   backgroundPill: 'Background',
   pillColor: 'Background Color',
+  pillOpacity: 'Opacity',
   pillRadius: 'Roundness',
   deleteText: 'Delete Text',
 

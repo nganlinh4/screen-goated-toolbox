@@ -60,6 +60,7 @@ const ko: Translations = {
   letterSpacing: '자간',
   backgroundPill: '배경',
   pillColor: '배경 색상',
+  pillOpacity: '투명도',
   pillRadius: '둥글기',
   deleteText: '텍스트 삭제',
 

@@ -13,6 +13,7 @@ export interface ZoomKeyframe {
 export interface TextBackground {
   enabled: boolean;
   color: string;
+  opacity: number;  // 0-1, background pill opacity
   paddingX: number;
   paddingY: number;
   borderRadius: number;

@@ -616,9 +616,10 @@ export function useTextOverlays(props: UseTextOverlaysProps) {
       endTime: Math.min(startTime + segDur, props.duration),
       text: 'New Text',
       style: {
-        fontSize: 48, color: '#ffffff', x: 50, y: 50,
-        fontVariations: { wght: 400, wdth: 100, slnt: 0, ROND: 0 },
-        textAlign: 'center', opacity: 1, letterSpacing: 0
+        fontSize: 116, color: '#ffffff', x: 50, y: 50,
+        fontVariations: { wght: 693, wdth: 96, slnt: 0, ROND: 100 },
+        textAlign: 'center', opacity: 1, letterSpacing: 1,
+        background: { enabled: true, color: '#000000', opacity: 0.6, paddingX: 16, paddingY: 8, borderRadius: 32 }
       }
     };
 

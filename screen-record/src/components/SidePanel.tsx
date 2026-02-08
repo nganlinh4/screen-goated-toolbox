@@ -205,7 +205,6 @@ function BackgroundPanel({
   const { t } = useSettings();
   return (
     <div className="background-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <h2 className="panel-title text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-3">{t.backgroundAndLayout}</h2>
       <div className="background-controls space-y-3">
         <div className="video-size-field">
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
@@ -305,7 +304,6 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
   const { t } = useSettings();
   return (
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <h2 className="panel-title text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-3">{t.cursorSettings}</h2>
       <div className="cursor-controls space-y-3">
         <div className="cursor-size-field">
           <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
@@ -388,7 +386,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
 
           {/* Font Size */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{t.fontSize}</span>
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.fontSize}</span>
             <input
               type="range" min={12} max={200} step={1}
               value={editingText.style.fontSize}
@@ -403,7 +401,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
 
           {/* Color */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{t.color}</span>
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.color}</span>
             <ColorPicker
               value={editingText.style.color}
               onChange={(color) => updateStyle({ color })}
@@ -422,7 +420,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
             const value = (editingText.style.fontVariations as any)?.[axis] ?? defaultVal;
             return (
               <div key={axis} className="flex items-center gap-2">
-                <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{label}</span>
+                <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{label}</span>
                 <input
                   type="range" min={min} max={max} step={step}
                   value={value}
@@ -441,7 +439,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
 
           {/* Alignment */}
           <div className="text-align-field flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{t.textAlignment}</span>
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.textAlignment}</span>
             <div className="alignment-button-group flex rounded-lg border border-[var(--glass-border)] overflow-hidden">
               {(['left', 'center', 'right'] as const).map(align => {
                 const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
@@ -466,7 +464,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
 
           {/* Opacity */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{t.opacity}</span>
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.opacity}</span>
             <input
               type="range" min="0" max="1" step="0.01"
               value={editingText.style.opacity ?? 1}
@@ -481,7 +479,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
 
           {/* Letter Spacing */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{t.letterSpacing}</span>
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.letterSpacing}</span>
             <input
               type="range" min="-5" max="20" step="1"
               value={editingText.style.letterSpacing ?? 0}
@@ -503,10 +501,11 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
                 onChange={(e) => updateStyle({
                   background: {
                     enabled: e.target.checked,
-                    color: editingText.style.background?.color ?? 'rgba(0,0,0,0.6)',
+                    color: editingText.style.background?.color ?? '#000000',
+                    opacity: editingText.style.background?.opacity ?? 0.6,
                     paddingX: editingText.style.background?.paddingX ?? 16,
                     paddingY: editingText.style.background?.paddingY ?? 8,
-                    borderRadius: editingText.style.background?.borderRadius ?? 8
+                    borderRadius: editingText.style.background?.borderRadius ?? 32
                   }
                 })}
                 className="rounded"
@@ -516,7 +515,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
             {editingText.style.background?.enabled && (
               <div className="background-pill-controls space-y-2 mt-1 pl-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{t.pillColor}</span>
+                  <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pillColor}</span>
                   <ColorPicker
                     value={editingText.style.background.color.startsWith('rgba') ? '#000000' : editingText.style.background.color}
                     onChange={(color) => updateStyle({
@@ -527,7 +526,22 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--on-surface-variant)] w-10 flex-shrink-0">{t.pillRadius}</span>
+                  <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pillOpacity}</span>
+                  <input
+                    type="range" min="0" max="1" step="0.01"
+                    value={editingText.style.background.opacity ?? 0.6}
+                    style={sv(editingText.style.background.opacity ?? 0.6, 0, 1)}
+                    onPointerDown={beginBatch}
+                    onPointerUp={commitBatch}
+                    onChange={(e) => updateStyle({
+                      background: { ...editingText.style.background!, opacity: Number(e.target.value) }
+                    })}
+                    className="flex-1 min-w-0"
+                  />
+                  <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-7 text-right flex-shrink-0">{Math.round((editingText.style.background.opacity ?? 0.6) * 100)}%</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pillRadius}</span>
                   <input
                     type="range" min="0" max="32" step="1"
                     value={editingText.style.background.borderRadius}
