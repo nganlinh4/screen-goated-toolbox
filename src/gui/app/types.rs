@@ -57,7 +57,7 @@ pub struct SettingsApp {
     pub(crate) splash: Option<crate::gui::splash::SplashScreen>,
     pub(crate) fade_in_start: Option<f64>,
 
-    // 0 = Init/Offscreen, 1 = Move Sent, 2 = Visible Sent
+    // 0 = Init/Offscreen, 1 = Early init, 2..34 = Wait, 35 = Create splash, 36 = Show window, 37 = Ready
     pub(crate) startup_stage: u8,
 
     pub(crate) cached_monitors: Vec<String>,

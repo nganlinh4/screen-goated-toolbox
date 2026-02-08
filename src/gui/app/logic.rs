@@ -203,8 +203,11 @@ impl SettingsApp {
             if self.config.start_in_tray {
                 // ENSURE HIDDEN: If starting in tray, we must stay invisible.
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                self.startup_stage = 37;
             } else {
-                // SHOW SPLASH: Create it NOW for perfect t=0 timing.
+                // CREATE SPLASH while window is still invisible.
+                // This lets the splash render one frame to the backbuffer before
+                // the window appears, preventing the native border flash.
                 if self.splash.is_none() {
                     self.splash = Some(crate::gui::splash::SplashScreen::new(ctx));
                 }
@@ -213,10 +216,15 @@ impl SettingsApp {
                     WINDOW_WIDTH,
                     WINDOW_HEIGHT,
                 )));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+
+                self.startup_stage = 36;
             }
 
-            self.startup_stage = 36;
+            ctx.request_repaint();
+        } else if self.startup_stage == 36 {
+            // Splash has rendered one invisible frame — now show the window.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            self.startup_stage = 37;
         }
     }
 

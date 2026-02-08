@@ -64,7 +64,7 @@ impl eframe::App for SettingsApp {
         self.update_tips_logic(ctx);
 
         // --- UI LAYOUT ---
-        if self.startup_stage >= 36 {
+        if self.startup_stage >= 37 {
             // Title Bar (Custom Windows Bar)
             self.render_title_bar(ctx);
 
@@ -99,7 +99,7 @@ impl eframe::App for SettingsApp {
         }
 
         // Render Drop Overlay when dragging files (Very Last)
-        if self.startup_stage >= 36 {
+        if self.startup_stage >= 37 {
             self.render_drop_overlay(ctx);
         }
     }

@@ -288,6 +288,7 @@ pub fn paint(
     } else {
         viewport_rect.size()
     };
+
     let rect = Rect::from_min_size(Pos2::ZERO, size);
 
     // --- INTERACTION BLOCKER & DRAG HANDLE ---
