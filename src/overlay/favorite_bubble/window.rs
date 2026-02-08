@@ -19,6 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 // We need to access WM_REFRESH_PANEL too, but it's private in panel.rs.
 // However, we know it's WM_APP + 42. It's safe to use the constant here.
 const WM_REFRESH_PANEL: u32 = WM_APP + 42;
+pub const WM_BUBBLE_THEME_UPDATE: u32 = WM_APP + 44;
 
 // Show the favorite bubble overlay
 pub fn show_favorite_bubble() {
@@ -471,6 +472,29 @@ unsafe extern "system" fn bubble_wnd_proc(
                     let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
                     let _ = PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
                 }
+            }
+            LRESULT(0)
+        }
+
+        WM_BUBBLE_THEME_UPDATE => {
+            // Theme changed: refresh panel CSS (if open) BEFORE updating bubble visual,
+            // because update_bubble_visual writes LAST_THEME_IS_DARK which the panel
+            // checks to detect theme changes. SendMessageW is synchronous on same thread.
+            if IS_EXPANDED.load(Ordering::SeqCst) {
+                let panel_val = PANEL_HWND.load(Ordering::SeqCst);
+                if panel_val != 0 {
+                    let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
+                    // Synchronous: panel refresh runs before we return, updating CSS+HTML+bubble
+                    SendMessageW(
+                        panel_hwnd,
+                        WM_REFRESH_PANEL,
+                        Some(WPARAM(0)),
+                        Some(LPARAM(0)),
+                    );
+                }
+            } else {
+                // Panel not open, just update the bubble icon
+                update_bubble_visual(hwnd);
             }
             LRESULT(0)
         }
