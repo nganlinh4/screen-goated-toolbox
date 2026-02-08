@@ -78,6 +78,8 @@ const en = {
   // Dialogs - Export
   exportingVideo: 'Exporting video...',
   processingVideoShort: 'Processing video...',
+  timeRemaining: 'remaining',
+  preparingExport: 'Preparing...',
   exportOptions: 'Export Options',
   quality: 'Quality',
   dimensions: 'Dimensions',

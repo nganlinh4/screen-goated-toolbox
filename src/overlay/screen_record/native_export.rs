@@ -3,9 +3,39 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::Instant;
 
 use super::gpu_export::{create_uniforms, GpuCompositor};
+use super::SR_HWND;
 use crate::overlay::screen_record::engine::VIDEO_PATH;
+use windows::Win32::Foundation::*;
+use windows::Win32::UI::WindowsAndMessaging::*;
+
+const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
+
+/// Push a progress update directly to the WebView via PostMessageW.
+/// This avoids IPC round-trips and works even while another invoke is pending.
+fn push_export_progress(percent: f64, eta: f64) {
+    let script = format!(
+        "window.postMessage({{type:'sr-export-progress',percent:{:.1},eta:{:.1}}},'*')",
+        percent, eta
+    );
+    let script_ptr = Box::into_raw(Box::new(script));
+    let hwnd = unsafe { std::ptr::addr_of!(SR_HWND).read() };
+    if !hwnd.0.is_invalid() {
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd.0),
+                WM_APP_RUN_SCRIPT,
+                WPARAM(0),
+                LPARAM(script_ptr as isize),
+            );
+        }
+    } else {
+        // No window — free the allocation
+        unsafe { drop(Box::from_raw(script_ptr)); }
+    }
+}
 
 // --- Structs for JSON Deserialization ---
 
@@ -527,7 +557,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let step = dt * config.speed;
     let mut current_time = config.trim_start;
     let end_time = config.trim_start + config.duration;
+    let total_frames = ((config.duration / step).ceil() as u32).max(1);
     let mut frame_count = 0u32;
+    let export_start = Instant::now();
 
     while current_time < end_time {
         if std::io::Read::read_exact(&mut decoder_stdout, &mut buffer).is_err() {
@@ -634,6 +666,16 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let _ = encoder_stdin.write_all(&rendered);
 
         frame_count += 1;
+        if frame_count.is_multiple_of(15) {
+            let elapsed = export_start.elapsed().as_secs_f64();
+            let pct = (frame_count as f64 / total_frames as f64 * 100.0).min(100.0);
+            let eta = if frame_count > 0 {
+                (elapsed / frame_count as f64) * (total_frames - frame_count) as f64
+            } else {
+                0.0
+            };
+            push_export_progress(pct, eta);
+        }
         current_time += step;
     }
 

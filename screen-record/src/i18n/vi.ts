@@ -80,6 +80,8 @@ const vi: Translations = {
   // Dialogs - Export
   exportingVideo: 'Đang xuất video...',
   processingVideoShort: 'Đang xử lý video...',
+  timeRemaining: 'còn lại',
+  preparingExport: 'Đang chuẩn bị...',
   exportOptions: 'Tùy Chọn Xuất',
   quality: 'Chất Lượng',
   dimensions: 'Kích Thước',
