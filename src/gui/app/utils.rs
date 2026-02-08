@@ -42,6 +42,14 @@ impl SettingsApp {
         }
 
         let mut state = self.app_state_ref.lock().unwrap();
+
+        // Pull fields that can be modified by external modules (tray popup, bubble panel)
+        // before overwriting the global state, to avoid clobbering their changes.
+        self.config.show_favorite_bubble = state.config.show_favorite_bubble;
+        self.config.favorite_bubble_position = state.config.favorite_bubble_position;
+        self.config.favorite_bubble_size = state.config.favorite_bubble_size;
+        self.config.favorites_keep_open = state.config.favorites_keep_open;
+
         state.hotkeys_updated = true;
         state.config = self.config.clone();
         drop(state);
