@@ -767,10 +767,10 @@ fn trigger_preset(preset_idx: usize) {
 }
 
 fn activate_continuous_from_panel(preset_idx: usize) {
-    let (p_type, p_id) = {
+    let (p_type, p_id, is_master) = {
         if let Ok(app) = APP.lock() {
             if let Some(p) = app.config.presets.get(preset_idx) {
-                (p.preset_type.clone(), p.id.clone())
+                (p.preset_type.clone(), p.id.clone(), p.is_master)
             } else {
                 return;
             }
@@ -779,7 +779,7 @@ fn activate_continuous_from_panel(preset_idx: usize) {
         }
     };
 
-    if !crate::overlay::continuous_mode::supports_continuous_mode(&p_type) {
+    if !crate::overlay::continuous_mode::supports_continuous_mode(&p_type) || is_master {
         return;
     }
 

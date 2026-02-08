@@ -296,29 +296,55 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                 }
                 return;
             } else {
+                // Don't toggle off while the preset wheel is showing (e.g. master preset
+                // triggered processing which opened the wheel — key repeat gaps would
+                // otherwise cancel it)
+                if overlay::preset_wheel::is_wheel_active() {
+                    return;
+                }
                 crate::log_info!("[TextHotkey] Toggle OFF - cancelling text selection");
                 overlay::text_selection::cancel_selection();
                 return;
             }
         } else {
             if !overlay::continuous_mode::is_active() {
-                crate::log_info!("[TextHotkey] Held - activating text continuous mode");
-                overlay::continuous_mode::activate(preset_idx, hotkey_name.to_string());
-                overlay::text_selection::update_badge_for_continuous_mode();
-
-                let preset_id = {
+                // Check if this is a master preset - exclude from continuous mode
+                let is_master = {
                     if let Ok(app) = APP.lock() {
                         app.config
                             .presets
                             .get(preset_idx)
-                            .map(|p| p.id.clone())
-                            .unwrap_or_default()
+                            .map(|p| p.is_master)
+                            .unwrap_or(false)
                     } else {
-                        String::new()
+                        false
                     }
                 };
-                if !preset_id.is_empty() && preset_id != "preset_text_select_master" {
-                    overlay::continuous_mode::show_activation_notification(&preset_id, hotkey_name);
+
+                if is_master {
+                    crate::log_info!("[TextHotkey] Held - but master preset, skipping continuous mode");
+                } else {
+                    crate::log_info!("[TextHotkey] Held - activating text continuous mode");
+                    overlay::continuous_mode::activate(preset_idx, hotkey_name.to_string());
+                    overlay::text_selection::update_badge_for_continuous_mode();
+
+                    let preset_id = {
+                        if let Ok(app) = APP.lock() {
+                            app.config
+                                .presets
+                                .get(preset_idx)
+                                .map(|p| p.id.clone())
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        }
+                    };
+                    if !preset_id.is_empty() {
+                        overlay::continuous_mode::show_activation_notification(
+                            &preset_id,
+                            hotkey_name,
+                        );
+                    }
                 }
             } else {
                 crate::log_info!(
