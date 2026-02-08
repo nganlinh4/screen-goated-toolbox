@@ -57,7 +57,8 @@ impl EscapeOverlay {
             let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
             let y = GetSystemMetrics(SM_YVIRTUALSCREEN);
             let width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-            let height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            // 1px shorter so Windows doesn't detect a fullscreen topmost app and auto-hide the taskbar
+            let height = GetSystemMetrics(SM_CYVIRTUALSCREEN) - 1;
 
             let hwnd = CreateWindowExW(
                 WS_EX_LAYERED
