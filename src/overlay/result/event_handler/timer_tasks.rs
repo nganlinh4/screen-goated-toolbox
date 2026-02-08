@@ -25,12 +25,16 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
             && cursor_pos.y >= window_rect.top
             && cursor_pos.y < window_rect.bottom;
 
-        let (is_markdown_mode, current_hover_state) = {
+        let (is_markdown_mode, current_hover_state, is_actively_streaming) = {
             let states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get(&(hwnd.0 as isize)) {
-                (state.is_markdown_mode, state.is_hovered)
+                (
+                    state.is_markdown_mode,
+                    state.is_hovered,
+                    state.is_markdown_streaming && state.is_streaming_active,
+                )
             } else {
-                (false, false)
+                (false, false, false)
             }
         };
 
@@ -45,7 +49,11 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     }
                 }
                 markdown_view::resize_markdown_webview(hwnd, true);
-                markdown_view::fit_font_to_window(hwnd);
+                // Skip delayed fit_font_to_window during active streaming —
+                // the streaming path handles inline font sizing synchronously
+                if !is_actively_streaming {
+                    markdown_view::fit_font_to_window(hwnd);
+                }
                 let _ = InvalidateRect(Some(hwnd), None, false);
             } else if !cursor_inside && current_hover_state {
                 // Leave: Mark unhovered -> Expand WebView -> Clean look
@@ -62,7 +70,10 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     }
                 }
                 markdown_view::resize_markdown_webview(hwnd, false);
-                markdown_view::fit_font_to_window(hwnd);
+                // Skip delayed fit_font_to_window during active streaming
+                if !is_actively_streaming {
+                    markdown_view::fit_font_to_window(hwnd);
+                }
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
         }
@@ -187,12 +198,14 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                     .unwrap_or(0);
 
                 let mut should_update_webview = false;
+                let mut is_first_streaming_update = false;
                 {
                     let mut states = WINDOW_STATES.lock().unwrap();
                     if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                         let time_since_last_webview =
                             now.wrapping_sub(state.last_webview_update_time);
-                        if time_since_last_webview >= 80 || state.last_webview_update_time == 0 {
+                        is_first_streaming_update = state.last_webview_update_time == 0;
+                        if time_since_last_webview >= 80 || is_first_streaming_update {
                             state.last_webview_update_time = now;
                             should_update_webview = true;
                         }
@@ -200,7 +213,19 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 }
 
                 if should_update_webview {
+                    // Ensure WebView bounds are correct before streaming content
+                    // (JS inline font sizing reads window.innerHeight/innerWidth)
+                    markdown_view::resize_markdown_webview(hwnd, is_hovered);
+                    if is_first_streaming_update {
+                        // Hide body to prevent flash of unstyled content.
+                        // fit_font_to_window will reveal it after full fitting.
+                        markdown_view::set_body_opacity(hwnd, false);
+                    }
                     markdown_view::stream_markdown_content(hwnd, &md_text);
+                    if is_first_streaming_update {
+                        // Run full multi-phase fitting (delayed) — reveals body when done
+                        markdown_view::fit_font_to_window(hwnd);
+                    }
                     // Register with button canvas (may already be registered, that's fine)
                     crate::overlay::result::button_canvas::register_markdown_window(hwnd);
                 }

@@ -37,6 +37,7 @@ pub unsafe fn handle_lbutton_up(hwnd: HWND) -> LRESULT {
             let was_resizing = matches!(state.interaction_mode, InteractionMode::Resizing(_));
             state.interaction_mode = InteractionMode::None;
             if was_resizing && state.is_markdown_mode {
+                markdown_view::resize_markdown_webview(hwnd, state.is_hovered);
                 markdown_view::fit_font_to_window(hwnd);
             }
             if !state.has_moved_significantly {

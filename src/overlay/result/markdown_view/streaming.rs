@@ -108,18 +108,17 @@ pub fn stream_markdown_content_ex(
     var minSize = (textLen < 200) ? 6 : 14;
 
     if (isNewSession) {{
+         // Reset styles from previous session so DOM is in a known state.
+         // On the very first streaming chunk, the body is hidden (opacity 0) by Rust
+         // and fit_font_to_window runs the full fitting + reveals. This basic sizing
+         // is a fallback for non-first isNewSession triggers (e.g. after WIPE signal).
          var maxPossible = Math.min(200, winH);
-
-         // Heuristic estimate
          var estimated = Math.sqrt((winW * winH) / (textLen + 1));
-
          var low = Math.max(minSize, Math.floor(estimated * 0.5));
          var high = Math.min(maxPossible, Math.ceil(estimated * 1.5));
-
          if (low > high) low = high;
 
          body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
-         // RESET all spacing properties that might have been ramped up by fit_font_to_window in the previous session
          body.style.letterSpacing = '0px';
          body.style.wordSpacing = '0px';
          body.style.lineHeight = '1.5';
@@ -130,7 +129,6 @@ pub fn stream_markdown_content_ex(
              blocks[i].style.marginBottom = '0.5em';
              blocks[i].style.paddingBottom = '0';
          }}
-         // Binary search
          var best = low;
          while (low <= high) {{
              var mid = Math.floor((low + high) / 2);
@@ -142,7 +140,6 @@ pub fn stream_markdown_content_ex(
                  high = mid - 1;
              }}
          }}
-         // Enforce floor
          if (best < minSize) best = minSize;
          body.style.fontSize = best + 'px';
 
@@ -223,6 +220,20 @@ pub fn reset_stream_counter(parent_hwnd: HWND) {
             let _ = webview.evaluate_script(
                 "window._streamPrevLen = 0; window._streamPrevContent = ''; window._streamWordCount = 0;",
             );
+        }
+    });
+}
+
+/// Set body opacity (hide before fitting, reveal after)
+pub fn set_body_opacity(parent_hwnd: HWND, visible: bool) {
+    let hwnd_key = parent_hwnd.0 as isize;
+    let opacity = if visible { "1" } else { "0" };
+    WEBVIEWS.with(|webviews| {
+        if let Some(webview) = webviews.borrow().get(&hwnd_key) {
+            let _ = webview.evaluate_script(&format!(
+                "if(document.body) document.body.style.opacity = '{}';",
+                opacity
+            ));
         }
     });
 }
@@ -472,6 +483,8 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 body.style.paddingBottom = '0';
             }
 
+            // Reveal body (may have been hidden to prevent flash of unstyled content)
+            body.style.opacity = '1';
             window._sgtFitting = false;
         }); }); }, 100);
     })();
