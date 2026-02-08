@@ -80,6 +80,8 @@ const ko: Translations = {
   // Dialogs - Export
   exportingVideo: '비디오 내보내는 중...',
   processingVideoShort: '비디오 처리 중...',
+  timeRemaining: '남음',
+  preparingExport: '준비 중...',
   exportOptions: '내보내기 옵션',
   quality: '품질',
   dimensions: '해상도',

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Keyboard, Loader2, AlertCircle, X } from 'lucide-react';
 import { ExportOptions, VideoSegment } from '@/types/video';
@@ -17,15 +18,60 @@ interface ProcessingOverlayProps {
   exportProgress: number;
 }
 
-export function ProcessingOverlay({ show, exportProgress }: ProcessingOverlayProps) {
+function formatEta(seconds: number): string {
+  if (seconds < 1) return '';
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.ceil(seconds % 60);
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+export function ProcessingOverlay({ show }: ProcessingOverlayProps) {
   const { t } = useSettings();
+  const [percent, setPercent] = useState(0);
+  const [eta, setEta] = useState(0);
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    if (!show) {
+      setPercent(0);
+      setEta(0);
+      setActive(false);
+      return;
+    }
+    // Listen for push progress updates from Rust via PostMessageW → evaluate_script
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'sr-export-progress') {
+        setActive(true);
+        setPercent(e.data.percent);
+        setEta(e.data.eta);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [show]);
+
   if (!show) return null;
+
+  const pct = Math.round(percent);
+  const etaStr = formatEta(eta);
+
   return (
     <div className="processing-overlay-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="processing-dialog bg-[var(--surface-dim)] p-6 rounded-lg border border-[var(--glass-border)] shadow-lg">
-        <p className="processing-message text-lg text-[var(--on-surface)]">
-          {exportProgress > 0 ? `${t.exportingVideo} ${Math.round(exportProgress)}%` : t.processingVideoShort}
+      <div className="processing-dialog bg-[var(--surface-dim)] p-5 rounded-xl border border-[var(--glass-border)] shadow-lg w-72">
+        <p className="processing-title text-sm font-medium text-[var(--on-surface)] mb-3">
+          {active ? t.exportingVideo : t.preparingExport}
         </p>
+        <div className="progress-bar-track h-1.5 w-full bg-[var(--glass-bg-hover)] rounded-full overflow-hidden mb-2">
+          <div
+            className="progress-bar-fill h-full bg-[var(--primary-color)] rounded-full transition-all duration-300 ease-out"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="progress-details flex justify-between text-[10px]">
+          <span className="progress-percent text-[var(--on-surface-variant)] tabular-nums">{active ? `${pct}%` : ''}</span>
+          <span className="progress-eta text-[var(--outline)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
+        </div>
       </div>
     </div>
   );

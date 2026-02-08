@@ -511,7 +511,7 @@ function App() {
       </main>
 
       {/* Dialogs */}
-      <ProcessingOverlay show={exportHook.isProcessing} exportProgress={exportHook.exportProgress} />
+      <ProcessingOverlay show={exportHook.isProcessing} exportProgress={0} />
       <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
         monitors={monitors} onSelectMonitor={startNewRecording} />
       {currentVideo && !isVideoReady && !projects.showProjectsDialog && (

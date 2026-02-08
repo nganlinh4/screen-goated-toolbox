@@ -178,13 +178,16 @@ impl GpuCompositor {
             ..Default::default()
         });
 
-        // Cursor sampler: use Nearest to avoid atlas bleeding between tiles
+        // Cursor sampler: Linear for smooth antialiased edges. The 8x rasterized
+        // cursors have AA from tiny_skia; Nearest would destroy sub-pixel smoothing.
+        // Atlas tile bleeding is not an issue — cursors are centered in 512×512 tiles
+        // with >60px transparent padding on each side.
         let cursor_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
