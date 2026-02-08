@@ -60,6 +60,7 @@ const vi: Translations = {
   letterSpacing: 'Giãn Chữ',
   backgroundPill: 'Nền',
   pillColor: 'Màu Nền',
+  pillOpacity: 'Độ Mờ',
   pillRadius: 'Độ Bo Tròn',
   deleteText: 'Xóa Chữ',
 

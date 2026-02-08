@@ -66,7 +66,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         // Ensure card is visible in scroll container
         card.scrollIntoView({ block: 'nearest', behavior: 'instant' as ScrollBehavior });
 
-        const thumbArea = card.querySelector('.aspect-video') as HTMLElement | null;
+        const thumbArea = card.querySelector('.project-thumbnail') as HTMLElement | null;
         if (!thumbArea) { setIsRestoring(false); return; }
 
         // Re-measure after potential scroll
@@ -96,9 +96,12 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         const sx = thumbRect.width / source.width;
         const sy = thumbRect.height / source.height;
 
+        // Compensate border-radius for scale so it visually appears as 8px after transform
+        const thumbRadius = `${12 / sx}px / ${12 / sy}px`;
+
         clone.animate([
           { transform: 'none', borderRadius: '0px' },
-          { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: '8px' }
+          { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: thumbRadius }
         ], {
           duration: 500,
           easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -214,8 +217,11 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
       ).onfinish = () => bg.remove();
     };
 
+    // Compensate border-radius for scale so it visually appears as 8px after transform
+    const thumbRadius = `${12 / sx}px / ${12 / sy}px`;
+
     clone.animate([
-      { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: '8px' },
+      { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: thumbRadius },
       { transform: 'none', borderRadius: '0px' }
     ], {
       duration: 500,
@@ -246,7 +252,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     }
 
     const card = container.querySelector(`[data-project-id="${currentProjectId}"]`) as HTMLElement | null;
-    const thumbnailImg = card?.querySelector('.aspect-video img') as HTMLImageElement | null;
+    const thumbnailImg = card?.querySelector('.project-thumbnail img') as HTMLImageElement | null;
 
     if (!card || !thumbnailImg) {
       onClose();
@@ -300,8 +306,11 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
       ).onfinish = () => bg.remove();
     };
 
+    // Compensate border-radius for scale so it visually appears as 8px after transform
+    const thumbRadius = `${12 / sx}px / ${12 / sy}px`;
+
     clone.animate([
-      { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: '8px' },
+      { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: thumbRadius },
       { transform: 'none', borderRadius: '0px' }
     ], {
       duration: 500,
@@ -352,13 +361,13 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
               {projects.map((project) => (
                 <div key={project.id} data-project-id={project.id} className="project-card group relative bg-[var(--surface-container)] border border-[var(--glass-border)] rounded-lg overflow-hidden hover:border-[var(--outline)] transition-colors">
                   <div
-                    className="project-thumbnail aspect-video bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
+                    className="project-thumbnail bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
                     onClick={(e) => handleProjectClick(project.id, e)}
                   >
                     {project.thumbnail ? (
-                      <img src={project.thumbnail} className="w-full h-full object-cover" alt="" />
+                      <img src={project.thumbnail} className="w-full block" alt="" />
                     ) : (
-                      <div className="thumbnail-placeholder w-full h-full flex items-center justify-center">
+                      <div className="thumbnail-placeholder w-full aspect-video flex items-center justify-center">
                         <Video className="w-6 h-6 text-[var(--outline-variant)]" />
                       </div>
                     )}

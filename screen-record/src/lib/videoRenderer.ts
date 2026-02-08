@@ -1226,10 +1226,13 @@ export class VideoRenderer {
       const pillH = totalHeight + bgPadY * 2;
       const r = Math.min(background.borderRadius ?? 8, pillW / 2, pillH / 2);
 
+      const savedAlpha = ctx.globalAlpha;
+      ctx.globalAlpha = savedAlpha * (background.opacity ?? 0.6);
       ctx.beginPath();
       ctx.roundRect(pillX, pillY, pillW, pillH, r);
-      ctx.fillStyle = background.color ?? 'rgba(0,0,0,0.6)';
+      ctx.fillStyle = background.color ?? '#000000';
       ctx.fill();
+      ctx.globalAlpha = savedAlpha;
     }
 
     // Draw each line
