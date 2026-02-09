@@ -111,6 +111,8 @@ pub struct BakedCursorFrame {
     pub cursor_type: String,
     #[serde(default = "default_opacity")]
     pub opacity: f64,
+    #[serde(default)]
+    pub rotation: f64,
 }
 
 fn default_opacity() -> f64 {
@@ -294,7 +296,7 @@ fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f
 fn sample_baked_cursor(
     time: f64,
     baked_path: &[BakedCursorFrame],
-) -> Option<(f64, f64, f64, bool, String, f64)> {
+) -> Option<(f64, f64, f64, bool, String, f64, f64)> {
     if baked_path.is_empty() {
         return None;
     }
@@ -303,12 +305,12 @@ fn sample_baked_cursor(
 
     if idx == 0 {
         let p = &baked_path[0];
-        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity));
+        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity, p.rotation));
     }
 
     if idx >= baked_path.len() {
         let p = baked_path.last().unwrap();
-        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity));
+        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity, p.rotation));
     }
 
     let p1 = &baked_path[idx - 1];
@@ -321,6 +323,7 @@ fn sample_baked_cursor(
     let y = p1.y + (p2.y - p1.y) * t;
     let scale = p1.scale + (p2.scale - p1.scale) * t;
     let opacity = p1.opacity + (p2.opacity - p1.opacity) * t;
+    let rotation = lerp_angle_rad(p1.rotation, p2.rotation, t);
 
     let is_clicked = if t < 0.5 {
         p1.is_clicked
@@ -334,7 +337,23 @@ fn sample_baked_cursor(
         p2.cursor_type.clone()
     };
 
-    Some((x, y, scale, is_clicked, cursor_type, opacity))
+    Some((x, y, scale, is_clicked, cursor_type, opacity, rotation))
+}
+
+fn normalize_angle_rad(a: f64) -> f64 {
+    let mut angle = a;
+    while angle > std::f64::consts::PI {
+        angle -= std::f64::consts::PI * 2.0;
+    }
+    while angle < -std::f64::consts::PI {
+        angle += std::f64::consts::PI * 2.0;
+    }
+    angle
+}
+
+fn lerp_angle_rad(from: f64, to: f64, t: f64) -> f64 {
+    let delta = normalize_angle_rad(to - from);
+    normalize_angle_rad(from + delta * t)
 }
 
 pub fn get_default_export_dir() -> String {
@@ -781,11 +800,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let offset_x = zoom_shift_x + bg_center_x;
         let offset_y = zoom_shift_y + bg_center_y;
 
-        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_opacity, cursor_type_id) =
-            if let Some((cx, cy, c_scale, _is_clicked, c_type, c_opacity)) = cursor_state {
+        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_opacity, cursor_type_id, cursor_rotation) =
+            if let Some((cx, cy, c_scale, _is_clicked, c_type, c_opacity, c_rotation)) = cursor_state {
                 // Skip cursor entirely when opacity is near zero
                 if c_opacity < 0.001 {
-                    (-1.0, -1.0, 0.0, 0.0_f32, 0.0)
+                    (-1.0, -1.0, 0.0, 0.0_f32, 0.0, 0.0_f32)
                 } else {
                     let rel_x = (cx - crop_x_offset) / crop_w as f64;
                     let rel_y = (cy - crop_y_offset) / crop_h as f64;
@@ -806,10 +825,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                         cursor_final_scale as f32,
                         c_opacity as f32,
                         type_id,
+                        c_rotation as f32,
                     )
                 }
             } else {
-                (-1.0, -1.0, 0.0, 0.0, 0.0)
+                (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
             };
 
         // Increase shadow opacity slightly to match Canvas visuals (heuristic)
@@ -835,6 +855,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             cursor_scale,
             cursor_opacity,
             cursor_type_id,
+            cursor_rotation,
         );
 
         let mut rendered = compositor.render_frame(&uniforms);

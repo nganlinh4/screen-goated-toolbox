@@ -49,7 +49,8 @@ function App() {
   const [isCropping, setIsCropping] = useState(false);
   const [recentUploads, setRecentUploads] = useState<string[]>([]);
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>({
-    scale: 90, borderRadius: 48, backgroundType: 'gradient2', shadow: 100, volume: 1, cursorScale: 5, cursorMovementDelay: 0.03
+    scale: 90, borderRadius: 48, backgroundType: 'gradient2', shadow: 100, volume: 1, cursorScale: 5, cursorMovementDelay: 0.03,
+    cursorWiggleStrength: 0.25
   });
 
   const timelineRef = useRef<HTMLDivElement>(null);

@@ -81,6 +81,9 @@ export interface BackgroundConfig {
   cursorScale?: number;
   cursorSmoothness?: number;
   cursorMovementDelay?: number; // seconds, positive values make cursor lead slightly
+  cursorWiggleStrength?: number; // 0-1, strength of spring follow effect
+  cursorWiggleDamping?: number; // 0-1, lower = more wobble
+  cursorWiggleResponse?: number; // Hz-ish response speed of spring
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1
@@ -95,6 +98,7 @@ export interface MousePosition {
   timestamp: number;
   isClicked?: boolean;
   cursor_type?: string;
+  cursor_rotation?: number; // radians, tip-anchored tail lag rotation
 }
 
 export interface VideoMetadata {
@@ -121,6 +125,7 @@ export interface BakedCursorFrame {
   isClicked: boolean;
   type: string;
   opacity: number; // Cursor visibility (0-1)
+  rotation?: number; // radians, tip-anchored tail lag rotation
 }
 
 export interface BakedTextOverlay {

@@ -44,6 +44,9 @@ const en = {
   cursorSize: 'Cursor Size',
   movementSmoothing: 'Movement Smoothing',
   pointerMovementDelay: 'Pointer Movement Delay',
+  pointerWiggleStrength: 'Pointer Wiggle Strength',
+  pointerWiggleDamping: 'Pointer Wiggle Damping',
+  pointerWiggleResponse: 'Pointer Wiggle Response',
 
   // TextPanel
   textOverlay: 'Text Overlay',

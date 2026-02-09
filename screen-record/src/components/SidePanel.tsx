@@ -383,6 +383,22 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             className="cursor-movement-delay-slider w-full"
           />
         </div>
+        <div className="cursor-wiggle-strength-field">
+          <label className="cursor-wiggle-strength-label text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
+            <span>{t.pointerWiggleStrength}</span>
+            <span>{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.25) * 100)}%</span>
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={backgroundConfig.cursorWiggleStrength ?? 0.25}
+            style={sv(backgroundConfig.cursorWiggleStrength ?? 0.25, 0, 1)}
+            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: Number(e.target.value) }))}
+            className="cursor-wiggle-strength-slider w-full"
+          />
+        </div>
       </div>
     </div>
   );
