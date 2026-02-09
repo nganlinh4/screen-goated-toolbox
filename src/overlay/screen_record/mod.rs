@@ -183,6 +183,21 @@ unsafe extern "system" fn sr_wnd_proc(
             info.ptMinTrackSize.y = 500;
             LRESULT(0)
         }
+        WM_EXITSIZEMOVE => {
+            // Persist restored (non-maximized/minimized) screen-record window size.
+            if !IsZoomed(hwnd).as_bool() && !IsIconic(hwnd).as_bool() {
+                let mut rect = RECT::default();
+                let _ = GetWindowRect(hwnd, &mut rect);
+                let w = (rect.right - rect.left).max(800);
+                let h = (rect.bottom - rect.top).max(500);
+                {
+                    let mut app = crate::APP.lock().unwrap();
+                    app.config.screen_record_window_size = (w, h);
+                    crate::config::save_config(&app.config);
+                }
+            }
+            LRESULT(0)
+        }
         WM_SIZE => {
             SR_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
@@ -397,8 +412,11 @@ unsafe fn internal_create_sr_loop() {
     let screen_w = GetSystemMetrics(SM_CXSCREEN);
     let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
-    let width = 1300;
-    let height = 850;
+    let (width, height) = {
+        let app = crate::APP.lock().unwrap();
+        let (w, h) = app.config.screen_record_window_size;
+        (w.max(800), h.max(500))
+    };
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
 

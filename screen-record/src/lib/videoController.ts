@@ -43,6 +43,7 @@ export class VideoController {
   private audioPlayPromise: Promise<void> | null = null;
   private pendingSeekTime: number | null = null;
   private readonly SEGMENT_EPS = 0.03;
+  private playbackMonitorRaf: number | null = null;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
@@ -104,6 +105,7 @@ export class VideoController {
       });
     }
 
+    this.startPlaybackMonitor();
     this.setPlaying(true);
   };
 
@@ -119,6 +121,7 @@ export class VideoController {
         this.audio.pause();
       }
     }
+    this.stopPlaybackMonitor();
     this.setPlaying(false);
     // Intentionally NOT re-drawing here. The last animation frame stays visible.
     // Re-drawing on pause can cause a visual shift because the video decoder may
@@ -133,54 +136,8 @@ export class VideoController {
 
       // Handle segmented trim bounds
       if (this.renderOptions?.segment) {
-        const segs = getTrimSegments(this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
-        const last = segs[segs.length - 1];
-        const currentSegIndex = segs.findIndex(
-          s => currentTime >= s.startTime - this.SEGMENT_EPS && currentTime <= s.endTime - 0.01
-        );
-        const isInside = currentSegIndex >= 0;
-
-        if (!isInside) {
-          const nextTime = getNextPlayableTime(currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
-          if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
-            this.video.currentTime = nextTime;
-            if (this.audio) this.audio.currentTime = nextTime;
-            this.setCurrentTime(nextTime);
-            return;
-          }
-          if (nextTime !== null && Math.abs(nextTime - currentTime) <= this.SEGMENT_EPS) {
-            // Precision jitter at boundaries: treat as already positioned.
-            this.setCurrentTime(nextTime);
-            return;
-          }
-          if (currentTime >= last.endTime - 0.01 && !this.video.paused) {
-            this.video.currentTime = last.endTime;
-            if (this.audio) this.audio.currentTime = last.endTime;
-            this.setCurrentTime(last.endTime);
-            this.video.pause();
-            return;
-          }
-        } else {
-          const currentSeg = segs[currentSegIndex];
-          if (currentSeg && currentTime >= currentSeg.endTime - 0.01 && !this.video.paused) {
-            const next = segs[currentSegIndex + 1];
-            if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
-              this.video.currentTime = next.startTime;
-              if (this.audio) this.audio.currentTime = next.startTime;
-              this.setCurrentTime(next.startTime);
-              return;
-            }
-            if (next && Math.abs(next.startTime - currentTime) <= this.SEGMENT_EPS) {
-              this.setCurrentTime(next.startTime);
-              return;
-            }
-            this.video.currentTime = currentSeg.endTime;
-            if (this.audio) this.audio.currentTime = currentSeg.endTime;
-            this.setCurrentTime(currentSeg.endTime);
-            this.video.pause();
-            return;
-          }
-        }
+        const corrected = this.enforceSegmentPlaybackBounds(currentTime, false);
+        if (corrected !== null) return;
       }
 
       // Smooth audio sync: only correct if drift > 150ms to avoid audio stutter
@@ -230,6 +187,85 @@ export class VideoController {
       this.setCurrentTime(clamped);
     }
   };
+
+  private enforceSegmentPlaybackBounds(currentTime: number, forceTransitionAtEnd: boolean): number | null {
+    if (!this.renderOptions?.segment) return null;
+
+    const segs = getTrimSegments(this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
+    const last = segs[segs.length - 1];
+    const TRANSITION_EPS = forceTransitionAtEnd ? 0.003 : this.SEGMENT_EPS;
+
+    const currentSegIndex = segs.findIndex(
+      s => currentTime >= s.startTime - this.SEGMENT_EPS && currentTime <= s.endTime + this.SEGMENT_EPS
+    );
+    const isInside = currentSegIndex >= 0;
+
+    if (!isInside) {
+      const nextTime = getNextPlayableTime(currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
+      if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
+        this.video.currentTime = nextTime;
+        if (this.audio) this.audio.currentTime = nextTime;
+        this.setCurrentTime(nextTime);
+        return nextTime;
+      }
+      if (nextTime !== null && Math.abs(nextTime - currentTime) <= this.SEGMENT_EPS) {
+        this.setCurrentTime(nextTime);
+        return nextTime;
+      }
+      if (currentTime >= last.endTime - TRANSITION_EPS && !this.video.paused) {
+        this.video.currentTime = last.endTime;
+        if (this.audio) this.audio.currentTime = last.endTime;
+        this.setCurrentTime(last.endTime);
+        this.video.pause();
+        return last.endTime;
+      }
+      return null;
+    }
+
+    const currentSeg = segs[currentSegIndex];
+    if (currentSeg && currentTime >= currentSeg.endTime - TRANSITION_EPS && !this.video.paused) {
+      const next = segs[currentSegIndex + 1];
+      if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
+        this.video.currentTime = next.startTime;
+        if (this.audio) this.audio.currentTime = next.startTime;
+        this.setCurrentTime(next.startTime);
+        return next.startTime;
+      }
+      if (next && Math.abs(next.startTime - currentTime) <= this.SEGMENT_EPS) {
+        this.setCurrentTime(next.startTime);
+        return next.startTime;
+      }
+      this.video.currentTime = currentSeg.endTime;
+      if (this.audio) this.audio.currentTime = currentSeg.endTime;
+      this.setCurrentTime(currentSeg.endTime);
+      this.video.pause();
+      return currentSeg.endTime;
+    }
+
+    return null;
+  }
+
+  private startPlaybackMonitor() {
+    this.stopPlaybackMonitor();
+    const loop = () => {
+      if (this.video.paused) {
+        this.playbackMonitorRaf = null;
+        return;
+      }
+      if (!this.state.isSeeking) {
+        this.enforceSegmentPlaybackBounds(this.video.currentTime, true);
+      }
+      this.playbackMonitorRaf = requestAnimationFrame(loop);
+    };
+    this.playbackMonitorRaf = requestAnimationFrame(loop);
+  }
+
+  private stopPlaybackMonitor() {
+    if (this.playbackMonitorRaf !== null) {
+      cancelAnimationFrame(this.playbackMonitorRaf);
+      this.playbackMonitorRaf = null;
+    }
+  }
 
   private handleLoadedMetadata = () => {
     console.log('Video metadata loaded:', {
@@ -478,6 +514,7 @@ export class VideoController {
   }
 
   public destroy() {
+    this.stopPlaybackMonitor();
     videoRenderer.stopAnimation();
     this.video.removeEventListener('loadeddata', this.handleLoadedData);
     this.video.removeEventListener('play', this.handlePlay);

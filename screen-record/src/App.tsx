@@ -445,7 +445,7 @@ function App() {
                       disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
                       className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
                         !currentVideo || exportHook.isProcessing || !mousePositions.length
-                          ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                          ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
                           : segment?.smoothMotionPath?.length
                             ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
                             : 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
@@ -458,7 +458,7 @@ function App() {
                       disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
                       className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
                         !currentVideo || exportHook.isProcessing || !mousePositions.length
-                          ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                          ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
                           : (() => {
                               const segs = segment?.cursorVisibilitySegments;
                               const isDefault = !segs || segs.length === 0 || (
