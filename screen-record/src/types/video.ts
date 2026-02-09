@@ -73,6 +73,7 @@ export interface BackgroundConfig {
   shadow?: number;
   cursorScale?: number;
   cursorSmoothness?: number;
+  cursorMovementDelay?: number; // seconds, positive values make cursor lead slightly
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1

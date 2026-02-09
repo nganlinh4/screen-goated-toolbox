@@ -43,6 +43,7 @@ const en = {
   cursorSettings: 'Cursor Settings',
   cursorSize: 'Cursor Size',
   movementSmoothing: 'Movement Smoothing',
+  pointerMovementDelay: 'Pointer Movement Delay',
 
   // TextPanel
   textOverlay: 'Text Overlay',

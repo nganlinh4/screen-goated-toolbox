@@ -2,8 +2,8 @@ import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegmen
 import { getCursorVisibility } from '@/lib/cursorHiding';
 
 // --- CONFIGURATION ---
-// Increased offset slightly so the eye leads the cursor (more natural reading)
-const CURSOR_OFFSET_SEC = 0.15;
+// Default pointer movement delay (seconds)
+const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -90,6 +90,12 @@ export class VideoRenderer {
 
   private activeRenderContext: RenderContext | null = null;
 
+  private getCursorMovementDelaySec(backgroundConfig?: BackgroundConfig | null): number {
+    const raw = backgroundConfig?.cursorMovementDelay;
+    if (raw === undefined || Number.isNaN(raw)) return DEFAULT_CURSOR_OFFSET_SEC;
+    return Math.max(0, Math.min(0.5, raw));
+  }
+
   public updateRenderContext(context: RenderContext) {
     this.activeRenderContext = context;
   }
@@ -150,6 +156,7 @@ export class VideoRenderer {
   public generateBakedCursorPath(
     segment: VideoSegment,
     mousePositions: MousePosition[],
+    backgroundConfig?: BackgroundConfig,
     fps: number = 60
   ): BakedCursorFrame[] {
     const baked: BakedCursorFrame[] = [];
@@ -163,8 +170,10 @@ export class VideoRenderer {
     let simLastHoldTime = -1;
     const simRatio = 2.0;
 
+    const cursorOffsetSec = this.getCursorMovementDelaySec(backgroundConfig);
+
     for (let t = start; t <= end; t += step) {
-      const cursorT = t + CURSOR_OFFSET_SEC;
+      const cursorT = t + cursorOffsetSec;
       const pos = this.interpolateCursorPositionInternal(cursorT, smoothed);
 
       if (!pos) {
@@ -477,7 +486,7 @@ export class VideoRenderer {
 
       ctx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);
 
-      const cursorTime = video.currentTime + CURSOR_OFFSET_SEC;
+      const cursorTime = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig);
       const interpolatedPosition = this.interpolateCursorPosition(
         cursorTime,
         mousePositions

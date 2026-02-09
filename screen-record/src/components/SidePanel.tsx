@@ -367,6 +367,22 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             className="w-full"
           />
         </div>
+        <div className="cursor-movement-delay-field">
+          <label className="cursor-movement-delay-label text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
+            <span>{t.pointerMovementDelay}</span>
+            <span>{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="0.5"
+            step="0.01"
+            value={backgroundConfig.cursorMovementDelay ?? 0.03}
+            style={sv(backgroundConfig.cursorMovementDelay ?? 0.03, 0, 0.5)}
+            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: Number(e.target.value) }))}
+            className="cursor-movement-delay-slider w-full"
+          />
+        </div>
       </div>
     </div>
   );

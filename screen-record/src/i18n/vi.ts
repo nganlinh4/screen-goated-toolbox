@@ -45,6 +45,7 @@ const vi: Translations = {
   cursorSettings: 'Cài Đặt Con Trỏ',
   cursorSize: 'Kích Thước Con Trỏ',
   movementSmoothing: 'Độ Mượt Di Chuyển',
+  pointerMovementDelay: 'Độ Trễ Di Chuyển Con Trỏ',
 
   // TextPanel
   textOverlay: 'Lớp Phủ Chữ',
