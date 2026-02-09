@@ -18,6 +18,7 @@ interface HeaderProps {
   onToggleKeyviz: () => void;
   onExport: () => void;
   onOpenProjects: () => void;
+  hideExport?: boolean;
 }
 
 export function Header({
@@ -31,7 +32,8 @@ export function Header({
   onOpenHotkeyDialog,
   onToggleKeyviz,
   onExport,
-  onOpenProjects
+  onOpenProjects,
+  hideExport = false
 }: HeaderProps) {
   const { t } = useSettings();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
@@ -126,7 +128,7 @@ export function Header({
         </div>
 
         <div className="header-actions flex items-center gap-2">
-          {currentVideo && (
+          {currentVideo && !hideExport && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}
               onClick={onExport}
