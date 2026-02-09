@@ -83,7 +83,9 @@ export class VideoExporter {
     const bakedPath = segment ? videoRenderer.generateBakedPath(segment, vidW, vidH, fps) : [];
 
     // 2. Bake cursor path
-    const bakedCursorPath = segment && mousePositions ? videoRenderer.generateBakedCursorPath(segment, mousePositions, fps) : [];
+    const bakedCursorPath = segment && mousePositions
+      ? videoRenderer.generateBakedCursorPath(segment, mousePositions, backgroundConfig, fps)
+      : [];
 
     // 3. Bake text overlays
     const bakedTextOverlays = segment ? videoRenderer.bakeTextOverlays(segment, width, height) : [];
