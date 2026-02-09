@@ -5,6 +5,9 @@ import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/li
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
 const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
+const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.25;
+const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
+const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -27,7 +30,6 @@ export class VideoRenderer {
   private lastDrawTime: number = 0;
   private latestElapsed: number = 0;
   private readonly FRAME_INTERVAL = 1000 / 120; // 120fps target
-  private backgroundConfig: BackgroundConfig | null = null;
   private pointerImage: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
@@ -44,8 +46,9 @@ export class VideoRenderer {
   private lastCalculatedState: ZoomKeyframe | null = null;
   public getLastCalculatedState() { return this.lastCalculatedState; }
 
-  private smoothedPositions: MousePosition[] | null = null;
+  private processedCursorPositions: MousePosition[] | null = null;
   private lastMousePositionsRef: MousePosition[] | null = null;
+  private lastCursorProcessSignature: string = '';
   private cachedBakedPath: BakedCameraFrame[] | null = null;
   private lastBakeSignature: string = '';
   private lastBakeSegment: VideoSegment | null = null;
@@ -95,6 +98,39 @@ export class VideoRenderer {
     const raw = backgroundConfig?.cursorMovementDelay;
     if (raw === undefined || Number.isNaN(raw)) return DEFAULT_CURSOR_OFFSET_SEC;
     return Math.max(0, Math.min(0.5, raw));
+  }
+
+  private getCursorSmoothness(backgroundConfig?: BackgroundConfig | null): number {
+    const raw = backgroundConfig?.cursorSmoothness;
+    if (raw === undefined || Number.isNaN(raw)) return 5;
+    return Math.max(0, Math.min(10, raw));
+  }
+
+  private getCursorWiggleStrength(backgroundConfig?: BackgroundConfig | null): number {
+    const raw = backgroundConfig?.cursorWiggleStrength;
+    if (raw === undefined || Number.isNaN(raw)) return DEFAULT_CURSOR_WIGGLE_STRENGTH;
+    return Math.max(0, Math.min(1, raw));
+  }
+
+  private getCursorWiggleDamping(backgroundConfig?: BackgroundConfig | null): number {
+    const raw = backgroundConfig?.cursorWiggleDamping;
+    if (raw === undefined || Number.isNaN(raw)) return DEFAULT_CURSOR_WIGGLE_DAMPING;
+    return Math.max(0.35, Math.min(0.98, raw));
+  }
+
+  private getCursorWiggleResponse(backgroundConfig?: BackgroundConfig | null): number {
+    const raw = backgroundConfig?.cursorWiggleResponse;
+    if (raw === undefined || Number.isNaN(raw)) return DEFAULT_CURSOR_WIGGLE_RESPONSE;
+    return Math.max(2, Math.min(12, raw));
+  }
+
+  private getCursorProcessingSignature(backgroundConfig?: BackgroundConfig | null): string {
+    return [
+      this.getCursorSmoothness(backgroundConfig).toFixed(2),
+      this.getCursorWiggleStrength(backgroundConfig).toFixed(2),
+      this.getCursorWiggleDamping(backgroundConfig).toFixed(2),
+      this.getCursorWiggleResponse(backgroundConfig).toFixed(2),
+    ].join('|');
   }
 
   public updateRenderContext(context: RenderContext) {
@@ -165,7 +201,7 @@ export class VideoRenderer {
     const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
     const trimSegments = getTrimSegments(segment, duration);
 
-    const smoothed = this.smoothMousePositions(mousePositions);
+    const processed = this.processCursorPositions(mousePositions, backgroundConfig);
 
     let simSquishScale = 1.0;
     let simLastHoldTime = -1;
@@ -177,7 +213,7 @@ export class VideoRenderer {
     for (const seg of trimSegments) {
       for (let t = seg.startTime; t <= seg.endTime + 0.00001; t += step) {
         const cursorT = t + cursorOffsetSec;
-        const pos = this.interpolateCursorPositionInternal(cursorT, smoothed);
+        const pos = this.interpolateCursorPositionInternal(cursorT, processed);
 
         if (!pos) {
           if (baked.length > 0) {
@@ -215,6 +251,7 @@ export class VideoRenderer {
           isClicked: isClicked,
           type: pos.cursor_type || 'default',
           opacity: Number(cursorVis.opacity.toFixed(3)),
+          rotation: Number((pos.cursor_rotation || 0).toFixed(4)),
         });
       }
       compactCursor += seg.endTime - seg.startTime;
@@ -289,7 +326,7 @@ export class VideoRenderer {
   public startAnimation(renderContext: RenderContext) {
     this.stopAnimation();
     this.lastDrawTime = 0;
-    // Don't reset cursor smoothing cache — it's invalidated by reference check
+    // Don't reset cursor processing cache — it's invalidated by reference/config check
     // in interpolateCursorPosition when mouse data actually changes
     this.activeRenderContext = renderContext;
 
@@ -500,7 +537,8 @@ export class VideoRenderer {
       const cursorTime = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig);
       const interpolatedPosition = this.interpolateCursorPosition(
         cursorTime,
-        mousePositions
+        mousePositions,
+        backgroundConfig
       );
 
       if (interpolatedPosition) {
@@ -550,14 +588,14 @@ export class VideoRenderer {
             cursorY,
             shouldBeSquished,
             cursorSizeScale,
-            interpolatedPosition.cursor_type || 'default'
+            interpolatedPosition.cursor_type || 'default',
+            interpolatedPosition.cursor_rotation || 0
           );
 
           ctx.restore();
         }
       }
 
-      this.backgroundConfig = context.backgroundConfig;
 
       if (segment.textSegments) {
         const FADE_DURATION = 0.3;
@@ -936,7 +974,66 @@ export class VideoRenderer {
     );
   }
 
-  private smoothMousePositions(positions: MousePosition[], targetFps: number = 120): MousePosition[] {
+  private normalizeAngleRad(angle: number): number {
+    let a = angle;
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+
+  private lerpAngleRad(from: number, to: number, t: number): number {
+    const delta = this.normalizeAngleRad(to - from);
+    return this.normalizeAngleRad(from + delta * t);
+  }
+
+  private smoothDampScalar(
+    current: number,
+    target: number,
+    velocity: number,
+    smoothTime: number,
+    maxSpeed: number,
+    deltaTime: number
+  ): { value: number; velocity: number } {
+    const safeSmoothTime = Math.max(0.0001, smoothTime);
+    const omega = 2 / safeSmoothTime;
+    const x = omega * deltaTime;
+    const exp = 1 / (1 + x + (0.48 * x * x) + (0.235 * x * x * x));
+
+    let change = current - target;
+    const originalTarget = target;
+    const maxChange = maxSpeed * safeSmoothTime;
+    change = Math.max(-maxChange, Math.min(maxChange, change));
+    target = current - change;
+
+    const temp = (velocity + omega * change) * deltaTime;
+    let newVelocity = (velocity - omega * temp) * exp;
+    let output = target + (change + temp) * exp;
+
+    if ((originalTarget - current > 0) === (output > originalTarget)) {
+      output = originalTarget;
+      newVelocity = (output - originalTarget) / Math.max(deltaTime, 0.0001);
+    }
+
+    return { value: output, velocity: newVelocity };
+  }
+
+  private smoothDampAngleRad(
+    current: number,
+    target: number,
+    velocity: number,
+    smoothTime: number,
+    maxSpeed: number,
+    deltaTime: number
+  ): { value: number; velocity: number } {
+    const adjustedTarget = current + this.normalizeAngleRad(target - current);
+    return this.smoothDampScalar(current, adjustedTarget, velocity, smoothTime, maxSpeed, deltaTime);
+  }
+
+  private smoothMousePositions(
+    positions: MousePosition[],
+    targetFps: number = 120,
+    backgroundConfig?: BackgroundConfig | null
+  ): MousePosition[] {
     if (positions.length < 4) return positions;
     const smoothed: MousePosition[] = [];
 
@@ -960,7 +1057,7 @@ export class VideoRenderer {
       }
     }
 
-    const windowSize = ((this.backgroundConfig?.cursorSmoothness || 5) * 2) + 1;
+    const windowSize = (this.getCursorSmoothness(backgroundConfig) * 2) + 1;
     const passes = Math.ceil(windowSize / 2);
     let currentSmoothed = smoothed;
 
@@ -1016,23 +1113,124 @@ export class VideoRenderer {
     return finalSmoothed;
   }
 
+  private processCursorPositions(
+    positions: MousePosition[],
+    backgroundConfig?: BackgroundConfig | null
+  ): MousePosition[] {
+    const smoothed = this.smoothMousePositions(positions, 120, backgroundConfig);
+    return this.applyAdaptiveCursorWiggle(smoothed, backgroundConfig);
+  }
+
+  private applyAdaptiveCursorWiggle(
+    positions: MousePosition[],
+    backgroundConfig?: BackgroundConfig | null
+  ): MousePosition[] {
+    if (positions.length < 2) return positions;
+
+    const strength = this.getCursorWiggleStrength(backgroundConfig);
+    if (strength <= 0.001) return positions;
+
+    const result: MousePosition[] = [];
+    let lagHeading = 0;
+    let lagHeadingVel = 0;
+    let hasHeading = false;
+    let cursorRotation = 0;
+    let cursorRotationVel = 0;
+
+    const maxTiltRad = (2.2 + strength * 8.8) * (Math.PI / 180);
+    const headingSmoothTime = 0.28 - strength * 0.17;
+    const rotationSmoothTime = 0.20 - strength * 0.12;
+    const tiltGain = 0.33 + strength * 0.92;
+    const speedStart = 120;
+    const speedFull = 1650;
+
+    result.push({ ...positions[0], cursor_rotation: 0 });
+
+    for (let i = 1; i < positions.length; i++) {
+      const prevTarget = positions[i - 1];
+      const target = positions[i];
+      const dtRaw = Math.max(1 / 1000, target.timestamp - prevTarget.timestamp);
+
+      const targetVx = (target.x - prevTarget.x) / dtRaw;
+      const targetVy = (target.y - prevTarget.y) / dtRaw;
+      const speed = Math.hypot(targetVx, targetVy);
+
+      if (speed > speedStart) {
+        const heading = Math.atan2(targetVy, targetVx);
+        if (!hasHeading) {
+          lagHeading = heading;
+          hasHeading = true;
+        }
+
+        const headingStep = this.smoothDampAngleRad(
+          lagHeading,
+          heading,
+          lagHeadingVel,
+          headingSmoothTime,
+          18,
+          dtRaw
+        );
+        lagHeading = headingStep.value;
+        lagHeadingVel = headingStep.velocity;
+
+        const speedFade = Math.max(0, Math.min(1, (speed - speedStart) / (speedFull - speedStart)));
+        const rawTilt = this.normalizeAngleRad(heading - lagHeading) * tiltGain * speedFade;
+        const tiltTarget = Math.max(-maxTiltRad, Math.min(maxTiltRad, rawTilt));
+        const rotationStep = this.smoothDampAngleRad(
+          cursorRotation,
+          tiltTarget,
+          cursorRotationVel,
+          rotationSmoothTime,
+          22,
+          dtRaw
+        );
+        cursorRotation = rotationStep.value;
+        cursorRotationVel = rotationStep.velocity;
+      } else {
+        const settleStep = this.smoothDampAngleRad(
+          cursorRotation,
+          0,
+          cursorRotationVel,
+          0.18,
+          16,
+          dtRaw
+        );
+        cursorRotation = settleStep.value;
+        cursorRotationVel = settleStep.velocity;
+      }
+
+      result.push({
+        ...target,
+        x: target.x,
+        y: target.y,
+        cursor_rotation: cursorRotation,
+      });
+    }
+
+    return result;
+  }
+
   private interpolateCursorPosition(
     currentTime: number,
     mousePositions: MousePosition[],
-  ): { x: number; y: number; isClicked: boolean; cursor_type: string } | null {
+    backgroundConfig?: BackgroundConfig | null,
+  ): { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null {
+    const processSignature = this.getCursorProcessingSignature(backgroundConfig);
+
     // 1. Invalidate cache if input changed
-    if (this.lastMousePositionsRef !== mousePositions) {
-      this.smoothedPositions = null;
+    if (this.lastMousePositionsRef !== mousePositions || this.lastCursorProcessSignature !== processSignature) {
+      this.processedCursorPositions = null;
       this.lastMousePositionsRef = mousePositions;
+      this.lastCursorProcessSignature = processSignature;
     }
 
     // 2. Generate cache if needed
-    if (!this.smoothedPositions && mousePositions.length > 0) {
-      this.smoothedPositions = this.smoothMousePositions(mousePositions);
+    if (!this.processedCursorPositions && mousePositions.length > 0) {
+      this.processedCursorPositions = this.processCursorPositions(mousePositions, backgroundConfig);
     }
 
     // 3. Use cached data
-    const dataToUse = this.smoothedPositions || mousePositions;
+    const dataToUse = this.processedCursorPositions || mousePositions;
 
     return this.interpolateCursorPositionInternal(currentTime, dataToUse);
   }
@@ -1041,7 +1239,7 @@ export class VideoRenderer {
   private interpolateCursorPositionInternal(
     currentTime: number,
     positions: MousePosition[],
-  ): { x: number; y: number; isClicked: boolean; cursor_type: string } | null {
+  ): { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null {
     if (!positions || positions.length === 0) return null;
 
     const exactMatch = positions.find((pos: MousePosition) => Math.abs(pos.timestamp - currentTime) < 0.001);
@@ -1050,7 +1248,8 @@ export class VideoRenderer {
         x: exactMatch.x,
         y: exactMatch.y,
         isClicked: Boolean(exactMatch.isClicked),
-        cursor_type: exactMatch.cursor_type || 'default'
+        cursor_type: exactMatch.cursor_type || 'default',
+        cursor_rotation: exactMatch.cursor_rotation || 0,
       };
     }
 
@@ -1061,7 +1260,8 @@ export class VideoRenderer {
         x: last.x,
         y: last.y,
         isClicked: Boolean(last.isClicked),
-        cursor_type: last.cursor_type || 'default'
+        cursor_type: last.cursor_type || 'default',
+        cursor_rotation: last.cursor_rotation || 0,
       };
     }
 
@@ -1071,7 +1271,8 @@ export class VideoRenderer {
         x: first.x,
         y: first.y,
         isClicked: Boolean(first.isClicked),
-        cursor_type: first.cursor_type || 'default'
+        cursor_type: first.cursor_type || 'default',
+        cursor_rotation: first.cursor_rotation || 0,
       };
     }
 
@@ -1083,8 +1284,20 @@ export class VideoRenderer {
       x: prev.x + (next.x - prev.x) * t,
       y: prev.y + (next.y - prev.y) * t,
       isClicked: Boolean(prev.isClicked || next.isClicked),
-      cursor_type: next.cursor_type || 'default'
+      cursor_type: next.cursor_type || 'default',
+      cursor_rotation: this.lerpAngleRad(prev.cursor_rotation || 0, next.cursor_rotation || 0, t),
     };
+  }
+
+  private getCursorRotationPivot(cursorType: string): { x: number; y: number } {
+    switch (cursorType.toLowerCase()) {
+      case 'pointer':
+        return { x: 3.0, y: 8.5 };
+      case 'text':
+        return { x: 0, y: 0 };
+      default:
+        return { x: 3.6, y: 5.6 };
+    }
   }
 
   private drawMouseCursor(
@@ -1093,7 +1306,8 @@ export class VideoRenderer {
     y: number,
     isClicked: boolean,
     scale: number = 2,
-    cursorType: string = 'default'
+    cursorType: string = 'default',
+    rotation: number = 0
   ) {
     // When globalAlpha < 1 (cursor fade in/out), drawing strokes+fills directly
     // causes white borders to bleed through semi-transparent black fills.
@@ -1109,13 +1323,13 @@ export class VideoRenderer {
       const oCtx = this.cursorOffscreenCtx;
       oCtx.clearRect(0, 0, size, size);
       oCtx.globalAlpha = 1;
-      this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType);
+      this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType, rotation);
       ctx.save();
       ctx.drawImage(this.cursorOffscreen, x - margin, y - margin);
       ctx.restore();
     } else {
       ctx.save();
-      this.drawCursorShape(ctx, x, y, isClicked, scale, cursorType);
+      this.drawCursorShape(ctx, x, y, isClicked, scale, cursorType, rotation);
       ctx.restore();
     }
   }
@@ -1126,11 +1340,18 @@ export class VideoRenderer {
     y: number,
     _isClicked: boolean,
     scale: number = 2,
-    cursorType: string
+    cursorType: string,
+    rotation: number = 0
   ) {
     const lowerType = cursorType.toLowerCase();
     ctx.save();
     ctx.translate(x, y);
+    if (lowerType !== 'text' && Math.abs(rotation) > 0.0001) {
+      const pivot = this.getCursorRotationPivot(lowerType);
+      ctx.translate(pivot.x, pivot.y);
+      ctx.rotate(rotation);
+      ctx.translate(-pivot.x, -pivot.y);
+    }
     ctx.scale(scale, scale);
     ctx.scale(this.currentSquishScale, this.currentSquishScale);
 

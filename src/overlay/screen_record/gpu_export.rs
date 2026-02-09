@@ -57,7 +57,7 @@ pub struct CompositorUniforms {
     pub cursor_scale: f32,         // 96-100
     pub cursor_opacity: f32,       // 100-104 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
     pub cursor_type_id: f32,       // 104-108
-    pub _pad2: f32,                // 108-112
+    pub cursor_rotation: f32,      // 108-112 (radians, tip anchored)
     pub _pad3: [f32; 4],           // 112-128 (Total 128 bytes)
 }
 
@@ -613,6 +613,7 @@ pub fn create_uniforms(
     cursor_scale: f32,
     cursor_opacity: f32,
     cursor_type_id: f32,
+    cursor_rotation: f32,
 ) -> CompositorUniforms {
     CompositorUniforms {
         video_offset: [video_offset.0, video_offset.1],
@@ -631,7 +632,7 @@ pub fn create_uniforms(
         cursor_scale,
         cursor_opacity,
         cursor_type_id,
-        _pad2: 0.0,
+        cursor_rotation,
         _pad3: [0.0; 4],
     }
 }
@@ -655,7 +656,7 @@ struct Uniforms {
     cursor_scale: f32,
     cursor_opacity: f32,
     cursor_type_id: f32,
-    _pad2: f32,
+    cursor_rotation: f32,
     _pad3: vec4<f32>,
 }
 
@@ -694,6 +695,20 @@ fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
     return vec2<f32>(size * 0.5, size * 0.5);
 }
 
+fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
+    let unit = size / 48.0;
+    if abs(type_id - 2.0) < 0.5 {
+        // pointer hand
+        return vec2<f32>(3.0 * unit, 8.5 * unit);
+    }
+    if abs(type_id - 1.0) < 0.5 {
+        // text ibeam should stay upright
+        return vec2<f32>(0.0, 0.0);
+    }
+    // default arrow
+    return vec2<f32>(3.6 * unit, 5.6 * unit);
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // 1. Background
@@ -725,7 +740,16 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             let cursor_px = u.cursor_pos * u.video_size;
             let pixel_rel = in.pixel_pos - (u.video_offset * u.output_size);
             let hotspot = get_hotspot(u.cursor_type_id, cursor_pixel_size);
-            let sample_pos = (pixel_rel - cursor_px) + hotspot;
+            let pivot = get_rotation_pivot(u.cursor_type_id, cursor_pixel_size);
+            let rel = pixel_rel - cursor_px;
+            let c = cos(-u.cursor_rotation);
+            let s = sin(-u.cursor_rotation);
+            let rel_pivot = rel - pivot;
+            let rel_rot = vec2<f32>(
+                rel_pivot.x * c - rel_pivot.y * s,
+                rel_pivot.x * s + rel_pivot.y * c
+            ) + pivot;
+            let sample_pos = rel_rot + hotspot;
 
             if sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size && 
                sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size {

@@ -46,6 +46,9 @@ const vi: Translations = {
   cursorSize: 'Kích Thước Con Trỏ',
   movementSmoothing: 'Độ Mượt Di Chuyển',
   pointerMovementDelay: 'Độ Trễ Di Chuyển Con Trỏ',
+  pointerWiggleStrength: 'Độ Lắc Con Trỏ',
+  pointerWiggleDamping: 'Giảm Chấn Lắc',
+  pointerWiggleResponse: 'Độ Nhạy Lắc',
 
   // TextPanel
   textOverlay: 'Lớp Phủ Chữ',
