@@ -1,13 +1,16 @@
 import React, { useRef, useEffect } from 'react';
+import { VideoSegment } from '@/types/video';
+import { clampToTrimSegments } from '@/lib/trimSegments';
 
 interface PlayheadProps {
   currentTime: number;
   duration: number;
   isPlaying: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  segment: VideoSegment;
 }
 
-export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration, isPlaying, videoRef }) => {
+export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration, isPlaying, videoRef, segment }) => {
   const ref = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
 
@@ -20,17 +23,19 @@ export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration, isPla
     const el = ref.current;
 
     const tick = () => {
-      const pct = (video.currentTime / duration) * 100;
+      const clamped = clampToTrimSegments(video.currentTime, segment, duration);
+      const pct = (clamped / duration) * 100;
       el.style.left = `${pct}%`;
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
 
     return () => cancelAnimationFrame(rafRef.current);
-  }, [isPlaying, duration, videoRef]);
+  }, [isPlaying, duration, videoRef, segment]);
 
   // When not playing, sync from React state
-  const left = duration > 0 ? `${(currentTime / duration) * 100}%` : '0%';
+  const safeTime = clampToTrimSegments(currentTime, segment, duration);
+  const left = duration > 0 ? `${(safeTime / duration) * 100}%` : '0%';
 
   return (
     <div

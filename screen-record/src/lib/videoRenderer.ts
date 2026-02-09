@@ -1,5 +1,6 @@
 import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay } from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
+import { getTrimSegments, sourceRangeToCompactRanges } from '@/lib/trimSegments';
 
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
@@ -161,8 +162,8 @@ export class VideoRenderer {
   ): BakedCursorFrame[] {
     const baked: BakedCursorFrame[] = [];
     const step = 1 / fps;
-    const start = segment.trimStart;
-    const end = segment.trimEnd;
+    const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
+    const trimSegments = getTrimSegments(segment, duration);
 
     const smoothed = this.smoothMousePositions(mousePositions);
 
@@ -172,47 +173,51 @@ export class VideoRenderer {
 
     const cursorOffsetSec = this.getCursorMovementDelaySec(backgroundConfig);
 
-    for (let t = start; t <= end; t += step) {
-      const cursorT = t + cursorOffsetSec;
-      const pos = this.interpolateCursorPositionInternal(cursorT, smoothed);
+    let compactCursor = 0;
+    for (const seg of trimSegments) {
+      for (let t = seg.startTime; t <= seg.endTime + 0.00001; t += step) {
+        const cursorT = t + cursorOffsetSec;
+        const pos = this.interpolateCursorPositionInternal(cursorT, smoothed);
 
-      if (!pos) {
-        if (baked.length > 0) {
-          const last = baked[baked.length - 1];
-          baked.push({ ...last, time: t - start });
-        } else {
-          baked.push({ time: t - start, x: 0, y: 0, scale: 1, isClicked: false, type: 'default', opacity: 1 });
+        if (!pos) {
+          if (baked.length > 0) {
+            const last = baked[baked.length - 1];
+            baked.push({ ...last, time: compactCursor + (t - seg.startTime) });
+          } else {
+            baked.push({ time: compactCursor + (t - seg.startTime), x: 0, y: 0, scale: 1, isClicked: false, type: 'default', opacity: 1 });
+          }
+          continue;
         }
-        continue;
+
+        const isClicked = pos.isClicked;
+        const timeSinceLastHold = cursorT - simLastHoldTime;
+        const shouldBeSquished = isClicked || (simLastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+
+        if (isClicked) {
+          simLastHoldTime = cursorT;
+        }
+
+        const targetScale = shouldBeSquished ? 0.75 : 1.0;
+
+        if (simSquishScale > targetScale) {
+          simSquishScale = Math.max(targetScale, simSquishScale - this.SQUISH_SPEED * simRatio);
+        } else if (simSquishScale < targetScale) {
+          simSquishScale = Math.min(targetScale, simSquishScale + this.RELEASE_SPEED * simRatio);
+        }
+
+        const cursorVis = getCursorVisibility(t, segment.cursorVisibilitySegments);
+
+        baked.push({
+          time: compactCursor + (t - seg.startTime),
+          x: pos.x,
+          y: pos.y,
+          scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
+          isClicked: isClicked,
+          type: pos.cursor_type || 'default',
+          opacity: Number(cursorVis.opacity.toFixed(3)),
+        });
       }
-
-      const isClicked = pos.isClicked;
-      const timeSinceLastHold = cursorT - simLastHoldTime;
-      const shouldBeSquished = isClicked || (simLastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
-
-      if (isClicked) {
-        simLastHoldTime = cursorT;
-      }
-
-      const targetScale = shouldBeSquished ? 0.75 : 1.0;
-
-      if (simSquishScale > targetScale) {
-        simSquishScale = Math.max(targetScale, simSquishScale - this.SQUISH_SPEED * simRatio);
-      } else if (simSquishScale < targetScale) {
-        simSquishScale = Math.min(targetScale, simSquishScale + this.RELEASE_SPEED * simRatio);
-      }
-
-      const cursorVis = getCursorVisibility(t, segment.cursorVisibilitySegments);
-
-      baked.push({
-        time: t - start,
-        x: pos.x,
-        y: pos.y,
-        scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
-        isClicked: isClicked,
-        type: pos.cursor_type || 'default',
-        opacity: Number(cursorVis.opacity.toFixed(3)),
-      });
+      compactCursor += seg.endTime - seg.startTime;
     }
 
     return baked;
@@ -227,8 +232,8 @@ export class VideoRenderer {
   ): BakedCameraFrame[] {
     const bakedPath: BakedCameraFrame[] = [];
     const step = 1 / fps;
-    const start = segment.trimStart;
-    const end = segment.trimEnd;
+    const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
+    const trimSegments = getTrimSegments(segment, duration);
 
     const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
     const croppedW = videoWidth * crop.width;
@@ -236,20 +241,24 @@ export class VideoRenderer {
     const cropOffsetX = videoWidth * crop.x;
     const cropOffsetY = videoHeight * crop.y;
 
-    for (let t = start; t <= end; t += step) {
-      // Pass CROPPED dimensions — calculateCurrentZoomStateInternal's crop
-      // conversion assumes viewW/viewH are crop-region pixel dimensions
-      const state = this.calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH);
+    let compactCursor = 0;
+    for (const seg of trimSegments) {
+      for (let t = seg.startTime; t <= seg.endTime + 0.00001; t += step) {
+        // Pass CROPPED dimensions — calculateCurrentZoomStateInternal's crop
+        // conversion assumes viewW/viewH are crop-region pixel dimensions
+        const state = this.calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH);
 
-      const globalX = cropOffsetX + (state.positionX * croppedW);
-      const globalY = cropOffsetY + (state.positionY * croppedH);
+        const globalX = cropOffsetX + (state.positionX * croppedW);
+        const globalY = cropOffsetY + (state.positionY * croppedH);
 
-      bakedPath.push({
-        time: t - start,
-        x: globalX,
-        y: globalY,
-        zoom: state.zoomFactor
-      });
+        bakedPath.push({
+          time: compactCursor + (t - seg.startTime),
+          x: globalX,
+          y: globalY,
+          zoom: state.zoomFactor
+        });
+      }
+      compactCursor += seg.endTime - seg.startTime;
     }
 
     return bakedPath;
@@ -324,6 +333,8 @@ export class VideoRenderer {
     const { video, canvas, tempCanvas, segment, backgroundConfig, mousePositions } = context;
     if (!video || !canvas || !segment) return;
     if (video.readyState < 2) return;
+    // During decoder seeks (e.g. jumping trim gaps), keep last frame to avoid black flashes.
+    if (video.seeking) return;
 
     const isExportMode = options.exportMode || false;
     const quality = options.highQuality || isExportMode ? 'high' : 'medium';
@@ -681,6 +692,7 @@ export class VideoRenderer {
 
       const signature = JSON.stringify({
         trim: [segment.trimStart, segment.trimEnd],
+        trimSegments: segment.trimSegments?.map(s => ({ s: s.startTime, e: s.endTime })),
         crop: segment.crop,
         smoothMotionPath: segment.smoothMotionPath?.map(p => ({ t: p.time, z: p.zoom })),
         zoomKeyframes: segment.zoomKeyframes?.map(k => ({ t: k.time, d: k.duration, x: k.positionX, y: k.positionY, z: k.zoomFactor })),
@@ -1437,6 +1449,7 @@ export class VideoRenderer {
   ): BakedTextOverlay[] {
     const result: BakedTextOverlay[] = [];
     if (!segment.textSegments?.length) return result;
+    const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
 
     const shadowPad = 24; // extra padding for drop shadow
 
@@ -1471,15 +1484,18 @@ export class VideoRenderer {
 
       const imageData = ctx.getImageData(cropX, cropY, cropW, cropH);
       offscreen.remove();
-      result.push({
-        startTime: textSeg.startTime,
-        endTime: textSeg.endTime,
-        x: cropX,
-        y: cropY,
-        width: cropW,
-        height: cropH,
-        data: Array.from(imageData.data)
-      });
+      const compactRanges = sourceRangeToCompactRanges(textSeg.startTime, textSeg.endTime, segment, duration);
+      for (const range of compactRanges) {
+        result.push({
+          startTime: range.start,
+          endTime: range.end,
+          x: cropX,
+          y: cropY,
+          width: cropW,
+          height: cropH,
+          data: Array.from(imageData.data)
+        });
+      }
     }
 
     return result;

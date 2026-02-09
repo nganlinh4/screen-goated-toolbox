@@ -311,8 +311,18 @@ function App() {
   // Initialize segment
   useEffect(() => {
     if (duration > 0 && !segment) {
-      const initialSegment: VideoSegment = { trimStart: 0, trimEnd: duration, zoomKeyframes: [], textSegments: [] };
-      setSegment(initialSegment);
+      const initialSegment: VideoSegment = {
+          trimStart: 0,
+          trimEnd: duration,
+          trimSegments: [{
+            id: crypto.randomUUID(),
+            startTime: 0,
+            endTime: duration,
+          }],
+          zoomKeyframes: [],
+          textSegments: [],
+        };
+        setSegment(initialSegment);
       setTimeout(() => {
         if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 2) {
           videoRenderer.drawFrame({
