@@ -84,8 +84,8 @@ export interface BackgroundConfig {
   cursorWiggleStrength?: number; // 0-1, strength of spring follow effect
   cursorWiggleDamping?: number; // 0-1, lower = more wobble
   cursorWiggleResponse?: number; // Hz-ish response speed of spring
-  cursorDefaultVariant?: 'classic' | 'screenstudio';
-  cursorTextVariant?: 'classic' | 'screenstudio';
+  cursorDefaultVariant?: 'screenstudio';
+  cursorTextVariant?: 'screenstudio';
   cursorPointerVariant?: 'screenstudio';
   cursorOpenHandVariant?: 'screenstudio';
   customBackground?: string;

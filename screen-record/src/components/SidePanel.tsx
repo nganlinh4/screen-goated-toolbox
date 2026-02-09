@@ -353,10 +353,10 @@ function CursorVariantButton({ isSelected, onClick, label, children }: CursorVar
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`cursor-variant-button w-9 h-9 rounded-md border transition-colors flex items-center justify-center ${
+      className={`cursor-variant-button w-12 h-12 rounded-[10px] border transition-all duration-150 flex items-center justify-center overflow-hidden ${
         isSelected
-          ? 'border-[var(--primary-color)] bg-[var(--primary-color)]/15'
-          : 'border-[var(--glass-border)] bg-[var(--glass-bg)] hover:border-[var(--primary-color)]/50'
+          ? 'border-[var(--primary-color)] bg-[var(--primary-color)]/14 shadow-[0_0_0_1px_var(--primary-color)_inset,0_0_0_3px_rgba(59,130,246,0.16),0_6px_16px_rgba(59,130,246,0.2)]'
+          : 'border-[var(--glass-border)] bg-[var(--glass-bg)] hover:border-[var(--primary-color)]/65 hover:bg-[var(--glass-bg-hover)]'
       }`}
     >
       {children}
@@ -364,27 +364,10 @@ function CursorVariantButton({ isSelected, onClick, label, children }: CursorVar
   );
 }
 
-function ClassicArrowPreview() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="cursor-preview-svg">
-      <path d="M8.2 4.9L19.8 16.5H13L12.6 16.6L8.2 20.9V4.9Z" fill="black" stroke="white" strokeWidth="1.5" />
-      <path d="M17.3 21.6L13.7 23.1L9 12L12.7 10.5L17.3 21.6Z" fill="black" stroke="white" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function ClassicTextPreview() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 14 18" fill="none" className="cursor-preview-svg">
-      <path d="M2 1H12V3H9V15H12V17H2V15H5V3H2V1Z" fill="black" stroke="white" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
 function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps) {
   const { t } = useSettings();
-  const defaultVariant = backgroundConfig.cursorDefaultVariant ?? 'classic';
-  const textVariant = backgroundConfig.cursorTextVariant ?? 'classic';
+  const defaultVariant = backgroundConfig.cursorDefaultVariant ?? 'screenstudio';
+  const textVariant = backgroundConfig.cursorTextVariant ?? 'screenstudio';
   const pointerVariant = backgroundConfig.cursorPointerVariant ?? 'screenstudio';
   const openHandVariant = backgroundConfig.cursorOpenHandVariant ?? 'screenstudio';
   return (
@@ -451,18 +434,11 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             <span className="text-[10px] text-[var(--on-surface-variant)]">{t.cursorDefault}</span>
             <div className="cursor-variant-picker flex items-center gap-1.5">
               <CursorVariantButton
-                isSelected={defaultVariant === 'classic'}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorDefaultVariant: 'classic' }))}
-                label={`${t.cursorDefault} classic`}
-              >
-                <ClassicArrowPreview />
-              </CursorVariantButton>
-              <CursorVariantButton
                 isSelected={defaultVariant === 'screenstudio'}
                 onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorDefaultVariant: 'screenstudio' }))}
                 label={`${t.cursorDefault} screen studio`}
               >
-                <img src="/cursor-default-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+                <img src="/cursor-default-screenstudio.svg" alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>
@@ -471,18 +447,11 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             <span className="text-[10px] text-[var(--on-surface-variant)]">{t.cursorText}</span>
             <div className="cursor-variant-picker flex items-center gap-1.5">
               <CursorVariantButton
-                isSelected={textVariant === 'classic'}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorTextVariant: 'classic' }))}
-                label={`${t.cursorText} classic`}
-              >
-                <ClassicTextPreview />
-              </CursorVariantButton>
-              <CursorVariantButton
                 isSelected={textVariant === 'screenstudio'}
                 onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorTextVariant: 'screenstudio' }))}
                 label={`${t.cursorText} screen studio`}
               >
-                <img src="/cursor-text-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+                <img src="/cursor-text-screenstudio.svg" alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>
@@ -495,7 +464,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                 onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorPointerVariant: 'screenstudio' }))}
                 label={`${t.cursorPointer} screen studio`}
               >
-                <img src="/cursor-pointer-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+                <img src="/cursor-pointer-screenstudio.svg" alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>
@@ -508,7 +477,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                 onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorOpenHandVariant: 'screenstudio' }))}
                 label={`${t.cursorOpenHand} screen studio`}
               >
-                <img src="/cursor-openhand-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+                <img src="/cursor-openhand-screenstudio.svg" alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>

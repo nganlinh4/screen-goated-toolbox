@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{Options, Tree};
 use std::sync::Arc;
-use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{Pixmap, Transform};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -81,7 +81,6 @@ pub struct GpuCompositor {
     video_height: u32,
 }
 
-const POINTER_CLASSIC_SVG: &[u8] = include_bytes!("dist/pointer.svg");
 const DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-default-screenstudio.svg");
 const TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
 const POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
@@ -154,13 +153,13 @@ impl GpuCompositor {
         });
         let video_view = video_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Cursor Texture Atlas: 512x3584 (7 vertical tiles of 512x512)
+        // Cursor Texture Atlas: 512x2048 (4 vertical tiles of 512x512)
         // Large tiles for crisp cursors even at high zoom levels
         let cursor_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Cursor Atlas Texture"),
             size: wgpu::Extent3d {
                 width: 512,
-                height: 512 * 7, // 7 tiles vertical
+                height: 512 * 4, // 4 tiles vertical
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -364,98 +363,18 @@ impl GpuCompositor {
     }
 
     pub fn init_cursor_texture(&self) {
-        // Build atlas: 512x3584 (7 tiles of 512x512)
-        // 0: default-classic
-        // 1: text-classic
-        // 2: pointer-classic
-        // 3: default-screenstudio
-        // 4: text-screenstudio
-        // 5: pointer-screenstudio
-        // 6: openhand-screenstudio
+        // Build atlas: 512x2048 (4 tiles of 512x512)
+        // 0: default-screenstudio
+        // 1: text-screenstudio
+        // 2: pointer-screenstudio
+        // 3: openhand-screenstudio
 
         let tile_size = 512u32;
         let center = tile_size as f32 / 2.0; // 256.0
-        let mut atlas = Pixmap::new(tile_size, tile_size * 7).unwrap();
+        let mut atlas = Pixmap::new(tile_size, tile_size * 4).unwrap();
 
         // Scale factor: 8x
         let cursor_scale = 8.0;
-
-        // --- SLOT 0: DEFAULT ARROW ---
-        {
-            let mut pb = PathBuilder::new();
-            pb.move_to(8.2, 4.9);
-            pb.line_to(19.8, 16.5);
-            pb.line_to(13.0, 16.5);
-            pb.line_to(12.6, 16.6);
-            pb.line_to(8.2, 20.9);
-            pb.close();
-            let path = pb.finish().unwrap();
-
-            let mut pb2 = PathBuilder::new();
-            pb2.move_to(17.3, 21.6);
-            pb2.line_to(13.7, 23.1);
-            pb2.line_to(9.0, 12.0);
-            pb2.line_to(12.7, 10.5);
-            pb2.close();
-            let click_path = pb2.finish().unwrap();
-
-            let paint_fill = Paint {
-                shader: tiny_skia::Shader::SolidColor(Color::BLACK),
-                ..Default::default()
-            };
-            let paint_stroke = Paint {
-                shader: tiny_skia::Shader::SolidColor(Color::WHITE),
-                ..Default::default()
-            };
-            let stroke = Stroke {
-                width: 1.5,
-                ..Default::default()
-            };
-
-            let ts = Transform::from_translate(190.4, 216.8).pre_scale(cursor_scale, cursor_scale);
-
-            atlas.stroke_path(&path, &paint_stroke, &stroke, ts, None);
-            atlas.stroke_path(&click_path, &paint_stroke, &stroke, ts, None);
-            atlas.fill_path(&path, &paint_fill, FillRule::Winding, ts, None);
-            atlas.fill_path(&click_path, &paint_fill, FillRule::Winding, ts, None);
-        }
-
-        // --- SLOT 1: TEXT I-BEAM ---
-        {
-            let mut pb = PathBuilder::new();
-            pb.move_to(2.0, 0.0);
-            pb.line_to(10.0, 0.0);
-            pb.line_to(10.0, 2.0);
-            pb.line_to(7.0, 2.0);
-            pb.line_to(7.0, 14.0);
-            pb.line_to(10.0, 14.0);
-            pb.line_to(10.0, 16.0);
-            pb.line_to(2.0, 16.0);
-            pb.line_to(2.0, 14.0);
-            pb.line_to(5.0, 14.0);
-            pb.line_to(5.0, 2.0);
-            pb.line_to(2.0, 2.0);
-            pb.close();
-            let path = pb.finish().unwrap();
-
-            let paint_fill = Paint {
-                shader: tiny_skia::Shader::SolidColor(Color::BLACK),
-                ..Default::default()
-            };
-            let paint_stroke = Paint {
-                shader: tiny_skia::Shader::SolidColor(Color::WHITE),
-                ..Default::default()
-            };
-            let stroke = Stroke {
-                width: 1.5,
-                ..Default::default()
-            };
-
-            let ts = Transform::from_translate(208.0, 704.0).pre_scale(cursor_scale, cursor_scale);
-
-            atlas.stroke_path(&path, &paint_stroke, &stroke, ts, None);
-            atlas.fill_path(&path, &paint_fill, FillRule::Winding, ts, None);
-        }
 
         // Helper: render svg into a specific slot with an explicit hotspot.
         let mut render_svg_slot = |svg: &[u8], slot: u32, hotspot_x: f32, hotspot_y: f32, target_size: f32| {
@@ -472,16 +391,14 @@ impl GpuCompositor {
             }
         };
 
-        // --- SLOT 2: HAND POINTER (classic) ---
-        render_svg_slot(POINTER_CLASSIC_SVG, 2, 16.0, 8.0, 480.0);
-        // --- SLOT 3: DEFAULT ARROW (Screen Studio) ---
-        render_svg_slot(DEFAULT_SCREENSTUDIO_SVG, 3, 12.5, 8.4, 480.0);
-        // --- SLOT 4: TEXT I-BEAM (Screen Studio) ---
-        render_svg_slot(TEXT_SCREENSTUDIO_SVG, 4, 17.5, 17.5, 460.0);
-        // --- SLOT 5: POINTING HAND (Screen Studio) ---
-        render_svg_slot(POINTER_SCREENSTUDIO_SVG, 5, 16.0, 8.0, 480.0);
-        // --- SLOT 6: OPEN HAND (Screen Studio) ---
-        render_svg_slot(OPENHAND_SCREENSTUDIO_SVG, 6, 18.0, 17.5, 480.0);
+        // --- SLOT 0: DEFAULT ARROW (Screen Studio) ---
+        render_svg_slot(DEFAULT_SCREENSTUDIO_SVG, 0, 12.5, 8.4, 480.0);
+        // --- SLOT 1: TEXT I-BEAM (Screen Studio) ---
+        render_svg_slot(TEXT_SCREENSTUDIO_SVG, 1, 17.5, 17.5, 460.0);
+        // --- SLOT 2: POINTING HAND (Screen Studio) ---
+        render_svg_slot(POINTER_SCREENSTUDIO_SVG, 2, 16.0, 8.0, 480.0);
+        // --- SLOT 3: OPEN HAND (Screen Studio) ---
+        render_svg_slot(OPENHAND_SCREENSTUDIO_SVG, 3, 18.0, 17.5, 480.0);
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -494,11 +411,11 @@ impl GpuCompositor {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(512 * 4),
-                rows_per_image: Some(512 * 7),
+                rows_per_image: Some(512 * 4),
             },
             wgpu::Extent3d {
                 width: 512,
-                height: 512 * 7,
+                height: 512 * 4,
                 depth_or_array_layers: 1,
             },
         );
@@ -711,11 +628,11 @@ fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
 
 fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
     let unit = size / 48.0;
-    if abs(type_id - 2.0) < 0.5 || abs(type_id - 5.0) < 0.5 || abs(type_id - 6.0) < 0.5 {
+    if abs(type_id - 2.0) < 0.5 || abs(type_id - 3.0) < 0.5 {
         // hand cursors
         return vec2<f32>(3.0 * unit, 8.5 * unit);
     }
-    if abs(type_id - 1.0) < 0.5 || abs(type_id - 4.0) < 0.5 {
+    if abs(type_id - 1.0) < 0.5 {
         // text ibeam should stay upright
         return vec2<f32>(0.0, 0.0);
     }
@@ -776,7 +693,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             let tile_idx = floor(u.cursor_type_id + 0.5);
             let atlas_uv = vec2<f32>(
                 uv_in_tile.x,
-                (uv_in_tile.y + tile_idx) / 7.0
+                (uv_in_tile.y + tile_idx) / 4.0
             );
 
             let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
