@@ -463,8 +463,8 @@ function App() {
                               const segs = segment?.cursorVisibilitySegments;
                               const isDefault = !segs || segs.length === 0 || (
                                 segs.length === 1 &&
-                                Math.abs(segs[0].startTime - (segment?.trimStart ?? 0)) < 0.01 &&
-                                Math.abs(segs[0].endTime - (segment?.trimEnd ?? 0)) < 0.01
+                                Math.abs(segs[0].startTime - 0) < 0.01 &&
+                                Math.abs(segs[0].endTime - duration) < 0.01
                               );
                               return isDefault
                                 ? 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
