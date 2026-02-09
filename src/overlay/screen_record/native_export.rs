@@ -810,12 +810,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     let rel_y = (cy - crop_y_offset) / crop_h as f64;
 
                     let type_id = match c_type.as_str() {
-                        "text-classic" | "text" => 1.0,
-                        "pointer-classic" | "pointer" => 2.0,
-                        "default-screenstudio" => 3.0,
-                        "text-screenstudio" => 4.0,
-                        "pointer-screenstudio" => 5.0,
-                        "openhand-screenstudio" | "openhand" => 6.0,
+                        "text-screenstudio" | "text" => 1.0,
+                        "pointer-screenstudio" | "pointer" => 2.0,
+                        "openhand-screenstudio" | "openhand" => 3.0,
                         _ => 0.0,
                     };
 

@@ -9,13 +9,9 @@ const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
 
-type CursorRenderStyle = 'classic' | 'screenstudio';
 type CursorRenderType =
-  | 'default-classic'
   | 'default-screenstudio'
-  | 'text-classic'
   | 'text-screenstudio'
-  | 'pointer-classic'
   | 'pointer-screenstudio'
   | 'openhand-screenstudio';
 
@@ -40,7 +36,6 @@ export class VideoRenderer {
   private lastDrawTime: number = 0;
   private latestElapsed: number = 0;
   private readonly FRAME_INTERVAL = 1000 / 120; // 120fps target
-  private pointerClassicImage: HTMLImageElement;
   private pointerScreenStudioImage: HTMLImageElement;
   private defaultScreenStudioImage: HTMLImageElement;
   private textScreenStudioImage: HTMLImageElement;
@@ -99,10 +94,6 @@ export class VideoRenderer {
   private cursorOffscreenCtx: OffscreenCanvasRenderingContext2D;
 
   constructor() {
-    this.pointerClassicImage = new Image();
-    this.pointerClassicImage.src = '/pointer.svg';
-    this.pointerClassicImage.onload = () => { };
-
     this.defaultScreenStudioImage = new Image();
     this.defaultScreenStudioImage.src = '/cursor-default-screenstudio.svg';
     this.defaultScreenStudioImage.onload = () => { };
@@ -164,23 +155,11 @@ export class VideoRenderer {
     ].join('|');
   }
 
-  private resolveCursorRenderStyle(
-    type: 'default' | 'text' | 'pointer' | 'openhand',
-    backgroundConfig?: BackgroundConfig | null
-  ): CursorRenderStyle {
-    if (type === 'default') return backgroundConfig?.cursorDefaultVariant ?? 'classic';
-    if (type === 'text') return backgroundConfig?.cursorTextVariant ?? 'classic';
-    if (type === 'pointer') return backgroundConfig?.cursorPointerVariant ?? 'screenstudio';
-    return backgroundConfig?.cursorOpenHandVariant ?? 'screenstudio';
-  }
-
-  private resolveCursorRenderType(rawType: string, backgroundConfig?: BackgroundConfig | null): CursorRenderType {
+  private resolveCursorRenderType(rawType: string, _backgroundConfig?: BackgroundConfig | null): CursorRenderType {
     const lower = (rawType || 'default').toLowerCase();
 
     if (lower === 'text' || lower === 'ibeam') {
-      return this.resolveCursorRenderStyle('text', backgroundConfig) === 'screenstudio'
-        ? 'text-screenstudio'
-        : 'text-classic';
+      return 'text-screenstudio';
     }
 
     if (lower === 'pointer' || lower === 'hand') {
@@ -191,9 +170,7 @@ export class VideoRenderer {
       return 'openhand-screenstudio';
     }
 
-    return this.resolveCursorRenderStyle('default', backgroundConfig) === 'screenstudio'
-      ? 'default-screenstudio'
-      : 'default-classic';
+    return 'default-screenstudio';
   }
 
   public updateRenderContext(context: RenderContext) {
@@ -1362,11 +1339,9 @@ export class VideoRenderer {
 
   private getCursorRotationPivot(cursorType: string): { x: number; y: number } {
     switch (cursorType.toLowerCase()) {
-      case 'pointer-classic':
       case 'pointer-screenstudio':
       case 'openhand-screenstudio':
         return { x: 3.0, y: 8.5 };
-      case 'text-classic':
       case 'text-screenstudio':
         return { x: 0, y: 0 };
       default:
@@ -1420,7 +1395,7 @@ export class VideoRenderer {
     const lowerType = cursorType.toLowerCase();
     ctx.save();
     ctx.translate(x, y);
-    if (lowerType !== 'text-classic' && lowerType !== 'text-screenstudio' && Math.abs(rotation) > 0.0001) {
+    if (lowerType !== 'text-screenstudio' && Math.abs(rotation) > 0.0001) {
       const pivot = this.getCursorRotationPivot(lowerType);
       ctx.translate(pivot.x, pivot.y);
       ctx.rotate(rotation);
@@ -1430,20 +1405,17 @@ export class VideoRenderer {
     ctx.scale(this.currentSquishScale, this.currentSquishScale);
 
     let effectiveType = lowerType;
-    if (effectiveType === 'pointer-classic' && (!this.pointerClassicImage.complete || this.pointerClassicImage.naturalWidth === 0)) {
-      effectiveType = 'default-classic';
-    }
     if (effectiveType === 'default-screenstudio' && (!this.defaultScreenStudioImage.complete || this.defaultScreenStudioImage.naturalWidth === 0)) {
-      effectiveType = 'default-classic';
+      effectiveType = 'default-screenstudio';
     }
     if (effectiveType === 'text-screenstudio' && (!this.textScreenStudioImage.complete || this.textScreenStudioImage.naturalWidth === 0)) {
-      effectiveType = 'text-classic';
+      effectiveType = 'text-screenstudio';
     }
     if (effectiveType === 'pointer-screenstudio' && (!this.pointerScreenStudioImage.complete || this.pointerScreenStudioImage.naturalWidth === 0)) {
-      effectiveType = 'pointer-classic';
+      effectiveType = 'default-screenstudio';
     }
     if (effectiveType === 'openhand-screenstudio' && (!this.openHandScreenStudioImage.complete || this.openHandScreenStudioImage.naturalWidth === 0)) {
-      effectiveType = 'pointer-classic';
+      effectiveType = 'pointer-screenstudio';
     }
 
     switch (effectiveType) {
@@ -1453,21 +1425,6 @@ export class VideoRenderer {
         const hotspotY = img.naturalHeight * 0.5;
         ctx.translate(-hotspotX, -hotspotY);
         ctx.drawImage(img, 0, 0);
-        break;
-      }
-
-      case 'text-classic': {
-        // I-beam shape
-        // Adjust for hotspot: I-beam center is roughly (3, 8)
-        ctx.translate(-6, -8);
-        const ibeam = new Path2D(`
-          M 2 0 L 10 0 L 10 2 L 7 2 L 7 14 L 10 14 L 10 16 L 2 16 L 2 14 L 5 14 L 5 2 L 2 2 Z
-        `);
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 1.5;
-        ctx.stroke(ibeam);
-        ctx.fillStyle = 'black';
-        ctx.fill(ibeam);
         break;
       }
 
@@ -1489,20 +1446,6 @@ export class VideoRenderer {
         break;
       }
 
-      case 'pointer-classic': {
-        // Hand cursor image
-        let imgWidth = 24, imgHeight = 24;
-        if (this.pointerClassicImage.complete && this.pointerClassicImage.naturalWidth > 0) {
-          imgWidth = this.pointerClassicImage.naturalWidth;
-          imgHeight = this.pointerClassicImage.naturalHeight;
-          const hotspotX = 16;
-          const hotspotY = 8;
-          ctx.translate(-hotspotX, -hotspotY);
-          ctx.drawImage(this.pointerClassicImage, 0, 0, imgWidth, imgHeight);
-        }
-        break;
-      }
-
       case 'default-screenstudio': {
         const img = this.defaultScreenStudioImage;
         const hotspotX = 12.5;
@@ -1515,18 +1458,13 @@ export class VideoRenderer {
       }
 
       default: {
-        // Standard Arrow
-        // We translate by (-8, -5) to bring tip to (0,0)
-        ctx.translate(-8, -5);
-        const mainArrow = new Path2D('M 8.2 4.9 L 19.8 16.5 L 13 16.5 L 12.6 16.6 L 8.2 20.9 Z');
-        const clickIndicator = new Path2D('M 17.3 21.6 L 13.7 23.1 L 9 12 L 12.7 10.5 Z');
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 1.5;
-        ctx.stroke(mainArrow);
-        ctx.stroke(clickIndicator);
-        ctx.fillStyle = 'black';
-        ctx.fill(mainArrow);
-        ctx.fill(clickIndicator);
+        const img = this.defaultScreenStudioImage;
+        const hotspotX = 12.5;
+        const hotspotY = 8.4;
+        ctx.translate(-hotspotX, -hotspotY);
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+        }
         break;
       }
     }
