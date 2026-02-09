@@ -88,6 +88,9 @@ const vi: Translations = {
   speed: 'Tốc Độ',
   slower: 'Chậm hơn',
   faster: 'Nhanh hơn',
+  saveLocation: 'Vị trí lưu',
+  browse: 'Duyệt',
+  browsing: 'Đang duyệt...',
   cancel: 'Hủy',
   exportVideo: 'Xuất Video',
 

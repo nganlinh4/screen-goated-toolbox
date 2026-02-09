@@ -70,6 +70,15 @@ pub fn handle_ipc_command(
             println!("[Cancel] cancel_export() returned");
             Ok(serde_json::Value::Null)
         }
+        "get_default_export_dir" => Ok(serde_json::json!(native_export::get_default_export_dir())),
+        "pick_export_folder" => {
+            let initial_dir = args["initialDir"].as_str().map(|s| s.to_string());
+            let selected = native_export::pick_export_folder(initial_dir)?;
+            Ok(match selected {
+                Some(path) => serde_json::json!(path),
+                None => serde_json::Value::Null,
+            })
+        }
         "get_monitors" => {
             let monitors = get_monitors();
             Ok(serde_json::to_value(monitors).unwrap())

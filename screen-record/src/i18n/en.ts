@@ -86,6 +86,9 @@ const en = {
   speed: 'Speed',
   slower: 'Slower',
   faster: 'Faster',
+  saveLocation: 'Save Location',
+  browse: 'Browse',
+  browsing: 'Browsing...',
   cancel: 'Cancel',
   exportVideo: 'Export Video',
 
