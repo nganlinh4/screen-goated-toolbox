@@ -81,8 +81,11 @@ pub struct GpuCompositor {
     video_height: u32,
 }
 
-// Embed the pointer SVG for the "Hand" cursor
-const POINTER_SVG: &[u8] = include_bytes!("dist/pointer.svg");
+const POINTER_CLASSIC_SVG: &[u8] = include_bytes!("dist/pointer.svg");
+const DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-default-screenstudio.svg");
+const TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
+const POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
+const OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
 
 impl GpuCompositor {
     pub fn new(
@@ -151,13 +154,13 @@ impl GpuCompositor {
         });
         let video_view = video_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Cursor Texture Atlas: 512x1536 (3 vertical tiles of 512x512)
+        // Cursor Texture Atlas: 512x3584 (7 vertical tiles of 512x512)
         // Large tiles for crisp cursors even at high zoom levels
         let cursor_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Cursor Atlas Texture"),
             size: wgpu::Extent3d {
                 width: 512,
-                height: 512 * 3, // 3 tiles vertical
+                height: 512 * 7, // 7 tiles vertical
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -361,14 +364,18 @@ impl GpuCompositor {
     }
 
     pub fn init_cursor_texture(&self) {
-        // Build atlas: 512x1536 (3 tiles of 512x512)
-        // Slot 0: Arrow (Default)
-        // Slot 1: Text (I-Beam)
-        // Slot 2: Pointer (Hand)
+        // Build atlas: 512x3584 (7 tiles of 512x512)
+        // 0: default-classic
+        // 1: text-classic
+        // 2: pointer-classic
+        // 3: default-screenstudio
+        // 4: text-screenstudio
+        // 5: pointer-screenstudio
+        // 6: openhand-screenstudio
 
         let tile_size = 512u32;
         let center = tile_size as f32 / 2.0; // 256.0
-        let mut atlas = Pixmap::new(tile_size, tile_size * 3).unwrap();
+        let mut atlas = Pixmap::new(tile_size, tile_size * 7).unwrap();
 
         // Scale factor: 8x
         let cursor_scale = 8.0;
@@ -450,24 +457,31 @@ impl GpuCompositor {
             atlas.fill_path(&path, &paint_fill, FillRule::Winding, ts, None);
         }
 
-        // --- SLOT 2: HAND POINTER ---
-        {
+        // Helper: render svg into a specific slot with an explicit hotspot.
+        let mut render_svg_slot = |svg: &[u8], slot: u32, hotspot_x: f32, hotspot_y: f32, target_size: f32| {
             let opt = Options::default();
-            if let Ok(tree) = Tree::from_data(POINTER_SVG, &opt) {
+            if let Ok(tree) = Tree::from_data(svg, &opt) {
                 let svg_size = tree.size();
-                let target_size = 480.0;
                 let scale = target_size / svg_size.width().max(svg_size.height());
-
-                let hotspot_in_img_x = (svg_size.width() / 2.0 - 8.0) * scale;
-                let hotspot_in_img_y = (svg_size.height() / 2.0 - 16.0) * scale;
+                let hotspot_in_img_x = hotspot_x * scale;
+                let hotspot_in_img_y = hotspot_y * scale;
                 let x = center - hotspot_in_img_x;
-                let y = (center + tile_size as f32 * 2.0) - hotspot_in_img_y;
-
+                let y = (center + tile_size as f32 * slot as f32) - hotspot_in_img_y;
                 let ts = Transform::from_translate(x, y).pre_scale(scale, scale);
-
                 resvg::render(&tree, ts, &mut atlas.as_mut());
             }
-        }
+        };
+
+        // --- SLOT 2: HAND POINTER (classic) ---
+        render_svg_slot(POINTER_CLASSIC_SVG, 2, 16.0, 8.0, 480.0);
+        // --- SLOT 3: DEFAULT ARROW (Screen Studio) ---
+        render_svg_slot(DEFAULT_SCREENSTUDIO_SVG, 3, 12.5, 8.4, 480.0);
+        // --- SLOT 4: TEXT I-BEAM (Screen Studio) ---
+        render_svg_slot(TEXT_SCREENSTUDIO_SVG, 4, 17.5, 17.5, 460.0);
+        // --- SLOT 5: POINTING HAND (Screen Studio) ---
+        render_svg_slot(POINTER_SCREENSTUDIO_SVG, 5, 16.0, 8.0, 480.0);
+        // --- SLOT 6: OPEN HAND (Screen Studio) ---
+        render_svg_slot(OPENHAND_SCREENSTUDIO_SVG, 6, 18.0, 17.5, 480.0);
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -480,11 +494,11 @@ impl GpuCompositor {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(512 * 4),
-                rows_per_image: Some(512 * 3),
+                rows_per_image: Some(512 * 7),
             },
             wgpu::Extent3d {
                 width: 512,
-                height: 512 * 3,
+                height: 512 * 7,
                 depth_or_array_layers: 1,
             },
         );
@@ -697,11 +711,11 @@ fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
 
 fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
     let unit = size / 48.0;
-    if abs(type_id - 2.0) < 0.5 {
-        // pointer hand
+    if abs(type_id - 2.0) < 0.5 || abs(type_id - 5.0) < 0.5 || abs(type_id - 6.0) < 0.5 {
+        // hand cursors
         return vec2<f32>(3.0 * unit, 8.5 * unit);
     }
-    if abs(type_id - 1.0) < 0.5 {
+    if abs(type_id - 1.0) < 0.5 || abs(type_id - 4.0) < 0.5 {
         // text ibeam should stay upright
         return vec2<f32>(0.0, 0.0);
     }
@@ -729,51 +743,46 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         col = mix(col, vec4<f32>(0.0,0.0,0.0, u.shadow_opacity), sh_alpha * u.shadow_opacity);
     }
     
-    // 3. Video Content + Cursor
+    // 3. Video Content
     if dist < 0.0 {
         let vid_uv = (in.pixel_pos - u.video_offset * u.output_size) / u.video_size;
         var vid_col = textureSample(video_tex, video_samp, vid_uv);
-        
-        // Render Cursor
-        if u.cursor_pos.x >= 0.0 {
-            let cursor_pixel_size = 48.0 * u.cursor_scale;
-            let cursor_px = u.cursor_pos * u.video_size;
-            let pixel_rel = in.pixel_pos - (u.video_offset * u.output_size);
-            let hotspot = get_hotspot(u.cursor_type_id, cursor_pixel_size);
-            let pivot = get_rotation_pivot(u.cursor_type_id, cursor_pixel_size);
-            let rel = pixel_rel - cursor_px;
-            let c = cos(-u.cursor_rotation);
-            let s = sin(-u.cursor_rotation);
-            let rel_pivot = rel - pivot;
-            let rel_rot = vec2<f32>(
-                rel_pivot.x * c - rel_pivot.y * s,
-                rel_pivot.x * s + rel_pivot.y * c
-            ) + pivot;
-            let sample_pos = rel_rot + hotspot;
 
-            if sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size && 
-               sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size {
-               
-               let uv_in_tile = sample_pos / cursor_pixel_size;
-               
-               // Atlas mapping: 512x1536 (3 vertical tiles of 512)
-               let tile_idx = floor(u.cursor_type_id + 0.5);
-               let atlas_uv = vec2<f32>(
-                   uv_in_tile.x,
-                   (uv_in_tile.y + tile_idx) / 3.0
-               );
-               
-               let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
-
-               // Blend with cursor opacity
-               let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
-               vid_col = mix(vid_col, faded, faded.a);
-            }
-        }
-        
         // Anti-aliased video edge
         let edge = 1.0 - smoothstep(-1.5, 0.0, dist);
         col = mix(col, vid_col, edge);
+    }
+
+    // 4. Cursor Overlay (drawn over both video and background)
+    if u.cursor_pos.x >= 0.0 {
+        let cursor_pixel_size = 48.0 * u.cursor_scale;
+        let cursor_px = (u.video_offset + (u.cursor_pos * u.video_scale)) * u.output_size;
+        let hotspot = get_hotspot(u.cursor_type_id, cursor_pixel_size);
+        let pivot = get_rotation_pivot(u.cursor_type_id, cursor_pixel_size);
+        let rel = in.pixel_pos - cursor_px;
+        let c = cos(-u.cursor_rotation);
+        let s = sin(-u.cursor_rotation);
+        let rel_pivot = rel - pivot;
+        let rel_rot = vec2<f32>(
+            rel_pivot.x * c - rel_pivot.y * s,
+            rel_pivot.x * s + rel_pivot.y * c
+        ) + pivot;
+        let sample_pos = rel_rot + hotspot;
+
+        if sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size &&
+           sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size {
+
+            let uv_in_tile = sample_pos / cursor_pixel_size;
+            let tile_idx = floor(u.cursor_type_id + 0.5);
+            let atlas_uv = vec2<f32>(
+                uv_in_tile.x,
+                (uv_in_tile.y + tile_idx) / 7.0
+            );
+
+            let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
+            let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
+            col = mix(col, faded, faded.a);
+        }
     }
     
     return col;

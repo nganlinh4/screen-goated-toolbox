@@ -72,6 +72,10 @@ const ASSET_INDEX_CSS: &[u8] = include_bytes!("dist/assets/index.css");
 const ASSET_VITE_SVG: &[u8] = include_bytes!("dist/vite.svg");
 const ASSET_TAURI_SVG: &[u8] = include_bytes!("dist/tauri.svg");
 const ASSET_POINTER_SVG: &[u8] = include_bytes!("dist/pointer.svg");
+const ASSET_CURSOR_DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-default-screenstudio.svg");
+const ASSET_CURSOR_TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
+const ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
+const ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
 const ASSET_SCREENSHOT_PNG: &[u8] = include_bytes!("dist/screenshot.png");
 
 // --- WINDOW PROCEDURE ---
@@ -548,6 +552,14 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_TAURI_SVG), "image/svg+xml")
                     } else if path.ends_with("pointer.svg") {
                         (Cow::Borrowed(ASSET_POINTER_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG), "image/svg+xml")
                     } else if path.ends_with("screenshot.png") {
                         (Cow::Borrowed(ASSET_SCREENSHOT_PNG), "image/png")
                     } else {

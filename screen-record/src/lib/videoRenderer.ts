@@ -5,9 +5,19 @@ import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/li
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
 const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
-const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.25;
+const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
+
+type CursorRenderStyle = 'classic' | 'screenstudio';
+type CursorRenderType =
+  | 'default-classic'
+  | 'default-screenstudio'
+  | 'text-classic'
+  | 'text-screenstudio'
+  | 'pointer-classic'
+  | 'pointer-screenstudio'
+  | 'openhand-screenstudio';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -30,7 +40,11 @@ export class VideoRenderer {
   private lastDrawTime: number = 0;
   private latestElapsed: number = 0;
   private readonly FRAME_INTERVAL = 1000 / 120; // 120fps target
-  private pointerImage: HTMLImageElement;
+  private pointerClassicImage: HTMLImageElement;
+  private pointerScreenStudioImage: HTMLImageElement;
+  private defaultScreenStudioImage: HTMLImageElement;
+  private textScreenStudioImage: HTMLImageElement;
+  private openHandScreenStudioImage: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
 
@@ -85,9 +99,26 @@ export class VideoRenderer {
   private cursorOffscreenCtx: OffscreenCanvasRenderingContext2D;
 
   constructor() {
-    this.pointerImage = new Image();
-    this.pointerImage.src = '/pointer.svg';
-    this.pointerImage.onload = () => { };
+    this.pointerClassicImage = new Image();
+    this.pointerClassicImage.src = '/pointer.svg';
+    this.pointerClassicImage.onload = () => { };
+
+    this.defaultScreenStudioImage = new Image();
+    this.defaultScreenStudioImage.src = '/cursor-default-screenstudio.svg';
+    this.defaultScreenStudioImage.onload = () => { };
+
+    this.textScreenStudioImage = new Image();
+    this.textScreenStudioImage.src = '/cursor-text-screenstudio.svg';
+    this.textScreenStudioImage.onload = () => { };
+
+    this.pointerScreenStudioImage = new Image();
+    this.pointerScreenStudioImage.src = '/cursor-pointer-screenstudio.svg';
+    this.pointerScreenStudioImage.onload = () => { };
+
+    this.openHandScreenStudioImage = new Image();
+    this.openHandScreenStudioImage.src = '/cursor-openhand-screenstudio.svg';
+    this.openHandScreenStudioImage.onload = () => { };
+
     this.cursorOffscreen = new OffscreenCanvas(128, 128);
     this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
   }
@@ -131,6 +162,38 @@ export class VideoRenderer {
       this.getCursorWiggleDamping(backgroundConfig).toFixed(2),
       this.getCursorWiggleResponse(backgroundConfig).toFixed(2),
     ].join('|');
+  }
+
+  private resolveCursorRenderStyle(
+    type: 'default' | 'text' | 'pointer' | 'openhand',
+    backgroundConfig?: BackgroundConfig | null
+  ): CursorRenderStyle {
+    if (type === 'default') return backgroundConfig?.cursorDefaultVariant ?? 'classic';
+    if (type === 'text') return backgroundConfig?.cursorTextVariant ?? 'classic';
+    if (type === 'pointer') return backgroundConfig?.cursorPointerVariant ?? 'screenstudio';
+    return backgroundConfig?.cursorOpenHandVariant ?? 'screenstudio';
+  }
+
+  private resolveCursorRenderType(rawType: string, backgroundConfig?: BackgroundConfig | null): CursorRenderType {
+    const lower = (rawType || 'default').toLowerCase();
+
+    if (lower === 'text' || lower === 'ibeam') {
+      return this.resolveCursorRenderStyle('text', backgroundConfig) === 'screenstudio'
+        ? 'text-screenstudio'
+        : 'text-classic';
+    }
+
+    if (lower === 'pointer' || lower === 'hand') {
+      return 'pointer-screenstudio';
+    }
+
+    if (lower === 'openhand' || lower === 'open-hand' || lower === 'grab') {
+      return 'openhand-screenstudio';
+    }
+
+    return this.resolveCursorRenderStyle('default', backgroundConfig) === 'screenstudio'
+      ? 'default-screenstudio'
+      : 'default-classic';
   }
 
   public updateRenderContext(context: RenderContext) {
@@ -220,7 +283,15 @@ export class VideoRenderer {
             const last = baked[baked.length - 1];
             baked.push({ ...last, time: compactCursor + (t - seg.startTime) });
           } else {
-            baked.push({ time: compactCursor + (t - seg.startTime), x: 0, y: 0, scale: 1, isClicked: false, type: 'default', opacity: 1 });
+            baked.push({
+              time: compactCursor + (t - seg.startTime),
+              x: 0,
+              y: 0,
+              scale: 1,
+              isClicked: false,
+              type: this.resolveCursorRenderType('default', backgroundConfig),
+              opacity: 1
+            });
           }
           continue;
         }
@@ -249,7 +320,7 @@ export class VideoRenderer {
           y: pos.y,
           scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
           isClicked: isClicked,
-          type: pos.cursor_type || 'default',
+          type: this.resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig),
           opacity: Number(cursorVis.opacity.toFixed(3)),
           rotation: Number((pos.cursor_rotation || 0).toFixed(4)),
         });
@@ -588,7 +659,7 @@ export class VideoRenderer {
             cursorY,
             shouldBeSquished,
             cursorSizeScale,
-            interpolatedPosition.cursor_type || 'default',
+            this.resolveCursorRenderType(interpolatedPosition.cursor_type || 'default', backgroundConfig),
             interpolatedPosition.cursor_rotation || 0
           );
 
@@ -1291,9 +1362,12 @@ export class VideoRenderer {
 
   private getCursorRotationPivot(cursorType: string): { x: number; y: number } {
     switch (cursorType.toLowerCase()) {
-      case 'pointer':
+      case 'pointer-classic':
+      case 'pointer-screenstudio':
+      case 'openhand-screenstudio':
         return { x: 3.0, y: 8.5 };
-      case 'text':
+      case 'text-classic':
+      case 'text-screenstudio':
         return { x: 0, y: 0 };
       default:
         return { x: 3.6, y: 5.6 };
@@ -1346,7 +1420,7 @@ export class VideoRenderer {
     const lowerType = cursorType.toLowerCase();
     ctx.save();
     ctx.translate(x, y);
-    if (lowerType !== 'text' && Math.abs(rotation) > 0.0001) {
+    if (lowerType !== 'text-classic' && lowerType !== 'text-screenstudio' && Math.abs(rotation) > 0.0001) {
       const pivot = this.getCursorRotationPivot(lowerType);
       ctx.translate(pivot.x, pivot.y);
       ctx.rotate(rotation);
@@ -1356,14 +1430,33 @@ export class VideoRenderer {
     ctx.scale(this.currentSquishScale, this.currentSquishScale);
 
     let effectiveType = lowerType;
-    if (effectiveType === 'pointer') {
-      if (!this.pointerImage.complete || this.pointerImage.naturalWidth === 0) {
-        effectiveType = 'default';
-      }
+    if (effectiveType === 'pointer-classic' && (!this.pointerClassicImage.complete || this.pointerClassicImage.naturalWidth === 0)) {
+      effectiveType = 'default-classic';
+    }
+    if (effectiveType === 'default-screenstudio' && (!this.defaultScreenStudioImage.complete || this.defaultScreenStudioImage.naturalWidth === 0)) {
+      effectiveType = 'default-classic';
+    }
+    if (effectiveType === 'text-screenstudio' && (!this.textScreenStudioImage.complete || this.textScreenStudioImage.naturalWidth === 0)) {
+      effectiveType = 'text-classic';
+    }
+    if (effectiveType === 'pointer-screenstudio' && (!this.pointerScreenStudioImage.complete || this.pointerScreenStudioImage.naturalWidth === 0)) {
+      effectiveType = 'pointer-classic';
+    }
+    if (effectiveType === 'openhand-screenstudio' && (!this.openHandScreenStudioImage.complete || this.openHandScreenStudioImage.naturalWidth === 0)) {
+      effectiveType = 'pointer-classic';
     }
 
     switch (effectiveType) {
-      case 'text': {
+      case 'text-screenstudio': {
+        const img = this.textScreenStudioImage;
+        const hotspotX = img.naturalWidth * 0.5;
+        const hotspotY = img.naturalHeight * 0.5;
+        ctx.translate(-hotspotX, -hotspotY);
+        ctx.drawImage(img, 0, 0);
+        break;
+      }
+
+      case 'text-classic': {
         // I-beam shape
         // Adjust for hotspot: I-beam center is roughly (3, 8)
         ctx.translate(-6, -8);
@@ -1378,17 +1471,45 @@ export class VideoRenderer {
         break;
       }
 
-      case 'pointer': {
+      case 'pointer-screenstudio': {
+        const img = this.pointerScreenStudioImage;
+        const hotspotX = 16;
+        const hotspotY = 8;
+        ctx.translate(-hotspotX, -hotspotY);
+        ctx.drawImage(img, 0, 0);
+        break;
+      }
+
+      case 'openhand-screenstudio': {
+        const img = this.openHandScreenStudioImage;
+        const hotspotX = img.naturalWidth * 0.5;
+        const hotspotY = img.naturalHeight * 0.5;
+        ctx.translate(-hotspotX, -hotspotY);
+        ctx.drawImage(img, 0, 0);
+        break;
+      }
+
+      case 'pointer-classic': {
         // Hand cursor image
         let imgWidth = 24, imgHeight = 24;
-        if (this.pointerImage.complete && this.pointerImage.naturalWidth > 0) {
-          imgWidth = this.pointerImage.naturalWidth;
-          imgHeight = this.pointerImage.naturalHeight;
-          const offsetX = 8;
-          const offsetY = 16;
-          // Note: TS draws offset, we need to match this in Rust
-          ctx.translate(-imgWidth / 2 + offsetX, -imgHeight / 2 + offsetY);
-          ctx.drawImage(this.pointerImage, 0, 0, imgWidth, imgHeight);
+        if (this.pointerClassicImage.complete && this.pointerClassicImage.naturalWidth > 0) {
+          imgWidth = this.pointerClassicImage.naturalWidth;
+          imgHeight = this.pointerClassicImage.naturalHeight;
+          const hotspotX = 16;
+          const hotspotY = 8;
+          ctx.translate(-hotspotX, -hotspotY);
+          ctx.drawImage(this.pointerClassicImage, 0, 0, imgWidth, imgHeight);
+        }
+        break;
+      }
+
+      case 'default-screenstudio': {
+        const img = this.defaultScreenStudioImage;
+        const hotspotX = 12.5;
+        const hotspotY = 8.4;
+        ctx.translate(-hotspotX, -hotspotY);
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
         }
         break;
       }
