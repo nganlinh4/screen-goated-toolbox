@@ -1,0 +1,4 @@
+# Repository-local Codex settings.
+# This enforces no approval prompts for this project.
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
