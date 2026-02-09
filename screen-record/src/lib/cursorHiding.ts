@@ -50,21 +50,27 @@ export function mergePointerSegments(segments: CursorVisibilitySegment[]): Curso
  */
 export function generateCursorVisibility(
   segment: VideoSegment,
-  mousePositions: MousePosition[]
+  mousePositions: MousePosition[],
+  timelineDuration?: number
 ): CursorVisibilitySegment[] {
-  const { trimStart, trimEnd } = segment;
+  const timelineStart = 0;
+  const inferredEnd = Math.max(
+    segment.trimEnd || 0,
+    ...(mousePositions.length > 0 ? mousePositions.map(p => p.timestamp) : [0])
+  );
+  const timelineEnd = Math.max(timelineStart, timelineDuration ?? inferredEnd);
 
-  // Filter positions to trim range
+  // Filter positions to full timeline range (independent from trim segments)
   const positions = mousePositions.filter(
-    p => p.timestamp >= trimStart && p.timestamp <= trimEnd
+    p => p.timestamp >= timelineStart && p.timestamp <= timelineEnd
   );
 
   if (positions.length < 2) {
-    // Not enough data — return one segment covering entire range (always visible)
+    // Not enough data — return one segment covering whole timeline (always visible)
     return [{
       id: crypto.randomUUID(),
-      startTime: trimStart,
-      endTime: trimEnd,
+      startTime: timelineStart,
+      endTime: timelineEnd,
     }];
   }
 
@@ -153,14 +159,14 @@ export function generateCursorVisibility(
     // No idle detected — cursor visible the whole time
     return [{
       id: crypto.randomUUID(),
-      startTime: trimStart,
-      endTime: trimEnd,
+      startTime: timelineStart,
+      endTime: timelineEnd,
     }];
   }
 
   // Invert idle ranges to get visible ranges
   const visibleRanges: { start: number; end: number }[] = [];
-  let cursor = trimStart;
+  let cursor = timelineStart;
 
   for (const idle of idleRanges) {
     if (idle.start > cursor) {
@@ -168,8 +174,8 @@ export function generateCursorVisibility(
     }
     cursor = idle.end;
   }
-  if (cursor < trimEnd) {
-    visibleRanges.push({ start: cursor, end: trimEnd });
+  if (cursor < timelineEnd) {
+    visibleRanges.push({ start: cursor, end: timelineEnd });
   }
 
   // Post-process: extend margins
@@ -188,12 +194,12 @@ export function generateCursorVisibility(
     }
   }
 
-  // Clip to trim range and assign UUIDs
+  // Clip to full timeline range and assign UUIDs
   return merged
     .map(r => ({
       id: crypto.randomUUID(),
-      startTime: Math.max(trimStart, r.start),
-      endTime: Math.min(trimEnd, r.end),
+      startTime: Math.max(timelineStart, r.start),
+      endTime: Math.min(timelineEnd, r.end),
     }))
     .filter(s => s.endTime > s.startTime);
 }

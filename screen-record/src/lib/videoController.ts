@@ -42,7 +42,6 @@ export class VideoController {
   private isGeneratingThumbnail = false;
   private audioPlayPromise: Promise<void> | null = null;
   private pendingSeekTime: number | null = null;
-  private gapJumpStartedAt: number | null = null;
   private readonly SEGMENT_EPS = 0.03;
 
   constructor(options: VideoControllerOptions) {
@@ -144,8 +143,6 @@ export class VideoController {
         if (!isInside) {
           const nextTime = getNextPlayableTime(currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
           if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
-            this.gapJumpStartedAt = performance.now();
-            console.log('[VideoController] Gap jump start', { from: currentTime, to: nextTime });
             this.video.currentTime = nextTime;
             if (this.audio) this.audio.currentTime = nextTime;
             this.setCurrentTime(nextTime);
@@ -168,8 +165,6 @@ export class VideoController {
           if (currentSeg && currentTime >= currentSeg.endTime - 0.01 && !this.video.paused) {
             const next = segs[currentSegIndex + 1];
             if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
-              this.gapJumpStartedAt = performance.now();
-              console.log('[VideoController] Segment jump start', { from: currentTime, to: next.startTime });
               this.video.currentTime = next.startTime;
               if (this.audio) this.audio.currentTime = next.startTime;
               this.setCurrentTime(next.startTime);
@@ -206,11 +201,6 @@ export class VideoController {
   private handleSeeked = () => {
     if (this.isGeneratingThumbnail) return;
     this.setSeeking(false);
-    if (this.gapJumpStartedAt !== null) {
-      const ms = performance.now() - this.gapJumpStartedAt;
-      console.log('[VideoController] Jump seeked', { latencyMs: Math.round(ms), at: this.video.currentTime });
-      this.gapJumpStartedAt = null;
-    }
 
     // Render the just-decoded frame immediately
     this.renderFrame();

@@ -402,8 +402,8 @@ export function useProjects(props: UseProjectsProps) {
     if (!correctedSegment.cursorVisibilitySegments) {
       correctedSegment.cursorVisibilitySegments = [{
         id: crypto.randomUUID(),
-        startTime: correctedSegment.trimStart,
-        endTime: correctedSegment.trimEnd,
+        startTime: 0,
+        endTime: videoDuration,
       }];
     }
 
@@ -759,8 +759,8 @@ export function useCursorHiding(props: UseCursorHidingProps) {
     // Check if current state is "default" (single full-duration segment) or empty
     const isDefault = !segs || segs.length === 0 || (
       segs.length === 1 &&
-      Math.abs(segs[0].startTime - props.segment.trimStart) < 0.01 &&
-      Math.abs(segs[0].endTime - props.segment.trimEnd) < 0.01
+      Math.abs(segs[0].startTime - 0) < 0.01 &&
+      Math.abs(segs[0].endTime - props.duration) < 0.01
     );
 
     if (!isDefault) {
@@ -769,8 +769,8 @@ export function useCursorHiding(props: UseCursorHidingProps) {
         ...props.segment,
         cursorVisibilitySegments: [{
           id: crypto.randomUUID(),
-          startTime: props.segment.trimStart,
-          endTime: props.segment.trimEnd,
+          startTime: 0,
+          endTime: props.duration,
         }],
       });
       setEditingPointerId(null);
@@ -778,9 +778,9 @@ export function useCursorHiding(props: UseCursorHidingProps) {
     }
 
     // Default or empty → generate from mouse data
-    const segments = generateCursorVisibility(props.segment, props.mousePositions);
+    const segments = generateCursorVisibility(props.segment, props.mousePositions, props.duration);
     props.setSegment({ ...props.segment, cursorVisibilitySegments: segments });
-  }, [props.segment, props.mousePositions, props.setSegment]);
+  }, [props.segment, props.mousePositions, props.setSegment, props.duration]);
 
   const handleAddPointerSegment = useCallback((atTime?: number) => {
     if (!props.segment) return;
