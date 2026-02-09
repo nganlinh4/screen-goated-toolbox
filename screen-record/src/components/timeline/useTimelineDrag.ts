@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { VideoSegment, CursorVisibilitySegment } from '@/types/video';
+import { VideoSegment, CursorVisibilitySegment, TrimSegment } from '@/types/video';
 import { mergePointerSegments } from '@/lib/cursorHiding';
+import { getTrimBounds, getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
 
 export interface TimelineDragState {
   isDraggingTrimStart: boolean;
@@ -66,6 +67,8 @@ export function useTimelineDrag({
   const [draggingZoomIdx, setDraggingZoomIdx] = useState<number | null>(null);
   const textDragOffsetRef = useRef(0);
   const pointerDragOffsetRef = useRef(0);
+  const trimDraggingIdRef = useRef<string | null>(null);
+  const trimDragOriginalsRef = useRef<TrimSegment[] | null>(null);
   const pointerDragOriginals = useRef<CursorVisibilitySegment[] | null>(null);
   const pointerDragDidMove = useRef(false);
 
@@ -124,29 +127,121 @@ export function useTimelineDrag({
   }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, setSegment, videoRef, setCurrentTime]);
 
   // Trim drag
-  const handleTrimDragStart = useCallback((type: 'start' | 'end') => {
+  const handleTrimDragStart = useCallback((id: string, type: 'start' | 'end') => {
     beginBatch();
+    trimDraggingIdRef.current = id;
+    trimDragOriginalsRef.current = segment ? getTrimSegments(segment, duration) : null;
     if (type === 'start') setIsDraggingTrimStart(true);
     else setIsDraggingTrimEnd(true);
-  }, [beginBatch]);
+  }, [beginBatch, segment, duration]);
 
   const handleTrimDrag = useCallback((clientX: number) => {
     if (!isDraggingTrimStart && !isDraggingTrimEnd) return;
     if (!segment) return;
+    const originals = trimDragOriginalsRef.current;
+    const draggingId = trimDraggingIdRef.current;
+    if (!originals || !draggingId) return;
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
 
-    if (isDraggingTrimStart) {
-      const newTrimStart = Math.min(newTime, segment.trimEnd - 0.1);
-      setSegment({ ...segment, trimStart: Math.max(0, newTrimStart) });
-      if (videoRef.current) videoRef.current.currentTime = newTime;
-    }
-    if (isDraggingTrimEnd) {
-      const newTrimEnd = Math.max(newTime, segment.trimStart + 0.1);
-      setSegment({ ...segment, trimEnd: Math.min(duration, newTrimEnd) });
-      if (videoRef.current) videoRef.current.currentTime = newTime;
-    }
+    const moved = originals.map(seg => {
+      if (seg.id !== draggingId) return { ...seg };
+      if (isDraggingTrimStart) {
+        return {
+          ...seg,
+          startTime: Math.min(Math.max(0, newTime), seg.endTime - 0.1),
+        };
+      }
+      if (isDraggingTrimEnd) {
+        return {
+          ...seg,
+          endTime: Math.max(Math.min(duration, newTime), seg.startTime + 0.1),
+        };
+      }
+      return { ...seg };
+    });
+
+    const merged = mergeTrimSegments(moved);
+    const bounds = getTrimBounds({ ...segment, trimSegments: merged }, duration);
+    setSegment({
+      ...segment,
+      trimSegments: merged,
+      trimStart: bounds.trimStart,
+      trimEnd: bounds.trimEnd,
+    });
+    if (videoRef.current) videoRef.current.currentTime = newTime;
   }, [isDraggingTrimStart, isDraggingTrimEnd, segment, getTimeFromClientX, setSegment, videoRef, duration]);
+
+  const handleTrimSplit = useCallback((id: string, splitTime: number) => {
+    if (!segment) return;
+    const trimSegments = getTrimSegments(segment, duration);
+    const seg = trimSegments.find(s => s.id === id);
+    if (!seg) return;
+
+    const SPLIT_GAP = 0.3;
+    const half = SPLIT_GAP / 2;
+    const leftEnd = splitTime - half;
+    const rightStart = splitTime + half;
+
+    if (leftEnd - seg.startTime < 0.15 || seg.endTime - rightStart < 0.15) return;
+
+    beginBatch();
+    const nextSegs = trimSegments
+      .filter(s => s.id !== id)
+      .concat([
+        { id: seg.id, startTime: seg.startTime, endTime: leftEnd },
+        { id: crypto.randomUUID(), startTime: rightStart, endTime: seg.endTime },
+      ])
+      .sort((a, b) => a.startTime - b.startTime);
+
+    const bounds = getTrimBounds({ ...segment, trimSegments: nextSegs }, duration);
+    setSegment({
+      ...segment,
+      trimSegments: nextSegs,
+      trimStart: bounds.trimStart,
+      trimEnd: bounds.trimEnd,
+    });
+    commitBatch();
+  }, [segment, duration, beginBatch, setSegment, commitBatch]);
+
+  const handleTrimAddSegment = useCallback((atTime: number) => {
+    if (!segment) return;
+    const trimSegments = getTrimSegments(segment, duration);
+    const sorted = [...trimSegments].sort((a, b) => a.startTime - b.startTime);
+    const gaps: Array<{ start: number; end: number }> = [];
+    let cursor = 0;
+    for (const seg of sorted) {
+      if (seg.startTime > cursor) gaps.push({ start: cursor, end: seg.startTime });
+      cursor = seg.endTime;
+    }
+    if (cursor < duration) gaps.push({ start: cursor, end: duration });
+
+    const gap = gaps.find(g => atTime >= g.start && atTime <= g.end);
+    if (!gap) return;
+
+    const segDur = 2;
+    let startTime = Math.max(gap.start, atTime - segDur / 2);
+    let endTime = Math.min(gap.end, startTime + segDur);
+    if (endTime - startTime < 0.1) {
+      endTime = gap.end;
+      startTime = Math.max(gap.start, endTime - 0.1);
+    }
+    if (endTime - startTime < 0.1) return;
+
+    beginBatch();
+    const nextSegs = mergeTrimSegments([
+      ...trimSegments,
+      { id: crypto.randomUUID(), startTime, endTime },
+    ]).sort((a, b) => a.startTime - b.startTime);
+    const bounds = getTrimBounds({ ...segment, trimSegments: nextSegs }, duration);
+    setSegment({
+      ...segment,
+      trimSegments: nextSegs,
+      trimStart: bounds.trimStart,
+      trimEnd: bounds.trimEnd,
+    });
+    commitBatch();
+  }, [segment, duration, beginBatch, setSegment, commitBatch]);
 
   // Text drag
   const handleTextDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
@@ -310,6 +405,8 @@ export function useTimelineDrag({
     if (isDraggingSeek) onSeekEnd?.();
     setIsDraggingTrimStart(false);
     setIsDraggingTrimEnd(false);
+    trimDragOriginalsRef.current = null;
+    trimDraggingIdRef.current = null;
     setIsDraggingTextStart(false);
     setIsDraggingTextEnd(false);
     setIsDraggingTextBody(false);
@@ -366,6 +463,8 @@ export function useTimelineDrag({
     dragState,
     handleSeek,
     handleTrimDragStart,
+    handleTrimSplit,
+    handleTrimAddSegment,
     handleZoomDragStart,
     handleTextDragStart,
     handleTextClick,

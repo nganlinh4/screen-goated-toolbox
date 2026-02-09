@@ -5,6 +5,7 @@ import type {
 } from '@/types/video';
 
 import { videoRenderer } from './videoRenderer';
+import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from './trimSegments';
 
 // Standard video heights (descending) for resolution options
 const STANDARD_HEIGHTS = [2160, 1440, 1080, 720, 480] as const;
@@ -62,10 +63,13 @@ export class VideoExporter {
     this.isExporting = true;
 
     const { video, segment, backgroundConfig, mousePositions, speed = 1, audioFilePath, audio } = options;
+    const normalizedSegment = segment && video
+      ? normalizeSegmentTrimData(segment, video.duration || segment.trimEnd)
+      : segment ?? null;
 
     const vidW = video?.videoWidth || 1920;
     const vidH = video?.videoHeight || 1080;
-    const { baseW, baseH } = getCanvasBaseDimensions(vidW, vidH, segment ?? null, backgroundConfig);
+    const { baseW, baseH } = getCanvasBaseDimensions(vidW, vidH, normalizedSegment, backgroundConfig);
 
     // Resolve dimensions: 0×0 means "original"
     let width = options.width > 0 ? options.width : baseW;
@@ -80,15 +84,15 @@ export class VideoExporter {
     console.log('[Exporter] Video:', vidW, '×', vidH, '→ Canvas:', baseW, '×', baseH, '→ Export:', width, '×', height, '@', fps, 'fps');
 
     // 1. Bake camera path
-    const bakedPath = segment ? videoRenderer.generateBakedPath(segment, vidW, vidH, fps) : [];
+    const bakedPath = normalizedSegment ? videoRenderer.generateBakedPath(normalizedSegment, vidW, vidH, fps) : [];
 
     // 2. Bake cursor path
-    const bakedCursorPath = segment && mousePositions
-      ? videoRenderer.generateBakedCursorPath(segment, mousePositions, backgroundConfig, fps)
+    const bakedCursorPath = normalizedSegment && mousePositions
+      ? videoRenderer.generateBakedCursorPath(normalizedSegment, mousePositions, backgroundConfig, fps)
       : [];
 
     // 3. Bake text overlays
-    const bakedTextOverlays = segment ? videoRenderer.bakeTextOverlays(segment, width, height) : [];
+    const bakedTextOverlays = normalizedSegment ? videoRenderer.bakeTextOverlays(normalizedSegment, width, height) : [];
     console.log(`[Exporter] Baked ${bakedPath.length} camera, ${bakedCursorPath.length} cursor, ${bakedTextOverlays.length} text`);
 
     // Convert video/audio blobs to arrays for Rust
@@ -118,16 +122,23 @@ export class VideoExporter {
       }
     }
 
+    const trimBounds = normalizedSegment
+      ? getTrimBounds(normalizedSegment, video?.duration || normalizedSegment.trimEnd)
+      : { trimStart: 0, trimEnd: 0 };
+    const activeDuration = normalizedSegment
+      ? getTotalTrimDuration(normalizedSegment, video?.duration || normalizedSegment.trimEnd)
+      : 0;
+
     const exportConfig = {
       width,
       height,
       framerate: fps,
       audioPath: audioFilePath,
       outputDir: options.outputDir || '',
-      trimStart: segment?.trimStart || 0,
-      duration: (segment?.trimEnd || 0) - (segment?.trimStart || 0),
+      trimStart: trimBounds.trimStart,
+      duration: activeDuration,
       speed,
-      segment,
+      segment: normalizedSegment,
       backgroundConfig,
       mousePositions,
       videoData: videoDataArray,

@@ -67,6 +67,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   const {
     dragState,
     handleTrimDragStart,
+    handleTrimSplit,
+    handleTrimAddSegment,
     handleZoomDragStart,
     handleTextDragStart,
     handleTextClick,
@@ -197,6 +199,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 duration={duration}
                 thumbnails={thumbnails}
                 onTrimDragStart={handleTrimDragStart}
+                onTrimSplit={handleTrimSplit}
+                onTrimAddSegment={handleTrimAddSegment}
                 isDraggingTrim={dragState.isDraggingTrimStart || dragState.isDraggingTrimEnd}
               />
             ) : (
@@ -206,7 +210,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 
           {/* Playhead spanning all tracks */}
           {segment && (
-            <Playhead currentTime={currentTime} duration={duration} isPlaying={!!isPlaying} videoRef={videoRef} />
+            <Playhead currentTime={currentTime} duration={duration} isPlaying={!!isPlaying} videoRef={videoRef} segment={segment} />
           )}
         </div>
       </div>

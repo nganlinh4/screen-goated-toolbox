@@ -121,8 +121,17 @@ fn default_opacity() -> f64 {
 #[serde(rename_all = "camelCase")]
 pub struct VideoSegment {
     pub crop: Option<CropRect>,
+    #[serde(default, rename = "trimSegments")]
+    pub trim_segments: Vec<TrimSegment>,
     #[serde(default, rename = "textSegments")]
     pub _text_segments: Vec<TextSegment>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimSegment {
+    pub start_time: f64,
+    pub end_time: f64,
 }
 
 // TextSegment: only needed for serde compat — rendering uses BakedTextOverlay
@@ -404,6 +413,17 @@ pub fn pick_export_folder(initial_dir: Option<String>) -> Result<Option<String>,
     }
 }
 
+fn format_trim_select_expr(trim_segments: &[TrimSegment]) -> String {
+    if trim_segments.is_empty() {
+        return "1".to_string();
+    }
+    trim_segments
+        .iter()
+        .map(|s| format!("between(t,{:.6},{:.6})", s.start_time, s.end_time))
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
@@ -557,17 +577,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     // dt * speed per step. E.g. 24fps @ 2x speed → decoder at 12fps.
     let decoder_fps = config.framerate as f64 / config.speed;
     let decoder_fps_str = format!("{:.4}", decoder_fps);
+    let has_trim_segments = !config.segment.trim_segments.is_empty();
+    let select_expr = format_trim_select_expr(&config.segment.trim_segments);
+    let select_filter = format!("select='{}',setpts=N/FRAME_RATE/TB", select_expr);
+    let decoder_filter = if has_trim_segments {
+        format!("{},{}", select_filter, crop_filter)
+    } else {
+        crop_filter.clone()
+    };
 
-    let mut decoder = Command::new(&ffmpeg_path)
-        .args([
-            "-ss",
-            &config.trim_start.to_string(),
-            "-t",
-            &config.duration.to_string(),
+    let mut decoder_cmd = Command::new(&ffmpeg_path);
+    if has_trim_segments {
+        decoder_cmd.args([
             "-i",
             &source_video_path,
             "-vf",
-            &crop_filter,
+            &decoder_filter,
             "-r",
             &decoder_fps_str,
             "-f",
@@ -577,7 +602,30 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             "-s",
             &format!("{}x{}", crop_w, crop_h),
             "-",
-        ])
+        ]);
+    } else {
+        decoder_cmd.args([
+            "-ss",
+            &config.trim_start.to_string(),
+            "-t",
+            &config.duration.to_string(),
+            "-i",
+            &source_video_path,
+            "-vf",
+            &decoder_filter,
+            "-r",
+            &decoder_fps_str,
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-s",
+            &format!("{}x{}", crop_w, crop_h),
+            "-",
+        ]);
+    }
+
+    let mut decoder = decoder_cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -609,21 +657,34 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     ];
 
     if let Some(audio) = &source_audio_path {
-        let audio_filter = if config.speed != 1.0 {
-            format!("atempo={}", config.speed.clamp(0.5, 2.0))
+        let mut audio_filter = if has_trim_segments {
+            format!("aselect='{}',asetpts=N/SR/TB", select_expr)
         } else {
             "anull".to_string()
         };
-        encoder_args.extend([
-            "-ss".to_string(),
-            config.trim_start.to_string(),
-            "-t".to_string(),
-            config.duration.to_string(),
-            "-i".to_string(),
-            audio.clone(),
-            "-af".to_string(),
-            audio_filter,
-        ]);
+        if config.speed != 1.0 {
+            audio_filter = format!("{},atempo={}", audio_filter, config.speed.clamp(0.5, 2.0));
+        }
+
+        if has_trim_segments {
+            encoder_args.extend([
+                "-i".to_string(),
+                audio.clone(),
+                "-af".to_string(),
+                audio_filter,
+            ]);
+        } else {
+            encoder_args.extend([
+                "-ss".to_string(),
+                config.trim_start.to_string(),
+                "-t".to_string(),
+                config.duration.to_string(),
+                "-i".to_string(),
+                audio.clone(),
+                "-af".to_string(),
+                audio_filter,
+            ]);
+        }
     }
 
     encoder_args.extend([
@@ -692,12 +753,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             break;
         }
 
-        let current_time = config.trim_start + frame_idx as f64 * step;
+        let current_time = frame_idx as f64 * step;
 
         let (raw_cam_x, raw_cam_y, zoom) =
-            sample_baked_path(current_time - config.trim_start, &baked_path);
+            sample_baked_path(current_time, &baked_path);
 
-        let cursor_state = sample_baked_cursor(current_time - config.trim_start, &baked_cursor);
+        let cursor_state = sample_baked_cursor(current_time, &baked_cursor);
 
         let cam_x = raw_cam_x - crop_x_offset;
         let cam_y = raw_cam_y - crop_y_offset;
@@ -769,7 +830,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             shadow_opacity as f32,
             gradient1,
             gradient2,
-            (current_time - config.trim_start) as f32,
+            current_time as f32,
             (cursor_pos_x, cursor_pos_y),
             cursor_scale,
             cursor_opacity,

@@ -1,5 +1,6 @@
 import { videoRenderer } from './videoRenderer';
 import type { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
+import { clampToTrimSegments, getNextPlayableTime, getTrimSegments } from './trimSegments';
 
 interface VideoControllerOptions {
   videoRef: HTMLVideoElement;
@@ -41,6 +42,8 @@ export class VideoController {
   private isGeneratingThumbnail = false;
   private audioPlayPromise: Promise<void> | null = null;
   private pendingSeekTime: number | null = null;
+  private gapJumpStartedAt: number | null = null;
+  private readonly SEGMENT_EPS = 0.03;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
@@ -129,19 +132,59 @@ export class VideoController {
     if (!this.state.isSeeking) {
       const currentTime = this.video.currentTime;
 
-      // Handle trim bounds
+      // Handle segmented trim bounds
       if (this.renderOptions?.segment) {
-        const { trimStart, trimEnd } = this.renderOptions.segment;
+        const segs = getTrimSegments(this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
+        const last = segs[segs.length - 1];
+        const currentSegIndex = segs.findIndex(
+          s => currentTime >= s.startTime - this.SEGMENT_EPS && currentTime <= s.endTime - 0.01
+        );
+        const isInside = currentSegIndex >= 0;
 
-        if (currentTime >= trimEnd && !this.video.paused) {
-          console.log('[VideoController] Reached trim end', { currentTime, trimStart, trimEnd });
-          this.video.pause(); // Triggers handlePause
-          return;
-        }
-
-        if (currentTime < trimStart) {
-          this.video.currentTime = trimStart;
-          if (this.audio) this.audio.currentTime = trimStart;
+        if (!isInside) {
+          const nextTime = getNextPlayableTime(currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
+          if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
+            this.gapJumpStartedAt = performance.now();
+            console.log('[VideoController] Gap jump start', { from: currentTime, to: nextTime });
+            this.video.currentTime = nextTime;
+            if (this.audio) this.audio.currentTime = nextTime;
+            this.setCurrentTime(nextTime);
+            return;
+          }
+          if (nextTime !== null && Math.abs(nextTime - currentTime) <= this.SEGMENT_EPS) {
+            // Precision jitter at boundaries: treat as already positioned.
+            this.setCurrentTime(nextTime);
+            return;
+          }
+          if (currentTime >= last.endTime - 0.01 && !this.video.paused) {
+            this.video.currentTime = last.endTime;
+            if (this.audio) this.audio.currentTime = last.endTime;
+            this.setCurrentTime(last.endTime);
+            this.video.pause();
+            return;
+          }
+        } else {
+          const currentSeg = segs[currentSegIndex];
+          if (currentSeg && currentTime >= currentSeg.endTime - 0.01 && !this.video.paused) {
+            const next = segs[currentSegIndex + 1];
+            if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
+              this.gapJumpStartedAt = performance.now();
+              console.log('[VideoController] Segment jump start', { from: currentTime, to: next.startTime });
+              this.video.currentTime = next.startTime;
+              if (this.audio) this.audio.currentTime = next.startTime;
+              this.setCurrentTime(next.startTime);
+              return;
+            }
+            if (next && Math.abs(next.startTime - currentTime) <= this.SEGMENT_EPS) {
+              this.setCurrentTime(next.startTime);
+              return;
+            }
+            this.video.currentTime = currentSeg.endTime;
+            if (this.audio) this.audio.currentTime = currentSeg.endTime;
+            this.setCurrentTime(currentSeg.endTime);
+            this.video.pause();
+            return;
+          }
         }
       }
 
@@ -163,6 +206,11 @@ export class VideoController {
   private handleSeeked = () => {
     if (this.isGeneratingThumbnail) return;
     this.setSeeking(false);
+    if (this.gapJumpStartedAt !== null) {
+      const ms = performance.now() - this.gapJumpStartedAt;
+      console.log('[VideoController] Jump seeked', { latencyMs: Math.round(ms), at: this.video.currentTime });
+      this.gapJumpStartedAt = null;
+    }
 
     // Render the just-decoded frame immediately
     this.renderFrame();
@@ -173,11 +221,23 @@ export class VideoController {
       const t = this.pendingSeekTime;
       this.pendingSeekTime = null;
       this.setSeeking(true);
-      this.setCurrentTime(t);
-      this.video.currentTime = t;
-      if (this.audio) this.audio.currentTime = t;
+      const clamped = this.renderOptions?.segment
+        ? (getNextPlayableTime(t, this.renderOptions.segment, this.video.duration || this.state.duration || t)
+            ?? clampToTrimSegments(t, this.renderOptions.segment, this.video.duration || this.state.duration || t))
+        : t;
+      this.setCurrentTime(clamped);
+      this.video.currentTime = clamped;
+      if (this.audio) this.audio.currentTime = clamped;
     } else {
-      this.setCurrentTime(this.video.currentTime);
+      const clamped = this.renderOptions?.segment
+        ? (getNextPlayableTime(this.video.currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime)
+            ?? clampToTrimSegments(this.video.currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime))
+        : this.video.currentTime;
+      if (Math.abs(clamped - this.video.currentTime) > 0.001) {
+        this.video.currentTime = clamped;
+        if (this.audio) this.audio.currentTime = clamped;
+      }
+      this.setCurrentTime(clamped);
     }
   };
 
@@ -353,10 +413,13 @@ export class VideoController {
     }
 
     if (this.renderOptions?.segment) {
-      const { trimStart, trimEnd } = this.renderOptions.segment;
-      if (this.video.currentTime >= trimEnd - 0.05) {
-        this.video.currentTime = trimStart;
-      }
+      const duration = this.video.duration || this.state.duration || this.video.currentTime;
+      const segs = getTrimSegments(this.renderOptions.segment, duration);
+      const nextTime = getNextPlayableTime(this.video.currentTime, this.renderOptions.segment, duration);
+      if (nextTime !== null) this.video.currentTime = nextTime;
+      else if (segs.length > 0) this.video.currentTime = segs[0].startTime;
+      if (this.audio) this.audio.currentTime = this.video.currentTime;
+      this.setCurrentTime(this.video.currentTime);
     }
 
     this.video.play().catch(e => console.warn('[VideoController] Play attempt failed:', e));
@@ -370,8 +433,9 @@ export class VideoController {
     if (!this.state.isReady) return;
 
     if (this.renderOptions?.segment) {
-      const { trimStart, trimEnd } = this.renderOptions.segment;
-      time = Math.max(trimStart, Math.min(time, trimEnd));
+      const duration = this.video.duration || this.state.duration || time;
+      time = getNextPlayableTime(time, this.renderOptions.segment, duration)
+        ?? clampToTrimSegments(time, this.renderOptions.segment, duration);
     }
 
     // Update playhead state immediately so the UI feels responsive
@@ -397,9 +461,14 @@ export class VideoController {
     if (this.pendingSeekTime !== null && !this.state.isSeeking) {
       const t = this.pendingSeekTime;
       this.pendingSeekTime = null;
+      const clamped = this.renderOptions?.segment
+        ? (getNextPlayableTime(t, this.renderOptions.segment, this.video.duration || this.state.duration || t)
+            ?? clampToTrimSegments(t, this.renderOptions.segment, this.video.duration || this.state.duration || t))
+        : t;
       this.setSeeking(true);
-      this.video.currentTime = t;
-      if (this.audio) this.audio.currentTime = t;
+      this.video.currentTime = clamped;
+      if (this.audio) this.audio.currentTime = clamped;
+      this.setCurrentTime(clamped);
     }
   }
 
@@ -575,19 +644,7 @@ export class VideoController {
   // Add this new method to handle time adjustment
   private getAdjustedTime(time: number): number {
     if (!this.renderOptions?.segment) return time;
-
-    const { trimStart, trimEnd } = this.renderOptions.segment;
-    const trimDuration = trimEnd - trimStart;
-
-    // Calculate the relative position within the trimmed section
-    const relativeTime = ((time - trimStart) % trimDuration);
-
-    // If time is negative, adjust it to wrap from the end
-    const adjustedTime = relativeTime < 0
-      ? trimEnd + relativeTime
-      : trimStart + relativeTime;
-
-    return adjustedTime;
+    return clampToTrimSegments(time, this.renderOptions.segment, this.video.duration || this.state.duration || time);
   }
 
   // Add new method
@@ -601,6 +658,11 @@ export class VideoController {
     const initialSegment: VideoSegment = {
       trimStart: 0,
       trimEnd: duration,
+      trimSegments: [{
+        id: crypto.randomUUID(),
+        startTime: 0,
+        endTime: duration,
+      }],
       zoomKeyframes: [],
       textSegments: []
     };
@@ -610,7 +672,8 @@ export class VideoController {
   // Add this new method
   public isAtEnd(): boolean {
     if (!this.renderOptions?.segment) return false;
-    const { trimEnd } = this.renderOptions.segment;
+    const segs = getTrimSegments(this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime);
+    const trimEnd = segs[segs.length - 1].endTime;
     return Math.abs(this.video.currentTime - trimEnd) < 0.1; // Allow 0.1s tolerance
   }
 }

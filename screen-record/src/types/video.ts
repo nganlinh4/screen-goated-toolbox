@@ -55,9 +55,16 @@ export interface CropRect {
   height: number; // 0-1
 }
 
+export interface TrimSegment {
+  id: string;
+  startTime: number;
+  endTime: number;
+}
+
 export interface VideoSegment {
   trimStart: number;
   trimEnd: number;
+  trimSegments?: TrimSegment[];
   zoomKeyframes: ZoomKeyframe[];
   smoothMotionPath?: { time: number; x: number; y: number; zoom: number }[];
   zoomInfluencePoints?: { time: number; value: number }[];

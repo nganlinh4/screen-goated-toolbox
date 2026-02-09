@@ -8,6 +8,7 @@ import { videoExporter } from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
 import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment } from '@/types/video';
 import { generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
+import { normalizeSegmentTrimData } from '@/lib/trimSegments';
 import { getKeyframeRange } from '@/utils/helpers';
 import { useThrottle } from './useAppHooks';
 
@@ -294,6 +295,11 @@ export function useRecording(props: UseRecordingProps) {
         const videoDuration = props.videoRef.current?.duration || 0;
         const initialSegment: VideoSegment = {
           trimStart: 0, trimEnd: videoDuration, zoomKeyframes: [], textSegments: [],
+          trimSegments: [{
+            id: crypto.randomUUID(),
+            startTime: 0,
+            endTime: videoDuration,
+          }],
           cursorVisibilitySegments: [{
             id: crypto.randomUUID(),
             startTime: 0,
@@ -387,10 +393,11 @@ export function useProjects(props: UseProjectsProps) {
     }
 
     const videoDuration = props.videoControllerRef.current?.duration || 0;
-    const correctedSegment = { ...project.segment };
+    let correctedSegment = { ...project.segment };
     if (correctedSegment.trimEnd === 0 || correctedSegment.trimEnd > videoDuration) {
       correctedSegment.trimEnd = videoDuration;
     }
+    correctedSegment = normalizeSegmentTrimData(correctedSegment, videoDuration);
     // Materialize pointer segments for backward-compat (old projects have undefined)
     if (!correctedSegment.cursorVisibilitySegments) {
       correctedSegment.cursorVisibilitySegments = [{
@@ -468,7 +475,7 @@ export function useExport(props: UseExportProps) {
         width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, speed: exportOptions.speed,
         outputDir: exportOptions.outputDir || '',
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
-        segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
+        segment: normalizeSegmentTrimData(props.segment, props.videoRef.current.duration || props.segment.trimEnd), backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined, audioFilePath: props.audioFilePath,
         onProgress: setExportProgress
       });
