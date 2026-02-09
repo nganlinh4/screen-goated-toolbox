@@ -75,6 +75,8 @@ pub struct ExportConfig {
     pub height: u32,
     pub framerate: u32,
     pub audio_path: String,
+    #[serde(default)]
+    pub output_dir: String,
     pub trim_start: f64,
     pub duration: f64,
     pub speed: f64,
@@ -326,6 +328,82 @@ fn sample_baked_cursor(
     Some((x, y, scale, is_clicked, cursor_type, opacity))
 }
 
+pub fn get_default_export_dir() -> String {
+    dirs::download_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .to_string_lossy()
+        .to_string()
+}
+
+pub fn pick_export_folder(initial_dir: Option<String>) -> Result<Option<String>, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG;
+    use windows::Win32::UI::Shell::{
+        FileOpenDialog, FOLDERID_Downloads, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
+        FOS_PICKFOLDERS, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
+        SHGetKnownFolderPath, SIGDN_FILESYSPATH,
+    };
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+
+        let dialog: IFileOpenDialog =
+            CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
+
+        let _ = dialog.SetOptions(FOS_PICKFOLDERS | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM);
+
+        if let Some(dir) = initial_dir.filter(|d| !d.trim().is_empty()) {
+            let dir_w: Vec<u16> = std::ffi::OsStr::new(&dir)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            if let Ok(folder_item) =
+                SHCreateItemFromParsingName::<PCWSTR, _, IShellItem>(PCWSTR(dir_w.as_ptr()), None)
+            {
+                let _ = dialog.SetFolder(&folder_item);
+            }
+        } else if let Ok(downloads_path) =
+            SHGetKnownFolderPath(&FOLDERID_Downloads, KNOWN_FOLDER_FLAG(0), None)
+        {
+            if let Ok(folder_item) =
+                SHCreateItemFromParsingName::<PCWSTR, _, IShellItem>(PCWSTR(downloads_path.0), None)
+            {
+                let _ = dialog.SetFolder(&folder_item);
+            }
+        }
+
+        if dialog.Show(None).is_err() {
+            CoUninitialize();
+            return Ok(None);
+        }
+
+        let result = dialog.GetResult().map_err(|e| {
+            CoUninitialize();
+            e.to_string()
+        })?;
+
+        let path = result.GetDisplayName(SIGDN_FILESYSPATH).map_err(|e| {
+            CoUninitialize();
+            e.to_string()
+        })?;
+
+        let path_str = path.to_string().unwrap_or_default();
+        CoTaskMemFree(Some(path.0 as *const _));
+        CoUninitialize();
+
+        if path_str.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(path_str))
+        }
+    }
+}
+
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
 
@@ -360,8 +438,16 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         None
     };
 
-    let output_path = dirs::download_dir()
-        .unwrap_or(PathBuf::from("."))
+    let output_base_dir = if config.output_dir.trim().is_empty() {
+        dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        PathBuf::from(config.output_dir.trim())
+    };
+
+    fs::create_dir_all(&output_base_dir)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let output_path = output_base_dir
         .join(format!(
             "SGT_Export_{}.mp4",
             std::time::SystemTime::now()

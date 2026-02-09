@@ -88,6 +88,9 @@ const ko: Translations = {
   speed: '속도',
   slower: '느리게',
   faster: '빠르게',
+  saveLocation: '저장 위치',
+  browse: '찾아보기',
+  browsing: '찾는 중...',
   cancel: '취소',
   exportVideo: '비디오 내보내기',
 

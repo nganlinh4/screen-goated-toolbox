@@ -121,6 +121,7 @@ export class VideoExporter {
       height,
       framerate: fps,
       audioPath: audioFilePath,
+      outputDir: options.outputDir || '',
       trimStart: segment?.trimStart || 0,
       duration: (segment?.trimEnd || 0) - (segment?.trimStart || 0),
       speed,

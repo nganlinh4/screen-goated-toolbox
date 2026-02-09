@@ -452,7 +452,7 @@ export function useExport(props: UseExportProps) {
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
-    width: 0, height: 0, fps: 60, speed: 1
+    width: 0, height: 0, fps: 60, speed: 1, outputDir: ''
   });
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
@@ -466,6 +466,7 @@ export function useExport(props: UseExportProps) {
 
       await videoExporter.exportAndDownload({
         width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, speed: exportOptions.speed,
+        outputDir: exportOptions.outputDir || '',
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
         segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined, audioFilePath: props.audioFilePath,

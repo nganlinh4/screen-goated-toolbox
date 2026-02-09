@@ -130,6 +130,7 @@ export interface ExportOptions {
   height: number;  // 0 = use original canvas dimensions
   fps: number;     // 24, 30, or 60
   speed: number;
+  outputDir?: string;
   video?: HTMLVideoElement;
   canvas?: HTMLCanvasElement;
   tempCanvas?: HTMLCanvasElement;

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Video, Keyboard, Loader2, AlertCircle, X } from 'lucide-react';
+import { Video, Keyboard, Loader2, AlertCircle, X, FolderOpen } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import { computeResolutionOptions, getCanvasBaseDimensions, type ResolutionOption } from '@/lib/videoExporter';
 import { formatTime } from '@/utils/helpers';
@@ -104,6 +105,36 @@ const FPS_OPTIONS = [24, 30, 60] as const;
 
 export function ExportDialog({ show, onClose, onExport, exportOptions, setExportOptions, segment, videoRef, backgroundConfig }: ExportDialogProps) {
   const { t } = useSettings();
+  const [isPickingDir, setIsPickingDir] = useState(false);
+
+  useEffect(() => {
+    if (!show || exportOptions.outputDir) return;
+
+    invoke<string>('get_default_export_dir')
+      .then((dir) => {
+        if (dir) {
+          setExportOptions(prev => ({ ...prev, outputDir: dir }));
+        }
+      })
+      .catch((e) => console.error('[Export] Failed to get default export dir:', e));
+  }, [show, exportOptions.outputDir, setExportOptions]);
+
+  const handleBrowseOutputDir = async () => {
+    try {
+      setIsPickingDir(true);
+      const selected = await invoke<string | null>('pick_export_folder', {
+        initialDir: exportOptions.outputDir || null,
+      });
+      if (selected) {
+        setExportOptions(prev => ({ ...prev, outputDir: selected }));
+      }
+    } catch (e) {
+      console.error('[Export] Failed to pick export dir:', e);
+    } finally {
+      setIsPickingDir(false);
+    }
+  };
+
   if (!show) return null;
 
   const vidW = videoRef.current?.videoWidth || 1920;
@@ -197,6 +228,27 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
                 />
                 <span className="text-xs text-[var(--outline)] min-w-[36px]">{t.faster}</span>
               </div>
+            </div>
+          </div>
+
+          <div className="export-location-field">
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.saveLocation}</label>
+            <div className="flex items-center gap-2">
+              <div
+                className="flex-1 min-w-0 text-xs text-[var(--on-surface)] bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 truncate"
+                title={exportOptions.outputDir || ''}
+              >
+                {exportOptions.outputDir || '-'}
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleBrowseOutputDir}
+                disabled={isPickingDir}
+                className="h-8 text-xs bg-transparent border-[var(--glass-border)] text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)]"
+              >
+                <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+                {isPickingDir ? t.browsing : t.browse}
+              </Button>
             </div>
           </div>
         </div>
