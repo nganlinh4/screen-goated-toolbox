@@ -129,6 +129,7 @@ function App() {
   });
   const { editingPointerId, setEditingPointerId, handleSmartPointerHiding,
     handleAddPointerSegment, handleDeletePointerSegment } = cursorHiding;
+  const isOverlayMode = projects.showProjectsDialog || isCropping;
 
   // Handlers
   const handleToggleCrop = useCallback(() => {
@@ -381,6 +382,7 @@ function App() {
         onRemoveHotkey={handleRemoveHotkey} onOpenHotkeyDialog={openHotkeyDialog}
         onToggleKeyviz={toggleKeyviz} onExport={exportHook.handleExport}
         onOpenProjects={handleToggleProjects}
+        hideExport={isOverlayMode}
       />
 
       <main className="app-main flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
@@ -479,7 +481,7 @@ function App() {
           </div>
 
           {/* Side Panel */}
-          <div className={`side-panel-container w-72 flex-shrink-0 min-h-0 relative ${projects.showProjectsDialog || isCropping ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
+          <div className={`side-panel-container w-72 flex-shrink-0 min-h-0 relative ${isOverlayMode ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
@@ -490,12 +492,12 @@ function App() {
               beginBatch={beginBatch} commitBatch={commitBatch}
               canvasRef={canvasRef}
             />
-            {(projects.showProjectsDialog || isCropping) && <div className="panel-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
+            {isOverlayMode && <div className="panel-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
           </div>
         </div>
 
         {/* Timeline */}
-        <div className={`timeline-container mt-3 flex-shrink-0 relative ${projects.showProjectsDialog || isCropping ? 'overflow-hidden' : ''}`}>
+        <div className={`timeline-container mt-3 flex-shrink-0 relative ${isOverlayMode ? 'overflow-hidden' : ''}`}>
           <TimelineArea
             duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
             timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
@@ -506,7 +508,7 @@ function App() {
             onAddText={handleAddText} onAddPointerSegment={handleAddPointerSegment}
             isPlaying={isPlaying} beginBatch={beginBatch} commitBatch={commitBatch}
           />
-          {(projects.showProjectsDialog || isCropping) && <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
+          {isOverlayMode && <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
         </div>
       </main>
 
