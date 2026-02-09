@@ -340,8 +340,53 @@ interface CursorPanelProps {
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
 }
 
+interface CursorVariantButtonProps {
+  isSelected: boolean;
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+}
+
+function CursorVariantButton({ isSelected, onClick, label, children }: CursorVariantButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`cursor-variant-button w-9 h-9 rounded-md border transition-colors flex items-center justify-center ${
+        isSelected
+          ? 'border-[var(--primary-color)] bg-[var(--primary-color)]/15'
+          : 'border-[var(--glass-border)] bg-[var(--glass-bg)] hover:border-[var(--primary-color)]/50'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ClassicArrowPreview() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="cursor-preview-svg">
+      <path d="M8.2 4.9L19.8 16.5H13L12.6 16.6L8.2 20.9V4.9Z" fill="black" stroke="white" strokeWidth="1.5" />
+      <path d="M17.3 21.6L13.7 23.1L9 12L12.7 10.5L17.3 21.6Z" fill="black" stroke="white" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function ClassicTextPreview() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 14 18" fill="none" className="cursor-preview-svg">
+      <path d="M2 1H12V3H9V15H12V17H2V15H5V3H2V1Z" fill="black" stroke="white" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
 function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps) {
   const { t } = useSettings();
+  const defaultVariant = backgroundConfig.cursorDefaultVariant ?? 'classic';
+  const textVariant = backgroundConfig.cursorTextVariant ?? 'classic';
+  const pointerVariant = backgroundConfig.cursorPointerVariant ?? 'screenstudio';
+  const openHandVariant = backgroundConfig.cursorOpenHandVariant ?? 'screenstudio';
   return (
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="cursor-controls space-y-3">
@@ -386,18 +431,87 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
         <div className="cursor-wiggle-strength-field">
           <label className="cursor-wiggle-strength-label text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
             <span>{t.pointerWiggleStrength}</span>
-            <span>{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.25) * 100)}%</span>
+            <span>{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.15) * 100)}%</span>
           </label>
           <input
             type="range"
             min="0"
             max="1"
             step="0.01"
-            value={backgroundConfig.cursorWiggleStrength ?? 0.25}
-            style={sv(backgroundConfig.cursorWiggleStrength ?? 0.25, 0, 1)}
+            value={backgroundConfig.cursorWiggleStrength ?? 0.15}
+            style={sv(backgroundConfig.cursorWiggleStrength ?? 0.15, 0, 1)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: Number(e.target.value) }))}
             className="cursor-wiggle-strength-slider w-full"
           />
+        </div>
+        <div className="cursor-variants-section space-y-2">
+          <label className="cursor-variants-label text-xs text-[var(--on-surface-variant)] block">{t.cursorVariants}</label>
+
+          <div className="cursor-variant-row flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[var(--on-surface-variant)]">{t.cursorDefault}</span>
+            <div className="cursor-variant-picker flex items-center gap-1.5">
+              <CursorVariantButton
+                isSelected={defaultVariant === 'classic'}
+                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorDefaultVariant: 'classic' }))}
+                label={`${t.cursorDefault} classic`}
+              >
+                <ClassicArrowPreview />
+              </CursorVariantButton>
+              <CursorVariantButton
+                isSelected={defaultVariant === 'screenstudio'}
+                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorDefaultVariant: 'screenstudio' }))}
+                label={`${t.cursorDefault} screen studio`}
+              >
+                <img src="/cursor-default-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+              </CursorVariantButton>
+            </div>
+          </div>
+
+          <div className="cursor-variant-row flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[var(--on-surface-variant)]">{t.cursorText}</span>
+            <div className="cursor-variant-picker flex items-center gap-1.5">
+              <CursorVariantButton
+                isSelected={textVariant === 'classic'}
+                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorTextVariant: 'classic' }))}
+                label={`${t.cursorText} classic`}
+              >
+                <ClassicTextPreview />
+              </CursorVariantButton>
+              <CursorVariantButton
+                isSelected={textVariant === 'screenstudio'}
+                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorTextVariant: 'screenstudio' }))}
+                label={`${t.cursorText} screen studio`}
+              >
+                <img src="/cursor-text-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+              </CursorVariantButton>
+            </div>
+          </div>
+
+          <div className="cursor-variant-row flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[var(--on-surface-variant)]">{t.cursorPointer}</span>
+            <div className="cursor-variant-picker flex items-center gap-1.5">
+              <CursorVariantButton
+                isSelected={pointerVariant === 'screenstudio'}
+                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorPointerVariant: 'screenstudio' }))}
+                label={`${t.cursorPointer} screen studio`}
+              >
+                <img src="/cursor-pointer-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+              </CursorVariantButton>
+            </div>
+          </div>
+
+          <div className="cursor-variant-row flex items-center justify-between gap-2">
+            <span className="text-[10px] text-[var(--on-surface-variant)]">{t.cursorOpenHand}</span>
+            <div className="cursor-variant-picker flex items-center gap-1.5">
+              <CursorVariantButton
+                isSelected={openHandVariant === 'screenstudio'}
+                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorOpenHandVariant: 'screenstudio' }))}
+                label={`${t.cursorOpenHand} screen studio`}
+              >
+                <img src="/cursor-openhand-screenstudio.svg" alt="" className="cursor-preview-image w-5 h-5 object-contain" />
+              </CursorVariantButton>
+            </div>
+          </div>
         </div>
       </div>
     </div>

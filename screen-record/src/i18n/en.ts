@@ -47,6 +47,13 @@ const en = {
   pointerWiggleStrength: 'Pointer Wiggle Strength',
   pointerWiggleDamping: 'Pointer Wiggle Damping',
   pointerWiggleResponse: 'Pointer Wiggle Response',
+  cursorVariants: 'Cursor Variants',
+  cursorDefault: 'Default Arrow',
+  cursorText: 'Text Beam',
+  cursorPointer: 'Pointing Hand',
+  cursorOpenHand: 'Open Hand',
+  cursorClassic: 'Classic',
+  cursorScreenStudio: 'Screen Studio',
 
   // TextPanel
   textOverlay: 'Text Overlay',

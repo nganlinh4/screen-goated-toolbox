@@ -49,6 +49,13 @@ const ko: Translations = {
   pointerWiggleStrength: '포인터 흔들림 강도',
   pointerWiggleDamping: '흔들림 감쇠',
   pointerWiggleResponse: '흔들림 반응 속도',
+  cursorVariants: '커서 스타일',
+  cursorDefault: '기본 화살표',
+  cursorText: '텍스트 커서',
+  cursorPointer: '포인팅 핸드',
+  cursorOpenHand: '오픈 핸드',
+  cursorClassic: '기본형',
+  cursorScreenStudio: 'Screen Studio',
 
   // TextPanel
   textOverlay: '텍스트 오버레이',

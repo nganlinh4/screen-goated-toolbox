@@ -50,7 +50,11 @@ function App() {
   const [recentUploads, setRecentUploads] = useState<string[]>([]);
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>({
     scale: 90, borderRadius: 48, backgroundType: 'gradient2', shadow: 100, volume: 1, cursorScale: 5, cursorMovementDelay: 0.03,
-    cursorWiggleStrength: 0.25
+    cursorWiggleStrength: 0.15,
+    cursorDefaultVariant: 'screenstudio',
+    cursorTextVariant: 'screenstudio',
+    cursorPointerVariant: 'screenstudio',
+    cursorOpenHandVariant: 'screenstudio'
   });
 
   const timelineRef = useRef<HTMLDivElement>(null);

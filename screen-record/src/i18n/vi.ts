@@ -49,6 +49,13 @@ const vi: Translations = {
   pointerWiggleStrength: 'Độ Lắc Con Trỏ',
   pointerWiggleDamping: 'Giảm Chấn Lắc',
   pointerWiggleResponse: 'Độ Nhạy Lắc',
+  cursorVariants: 'Kiểu Con Trỏ',
+  cursorDefault: 'Mũi Tên Mặc Định',
+  cursorText: 'Con Trỏ Văn Bản',
+  cursorPointer: 'Bàn Tay Chỉ',
+  cursorOpenHand: 'Bàn Tay Mở',
+  cursorClassic: 'Cổ Điển',
+  cursorScreenStudio: 'Screen Studio',
 
   // TextPanel
   textOverlay: 'Lớp Phủ Chữ',
