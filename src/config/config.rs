@@ -266,10 +266,18 @@ pub struct Config {
     /// Global hotkeys for screen recording start/stop
     #[serde(default = "default_screen_record_hotkeys")]
     pub screen_record_hotkeys: Vec<Hotkey>,
+
+    /// Last normal (restored) window size for Screen Record UI
+    #[serde(default = "default_screen_record_window_size")]
+    pub screen_record_window_size: (i32, i32),
 }
 
 fn default_screen_record_hotkeys() -> Vec<Hotkey> {
     vec![]
+}
+
+fn default_screen_record_window_size() -> (i32, i32) {
+    (1300, 850)
 }
 
 // ============================================================================
@@ -383,6 +391,7 @@ impl Default for Config {
 
             // Screen Record
             screen_record_hotkeys: default_screen_record_hotkeys(),
+            screen_record_window_size: default_screen_record_window_size(),
         }
     }
 }

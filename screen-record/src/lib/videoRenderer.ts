@@ -1,6 +1,6 @@
 import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay } from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
-import { getTrimSegments, sourceRangeToCompactRanges } from '@/lib/trimSegments';
+import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/lib/trimSegments';
 
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
@@ -708,7 +708,11 @@ export class VideoRenderer {
     }
 
     if (!isPaused && this.cachedBakedPath && this.cachedBakedPath.length > 0) {
-      const relTime = currentTime - segment.trimStart;
+      const timelineDuration = Math.max(
+        segment.trimEnd,
+        ...(segment.trimSegments || []).map(s => s.endTime)
+      );
+      const relTime = toCompactTime(currentTime, segment, timelineDuration);
       const step = 1 / 60;
       const idx = Math.floor(relTime / step);
 

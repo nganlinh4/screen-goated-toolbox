@@ -293,18 +293,34 @@ export function useRecording(props: UseRecordingProps) {
         props.generateThumbnails();
 
         const videoDuration = props.videoRef.current?.duration || 0;
-        const initialSegment: VideoSegment = {
-          trimStart: 0, trimEnd: videoDuration, zoomKeyframes: [], textSegments: [],
+        const baseSegment: VideoSegment = {
+          trimStart: 0,
+          trimEnd: videoDuration,
           trimSegments: [{
             id: crypto.randomUUID(),
             startTime: 0,
             endTime: videoDuration,
           }],
-          cursorVisibilitySegments: [{
-            id: crypto.randomUUID(),
-            startTime: 0,
-            endTime: videoDuration,
-          }],
+          zoomKeyframes: [],
+          textSegments: [],
+        };
+
+        const initialPointerSegments = generateCursorVisibility(baseSegment, mouseData, videoDuration);
+        const vidW = props.videoRef.current?.videoWidth || 0;
+        const vidH = props.videoRef.current?.videoHeight || 0;
+        const initialAutoPath = (vidW > 0 && vidH > 0 && mouseData.length > 0)
+          ? autoZoomGenerator.generateMotionPath(baseSegment, mouseData, vidW, vidH)
+          : [];
+
+        const initialSegment: VideoSegment = {
+          ...baseSegment,
+          // Smart Pointer ON by default for new recordings.
+          cursorVisibilitySegments: initialPointerSegments,
+          // Auto Zoom ON by default for new recordings.
+          smoothMotionPath: initialAutoPath,
+          zoomInfluencePoints: initialAutoPath.length > 0
+            ? [{ time: 0, value: 1.0 }, { time: videoDuration, value: 1.0 }]
+            : [],
         };
         props.setSegment(initialSegment);
 
