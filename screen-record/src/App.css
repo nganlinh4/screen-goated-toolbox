@@ -64,6 +64,20 @@
         --glass-bg: rgba(0, 0, 0, 0.04);
         --glass-border: rgba(0, 0, 0, 0.08);
         --glass-bg-hover: rgba(0, 0, 0, 0.06);
+
+        /* Timeline / overlay control tokens (light) */
+        --overlay-panel-bg: rgba(255, 255, 255, 0.9);
+        --overlay-panel-border: rgba(17, 24, 39, 0.14);
+        --overlay-panel-fg: #0f172a;
+        --overlay-divider: rgba(15, 23, 42, 0.18);
+        --timeline-track-bg: rgba(15, 23, 42, 0.04);
+        --timeline-gap-overlay: rgba(255, 255, 255, 0.62);
+        --timeline-active-border: rgba(15, 23, 42, 0.22);
+        --timeline-handle: rgba(15, 23, 42, 0.75);
+        --timeline-label-bg: rgba(255, 255, 255, 0.9);
+        --timeline-label-fg: #0f172a;
+        --timeline-float-fg: #ffffff;
+        --timeline-float-ring: rgba(15, 23, 42, 0.25);
     }
 
     .dark {
@@ -116,6 +130,20 @@
         --glass-bg: rgba(255, 255, 255, 0.04);
         --glass-border: rgba(255, 255, 255, 0.06);
         --glass-bg-hover: rgba(255, 255, 255, 0.06);
+
+        /* Timeline / overlay control tokens (dark) */
+        --overlay-panel-bg: rgba(0, 0, 0, 0.62);
+        --overlay-panel-border: rgba(255, 255, 255, 0.08);
+        --overlay-panel-fg: rgba(255, 255, 255, 0.92);
+        --overlay-divider: rgba(255, 255, 255, 0.12);
+        --timeline-track-bg: rgba(255, 255, 255, 0.05);
+        --timeline-gap-overlay: rgba(255, 255, 255, 0.2);
+        --timeline-active-border: rgba(255, 255, 255, 0.2);
+        --timeline-handle: rgba(255, 255, 255, 0.85);
+        --timeline-label-bg: rgba(0, 0, 0, 0.6);
+        --timeline-label-fg: #ffffff;
+        --timeline-float-fg: #ffffff;
+        --timeline-float-ring: rgba(0, 0, 0, 0.35);
     }
 }
 

@@ -22,7 +22,7 @@ const sv = (v: number, min: number, max: number): React.CSSProperties =>
 export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'text';
 
 const GRADIENT_PRESETS = {
-  solid: 'bg-black',
+  solid: 'bg-[var(--surface-dim)]',
   gradient1: 'bg-gradient-to-r from-blue-600 to-violet-600',
   gradient2: 'bg-gradient-to-r from-rose-400 to-orange-300',
   gradient3: 'bg-gradient-to-r from-emerald-500 to-teal-400'
@@ -300,7 +300,7 @@ function BackgroundPanel({
                 className={`aspect-square h-10 rounded-lg transition-all duration-150 ${gradient} ${
                   backgroundConfig.backgroundType === key
                     ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
-                    : 'ring-1 ring-white/[0.08] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+                    : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
                 }`}
               />
             ))}
@@ -319,7 +319,7 @@ function BackgroundPanel({
                 className={`aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden ${
                   backgroundConfig.backgroundType === 'custom' && backgroundConfig.customBackground === imageUrl
                     ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
-                    : 'ring-1 ring-white/[0.08] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+                    : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
                 }`}
               >
                 <img src={imageUrl} alt={`Upload ${index + 1}`} className="absolute inset-0 w-full h-full object-cover" />

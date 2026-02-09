@@ -33,7 +33,8 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
 
   return (
     <div
-      className="pointer-track relative h-7 rounded bg-[var(--surface)]/80"
+      className="pointer-track relative h-7 rounded"
+      style={{ backgroundColor: 'var(--timeline-track-bg)' }}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setHoverX(null)}
     >
@@ -72,13 +73,19 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
             className="pointer-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
             onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
           >
-            <div className="pointer-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+            <div
+              className="pointer-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
+              style={{ backgroundColor: 'var(--timeline-handle)' }}
+            />
           </div>
           <div
             className="pointer-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
             onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
           >
-            <div className="pointer-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+            <div
+              className="pointer-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
+              style={{ backgroundColor: 'var(--timeline-handle)' }}
+            />
           </div>
         </div>
       ))}

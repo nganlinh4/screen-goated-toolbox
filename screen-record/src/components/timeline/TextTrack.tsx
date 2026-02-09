@@ -40,7 +40,8 @@ export const TextTrack: React.FC<TextTrackProps> = ({
 
   return (
     <div
-      className="text-track relative h-7 rounded bg-[var(--surface)]/80"
+      className="text-track relative h-7 rounded"
+      style={{ backgroundColor: 'var(--timeline-track-bg)' }}
       onMouseMove={handleMouseMove}
       onMouseLeave={() => setHoverX(null)}
     >
@@ -75,7 +76,6 @@ export const TextTrack: React.FC<TextTrackProps> = ({
                 fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif",
                 fontWeight: text.style.fontVariations?.wght ?? 400,
                 fontVariationSettings: buildFontVariationCSS(text.style.fontVariations),
-                color: text.style.color,
               }}
             >
               {text.text}
@@ -86,13 +86,19 @@ export const TextTrack: React.FC<TextTrackProps> = ({
             className="text-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
             onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'start'); }}
           >
-            <div className="text-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+            <div
+              className="text-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
+              style={{ backgroundColor: 'var(--timeline-handle)' }}
+            />
           </div>
           <div
             className="text-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
             onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'end'); }}
           >
-            <div className="text-handle-bar w-[3px] h-3 rounded-full bg-white/90 shadow-[0_0_4px_rgba(0,0,0,0.4)]" />
+            <div
+              className="text-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
+              style={{ backgroundColor: 'var(--timeline-handle)' }}
+            />
           </div>
         </div>
       ))}
