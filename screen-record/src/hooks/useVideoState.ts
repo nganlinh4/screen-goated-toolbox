@@ -452,7 +452,7 @@ export function useExport(props: UseExportProps) {
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
-    quality: 'balanced', dimensions: '1080p', speed: 1
+    width: 0, height: 0, fps: 60, speed: 1
   });
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
@@ -465,7 +465,7 @@ export function useExport(props: UseExportProps) {
       setIsProcessing(true);
 
       await videoExporter.exportAndDownload({
-        quality: exportOptions.quality, dimensions: exportOptions.dimensions, speed: exportOptions.speed,
+        width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, speed: exportOptions.speed,
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
         segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined, audioFilePath: props.audioFilePath,
@@ -479,9 +479,14 @@ export function useExport(props: UseExportProps) {
     }
   }, [props, exportOptions]);
 
+  const cancelExport = useCallback(() => {
+    console.log('[Cancel] cancelExport callback fired');
+    videoExporter.cancel();
+  }, []);
+
   return {
     isProcessing, exportProgress, showExportDialog, setShowExportDialog,
-    exportOptions, setExportOptions, handleExport, startExport
+    exportOptions, setExportOptions, handleExport, startExport, cancelExport
   };
 }
 

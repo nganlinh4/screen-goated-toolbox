@@ -3,6 +3,8 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::Instant;
 
 use super::gpu_export::{create_uniforms, GpuCompositor};
@@ -12,6 +14,33 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
+
+/// Flag to signal export cancellation from the frontend.
+static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
+/// PIDs of the running decoder/encoder so cancel can kill them to unblock IO.
+static EXPORT_PIDS: Mutex<(u32, u32)> = Mutex::new((0, 0));
+
+pub fn cancel_export() {
+    println!("[Cancel] Setting EXPORT_CANCELLED flag");
+    EXPORT_CANCELLED.store(true, Ordering::SeqCst);
+    let (dec_pid, enc_pid) = *EXPORT_PIDS.lock().unwrap();
+    println!("[Cancel] PIDs: decoder={}, encoder={}", dec_pid, enc_pid);
+    terminate_pid(dec_pid);
+    terminate_pid(enc_pid);
+    println!("[Cancel] Kill commands sent");
+}
+
+fn terminate_pid(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    // Use Windows taskkill to forcefully terminate the ffmpeg process tree
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F", "/T"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+}
 
 /// Push a progress update directly to the WebView via PostMessageW.
 /// This avoids IPC round-trips and works even while another invoke is pending.
@@ -49,9 +78,6 @@ pub struct ExportConfig {
     pub trim_start: f64,
     pub duration: f64,
     pub speed: f64,
-    // ADDED: Accept quality string from frontend ("original" | "balanced")
-    #[serde(default = "default_quality")]
-    pub quality: String,
     pub segment: VideoSegment,
     pub background_config: BackgroundConfig,
     pub video_data: Option<Vec<u8>>,
@@ -60,10 +86,6 @@ pub struct ExportConfig {
     pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
     #[serde(default)]
     pub baked_text_overlays: Vec<BakedTextOverlay>,
-}
-
-fn default_quality() -> String {
-    "balanced".to_string()
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -305,6 +327,8 @@ fn sample_baked_cursor(
 }
 
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
+    EXPORT_CANCELLED.store(false, Ordering::SeqCst);
+
     let mut config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
 
     println!("[Export] Starting GPU-accelerated export...");
@@ -442,6 +466,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         "null".to_string()
     };
 
+    // Decoder must output at (framerate / speed) fps so each decoded frame
+    // matches one iteration of the frame loop which advances source time by
+    // dt * speed per step. E.g. 24fps @ 2x speed → decoder at 12fps.
+    let decoder_fps = config.framerate as f64 / config.speed;
+    let decoder_fps_str = format!("{:.4}", decoder_fps);
+
     let mut decoder = Command::new(&ffmpeg_path)
         .args([
             "-ss",
@@ -452,6 +482,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             &source_video_path,
             "-vf",
             &crop_filter,
+            "-r",
+            &decoder_fps_str,
             "-f",
             "rawvideo",
             "-pix_fmt",
@@ -472,12 +504,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     // 6. Start FFmpeg encoder
 
-    // Determine CRF based on Quality setting
-    let crf = if config.quality == "original" {
-        "17" // High quality, near lossless
-    } else {
-        "23" // Balanced (Standard default)
-    };
+    // CRF 18: high quality, optimal for screen recordings with sharp text
+    let crf = "18";
 
     let has_audio = source_audio_path.is_some();
     let mut encoder_args = vec![
@@ -548,23 +576,37 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let mut encoder_stdin = encoder.stdin.take().ok_or("Failed to open encoder stdin")?;
 
+    // Store PIDs so cancel_export() can kill them to unblock pipe IO
+    *EXPORT_PIDS.lock().unwrap() = (decoder.id(), encoder.id());
+
     // 7. Process frames
     let (gradient1, gradient2) = get_gradient_colors(&config.background_config.background_type);
     let frame_size = (crop_w * crop_h * 4) as usize;
     let mut buffer = vec![0u8; frame_size];
 
-    let dt = 1.0 / config.framerate as f64;
-    let step = dt * config.speed;
-    let mut current_time = config.trim_start;
-    let end_time = config.trim_start + config.duration;
-    let total_frames = ((config.duration / step).ceil() as u32).max(1);
+    // Use a counted loop that matches the decoder's frame count exactly.
+    // The decoder outputs at decoder_fps for config.duration seconds.
+    // Using round() to match ffmpeg's internal rounding of -r * -t.
+    let total_frames = ((config.duration * decoder_fps).round() as u32).max(1);
+    let step = config.speed / config.framerate as f64; // source-time advance per output frame
     let mut frame_count = 0u32;
+    let mut cancelled = false;
     let export_start = Instant::now();
 
-    while current_time < end_time {
-        if std::io::Read::read_exact(&mut decoder_stdout, &mut buffer).is_err() {
+    println!("[Export] Frame loop: total_frames={}, decoder_fps={:.2}, step={:.6}", total_frames, decoder_fps, step);
+
+    for frame_idx in 0..total_frames {
+        if EXPORT_CANCELLED.load(Ordering::SeqCst) {
+            println!("[Cancel] Flag detected at frame {}, breaking loop", frame_idx);
+            cancelled = true;
             break;
         }
+        if std::io::Read::read_exact(&mut decoder_stdout, &mut buffer).is_err() {
+            println!("[Export] read_exact failed at frame {}/{}", frame_idx, total_frames);
+            break;
+        }
+
+        let current_time = config.trim_start + frame_idx as f64 * step;
 
         let (raw_cam_x, raw_cam_y, zoom) =
             sample_baked_path(current_time - config.trim_start, &baked_path);
@@ -676,19 +718,41 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             };
             push_export_progress(pct, eta);
         }
-        current_time += step;
     }
 
-    drop(encoder_stdin);
-    let _ = decoder.wait();
-    let encoder_result = encoder.wait();
+    println!("[Export] Loop exited: frame_count={}, cancelled={}", frame_count, cancelled);
 
+    // Clear stored PIDs (processes are about to be cleaned up)
+    *EXPORT_PIDS.lock().unwrap() = (0, 0);
+
+    // Close encoder input first so it starts flushing
+    drop(encoder_stdin);
+    // Close decoder pipe and kill decoder (may have unread frames buffered)
+    drop(decoder_stdout);
+    let _ = decoder.kill();
+    let _ = decoder.wait();
+
+    if cancelled {
+        // On cancel: kill encoder immediately, don't wait for flush
+        let _ = encoder.kill();
+        let _ = encoder.wait();
+    }
+
+    // Clean up temp files
     if let Some(p) = temp_video_path {
         let _ = fs::remove_file(p);
     }
     if let Some(p) = temp_audio_path {
         let _ = fs::remove_file(p);
     }
+
+    if cancelled {
+        let _ = fs::remove_file(&output_path);
+        return Ok(serde_json::json!({ "status": "cancelled" }));
+    }
+
+    // Wait for encoder to finish flushing (H.264 B-frames, moov atom, etc.)
+    let encoder_result = encoder.wait();
 
     match encoder_result {
         Ok(status) if status.success() => Ok(serde_json::json!({
