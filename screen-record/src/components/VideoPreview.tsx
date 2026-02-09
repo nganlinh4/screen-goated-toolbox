@@ -97,7 +97,14 @@ export function PlaybackControls({
 }: PlaybackControlsProps) {
   const { t } = useSettings();
   return (
-    <div className="playback-controls absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 bg-black/60 backdrop-blur-xl rounded-xl px-3 py-2 border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50 whitespace-nowrap">
+    <div
+      className="playback-controls absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 backdrop-blur-xl rounded-xl px-3 py-2 border shadow-[0_8px_32px_rgba(0,0,0,0.22)] z-50 whitespace-nowrap"
+      style={{
+        backgroundColor: 'var(--overlay-panel-bg)',
+        borderColor: 'var(--overlay-panel-border)',
+        color: 'var(--overlay-panel-fg)',
+      }}
+    >
       <Button
         onClick={onToggleCrop}
         variant="ghost"
@@ -105,7 +112,7 @@ export function PlaybackControls({
         className={`w-8 h-8 rounded-lg transition-colors ${
           isCropping
             ? 'bg-green-500/80 text-white hover:bg-green-600'
-            : 'text-white/80 hover:text-white hover:bg-white/10'
+            : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)]'
         }`}
         title={isCropping ? t.applyCrop : t.cropVideo}
       >
@@ -119,13 +126,13 @@ export function PlaybackControls({
       </Button>
       {!isCropping && (
         <>
-          <div className="control-divider w-px h-5 bg-white/[0.12]" />
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           <Button
             onClick={onTogglePlayPause}
             disabled={isProcessing || !isVideoReady}
             variant="ghost"
             size="icon"
-            className={`w-8 h-8 rounded-lg transition-colors text-white bg-transparent hover:text-white hover:bg-white/10 ${
+            className={`w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)] bg-transparent hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)] ${
               isProcessing || !isVideoReady ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
@@ -133,18 +140,18 @@ export function PlaybackControls({
           </Button>
         </>
       )}
-      <div className="time-display text-white/90 text-[11px] font-medium tabular-nums flex-shrink-0">
+      <div className="time-display text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
       {!isCropping && autoZoomButton && (
         <>
-          <div className="control-divider w-px h-5 bg-white/[0.12]" />
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           {autoZoomButton}
         </>
       )}
       {!isCropping && smartPointerButton && (
         <>
-          <div className="control-divider w-px h-5 bg-white/[0.12]" />
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           {smartPointerButton}
         </>
       )}
@@ -505,7 +512,7 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
   commitBatch
 }, _ref) => {
   return (
-    <div className="col-span-3 rounded-xl overflow-hidden bg-black/20 flex items-center justify-center">
+    <div className="col-span-3 rounded-xl overflow-hidden bg-[var(--surface-container)]/50 flex items-center justify-center">
       <div className="relative w-full flex justify-center max-h-[70vh]">
         <div
           ref={previewContainerRef}

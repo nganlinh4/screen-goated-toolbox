@@ -448,7 +448,7 @@ function App() {
                           ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
                           : segment?.smoothMotionPath?.length
                             ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
-                            : 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
+                            : 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
                       }`}>
                       <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
                     </Button>
@@ -467,7 +467,7 @@ function App() {
                                 Math.abs(segs[0].endTime - duration) < 0.01
                               );
                               return isDefault
-                                ? 'bg-[var(--glass-bg)] hover:bg-white/10 text-[var(--on-surface)]'
+                                ? 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
                                 : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white';
                             })()
                       }`}>
