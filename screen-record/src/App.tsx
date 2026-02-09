@@ -511,7 +511,7 @@ function App() {
       </main>
 
       {/* Dialogs */}
-      <ProcessingOverlay show={exportHook.isProcessing} exportProgress={0} />
+      <ProcessingOverlay show={exportHook.isProcessing} exportProgress={0} onCancel={exportHook.cancelExport} />
       <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
         monitors={monitors} onSelectMonitor={startNewRecording} />
       {currentVideo && !isVideoReady && !projects.showProjectsDialog && (
@@ -521,7 +521,8 @@ function App() {
       )}
       <ExportDialog show={exportHook.showExportDialog} onClose={() => exportHook.setShowExportDialog(false)}
         onExport={exportHook.startExport} exportOptions={exportHook.exportOptions}
-        setExportOptions={exportHook.setExportOptions} segment={segment} />
+        setExportOptions={exportHook.setExportOptions} segment={segment}
+        videoRef={videoRef} backgroundConfig={backgroundConfig} />
       <HotkeyDialog show={showHotkeyDialog} onClose={closeHotkeyDialog} />
       <FfmpegSetupDialog show={needsSetup} ffmpegInstallStatus={ffmpegInstallStatus}
         onCancelInstall={handleCancelInstall} />

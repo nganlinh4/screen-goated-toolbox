@@ -64,6 +64,12 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "start_export_server" => native_export::start_native_export(args),
+        "cancel_export" => {
+            println!("[Cancel] IPC cancel_export received");
+            native_export::cancel_export();
+            println!("[Cancel] cancel_export() returned");
+            Ok(serde_json::Value::Null)
+        }
         "get_monitors" => {
             let monitors = get_monitors();
             Ok(serde_json::to_value(monitors).unwrap())

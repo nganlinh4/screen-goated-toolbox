@@ -1,5 +1,4 @@
-export type ExportQuality = 'original' | 'balanced';
-export type DimensionPreset = 'original' | '1080p' | '720p';
+// Resolution/FPS options are computed dynamically from canvas dimensions
 
 export interface ZoomKeyframe {
   time: number;
@@ -127,8 +126,9 @@ export interface BakedTextOverlay {
 }
 
 export interface ExportOptions {
-  quality?: ExportQuality;
-  dimensions: DimensionPreset;
+  width: number;   // 0 = use original canvas dimensions
+  height: number;  // 0 = use original canvas dimensions
+  fps: number;     // 24, 30, or 60
   speed: number;
   video?: HTMLVideoElement;
   canvas?: HTMLCanvasElement;
@@ -139,15 +139,7 @@ export interface ExportOptions {
   onProgress?: (progress: number) => void;
   audio?: HTMLAudioElement;
   bakedPath?: BakedCameraFrame[];
-  // NEW: Baked cursor
   bakedCursorPath?: BakedCursorFrame[];
-}
-
-export interface ExportPreset {
-  width: number;
-  height: number;
-  bitrate: number;
-  label: string;
 }
 
 export interface Project {

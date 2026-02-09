@@ -61,6 +61,7 @@ lazy_static::lazy_static! {
 struct IpcRequest {
     id: String,
     cmd: String,
+    #[serde(default)]
     args: serde_json::Value,
 }
 

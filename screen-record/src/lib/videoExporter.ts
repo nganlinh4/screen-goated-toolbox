@@ -1,19 +1,56 @@
 import type {
   ExportOptions,
+  BackgroundConfig,
+  VideoSegment,
 } from '@/types/video';
 
 import { videoRenderer } from './videoRenderer';
 
-export const EXPORT_PRESETS: Record<string, { label: string; quality: number }> = {
-  balanced: { label: 'Balanced (Recommended)', quality: 0.8 },
-  original: { label: 'Original Quality', quality: 1.0 },
-};
+// Standard video heights (descending) for resolution options
+const STANDARD_HEIGHTS = [2160, 1440, 1080, 720, 480] as const;
 
-export const DIMENSION_PRESETS: Record<string, { label: string; width: number; height: number }> = {
-  original: { label: 'Original Size', width: 0, height: 0 },
-  '1080p': { label: 'Full HD (1080p)', width: 1920, height: 1080 },
-  '720p': { label: 'HD (720p)', width: 1280, height: 720 },
-};
+export interface ResolutionOption {
+  width: number;
+  height: number;
+  label: string;
+}
+
+/** Compute resolution options based on the actual canvas base dimensions. */
+export function computeResolutionOptions(baseW: number, baseH: number): ResolutionOption[] {
+  const aspect = baseW / baseH;
+  const options: ResolutionOption[] = [];
+
+  // "Original" is always first
+  const origW = baseW % 2 === 0 ? baseW : baseW - 1;
+  const origH = baseH % 2 === 0 ? baseH : baseH - 1;
+  options.push({ width: origW, height: origH, label: `Original (${origW} × ${origH})` });
+
+  // Add standard heights that are strictly smaller than original
+  for (const h of STANDARD_HEIGHTS) {
+    if (h >= baseH) continue;
+    let w = Math.round(h * aspect);
+    if (w % 2 !== 0) w--;
+    const tag = h === 2160 ? '4K' : h === 1440 ? '2K' : h === 1080 ? '1080p' : h === 720 ? '720p' : '480p';
+    options.push({ width: w, height: h, label: `${tag} (${w} × ${h})` });
+  }
+
+  return options;
+}
+
+/** Compute the canvas base dimensions from video + crop + custom canvas config. */
+export function getCanvasBaseDimensions(
+  videoWidth: number, videoHeight: number,
+  segment: VideoSegment | null, backgroundConfig: BackgroundConfig | undefined
+): { baseW: number; baseH: number } {
+  const crop = segment?.crop || { x: 0, y: 0, width: 1, height: 1 };
+  const croppedW = Math.round(videoWidth * crop.width);
+  const croppedH = Math.round(videoHeight * crop.height);
+  const useCustom = backgroundConfig?.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight;
+  return {
+    baseW: useCustom ? backgroundConfig!.canvasWidth! : croppedW,
+    baseH: useCustom ? backgroundConfig!.canvasHeight! : croppedH,
+  };
+}
 
 export class VideoExporter {
   private isExporting = false;
@@ -24,69 +61,39 @@ export class VideoExporter {
     }
     this.isExporting = true;
 
-    // Destructure options
     const { video, segment, backgroundConfig, mousePositions, speed = 1, audioFilePath, audio } = options;
 
-    const preset = DIMENSION_PRESETS[options.dimensions] || DIMENSION_PRESETS['1080p'];
-    let width = preset.width;
-    let height = preset.height;
-
-    // Get raw video dimensions
     const vidW = video?.videoWidth || 1920;
     const vidH = video?.videoHeight || 1080;
+    const { baseW, baseH } = getCanvasBaseDimensions(vidW, vidH, segment ?? null, backgroundConfig);
 
-    // Calculate canvas dimensions (matching preview: custom canvas or crop-based)
-    const crop = segment?.crop || { x: 0, y: 0, width: 1, height: 1 };
-    const croppedW = Math.round(vidW * crop.width);
-    const croppedH = Math.round(vidH * crop.height);
+    // Resolve dimensions: 0×0 means "original"
+    let width = options.width > 0 ? options.width : baseW;
+    let height = options.height > 0 ? options.height : baseH;
 
-    const useCustomCanvas = backgroundConfig?.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight;
-    const baseW = useCustomCanvas ? backgroundConfig!.canvasWidth! : croppedW;
-    const baseH = useCustomCanvas ? backgroundConfig!.canvasHeight! : croppedH;
-
-    console.log('[Exporter] Video dimensions:', vidW, 'x', vidH);
-    console.log('[Exporter] Crop rect:', crop);
-    console.log('[Exporter] Canvas base dimensions:', baseW, 'x', baseH, useCustomCanvas ? '(custom)' : '(auto/crop)');
-    console.log('[Exporter] Dimension preset:', options.dimensions, '→', preset);
-
-    if (preset.height === 0) {
-      // Original: Use canvas dimensions as-is
-      width = baseW;
-      height = baseH;
-    } else {
-      // 1080p / 720p: Fix the height, adjust width to maintain aspect ratio
-      height = preset.height;
-      width = Math.round(height * (baseW / baseH));
-    }
-
-    // Ensure dimensions are even (required for ffmpeg yuv420p)
+    // Ensure even (required for ffmpeg yuv420p)
     if (width % 2 !== 0) width--;
     if (height % 2 !== 0) height--;
 
-    console.log('[Exporter] Final export dimensions:', width, 'x', height);
+    const fps = options.fps || 60;
 
-    const fps = 60;
+    console.log('[Exporter] Video:', vidW, '×', vidH, '→ Canvas:', baseW, '×', baseH, '→ Export:', width, '×', height, '@', fps, 'fps');
 
-    // 1. Bake the camera path to ensure backend matches preview 100%
-    console.log('[Exporter] Baking camera path...');
+    // 1. Bake camera path
     const bakedPath = segment ? videoRenderer.generateBakedPath(segment, vidW, vidH, fps) : [];
 
-    // 2. Bake the cursor path for strictly identical movement
-    console.log('[Exporter] Baking cursor path...');
+    // 2. Bake cursor path
     const bakedCursorPath = segment && mousePositions ? videoRenderer.generateBakedCursorPath(segment, mousePositions, fps) : [];
 
-    // 3. Bake text overlays — pre-render on canvas so Rust just alpha-composites
-    console.log('[Exporter] Baking text overlays...');
+    // 3. Bake text overlays
     const bakedTextOverlays = segment ? videoRenderer.bakeTextOverlays(segment, width, height) : [];
-    console.log(`[Exporter] Baked ${bakedPath.length} camera frames, ${bakedCursorPath.length} cursor frames, ${bakedTextOverlays.length} text overlays.`);
+    console.log(`[Exporter] Baked ${bakedPath.length} camera, ${bakedCursorPath.length} cursor, ${bakedTextOverlays.length} text`);
 
-    // Convert video blob to Uint8Array for Rust
+    // Convert video/audio blobs to arrays for Rust
     let videoDataArray: number[] | null = null;
     let audioDataArray: number[] | null = null;
 
-    // Check if we are using a blob URL (loaded project) or a local file path
     if (video && video.src && video.src.startsWith('blob:')) {
-      console.log('[Exporter] Fetching video blob data...');
       try {
         const resp = await fetch(video.src);
         const blob = await resp.blob();
@@ -98,9 +105,7 @@ export class VideoExporter {
       }
     }
 
-    // Also fetch audio blob if audio element has a blob URL and no file path provided
     if (audio && audio.src && audio.src.startsWith('blob:') && !audioFilePath) {
-      console.log('[Exporter] Fetching audio blob data...');
       try {
         const resp = await fetch(audio.src);
         const blob = await resp.blob();
@@ -111,7 +116,6 @@ export class VideoExporter {
       }
     }
 
-    // Prepare config payload
     const exportConfig = {
       width,
       height,
@@ -119,15 +123,15 @@ export class VideoExporter {
       audioPath: audioFilePath,
       trimStart: segment?.trimStart || 0,
       duration: (segment?.trimEnd || 0) - (segment?.trimStart || 0),
-      speed: speed,
-      segment: segment,
-      backgroundConfig: backgroundConfig,
-      mousePositions: mousePositions,
+      speed,
+      segment,
+      backgroundConfig,
+      mousePositions,
       videoData: videoDataArray,
       audioData: audioDataArray,
-      bakedPath: bakedPath,
-      bakedCursorPath: bakedCursorPath,
-      bakedTextOverlays: bakedTextOverlays
+      bakedPath,
+      bakedCursorPath,
+      bakedTextOverlays
     };
 
     // @ts-ignore
@@ -145,8 +149,17 @@ export class VideoExporter {
     }
   }
 
-  cancel() {
-    // Cancellation logic
+  async cancel() {
+    console.log('[Cancel] videoExporter.cancel() called');
+    // @ts-ignore
+    const { invoke } = window.__TAURI__.core;
+    try {
+      console.log('[Cancel] Sending invoke("cancel_export")...');
+      const res = await invoke('cancel_export');
+      console.log('[Cancel] invoke returned:', res);
+    } catch (e) {
+      console.error('[Cancel] invoke failed:', e);
+    }
   }
 }
 

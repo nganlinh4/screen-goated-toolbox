@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Keyboard, Loader2, AlertCircle, X } from 'lucide-react';
-import { ExportOptions, VideoSegment } from '@/types/video';
-import { EXPORT_PRESETS, DIMENSION_PRESETS } from '@/lib/videoExporter';
+import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
+import { computeResolutionOptions, getCanvasBaseDimensions, type ResolutionOption } from '@/lib/videoExporter';
 import { formatTime } from '@/utils/helpers';
 import { MonitorInfo, Hotkey, FfmpegInstallStatus } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
@@ -16,6 +16,7 @@ export type { MonitorInfo, Hotkey, FfmpegInstallStatus };
 interface ProcessingOverlayProps {
   show: boolean;
   exportProgress: number;
+  onCancel?: () => void;
 }
 
 function formatEta(seconds: number): string {
@@ -26,7 +27,7 @@ function formatEta(seconds: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
-export function ProcessingOverlay({ show }: ProcessingOverlayProps) {
+export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
   const { t } = useSettings();
   const [percent, setPercent] = useState(0);
   const [eta, setEta] = useState(0);
@@ -72,6 +73,14 @@ export function ProcessingOverlay({ show }: ProcessingOverlayProps) {
           <span className="progress-percent text-[var(--on-surface-variant)] tabular-nums">{active ? `${pct}%` : ''}</span>
           <span className="progress-eta text-[var(--outline)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
         </div>
+        {onCancel && (
+          <button
+            onClick={() => { console.log('[Cancel] Button clicked'); onCancel(); }}
+            className="cancel-export-btn mt-3 w-full py-1.5 rounded-lg text-xs font-medium text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] border border-[var(--glass-border)] transition-colors"
+          >
+            {t.cancel}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -87,11 +96,23 @@ interface ExportDialogProps {
   exportOptions: ExportOptions;
   setExportOptions: React.Dispatch<React.SetStateAction<ExportOptions>>;
   segment: VideoSegment | null;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  backgroundConfig: BackgroundConfig;
 }
 
-export function ExportDialog({ show, onClose, onExport, exportOptions, setExportOptions, segment }: ExportDialogProps) {
+const FPS_OPTIONS = [24, 30, 60] as const;
+
+export function ExportDialog({ show, onClose, onExport, exportOptions, setExportOptions, segment, videoRef, backgroundConfig }: ExportDialogProps) {
   const { t } = useSettings();
   if (!show) return null;
+
+  const vidW = videoRef.current?.videoWidth || 1920;
+  const vidH = videoRef.current?.videoHeight || 1080;
+  const { baseW, baseH } = getCanvasBaseDimensions(vidW, vidH, segment, backgroundConfig);
+  const resOptions = computeResolutionOptions(baseW, baseH);
+
+  // Find currently selected resolution key, fall back to original (0×0)
+  const selectedKey = `${exportOptions.width}x${exportOptions.height}`;
 
   return (
     <div className="export-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -104,30 +125,46 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
         </div>
 
         <div className="export-options-form space-y-4 mb-6">
-          <div className="export-quality-field">
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.quality}</label>
-            <select
-              value={exportOptions.quality}
-              onChange={(e) => setExportOptions(prev => ({ ...prev, quality: e.target.value as ExportOptions['quality'] }))}
-              className="export-quality-select w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)]"
-            >
-              {Object.entries(EXPORT_PRESETS).map(([key, preset]) => (
-                <option key={key} value={key}>{preset.label}</option>
-              ))}
-            </select>
+          <div className="export-resolution-field">
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.resolution}</label>
+            <div className="resolution-options flex gap-2 flex-wrap">
+              {resOptions.map((opt: ResolutionOption) => {
+                const key = `${opt.width}x${opt.height}`;
+                const isSelected = selectedKey === key || (exportOptions.width === 0 && exportOptions.height === 0 && opt === resOptions[0]);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setExportOptions(prev => ({ ...prev, width: opt.width, height: opt.height }))}
+                    className={`resolution-option py-1.5 px-3 rounded-lg text-xs font-medium transition-colors border ${
+                      isSelected
+                        ? 'bg-[var(--primary-color)] text-white border-transparent'
+                        : 'bg-[var(--glass-bg)] text-[var(--on-surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="export-dimensions-field">
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.dimensions}</label>
-            <select
-              value={exportOptions.dimensions}
-              onChange={(e) => setExportOptions(prev => ({ ...prev, dimensions: e.target.value as ExportOptions['dimensions'] }))}
-              className="export-dimensions-select w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)]"
-            >
-              {Object.entries(DIMENSION_PRESETS).map(([key, preset]) => (
-                <option key={key} value={key}>{preset.label}</option>
+          <div className="export-fps-field">
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.frameRate}</label>
+            <div className="fps-options flex gap-2">
+              {FPS_OPTIONS.map(fps => (
+                <button
+                  key={fps}
+                  onClick={() => setExportOptions(prev => ({ ...prev, fps }))}
+                  className={`fps-option flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                    exportOptions.fps === fps
+                      ? 'bg-[var(--primary-color)] text-white border-transparent'
+                      : 'bg-[var(--glass-bg)] text-[var(--on-surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)]'
+                  }`}
+                >
+                  {fps} fps
+                </button>
               ))}
-            </select>
+            </div>
           </div>
 
           <div className="export-speed-field">
