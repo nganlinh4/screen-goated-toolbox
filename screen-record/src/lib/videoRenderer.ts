@@ -547,7 +547,23 @@ export class VideoRenderer {
                   : (lower === 'resize_we' || lower === 'sizewe') ? 'resize_we'
                     : (lower === 'resize_nwse' || lower === 'sizenwse') ? 'resize_nwse'
                       : (lower === 'resize_nesw' || lower === 'sizenesw') ? 'resize_nesw'
-                        : (lower === 'move' || lower === 'sizeall' || lower === 'openhand' || lower === 'open-hand' || lower === 'grab' || lower === 'grabbing')
+                        : (
+                          lower === 'move' ||
+                          lower === 'sizeall' ||
+                          lower === 'drag' ||
+                          lower === 'dragging' ||
+                          lower === 'openhand' ||
+                          lower === 'open-hand' ||
+                          lower === 'open_hand' ||
+                          lower === 'closedhand' ||
+                          lower === 'closed-hand' ||
+                          lower === 'closed_hand' ||
+                          lower === 'closehand' ||
+                          lower === 'close-hand' ||
+                          lower === 'close_hand' ||
+                          lower === 'grab' ||
+                          lower === 'grabbing'
+                        )
                           ? (isClicked ? 'closehand' : 'openhand')
                           : (lower === 'other') ? 'default'
                             : (lower === 'default' || lower === 'arrow') ? 'default'

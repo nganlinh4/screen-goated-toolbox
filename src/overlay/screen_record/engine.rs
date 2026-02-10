@@ -1,20 +1,24 @@
 use crate::overlay::screen_record::audio_engine;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::fs;
 use std::mem::zeroed;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
-    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
+    DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, GetObjectW, BITMAP, HDC, HMONITOR,
+    MONITORINFOEXW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorInfo, GetCursorPos, LoadCursorW, CURSORINFO, IDC_APPSTARTING, IDC_ARROW, IDC_CROSS,
-    IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE,
-    IDC_WAIT,
+    GetCursorInfo, GetCursorPos, GetIconInfo, LoadCursorW, CURSORINFO, ICONINFO, IDC_APPSTARTING,
+    IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
+    IDC_SIZEWE, IDC_WAIT,
 };
 use windows_capture::{
     capture::{Context, GraphicsCaptureApiHandler},
@@ -55,12 +59,21 @@ lazy_static::lazy_static! {
     pub static ref IS_MOUSE_CLICKED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // Track if we already captured the click event (to only record one frame as clicked)
     pub static ref CLICK_CAPTURED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    // Last emitted cursor debug record to avoid spamming logs every frame.
+    static ref LAST_CURSOR_DEBUG: Mutex<Option<(isize, String, bool, String)>> = Mutex::new(None);
+    // Learned non-system custom cursor signatures that represent grab/openhand cursors.
+    // Learned only when unknown cursor appears while clicked=true.
+    static ref CUSTOM_GRAB_SIGNATURES: Mutex<HashSet<String>> = {
+        Mutex::new(load_grab_signatures())
+    };
 }
 
 pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
+
+const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
 
 pub struct CaptureHandler {
     encoder: Option<VideoEncoder>,
@@ -69,13 +82,14 @@ pub struct CaptureHandler {
     frame_count: u32,
 }
 
-fn get_cursor_type() -> String {
+fn get_cursor_type(is_clicked: bool) -> String {
     unsafe {
         let mut cursor_info: CURSORINFO = std::mem::zeroed();
         cursor_info.cbSize = std::mem::size_of::<CURSORINFO>() as u32;
 
         if GetCursorInfo(&mut cursor_info).is_ok() && cursor_info.flags.0 != 0 {
             let current_handle = cursor_info.hCursor.0;
+            let current_handle_key = current_handle as isize;
 
             let arrow = LoadCursorW(None, IDC_ARROW).unwrap().0;
             let ibeam = LoadCursorW(None, IDC_IBEAM).unwrap().0;
@@ -89,7 +103,8 @@ fn get_cursor_type() -> String {
             let size_nwse = LoadCursorW(None, IDC_SIZENWSE).unwrap().0;
             let size_nesw = LoadCursorW(None, IDC_SIZENESW).unwrap().0;
 
-            if current_handle == arrow {
+            let signature = cursor_signature(cursor_info.hCursor).unwrap_or_else(|| "n/a".to_string());
+            let cursor_type = if current_handle == arrow {
                 "default".to_string()
             } else if current_handle == ibeam {
                 "text".to_string()
@@ -111,12 +126,132 @@ fn get_cursor_type() -> String {
                 "resize_nesw".to_string()
             } else if current_handle == hand {
                 "pointer".to_string()
+            } else if CUSTOM_GRAB_SIGNATURES.lock().contains(&signature) {
+                "grab".to_string()
+            } else if is_clicked {
+                let should_persist = {
+                    let mut set = CUSTOM_GRAB_SIGNATURES.lock();
+                    set.insert(signature.clone())
+                };
+                if should_persist {
+                    println!("[CursorDetect] learn-grab-signature {}", signature);
+                    persist_grab_signatures();
+                }
+                "grab".to_string()
             } else {
                 "other".to_string()
+            };
+
+            // Debug logging: emit only when cursor handle/type/click-state changes.
+            let mut last = LAST_CURSOR_DEBUG.lock();
+            let changed = match &*last {
+                Some((h, t, c, s)) => {
+                    *h != current_handle_key || t != &cursor_type || *c != is_clicked || s != &signature
+                }
+                None => true,
+            };
+            if changed {
+                println!(
+                    "[CursorDetect] handle=0x{:X} type={} clicked={} sig={}",
+                    current_handle_key as usize,
+                    cursor_type,
+                    is_clicked,
+                    signature
+                );
+                *last = Some((current_handle_key, cursor_type.clone(), is_clicked, signature));
             }
+
+            cursor_type
         } else {
             "default".to_string()
         }
+    }
+}
+
+fn grab_signatures_file_path() -> PathBuf {
+    let base = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir);
+    base.join("screen-goated-toolbox")
+        .join("recordings")
+        .join("cursor_grab_signatures.json")
+}
+
+fn load_grab_signatures() -> HashSet<String> {
+    let mut out = HashSet::new();
+    out.insert(DEFAULT_GRAB_SIGNATURE.to_string());
+
+    let path = grab_signatures_file_path();
+    let Ok(text) = fs::read_to_string(&path) else {
+        return out;
+    };
+    let Ok(saved) = serde_json::from_str::<Vec<String>>(&text) else {
+        return out;
+    };
+    for sig in saved {
+        if !sig.trim().is_empty() {
+            out.insert(sig);
+        }
+    }
+    out
+}
+
+fn persist_grab_signatures() {
+    let path = grab_signatures_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let signatures = {
+        let set = CUSTOM_GRAB_SIGNATURES.lock();
+        let mut v: Vec<String> = set.iter().cloned().collect();
+        v.sort();
+        v
+    };
+    if let Ok(payload) = serde_json::to_string_pretty(&signatures) {
+        let _ = fs::write(path, payload);
+    }
+}
+
+fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) -> Option<String> {
+    unsafe {
+        let mut icon_info: ICONINFO = zeroed();
+        if GetIconInfo(handle.into(), &mut icon_info).is_err() {
+            return None;
+        }
+
+        let mut mask_bm: BITMAP = zeroed();
+        let mut color_bm: BITMAP = zeroed();
+
+        if !icon_info.hbmMask.0.is_null() {
+            let _ = GetObjectW(
+                icon_info.hbmMask.into(),
+                std::mem::size_of::<BITMAP>() as i32,
+                Some((&mut mask_bm as *mut BITMAP).cast()),
+            );
+        }
+        if !icon_info.hbmColor.0.is_null() {
+            let _ = GetObjectW(
+                icon_info.hbmColor.into(),
+                std::mem::size_of::<BITMAP>() as i32,
+                Some((&mut color_bm as *mut BITMAP).cast()),
+            );
+        }
+
+        if !icon_info.hbmMask.0.is_null() {
+            let _ = DeleteObject(icon_info.hbmMask.into());
+        }
+        if !icon_info.hbmColor.0.is_null() {
+            let _ = DeleteObject(icon_info.hbmColor.into());
+        }
+
+        Some(format!(
+            "hot({},{})|mask({}x{})|color({}x{})|mono({})",
+            icon_info.xHotspot,
+            icon_info.yHotspot,
+            mask_bm.bmWidth,
+            mask_bm.bmHeight,
+            color_bm.bmWidth,
+            color_bm.bmHeight,
+            if icon_info.hbmColor.0.is_null() { 1 } else { 0 }
+        ))
     }
 }
 
@@ -240,7 +375,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 if GetCursorPos(&mut point).is_ok() {
                     // Record actual held state - cursor should stay squished while held
                     let is_clicked = IS_MOUSE_CLICKED.load(Ordering::SeqCst);
-                    let cursor_type = get_cursor_type();
+                    let cursor_type = get_cursor_type(is_clicked);
 
                     let mouse_pos = MousePosition {
                         x: point.x - MONITOR_X,
