@@ -396,7 +396,7 @@ impl GpuCompositor {
         // --- SLOT 1: TEXT I-BEAM (Screen Studio) ---
         render_svg_slot(TEXT_SCREENSTUDIO_SVG, 1, 17.5, 17.5, 460.0);
         // --- SLOT 2: POINTING HAND (Screen Studio) ---
-        render_svg_slot(POINTER_SCREENSTUDIO_SVG, 2, 16.0, 8.0, 480.0);
+        render_svg_slot(POINTER_SCREENSTUDIO_SVG, 2, 14.5, 10.0, 480.0);
         // --- SLOT 3: OPEN HAND (Screen Studio) ---
         render_svg_slot(OPENHAND_SCREENSTUDIO_SVG, 3, 18.0, 17.5, 480.0);
 
