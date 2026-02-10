@@ -75,5 +75,6 @@ cargo test               # Run tests
 - When adding a new pack:
   - wire UI selection sources
   - wire frontend renderer types and image loading
-  - wire native export cursor type IDs and GPU atlas entries
+  - wire native export cursor type IDs and GPU atlas entries (keep each pack as a contiguous 12-slot block)
+  - update Rust WebView asset router (`src/overlay/screen_record/mod.rs`) so every new `cursor-*-<pack>.svg` is served
   - verify one preview screenshot and one exported frame for each pack.

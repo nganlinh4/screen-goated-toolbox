@@ -58,7 +58,19 @@ type CursorRenderType =
   | 'resize-ns-sgtcool'
   | 'resize-we-sgtcool'
   | 'resize-nwse-sgtcool'
-  | 'resize-nesw-sgtcool';
+  | 'resize-nesw-sgtcool'
+  | 'default-sgtai'
+  | 'text-sgtai'
+  | 'pointer-sgtai'
+  | 'openhand-sgtai'
+  | 'closehand-sgtai'
+  | 'wait-sgtai'
+  | 'appstarting-sgtai'
+  | 'crosshair-sgtai'
+  | 'resize-ns-sgtai'
+  | 'resize-we-sgtai'
+  | 'resize-nwse-sgtai'
+  | 'resize-nesw-sgtai';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -129,6 +141,18 @@ export class VideoRenderer {
   private resizeWeSgtcoolImage: HTMLImageElement;
   private resizeNwseSgtcoolImage: HTMLImageElement;
   private resizeNeswSgtcoolImage: HTMLImageElement;
+  private defaultSgtaiImage: HTMLImageElement;
+  private textSgtaiImage: HTMLImageElement;
+  private pointerSgtaiImage: HTMLImageElement;
+  private openHandSgtaiImage: HTMLImageElement;
+  private closeHandSgtaiImage: HTMLImageElement;
+  private waitSgtaiImage: HTMLImageElement;
+  private appStartingSgtaiImage: HTMLImageElement;
+  private crosshairSgtaiImage: HTMLImageElement;
+  private resizeNsSgtaiImage: HTMLImageElement;
+  private resizeWeSgtaiImage: HTMLImageElement;
+  private resizeNwseSgtaiImage: HTMLImageElement;
+  private resizeNeswSgtaiImage: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
 
@@ -377,6 +401,54 @@ export class VideoRenderer {
     this.resizeNeswSgtcoolImage.src = `/cursor-resize-nesw-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
     this.resizeNeswSgtcoolImage.onload = () => { };
 
+    this.defaultSgtaiImage = new Image();
+    this.defaultSgtaiImage.src = `/cursor-default-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.defaultSgtaiImage.onload = () => { };
+
+    this.textSgtaiImage = new Image();
+    this.textSgtaiImage.src = `/cursor-text-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.textSgtaiImage.onload = () => { };
+
+    this.pointerSgtaiImage = new Image();
+    this.pointerSgtaiImage.src = `/cursor-pointer-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.pointerSgtaiImage.onload = () => { };
+
+    this.openHandSgtaiImage = new Image();
+    this.openHandSgtaiImage.src = `/cursor-openhand-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.openHandSgtaiImage.onload = () => { };
+
+    this.closeHandSgtaiImage = new Image();
+    this.closeHandSgtaiImage.src = `/cursor-closehand-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.closeHandSgtaiImage.onload = () => { };
+
+    this.waitSgtaiImage = new Image();
+    this.waitSgtaiImage.src = `/cursor-wait-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.waitSgtaiImage.onload = () => { };
+
+    this.appStartingSgtaiImage = new Image();
+    this.appStartingSgtaiImage.src = `/cursor-appstarting-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.appStartingSgtaiImage.onload = () => { };
+
+    this.crosshairSgtaiImage = new Image();
+    this.crosshairSgtaiImage.src = `/cursor-crosshair-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.crosshairSgtaiImage.onload = () => { };
+
+    this.resizeNsSgtaiImage = new Image();
+    this.resizeNsSgtaiImage.src = `/cursor-resize-ns-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNsSgtaiImage.onload = () => { };
+
+    this.resizeWeSgtaiImage = new Image();
+    this.resizeWeSgtaiImage.src = `/cursor-resize-we-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeWeSgtaiImage.onload = () => { };
+
+    this.resizeNwseSgtaiImage = new Image();
+    this.resizeNwseSgtaiImage.src = `/cursor-resize-nwse-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNwseSgtaiImage.onload = () => { };
+
+    this.resizeNeswSgtaiImage = new Image();
+    this.resizeNeswSgtaiImage.src = `/cursor-resize-nesw-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNeswSgtaiImage.onload = () => { };
+
     this.cursorOffscreen = new OffscreenCanvas(128, 128);
     this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
   }
@@ -428,7 +500,18 @@ export class VideoRenderer {
     ].join('|');
   }
 
-  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' {
+  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' {
+    if (backgroundConfig?.cursorPack === 'sgtai') return 'sgtai';
+    if (backgroundConfig?.cursorPack === 'sgtcool') return 'sgtcool';
+    if (backgroundConfig?.cursorPack === 'sgtcute') return 'sgtcute';
+    if (backgroundConfig?.cursorPack === 'macos26') return 'macos26';
+    if (backgroundConfig?.cursorPack === 'screenstudio') return 'screenstudio';
+    if (backgroundConfig?.cursorDefaultVariant === 'sgtai'
+      || backgroundConfig?.cursorTextVariant === 'sgtai'
+      || backgroundConfig?.cursorPointerVariant === 'sgtai'
+      || backgroundConfig?.cursorOpenHandVariant === 'sgtai') {
+      return 'sgtai';
+    }
     if (backgroundConfig?.cursorDefaultVariant === 'sgtcool'
       || backgroundConfig?.cursorTextVariant === 'sgtcool'
       || backgroundConfig?.cursorPointerVariant === 'sgtcool'
@@ -501,6 +584,23 @@ export class VideoRenderer {
         case 'resize_nwse': return 'resize-nwse-sgtcool';
         case 'resize_nesw': return 'resize-nesw-sgtcool';
         default: return 'default-sgtcool';
+      }
+    }
+
+    if (pack === 'sgtai') {
+      switch (semanticType) {
+        case 'text': return 'text-sgtai';
+        case 'pointer': return 'pointer-sgtai';
+        case 'openhand': return 'openhand-sgtai';
+        case 'closehand': return 'closehand-sgtai';
+        case 'wait': return 'wait-sgtai';
+        case 'appstarting': return 'appstarting-sgtai';
+        case 'crosshair': return 'crosshair-sgtai';
+        case 'resize_ns': return 'resize-ns-sgtai';
+        case 'resize_we': return 'resize-we-sgtai';
+        case 'resize_nwse': return 'resize-nwse-sgtai';
+        case 'resize_nesw': return 'resize-nesw-sgtai';
+        default: return 'default-sgtai';
       }
     }
 
@@ -1715,11 +1815,15 @@ export class VideoRenderer {
       case 'pointer-sgtcool':
       case 'openhand-sgtcool':
       case 'closehand-sgtcool':
+      case 'pointer-sgtai':
+      case 'openhand-sgtai':
+      case 'closehand-sgtai':
         return { x: 3.0, y: 8.5 };
       case 'text-screenstudio':
       case 'text-macos26':
       case 'text-sgtcute':
       case 'text-sgtcool':
+      case 'text-sgtai':
         return { x: 0, y: 0 };
       default:
         return { x: 3.6, y: 5.6 };
@@ -1814,6 +1918,24 @@ export class VideoRenderer {
     }
   }
 
+  private getSgtaiCursorImage(type: CursorRenderType): HTMLImageElement | null {
+    switch (type) {
+      case 'default-sgtai': return this.defaultSgtaiImage;
+      case 'text-sgtai': return this.textSgtaiImage;
+      case 'pointer-sgtai': return this.pointerSgtaiImage;
+      case 'openhand-sgtai': return this.openHandSgtaiImage;
+      case 'closehand-sgtai': return this.closeHandSgtaiImage;
+      case 'wait-sgtai': return this.waitSgtaiImage;
+      case 'appstarting-sgtai': return this.appStartingSgtaiImage;
+      case 'crosshair-sgtai': return this.crosshairSgtaiImage;
+      case 'resize-ns-sgtai': return this.resizeNsSgtaiImage;
+      case 'resize-we-sgtai': return this.resizeWeSgtaiImage;
+      case 'resize-nwse-sgtai': return this.resizeNwseSgtaiImage;
+      case 'resize-nesw-sgtai': return this.resizeNeswSgtaiImage;
+      default: return null;
+    }
+  }
+
   private getScreenStudioCursorImage(type: CursorRenderType | string): HTMLImageElement | null {
     switch (type) {
       case 'default-screenstudio': return this.defaultScreenStudioImage;
@@ -1874,7 +1996,11 @@ export class VideoRenderer {
       || lowerType === 'default-sgtcool'
       || lowerType === 'pointer-sgtcool'
       || lowerType === 'openhand-sgtcool'
-      || lowerType === 'closehand-sgtcool';
+      || lowerType === 'closehand-sgtcool'
+      || lowerType === 'default-sgtai'
+      || lowerType === 'pointer-sgtai'
+      || lowerType === 'openhand-sgtai'
+      || lowerType === 'closehand-sgtai';
     if (allowRotation && Math.abs(rotation) > 0.0001) {
       const pivot = this.getCursorRotationPivot(lowerType);
       ctx.translate(pivot.x, pivot.y);
@@ -1932,6 +2058,12 @@ export class VideoRenderer {
         effectiveType = 'default-screenstudio';
       }
     }
+    if (effectiveType.endsWith('-sgtai')) {
+      const image = this.getSgtaiCursorImage(effectiveType as CursorRenderType);
+      if (!image || !image.complete || image.naturalWidth === 0) {
+        effectiveType = 'default-screenstudio';
+      }
+    }
 
     const mappingKey = `${cursorType}=>${effectiveType}`;
     if (!this.loggedCursorMappings.has(mappingKey)) {
@@ -1948,7 +2080,8 @@ export class VideoRenderer {
         this.getScreenStudioCursorImage(effectiveType) ??
         this.getMacos26CursorImage(effectiveType as CursorRenderType) ??
         this.getSgtcuteCursorImage(effectiveType as CursorRenderType) ??
-        this.getSgtcoolCursorImage(effectiveType as CursorRenderType);
+        this.getSgtcoolCursorImage(effectiveType as CursorRenderType) ??
+        this.getSgtaiCursorImage(effectiveType as CursorRenderType);
       console.log('[CursorDebug] loaded', {
         effectiveType,
         src: debugImg?.src,
@@ -2022,6 +2155,23 @@ export class VideoRenderer {
       case 'resize-nwse-sgtcool':
       case 'resize-nesw-sgtcool': {
         const img = this.getSgtcoolCursorImage(effectiveType);
+        if (img) this.drawCenteredCursorImage(ctx, img);
+        break;
+      }
+
+      case 'default-sgtai':
+      case 'text-sgtai':
+      case 'pointer-sgtai':
+      case 'openhand-sgtai':
+      case 'closehand-sgtai':
+      case 'wait-sgtai':
+      case 'appstarting-sgtai':
+      case 'crosshair-sgtai':
+      case 'resize-ns-sgtai':
+      case 'resize-we-sgtai':
+      case 'resize-nwse-sgtai':
+      case 'resize-nesw-sgtai': {
+        const img = this.getSgtaiCursorImage(effectiveType);
         if (img) this.drawCenteredCursorImage(ctx, img);
         break;
       }

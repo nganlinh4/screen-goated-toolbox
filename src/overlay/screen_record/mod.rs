@@ -120,6 +120,18 @@ const ASSET_CURSOR_RESIZE_NS_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-re
 const ASSET_CURSOR_RESIZE_WE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtcool.svg");
 const ASSET_CURSOR_RESIZE_NWSE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtcool.svg");
 const ASSET_CURSOR_RESIZE_NESW_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtcool.svg");
+const ASSET_CURSOR_DEFAULT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtai.svg");
+const ASSET_CURSOR_TEXT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtai.svg");
+const ASSET_CURSOR_POINTER_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtai.svg");
+const ASSET_CURSOR_OPENHAND_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtai.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtai.svg");
+const ASSET_CURSOR_WAIT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtai.svg");
+const ASSET_CURSOR_APPSTARTING_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtai.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtai.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtai.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtai.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtai.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtai.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_01_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-01.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_02_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-02.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_03_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-03.svg");
@@ -704,6 +716,30 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTCOOL_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-resize-nesw-sgtcool.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-crosshair-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtai.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTAI_SVG), "image/svg+xml")
                     } else if path.ends_with("cursors/sgtcool_raw/slot-01.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_01_SVG), "image/svg+xml")
                     } else if path.ends_with("cursors/sgtcool_raw/slot-02.svg") {
