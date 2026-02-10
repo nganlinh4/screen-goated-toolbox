@@ -392,54 +392,57 @@ impl GpuCompositor {
         let center = tile_size as f32 / 2.0; // 256.0
         let mut atlas = Pixmap::new(tile_size, tile_size * CURSOR_ATLAS_ROWS).unwrap();
 
-        // Scale factor: 8x
-        let cursor_scale = 8.0;
-
-        // Helper: render svg into a specific slot with an explicit hotspot.
-        let mut render_svg_slot = |svg: &[u8], slot: u32, hotspot_x: f32, hotspot_y: f32, target_size: f32| {
+        // Helper: render svg into a specific slot with center hotspot.
+        let mut render_svg_slot = |svg: &[u8], slot: u32, target_size: f32| {
             let opt = Options::default();
             if let Ok(tree) = Tree::from_data(svg, &opt) {
                 let svg_size = tree.size();
-                let scale = target_size / svg_size.width().max(svg_size.height());
-                let hotspot_in_img_x = hotspot_x * scale;
-                let hotspot_in_img_y = hotspot_y * scale;
-                let x = center - hotspot_in_img_x;
-                let y = (center + tile_size as f32 * slot as f32) - hotspot_in_img_y;
-                let ts = Transform::from_translate(x, y).pre_scale(scale, scale);
+                let svg_w = svg_size.width().max(1.0);
+                let svg_h = svg_size.height().max(1.0);
+                let base_scale = target_size / svg_w.max(svg_h);
+                let hotspot_px_x = (svg_w * 0.5) * base_scale;
+                let hotspot_px_y = (svg_h * 0.5) * base_scale;
+                let x = center - hotspot_px_x;
+                let y = (center + tile_size as f32 * slot as f32) - hotspot_px_y;
+                let ts = Transform::from_translate(x, y).pre_scale(base_scale, base_scale);
                 resvg::render(&tree, ts, &mut atlas.as_mut());
             }
         };
 
-        // --- SLOT 0: DEFAULT ARROW (Screen Studio) ---
-        render_svg_slot(DEFAULT_SCREENSTUDIO_SVG, 0, 12.5, 8.4, 480.0);
-        // --- SLOT 1: TEXT I-BEAM (Screen Studio) ---
-        render_svg_slot(TEXT_SCREENSTUDIO_SVG, 1, 17.5, 17.5, 460.0);
-        // --- SLOT 2: POINTING HAND (Screen Studio) ---
-        render_svg_slot(POINTER_SCREENSTUDIO_SVG, 2, 14.5, 10.0, 480.0);
-        // --- SLOT 3: OPEN HAND (Screen Studio) ---
-        render_svg_slot(OPENHAND_SCREENSTUDIO_SVG, 3, 18.0, 17.5, 480.0);
-        // --- SLOT 4..11: expanded Screen Studio ---
-        render_svg_slot(CLOSEHAND_SCREENSTUDIO_SVG, 4, 18.0, 17.5, 480.0);
-        render_svg_slot(WAIT_SCREENSTUDIO_SVG, 5, 18.0, 17.5, 480.0);
-        render_svg_slot(APPSTARTING_SCREENSTUDIO_SVG, 6, 18.0, 17.5, 480.0);
-        render_svg_slot(CROSSHAIR_SCREENSTUDIO_SVG, 7, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NS_SCREENSTUDIO_SVG, 8, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_WE_SCREENSTUDIO_SVG, 9, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NWSE_SCREENSTUDIO_SVG, 10, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NESW_SCREENSTUDIO_SVG, 11, 18.0, 17.5, 480.0);
-        // --- SLOT 12..23: macos26 ---
-        render_svg_slot(DEFAULT_MACOS26_SVG, 12, 18.0, 17.5, 480.0);
-        render_svg_slot(TEXT_MACOS26_SVG, 13, 18.0, 17.5, 480.0);
-        render_svg_slot(POINTER_MACOS26_SVG, 14, 18.0, 17.5, 480.0);
-        render_svg_slot(OPENHAND_MACOS26_SVG, 15, 18.0, 17.5, 480.0);
-        render_svg_slot(CLOSEHAND_MACOS26_SVG, 16, 18.0, 17.5, 480.0);
-        render_svg_slot(WAIT_MACOS26_SVG, 17, 18.0, 17.5, 480.0);
-        render_svg_slot(APPSTARTING_MACOS26_SVG, 18, 18.0, 17.5, 480.0);
-        render_svg_slot(CROSSHAIR_MACOS26_SVG, 19, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NS_MACOS26_SVG, 20, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_WE_MACOS26_SVG, 21, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NWSE_MACOS26_SVG, 22, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NESW_MACOS26_SVG, 23, 18.0, 17.5, 480.0);
+        let cursor_svgs: [&[u8]; 24] = [
+            DEFAULT_SCREENSTUDIO_SVG,
+            TEXT_SCREENSTUDIO_SVG,
+            POINTER_SCREENSTUDIO_SVG,
+            OPENHAND_SCREENSTUDIO_SVG,
+            CLOSEHAND_SCREENSTUDIO_SVG,
+            WAIT_SCREENSTUDIO_SVG,
+            APPSTARTING_SCREENSTUDIO_SVG,
+            CROSSHAIR_SCREENSTUDIO_SVG,
+            RESIZE_NS_SCREENSTUDIO_SVG,
+            RESIZE_WE_SCREENSTUDIO_SVG,
+            RESIZE_NWSE_SCREENSTUDIO_SVG,
+            RESIZE_NESW_SCREENSTUDIO_SVG,
+            DEFAULT_MACOS26_SVG,
+            TEXT_MACOS26_SVG,
+            POINTER_MACOS26_SVG,
+            OPENHAND_MACOS26_SVG,
+            CLOSEHAND_MACOS26_SVG,
+            WAIT_MACOS26_SVG,
+            APPSTARTING_MACOS26_SVG,
+            CROSSHAIR_MACOS26_SVG,
+            RESIZE_NS_MACOS26_SVG,
+            RESIZE_WE_MACOS26_SVG,
+            RESIZE_NWSE_MACOS26_SVG,
+            RESIZE_NESW_MACOS26_SVG,
+        ];
+
+        for slot in 0..24u32 {
+            render_svg_slot(
+                cursor_svgs[slot as usize],
+                slot,
+                if slot == 1 { 460.0 } else { 480.0 },
+            );
+        }
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
