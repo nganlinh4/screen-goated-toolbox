@@ -18,6 +18,7 @@ interface HeaderProps {
   onToggleKeyviz: () => void;
   onExport: () => void;
   onOpenProjects: () => void;
+  onOpenCursorLab: () => void;
   hideExport?: boolean;
 }
 
@@ -33,6 +34,7 @@ export function Header({
   onToggleKeyviz,
   onExport,
   onOpenProjects,
+  onOpenCursorLab,
   hideExport = false
 }: HeaderProps) {
   const { t } = useSettings();
@@ -128,6 +130,15 @@ export function Header({
         </div>
 
         <div className="header-actions flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onOpenCursorLab}
+            className="cursor-lab-button h-7 text-[11px] text-[var(--on-surface)] hover:bg-[var(--surface-container)] transition-colors"
+          >
+            Cursor Lab
+          </Button>
           {currentVideo && !hideExport && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}
