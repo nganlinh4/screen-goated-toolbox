@@ -408,8 +408,8 @@ fn apply_cursor_svg_adjustment(
     ];
 
     let scale = scale.clamp(0.2, 4.0);
-    let offset_x = offset_x_lab * (44.0 / 86.0);
-    let offset_y = offset_y_lab * (43.0 / 86.0);
+    let offset_x = offset_x_lab;
+    let offset_y = offset_y_lab;
     let draw_w = 44.0 * scale;
     let draw_h = 43.0 * scale;
     let x = offset_x + (44.0 - draw_w) * 0.5;
@@ -423,7 +423,7 @@ fn apply_cursor_svg_adjustment(
         }
         found += 1;
         let content = fs::read_to_string(&path).map_err(|e| format!("read {:?} failed: {}", path, e))?;
-        let replaced = replace_nested_svg_geometry(&content, x, y, draw_w, draw_h)?;
+        let replaced = replace_cursor_svg_geometry(&content, x, y, draw_w, draw_h, scale)?;
         if replaced != content {
             let next = normalize_sgt_offset_transform(replaced);
             if next != content {
@@ -437,6 +437,20 @@ fn apply_cursor_svg_adjustment(
         return Err(format!("No target files found for {}", rel));
     }
     Ok(updated)
+}
+
+fn replace_cursor_svg_geometry(
+    content: &str,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    scale: f32,
+) -> Result<String, String> {
+    if let Ok(next) = replace_nested_svg_geometry(content, x, y, width, height) {
+        return Ok(next);
+    }
+    replace_group_transform_geometry(content, x, y, scale)
 }
 
 fn replace_nested_svg_geometry(
@@ -468,6 +482,27 @@ fn replace_nested_svg_geometry(
         replacement,
         &content[vb_abs..]
     ))
+}
+
+fn replace_group_transform_geometry(content: &str, x: f32, y: f32, scale: f32) -> Result<String, String> {
+    let marker = r#"<g transform="translate("#;
+    let start = content
+        .find(marker)
+        .ok_or("Could not locate group transform for cursor geometry")?;
+    let rest = &content[start..];
+    let end_rel = rest
+        .find(")\">")
+        .ok_or("Could not locate end of group transform")?;
+    let end = start + end_rel + 3;
+
+    let replacement = format!(
+        r#"<g transform="translate({} {}) scale({})">"#,
+        fmt_num(x),
+        fmt_num(y),
+        fmt_num(scale)
+    );
+
+    Ok(format!("{}{}{}", &content[..start], replacement, &content[end..]))
 }
 
 fn normalize_sgt_offset_transform(mut content: String) -> String {

@@ -8,7 +8,7 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
-const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v15-sgtcool-labspacefix';
+const CURSOR_ASSET_VERSION = `cursor-types-runtime-${Date.now()}`;
 
 type CursorRenderType =
   | 'default-screenstudio'

@@ -22,8 +22,9 @@ type DragState = {
 
 const STAGE_W = 220;
 const STAGE_H = 170;
-const CANVAS_W = 86;
-const CANVAS_H = 86;
+const CANVAS_W = 44;
+const CANVAS_H = 43;
+const LAB_DISPLAY_SCALE = 2.2;
 
 const CURSOR_TYPES: Array<{ id: string; label: string }> = [
   { id: 'default', label: 'Default Arrow' },
@@ -115,21 +116,12 @@ export default function CursorSvgLab() {
             const res = await fetch(`${item.src}?v=cursor-lab-load-v10`);
             if (!res.ok) return;
             const text = await res.text();
-            const parsed = parseNestedGeometry(text);
+            const parsed = parseCursorGeometry(text);
             if (!parsed) return;
-            const scaleX = parsed.width / 44;
-            const scaleY = parsed.height / 43;
-            const scale = Number(((scaleX + scaleY) * 0.5).toFixed(4));
-            const offsetXLab = Number(
-              ((parsed.x - (44 - parsed.width) * 0.5) / (44 / 86)).toFixed(2)
-            );
-            const offsetYLab = Number(
-              ((parsed.y - (43 - parsed.height) * 0.5) / (43 / 86)).toFixed(2)
-            );
             loaded[item.key] = {
-              scale: Number.isFinite(scale) ? scale : 1,
-              offsetX: Number.isFinite(offsetXLab) ? offsetXLab : 0,
-              offsetY: Number.isFinite(offsetYLab) ? offsetYLab : 0,
+              scale: Number.isFinite(parsed.scale) ? parsed.scale : 1,
+              offsetX: Number.isFinite(parsed.offsetX) ? parsed.offsetX : 0,
+              offsetY: Number.isFinite(parsed.offsetY) ? parsed.offsetY : 0,
             };
           } catch {
             // Keep default values on parse/load failures.
@@ -207,7 +199,7 @@ export default function CursorSvgLab() {
             {copied === 'ok' ? 'Copied' : copied === 'fail' ? 'Copy failed' : ''}
           </span>
           <span className="cursor-lab-help-text text-xs text-[var(--on-surface-variant)]">
-            Drag: move cursor content, Slider: scale, Hotspot: fixed center
+            Drag: move cursor content (real SVG px), Slider: scale, Hotspot: fixed center
           </span>
         </div>
       </div>
@@ -215,14 +207,20 @@ export default function CursorSvgLab() {
       <div className="cursor-lab-grid h-[calc(100vh-108px)] overflow-auto thin-scrollbar grid grid-cols-[repeat(auto-fill,minmax(255px,1fr))] gap-3 pr-1">
         {CURSOR_ITEMS.map((item) => {
           const a = adjust[item.key];
-          const canvasLeft = STAGE_W / 2 - CANVAS_W / 2;
-          const canvasTop = STAGE_H / 2 - CANVAS_H / 2;
-          const imgW = CANVAS_W * a.scale;
-          const imgH = CANVAS_H * a.scale;
-          const imgLeft = canvasLeft + (CANVAS_W - imgW) / 2 + a.offsetX;
-          const imgTop = canvasTop + (CANVAS_H - imgH) / 2 + a.offsetY;
-          const hotspotX = canvasLeft + CANVAS_W * 0.5;
-          const hotspotY = canvasTop + CANVAS_H * 0.5;
+          const b = baselineAdjust[item.key];
+          const dispCanvasW = CANVAS_W * LAB_DISPLAY_SCALE;
+          const dispCanvasH = CANVAS_H * LAB_DISPLAY_SCALE;
+          const canvasLeft = STAGE_W / 2 - dispCanvasW / 2;
+          const canvasTop = STAGE_H / 2 - dispCanvasH / 2;
+          const previewScale = b.scale > 0 ? a.scale / b.scale : a.scale;
+          const imgW = dispCanvasW * previewScale;
+          const imgH = dispCanvasH * previewScale;
+          const imgLeft =
+            canvasLeft + (dispCanvasW - imgW) / 2 + (a.offsetX - b.offsetX) * LAB_DISPLAY_SCALE;
+          const imgTop =
+            canvasTop + (dispCanvasH - imgH) / 2 + (a.offsetY - b.offsetY) * LAB_DISPLAY_SCALE;
+          const hotspotX = canvasLeft + dispCanvasW * 0.5;
+          const hotspotY = canvasTop + dispCanvasH * 0.5;
 
           return (
             <div key={item.key} className="cursor-lab-card rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] p-2">
@@ -259,9 +257,9 @@ export default function CursorSvgLab() {
                     setAdjust((prev) => ({
                       ...prev,
                       [item.key]: {
-                        ...prev[item.key],
-                        offsetX: d.startOffsetX + (me.clientX - d.startX),
-                        offsetY: d.startOffsetY + (me.clientY - d.startY),
+                      ...prev[item.key],
+                        offsetX: d.startOffsetX + (me.clientX - d.startX) / LAB_DISPLAY_SCALE,
+                        offsetY: d.startOffsetY + (me.clientY - d.startY) / LAB_DISPLAY_SCALE,
                       },
                     }));
                   };
@@ -277,6 +275,7 @@ export default function CursorSvgLab() {
                   if (focusedKey !== item.key) return;
                   let dx = 0;
                   let dy = 0;
+                  const step = e.shiftKey ? 1 : 0.25;
                   if (e.key === 'ArrowLeft') dx = -1;
                   else if (e.key === 'ArrowRight') dx = 1;
                   else if (e.key === 'ArrowUp') dy = -1;
@@ -288,8 +287,8 @@ export default function CursorSvgLab() {
                     ...prev,
                     [item.key]: {
                       ...prev[item.key],
-                      offsetX: prev[item.key].offsetX + dx,
-                      offsetY: prev[item.key].offsetY + dy,
+                      offsetX: prev[item.key].offsetX + dx * step,
+                      offsetY: prev[item.key].offsetY + dy * step,
                     },
                   }));
                 }}
@@ -302,7 +301,7 @@ export default function CursorSvgLab() {
                 />
                 <div
                   className="cursor-lab-canvas-frame absolute pointer-events-none border border-[#ffd166]"
-                  style={{ left: canvasLeft, top: canvasTop, width: CANVAS_W, height: CANVAS_H }}
+                  style={{ left: canvasLeft, top: canvasTop, width: dispCanvasW, height: dispCanvasH }}
                 />
                 <div
                   className="cursor-lab-hotspot-center absolute pointer-events-none"
@@ -332,7 +331,7 @@ export default function CursorSvgLab() {
                 </div>
                 <div className="cursor-lab-meta-row flex items-center justify-between">
                   <span className="text-[10px] text-[var(--on-surface-variant)]">
-                    offset {a.offsetX.toFixed(1)}, {a.offsetY.toFixed(1)}
+                    offset {a.offsetX.toFixed(2)}, {a.offsetY.toFixed(2)}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <button
@@ -362,15 +361,34 @@ export default function CursorSvgLab() {
   );
 }
 
-function parseNestedGeometry(svg: string): { x: number; y: number; width: number; height: number } | null {
-  const m = svg.match(
+function parseCursorGeometry(svg: string): { scale: number; offsetX: number; offsetY: number } | null {
+  const nested = svg.match(
     /<svg\s+x="([-0-9.]+)"\s+y="([-0-9.]+)"\s+width="([-0-9.]+)"\s+height="([-0-9.]+)"\s+viewBox="/
   );
-  if (!m) return null;
-  const x = Number(m[1]);
-  const y = Number(m[2]);
-  const width = Number(m[3]);
-  const height = Number(m[4]);
-  if (![x, y, width, height].every(Number.isFinite)) return null;
-  return { x, y, width, height };
+  if (nested) {
+    const x = Number(nested[1]);
+    const y = Number(nested[2]);
+    const width = Number(nested[3]);
+    const height = Number(nested[4]);
+    if (![x, y, width, height].every(Number.isFinite)) return null;
+    const scaleX = width / 44;
+    const scaleY = height / 43;
+    const scale = Number(((scaleX + scaleY) * 0.5).toFixed(4));
+    const offsetX = Number((x - (44 - width) * 0.5).toFixed(2));
+    const offsetY = Number((y - (43 - height) * 0.5).toFixed(2));
+    return { scale, offsetX, offsetY };
+  }
+
+  const group = svg.match(
+    /<g\s+transform="translate\(([-0-9.]+)[\s,]+([-0-9.]+)\)\s*scale\(([-0-9.]+)\)"/
+  );
+  if (group) {
+    const offsetX = Number(group[1]);
+    const offsetY = Number(group[2]);
+    const scale = Number(group[3]);
+    if (![offsetX, offsetY, scale].every(Number.isFinite)) return null;
+    return { scale, offsetX, offsetY };
+  }
+
+  return null;
 }
