@@ -14,7 +14,6 @@ use super::native_export;
 use super::{SERVER_PORT, SR_HWND};
 use crate::config::Hotkey;
 use crate::APP;
-use regex::Regex;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek};
@@ -416,39 +415,82 @@ fn apply_cursor_svg_adjustment(
     let x = offset_x + (44.0 - draw_w) * 0.5;
     let y = offset_y + (43.0 - draw_h) * 0.5;
 
-    let re_outer = Regex::new(
-        r#"<svg x="[-0-9.]+" y="[-0-9.]+" width="[-0-9.]+" height="[-0-9.]+" viewBox=""#,
-    )
-    .map_err(|e| format!("regex error: {}", e))?;
-    let re_inner =
-        Regex::new(r#"transform="translate\([^)]+\)" data-sgt-offset="1""#).map_err(|e| e.to_string())?;
-
-    let replacement = format!(
-        r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox=""#,
-        fmt_num(x),
-        fmt_num(y),
-        fmt_num(draw_w),
-        fmt_num(draw_h)
-    );
-
+    let mut found = 0usize;
     let mut updated = 0usize;
     for path in targets {
         if !path.exists() {
             continue;
         }
+        found += 1;
         let content = fs::read_to_string(&path).map_err(|e| format!("read {:?} failed: {}", path, e))?;
-        let next = re_outer.replace(&content, replacement.as_str()).to_string();
-        let next = re_inner
-            .replace_all(&next, r#"transform="translate(0 0)" data-sgt-offset="1""#)
-            .to_string();
-        fs::write(&path, next).map_err(|e| format!("write {:?} failed: {}", path, e))?;
-        updated += 1;
+        let replaced = replace_nested_svg_geometry(&content, x, y, draw_w, draw_h)?;
+        if replaced != content {
+            let next = normalize_sgt_offset_transform(replaced);
+            if next != content {
+                fs::write(&path, next).map_err(|e| format!("write {:?} failed: {}", path, e))?;
+                updated += 1;
+            }
+        }
     }
 
-    if updated == 0 {
+    if found == 0 {
         return Err(format!("No target files found for {}", rel));
     }
     Ok(updated)
+}
+
+fn replace_nested_svg_geometry(
+    content: &str,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) -> Result<String, String> {
+    let start = content
+        .find("<svg x=\"")
+        .ok_or("Could not locate nested <svg x=...> block")?;
+    let vb_rel = content[start..]
+        .find(" viewBox=\"")
+        .ok_or("Could not locate nested <svg ... viewBox=...> block")?;
+    let vb_abs = start + vb_rel;
+
+    let replacement = format!(
+        r#"<svg x="{}" y="{}" width="{}" height="{}""#,
+        fmt_num(x),
+        fmt_num(y),
+        fmt_num(width),
+        fmt_num(height)
+    );
+
+    Ok(format!(
+        "{}{}{}",
+        &content[..start],
+        replacement,
+        &content[vb_abs..]
+    ))
+}
+
+fn normalize_sgt_offset_transform(mut content: String) -> String {
+    let marker = r#"data-sgt-offset="1""#;
+    let transform_prefix = r#"transform="translate("#;
+    let transform_replacement = r#"transform="translate(0 0)""#;
+
+    let mut search_from = 0usize;
+    while let Some(marker_rel) = content[search_from..].find(marker) {
+        let marker_idx = search_from + marker_rel;
+        let before = &content[..marker_idx];
+        if let Some(ts) = before.rfind(transform_prefix) {
+            let after_ts = &content[ts..];
+            if let Some(end_rel) = after_ts.find(")\"") {
+                let end = ts + end_rel + 2; // include )"
+                content.replace_range(ts..end, transform_replacement);
+                search_from = marker_idx + marker.len();
+                continue;
+            }
+        }
+        search_from = marker_idx + marker.len();
+    }
+    content
 }
 
 fn trigger_hotkey_reload() {

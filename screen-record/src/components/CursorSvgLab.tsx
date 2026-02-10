@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type CursorAdjustment = {
   scale: number;
@@ -81,6 +81,7 @@ function makeDefaultAdjustments(): Record<string, CursorAdjustment> {
 
 export default function CursorSvgLab() {
   const [adjust, setAdjust] = useState<Record<string, CursorAdjustment>>(makeDefaultAdjustments);
+  const [baselineAdjust, setBaselineAdjust] = useState<Record<string, CursorAdjustment>>(makeDefaultAdjustments);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [applying, setApplying] = useState<Record<string, boolean>>({});
@@ -104,6 +105,48 @@ export default function CursorSvgLab() {
     return out;
   }, [adjust]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const loaded: Record<string, CursorAdjustment> = {};
+      await Promise.all(
+        CURSOR_ITEMS.map(async (item) => {
+          try {
+            const res = await fetch(`${item.src}?v=cursor-lab-load-v10`);
+            if (!res.ok) return;
+            const text = await res.text();
+            const parsed = parseNestedGeometry(text);
+            if (!parsed) return;
+            const scaleX = parsed.width / 44;
+            const scaleY = parsed.height / 43;
+            const scale = Number(((scaleX + scaleY) * 0.5).toFixed(4));
+            const offsetXLab = Number(
+              ((parsed.x - (44 - parsed.width) * 0.5) / (44 / 86)).toFixed(2)
+            );
+            const offsetYLab = Number(
+              ((parsed.y - (43 - parsed.height) * 0.5) / (43 / 86)).toFixed(2)
+            );
+            loaded[item.key] = {
+              scale: Number.isFinite(scale) ? scale : 1,
+              offsetX: Number.isFinite(offsetXLab) ? offsetXLab : 0,
+              offsetY: Number.isFinite(offsetYLab) ? offsetYLab : 0,
+            };
+          } catch {
+            // Keep default values on parse/load failures.
+          }
+        })
+      );
+      if (cancelled) return;
+      if (Object.keys(loaded).length === 0) return;
+      setAdjust((prev) => ({ ...prev, ...loaded }));
+      setBaselineAdjust((prev) => ({ ...prev, ...loaded }));
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const copyJson = async () => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
@@ -115,7 +158,7 @@ export default function CursorSvgLab() {
   };
 
   const resetOne = (key: string) => {
-    setAdjust((prev) => ({ ...prev, [key]: { scale: 1, offsetX: 0, offsetY: 0 } }));
+    setAdjust((prev) => ({ ...prev, [key]: { ...baselineAdjust[key] } }));
   };
 
   const applyOne = async (item: CursorItem) => {
@@ -265,8 +308,8 @@ export default function CursorSvgLab() {
                   className="cursor-lab-hotspot-center absolute pointer-events-none"
                   style={{ left: hotspotX, top: hotspotY, transform: 'translate(-50%,-50%)' }}
                 >
-                  <div className="w-4 h-4 rounded-full border-2 border-red-500" />
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                  <div className="w-2 h-2 rounded-full border border-red-500/95" />
+                  <div className="w-px h-px rounded-full bg-red-500/90 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                 </div>
               </div>
 
@@ -317,4 +360,17 @@ export default function CursorSvgLab() {
       </div>
     </div>
   );
+}
+
+function parseNestedGeometry(svg: string): { x: number; y: number; width: number; height: number } | null {
+  const m = svg.match(
+    /<svg\s+x="([-0-9.]+)"\s+y="([-0-9.]+)"\s+width="([-0-9.]+)"\s+height="([-0-9.]+)"\s+viewBox="/
+  );
+  if (!m) return null;
+  const x = Number(m[1]);
+  const y = Number(m[2]);
+  const width = Number(m[3]);
+  const height = Number(m[4]);
+  if (![x, y, width, height].every(Number.isFinite)) return null;
+  return { x, y, width, height };
 }
