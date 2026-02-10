@@ -48,9 +48,32 @@ cargo test               # Run tests
 - Use `cargo check` or `cargo clippy` for verification instead
 - **Always fix all warnings** - code must compile with zero warnings
 - **Never use `#[allow(dead_code)]`** - remove unused code instead of suppressing warnings
+- Keep this `CLAUDE.md` updated whenever stable workflow/process knowledge changes.
+- Do not add volatile details that are likely to change often; update when needed, not routinely.
 
 ## Frontend (screen-record) Rules
 - **Always add descriptive class names** to JSX elements for DevTools debugging (e.g., `className="zoom-track ..."`, `className="text-segment ..."`)
 - Class names should be semantic, kebab-case, and describe the element's purpose
 - This applies to all components — tracks, handles, labels, overlays, buttons, etc.
 - **Preview = Export (WYSIWYG)**: The frontend preview must always be streamlined and baked/calculated for the backend export. What the user sees in preview must be completely identical to the exported result. Minimize work/changes in the export/render backend when adding new features or changing things in the frontend — keep the preview as the single source of truth.
+
+### Cursor Collection Onboarding Checklist (Critical)
+- New cursor collections must be generated as **single-cursor SVG files per type** (`cursor-*.svg`), never as full spritesheet content inside each file.
+- Keep cursor file format consistent with existing stable packs:
+  - final canvas `44x43`
+  - explicit clipping to final canvas (to prevent overflow/stacking in export renderers)
+  - one cursor glyph visible per file only
+- If a cursor file embeds source art with a large inner `viewBox` (e.g. 308x288), apply per-cursor position offsets in **final canvas pixel space** (outer 44x43 placement, e.g. nested `<svg x/y>`), not by translating inner source coordinates.
+- Cursor Lab offset values are measured in the lab preview canvas (`86x86`), not in final SVG canvas units (`44x43`).  
+  When baking Lab offsets into SVG `x/y`, convert first:  
+  `svgOffsetX = labOffsetX * (44/86)` and `svgOffsetY = labOffsetY * (43/86)`.
+- If source is a spritesheet, crop by slot into per-type SVGs first, then normalize.
+- Mirror every cursor asset update into both locations:
+  - `screen-record/public/...`
+  - `src/overlay/screen_record/dist/...`
+- Apply per-cursor position offsets by editing the SVG content transform (not temporary runtime mapping), so preview/UI/export stay aligned.
+- When adding a new pack:
+  - wire UI selection sources
+  - wire frontend renderer types and image loading
+  - wire native export cursor type IDs and GPU atlas entries
+  - verify one preview screenshot and one exported frame for each pack.

@@ -58,10 +58,10 @@ const SGTCUTE_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
   src: `/cursor-${t.id}-sgtcute.svg`,
 }));
 
-const SGTCOOL_ITEMS: CursorItem[] = CURSOR_TYPES.map((t, idx) => ({
+const SGTCOOL_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
   key: `sgtcool-${t.id}`,
   label: `SGT Cool • ${t.label}`,
-  src: `/cursors/sgtcool_raw/slot-${String(idx + 1).padStart(2, '0')}.svg`,
+  src: `/cursor-${t.id}-sgtcool.svg`,
 }));
 
 const CURSOR_ITEMS: CursorItem[] = [
@@ -83,6 +83,9 @@ export default function CursorSvgLab() {
   const [adjust, setAdjust] = useState<Record<string, CursorAdjustment>>(makeDefaultAdjustments);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
+  const [applying, setApplying] = useState<Record<string, boolean>>({});
+  const [applyStatus, setApplyStatus] = useState<Record<string, 'idle' | 'ok' | 'fail'>>({});
+  const [assetVersion, setAssetVersion] = useState(1);
   const dragRef = useRef<DragState | null>(null);
 
   const payload = useMemo(() => {
@@ -113,6 +116,37 @@ export default function CursorSvgLab() {
 
   const resetOne = (key: string) => {
     setAdjust((prev) => ({ ...prev, [key]: { scale: 1, offsetX: 0, offsetY: 0 } }));
+  };
+
+  const applyOne = async (item: CursorItem) => {
+    const a = adjust[item.key];
+    const invoke = (window as unknown as { __TAURI__?: { core?: { invoke?: (cmd: string, args?: unknown) => Promise<unknown> } } })
+      .__TAURI__?.core?.invoke;
+    if (!invoke) {
+      setApplyStatus((prev) => ({ ...prev, [item.key]: 'fail' }));
+      return;
+    }
+    setApplying((prev) => ({ ...prev, [item.key]: true }));
+    try {
+      await invoke('apply_cursor_svg_adjustment', {
+        src: item.src,
+        scale: a.scale,
+        offsetX: a.offsetX,
+        offsetY: a.offsetY,
+      });
+      setApplyStatus((prev) => ({ ...prev, [item.key]: 'ok' }));
+      setAssetVersion((v) => v + 1);
+      window.setTimeout(() => {
+        setApplyStatus((prev) => ({ ...prev, [item.key]: 'idle' }));
+      }, 1000);
+    } catch {
+      setApplyStatus((prev) => ({ ...prev, [item.key]: 'fail' }));
+      window.setTimeout(() => {
+        setApplyStatus((prev) => ({ ...prev, [item.key]: 'idle' }));
+      }, 1200);
+    } finally {
+      setApplying((prev) => ({ ...prev, [item.key]: false }));
+    }
   };
 
   return (
@@ -218,7 +252,7 @@ export default function CursorSvgLab() {
                 }}
               >
                 <img
-                  src={`${item.src}?v=cursor-lab-v4-sgtcool`}
+                  src={`${item.src}?v=cursor-lab-v9-apply-${assetVersion}`}
                   alt=""
                   className="cursor-lab-cursor-image absolute pointer-events-none select-none"
                   style={{ left: imgLeft, top: imgTop, width: imgW, height: imgH }}
@@ -257,12 +291,24 @@ export default function CursorSvgLab() {
                   <span className="text-[10px] text-[var(--on-surface-variant)]">
                     offset {a.offsetX.toFixed(1)}, {a.offsetY.toFixed(1)}
                   </span>
-                  <button
-                    onClick={() => resetOne(item.key)}
-                    className="cursor-lab-reset-button text-[10px] px-2 py-0.5 rounded border border-[var(--glass-border)] hover:bg-[var(--glass-bg)]"
-                  >
-                    Reset
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => applyOne(item)}
+                      disabled={Boolean(applying[item.key])}
+                      className="cursor-lab-apply-button text-[10px] px-2 py-0.5 rounded border border-[var(--primary-color)] text-[var(--primary-color)] hover:bg-[var(--glass-bg)] disabled:opacity-50"
+                    >
+                      {applying[item.key] ? 'Applying...' : 'Apply'}
+                    </button>
+                    <button
+                      onClick={() => resetOne(item.key)}
+                      className="cursor-lab-reset-button text-[10px] px-2 py-0.5 rounded border border-[var(--glass-border)] hover:bg-[var(--glass-bg)]"
+                    >
+                      Reset
+                    </button>
+                    <span className="text-[10px] text-[var(--on-surface-variant)] min-w-7">
+                      {applyStatus[item.key] === 'ok' ? 'Done' : applyStatus[item.key] === 'fail' ? 'Err' : ''}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>

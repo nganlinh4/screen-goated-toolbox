@@ -4,6 +4,8 @@ import App from "./App";
 import CursorSvgLab from "@/components/CursorSvgLab";
 import "./App.css";
 
+console.log("[SR-BUILD] bundle=v15-sgtcool-labspacefix cursor-debug-always-on");
+
 function RootRouter() {
   const [hash, setHash] = useState(() => window.location.hash);
 

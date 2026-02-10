@@ -14,8 +14,11 @@ use super::native_export;
 use super::{SERVER_PORT, SR_HWND};
 use crate::config::Hotkey;
 use crate::APP;
+use regex::Regex;
+use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek};
+use std::path::{Path, PathBuf};
 use std::thread;
 use tiny_http::{Response, Server, StatusCode};
 use windows::Win32::Foundation::*;
@@ -78,6 +81,18 @@ pub fn handle_ipc_command(
                 Some(path) => serde_json::json!(path),
                 None => serde_json::Value::Null,
             })
+        }
+        "apply_cursor_svg_adjustment" => {
+            let src = args["src"].as_str().ok_or("Missing src")?;
+            let scale = args["scale"].as_f64().ok_or("Missing scale")? as f32;
+            let offset_x = args["offsetX"].as_f64().ok_or("Missing offsetX")? as f32;
+            let offset_y = args["offsetY"].as_f64().ok_or("Missing offsetY")? as f32;
+
+            let files = apply_cursor_svg_adjustment(src, scale, offset_x, offset_y)?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "filesUpdated": files,
+            }))
         }
         "get_monitors" => {
             let monitors = get_monitors();
@@ -334,6 +349,106 @@ pub fn handle_ipc_command(
         },
         _ => Err(format!("Unknown command: {}", cmd)),
     }
+}
+
+fn fmt_num(v: f32) -> String {
+    let s = format!("{:.2}", v);
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+fn is_repo_root(path: &Path) -> bool {
+    path.join("Cargo.toml").exists()
+        && path.join("screen-record").exists()
+        && path.join("src").exists()
+}
+
+fn find_repo_root() -> Result<PathBuf, String> {
+    let mut dir = std::env::current_dir().map_err(|e| format!("current_dir failed: {}", e))?;
+    for _ in 0..6 {
+        if is_repo_root(&dir) {
+            return Ok(dir);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    Err("Could not locate repository root".to_string())
+}
+
+fn sanitize_svg_rel_path(src: &str) -> Result<String, String> {
+    if !src.ends_with(".svg") {
+        return Err("Only .svg files are allowed".to_string());
+    }
+    let rel = src.trim_start_matches('/');
+    if rel.is_empty() || rel.contains("..") || rel.contains('\\') {
+        return Err("Invalid svg path".to_string());
+    }
+    if !(rel.starts_with("cursor-") || rel.starts_with("cursors/")) {
+        return Err("Path outside cursor assets".to_string());
+    }
+    Ok(rel.to_string())
+}
+
+fn apply_cursor_svg_adjustment(
+    src: &str,
+    scale: f32,
+    offset_x_lab: f32,
+    offset_y_lab: f32,
+) -> Result<usize, String> {
+    let rel = sanitize_svg_rel_path(src)?;
+    let repo_root = find_repo_root()?;
+
+    let targets = [
+        repo_root.join("screen-record").join("public").join(&rel),
+        repo_root
+            .join("src")
+            .join("overlay")
+            .join("screen_record")
+            .join("dist")
+            .join(&rel),
+    ];
+
+    let scale = scale.clamp(0.2, 4.0);
+    let offset_x = offset_x_lab * (44.0 / 86.0);
+    let offset_y = offset_y_lab * (43.0 / 86.0);
+    let draw_w = 44.0 * scale;
+    let draw_h = 43.0 * scale;
+    let x = offset_x + (44.0 - draw_w) * 0.5;
+    let y = offset_y + (43.0 - draw_h) * 0.5;
+
+    let re_outer = Regex::new(
+        r#"<svg x="[-0-9.]+" y="[-0-9.]+" width="[-0-9.]+" height="[-0-9.]+" viewBox=""#,
+    )
+    .map_err(|e| format!("regex error: {}", e))?;
+    let re_inner =
+        Regex::new(r#"transform="translate\([^)]+\)" data-sgt-offset="1""#).map_err(|e| e.to_string())?;
+
+    let replacement = format!(
+        r#"<svg x="{}" y="{}" width="{}" height="{}" viewBox=""#,
+        fmt_num(x),
+        fmt_num(y),
+        fmt_num(draw_w),
+        fmt_num(draw_h)
+    );
+
+    let mut updated = 0usize;
+    for path in targets {
+        if !path.exists() {
+            continue;
+        }
+        let content = fs::read_to_string(&path).map_err(|e| format!("read {:?} failed: {}", path, e))?;
+        let next = re_outer.replace(&content, replacement.as_str()).to_string();
+        let next = re_inner
+            .replace_all(&next, r#"transform="translate(0 0)" data-sgt-offset="1""#)
+            .to_string();
+        fs::write(&path, next).map_err(|e| format!("write {:?} failed: {}", path, e))?;
+        updated += 1;
+    }
+
+    if updated == 0 {
+        return Err(format!("No target files found for {}", rel));
+    }
+    Ok(updated)
 }
 
 fn trigger_hotkey_reload() {
