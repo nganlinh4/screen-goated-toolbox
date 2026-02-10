@@ -8,7 +8,7 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
-const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v11-sgtcool';
+const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v15-sgtcool-labspacefix';
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -152,6 +152,8 @@ export class VideoRenderer {
   private lastBakeSegment: VideoSegment | null = null;
   private lastBakeViewW: number = 0;
   private lastBakeViewH: number = 0;
+  private loggedCursorTypes: Set<string> = new Set();
+  private loggedCursorMappings: Set<string> = new Set();
 
   /**
    * Apply font-variation-settings as CSS on the canvas element.
@@ -1929,6 +1931,31 @@ export class VideoRenderer {
       if (!image || !image.complete || image.naturalWidth === 0) {
         effectiveType = 'default-screenstudio';
       }
+    }
+
+    const mappingKey = `${cursorType}=>${effectiveType}`;
+    if (!this.loggedCursorMappings.has(mappingKey)) {
+      this.loggedCursorMappings.add(mappingKey);
+      console.log('[CursorDebug] map', {
+        rawType: cursorType,
+        effectiveType,
+      });
+    }
+
+    if (!this.loggedCursorTypes.has(effectiveType)) {
+      this.loggedCursorTypes.add(effectiveType);
+      const debugImg =
+        this.getScreenStudioCursorImage(effectiveType) ??
+        this.getMacos26CursorImage(effectiveType as CursorRenderType) ??
+        this.getSgtcuteCursorImage(effectiveType as CursorRenderType) ??
+        this.getSgtcoolCursorImage(effectiveType as CursorRenderType);
+      console.log('[CursorDebug] loaded', {
+        effectiveType,
+        src: debugImg?.src,
+        naturalWidth: debugImg?.naturalWidth,
+        naturalHeight: debugImg?.naturalHeight,
+        complete: debugImg?.complete,
+      });
     }
 
     switch (effectiveType) {
