@@ -64,12 +64,18 @@ const SGTCOOL_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
   label: `SGT Cool • ${t.label}`,
   src: `/cursor-${t.id}-sgtcool.svg`,
 }));
+const SGTAI_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
+  key: `sgtai-${t.id}`,
+  label: `SGT AI • ${t.label}`,
+  src: `/cursor-${t.id}-sgtai.svg`,
+}));
 
 const CURSOR_ITEMS: CursorItem[] = [
   ...SCREENSTUDIO_ITEMS,
   ...MACOS26_ITEMS,
   ...SGTCUTE_ITEMS,
   ...SGTCOOL_ITEMS,
+  ...SGTAI_ITEMS,
 ];
 
 function makeDefaultAdjustments(): Record<string, CursorAdjustment> {
@@ -84,11 +90,13 @@ export default function CursorSvgLab() {
   const [adjust, setAdjust] = useState<Record<string, CursorAdjustment>>(makeDefaultAdjustments);
   const [baselineAdjust, setBaselineAdjust] = useState<Record<string, CursorAdjustment>>(makeDefaultAdjustments);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [applying, setApplying] = useState<Record<string, boolean>>({});
   const [applyStatus, setApplyStatus] = useState<Record<string, 'idle' | 'ok' | 'fail'>>({});
   const [assetVersion, setAssetVersion] = useState(1);
   const dragRef = useRef<DragState | null>(null);
+  const selectedSet = useMemo(() => new Set(selectedKeys), [selectedKeys]);
 
   const payload = useMemo(() => {
     const out: Record<string, CursorAdjustment & { hotspotX: number; hotspotY: number; src: string }> = {};
@@ -223,7 +231,14 @@ export default function CursorSvgLab() {
           const hotspotY = canvasTop + dispCanvasH * 0.5;
 
           return (
-            <div key={item.key} className="cursor-lab-card rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] p-2">
+            <div
+              key={item.key}
+              className={`cursor-lab-card rounded-lg border bg-[var(--surface)] p-2 ${
+                selectedSet.has(item.key)
+                  ? 'border-[var(--primary-color)] ring-1 ring-[var(--primary-color)]/50'
+                  : 'border-[var(--glass-border)]'
+              }`}
+            >
               <div className="cursor-lab-title text-[10px] text-[var(--on-surface-variant)] truncate mb-1">{item.label}</div>
               <div className="cursor-lab-src text-[10px] text-[var(--on-surface-variant)]/80 truncate mb-1">{item.src}</div>
               <div
@@ -242,6 +257,22 @@ export default function CursorSvgLab() {
                   backgroundColor: '#111111',
                 }}
                 onPointerDown={(e) => {
+                  if (e.shiftKey && focusedKey) {
+                    const start = CURSOR_ITEMS.findIndex((it) => it.key === focusedKey);
+                    const end = CURSOR_ITEMS.findIndex((it) => it.key === item.key);
+                    if (start >= 0 && end >= 0) {
+                      const [from, to] = start <= end ? [start, end] : [end, start];
+                      const rangeKeys = CURSOR_ITEMS.slice(from, to + 1).map((it) => it.key);
+                      setSelectedKeys(rangeKeys);
+                    } else {
+                      setSelectedKeys([item.key]);
+                    }
+                    setFocusedKey(item.key);
+                    e.currentTarget.focus();
+                    return;
+                  }
+
+                  setSelectedKeys([item.key]);
                   setFocusedKey(item.key);
                   e.currentTarget.focus();
                   dragRef.current = {
@@ -323,7 +354,17 @@ export default function CursorSvgLab() {
                     value={a.scale}
                     onChange={(e) => {
                       const next = Number(e.target.value);
-                      setAdjust((prev) => ({ ...prev, [item.key]: { ...prev[item.key], scale: next } }));
+                      const targetKeys =
+                        selectedSet.has(item.key) && selectedKeys.length > 1
+                          ? selectedKeys
+                          : [item.key];
+                      setAdjust((prev) => {
+                        const nextAdjust = { ...prev };
+                        for (const key of targetKeys) {
+                          nextAdjust[key] = { ...nextAdjust[key], scale: next };
+                        }
+                        return nextAdjust;
+                      });
                     }}
                     className="cursor-lab-scale-slider flex-1 min-w-0"
                   />

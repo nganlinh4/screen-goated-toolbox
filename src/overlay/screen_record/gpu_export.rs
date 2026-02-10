@@ -130,9 +130,21 @@ const RESIZE_NS_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtco
 const RESIZE_WE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtcool.svg");
 const RESIZE_NWSE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtcool.svg");
 const RESIZE_NESW_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtcool.svg");
+const DEFAULT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtai.svg");
+const TEXT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtai.svg");
+const POINTER_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtai.svg");
+const OPENHAND_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtai.svg");
+const CLOSEHAND_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtai.svg");
+const WAIT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtai.svg");
+const APPSTARTING_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtai.svg");
+const CROSSHAIR_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtai.svg");
+const RESIZE_NS_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtai.svg");
+const RESIZE_WE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtai.svg");
+const RESIZE_NWSE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtai.svg");
+const RESIZE_NESW_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtai.svg");
 const CURSOR_ATLAS_COLS: u32 = 8;
-const CURSOR_ATLAS_ROWS: u32 = 6;
-const CURSOR_ATLAS_SLOTS: u32 = CURSOR_ATLAS_COLS * CURSOR_ATLAS_ROWS; // 48 cursors
+const CURSOR_ATLAS_ROWS: u32 = 8;
+const CURSOR_ATLAS_SLOTS: u32 = 60; // 5 packs * 12 cursor types
 const CURSOR_TILE_SIZE: u32 = 512;
 
 impl GpuCompositor {
@@ -417,6 +429,7 @@ impl GpuCompositor {
         // 12..23: macos26 set
         // 24..35: sgtcute set
         // 36..47: sgtcool set
+        // 48..59: sgtai set
 
         let tile_size = CURSOR_TILE_SIZE;
         let center = tile_size as f32 / 2.0;
@@ -445,7 +458,7 @@ impl GpuCompositor {
             }
         };
 
-        let cursor_svgs: [&[u8]; 48] = [
+        let cursor_svgs: [&[u8]; 60] = [
             DEFAULT_SCREENSTUDIO_SVG,
             TEXT_SCREENSTUDIO_SVG,
             POINTER_SCREENSTUDIO_SVG,
@@ -494,10 +507,22 @@ impl GpuCompositor {
             RESIZE_WE_SGTCOOL_SVG,
             RESIZE_NWSE_SGTCOOL_SVG,
             RESIZE_NESW_SGTCOOL_SVG,
+            DEFAULT_SGTAI_SVG,
+            TEXT_SGTAI_SVG,
+            POINTER_SGTAI_SVG,
+            OPENHAND_SGTAI_SVG,
+            CLOSEHAND_SGTAI_SVG,
+            WAIT_SGTAI_SVG,
+            APPSTARTING_SGTAI_SVG,
+            CROSSHAIR_SGTAI_SVG,
+            RESIZE_NS_SGTAI_SVG,
+            RESIZE_WE_SGTAI_SVG,
+            RESIZE_NWSE_SGTAI_SVG,
+            RESIZE_NESW_SGTAI_SVG,
         ];
 
         for slot in 0..CURSOR_ATLAS_SLOTS {
-            let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 {
+            let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 {
                 tile_size as f32 * 0.90
             } else {
                 tile_size as f32 * 0.94
@@ -743,11 +768,12 @@ fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
     if abs(type_id - 2.0) < 0.5 || abs(type_id - 3.0) < 0.5 || abs(type_id - 4.0) < 0.5
         || abs(type_id - 14.0) < 0.5 || abs(type_id - 15.0) < 0.5 || abs(type_id - 16.0) < 0.5
         || abs(type_id - 26.0) < 0.5 || abs(type_id - 27.0) < 0.5 || abs(type_id - 28.0) < 0.5
-        || abs(type_id - 38.0) < 0.5 || abs(type_id - 39.0) < 0.5 || abs(type_id - 40.0) < 0.5 {
+        || abs(type_id - 38.0) < 0.5 || abs(type_id - 39.0) < 0.5 || abs(type_id - 40.0) < 0.5
+        || abs(type_id - 50.0) < 0.5 || abs(type_id - 51.0) < 0.5 || abs(type_id - 52.0) < 0.5 {
         // hand cursors
         return vec2<f32>(3.0 * unit, 8.5 * unit);
     }
-    if abs(type_id - 1.0) < 0.5 || abs(type_id - 13.0) < 0.5 || abs(type_id - 25.0) < 0.5 || abs(type_id - 37.0) < 0.5 {
+    if abs(type_id - 1.0) < 0.5 || abs(type_id - 13.0) < 0.5 || abs(type_id - 25.0) < 0.5 || abs(type_id - 37.0) < 0.5 || abs(type_id - 49.0) < 0.5 {
         // text ibeam should stay upright
         return vec2<f32>(0.0, 0.0);
     }

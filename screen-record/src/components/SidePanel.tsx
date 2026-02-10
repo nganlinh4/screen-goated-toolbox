@@ -351,7 +351,7 @@ interface CursorVariantButtonProps {
   children: React.ReactNode;
 }
 
-type CursorVariant = 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool';
+type CursorVariant = 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai';
 type CursorVariantRow = {
   id: string;
   label: string;
@@ -359,6 +359,7 @@ type CursorVariantRow = {
   macos26Src: string;
   sgtcuteSrc: string;
   sgtcoolSrc: string;
+  sgtaiSrc: string;
 };
 
 function CursorVariantButton({ isSelected, onClick, label, children }: CursorVariantButtonProps) {
@@ -398,18 +399,18 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
       cursorOpenHandVariant: pack,
     }));
   const rows = useMemo<CursorVariantRow[]>(() => ([
-    { id: 'default', label: t.cursorDefault, screenstudioSrc: '/cursor-default-screenstudio.svg', macos26Src: '/cursor-default-macos26.svg', sgtcuteSrc: '/cursor-default-sgtcute.svg', sgtcoolSrc: '/cursor-default-sgtcool.svg' },
-    { id: 'text', label: t.cursorText, screenstudioSrc: '/cursor-text-screenstudio.svg', macos26Src: '/cursor-text-macos26.svg', sgtcuteSrc: '/cursor-text-sgtcute.svg', sgtcoolSrc: '/cursor-text-sgtcool.svg' },
-    { id: 'pointer', label: t.cursorPointer, screenstudioSrc: '/cursor-pointer-screenstudio.svg', macos26Src: '/cursor-pointer-macos26.svg', sgtcuteSrc: '/cursor-pointer-sgtcute.svg', sgtcoolSrc: '/cursor-pointer-sgtcool.svg' },
-    { id: 'openhand', label: t.cursorOpenHand, screenstudioSrc: '/cursor-openhand-screenstudio.svg', macos26Src: '/cursor-openhand-macos26.svg', sgtcuteSrc: '/cursor-openhand-sgtcute.svg', sgtcoolSrc: '/cursor-openhand-sgtcool.svg' },
-    { id: 'closehand', label: 'Closed Hand', screenstudioSrc: '/cursor-closehand-screenstudio.svg', macos26Src: '/cursor-closehand-macos26.svg', sgtcuteSrc: '/cursor-closehand-sgtcute.svg', sgtcoolSrc: '/cursor-closehand-sgtcool.svg' },
-    { id: 'wait', label: 'Wait', screenstudioSrc: '/cursor-wait-screenstudio.svg', macos26Src: '/cursor-wait-macos26.svg', sgtcuteSrc: '/cursor-wait-sgtcute.svg', sgtcoolSrc: '/cursor-wait-sgtcool.svg' },
-    { id: 'appstarting', label: 'App Starting', screenstudioSrc: '/cursor-appstarting-screenstudio.svg', macos26Src: '/cursor-appstarting-macos26.svg', sgtcuteSrc: '/cursor-appstarting-sgtcute.svg', sgtcoolSrc: '/cursor-appstarting-sgtcool.svg' },
-    { id: 'crosshair', label: 'Crosshair', screenstudioSrc: '/cursor-crosshair-screenstudio.svg', macos26Src: '/cursor-crosshair-macos26.svg', sgtcuteSrc: '/cursor-crosshair-sgtcute.svg', sgtcoolSrc: '/cursor-crosshair-sgtcool.svg' },
-    { id: 'resize_ns', label: 'Resize N-S', screenstudioSrc: '/cursor-resize-ns-screenstudio.svg', macos26Src: '/cursor-resize-ns-macos26.svg', sgtcuteSrc: '/cursor-resize-ns-sgtcute.svg', sgtcoolSrc: '/cursor-resize-ns-sgtcool.svg' },
-    { id: 'resize_we', label: 'Resize W-E', screenstudioSrc: '/cursor-resize-we-screenstudio.svg', macos26Src: '/cursor-resize-we-macos26.svg', sgtcuteSrc: '/cursor-resize-we-sgtcute.svg', sgtcoolSrc: '/cursor-resize-we-sgtcool.svg' },
-    { id: 'resize_nwse', label: 'Resize NW-SE', screenstudioSrc: '/cursor-resize-nwse-screenstudio.svg', macos26Src: '/cursor-resize-nwse-macos26.svg', sgtcuteSrc: '/cursor-resize-nwse-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nwse-sgtcool.svg' },
-    { id: 'resize_nesw', label: 'Resize NE-SW', screenstudioSrc: '/cursor-resize-nesw-screenstudio.svg', macos26Src: '/cursor-resize-nesw-macos26.svg', sgtcuteSrc: '/cursor-resize-nesw-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nesw-sgtcool.svg' },
+    { id: 'default', label: t.cursorDefault, screenstudioSrc: '/cursor-default-screenstudio.svg', macos26Src: '/cursor-default-macos26.svg', sgtcuteSrc: '/cursor-default-sgtcute.svg', sgtcoolSrc: '/cursor-default-sgtcool.svg', sgtaiSrc: '/cursor-default-sgtai.svg' },
+    { id: 'text', label: t.cursorText, screenstudioSrc: '/cursor-text-screenstudio.svg', macos26Src: '/cursor-text-macos26.svg', sgtcuteSrc: '/cursor-text-sgtcute.svg', sgtcoolSrc: '/cursor-text-sgtcool.svg', sgtaiSrc: '/cursor-text-sgtai.svg' },
+    { id: 'pointer', label: t.cursorPointer, screenstudioSrc: '/cursor-pointer-screenstudio.svg', macos26Src: '/cursor-pointer-macos26.svg', sgtcuteSrc: '/cursor-pointer-sgtcute.svg', sgtcoolSrc: '/cursor-pointer-sgtcool.svg', sgtaiSrc: '/cursor-pointer-sgtai.svg' },
+    { id: 'openhand', label: t.cursorOpenHand, screenstudioSrc: '/cursor-openhand-screenstudio.svg', macos26Src: '/cursor-openhand-macos26.svg', sgtcuteSrc: '/cursor-openhand-sgtcute.svg', sgtcoolSrc: '/cursor-openhand-sgtcool.svg', sgtaiSrc: '/cursor-openhand-sgtai.svg' },
+    { id: 'closehand', label: 'Closed Hand', screenstudioSrc: '/cursor-closehand-screenstudio.svg', macos26Src: '/cursor-closehand-macos26.svg', sgtcuteSrc: '/cursor-closehand-sgtcute.svg', sgtcoolSrc: '/cursor-closehand-sgtcool.svg', sgtaiSrc: '/cursor-closehand-sgtai.svg' },
+    { id: 'wait', label: 'Wait', screenstudioSrc: '/cursor-wait-screenstudio.svg', macos26Src: '/cursor-wait-macos26.svg', sgtcuteSrc: '/cursor-wait-sgtcute.svg', sgtcoolSrc: '/cursor-wait-sgtcool.svg', sgtaiSrc: '/cursor-wait-sgtai.svg' },
+    { id: 'appstarting', label: 'App Starting', screenstudioSrc: '/cursor-appstarting-screenstudio.svg', macos26Src: '/cursor-appstarting-macos26.svg', sgtcuteSrc: '/cursor-appstarting-sgtcute.svg', sgtcoolSrc: '/cursor-appstarting-sgtcool.svg', sgtaiSrc: '/cursor-appstarting-sgtai.svg' },
+    { id: 'crosshair', label: 'Crosshair', screenstudioSrc: '/cursor-crosshair-screenstudio.svg', macos26Src: '/cursor-crosshair-macos26.svg', sgtcuteSrc: '/cursor-crosshair-sgtcute.svg', sgtcoolSrc: '/cursor-crosshair-sgtcool.svg', sgtaiSrc: '/cursor-crosshair-sgtai.svg' },
+    { id: 'resize_ns', label: 'Resize N-S', screenstudioSrc: '/cursor-resize-ns-screenstudio.svg', macos26Src: '/cursor-resize-ns-macos26.svg', sgtcuteSrc: '/cursor-resize-ns-sgtcute.svg', sgtcoolSrc: '/cursor-resize-ns-sgtcool.svg', sgtaiSrc: '/cursor-resize-ns-sgtai.svg' },
+    { id: 'resize_we', label: 'Resize W-E', screenstudioSrc: '/cursor-resize-we-screenstudio.svg', macos26Src: '/cursor-resize-we-macos26.svg', sgtcuteSrc: '/cursor-resize-we-sgtcute.svg', sgtcoolSrc: '/cursor-resize-we-sgtcool.svg', sgtaiSrc: '/cursor-resize-we-sgtai.svg' },
+    { id: 'resize_nwse', label: 'Resize NW-SE', screenstudioSrc: '/cursor-resize-nwse-screenstudio.svg', macos26Src: '/cursor-resize-nwse-macos26.svg', sgtcuteSrc: '/cursor-resize-nwse-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nwse-sgtcool.svg', sgtaiSrc: '/cursor-resize-nwse-sgtai.svg' },
+    { id: 'resize_nesw', label: 'Resize NE-SW', screenstudioSrc: '/cursor-resize-nesw-screenstudio.svg', macos26Src: '/cursor-resize-nesw-macos26.svg', sgtcuteSrc: '/cursor-resize-nesw-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nesw-sgtcool.svg', sgtaiSrc: '/cursor-resize-nesw-sgtai.svg' },
   ]), [t.cursorDefault, t.cursorText, t.cursorPointer, t.cursorOpenHand]);
   const viewportHeight = CURSOR_VARIANT_VIEWPORT_HEIGHT;
   const totalHeight = rows.length * CURSOR_VARIANT_ROW_HEIGHT;
@@ -485,8 +486,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
               className="cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-y-auto pr-1"
               onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
             >
-              <div className="cursor-variant-column-header sticky top-0 z-10 h-6 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-[minmax(0,1fr)_48px_48px_48px_48px] gap-1.5 items-center bg-[var(--surface)]">
-                <span className="text-[10px] text-transparent select-none">label</span>
+              <div className="cursor-variant-column-header sticky top-0 z-10 h-6 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-[48px_48px_48px_48px_48px] gap-1.5 items-center bg-[var(--surface)]">
                 <span
                   className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
                   style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
@@ -511,6 +511,12 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                 >
                   SGT Cool
                 </span>
+                <span
+                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
+                >
+                  SGT AI
+                </span>
               </div>
               <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
                 {visibleRows.map((row, i) => {
@@ -518,10 +524,9 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                   return (
                     <div
                       key={row.id}
-                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-[minmax(0,1fr)_48px_48px_48px_48px] gap-1.5 items-center"
+                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-[48px_48px_48px_48px_48px] gap-1.5 items-center"
                       style={{ top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`, height: `${CURSOR_VARIANT_ROW_HEIGHT}px` }}
                     >
-                      <span className="text-[10px] text-[var(--on-surface-variant)] truncate">{row.label}</span>
                       <CursorVariantButton
                         isSelected={inferredPack === 'screenstudio'}
                         onClick={() => setCursorPack('screenstudio')}
@@ -549,6 +554,13 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                         label={`${row.label} sgtcool`}
                       >
                         <img src={`${row.sgtcoolSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
+                      </CursorVariantButton>
+                      <CursorVariantButton
+                        isSelected={inferredPack === 'sgtai'}
+                        onClick={() => setCursorPack('sgtai')}
+                        label={`${row.label} sgtai`}
+                      >
+                        <img src={`${row.sgtaiSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
                       </CursorVariantButton>
                     </div>
                   );
