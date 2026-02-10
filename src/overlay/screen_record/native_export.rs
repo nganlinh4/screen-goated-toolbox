@@ -810,9 +810,26 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     let rel_y = (cy - crop_y_offset) / crop_h as f64;
 
                     let type_id = match c_type.as_str() {
+                        // ScreenStudio base
+                        "default-screenstudio" | "default" => 0.0,
                         "text-screenstudio" | "text" => 1.0,
                         "pointer-screenstudio" | "pointer" => 2.0,
-                        "openhand-screenstudio" | "openhand" | "move" | "sizeall" | "grabbing" | "other" => 3.0,
+                        "openhand-screenstudio" => 3.0,
+
+                        // macos26 expanded
+                        "default-macos26" => 4.0,
+                        "text-macos26" => 5.0,
+                        "pointer-macos26" => 6.0,
+                        "openhand-macos26" | "openhand" | "move" | "sizeall" => 7.0,
+                        "closehand-macos26" | "grabbing" => 8.0,
+                        "wait-macos26" | "wait" => 9.0,
+                        "appstarting-macos26" | "appstarting" => 10.0,
+                        "crosshair-macos26" | "crosshair" | "cross" => 11.0,
+                        "resize-ns-macos26" | "resize_ns" | "sizens" => 12.0,
+                        "resize-we-macos26" | "resize_we" | "sizewe" => 13.0,
+                        "resize-nwse-macos26" | "resize_nwse" | "sizenwse" => 14.0,
+                        "resize-nesw-macos26" | "resize_nesw" | "sizenesw" => 15.0,
+                        "other" => 4.0,
                         _ => 0.0,
                     };
 

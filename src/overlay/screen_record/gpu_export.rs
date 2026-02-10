@@ -85,6 +85,19 @@ const DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-default-scre
 const TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
 const POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
 const OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
+const DEFAULT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-default-macos26.svg");
+const TEXT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-text-macos26.svg");
+const POINTER_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-pointer-macos26.svg");
+const OPENHAND_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-openhand-macos26.svg");
+const CLOSEHAND_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-closehand-macos26.svg");
+const WAIT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-wait-macos26.svg");
+const APPSTARTING_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-macos26.svg");
+const CROSSHAIR_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-macos26.svg");
+const RESIZE_NS_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-macos26.svg");
+const RESIZE_WE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-macos26.svg");
+const RESIZE_NWSE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-macos26.svg");
+const RESIZE_NESW_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-macos26.svg");
+const CURSOR_ATLAS_ROWS: u32 = 16;
 
 impl GpuCompositor {
     pub fn new(
@@ -153,13 +166,13 @@ impl GpuCompositor {
         });
         let video_view = video_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Cursor Texture Atlas: 512x2048 (4 vertical tiles of 512x512)
+        // Cursor Texture Atlas: 512x(512*CURSOR_ATLAS_ROWS)
         // Large tiles for crisp cursors even at high zoom levels
         let cursor_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Cursor Atlas Texture"),
             size: wgpu::Extent3d {
                 width: 512,
-                height: 512 * 4, // 4 tiles vertical
+                height: 512 * CURSOR_ATLAS_ROWS,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -363,15 +376,16 @@ impl GpuCompositor {
     }
 
     pub fn init_cursor_texture(&self) {
-        // Build atlas: 512x2048 (4 tiles of 512x512)
+        // Build atlas: 512x(512*CURSOR_ATLAS_ROWS)
         // 0: default-screenstudio
         // 1: text-screenstudio
         // 2: pointer-screenstudio
         // 3: openhand-screenstudio
+        // 4..15: macos26 set
 
         let tile_size = 512u32;
         let center = tile_size as f32 / 2.0; // 256.0
-        let mut atlas = Pixmap::new(tile_size, tile_size * 4).unwrap();
+        let mut atlas = Pixmap::new(tile_size, tile_size * CURSOR_ATLAS_ROWS).unwrap();
 
         // Scale factor: 8x
         let cursor_scale = 8.0;
@@ -399,6 +413,19 @@ impl GpuCompositor {
         render_svg_slot(POINTER_SCREENSTUDIO_SVG, 2, 14.5, 10.0, 480.0);
         // --- SLOT 3: OPEN HAND (Screen Studio) ---
         render_svg_slot(OPENHAND_SCREENSTUDIO_SVG, 3, 18.0, 17.5, 480.0);
+        // --- SLOT 4..15: macos26 ---
+        render_svg_slot(DEFAULT_MACOS26_SVG, 4, 18.0, 17.5, 480.0);
+        render_svg_slot(TEXT_MACOS26_SVG, 5, 18.0, 17.5, 480.0);
+        render_svg_slot(POINTER_MACOS26_SVG, 6, 18.0, 17.5, 480.0);
+        render_svg_slot(OPENHAND_MACOS26_SVG, 7, 18.0, 17.5, 480.0);
+        render_svg_slot(CLOSEHAND_MACOS26_SVG, 8, 18.0, 17.5, 480.0);
+        render_svg_slot(WAIT_MACOS26_SVG, 9, 18.0, 17.5, 480.0);
+        render_svg_slot(APPSTARTING_MACOS26_SVG, 10, 18.0, 17.5, 480.0);
+        render_svg_slot(CROSSHAIR_MACOS26_SVG, 11, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NS_MACOS26_SVG, 12, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_WE_MACOS26_SVG, 13, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NWSE_MACOS26_SVG, 14, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NESW_MACOS26_SVG, 15, 18.0, 17.5, 480.0);
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -411,11 +438,11 @@ impl GpuCompositor {
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(512 * 4),
-                rows_per_image: Some(512 * 4),
+                rows_per_image: Some(512 * CURSOR_ATLAS_ROWS),
             },
             wgpu::Extent3d {
                 width: 512,
-                height: 512 * 4,
+                height: 512 * CURSOR_ATLAS_ROWS,
                 depth_or_array_layers: 1,
             },
         );
@@ -628,11 +655,11 @@ fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
 
 fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
     let unit = size / 48.0;
-    if abs(type_id - 2.0) < 0.5 || abs(type_id - 3.0) < 0.5 {
+    if abs(type_id - 2.0) < 0.5 || abs(type_id - 3.0) < 0.5 || abs(type_id - 6.0) < 0.5 || abs(type_id - 7.0) < 0.5 || abs(type_id - 8.0) < 0.5 {
         // hand cursors
         return vec2<f32>(3.0 * unit, 8.5 * unit);
     }
-    if abs(type_id - 1.0) < 0.5 {
+    if abs(type_id - 1.0) < 0.5 || abs(type_id - 5.0) < 0.5 {
         // text ibeam should stay upright
         return vec2<f32>(0.0, 0.0);
     }
@@ -693,7 +720,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             let tile_idx = floor(u.cursor_type_id + 0.5);
             let atlas_uv = vec2<f32>(
                 uv_in_tile.x,
-                (uv_in_tile.y + tile_idx) / 4.0
+                (uv_in_tile.y + tile_idx) / 16.0
             );
 
             let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);

@@ -12,8 +12,9 @@ use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorInfo, GetCursorPos, LoadCursorW, CURSORINFO, IDC_ARROW, IDC_HAND, IDC_IBEAM,
-    IDC_SIZEALL,
+    GetCursorInfo, GetCursorPos, LoadCursorW, CURSORINFO, IDC_APPSTARTING, IDC_ARROW, IDC_CROSS,
+    IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE,
+    IDC_WAIT,
 };
 use windows_capture::{
     capture::{Context, GraphicsCaptureApiHandler},
@@ -78,16 +79,36 @@ fn get_cursor_type() -> String {
 
             let arrow = LoadCursorW(None, IDC_ARROW).unwrap().0;
             let ibeam = LoadCursorW(None, IDC_IBEAM).unwrap().0;
+            let wait = LoadCursorW(None, IDC_WAIT).unwrap().0;
+            let appstarting = LoadCursorW(None, IDC_APPSTARTING).unwrap().0;
+            let cross = LoadCursorW(None, IDC_CROSS).unwrap().0;
             let hand = LoadCursorW(None, IDC_HAND).unwrap().0;
             let size_all = LoadCursorW(None, IDC_SIZEALL).unwrap().0;
+            let size_ns = LoadCursorW(None, IDC_SIZENS).unwrap().0;
+            let size_we = LoadCursorW(None, IDC_SIZEWE).unwrap().0;
+            let size_nwse = LoadCursorW(None, IDC_SIZENWSE).unwrap().0;
+            let size_nesw = LoadCursorW(None, IDC_SIZENESW).unwrap().0;
 
             if current_handle == arrow {
                 "default".to_string()
             } else if current_handle == ibeam {
                 "text".to_string()
+            } else if current_handle == wait {
+                "wait".to_string()
+            } else if current_handle == appstarting {
+                "appstarting".to_string()
+            } else if current_handle == cross {
+                "crosshair".to_string()
             } else if current_handle == size_all {
-                // Treat move/drag cursor as open-hand variant.
-                "openhand".to_string()
+                "move".to_string()
+            } else if current_handle == size_ns {
+                "resize_ns".to_string()
+            } else if current_handle == size_we {
+                "resize_we".to_string()
+            } else if current_handle == size_nwse {
+                "resize_nwse".to_string()
+            } else if current_handle == size_nesw {
+                "resize_nesw".to_string()
             } else if current_handle == hand {
                 "pointer".to_string()
             } else {

@@ -8,13 +8,25 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
-const CURSOR_ASSET_VERSION = 'hotspot-145-10-debug1';
+const CURSOR_ASSET_VERSION = 'cursor-types-expanded-macos26-v1';
 
 type CursorRenderType =
   | 'default-screenstudio'
   | 'text-screenstudio'
   | 'pointer-screenstudio'
-  | 'openhand-screenstudio';
+  | 'openhand-screenstudio'
+  | 'default-macos26'
+  | 'text-macos26'
+  | 'pointer-macos26'
+  | 'openhand-macos26'
+  | 'closehand-macos26'
+  | 'wait-macos26'
+  | 'appstarting-macos26'
+  | 'crosshair-macos26'
+  | 'resize-ns-macos26'
+  | 'resize-we-macos26'
+  | 'resize-nwse-macos26'
+  | 'resize-nesw-macos26';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -41,6 +53,18 @@ export class VideoRenderer {
   private defaultScreenStudioImage: HTMLImageElement;
   private textScreenStudioImage: HTMLImageElement;
   private openHandScreenStudioImage: HTMLImageElement;
+  private defaultMacos26Image: HTMLImageElement;
+  private textMacos26Image: HTMLImageElement;
+  private pointerMacos26Image: HTMLImageElement;
+  private openHandMacos26Image: HTMLImageElement;
+  private closeHandMacos26Image: HTMLImageElement;
+  private waitMacos26Image: HTMLImageElement;
+  private appStartingMacos26Image: HTMLImageElement;
+  private crosshairMacos26Image: HTMLImageElement;
+  private resizeNsMacos26Image: HTMLImageElement;
+  private resizeWeMacos26Image: HTMLImageElement;
+  private resizeNwseMacos26Image: HTMLImageElement;
+  private resizeNeswMacos26Image: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
 
@@ -111,6 +135,54 @@ export class VideoRenderer {
     this.openHandScreenStudioImage.src = `/cursor-openhand-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
     this.openHandScreenStudioImage.onload = () => { };
 
+    this.defaultMacos26Image = new Image();
+    this.defaultMacos26Image.src = `/cursor-default-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.defaultMacos26Image.onload = () => { };
+
+    this.textMacos26Image = new Image();
+    this.textMacos26Image.src = `/cursor-text-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.textMacos26Image.onload = () => { };
+
+    this.pointerMacos26Image = new Image();
+    this.pointerMacos26Image.src = `/cursor-pointer-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.pointerMacos26Image.onload = () => { };
+
+    this.openHandMacos26Image = new Image();
+    this.openHandMacos26Image.src = `/cursor-openhand-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.openHandMacos26Image.onload = () => { };
+
+    this.closeHandMacos26Image = new Image();
+    this.closeHandMacos26Image.src = `/cursor-closehand-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.closeHandMacos26Image.onload = () => { };
+
+    this.waitMacos26Image = new Image();
+    this.waitMacos26Image.src = `/cursor-wait-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.waitMacos26Image.onload = () => { };
+
+    this.appStartingMacos26Image = new Image();
+    this.appStartingMacos26Image.src = `/cursor-appstarting-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.appStartingMacos26Image.onload = () => { };
+
+    this.crosshairMacos26Image = new Image();
+    this.crosshairMacos26Image.src = `/cursor-crosshair-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.crosshairMacos26Image.onload = () => { };
+
+    this.resizeNsMacos26Image = new Image();
+    this.resizeNsMacos26Image.src = `/cursor-resize-ns-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNsMacos26Image.onload = () => { };
+
+    this.resizeWeMacos26Image = new Image();
+    this.resizeWeMacos26Image.src = `/cursor-resize-we-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeWeMacos26Image.onload = () => { };
+
+    this.resizeNwseMacos26Image = new Image();
+    this.resizeNwseMacos26Image.src = `/cursor-resize-nwse-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNwseMacos26Image.onload = () => { };
+
+    this.resizeNeswMacos26Image = new Image();
+    this.resizeNeswMacos26Image.src = `/cursor-resize-nesw-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNeswMacos26Image.onload = () => { };
+
     this.cursorOffscreen = new OffscreenCanvas(128, 128);
     this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
   }
@@ -156,21 +228,56 @@ export class VideoRenderer {
     ].join('|');
   }
 
-  private resolveCursorRenderType(rawType: string, _backgroundConfig?: BackgroundConfig | null): CursorRenderType {
+  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' {
+    if (backgroundConfig?.cursorDefaultVariant === 'macos26'
+      || backgroundConfig?.cursorTextVariant === 'macos26'
+      || backgroundConfig?.cursorPointerVariant === 'macos26'
+      || backgroundConfig?.cursorOpenHandVariant === 'macos26') {
+      return 'macos26';
+    }
+    return 'screenstudio';
+  }
+
+  private resolveCursorRenderType(rawType: string, backgroundConfig?: BackgroundConfig | null, isClicked: boolean = false): CursorRenderType {
     const lower = (rawType || 'default').toLowerCase();
+    const pack = this.getCursorPack(backgroundConfig);
 
-    if (lower === 'text' || lower === 'ibeam') {
-      return 'text-screenstudio';
+    const semanticType =
+      (lower === 'text' || lower === 'ibeam') ? 'text'
+        : (lower === 'pointer' || lower === 'hand') ? (isClicked ? 'closehand' : 'pointer')
+          : (lower === 'wait') ? 'wait'
+            : (lower === 'appstarting') ? 'appstarting'
+              : (lower === 'crosshair' || lower === 'cross') ? 'crosshair'
+                : (lower === 'resize_ns' || lower === 'sizens') ? 'resize_ns'
+                  : (lower === 'resize_we' || lower === 'sizewe') ? 'resize_we'
+                    : (lower === 'resize_nwse' || lower === 'sizenwse') ? 'resize_nwse'
+                      : (lower === 'resize_nesw' || lower === 'sizenesw') ? 'resize_nesw'
+                        : (lower === 'move' || lower === 'sizeall' || lower === 'openhand' || lower === 'open-hand' || lower === 'grab' || lower === 'grabbing')
+                          ? (isClicked ? 'closehand' : 'openhand')
+                          : (lower === 'other') ? (isClicked ? 'closehand' : 'openhand')
+                            : (lower === 'default' || lower === 'arrow') ? 'default'
+                            : 'default';
+
+    if (pack === 'macos26') {
+      switch (semanticType) {
+        case 'text': return 'text-macos26';
+        case 'pointer': return 'pointer-macos26';
+        case 'openhand': return 'openhand-macos26';
+        case 'closehand': return 'closehand-macos26';
+        case 'wait': return 'wait-macos26';
+        case 'appstarting': return 'appstarting-macos26';
+        case 'crosshair': return 'crosshair-macos26';
+        case 'resize_ns': return 'resize-ns-macos26';
+        case 'resize_we': return 'resize-we-macos26';
+        case 'resize_nwse': return 'resize-nwse-macos26';
+        case 'resize_nesw': return 'resize-nesw-macos26';
+        default: return 'default-macos26';
+      }
     }
 
-    if (lower === 'pointer' || lower === 'hand') {
-      return 'pointer-screenstudio';
-    }
-
-    if (lower === 'openhand' || lower === 'open-hand' || lower === 'grab' || lower === 'grabbing' || lower === 'move' || lower === 'sizeall' || lower === 'other') {
-      return 'openhand-screenstudio';
-    }
-
+    if (semanticType === 'text') return 'text-screenstudio';
+    if (semanticType === 'pointer') return 'pointer-screenstudio';
+    if (semanticType === 'openhand' || semanticType === 'closehand') return 'openhand-screenstudio';
     return 'default-screenstudio';
   }
 
@@ -267,7 +374,7 @@ export class VideoRenderer {
               y: 0,
               scale: 1,
               isClicked: false,
-              type: this.resolveCursorRenderType('default', backgroundConfig),
+              type: this.resolveCursorRenderType('default', backgroundConfig, false),
               opacity: 1
             });
           }
@@ -298,7 +405,7 @@ export class VideoRenderer {
           y: pos.y,
           scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
           isClicked: isClicked,
-          type: this.resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig),
+          type: this.resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig, Boolean(pos.isClicked)),
           opacity: Number(cursorVis.opacity.toFixed(3)),
           rotation: Number((pos.cursor_rotation || 0).toFixed(4)),
         });
@@ -637,7 +744,7 @@ export class VideoRenderer {
             cursorY,
             shouldBeSquished,
             cursorSizeScale,
-            this.resolveCursorRenderType(interpolatedPosition.cursor_type || 'default', backgroundConfig),
+            this.resolveCursorRenderType(interpolatedPosition.cursor_type || 'default', backgroundConfig, Boolean(interpolatedPosition.isClicked)),
             interpolatedPosition.cursor_rotation || 0
           );
 
@@ -1342,8 +1449,12 @@ export class VideoRenderer {
     switch (cursorType.toLowerCase()) {
       case 'pointer-screenstudio':
       case 'openhand-screenstudio':
+      case 'pointer-macos26':
+      case 'openhand-macos26':
+      case 'closehand-macos26':
         return { x: 3.0, y: 8.5 };
       case 'text-screenstudio':
+      case 'text-macos26':
         return { x: 0, y: 0 };
       default:
         return { x: 3.6, y: 5.6 };
@@ -1384,6 +1495,24 @@ export class VideoRenderer {
     }
   }
 
+  private getMacos26CursorImage(type: CursorRenderType): HTMLImageElement | null {
+    switch (type) {
+      case 'default-macos26': return this.defaultMacos26Image;
+      case 'text-macos26': return this.textMacos26Image;
+      case 'pointer-macos26': return this.pointerMacos26Image;
+      case 'openhand-macos26': return this.openHandMacos26Image;
+      case 'closehand-macos26': return this.closeHandMacos26Image;
+      case 'wait-macos26': return this.waitMacos26Image;
+      case 'appstarting-macos26': return this.appStartingMacos26Image;
+      case 'crosshair-macos26': return this.crosshairMacos26Image;
+      case 'resize-ns-macos26': return this.resizeNsMacos26Image;
+      case 'resize-we-macos26': return this.resizeWeMacos26Image;
+      case 'resize-nwse-macos26': return this.resizeNwseMacos26Image;
+      case 'resize-nesw-macos26': return this.resizeNeswMacos26Image;
+      default: return null;
+    }
+  }
+
   private drawCursorShape(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -1396,7 +1525,15 @@ export class VideoRenderer {
     const lowerType = cursorType.toLowerCase();
     ctx.save();
     ctx.translate(x, y);
-    if (lowerType !== 'text-screenstudio' && Math.abs(rotation) > 0.0001) {
+    const allowRotation =
+      lowerType === 'default-screenstudio'
+      || lowerType === 'pointer-screenstudio'
+      || lowerType === 'openhand-screenstudio'
+      || lowerType === 'default-macos26'
+      || lowerType === 'pointer-macos26'
+      || lowerType === 'openhand-macos26'
+      || lowerType === 'closehand-macos26';
+    if (allowRotation && Math.abs(rotation) > 0.0001) {
       const pivot = this.getCursorRotationPivot(lowerType);
       ctx.translate(pivot.x, pivot.y);
       ctx.rotate(rotation);
@@ -1417,6 +1554,12 @@ export class VideoRenderer {
     }
     if (effectiveType === 'openhand-screenstudio' && (!this.openHandScreenStudioImage.complete || this.openHandScreenStudioImage.naturalWidth === 0)) {
       effectiveType = 'pointer-screenstudio';
+    }
+    if (effectiveType.endsWith('-macos26')) {
+      const image = this.getMacos26CursorImage(effectiveType as CursorRenderType);
+      if (!image || !image.complete || image.naturalWidth === 0) {
+        effectiveType = 'default-screenstudio';
+      }
     }
 
     switch (effectiveType) {
@@ -1444,6 +1587,28 @@ export class VideoRenderer {
         const hotspotY = img.naturalHeight * 0.5;
         ctx.translate(-hotspotX, -hotspotY);
         ctx.drawImage(img, 0, 0);
+        break;
+      }
+
+      case 'default-macos26':
+      case 'text-macos26':
+      case 'pointer-macos26':
+      case 'openhand-macos26':
+      case 'closehand-macos26':
+      case 'wait-macos26':
+      case 'appstarting-macos26':
+      case 'crosshair-macos26':
+      case 'resize-ns-macos26':
+      case 'resize-we-macos26':
+      case 'resize-nwse-macos26':
+      case 'resize-nesw-macos26': {
+        const img = this.getMacos26CursorImage(effectiveType);
+        if (img) {
+          const hotspotX = img.naturalWidth * 0.5;
+          const hotspotY = img.naturalHeight * 0.5;
+          ctx.translate(-hotspotX, -hotspotY);
+          ctx.drawImage(img, 0, 0);
+        }
         break;
       }
 
