@@ -13,6 +13,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorInfo, GetCursorPos, LoadCursorW, CURSORINFO, IDC_ARROW, IDC_HAND, IDC_IBEAM,
+    IDC_SIZEALL,
 };
 use windows_capture::{
     capture::{Context, GraphicsCaptureApiHandler},
@@ -78,11 +79,15 @@ fn get_cursor_type() -> String {
             let arrow = LoadCursorW(None, IDC_ARROW).unwrap().0;
             let ibeam = LoadCursorW(None, IDC_IBEAM).unwrap().0;
             let hand = LoadCursorW(None, IDC_HAND).unwrap().0;
+            let size_all = LoadCursorW(None, IDC_SIZEALL).unwrap().0;
 
             if current_handle == arrow {
                 "default".to_string()
             } else if current_handle == ibeam {
                 "text".to_string()
+            } else if current_handle == size_all {
+                // Treat move/drag cursor as open-hand variant.
+                "openhand".to_string()
             } else if current_handle == hand {
                 "pointer".to_string()
             } else {

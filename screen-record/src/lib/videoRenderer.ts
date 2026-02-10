@@ -167,7 +167,7 @@ export class VideoRenderer {
       return 'pointer-screenstudio';
     }
 
-    if (lower === 'openhand' || lower === 'open-hand' || lower === 'grab') {
+    if (lower === 'openhand' || lower === 'open-hand' || lower === 'grab' || lower === 'grabbing' || lower === 'move' || lower === 'sizeall' || lower === 'other') {
       return 'openhand-screenstudio';
     }
 
