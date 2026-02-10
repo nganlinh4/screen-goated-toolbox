@@ -79,7 +79,7 @@ export interface BackgroundConfig {
   backgroundType: 'solid' | 'gradient1' | 'gradient2' | 'gradient3' | 'custom';
   shadow?: number;
   cursorScale?: number;
-  cursorShadow?: number; // 0-100
+  cursorShadow?: number; // 0-200
   cursorSmoothness?: number;
   cursorMovementDelay?: number; // seconds, positive values make cursor lead slightly
   cursorWiggleStrength?: number; // 0-1, strength of spring follow effect

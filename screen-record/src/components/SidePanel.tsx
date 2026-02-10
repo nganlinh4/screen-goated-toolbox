@@ -429,8 +429,8 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
         </div>
         <div className="cursor-shadow-field flex items-center gap-2">
           <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">Shadow</span>
-          <input type="range" min="0" max="100" step="1" value={backgroundConfig.cursorShadow ?? 35}
-            style={sv(backgroundConfig.cursorShadow ?? 35, 0, 100)}
+          <input type="range" min="0" max="200" step="1" value={backgroundConfig.cursorShadow ?? 35}
+            style={sv(backgroundConfig.cursorShadow ?? 35, 0, 200)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: Number(e.target.value) }))}
             className="flex-1 min-w-0"
           />
@@ -476,21 +476,38 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
         <div className="cursor-variants-section space-y-2">
           <label className="cursor-variants-label text-xs text-[var(--on-surface-variant)] block">{t.cursorVariants}</label>
           <div
-            className="cursor-variant-virtualized-list border border-[var(--glass-border)] rounded-lg overflow-y-auto pr-1"
+            className="cursor-variant-virtualized-list border border-[var(--glass-border)] rounded-lg overflow-hidden"
             style={{ height: `${viewportHeight}px` }}
-            onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
           >
-            <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
-              {visibleRows.map((row, i) => {
-                const absoluteIndex = startIndex + i;
-                return (
-                  <div
-                    key={row.id}
-                    className="cursor-variant-row absolute left-0 right-0 px-1.5 flex items-center justify-between gap-2"
-                    style={{ top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`, height: `${CURSOR_VARIANT_ROW_HEIGHT}px` }}
-                  >
-                    <span className="text-[10px] text-[var(--on-surface-variant)]">{row.label}</span>
-                    <div className="cursor-variant-picker flex items-center gap-1.5">
+            <div
+              className="cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-y-auto pr-1"
+              onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
+            >
+              <div className="cursor-variant-column-header sticky top-0 z-10 h-6 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-[minmax(0,1fr)_48px_48px] gap-1.5 items-center bg-[var(--surface)]">
+                <span className="text-[10px] text-transparent select-none">label</span>
+                <span
+                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
+                >
+                  Mac OG
+                </span>
+                <span
+                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
+                >
+                  Mac Tahoe+
+                </span>
+              </div>
+              <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
+                {visibleRows.map((row, i) => {
+                  const absoluteIndex = startIndex + i;
+                  return (
+                    <div
+                      key={row.id}
+                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-[minmax(0,1fr)_48px_48px] gap-1.5 items-center"
+                      style={{ top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`, height: `${CURSOR_VARIANT_ROW_HEIGHT}px` }}
+                    >
+                      <span className="text-[10px] text-[var(--on-surface-variant)] truncate">{row.label}</span>
                       <CursorVariantButton
                         isSelected={inferredPack === 'screenstudio'}
                         onClick={() => setCursorPack('screenstudio')}
@@ -506,9 +523,9 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                         <img src={`${row.macos26Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
                       </CursorVariantButton>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
