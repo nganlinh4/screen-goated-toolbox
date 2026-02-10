@@ -16,7 +16,7 @@ function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): s
 /** Inline style for slider active track fill */
 const sv = (v: number, min: number, max: number): React.CSSProperties =>
   ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
-const CURSOR_ASSET_VERSION = 'cursor-variants-virtualized-v7-default-revert-up';
+const CURSOR_ASSET_VERSION = 'cursor-variants-virtualized-v11-sgtcool';
 const CURSOR_VARIANT_ROW_HEIGHT = 58;
 const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 
@@ -351,12 +351,14 @@ interface CursorVariantButtonProps {
   children: React.ReactNode;
 }
 
-type CursorVariant = 'screenstudio' | 'macos26';
+type CursorVariant = 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool';
 type CursorVariantRow = {
   id: string;
   label: string;
   screenstudioSrc: string;
   macos26Src: string;
+  sgtcuteSrc: string;
+  sgtcoolSrc: string;
 };
 
 function CursorVariantButton({ isSelected, onClick, label, children }: CursorVariantButtonProps) {
@@ -396,18 +398,18 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
       cursorOpenHandVariant: pack,
     }));
   const rows = useMemo<CursorVariantRow[]>(() => ([
-    { id: 'default', label: t.cursorDefault, screenstudioSrc: '/cursor-default-screenstudio.svg', macos26Src: '/cursor-default-macos26.svg' },
-    { id: 'text', label: t.cursorText, screenstudioSrc: '/cursor-text-screenstudio.svg', macos26Src: '/cursor-text-macos26.svg' },
-    { id: 'pointer', label: t.cursorPointer, screenstudioSrc: '/cursor-pointer-screenstudio.svg', macos26Src: '/cursor-pointer-macos26.svg' },
-    { id: 'openhand', label: t.cursorOpenHand, screenstudioSrc: '/cursor-openhand-screenstudio.svg', macos26Src: '/cursor-openhand-macos26.svg' },
-    { id: 'closehand', label: 'Closed Hand', screenstudioSrc: '/cursor-closehand-screenstudio.svg', macos26Src: '/cursor-closehand-macos26.svg' },
-    { id: 'wait', label: 'Wait', screenstudioSrc: '/cursor-wait-screenstudio.svg', macos26Src: '/cursor-wait-macos26.svg' },
-    { id: 'appstarting', label: 'App Starting', screenstudioSrc: '/cursor-appstarting-screenstudio.svg', macos26Src: '/cursor-appstarting-macos26.svg' },
-    { id: 'crosshair', label: 'Crosshair', screenstudioSrc: '/cursor-crosshair-screenstudio.svg', macos26Src: '/cursor-crosshair-macos26.svg' },
-    { id: 'resize_ns', label: 'Resize N-S', screenstudioSrc: '/cursor-resize-ns-screenstudio.svg', macos26Src: '/cursor-resize-ns-macos26.svg' },
-    { id: 'resize_we', label: 'Resize W-E', screenstudioSrc: '/cursor-resize-we-screenstudio.svg', macos26Src: '/cursor-resize-we-macos26.svg' },
-    { id: 'resize_nwse', label: 'Resize NW-SE', screenstudioSrc: '/cursor-resize-nwse-screenstudio.svg', macos26Src: '/cursor-resize-nwse-macos26.svg' },
-    { id: 'resize_nesw', label: 'Resize NE-SW', screenstudioSrc: '/cursor-resize-nesw-screenstudio.svg', macos26Src: '/cursor-resize-nesw-macos26.svg' },
+    { id: 'default', label: t.cursorDefault, screenstudioSrc: '/cursor-default-screenstudio.svg', macos26Src: '/cursor-default-macos26.svg', sgtcuteSrc: '/cursor-default-sgtcute.svg', sgtcoolSrc: '/cursor-default-sgtcool.svg' },
+    { id: 'text', label: t.cursorText, screenstudioSrc: '/cursor-text-screenstudio.svg', macos26Src: '/cursor-text-macos26.svg', sgtcuteSrc: '/cursor-text-sgtcute.svg', sgtcoolSrc: '/cursor-text-sgtcool.svg' },
+    { id: 'pointer', label: t.cursorPointer, screenstudioSrc: '/cursor-pointer-screenstudio.svg', macos26Src: '/cursor-pointer-macos26.svg', sgtcuteSrc: '/cursor-pointer-sgtcute.svg', sgtcoolSrc: '/cursor-pointer-sgtcool.svg' },
+    { id: 'openhand', label: t.cursorOpenHand, screenstudioSrc: '/cursor-openhand-screenstudio.svg', macos26Src: '/cursor-openhand-macos26.svg', sgtcuteSrc: '/cursor-openhand-sgtcute.svg', sgtcoolSrc: '/cursor-openhand-sgtcool.svg' },
+    { id: 'closehand', label: 'Closed Hand', screenstudioSrc: '/cursor-closehand-screenstudio.svg', macos26Src: '/cursor-closehand-macos26.svg', sgtcuteSrc: '/cursor-closehand-sgtcute.svg', sgtcoolSrc: '/cursor-closehand-sgtcool.svg' },
+    { id: 'wait', label: 'Wait', screenstudioSrc: '/cursor-wait-screenstudio.svg', macos26Src: '/cursor-wait-macos26.svg', sgtcuteSrc: '/cursor-wait-sgtcute.svg', sgtcoolSrc: '/cursor-wait-sgtcool.svg' },
+    { id: 'appstarting', label: 'App Starting', screenstudioSrc: '/cursor-appstarting-screenstudio.svg', macos26Src: '/cursor-appstarting-macos26.svg', sgtcuteSrc: '/cursor-appstarting-sgtcute.svg', sgtcoolSrc: '/cursor-appstarting-sgtcool.svg' },
+    { id: 'crosshair', label: 'Crosshair', screenstudioSrc: '/cursor-crosshair-screenstudio.svg', macos26Src: '/cursor-crosshair-macos26.svg', sgtcuteSrc: '/cursor-crosshair-sgtcute.svg', sgtcoolSrc: '/cursor-crosshair-sgtcool.svg' },
+    { id: 'resize_ns', label: 'Resize N-S', screenstudioSrc: '/cursor-resize-ns-screenstudio.svg', macos26Src: '/cursor-resize-ns-macos26.svg', sgtcuteSrc: '/cursor-resize-ns-sgtcute.svg', sgtcoolSrc: '/cursor-resize-ns-sgtcool.svg' },
+    { id: 'resize_we', label: 'Resize W-E', screenstudioSrc: '/cursor-resize-we-screenstudio.svg', macos26Src: '/cursor-resize-we-macos26.svg', sgtcuteSrc: '/cursor-resize-we-sgtcute.svg', sgtcoolSrc: '/cursor-resize-we-sgtcool.svg' },
+    { id: 'resize_nwse', label: 'Resize NW-SE', screenstudioSrc: '/cursor-resize-nwse-screenstudio.svg', macos26Src: '/cursor-resize-nwse-macos26.svg', sgtcuteSrc: '/cursor-resize-nwse-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nwse-sgtcool.svg' },
+    { id: 'resize_nesw', label: 'Resize NE-SW', screenstudioSrc: '/cursor-resize-nesw-screenstudio.svg', macos26Src: '/cursor-resize-nesw-macos26.svg', sgtcuteSrc: '/cursor-resize-nesw-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nesw-sgtcool.svg' },
   ]), [t.cursorDefault, t.cursorText, t.cursorPointer, t.cursorOpenHand]);
   const viewportHeight = CURSOR_VARIANT_VIEWPORT_HEIGHT;
   const totalHeight = rows.length * CURSOR_VARIANT_ROW_HEIGHT;
@@ -483,7 +485,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
               className="cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-y-auto pr-1"
               onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
             >
-              <div className="cursor-variant-column-header sticky top-0 z-10 h-6 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-[minmax(0,1fr)_48px_48px] gap-1.5 items-center bg-[var(--surface)]">
+              <div className="cursor-variant-column-header sticky top-0 z-10 h-6 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-[minmax(0,1fr)_48px_48px_48px_48px] gap-1.5 items-center bg-[var(--surface)]">
                 <span className="text-[10px] text-transparent select-none">label</span>
                 <span
                   className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
@@ -497,6 +499,18 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                 >
                   Mac Tahoe+
                 </span>
+                <span
+                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
+                >
+                  SGT Cute
+                </span>
+                <span
+                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
+                >
+                  SGT Cool
+                </span>
               </div>
               <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
                 {visibleRows.map((row, i) => {
@@ -504,7 +518,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                   return (
                     <div
                       key={row.id}
-                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-[minmax(0,1fr)_48px_48px] gap-1.5 items-center"
+                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-[minmax(0,1fr)_48px_48px_48px_48px] gap-1.5 items-center"
                       style={{ top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`, height: `${CURSOR_VARIANT_ROW_HEIGHT}px` }}
                     >
                       <span className="text-[10px] text-[var(--on-surface-variant)] truncate">{row.label}</span>
@@ -521,6 +535,20 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                         label={`${row.label} macos26`}
                       >
                         <img src={`${row.macos26Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
+                      </CursorVariantButton>
+                      <CursorVariantButton
+                        isSelected={inferredPack === 'sgtcute'}
+                        onClick={() => setCursorPack('sgtcute')}
+                        label={`${row.label} sgtcute`}
+                      >
+                        <img src={`${row.sgtcuteSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
+                      </CursorVariantButton>
+                      <CursorVariantButton
+                        isSelected={inferredPack === 'sgtcool'}
+                        onClick={() => setCursorPack('sgtcool')}
+                        label={`${row.label} sgtcool`}
+                      >
+                        <img src={`${row.sgtcoolSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
                       </CursorVariantButton>
                     </div>
                   );

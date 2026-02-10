@@ -8,7 +8,7 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
-const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v7-default-revert-up';
+const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v11-sgtcool';
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -34,7 +34,31 @@ type CursorRenderType =
   | 'resize-ns-macos26'
   | 'resize-we-macos26'
   | 'resize-nwse-macos26'
-  | 'resize-nesw-macos26';
+  | 'resize-nesw-macos26'
+  | 'default-sgtcute'
+  | 'text-sgtcute'
+  | 'pointer-sgtcute'
+  | 'openhand-sgtcute'
+  | 'closehand-sgtcute'
+  | 'wait-sgtcute'
+  | 'appstarting-sgtcute'
+  | 'crosshair-sgtcute'
+  | 'resize-ns-sgtcute'
+  | 'resize-we-sgtcute'
+  | 'resize-nwse-sgtcute'
+  | 'resize-nesw-sgtcute'
+  | 'default-sgtcool'
+  | 'text-sgtcool'
+  | 'pointer-sgtcool'
+  | 'openhand-sgtcool'
+  | 'closehand-sgtcool'
+  | 'wait-sgtcool'
+  | 'appstarting-sgtcool'
+  | 'crosshair-sgtcool'
+  | 'resize-ns-sgtcool'
+  | 'resize-we-sgtcool'
+  | 'resize-nwse-sgtcool'
+  | 'resize-nesw-sgtcool';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -81,6 +105,30 @@ export class VideoRenderer {
   private resizeWeMacos26Image: HTMLImageElement;
   private resizeNwseMacos26Image: HTMLImageElement;
   private resizeNeswMacos26Image: HTMLImageElement;
+  private defaultSgtcuteImage: HTMLImageElement;
+  private textSgtcuteImage: HTMLImageElement;
+  private pointerSgtcuteImage: HTMLImageElement;
+  private openHandSgtcuteImage: HTMLImageElement;
+  private closeHandSgtcuteImage: HTMLImageElement;
+  private waitSgtcuteImage: HTMLImageElement;
+  private appStartingSgtcuteImage: HTMLImageElement;
+  private crosshairSgtcuteImage: HTMLImageElement;
+  private resizeNsSgtcuteImage: HTMLImageElement;
+  private resizeWeSgtcuteImage: HTMLImageElement;
+  private resizeNwseSgtcuteImage: HTMLImageElement;
+  private resizeNeswSgtcuteImage: HTMLImageElement;
+  private defaultSgtcoolImage: HTMLImageElement;
+  private textSgtcoolImage: HTMLImageElement;
+  private pointerSgtcoolImage: HTMLImageElement;
+  private openHandSgtcoolImage: HTMLImageElement;
+  private closeHandSgtcoolImage: HTMLImageElement;
+  private waitSgtcoolImage: HTMLImageElement;
+  private appStartingSgtcoolImage: HTMLImageElement;
+  private crosshairSgtcoolImage: HTMLImageElement;
+  private resizeNsSgtcoolImage: HTMLImageElement;
+  private resizeWeSgtcoolImage: HTMLImageElement;
+  private resizeNwseSgtcoolImage: HTMLImageElement;
+  private resizeNeswSgtcoolImage: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
 
@@ -231,6 +279,102 @@ export class VideoRenderer {
     this.resizeNeswMacos26Image.src = `/cursor-resize-nesw-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
     this.resizeNeswMacos26Image.onload = () => { };
 
+    this.defaultSgtcuteImage = new Image();
+    this.defaultSgtcuteImage.src = `/cursor-default-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.defaultSgtcuteImage.onload = () => { };
+
+    this.textSgtcuteImage = new Image();
+    this.textSgtcuteImage.src = `/cursor-text-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.textSgtcuteImage.onload = () => { };
+
+    this.pointerSgtcuteImage = new Image();
+    this.pointerSgtcuteImage.src = `/cursor-pointer-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.pointerSgtcuteImage.onload = () => { };
+
+    this.openHandSgtcuteImage = new Image();
+    this.openHandSgtcuteImage.src = `/cursor-openhand-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.openHandSgtcuteImage.onload = () => { };
+
+    this.closeHandSgtcuteImage = new Image();
+    this.closeHandSgtcuteImage.src = `/cursor-closehand-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.closeHandSgtcuteImage.onload = () => { };
+
+    this.waitSgtcuteImage = new Image();
+    this.waitSgtcuteImage.src = `/cursor-wait-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.waitSgtcuteImage.onload = () => { };
+
+    this.appStartingSgtcuteImage = new Image();
+    this.appStartingSgtcuteImage.src = `/cursor-appstarting-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.appStartingSgtcuteImage.onload = () => { };
+
+    this.crosshairSgtcuteImage = new Image();
+    this.crosshairSgtcuteImage.src = `/cursor-crosshair-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.crosshairSgtcuteImage.onload = () => { };
+
+    this.resizeNsSgtcuteImage = new Image();
+    this.resizeNsSgtcuteImage.src = `/cursor-resize-ns-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNsSgtcuteImage.onload = () => { };
+
+    this.resizeWeSgtcuteImage = new Image();
+    this.resizeWeSgtcuteImage.src = `/cursor-resize-we-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeWeSgtcuteImage.onload = () => { };
+
+    this.resizeNwseSgtcuteImage = new Image();
+    this.resizeNwseSgtcuteImage.src = `/cursor-resize-nwse-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNwseSgtcuteImage.onload = () => { };
+
+    this.resizeNeswSgtcuteImage = new Image();
+    this.resizeNeswSgtcuteImage.src = `/cursor-resize-nesw-sgtcute.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNeswSgtcuteImage.onload = () => { };
+
+    this.defaultSgtcoolImage = new Image();
+    this.defaultSgtcoolImage.src = `/cursor-default-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.defaultSgtcoolImage.onload = () => { };
+
+    this.textSgtcoolImage = new Image();
+    this.textSgtcoolImage.src = `/cursor-text-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.textSgtcoolImage.onload = () => { };
+
+    this.pointerSgtcoolImage = new Image();
+    this.pointerSgtcoolImage.src = `/cursor-pointer-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.pointerSgtcoolImage.onload = () => { };
+
+    this.openHandSgtcoolImage = new Image();
+    this.openHandSgtcoolImage.src = `/cursor-openhand-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.openHandSgtcoolImage.onload = () => { };
+
+    this.closeHandSgtcoolImage = new Image();
+    this.closeHandSgtcoolImage.src = `/cursor-closehand-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.closeHandSgtcoolImage.onload = () => { };
+
+    this.waitSgtcoolImage = new Image();
+    this.waitSgtcoolImage.src = `/cursor-wait-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.waitSgtcoolImage.onload = () => { };
+
+    this.appStartingSgtcoolImage = new Image();
+    this.appStartingSgtcoolImage.src = `/cursor-appstarting-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.appStartingSgtcoolImage.onload = () => { };
+
+    this.crosshairSgtcoolImage = new Image();
+    this.crosshairSgtcoolImage.src = `/cursor-crosshair-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.crosshairSgtcoolImage.onload = () => { };
+
+    this.resizeNsSgtcoolImage = new Image();
+    this.resizeNsSgtcoolImage.src = `/cursor-resize-ns-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNsSgtcoolImage.onload = () => { };
+
+    this.resizeWeSgtcoolImage = new Image();
+    this.resizeWeSgtcoolImage.src = `/cursor-resize-we-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeWeSgtcoolImage.onload = () => { };
+
+    this.resizeNwseSgtcoolImage = new Image();
+    this.resizeNwseSgtcoolImage.src = `/cursor-resize-nwse-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNwseSgtcoolImage.onload = () => { };
+
+    this.resizeNeswSgtcoolImage = new Image();
+    this.resizeNeswSgtcoolImage.src = `/cursor-resize-nesw-sgtcool.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNeswSgtcoolImage.onload = () => { };
+
     this.cursorOffscreen = new OffscreenCanvas(128, 128);
     this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
   }
@@ -282,7 +426,19 @@ export class VideoRenderer {
     ].join('|');
   }
 
-  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' {
+  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' {
+    if (backgroundConfig?.cursorDefaultVariant === 'sgtcool'
+      || backgroundConfig?.cursorTextVariant === 'sgtcool'
+      || backgroundConfig?.cursorPointerVariant === 'sgtcool'
+      || backgroundConfig?.cursorOpenHandVariant === 'sgtcool') {
+      return 'sgtcool';
+    }
+    if (backgroundConfig?.cursorDefaultVariant === 'sgtcute'
+      || backgroundConfig?.cursorTextVariant === 'sgtcute'
+      || backgroundConfig?.cursorPointerVariant === 'sgtcute'
+      || backgroundConfig?.cursorOpenHandVariant === 'sgtcute') {
+      return 'sgtcute';
+    }
     if (backgroundConfig?.cursorDefaultVariant === 'macos26'
       || backgroundConfig?.cursorTextVariant === 'macos26'
       || backgroundConfig?.cursorPointerVariant === 'macos26'
@@ -326,6 +482,40 @@ export class VideoRenderer {
         case 'resize_nwse': return 'resize-nwse-macos26';
         case 'resize_nesw': return 'resize-nesw-macos26';
         default: return 'default-macos26';
+      }
+    }
+
+    if (pack === 'sgtcool') {
+      switch (semanticType) {
+        case 'text': return 'text-sgtcool';
+        case 'pointer': return 'pointer-sgtcool';
+        case 'openhand': return 'openhand-sgtcool';
+        case 'closehand': return 'closehand-sgtcool';
+        case 'wait': return 'wait-sgtcool';
+        case 'appstarting': return 'appstarting-sgtcool';
+        case 'crosshair': return 'crosshair-sgtcool';
+        case 'resize_ns': return 'resize-ns-sgtcool';
+        case 'resize_we': return 'resize-we-sgtcool';
+        case 'resize_nwse': return 'resize-nwse-sgtcool';
+        case 'resize_nesw': return 'resize-nesw-sgtcool';
+        default: return 'default-sgtcool';
+      }
+    }
+
+    if (pack === 'sgtcute') {
+      switch (semanticType) {
+        case 'text': return 'text-sgtcute';
+        case 'pointer': return 'pointer-sgtcute';
+        case 'openhand': return 'openhand-sgtcute';
+        case 'closehand': return 'closehand-sgtcute';
+        case 'wait': return 'wait-sgtcute';
+        case 'appstarting': return 'appstarting-sgtcute';
+        case 'crosshair': return 'crosshair-sgtcute';
+        case 'resize_ns': return 'resize-ns-sgtcute';
+        case 'resize_we': return 'resize-we-sgtcute';
+        case 'resize_nwse': return 'resize-nwse-sgtcute';
+        case 'resize_nesw': return 'resize-nesw-sgtcute';
+        default: return 'default-sgtcute';
       }
     }
 
@@ -1517,9 +1707,17 @@ export class VideoRenderer {
       case 'pointer-macos26':
       case 'openhand-macos26':
       case 'closehand-macos26':
+      case 'pointer-sgtcute':
+      case 'openhand-sgtcute':
+      case 'closehand-sgtcute':
+      case 'pointer-sgtcool':
+      case 'openhand-sgtcool':
+      case 'closehand-sgtcool':
         return { x: 3.0, y: 8.5 };
       case 'text-screenstudio':
       case 'text-macos26':
+      case 'text-sgtcute':
+      case 'text-sgtcool':
         return { x: 0, y: 0 };
       default:
         return { x: 3.6, y: 5.6 };
@@ -1578,6 +1776,42 @@ export class VideoRenderer {
     }
   }
 
+  private getSgtcuteCursorImage(type: CursorRenderType): HTMLImageElement | null {
+    switch (type) {
+      case 'default-sgtcute': return this.defaultSgtcuteImage;
+      case 'text-sgtcute': return this.textSgtcuteImage;
+      case 'pointer-sgtcute': return this.pointerSgtcuteImage;
+      case 'openhand-sgtcute': return this.openHandSgtcuteImage;
+      case 'closehand-sgtcute': return this.closeHandSgtcuteImage;
+      case 'wait-sgtcute': return this.waitSgtcuteImage;
+      case 'appstarting-sgtcute': return this.appStartingSgtcuteImage;
+      case 'crosshair-sgtcute': return this.crosshairSgtcuteImage;
+      case 'resize-ns-sgtcute': return this.resizeNsSgtcuteImage;
+      case 'resize-we-sgtcute': return this.resizeWeSgtcuteImage;
+      case 'resize-nwse-sgtcute': return this.resizeNwseSgtcuteImage;
+      case 'resize-nesw-sgtcute': return this.resizeNeswSgtcuteImage;
+      default: return null;
+    }
+  }
+
+  private getSgtcoolCursorImage(type: CursorRenderType): HTMLImageElement | null {
+    switch (type) {
+      case 'default-sgtcool': return this.defaultSgtcoolImage;
+      case 'text-sgtcool': return this.textSgtcoolImage;
+      case 'pointer-sgtcool': return this.pointerSgtcoolImage;
+      case 'openhand-sgtcool': return this.openHandSgtcoolImage;
+      case 'closehand-sgtcool': return this.closeHandSgtcoolImage;
+      case 'wait-sgtcool': return this.waitSgtcoolImage;
+      case 'appstarting-sgtcool': return this.appStartingSgtcoolImage;
+      case 'crosshair-sgtcool': return this.crosshairSgtcoolImage;
+      case 'resize-ns-sgtcool': return this.resizeNsSgtcoolImage;
+      case 'resize-we-sgtcool': return this.resizeWeSgtcoolImage;
+      case 'resize-nwse-sgtcool': return this.resizeNwseSgtcoolImage;
+      case 'resize-nesw-sgtcool': return this.resizeNeswSgtcoolImage;
+      default: return null;
+    }
+  }
+
   private getScreenStudioCursorImage(type: CursorRenderType | string): HTMLImageElement | null {
     switch (type) {
       case 'default-screenstudio': return this.defaultScreenStudioImage;
@@ -1598,10 +1832,16 @@ export class VideoRenderer {
 
   private drawCenteredCursorImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement) {
     if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return;
-    const hotspotX = img.naturalWidth * 0.5;
-    const hotspotY = img.naturalHeight * 0.5;
+    // Normalize very large-source SVG cursors (e.g. imported sprite slices) so they
+    // match the same on-canvas footprint as the native cursor packs.
+    const sourceMax = Math.max(img.naturalWidth, img.naturalHeight);
+    const normalizeScale = sourceMax > 96 ? (48 / sourceMax) : 1;
+    const drawW = img.naturalWidth * normalizeScale;
+    const drawH = img.naturalHeight * normalizeScale;
+    const hotspotX = drawW * 0.5;
+    const hotspotY = drawH * 0.5;
     ctx.translate(-hotspotX, -hotspotY);
-    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+    ctx.drawImage(img, 0, 0, drawW, drawH);
   }
 
   private drawCursorShape(
@@ -1624,7 +1864,15 @@ export class VideoRenderer {
       || lowerType === 'default-macos26'
       || lowerType === 'pointer-macos26'
       || lowerType === 'openhand-macos26'
-      || lowerType === 'closehand-macos26';
+      || lowerType === 'closehand-macos26'
+      || lowerType === 'default-sgtcute'
+      || lowerType === 'pointer-sgtcute'
+      || lowerType === 'openhand-sgtcute'
+      || lowerType === 'closehand-sgtcute'
+      || lowerType === 'default-sgtcool'
+      || lowerType === 'pointer-sgtcool'
+      || lowerType === 'openhand-sgtcool'
+      || lowerType === 'closehand-sgtcool';
     if (allowRotation && Math.abs(rotation) > 0.0001) {
       const pivot = this.getCursorRotationPivot(lowerType);
       ctx.translate(pivot.x, pivot.y);
@@ -1670,6 +1918,18 @@ export class VideoRenderer {
         effectiveType = 'default-screenstudio';
       }
     }
+    if (effectiveType.endsWith('-sgtcute')) {
+      const image = this.getSgtcuteCursorImage(effectiveType as CursorRenderType);
+      if (!image || !image.complete || image.naturalWidth === 0) {
+        effectiveType = 'default-screenstudio';
+      }
+    }
+    if (effectiveType.endsWith('-sgtcool')) {
+      const image = this.getSgtcoolCursorImage(effectiveType as CursorRenderType);
+      if (!image || !image.complete || image.naturalWidth === 0) {
+        effectiveType = 'default-screenstudio';
+      }
+    }
 
     switch (effectiveType) {
       case 'text-screenstudio':
@@ -1701,6 +1961,40 @@ export class VideoRenderer {
       case 'resize-nwse-macos26':
       case 'resize-nesw-macos26': {
         const img = this.getMacos26CursorImage(effectiveType);
+        if (img) this.drawCenteredCursorImage(ctx, img);
+        break;
+      }
+
+      case 'default-sgtcute':
+      case 'text-sgtcute':
+      case 'pointer-sgtcute':
+      case 'openhand-sgtcute':
+      case 'closehand-sgtcute':
+      case 'wait-sgtcute':
+      case 'appstarting-sgtcute':
+      case 'crosshair-sgtcute':
+      case 'resize-ns-sgtcute':
+      case 'resize-we-sgtcute':
+      case 'resize-nwse-sgtcute':
+      case 'resize-nesw-sgtcute': {
+        const img = this.getSgtcuteCursorImage(effectiveType);
+        if (img) this.drawCenteredCursorImage(ctx, img);
+        break;
+      }
+
+      case 'default-sgtcool':
+      case 'text-sgtcool':
+      case 'pointer-sgtcool':
+      case 'openhand-sgtcool':
+      case 'closehand-sgtcool':
+      case 'wait-sgtcool':
+      case 'appstarting-sgtcool':
+      case 'crosshair-sgtcool':
+      case 'resize-ns-sgtcool':
+      case 'resize-we-sgtcool':
+      case 'resize-nwse-sgtcool':
+      case 'resize-nesw-sgtcool': {
+        const img = this.getSgtcoolCursorImage(effectiveType);
         if (img) this.drawCenteredCursorImage(ctx, img);
         break;
       }

@@ -198,6 +198,10 @@ function App() {
     }
   }, []);
 
+  const handleOpenCursorLab = useCallback(() => {
+    window.location.hash = '#cursor-lab';
+  }, []);
+
   const handleToggleProjects = useCallback(() => {
     if (projects.showProjectsDialog) {
       window.dispatchEvent(new CustomEvent('sr-close-projects'));
@@ -398,6 +402,7 @@ function App() {
         isProcessing={exportHook.isProcessing} hotkeys={hotkeys} keyvizStatus={keyvizStatus}
         onRemoveHotkey={handleRemoveHotkey} onOpenHotkeyDialog={openHotkeyDialog}
         onToggleKeyviz={toggleKeyviz} onExport={exportHook.handleExport}
+        onOpenCursorLab={handleOpenCursorLab}
         onOpenProjects={handleToggleProjects}
         hideExport={isOverlayMode}
       />

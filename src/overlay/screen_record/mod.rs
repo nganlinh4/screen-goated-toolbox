@@ -96,6 +96,42 @@ const ASSET_CURSOR_RESIZE_NS_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-re
 const ASSET_CURSOR_RESIZE_WE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-macos26.svg");
 const ASSET_CURSOR_RESIZE_NWSE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-macos26.svg");
 const ASSET_CURSOR_RESIZE_NESW_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-macos26.svg");
+const ASSET_CURSOR_DEFAULT_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtcute.svg");
+const ASSET_CURSOR_TEXT_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtcute.svg");
+const ASSET_CURSOR_POINTER_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtcute.svg");
+const ASSET_CURSOR_OPENHAND_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtcute.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtcute.svg");
+const ASSET_CURSOR_WAIT_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtcute.svg");
+const ASSET_CURSOR_APPSTARTING_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtcute.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtcute.svg");
+const ASSET_CURSOR_DEFAULT_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtcool.svg");
+const ASSET_CURSOR_TEXT_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtcool.svg");
+const ASSET_CURSOR_POINTER_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtcool.svg");
+const ASSET_CURSOR_OPENHAND_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtcool.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtcool.svg");
+const ASSET_CURSOR_WAIT_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtcool.svg");
+const ASSET_CURSOR_APPSTARTING_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtcool.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtcool.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_01_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-01.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_02_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-02.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_03_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-03.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_04_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-04.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_05_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-05.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_06_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-06.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_07_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-07.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_08_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-08.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_09_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-09.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_10_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-10.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_11_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-11.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_12_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-12.svg");
 const ASSET_SCREENSHOT_PNG: &[u8] = include_bytes!("dist/screenshot.png");
 
 // --- WINDOW PROCEDURE ---
@@ -620,6 +656,78 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_MACOS26_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-resize-nesw-macos26.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-crosshair-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtcute.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTCUTE_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-crosshair-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtcool.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTCOOL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-01.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_01_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-02.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_02_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-03.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_03_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-04.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_04_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-05.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_05_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-06.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_06_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-07.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_07_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-08.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_08_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-09.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_09_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-10.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_10_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-11.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_11_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursors/sgtcool_raw/slot-12.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_12_SVG), "image/svg+xml")
                     } else if path.ends_with("screenshot.png") {
                         (Cow::Borrowed(ASSET_SCREENSHOT_PNG), "image/png")
                     } else {
