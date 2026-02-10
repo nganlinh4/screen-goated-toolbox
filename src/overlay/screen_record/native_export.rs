@@ -810,26 +810,34 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     let rel_y = (cy - crop_y_offset) / crop_h as f64;
 
                     let type_id = match c_type.as_str() {
-                        // ScreenStudio base
+                        // ScreenStudio set
                         "default-screenstudio" | "default" => 0.0,
                         "text-screenstudio" | "text" => 1.0,
                         "pointer-screenstudio" | "pointer" => 2.0,
                         "openhand-screenstudio" => 3.0,
+                        "closehand-screenstudio" => 4.0,
+                        "wait-screenstudio" | "wait" => 5.0,
+                        "appstarting-screenstudio" | "appstarting" => 6.0,
+                        "crosshair-screenstudio" | "crosshair" | "cross" => 7.0,
+                        "resize-ns-screenstudio" | "resize_ns" | "sizens" => 8.0,
+                        "resize-we-screenstudio" | "resize_we" | "sizewe" => 9.0,
+                        "resize-nwse-screenstudio" | "resize_nwse" | "sizenwse" => 10.0,
+                        "resize-nesw-screenstudio" | "resize_nesw" | "sizenesw" => 11.0,
 
                         // macos26 expanded
-                        "default-macos26" => 4.0,
-                        "text-macos26" => 5.0,
-                        "pointer-macos26" => 6.0,
-                        "openhand-macos26" | "openhand" | "move" | "sizeall" => 7.0,
-                        "closehand-macos26" | "grabbing" => 8.0,
-                        "wait-macos26" | "wait" => 9.0,
-                        "appstarting-macos26" | "appstarting" => 10.0,
-                        "crosshair-macos26" | "crosshair" | "cross" => 11.0,
-                        "resize-ns-macos26" | "resize_ns" | "sizens" => 12.0,
-                        "resize-we-macos26" | "resize_we" | "sizewe" => 13.0,
-                        "resize-nwse-macos26" | "resize_nwse" | "sizenwse" => 14.0,
-                        "resize-nesw-macos26" | "resize_nesw" | "sizenesw" => 15.0,
-                        "other" => 4.0,
+                        "default-macos26" => 12.0,
+                        "text-macos26" => 13.0,
+                        "pointer-macos26" => 14.0,
+                        "openhand-macos26" | "openhand" | "move" | "sizeall" => 15.0,
+                        "closehand-macos26" | "grabbing" => 16.0,
+                        "wait-macos26" => 17.0,
+                        "appstarting-macos26" => 18.0,
+                        "crosshair-macos26" => 19.0,
+                        "resize-ns-macos26" => 20.0,
+                        "resize-we-macos26" => 21.0,
+                        "resize-nwse-macos26" => 22.0,
+                        "resize-nesw-macos26" => 23.0,
+                        "other" => 12.0,
                         _ => 0.0,
                     };
 
