@@ -18,6 +18,21 @@ let broomDragData = null;
 // Opacity slider state
 window.opacityValues = {};
 
+function setBroomDraggingCursor(active) {
+    const html = document.documentElement;
+    if (!html) return;
+
+    if (active) {
+        html.style.cursor = "grabbing";
+        if (document.body) document.body.style.cursor = "grabbing";
+    } else {
+        html.style.cursor = "";
+        if (document.body) document.body.style.cursor = "";
+    }
+}
+
+window.setBroomDraggingCursor = setBroomDraggingCursor;
+
 window.updateOpacity = function(hwnd, value) {
     value = parseInt(value);
     window.opacityValues[hwnd] = value;
@@ -261,6 +276,7 @@ function generateButtonsHTML(hwnd, state, isVertical) {
 
 function handleBroomDrag(e, hwnd) {
     if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+    setBroomDraggingCursor(true);
 
     const group = document.querySelector('.button-group[data-hwnd="' + hwnd + '"]');
     if (group) {
@@ -278,6 +294,12 @@ function handleBroomDrag(e, hwnd) {
         hwnd: hwnd
     }));
 }
+
+window.addEventListener("mouseup", () => setBroomDraggingCursor(false));
+window.addEventListener("blur", () => setBroomDraggingCursor(false));
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) setBroomDraggingCursor(false);
+});
 
 function action(hwnd, cmd) {
     if (cmd === 'broom_click' && window.ignoreNextBroomClick) return;
