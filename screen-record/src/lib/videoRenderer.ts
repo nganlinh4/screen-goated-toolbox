@@ -1855,29 +1855,30 @@ export class VideoRenderer {
     cursorType: string = 'default',
     rotation: number = 0
   ) {
-    // When globalAlpha < 1 (cursor fade in/out), drawing strokes+fills directly
-    // causes white borders to bleed through semi-transparent black fills.
-    // Fix: draw at full opacity onto offscreen canvas, then stamp with globalAlpha.
-    if (ctx.globalAlpha < 0.999) {
-      const margin = 64;
-      const size = Math.ceil(scale * 48) + margin * 2;
-      if (this.cursorOffscreen.width !== size || this.cursorOffscreen.height !== size) {
-        this.cursorOffscreen.width = size;
-        this.cursorOffscreen.height = size;
-        this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
-      }
-      const oCtx = this.cursorOffscreenCtx;
-      oCtx.clearRect(0, 0, size, size);
-      oCtx.globalAlpha = 1;
-      this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType, rotation);
-      ctx.save();
-      ctx.drawImage(this.cursorOffscreen, x - margin, y - margin);
-      ctx.restore();
-    } else {
-      ctx.save();
-      this.drawCursorShape(ctx, x, y, isClicked, scale, cursorType, rotation);
-      ctx.restore();
+    // Always render through offscreen so visible->dismiss transition uses identical
+    // rasterization and bounds (prevents viewbox "jump" / clipping on fade start).
+    const shadowStrength = this.getCursorShadowStrength(this.activeRenderContext?.backgroundConfig);
+    const normalizedShadow = Math.max(0, shadowStrength) / 100;
+    const shadowOverdrive = Math.max(0, normalizedShadow - 1);
+    const shadowBlur = 1.2 + (9.0 * Math.min(normalizedShadow, 1)) + (8.0 * shadowOverdrive);
+    const shadowOffset = (2.2 * Math.min(normalizedShadow, 1)) + (1.8 * shadowOverdrive);
+    const shapeRadius = Math.max(28, scale * 32);
+    const margin = Math.ceil(shapeRadius + shadowBlur + shadowOffset + 24);
+    const size = margin * 2;
+
+    if (this.cursorOffscreen.width !== size || this.cursorOffscreen.height !== size) {
+      this.cursorOffscreen.width = size;
+      this.cursorOffscreen.height = size;
+      this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
     }
+
+    const oCtx = this.cursorOffscreenCtx;
+    oCtx.clearRect(0, 0, size, size);
+    oCtx.globalAlpha = 1;
+    this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType, rotation);
+    ctx.save();
+    ctx.drawImage(this.cursorOffscreen, x - margin, y - margin);
+    ctx.restore();
   }
 
   private getMacos26CursorImage(type: CursorRenderType): HTMLImageElement | null {
