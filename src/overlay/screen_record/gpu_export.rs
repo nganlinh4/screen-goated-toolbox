@@ -130,8 +130,10 @@ const RESIZE_NS_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtco
 const RESIZE_WE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtcool.svg");
 const RESIZE_NWSE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtcool.svg");
 const RESIZE_NESW_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtcool.svg");
-const CURSOR_ATLAS_ROWS: u32 = 48;
-const CURSOR_TILE_SIZE: u32 = 160;
+const CURSOR_ATLAS_COLS: u32 = 8;
+const CURSOR_ATLAS_ROWS: u32 = 6;
+const CURSOR_ATLAS_SLOTS: u32 = CURSOR_ATLAS_COLS * CURSOR_ATLAS_ROWS; // 48 cursors
+const CURSOR_TILE_SIZE: u32 = 512;
 
 impl GpuCompositor {
     pub fn new(
@@ -200,12 +202,12 @@ impl GpuCompositor {
         });
         let video_view = video_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Cursor Texture Atlas: CURSOR_TILE_SIZE x (CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS)
-        // Large tiles for crisp cursors even at high zoom levels
+        // Cursor Texture Atlas: (CURSOR_TILE_SIZE*CURSOR_ATLAS_COLS) x (CURSOR_TILE_SIZE*CURSOR_ATLAS_ROWS)
+        // 2D atlas keeps 512px cursor tiles while staying under GPU texture limits.
         let cursor_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Cursor Atlas Texture"),
             size: wgpu::Extent3d {
-                width: CURSOR_TILE_SIZE,
+                width: CURSOR_TILE_SIZE * CURSOR_ATLAS_COLS,
                 height: CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS,
                 depth_or_array_layers: 1,
             },
@@ -410,14 +412,19 @@ impl GpuCompositor {
     }
 
     pub fn init_cursor_texture(&self) {
-        // Build atlas: CURSOR_TILE_SIZE x (CURSOR_TILE_SIZE*CURSOR_ATLAS_ROWS)
+        // Build atlas: (CURSOR_TILE_SIZE*CURSOR_ATLAS_COLS) x (CURSOR_TILE_SIZE*CURSOR_ATLAS_ROWS)
         // 0..11: screenstudio set
         // 12..23: macos26 set
         // 24..35: sgtcute set
+        // 36..47: sgtcool set
 
         let tile_size = CURSOR_TILE_SIZE;
-        let center = tile_size as f32 / 2.0; // 256.0
-        let mut atlas = Pixmap::new(tile_size, tile_size * CURSOR_ATLAS_ROWS).unwrap();
+        let center = tile_size as f32 / 2.0;
+        let mut atlas = Pixmap::new(
+            tile_size * CURSOR_ATLAS_COLS,
+            tile_size * CURSOR_ATLAS_ROWS,
+        )
+        .unwrap();
 
         // Helper: render svg into a specific slot with center hotspot.
         let mut render_svg_slot = |svg: &[u8], slot: u32, target_size: f32| {
@@ -429,8 +436,10 @@ impl GpuCompositor {
                 let base_scale = target_size / svg_w.max(svg_h);
                 let hotspot_px_x = (svg_w * 0.5) * base_scale;
                 let hotspot_px_y = (svg_h * 0.5) * base_scale;
-                let x = center - hotspot_px_x;
-                let y = (center + tile_size as f32 * slot as f32) - hotspot_px_y;
+                let col = slot % CURSOR_ATLAS_COLS;
+                let row = slot / CURSOR_ATLAS_COLS;
+                let x = (col * tile_size) as f32 + center - hotspot_px_x;
+                let y = (row * tile_size) as f32 + center - hotspot_px_y;
                 let ts = Transform::from_translate(x, y).pre_scale(base_scale, base_scale);
                 resvg::render(&tree, ts, &mut atlas.as_mut());
             }
@@ -487,8 +496,8 @@ impl GpuCompositor {
             RESIZE_NESW_SGTCOOL_SVG,
         ];
 
-        for slot in 0..48u32 {
-            let target = if slot == 1 || slot == 13 || slot == 25 {
+        for slot in 0..CURSOR_ATLAS_SLOTS {
+            let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 {
                 tile_size as f32 * 0.90
             } else {
                 tile_size as f32 * 0.94
@@ -510,11 +519,11 @@ impl GpuCompositor {
             atlas.data(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(CURSOR_TILE_SIZE * 4),
+                bytes_per_row: Some(CURSOR_TILE_SIZE * CURSOR_ATLAS_COLS * 4),
                 rows_per_image: Some(CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS),
             },
             wgpu::Extent3d {
-                width: CURSOR_TILE_SIZE,
+                width: CURSOR_TILE_SIZE * CURSOR_ATLAS_COLS,
                 height: CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS,
                 depth_or_array_layers: 1,
             },
@@ -830,7 +839,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                     let p = shadow_pos + offsets[i];
                     if p.x >= 0.0 && p.x < cursor_pixel_size && p.y >= 0.0 && p.y < cursor_pixel_size {
                         let uv_in_tile = p / cursor_pixel_size;
-                        let atlas_uv = vec2<f32>(uv_in_tile.x, (uv_in_tile.y + tile_idx) / 48.0);
+                        let atlas_col = tile_idx - floor(tile_idx / 8.0) * 8.0;
+                        let atlas_row = floor(tile_idx / 8.0);
+                        let atlas_uv = vec2<f32>(
+                            (uv_in_tile.x + atlas_col) / 8.0,
+                            (uv_in_tile.y + atlas_row) / 6.0
+                        );
                         shadow_alpha = shadow_alpha + textureSample(cursor_tex, cursor_samp, atlas_uv).a;
                     }
                 }
@@ -844,9 +858,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
         if in_bounds {
             let uv_in_tile = sample_pos / cursor_pixel_size;
+            let atlas_col = tile_idx - floor(tile_idx / 8.0) * 8.0;
+            let atlas_row = floor(tile_idx / 8.0);
             let atlas_uv = vec2<f32>(
-                uv_in_tile.x,
-                (uv_in_tile.y + tile_idx) / 48.0
+                (uv_in_tile.x + atlas_col) / 8.0,
+                (uv_in_tile.y + atlas_row) / 6.0
             );
             let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
             let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
