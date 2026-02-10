@@ -24,6 +24,38 @@ import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
 
 const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
+const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
+
+const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
+  scale: 90,
+  borderRadius: 48,
+  backgroundType: 'gradient2',
+  shadow: 100,
+  volume: 1,
+  cursorScale: 5,
+  cursorMovementDelay: 0.03,
+  cursorShadow: 100,
+  cursorWiggleStrength: 0.15,
+  cursorPack: 'macos26',
+  cursorDefaultVariant: 'macos26',
+  cursorTextVariant: 'macos26',
+  cursorPointerVariant: 'macos26',
+  cursorOpenHandVariant: 'macos26'
+};
+
+function getInitialBackgroundConfig(): BackgroundConfig {
+  try {
+    const raw = localStorage.getItem(LAST_BG_CONFIG_KEY);
+    if (!raw) return DEFAULT_BACKGROUND_CONFIG;
+    const parsed = JSON.parse(raw) as Partial<BackgroundConfig>;
+    return {
+      ...DEFAULT_BACKGROUND_CONFIG,
+      ...parsed,
+    };
+  } catch {
+    return DEFAULT_BACKGROUND_CONFIG;
+  }
+}
 
 function ResizeBorders() {
   const resize = (dir: string) => (e: React.MouseEvent) => { e.preventDefault(); ipc(`resize_${dir}`); };
@@ -48,16 +80,7 @@ function App() {
   const [activePanel, setActivePanel] = useState<ActivePanel>('zoom');
   const [isCropping, setIsCropping] = useState(false);
   const [recentUploads, setRecentUploads] = useState<string[]>([]);
-  const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>({
-    scale: 90, borderRadius: 48, backgroundType: 'gradient2', shadow: 100, volume: 1, cursorScale: 5, cursorMovementDelay: 0.03,
-    cursorShadow: 100,
-    cursorWiggleStrength: 0.15,
-    cursorPack: 'screenstudio',
-    cursorDefaultVariant: 'screenstudio',
-    cursorTextVariant: 'screenstudio',
-    cursorPointerVariant: 'screenstudio',
-    cursorOpenHandVariant: 'screenstudio'
-  });
+  const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>(getInitialBackgroundConfig);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -137,6 +160,15 @@ function App() {
   const { editingPointerId, setEditingPointerId, handleSmartPointerHiding,
     handleAddPointerSegment, handleDeletePointerSegment } = cursorHiding;
   const isOverlayMode = projects.showProjectsDialog || isCropping;
+
+  // Persist last-used background config so new projects inherit previous project settings.
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_BG_CONFIG_KEY, JSON.stringify(backgroundConfig));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [backgroundConfig]);
 
   // Handlers
   const handleToggleCrop = useCallback(() => {
