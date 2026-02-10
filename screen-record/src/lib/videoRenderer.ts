@@ -8,7 +8,7 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
-const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v4-svg-baked';
+const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v7-default-revert-up';
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -247,6 +247,12 @@ export class VideoRenderer {
     const raw = backgroundConfig?.cursorSmoothness;
     if (raw === undefined || Number.isNaN(raw)) return 5;
     return Math.max(0, Math.min(10, raw));
+  }
+
+  private getCursorShadowStrength(backgroundConfig?: BackgroundConfig | null): number {
+    const raw = backgroundConfig?.cursorShadow;
+    if (raw === undefined || Number.isNaN(raw)) return 35;
+    return Math.max(0, Math.min(100, raw));
   }
 
   private getCursorWiggleStrength(backgroundConfig?: BackgroundConfig | null): number {
@@ -1627,6 +1633,20 @@ export class VideoRenderer {
     }
     ctx.scale(scale, scale);
     ctx.scale(this.currentSquishScale, this.currentSquishScale);
+
+    const cursorShadowStrength = this.getCursorShadowStrength(this.activeRenderContext?.backgroundConfig);
+    if (cursorShadowStrength > 0.001) {
+      const normalized = cursorShadowStrength / 100;
+      ctx.shadowColor = `rgba(0, 0, 0, ${(0.55 * normalized).toFixed(3)})`;
+      ctx.shadowBlur = 0.4 + (4.6 * normalized);
+      ctx.shadowOffsetX = 0.7 * normalized;
+      ctx.shadowOffsetY = 1.4 * normalized;
+    } else {
+      ctx.shadowColor = 'rgba(0,0,0,0)';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
 
     let effectiveType = lowerType;
     if (effectiveType.endsWith('-screenstudio')) {

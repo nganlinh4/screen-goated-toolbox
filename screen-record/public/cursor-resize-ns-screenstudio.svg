@@ -2,7 +2,7 @@
 <g transform="translate(0 0) scale(1)">
 <g transform="translate(7.000000 5.827778) scale(1.222222222)" clip-path="url(#clip_cursor_resize_ns_screenstudio_svg)">
 
-<g filter="url(#filter0_d_3664_1580)">
+<g>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M9 1.60001L3 7.58001H7V9.60001V11.6H3L9 17.6L15 11.6H11V9.60001V7.58001H15L9 1.60001ZM9 3.01401L12.586 6.58101H10V9.10101V12.6H12.586L9 16.186L5.414 12.6H8V9.10101V6.58101H5.414L9 3.01401Z" fill="white"/>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M10 9.10001V6.58001H12.586L9 3.01401L5.414 6.58001H8V9.10001V12.6H5.414L9 16.186L12.586 12.6H10V9.10001Z" fill="black"/>
 </g>
@@ -11,15 +11,5 @@
 </g>
 </g>
 <defs><clipPath id="clip_cursor_resize_ns_screenstudio_svg"><rect x="-4" y="-4" width="44" height="43"/></clipPath></defs>
-<defs>
-<filter id="filter0_d_3664_1580" x="-2.6" y="-0.999994" width="23.2" height="23.2" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-<feFlood flood-opacity="0" result="BackgroundImageFix"/>
-<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
-<feOffset dy="1"/>
-<feGaussianBlur stdDeviation="1.3"/>
-<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.32 0"/>
-<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_3664_1580"/>
-<feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_3664_1580" result="shape"/>
-</filter>
-</defs>
+
 </svg>

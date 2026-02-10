@@ -58,7 +58,8 @@ pub struct CompositorUniforms {
     pub cursor_opacity: f32,       // 100-104 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
     pub cursor_type_id: f32,       // 104-108
     pub cursor_rotation: f32,      // 108-112 (radians, tip anchored)
-    pub _pad3: [f32; 4],           // 112-128 (Total 128 bytes)
+    pub cursor_shadow: f32,        // 112-116 (0-1)
+    pub _pad3: [f32; 3],           // 116-128 (Total 128 bytes)
 }
 
 pub struct GpuCompositor {
@@ -589,6 +590,7 @@ pub fn create_uniforms(
     cursor_opacity: f32,
     cursor_type_id: f32,
     cursor_rotation: f32,
+    cursor_shadow: f32,
 ) -> CompositorUniforms {
     CompositorUniforms {
         video_offset: [video_offset.0, video_offset.1],
@@ -608,7 +610,8 @@ pub fn create_uniforms(
         cursor_opacity,
         cursor_type_id,
         cursor_rotation,
-        _pad3: [0.0; 4],
+        cursor_shadow,
+        _pad3: [0.0; 3],
     }
 }
 
@@ -632,7 +635,8 @@ struct Uniforms {
     cursor_opacity: f32,
     cursor_type_id: f32,
     cursor_rotation: f32,
-    _pad3: vec4<f32>,
+    cursor_shadow: f32,
+    _pad3: vec3<f32>,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -731,16 +735,51 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         ) + pivot;
         let sample_pos = rel_rot + hotspot;
 
-        if sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size &&
-           sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size {
+        let tile_idx = floor(u.cursor_type_id + 0.5);
+        let in_bounds =
+            sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size &&
+            sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size;
 
+        let shadow_strength = clamp(u.cursor_shadow, 0.0, 1.0);
+        if shadow_strength > 0.001 {
+            let shadow_offset = vec2<f32>(1.35, 1.8) * (0.35 + 0.65 * shadow_strength);
+            let shadow_pos = sample_pos - shadow_offset;
+            let shadow_in_bounds =
+                shadow_pos.x >= 0.0 && shadow_pos.x < cursor_pixel_size &&
+                shadow_pos.y >= 0.0 && shadow_pos.y < cursor_pixel_size;
+
+            if shadow_in_bounds {
+                let blur = 0.6 + shadow_strength * 1.8;
+                let offsets = array<vec2<f32>, 5>(
+                    vec2<f32>(0.0, 0.0),
+                    vec2<f32>(blur, 0.0),
+                    vec2<f32>(-blur, 0.0),
+                    vec2<f32>(0.0, blur),
+                    vec2<f32>(0.0, -blur)
+                );
+                var shadow_alpha = 0.0;
+                for (var i: i32 = 0; i < 5; i = i + 1) {
+                    let p = shadow_pos + offsets[i];
+                    if p.x >= 0.0 && p.x < cursor_pixel_size && p.y >= 0.0 && p.y < cursor_pixel_size {
+                        let uv_in_tile = p / cursor_pixel_size;
+                        let atlas_uv = vec2<f32>(uv_in_tile.x, (uv_in_tile.y + tile_idx) / 24.0);
+                        shadow_alpha = shadow_alpha + textureSample(cursor_tex, cursor_samp, atlas_uv).a;
+                    }
+                }
+                shadow_alpha = (shadow_alpha / 5.0) * (0.55 * shadow_strength) * u.cursor_opacity;
+                if shadow_alpha > 0.0001 {
+                    let shadow_col = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
+                    col = mix(col, shadow_col, shadow_col.a);
+                }
+            }
+        }
+
+        if in_bounds {
             let uv_in_tile = sample_pos / cursor_pixel_size;
-            let tile_idx = floor(u.cursor_type_id + 0.5);
             let atlas_uv = vec2<f32>(
                 uv_in_tile.x,
                 (uv_in_tile.y + tile_idx) / 24.0
             );
-
             let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
             let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
             col = mix(col, faded, faded.a);
