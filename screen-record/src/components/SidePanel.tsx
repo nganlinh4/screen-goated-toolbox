@@ -16,7 +16,7 @@ function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): s
 /** Inline style for slider active track fill */
 const sv = (v: number, min: number, max: number): React.CSSProperties =>
   ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
-const CURSOR_ASSET_VERSION = 'cursor-variants-virtualized-v4-svg-baked';
+const CURSOR_ASSET_VERSION = 'cursor-variants-virtualized-v7-default-revert-up';
 const CURSOR_VARIANT_ROW_HEIGHT = 58;
 const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 
@@ -417,34 +417,36 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
   const visibleRows = rows.slice(startIndex, endIndex);
   return (
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <div className="cursor-controls space-y-3">
-        <div className="cursor-size-field">
-          <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>{t.cursorSize}</span>
-            <span>{backgroundConfig.cursorScale ?? 2}x</span>
-          </label>
+      <div className="cursor-controls space-y-2">
+        <div className="cursor-size-field flex items-center gap-2">
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.cursorSize}</span>
           <input type="range" min="1" max="8" step="0.1" value={backgroundConfig.cursorScale ?? 2}
             style={sv(backgroundConfig.cursorScale ?? 2, 1, 8)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorScale: Number(e.target.value) }))}
-            className="w-full"
+            className="flex-1 min-w-0"
           />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorScale ?? 2).toFixed(1)}x</span>
         </div>
-        <div className="cursor-smoothness-field">
-          <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>{t.movementSmoothing}</span>
-            <span>{backgroundConfig.cursorSmoothness ?? 5}</span>
-          </label>
+        <div className="cursor-shadow-field flex items-center gap-2">
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">Shadow</span>
+          <input type="range" min="0" max="100" step="1" value={backgroundConfig.cursorShadow ?? 35}
+            style={sv(backgroundConfig.cursorShadow ?? 35, 0, 100)}
+            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: Number(e.target.value) }))}
+            className="flex-1 min-w-0"
+          />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round(backgroundConfig.cursorShadow ?? 35)}%</span>
+        </div>
+        <div className="cursor-smoothness-field flex items-center gap-2">
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.movementSmoothing}</span>
           <input type="range" min="0" max="10" step="1" value={backgroundConfig.cursorSmoothness ?? 5}
             style={sv(backgroundConfig.cursorSmoothness ?? 5, 0, 10)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: Number(e.target.value) }))}
-            className="w-full"
+            className="flex-1 min-w-0"
           />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.cursorSmoothness ?? 5}</span>
         </div>
-        <div className="cursor-movement-delay-field">
-          <label className="cursor-movement-delay-label text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>{t.pointerMovementDelay}</span>
-            <span>{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
-          </label>
+        <div className="cursor-movement-delay-field flex items-center gap-2">
+          <span className="cursor-movement-delay-label text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pointerMovementDelay}</span>
           <input
             type="range"
             min="0"
@@ -453,14 +455,12 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             value={backgroundConfig.cursorMovementDelay ?? 0.03}
             style={sv(backgroundConfig.cursorMovementDelay ?? 0.03, 0, 0.5)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: Number(e.target.value) }))}
-            className="cursor-movement-delay-slider w-full"
+            className="cursor-movement-delay-slider flex-1 min-w-0"
           />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
         </div>
-        <div className="cursor-wiggle-strength-field">
-          <label className="cursor-wiggle-strength-label text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>{t.pointerWiggleStrength}</span>
-            <span>{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.15) * 100)}%</span>
-          </label>
+        <div className="cursor-wiggle-strength-field flex items-center gap-2">
+          <span className="cursor-wiggle-strength-label text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pointerWiggleStrength}</span>
           <input
             type="range"
             min="0"
@@ -469,8 +469,9 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             value={backgroundConfig.cursorWiggleStrength ?? 0.15}
             style={sv(backgroundConfig.cursorWiggleStrength ?? 0.15, 0, 1)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: Number(e.target.value) }))}
-            className="cursor-wiggle-strength-slider w-full"
+            className="cursor-wiggle-strength-slider flex-1 min-w-0"
           />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.15) * 100)}%</span>
         </div>
         <div className="cursor-variants-section space-y-2">
           <label className="cursor-variants-label text-xs text-[var(--on-surface-variant)] block">{t.cursorVariants}</label>
@@ -495,14 +496,14 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                         onClick={() => setCursorPack('screenstudio')}
                         label={`${row.label} screen studio`}
                       >
-                        <img src={`${row.screenstudioSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
+                        <img src={`${row.screenstudioSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
                       </CursorVariantButton>
                       <CursorVariantButton
                         isSelected={inferredPack === 'macos26'}
                         onClick={() => setCursorPack('macos26')}
                         label={`${row.label} macos26`}
                       >
-                        <img src={`${row.macos26Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
+                        <img src={`${row.macos26Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35]" />
                       </CursorVariantButton>
                     </div>
                   </div>

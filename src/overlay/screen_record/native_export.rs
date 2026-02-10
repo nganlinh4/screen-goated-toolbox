@@ -171,6 +171,8 @@ pub struct BackgroundConfig {
     pub background_type: String,
     pub shadow: f64,
     pub cursor_scale: f64,
+    #[serde(default)]
+    pub cursor_shadow: f64,
 }
 
 // --- TEXT RENDERER (baked bitmap compositing) ---
@@ -882,6 +884,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             cursor_opacity,
             cursor_type_id,
             cursor_rotation,
+            (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 1.0),
         );
 
         let mut rendered = compositor.render_frame(&uniforms);
