@@ -884,7 +884,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             cursor_opacity,
             cursor_type_id,
             cursor_rotation,
-            (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 1.0),
+            (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0),
         );
 
         let mut rendered = compositor.render_frame(&uniforms);

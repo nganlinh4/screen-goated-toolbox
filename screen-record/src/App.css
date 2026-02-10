@@ -211,6 +211,28 @@ input[type="range"]::-webkit-slider-thumb:active {
     background: var(--outline);
 }
 
+.thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--outline-variant) transparent;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--outline) 75%, transparent);
+    border-radius: 9999px;
+}
+
+.cursor-variant-virtualized-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--outline);
+}
+
 /* Textarea with subtle resize handle */
 textarea.subtle-resize {
     resize: vertical;

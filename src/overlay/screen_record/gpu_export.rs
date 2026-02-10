@@ -740,25 +740,36 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size &&
             sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size;
 
-        let shadow_strength = clamp(u.cursor_shadow, 0.0, 1.0);
+        let shadow_strength = clamp(u.cursor_shadow, 0.0, 2.0);
         if shadow_strength > 0.001 {
-            let shadow_offset = vec2<f32>(1.35, 1.8) * (0.35 + 0.65 * shadow_strength);
+            let base = pow(min(shadow_strength, 1.0), 0.8);
+            let overdrive = max(0.0, shadow_strength - 1.0);
+            let boosted = base + overdrive;
+            let shadow_offset = vec2<f32>(
+                (2.0 * (0.25 + 0.75 * base)) + (1.4 * overdrive),
+                (2.8 * (0.25 + 0.75 * base)) + (2.2 * overdrive)
+            );
             let shadow_pos = sample_pos - shadow_offset;
             let shadow_in_bounds =
                 shadow_pos.x >= 0.0 && shadow_pos.x < cursor_pixel_size &&
                 shadow_pos.y >= 0.0 && shadow_pos.y < cursor_pixel_size;
 
             if shadow_in_bounds {
-                let blur = 0.6 + shadow_strength * 1.8;
-                let offsets = array<vec2<f32>, 5>(
+                let blur = 1.0 + (3.5 * base) + (3.8 * overdrive);
+                let diag = blur * 0.75;
+                let offsets = array<vec2<f32>, 9>(
                     vec2<f32>(0.0, 0.0),
                     vec2<f32>(blur, 0.0),
                     vec2<f32>(-blur, 0.0),
                     vec2<f32>(0.0, blur),
-                    vec2<f32>(0.0, -blur)
+                    vec2<f32>(0.0, -blur),
+                    vec2<f32>(diag, diag),
+                    vec2<f32>(-diag, diag),
+                    vec2<f32>(diag, -diag),
+                    vec2<f32>(-diag, -diag)
                 );
                 var shadow_alpha = 0.0;
-                for (var i: i32 = 0; i < 5; i = i + 1) {
+                for (var i: i32 = 0; i < 9; i = i + 1) {
                     let p = shadow_pos + offsets[i];
                     if p.x >= 0.0 && p.x < cursor_pixel_size && p.y >= 0.0 && p.y < cursor_pixel_size {
                         let uv_in_tile = p / cursor_pixel_size;
@@ -766,7 +777,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                         shadow_alpha = shadow_alpha + textureSample(cursor_tex, cursor_samp, atlas_uv).a;
                     }
                 }
-                shadow_alpha = (shadow_alpha / 5.0) * (0.55 * shadow_strength) * u.cursor_opacity;
+                shadow_alpha = (shadow_alpha / 9.0) * min(1.0, (0.95 * base) + (0.7 * overdrive)) * u.cursor_opacity;
                 if shadow_alpha > 0.0001 {
                     let shadow_col = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
                     col = mix(col, shadow_col, shadow_col.a);

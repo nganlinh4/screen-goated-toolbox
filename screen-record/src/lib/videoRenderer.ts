@@ -252,7 +252,7 @@ export class VideoRenderer {
   private getCursorShadowStrength(backgroundConfig?: BackgroundConfig | null): number {
     const raw = backgroundConfig?.cursorShadow;
     if (raw === undefined || Number.isNaN(raw)) return 35;
-    return Math.max(0, Math.min(100, raw));
+    return Math.max(0, Math.min(200, raw));
   }
 
   private getCursorWiggleStrength(backgroundConfig?: BackgroundConfig | null): number {
@@ -1637,10 +1637,13 @@ export class VideoRenderer {
     const cursorShadowStrength = this.getCursorShadowStrength(this.activeRenderContext?.backgroundConfig);
     if (cursorShadowStrength > 0.001) {
       const normalized = cursorShadowStrength / 100;
-      ctx.shadowColor = `rgba(0, 0, 0, ${(0.55 * normalized).toFixed(3)})`;
-      ctx.shadowBlur = 0.4 + (4.6 * normalized);
-      ctx.shadowOffsetX = 0.7 * normalized;
-      ctx.shadowOffsetY = 1.4 * normalized;
+      const base = Math.pow(Math.min(normalized, 1), 0.8);
+      const overdrive = Math.max(0, normalized - 1);
+      const alpha = Math.min(1, (0.9 * base) + (0.6 * overdrive));
+      ctx.shadowColor = `rgba(0, 0, 0, ${alpha.toFixed(3)})`;
+      ctx.shadowBlur = 1.2 + (9.0 * base) + (8.0 * overdrive);
+      ctx.shadowOffsetX = (1.1 * base) + (1.0 * overdrive);
+      ctx.shadowOffsetY = (2.2 * base) + (1.8 * overdrive);
     } else {
       ctx.shadowColor = 'rgba(0,0,0,0)';
       ctx.shadowBlur = 0;
