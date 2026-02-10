@@ -281,7 +281,10 @@ unsafe fn handle_button_up(
         let logical_y = (rel_y as f64 / scale) as i32;
         CANVAS_WEBVIEW.with(|cell| {
             if let Some(webview) = cell.borrow().as_ref() {
-                let script = format!("window.updateCursorPosition({}, {});", logical_x, logical_y);
+                let script = format!(
+                    "window.setBroomDraggingCursor(false);window.updateCursorPosition({}, {});",
+                    logical_x, logical_y
+                );
                 let _ = webview.evaluate_script(&script);
             }
         });
