@@ -51,6 +51,7 @@ function App() {
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>({
     scale: 90, borderRadius: 48, backgroundType: 'gradient2', shadow: 100, volume: 1, cursorScale: 5, cursorMovementDelay: 0.03,
     cursorWiggleStrength: 0.15,
+    cursorPack: 'screenstudio',
     cursorDefaultVariant: 'screenstudio',
     cursorTextVariant: 'screenstudio',
     cursorPointerVariant: 'screenstudio',

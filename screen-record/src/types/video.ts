@@ -84,10 +84,11 @@ export interface BackgroundConfig {
   cursorWiggleStrength?: number; // 0-1, strength of spring follow effect
   cursorWiggleDamping?: number; // 0-1, lower = more wobble
   cursorWiggleResponse?: number; // Hz-ish response speed of spring
-  cursorDefaultVariant?: 'screenstudio';
-  cursorTextVariant?: 'screenstudio';
-  cursorPointerVariant?: 'screenstudio';
-  cursorOpenHandVariant?: 'screenstudio';
+  cursorPack?: 'screenstudio' | 'macos26';
+  cursorDefaultVariant?: 'screenstudio' | 'macos26';
+  cursorTextVariant?: 'screenstudio' | 'macos26';
+  cursorPointerVariant?: 'screenstudio' | 'macos26';
+  cursorOpenHandVariant?: 'screenstudio' | 'macos26';
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1

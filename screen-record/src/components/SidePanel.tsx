@@ -15,7 +15,7 @@ function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): s
 /** Inline style for slider active track fill */
 const sv = (v: number, min: number, max: number): React.CSSProperties =>
   ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
-const CURSOR_ASSET_VERSION = 'hotspot-145-10-debug1';
+const CURSOR_ASSET_VERSION = 'cursor-variants-macos26-v1';
 
 // ============================================================================
 // Types
@@ -348,6 +348,8 @@ interface CursorVariantButtonProps {
   children: React.ReactNode;
 }
 
+type CursorVariant = 'screenstudio' | 'macos26';
+
 function CursorVariantButton({ isSelected, onClick, label, children }: CursorVariantButtonProps) {
   return (
     <button
@@ -367,10 +369,26 @@ function CursorVariantButton({ isSelected, onClick, label, children }: CursorVar
 
 function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps) {
   const { t } = useSettings();
-  const defaultVariant = backgroundConfig.cursorDefaultVariant ?? 'screenstudio';
-  const textVariant = backgroundConfig.cursorTextVariant ?? 'screenstudio';
-  const pointerVariant = backgroundConfig.cursorPointerVariant ?? 'screenstudio';
-  const openHandVariant = backgroundConfig.cursorOpenHandVariant ?? 'screenstudio';
+  const inferredPack: CursorVariant =
+    backgroundConfig.cursorPack
+    ?? backgroundConfig.cursorDefaultVariant
+    ?? backgroundConfig.cursorTextVariant
+    ?? backgroundConfig.cursorPointerVariant
+    ?? backgroundConfig.cursorOpenHandVariant
+    ?? 'screenstudio';
+  const defaultVariant: CursorVariant = inferredPack;
+  const textVariant: CursorVariant = inferredPack;
+  const pointerVariant: CursorVariant = inferredPack;
+  const openHandVariant: CursorVariant = inferredPack;
+  const setCursorPack = (pack: CursorVariant) =>
+    setBackgroundConfig(prev => ({
+      ...prev,
+      cursorPack: pack,
+      cursorDefaultVariant: pack,
+      cursorTextVariant: pack,
+      cursorPointerVariant: pack,
+      cursorOpenHandVariant: pack,
+    }));
   return (
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="cursor-controls space-y-3">
@@ -436,10 +454,17 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             <div className="cursor-variant-picker flex items-center gap-1.5">
               <CursorVariantButton
                 isSelected={defaultVariant === 'screenstudio'}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorDefaultVariant: 'screenstudio' }))}
+                onClick={() => setCursorPack('screenstudio')}
                 label={`${t.cursorDefault} screen studio`}
               >
                 <img src={`/cursor-default-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
+              </CursorVariantButton>
+              <CursorVariantButton
+                isSelected={defaultVariant === 'macos26'}
+                onClick={() => setCursorPack('macos26')}
+                label={`${t.cursorDefault} macos26`}
+              >
+                <img src={`/cursor-default-macos26.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>
@@ -449,10 +474,17 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             <div className="cursor-variant-picker flex items-center gap-1.5">
               <CursorVariantButton
                 isSelected={textVariant === 'screenstudio'}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorTextVariant: 'screenstudio' }))}
+                onClick={() => setCursorPack('screenstudio')}
                 label={`${t.cursorText} screen studio`}
               >
                 <img src={`/cursor-text-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
+              </CursorVariantButton>
+              <CursorVariantButton
+                isSelected={textVariant === 'macos26'}
+                onClick={() => setCursorPack('macos26')}
+                label={`${t.cursorText} macos26`}
+              >
+                <img src={`/cursor-text-macos26.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>
@@ -462,10 +494,17 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             <div className="cursor-variant-picker flex items-center gap-1.5">
               <CursorVariantButton
                 isSelected={pointerVariant === 'screenstudio'}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorPointerVariant: 'screenstudio' }))}
+                onClick={() => setCursorPack('screenstudio')}
                 label={`${t.cursorPointer} screen studio`}
               >
                 <img src={`/cursor-pointer-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
+              </CursorVariantButton>
+              <CursorVariantButton
+                isSelected={pointerVariant === 'macos26'}
+                onClick={() => setCursorPack('macos26')}
+                label={`${t.cursorPointer} macos26`}
+              >
+                <img src={`/cursor-pointer-macos26.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>
@@ -475,10 +514,17 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             <div className="cursor-variant-picker flex items-center gap-1.5">
               <CursorVariantButton
                 isSelected={openHandVariant === 'screenstudio'}
-                onClick={() => setBackgroundConfig(prev => ({ ...prev, cursorOpenHandVariant: 'screenstudio' }))}
+                onClick={() => setCursorPack('screenstudio')}
                 label={`${t.cursorOpenHand} screen studio`}
               >
                 <img src={`/cursor-openhand-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
+              </CursorVariantButton>
+              <CursorVariantButton
+                isSelected={openHandVariant === 'macos26'}
+                onClick={() => setCursorPack('macos26')}
+                label={`${t.cursorOpenHand} macos26`}
+              >
+                <img src={`/cursor-openhand-macos26.svg?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-10 h-10 min-w-10 min-h-10 object-contain scale-[1.35] drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]" />
               </CursorVariantButton>
             </div>
           </div>

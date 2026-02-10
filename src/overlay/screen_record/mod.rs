@@ -76,6 +76,18 @@ const ASSET_CURSOR_DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor
 const ASSET_CURSOR_TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
 const ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
 const ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
+const ASSET_CURSOR_DEFAULT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-default-macos26.svg");
+const ASSET_CURSOR_TEXT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-text-macos26.svg");
+const ASSET_CURSOR_POINTER_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-pointer-macos26.svg");
+const ASSET_CURSOR_OPENHAND_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-openhand-macos26.svg");
+const ASSET_CURSOR_CLOSEHAND_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-closehand-macos26.svg");
+const ASSET_CURSOR_WAIT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-wait-macos26.svg");
+const ASSET_CURSOR_APPSTARTING_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-macos26.svg");
+const ASSET_CURSOR_CROSSHAIR_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-macos26.svg");
+const ASSET_CURSOR_RESIZE_NS_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-macos26.svg");
+const ASSET_CURSOR_RESIZE_WE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-macos26.svg");
+const ASSET_CURSOR_RESIZE_NWSE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-macos26.svg");
+const ASSET_CURSOR_RESIZE_NESW_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-macos26.svg");
 const ASSET_SCREENSHOT_PNG: &[u8] = include_bytes!("dist/screenshot.png");
 
 // --- WINDOW PROCEDURE ---
@@ -560,6 +572,30 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-openhand-screenstudio.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_APPSTARTING_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-crosshair-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_MACOS26_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-macos26.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_MACOS26_SVG), "image/svg+xml")
                     } else if path.ends_with("screenshot.png") {
                         (Cow::Borrowed(ASSET_SCREENSHOT_PNG), "image/png")
                     } else {
