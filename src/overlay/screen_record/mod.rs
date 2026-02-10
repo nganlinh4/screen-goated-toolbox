@@ -76,6 +76,14 @@ const ASSET_CURSOR_DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor
 const ASSET_CURSOR_TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
 const ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
 const ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
+const ASSET_CURSOR_CLOSEHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-closehand-screenstudio.svg");
+const ASSET_CURSOR_WAIT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-wait-screenstudio.svg");
+const ASSET_CURSOR_APPSTARTING_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-screenstudio.svg");
+const ASSET_CURSOR_CROSSHAIR_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_NS_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_WE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_NESW_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-screenstudio.svg");
 const ASSET_CURSOR_DEFAULT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-default-macos26.svg");
 const ASSET_CURSOR_TEXT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-text-macos26.svg");
 const ASSET_CURSOR_POINTER_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-pointer-macos26.svg");
@@ -572,6 +580,22 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-openhand-screenstudio.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-crosshair-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SCREENSTUDIO_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-screenstudio.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SCREENSTUDIO_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-default-macos26.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_DEFAULT_MACOS26_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-text-macos26.svg") {

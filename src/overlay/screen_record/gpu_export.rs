@@ -85,6 +85,14 @@ const DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-default-scre
 const TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
 const POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
 const OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
+const CLOSEHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-closehand-screenstudio.svg");
+const WAIT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-wait-screenstudio.svg");
+const APPSTARTING_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-screenstudio.svg");
+const CROSSHAIR_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-screenstudio.svg");
+const RESIZE_NS_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-screenstudio.svg");
+const RESIZE_WE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-screenstudio.svg");
+const RESIZE_NWSE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-screenstudio.svg");
+const RESIZE_NESW_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-screenstudio.svg");
 const DEFAULT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-default-macos26.svg");
 const TEXT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-text-macos26.svg");
 const POINTER_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-pointer-macos26.svg");
@@ -97,7 +105,7 @@ const RESIZE_NS_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-macos
 const RESIZE_WE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-macos26.svg");
 const RESIZE_NWSE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-macos26.svg");
 const RESIZE_NESW_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-macos26.svg");
-const CURSOR_ATLAS_ROWS: u32 = 16;
+const CURSOR_ATLAS_ROWS: u32 = 24;
 
 impl GpuCompositor {
     pub fn new(
@@ -377,11 +385,8 @@ impl GpuCompositor {
 
     pub fn init_cursor_texture(&self) {
         // Build atlas: 512x(512*CURSOR_ATLAS_ROWS)
-        // 0: default-screenstudio
-        // 1: text-screenstudio
-        // 2: pointer-screenstudio
-        // 3: openhand-screenstudio
-        // 4..15: macos26 set
+        // 0..11: screenstudio set
+        // 12..23: macos26 set
 
         let tile_size = 512u32;
         let center = tile_size as f32 / 2.0; // 256.0
@@ -413,19 +418,28 @@ impl GpuCompositor {
         render_svg_slot(POINTER_SCREENSTUDIO_SVG, 2, 14.5, 10.0, 480.0);
         // --- SLOT 3: OPEN HAND (Screen Studio) ---
         render_svg_slot(OPENHAND_SCREENSTUDIO_SVG, 3, 18.0, 17.5, 480.0);
-        // --- SLOT 4..15: macos26 ---
-        render_svg_slot(DEFAULT_MACOS26_SVG, 4, 18.0, 17.5, 480.0);
-        render_svg_slot(TEXT_MACOS26_SVG, 5, 18.0, 17.5, 480.0);
-        render_svg_slot(POINTER_MACOS26_SVG, 6, 18.0, 17.5, 480.0);
-        render_svg_slot(OPENHAND_MACOS26_SVG, 7, 18.0, 17.5, 480.0);
-        render_svg_slot(CLOSEHAND_MACOS26_SVG, 8, 18.0, 17.5, 480.0);
-        render_svg_slot(WAIT_MACOS26_SVG, 9, 18.0, 17.5, 480.0);
-        render_svg_slot(APPSTARTING_MACOS26_SVG, 10, 18.0, 17.5, 480.0);
-        render_svg_slot(CROSSHAIR_MACOS26_SVG, 11, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NS_MACOS26_SVG, 12, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_WE_MACOS26_SVG, 13, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NWSE_MACOS26_SVG, 14, 18.0, 17.5, 480.0);
-        render_svg_slot(RESIZE_NESW_MACOS26_SVG, 15, 18.0, 17.5, 480.0);
+        // --- SLOT 4..11: expanded Screen Studio ---
+        render_svg_slot(CLOSEHAND_SCREENSTUDIO_SVG, 4, 18.0, 17.5, 480.0);
+        render_svg_slot(WAIT_SCREENSTUDIO_SVG, 5, 18.0, 17.5, 480.0);
+        render_svg_slot(APPSTARTING_SCREENSTUDIO_SVG, 6, 18.0, 17.5, 480.0);
+        render_svg_slot(CROSSHAIR_SCREENSTUDIO_SVG, 7, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NS_SCREENSTUDIO_SVG, 8, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_WE_SCREENSTUDIO_SVG, 9, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NWSE_SCREENSTUDIO_SVG, 10, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NESW_SCREENSTUDIO_SVG, 11, 18.0, 17.5, 480.0);
+        // --- SLOT 12..23: macos26 ---
+        render_svg_slot(DEFAULT_MACOS26_SVG, 12, 18.0, 17.5, 480.0);
+        render_svg_slot(TEXT_MACOS26_SVG, 13, 18.0, 17.5, 480.0);
+        render_svg_slot(POINTER_MACOS26_SVG, 14, 18.0, 17.5, 480.0);
+        render_svg_slot(OPENHAND_MACOS26_SVG, 15, 18.0, 17.5, 480.0);
+        render_svg_slot(CLOSEHAND_MACOS26_SVG, 16, 18.0, 17.5, 480.0);
+        render_svg_slot(WAIT_MACOS26_SVG, 17, 18.0, 17.5, 480.0);
+        render_svg_slot(APPSTARTING_MACOS26_SVG, 18, 18.0, 17.5, 480.0);
+        render_svg_slot(CROSSHAIR_MACOS26_SVG, 19, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NS_MACOS26_SVG, 20, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_WE_MACOS26_SVG, 21, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NWSE_MACOS26_SVG, 22, 18.0, 17.5, 480.0);
+        render_svg_slot(RESIZE_NESW_MACOS26_SVG, 23, 18.0, 17.5, 480.0);
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -655,11 +669,12 @@ fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
 
 fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
     let unit = size / 48.0;
-    if abs(type_id - 2.0) < 0.5 || abs(type_id - 3.0) < 0.5 || abs(type_id - 6.0) < 0.5 || abs(type_id - 7.0) < 0.5 || abs(type_id - 8.0) < 0.5 {
+    if abs(type_id - 2.0) < 0.5 || abs(type_id - 3.0) < 0.5 || abs(type_id - 4.0) < 0.5
+        || abs(type_id - 14.0) < 0.5 || abs(type_id - 15.0) < 0.5 || abs(type_id - 16.0) < 0.5 {
         // hand cursors
         return vec2<f32>(3.0 * unit, 8.5 * unit);
     }
-    if abs(type_id - 1.0) < 0.5 || abs(type_id - 5.0) < 0.5 {
+    if abs(type_id - 1.0) < 0.5 || abs(type_id - 13.0) < 0.5 {
         // text ibeam should stay upright
         return vec2<f32>(0.0, 0.0);
     }
@@ -720,7 +735,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             let tile_idx = floor(u.cursor_type_id + 0.5);
             let atlas_uv = vec2<f32>(
                 uv_in_tile.x,
-                (uv_in_tile.y + tile_idx) / 16.0
+                (uv_in_tile.y + tile_idx) / 24.0
             );
 
             let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);

@@ -8,13 +8,21 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
-const CURSOR_ASSET_VERSION = 'cursor-types-expanded-macos26-v1';
+const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v3-normalized';
 
 type CursorRenderType =
   | 'default-screenstudio'
   | 'text-screenstudio'
   | 'pointer-screenstudio'
   | 'openhand-screenstudio'
+  | 'closehand-screenstudio'
+  | 'wait-screenstudio'
+  | 'appstarting-screenstudio'
+  | 'crosshair-screenstudio'
+  | 'resize-ns-screenstudio'
+  | 'resize-we-screenstudio'
+  | 'resize-nwse-screenstudio'
+  | 'resize-nesw-screenstudio'
   | 'default-macos26'
   | 'text-macos26'
   | 'pointer-macos26'
@@ -53,6 +61,14 @@ export class VideoRenderer {
   private defaultScreenStudioImage: HTMLImageElement;
   private textScreenStudioImage: HTMLImageElement;
   private openHandScreenStudioImage: HTMLImageElement;
+  private closeHandScreenStudioImage: HTMLImageElement;
+  private waitScreenStudioImage: HTMLImageElement;
+  private appStartingScreenStudioImage: HTMLImageElement;
+  private crosshairScreenStudioImage: HTMLImageElement;
+  private resizeNsScreenStudioImage: HTMLImageElement;
+  private resizeWeScreenStudioImage: HTMLImageElement;
+  private resizeNwseScreenStudioImage: HTMLImageElement;
+  private resizeNeswScreenStudioImage: HTMLImageElement;
   private defaultMacos26Image: HTMLImageElement;
   private textMacos26Image: HTMLImageElement;
   private pointerMacos26Image: HTMLImageElement;
@@ -134,6 +150,38 @@ export class VideoRenderer {
     this.openHandScreenStudioImage = new Image();
     this.openHandScreenStudioImage.src = `/cursor-openhand-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
     this.openHandScreenStudioImage.onload = () => { };
+
+    this.closeHandScreenStudioImage = new Image();
+    this.closeHandScreenStudioImage.src = `/cursor-closehand-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.closeHandScreenStudioImage.onload = () => { };
+
+    this.waitScreenStudioImage = new Image();
+    this.waitScreenStudioImage.src = `/cursor-wait-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.waitScreenStudioImage.onload = () => { };
+
+    this.appStartingScreenStudioImage = new Image();
+    this.appStartingScreenStudioImage.src = `/cursor-appstarting-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.appStartingScreenStudioImage.onload = () => { };
+
+    this.crosshairScreenStudioImage = new Image();
+    this.crosshairScreenStudioImage.src = `/cursor-crosshair-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.crosshairScreenStudioImage.onload = () => { };
+
+    this.resizeNsScreenStudioImage = new Image();
+    this.resizeNsScreenStudioImage.src = `/cursor-resize-ns-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNsScreenStudioImage.onload = () => { };
+
+    this.resizeWeScreenStudioImage = new Image();
+    this.resizeWeScreenStudioImage.src = `/cursor-resize-we-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeWeScreenStudioImage.onload = () => { };
+
+    this.resizeNwseScreenStudioImage = new Image();
+    this.resizeNwseScreenStudioImage.src = `/cursor-resize-nwse-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNwseScreenStudioImage.onload = () => { };
+
+    this.resizeNeswScreenStudioImage = new Image();
+    this.resizeNeswScreenStudioImage.src = `/cursor-resize-nesw-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNeswScreenStudioImage.onload = () => { };
 
     this.defaultMacos26Image = new Image();
     this.defaultMacos26Image.src = `/cursor-default-macos26.svg?v=${CURSOR_ASSET_VERSION}`;
@@ -244,7 +292,7 @@ export class VideoRenderer {
 
     const semanticType =
       (lower === 'text' || lower === 'ibeam') ? 'text'
-        : (lower === 'pointer' || lower === 'hand') ? (isClicked ? 'closehand' : 'pointer')
+        : (lower === 'pointer' || lower === 'hand') ? 'pointer'
           : (lower === 'wait') ? 'wait'
             : (lower === 'appstarting') ? 'appstarting'
               : (lower === 'crosshair' || lower === 'cross') ? 'crosshair'
@@ -254,7 +302,7 @@ export class VideoRenderer {
                       : (lower === 'resize_nesw' || lower === 'sizenesw') ? 'resize_nesw'
                         : (lower === 'move' || lower === 'sizeall' || lower === 'openhand' || lower === 'open-hand' || lower === 'grab' || lower === 'grabbing')
                           ? (isClicked ? 'closehand' : 'openhand')
-                          : (lower === 'other') ? (isClicked ? 'closehand' : 'openhand')
+                          : (lower === 'other') ? 'default'
                             : (lower === 'default' || lower === 'arrow') ? 'default'
                             : 'default';
 
@@ -275,10 +323,20 @@ export class VideoRenderer {
       }
     }
 
-    if (semanticType === 'text') return 'text-screenstudio';
-    if (semanticType === 'pointer') return 'pointer-screenstudio';
-    if (semanticType === 'openhand' || semanticType === 'closehand') return 'openhand-screenstudio';
-    return 'default-screenstudio';
+    switch (semanticType) {
+      case 'text': return 'text-screenstudio';
+      case 'pointer': return 'pointer-screenstudio';
+      case 'openhand': return 'openhand-screenstudio';
+      case 'closehand': return 'closehand-screenstudio';
+      case 'wait': return 'wait-screenstudio';
+      case 'appstarting': return 'appstarting-screenstudio';
+      case 'crosshair': return 'crosshair-screenstudio';
+      case 'resize_ns': return 'resize-ns-screenstudio';
+      case 'resize_we': return 'resize-we-screenstudio';
+      case 'resize_nwse': return 'resize-nwse-screenstudio';
+      case 'resize_nesw': return 'resize-nesw-screenstudio';
+      default: return 'default-screenstudio';
+    }
   }
 
   public updateRenderContext(context: RenderContext) {
@@ -1449,6 +1507,7 @@ export class VideoRenderer {
     switch (cursorType.toLowerCase()) {
       case 'pointer-screenstudio':
       case 'openhand-screenstudio':
+      case 'closehand-screenstudio':
       case 'pointer-macos26':
       case 'openhand-macos26':
       case 'closehand-macos26':
@@ -1513,6 +1572,24 @@ export class VideoRenderer {
     }
   }
 
+  private getScreenStudioCursorImage(type: CursorRenderType | string): HTMLImageElement | null {
+    switch (type) {
+      case 'default-screenstudio': return this.defaultScreenStudioImage;
+      case 'text-screenstudio': return this.textScreenStudioImage;
+      case 'pointer-screenstudio': return this.pointerScreenStudioImage;
+      case 'openhand-screenstudio': return this.openHandScreenStudioImage;
+      case 'closehand-screenstudio': return this.closeHandScreenStudioImage;
+      case 'wait-screenstudio': return this.waitScreenStudioImage;
+      case 'appstarting-screenstudio': return this.appStartingScreenStudioImage;
+      case 'crosshair-screenstudio': return this.crosshairScreenStudioImage;
+      case 'resize-ns-screenstudio': return this.resizeNsScreenStudioImage;
+      case 'resize-we-screenstudio': return this.resizeWeScreenStudioImage;
+      case 'resize-nwse-screenstudio': return this.resizeNwseScreenStudioImage;
+      case 'resize-nesw-screenstudio': return this.resizeNeswScreenStudioImage;
+      default: return null;
+    }
+  }
+
   private drawCursorShape(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -1529,6 +1606,7 @@ export class VideoRenderer {
       lowerType === 'default-screenstudio'
       || lowerType === 'pointer-screenstudio'
       || lowerType === 'openhand-screenstudio'
+      || lowerType === 'closehand-screenstudio'
       || lowerType === 'default-macos26'
       || lowerType === 'pointer-macos26'
       || lowerType === 'openhand-macos26'
@@ -1543,11 +1621,11 @@ export class VideoRenderer {
     ctx.scale(this.currentSquishScale, this.currentSquishScale);
 
     let effectiveType = lowerType;
-    if (effectiveType === 'default-screenstudio' && (!this.defaultScreenStudioImage.complete || this.defaultScreenStudioImage.naturalWidth === 0)) {
-      effectiveType = 'default-screenstudio';
-    }
-    if (effectiveType === 'text-screenstudio' && (!this.textScreenStudioImage.complete || this.textScreenStudioImage.naturalWidth === 0)) {
-      effectiveType = 'text-screenstudio';
+    if (effectiveType.endsWith('-screenstudio')) {
+      const image = this.getScreenStudioCursorImage(effectiveType);
+      if (!image || !image.complete || image.naturalWidth === 0) {
+        effectiveType = 'default-screenstudio';
+      }
     }
     if (effectiveType === 'pointer-screenstudio' && (!this.pointerScreenStudioImage.complete || this.pointerScreenStudioImage.naturalWidth === 0)) {
       effectiveType = 'default-screenstudio';
@@ -1587,6 +1665,24 @@ export class VideoRenderer {
         const hotspotY = img.naturalHeight * 0.5;
         ctx.translate(-hotspotX, -hotspotY);
         ctx.drawImage(img, 0, 0);
+        break;
+      }
+
+      case 'closehand-screenstudio':
+      case 'wait-screenstudio':
+      case 'appstarting-screenstudio':
+      case 'crosshair-screenstudio':
+      case 'resize-ns-screenstudio':
+      case 'resize-we-screenstudio':
+      case 'resize-nwse-screenstudio':
+      case 'resize-nesw-screenstudio': {
+        const img = this.getScreenStudioCursorImage(effectiveType);
+        if (img) {
+          const hotspotX = img.naturalWidth * 0.5;
+          const hotspotY = img.naturalHeight * 0.5;
+          ctx.translate(-hotspotX, -hotspotY);
+          ctx.drawImage(img, 0, 0);
+        }
         break;
       }
 
