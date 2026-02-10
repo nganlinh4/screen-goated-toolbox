@@ -1,11 +1,16 @@
 <svg width="36" height="35" viewBox="0 0 36 35" fill="none" xmlns="http://www.w3.org/2000/svg">
-<defs><clipPath id="clip_cursor_resize_nwse_screenstudio_svg"><rect x="-4" y="-4" width="44" height="43"/></clipPath></defs>
+<g transform="translate(0 0.837209) scale(1)">
 <g transform="translate(5.919075 5.482659) scale(1.271676301)" clip-path="url(#clip_cursor_resize_nwse_screenstudio_svg)">
 
 <g filter="url(#filter0_d_3664_1585)">
 <path fill-rule="evenodd" clip-rule="evenodd" d="M6.84301 9.07L10.915 13.138L8.08601 15.966L16.559 15.953L16.572 7.483L13.731 10.325L9.65601 6.257L8.24201 4.842L11.086 2H2.60001V10.484L5.42901 7.657L6.84301 9.07Z" fill="white"/>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M7.90361 8.7165L12.3306 13.1405L10.5026 14.9685L15.5586 14.9525L15.5726 9.8985L13.7306 11.7395L9.30261 7.3175L6.82861 4.8425L8.67261 2.9995H3.59961V8.0705L5.42961 6.2425L7.90361 8.7165Z" fill="black"/>
 </g>
+
+
+</g>
+</g>
+<defs><clipPath id="clip_cursor_resize_nwse_screenstudio_svg"><rect x="-4" y="-4" width="44" height="43"/></clipPath></defs>
 <defs>
 <filter id="filter0_d_3664_1585" x="-1.99999" y="-1.6" width="23.2" height="23.2" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
 <feFlood flood-opacity="0" result="BackgroundImageFix"/>
@@ -17,6 +22,4 @@
 <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_3664_1585" result="shape"/>
 </filter>
 </defs>
-
-</g>
 </svg>

@@ -8,7 +8,7 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
-const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v3-normalized';
+const CURSOR_ASSET_VERSION = 'cursor-types-expanded-v4-svg-baked';
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -1590,6 +1590,14 @@ export class VideoRenderer {
     }
   }
 
+  private drawCenteredCursorImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement) {
+    if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return;
+    const hotspotX = img.naturalWidth * 0.5;
+    const hotspotY = img.naturalHeight * 0.5;
+    ctx.translate(-hotspotX, -hotspotY);
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
+  }
+
   private drawCursorShape(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -1641,33 +1649,9 @@ export class VideoRenderer {
     }
 
     switch (effectiveType) {
-      case 'text-screenstudio': {
-        const img = this.textScreenStudioImage;
-        const hotspotX = img.naturalWidth * 0.5;
-        const hotspotY = img.naturalHeight * 0.5;
-        ctx.translate(-hotspotX, -hotspotY);
-        ctx.drawImage(img, 0, 0);
-        break;
-      }
-
-      case 'pointer-screenstudio': {
-        const img = this.pointerScreenStudioImage;
-        const hotspotX = 14.5;
-        const hotspotY = 10;
-        ctx.translate(-hotspotX, -hotspotY);
-        ctx.drawImage(img, 0, 0);
-        break;
-      }
-
-      case 'openhand-screenstudio': {
-        const img = this.openHandScreenStudioImage;
-        const hotspotX = img.naturalWidth * 0.5;
-        const hotspotY = img.naturalHeight * 0.5;
-        ctx.translate(-hotspotX, -hotspotY);
-        ctx.drawImage(img, 0, 0);
-        break;
-      }
-
+      case 'text-screenstudio':
+      case 'pointer-screenstudio':
+      case 'openhand-screenstudio':
       case 'closehand-screenstudio':
       case 'wait-screenstudio':
       case 'appstarting-screenstudio':
@@ -1677,12 +1661,7 @@ export class VideoRenderer {
       case 'resize-nwse-screenstudio':
       case 'resize-nesw-screenstudio': {
         const img = this.getScreenStudioCursorImage(effectiveType);
-        if (img) {
-          const hotspotX = img.naturalWidth * 0.5;
-          const hotspotY = img.naturalHeight * 0.5;
-          ctx.translate(-hotspotX, -hotspotY);
-          ctx.drawImage(img, 0, 0);
-        }
+        if (img) this.drawCenteredCursorImage(ctx, img);
         break;
       }
 
@@ -1699,34 +1678,19 @@ export class VideoRenderer {
       case 'resize-nwse-macos26':
       case 'resize-nesw-macos26': {
         const img = this.getMacos26CursorImage(effectiveType);
-        if (img) {
-          const hotspotX = img.naturalWidth * 0.5;
-          const hotspotY = img.naturalHeight * 0.5;
-          ctx.translate(-hotspotX, -hotspotY);
-          ctx.drawImage(img, 0, 0);
-        }
+        if (img) this.drawCenteredCursorImage(ctx, img);
         break;
       }
 
       case 'default-screenstudio': {
         const img = this.defaultScreenStudioImage;
-        const hotspotX = 12.5;
-        const hotspotY = 8.4;
-        ctx.translate(-hotspotX, -hotspotY);
-        if (img.complete && img.naturalWidth > 0) {
-          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-        }
+        this.drawCenteredCursorImage(ctx, img);
         break;
       }
 
       default: {
         const img = this.defaultScreenStudioImage;
-        const hotspotX = 12.5;
-        const hotspotY = 8.4;
-        ctx.translate(-hotspotX, -hotspotY);
-        if (img.complete && img.naturalWidth > 0) {
-          ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight);
-        }
+        this.drawCenteredCursorImage(ctx, img);
         break;
       }
     }

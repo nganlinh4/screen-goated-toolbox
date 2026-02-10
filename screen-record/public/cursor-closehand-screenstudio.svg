@@ -1,5 +1,5 @@
 <svg width="36" height="35" viewBox="0 0 36 35" fill="none" xmlns="http://www.w3.org/2000/svg">
-<defs><clipPath id="clip_cursor_closehand_screenstudio_svg"><rect x="-4" y="-4" width="44" height="43"/></clipPath></defs>
+<g transform="translate(2.7576 5.6245) scale(0.87)">
 <g transform="translate(5.475904 3.650602) scale(1.325301205)" clip-path="url(#clip_cursor_closehand_screenstudio_svg)">
 
 <g filter="url(#filter0_d_3664_1574)">
@@ -9,6 +9,11 @@
 <path d="M10.5856 12.6754L10.5696 9.20235" stroke="black" stroke-width="0.75" stroke-linecap="round"/>
 <path d="M8.58948 9.23395L8.61048 12.66" stroke="black" stroke-width="0.75" stroke-linecap="round"/>
 </g>
+
+
+</g>
+</g>
+<defs><clipPath id="clip_cursor_closehand_screenstudio_svg"><rect x="-4" y="-4" width="44" height="43"/></clipPath></defs>
 <defs>
 <filter id="filter0_d_3664_1574" x="-1.51937" y="-1.6" width="21.2" height="22.2" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
 <feFlood flood-opacity="0" result="BackgroundImageFix"/>
@@ -20,6 +25,4 @@
 <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_3664_1574" result="shape"/>
 </filter>
 </defs>
-
-</g>
 </svg>

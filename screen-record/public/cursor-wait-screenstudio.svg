@@ -1,5 +1,5 @@
 <svg width="36" height="35" viewBox="0 0 36 35" fill="none" xmlns="http://www.w3.org/2000/svg">
-<defs><clipPath id="clip_cursor_appstarting_screenstudio_svg"><rect x="-4" y="-4" width="44" height="43"/></clipPath></defs>
+<g transform="translate(4.6044 7.1155) scale(1)">
 <g transform="translate(10.623530 8.284706) scale(0.776470588)" clip-path="url(#clip_cursor_appstarting_screenstudio_svg)">
 
 <g>
@@ -31,6 +31,11 @@
 <path fill-rule="evenodd" clip-rule="evenodd" d="M2.60001 17.615V1.6L14.191 13.219H7.15001L6.99901 13.343L2.60001 17.615Z" fill="white"/>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M3.60001 4.0071V15.1951L6.56901 12.3291L6.72901 12.1901H11.765L3.60001 4.0071Z" fill="black"/>
 </g>
+
+
+</g>
+</g>
+<defs><clipPath id="clip_cursor_appstarting_screenstudio_svg"><rect x="-4" y="-4" width="44" height="43"/></clipPath></defs>
 <defs>
 <filter id="filter0_d_3664_1363" x="6.19888e-06" y="-1.43051e-06" width="25.2" height="37.2" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
 <feFlood flood-opacity="0" result="BackgroundImageFix"/>
@@ -46,6 +51,4 @@
 <stop offset="1"/>
 </linearGradient>
 </defs>
-
-</g>
 </svg>
