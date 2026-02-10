@@ -16,7 +16,7 @@ function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): s
 /** Inline style for slider active track fill */
 const sv = (v: number, min: number, max: number): React.CSSProperties =>
   ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
-const CURSOR_ASSET_VERSION = 'cursor-variants-virtualized-v15-sgtcool-labspacefix';
+const CURSOR_ASSET_VERSION = `cursor-variants-runtime-${Date.now()}`;
 const CURSOR_VARIANT_ROW_HEIGHT = 58;
 const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 
