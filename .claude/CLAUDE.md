@@ -72,6 +72,8 @@ cargo test               # Run tests
   - `screen-record/public/...`
   - `src/overlay/screen_record/dist/...`
 - Apply per-cursor position offsets by editing the SVG content transform (not temporary runtime mapping), so preview/UI/export stay aligned.
+- Recorder-side cursor capture can receive non-system/custom cursor handles (won't match IDC_*). Keep fallback mapping resilient so drag cursors still classify as `grab/openhand/closehand` instead of collapsing to default.
+- Prefer stable cursor-shape/signature based detection for custom drag cursors and persist learned grab signatures per machine; avoid relying on volatile raw handle values.
 - When adding a new pack:
   - wire UI selection sources
   - wire frontend renderer types and image loading
