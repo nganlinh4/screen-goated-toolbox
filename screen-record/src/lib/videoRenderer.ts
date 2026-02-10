@@ -8,6 +8,7 @@ const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
+const CURSOR_ASSET_VERSION = 'hotspot-145-10-debug1';
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -95,19 +96,19 @@ export class VideoRenderer {
 
   constructor() {
     this.defaultScreenStudioImage = new Image();
-    this.defaultScreenStudioImage.src = '/cursor-default-screenstudio.svg';
+    this.defaultScreenStudioImage.src = `/cursor-default-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
     this.defaultScreenStudioImage.onload = () => { };
 
     this.textScreenStudioImage = new Image();
-    this.textScreenStudioImage.src = '/cursor-text-screenstudio.svg';
+    this.textScreenStudioImage.src = `/cursor-text-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
     this.textScreenStudioImage.onload = () => { };
 
     this.pointerScreenStudioImage = new Image();
-    this.pointerScreenStudioImage.src = '/cursor-pointer-screenstudio.svg';
+    this.pointerScreenStudioImage.src = `/cursor-pointer-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
     this.pointerScreenStudioImage.onload = () => { };
 
     this.openHandScreenStudioImage = new Image();
-    this.openHandScreenStudioImage.src = '/cursor-openhand-screenstudio.svg';
+    this.openHandScreenStudioImage.src = `/cursor-openhand-screenstudio.svg?v=${CURSOR_ASSET_VERSION}`;
     this.openHandScreenStudioImage.onload = () => { };
 
     this.cursorOffscreen = new OffscreenCanvas(128, 128);
@@ -1430,8 +1431,8 @@ export class VideoRenderer {
 
       case 'pointer-screenstudio': {
         const img = this.pointerScreenStudioImage;
-        const hotspotX = 16;
-        const hotspotY = 8;
+        const hotspotX = 14.5;
+        const hotspotY = 10;
         ctx.translate(-hotspotX, -hotspotY);
         ctx.drawImage(img, 0, 0);
         break;
