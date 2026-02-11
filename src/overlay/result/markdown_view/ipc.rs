@@ -28,6 +28,9 @@ pub fn handle_markdown_ipc(hwnd: HWND, msg: &str) {
                         );
                     }
                 }
+                "fit_debug" => {
+                    crate::log_info!("[MarkdownFitDebug] hwnd={:?} payload={}", hwnd, json);
+                }
                 _ => {}
             }
         }

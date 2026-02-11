@@ -97,10 +97,16 @@ pub fn stream_markdown_content_ex(
     var doc = document.documentElement;
     var winH = window.innerHeight;
     var winW = window.innerWidth;
+    var isConstrainedWindow = (winH < 260 || winW < 420);
 
     // Detect new session
     var textLen = (body.innerText || body.textContent || '').trim().length;
     var isNewSession = (!window._streamWordCount || window._streamWordCount < 5 || textLen < 50);
+    var isConstrainedShortContent = isConstrainedWindow && textLen < 450;
+    function fitsVertically() {{
+        void body.offsetHeight;
+        return doc.scrollHeight <= (winH + 2);
+    }}
 
     // Dynamic Minimum Size
     // If text is short (< 200 chars), we allow shrinking to 6px to fit purely visual content.
@@ -129,11 +135,12 @@ pub fn stream_markdown_content_ex(
              blocks[i].style.marginBottom = '0.5em';
              blocks[i].style.paddingBottom = '0';
          }}
+         void body.offsetHeight;
          var best = low;
          while (low <= high) {{
              var mid = Math.floor((low + high) / 2);
              body.style.fontSize = mid + 'px';
-             if (doc.scrollHeight <= (winH + 2)) {{
+             if (fitsVertically()) {{
                  best = mid;
                  low = mid + 1;
              }} else {{
@@ -142,10 +149,29 @@ pub fn stream_markdown_content_ex(
          }}
          if (best < minSize) best = minSize;
          body.style.fontSize = best + 'px';
+         // Constrained window + short text can report a near-final height on first pass.
+         // Re-run once after style settle so scale is final without requiring hover-triggered fit.
+         if (isConstrainedShortContent) {{
+             void body.offsetHeight;
+             var settleLow = minSize;
+             var settleHigh = best;
+             var settleBest = minSize;
+             while (settleLow <= settleHigh) {{
+                 var settleMid = Math.floor((settleLow + settleHigh) / 2);
+                 body.style.fontSize = settleMid + 'px';
+                 if (fitsVertically()) {{
+                     settleBest = settleMid;
+                     settleLow = settleMid + 1;
+                 }} else {{
+                     settleHigh = settleMid - 1;
+                 }}
+             }}
+             body.style.fontSize = settleBest + 'px';
+         }}
 
     }} else {{
         // Incrementally adjust font size if overflow occurs
-        var hasOverflow = doc.scrollHeight > (winH + 2);
+        var hasOverflow = !fitsVertically();
         if (hasOverflow) {{
             var currentSize = parseFloat(body.style.fontSize) || 14;
             if (currentSize > minSize) {{
@@ -156,7 +182,7 @@ pub fn stream_markdown_content_ex(
                 while (low <= high) {{
                     var mid = Math.floor((low + high) / 2);
                     body.style.fontSize = mid + 'px';
-                    if (doc.scrollHeight <= (winH + 2)) {{
+                    if (fitsVertically()) {{
                         best = mid;
                         low = mid + 1;
                     }} else {{
@@ -250,6 +276,7 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
     // Strategy: First fit content, then fill remaining space with line-height/margins
     let script = r#"
     (function() {
+        window._sgtFitCallCount = (window._sgtFitCallCount || 0) + 1;
         if (window._sgtFitting) return;
         window._sgtFitting = true;
 
@@ -265,6 +292,7 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 return;
             }
 
+            var _fitStart = performance.now();
             var body = document.body;
             var doc = document.documentElement;
 
@@ -292,10 +320,35 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
 
             var isShortContent = textLen < 1500;
             var isTinyContent = textLen < 300;
+            var isConstrainedWindow = (winH < 260 || winW < 420);
+            var isConstrainedShortContent = isConstrainedWindow && textLen < 450;
 
-            // Allowed ranges
-            var minSize = isShortContent ? 6 : 12;
+            // Allowed ranges — match streaming's 14px readability floor
+            var minSize = (textLen < 200) ? 6 : 14;
             var maxSize = isTinyContent ? 200 : (isShortContent ? 100 : 24);
+
+            // ===== LONG TEXT: readable size + scroll =====
+            // For long text (>= 1500 chars), skip expensive 8-phase fitting.
+            // Streaming already set a readable font (min 14px); the content
+            // scrolls naturally. Fitting would either produce unreadably small
+            // text or waste ~100+ reflows to arrive at the same size.
+            if (!isShortContent) {
+                var currentSize = parseFloat(body.style.fontSize) || 16;
+                if (currentSize < 14) body.style.fontSize = '14px';
+                body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+                body.style.letterSpacing = '0px';
+                body.style.lineHeight = '1.5';
+                body.style.paddingTop = '0';
+                body.style.paddingBottom = '0';
+                var blocks = body.querySelectorAll('p, h1, h2, h3, li, blockquote');
+                for (var i = 0; i < blocks.length; i++) {
+                    blocks[i].style.marginBottom = '0.5em';
+                    blocks[i].style.paddingBottom = '0';
+                }
+                body.style.opacity = '1';
+                window._sgtFitting = false;
+                return;
+            }
 
             // ===== PHASE 0: RESET (Start TIGHT like GDI) =====
             body.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
@@ -317,20 +370,105 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
 
             // ===== PHASE 1: FONT SIZE (with tight line-height) =====
             // Binary search for largest font size that fits
-            var low = minSize, high = maxSize, bestSize = startSize;
+            var low = minSize, high = maxSize, bestSize = minSize;
+            var foundFittingSize = false;
             while (low <= high) {
                 var mid = Math.floor((low + high) / 2);
                 body.style.fontSize = mid + 'px';
                 clearLastMargin();
                 if (fits()) {
+                    foundFittingSize = true;
                     bestSize = mid;
                     low = mid + 1;
                 } else {
                     high = mid - 1;
                 }
             }
+            if (!foundFittingSize) {
+                bestSize = minSize;
+            }
             body.style.fontSize = bestSize + 'px';
             clearLastMargin();
+            // Small-window + less-text path: run a settle pass to avoid "almost right" first paint.
+            if (isConstrainedShortContent) {
+                void body.offsetHeight;
+                var settleLow = minSize, settleHigh = bestSize, settleBest = minSize;
+                while (settleLow <= settleHigh) {
+                    var settleMid = Math.floor((settleLow + settleHigh) / 2);
+                    body.style.fontSize = settleMid + 'px';
+                    clearLastMargin();
+                    if (fits()) {
+                        settleBest = settleMid;
+                        settleLow = settleMid + 1;
+                    } else {
+                        settleHigh = settleMid - 1;
+                    }
+                }
+                body.style.fontSize = settleBest + 'px';
+                clearLastMargin();
+            }
+
+            // ===== PHASE 1.5: CONDENSE OPTIMIZATION (wdth < 90) =====
+            // Dense/tall text can get stuck at small font sizes because wrapping is width-limited.
+            // Try narrower wdth values and re-fit font size; keep the combo that yields the largest
+            // fitting font size. This is the path that enables true "condensed" behavior.
+            // Skip when font is already at/near max — condensing can't exceed maxSize,
+            // so the 7-width sweep (each with a full binary search) would be pure waste.
+            // Still run when !foundFittingSize (overflow rescue needs condensing).
+            if (textLen > 0 && (bestSize < maxSize - 2 || !foundFittingSize)) {
+                var baseSize = parseFloat(body.style.fontSize) || bestSize;
+                var bestComboSize = baseSize;
+                var bestComboWdth = 90;
+                var bestComboFits = fits();
+                var bestComboOverflow = Math.max(0, doc.scrollHeight - winH);
+
+                for (var testWdth = 85; testWdth >= 55; testWdth -= 5) {
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + testWdth + ", 'slnt' 0, 'ROND' 100";
+                    clearLastMargin();
+
+                    var cLow = minSize, cHigh = maxSize, cBest = minSize;
+                    var cFoundFit = false;
+                    while (cLow <= cHigh) {
+                        var cMid = Math.floor((cLow + cHigh) / 2);
+                        body.style.fontSize = cMid + 'px';
+                        clearLastMargin();
+                        if (fits()) {
+                            cFoundFit = true;
+                            cBest = cMid;
+                            cLow = cMid + 1;
+                        } else {
+                            cHigh = cMid - 1;
+                        }
+                    }
+                    if (!cFoundFit) {
+                        cBest = minSize;
+                        body.style.fontSize = cBest + 'px';
+                        clearLastMargin();
+                    }
+                    var cFits = fits();
+                    var cOverflow = Math.max(0, doc.scrollHeight - winH);
+
+                    // Selection policy:
+                    // 1) Prefer any fitting candidate over non-fitting.
+                    // 2) If both fit, prefer larger fitting font size.
+                    // 3) If neither fits, prefer smaller overflow; tie-break to LESS condensing
+                    //    (higher wdth) to avoid unnecessary right-side gap.
+                    if (
+                        (!bestComboFits && cFits)
+                        || (bestComboFits && cFits && cBest > bestComboSize)
+                        || (!bestComboFits && !cFits && (cOverflow < bestComboOverflow || (cOverflow === bestComboOverflow && testWdth > bestComboWdth)))
+                    ) {
+                        bestComboSize = cBest;
+                        bestComboWdth = testWdth;
+                        bestComboFits = cFits;
+                        bestComboOverflow = cOverflow;
+                    }
+                }
+
+                body.style.fontVariationSettings = "'wght' 400, 'wdth' " + bestComboWdth + ", 'slnt' 0, 'ROND' 100";
+                body.style.fontSize = bestComboSize + 'px';
+                clearLastMargin();
+            }
 
             // ===== PHASE 2: LINE HEIGHT (expand from tight baseline to fill gap) =====
             // Start from tight 1.15, expand up to 2.5 to fill remaining space
@@ -471,6 +609,32 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 body.style.letterSpacing = bestLS + 'px';
             }
 
+            // ===== PHASE 8: OVERFLOW RESCUE CONDENSE =====
+            // If content still overflows after all fill phases, prioritize eliminating overflow
+            // by narrowing wdth at the current size (rather than keeping a wider wdth that wraps).
+            if (!fits()) {
+                var rescueSize = Math.max(minSize, parseFloat(body.style.fontSize) || minSize);
+                body.style.fontSize = rescueSize + 'px';
+                body.style.letterSpacing = '0px';
+                clearLastMargin();
+
+                var rescueBestWdth = 90;
+                var rescueBestOverflow = Math.max(0, doc.scrollHeight - winH);
+                for (var rescueWdth = 90; rescueWdth >= 45; rescueWdth -= 5) {
+                    body.style.fontVariationSettings = "'wght' 400, 'wdth' " + rescueWdth + ", 'slnt' 0, 'ROND' 100";
+                    clearLastMargin();
+                    var rescueOverflow = Math.max(0, doc.scrollHeight - winH);
+                    // Only condense further when it actually reduces overflow.
+                    // On tie, prefer less condensing to keep adaptive width usage.
+                    if (rescueOverflow < rescueBestOverflow || (rescueOverflow === rescueBestOverflow && rescueWdth > rescueBestWdth)) {
+                        rescueBestOverflow = rescueOverflow;
+                        rescueBestWdth = rescueWdth;
+                    }
+                }
+                body.style.fontVariationSettings = "'wght' 400, 'wdth' " + rescueBestWdth + ", 'slnt' 0, 'ROND' 100";
+                clearLastMargin();
+            }
+
             // ===== FINAL: Fill any remaining gap by distributing space =====
             // After all optimizations, if there's still a gap, distribute it via body padding
             var finalGap = winH - doc.scrollHeight;
@@ -482,6 +646,60 @@ pub fn fit_font_to_window(parent_hwnd: HWND) {
                 body.style.paddingTop = '0';
                 body.style.paddingBottom = '0';
             }
+
+            // Debug telemetry for runtime font-axis behavior and final fit result.
+            // Disabled by default (enable with `window.__SGT_FIT_DEBUG__ = true` in devtools).
+            try {
+                if (window.__SGT_FIT_DEBUG__ === undefined) {
+                    window.__SGT_FIT_DEBUG__ = false;
+                }
+                if (window.__SGT_FIT_DEBUG__ && window.ipc && typeof window.ipc.postMessage === 'function') {
+                    var cs = window.getComputedStyle(body);
+                    var probe = document.createElement('span');
+                    probe.textContent = 'MMMMMMMMMMMMMMMMMMMM';
+                    probe.style.position = 'absolute';
+                    probe.style.visibility = 'hidden';
+                    probe.style.pointerEvents = 'none';
+                    probe.style.whiteSpace = 'nowrap';
+                    probe.style.fontFamily = cs.fontFamily;
+                    probe.style.fontSize = cs.fontSize;
+                    probe.style.fontWeight = cs.fontWeight;
+                    probe.style.lineHeight = cs.lineHeight;
+                    document.body.appendChild(probe);
+                    probe.style.fontVariationSettings = "'wght' 400, 'wdth' 90, 'slnt' 0, 'ROND' 100";
+                    var widthAt90 = probe.getBoundingClientRect().width;
+                    probe.style.fontVariationSettings = "'wght' 400, 'wdth' 55, 'slnt' 0, 'ROND' 100";
+                    var widthAt55 = probe.getBoundingClientRect().width;
+                    if (probe.parentNode) probe.parentNode.removeChild(probe);
+
+                    var payload = {
+                        action: 'fit_debug',
+                        phase: 'fit_font_to_window_final',
+                        textLen: textLen,
+                        winH: winH,
+                        winW: winW,
+                        scrollH: doc.scrollHeight,
+                        finalGap: finalGap,
+                        computedFontFamily: cs.fontFamily,
+                        computedFontSize: cs.fontSize,
+                        computedFontStretch: cs.fontStretch,
+                        computedFontVariationSettings: cs.fontVariationSettings,
+                        bodyStyleFontVariationSettings: body.style.fontVariationSettings || '',
+                        letterSpacing: cs.letterSpacing,
+                        lineHeight: cs.lineHeight,
+                        googleSansFlexReady: (document.fonts && document.fonts.check)
+                            ? document.fonts.check("16px 'Google Sans Flex'")
+                            : null,
+                        documentFontsStatus: (document.fonts && document.fonts.status) ? document.fonts.status : null,
+                        probeWidthAtWdth90: widthAt90,
+                        probeWidthAtWdth55: widthAt55,
+                        probeWdthDelta: widthAt90 - widthAt55,
+                        fitDurationMs: performance.now() - _fitStart,
+                        fitCallCount: window._sgtFitCallCount || 0
+                    };
+                    window.ipc.postMessage(JSON.stringify(payload));
+                }
+            } catch (_err) {}
 
             // Reveal body (may have been hidden to prevent flash of unstyled content)
             body.style.opacity = '1';

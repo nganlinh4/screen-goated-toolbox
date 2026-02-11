@@ -181,6 +181,8 @@ pub fn create_result_window(
                     last_text_update_time: 0,
                     last_resize_time: 0,
                     last_font_calc_time: 0,
+                    markdown_settle_retry_until_ms: 0,
+                    markdown_next_settle_fit_ms: 0,
                     last_webview_update_time: 0,
                     bg_bitmap: HBITMAP::default(),
                     bg_w: 0,
