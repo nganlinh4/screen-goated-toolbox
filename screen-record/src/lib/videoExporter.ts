@@ -132,6 +132,8 @@ export class VideoExporter {
     const exportConfig = {
       width,
       height,
+      sourceWidth: vidW,
+      sourceHeight: vidH,
       framerate: fps,
       audioPath: audioFilePath,
       outputDir: options.outputDir || '',
@@ -140,7 +142,6 @@ export class VideoExporter {
       speed,
       segment: normalizedSegment,
       backgroundConfig,
-      mousePositions,
       videoData: videoDataArray,
       audioData: audioDataArray,
       bakedPath,

@@ -1,10 +1,12 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Instant;
 
 use super::gpu_export::{create_uniforms, GpuCompositor};
@@ -21,6 +23,27 @@ static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
 static EXPORT_PIDS: Mutex<(u32, u32)> = Mutex::new((0, 0));
 /// Ensures GPU export warm-up runs once per app session.
 static EXPORT_GPU_WARMED: AtomicBool = AtomicBool::new(false);
+/// Indicates an export is actively running.
+static EXPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Cached check for ffmpeg NVENC support.
+static NVENC_AVAILABLE: OnceLock<bool> = OnceLock::new();
+/// Cache source video dimensions by path+mtime+size to avoid repeated ffprobe.
+static SOURCE_DIM_CACHE: OnceLock<Mutex<HashMap<String, (u32, u32)>>> = OnceLock::new();
+
+struct ExportActiveGuard;
+
+impl ExportActiveGuard {
+    fn activate() -> Self {
+        EXPORT_ACTIVE.store(true, Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for ExportActiveGuard {
+    fn drop(&mut self) {
+        EXPORT_ACTIVE.store(false, Ordering::SeqCst);
+    }
+}
 
 pub fn cancel_export() {
     println!("[Cancel] Setting EXPORT_CANCELLED flag");
@@ -75,6 +98,10 @@ fn push_export_progress(percent: f64, eta: f64) {
 pub struct ExportConfig {
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub source_width: u32,
+    #[serde(default)]
+    pub source_height: u32,
     pub framerate: u32,
     pub audio_path: String,
     #[serde(default)]
@@ -122,6 +149,10 @@ pub fn warm_up_export_pipeline() {
         println!("[Export][Warmup] already started/skipped");
         return;
     }
+    if EXPORT_ACTIVE.load(Ordering::SeqCst) {
+        println!("[Export][Warmup] export active, skipping warm-up");
+        return;
+    }
 
     let warmup_start = Instant::now();
     let warm_w = 1920u32;
@@ -133,7 +164,9 @@ pub fn warm_up_export_pipeline() {
 
     match GpuCompositor::new(warm_w, warm_h, warm_w, warm_h) {
         Ok(compositor) => {
-            compositor.init_cursor_texture();
+            // Lightweight warm-up: avoid full 60-slot SVG atlas build here.
+            // First export uses fast-partial slots; this keeps startup contention low.
+            let _ = compositor.init_cursor_texture_fast(&[0]);
 
             let blank_frame = vec![0u8; (warm_w * warm_h * 4) as usize];
             compositor.upload_frame(&blank_frame);
@@ -413,6 +446,93 @@ fn lerp_angle_rad(from: f64, to: f64, t: f64) -> f64 {
     normalize_angle_rad(from + delta * t)
 }
 
+fn cursor_type_to_id(c_type: &str) -> f32 {
+    match c_type {
+        // ScreenStudio set
+        "default-screenstudio" | "default" => 0.0,
+        "text-screenstudio" | "text" => 1.0,
+        "pointer-screenstudio" | "pointer" => 2.0,
+        "openhand-screenstudio" => 3.0,
+        "closehand-screenstudio" => 4.0,
+        "wait-screenstudio" | "wait" => 5.0,
+        "appstarting-screenstudio" | "appstarting" => 6.0,
+        "crosshair-screenstudio" | "crosshair" | "cross" => 7.0,
+        "resize-ns-screenstudio" | "resize_ns" | "sizens" => 8.0,
+        "resize-we-screenstudio" | "resize_we" | "sizewe" => 9.0,
+        "resize-nwse-screenstudio" | "resize_nwse" | "sizenwse" => 10.0,
+        "resize-nesw-screenstudio" | "resize_nesw" | "sizenesw" => 11.0,
+
+        // macos26 expanded
+        "default-macos26" => 12.0,
+        "text-macos26" => 13.0,
+        "pointer-macos26" => 14.0,
+        "openhand-macos26" | "openhand" | "move" | "sizeall" => 15.0,
+        "closehand-macos26" | "grabbing" => 16.0,
+        "wait-macos26" => 17.0,
+        "appstarting-macos26" => 18.0,
+        "crosshair-macos26" => 19.0,
+        "resize-ns-macos26" => 20.0,
+        "resize-we-macos26" => 21.0,
+        "resize-nwse-macos26" => 22.0,
+        "resize-nesw-macos26" => 23.0,
+        "default-sgtcute" => 24.0,
+        "text-sgtcute" => 25.0,
+        "pointer-sgtcute" => 26.0,
+        "openhand-sgtcute" => 27.0,
+        "closehand-sgtcute" => 28.0,
+        "wait-sgtcute" => 29.0,
+        "appstarting-sgtcute" => 30.0,
+        "crosshair-sgtcute" => 31.0,
+        "resize-ns-sgtcute" => 32.0,
+        "resize-we-sgtcute" => 33.0,
+        "resize-nwse-sgtcute" => 34.0,
+        "resize-nesw-sgtcute" => 35.0,
+        "default-sgtcool" => 36.0,
+        "text-sgtcool" => 37.0,
+        "pointer-sgtcool" => 38.0,
+        "openhand-sgtcool" => 39.0,
+        "closehand-sgtcool" => 40.0,
+        "wait-sgtcool" => 41.0,
+        "appstarting-sgtcool" => 42.0,
+        "crosshair-sgtcool" => 43.0,
+        "resize-ns-sgtcool" => 44.0,
+        "resize-we-sgtcool" => 45.0,
+        "resize-nwse-sgtcool" => 46.0,
+        "resize-nesw-sgtcool" => 47.0,
+        "default-sgtai" => 48.0,
+        "text-sgtai" => 49.0,
+        "pointer-sgtai" => 50.0,
+        "openhand-sgtai" => 51.0,
+        "closehand-sgtai" => 52.0,
+        "wait-sgtai" => 53.0,
+        "appstarting-sgtai" => 54.0,
+        "crosshair-sgtai" => 55.0,
+        "resize-ns-sgtai" => 56.0,
+        "resize-we-sgtai" => 57.0,
+        "resize-nwse-sgtai" => 58.0,
+        "resize-nesw-sgtai" => 59.0,
+        "other" => 12.0,
+        _ => 0.0,
+    }
+}
+
+fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> {
+    let mut seen = [false; 60];
+    let mut slots = Vec::new();
+    for frame in baked_cursor {
+        let slot = cursor_type_to_id(&frame.cursor_type) as u32;
+        let idx = slot as usize;
+        if idx < seen.len() && !seen[idx] {
+            seen[idx] = true;
+            slots.push(slot);
+        }
+    }
+    if slots.is_empty() {
+        slots.push(0);
+    }
+    slots
+}
+
 pub fn get_default_export_dir() -> String {
     dirs::download_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -500,8 +620,79 @@ fn format_trim_select_expr(trim_segments: &[TrimSegment]) -> String {
         .join("+")
 }
 
+fn ffmpeg_has_nvenc(ffmpeg_path: &std::path::Path) -> bool {
+    *NVENC_AVAILABLE.get_or_init(|| {
+        match Command::new(ffmpeg_path)
+            .args(["-hide_banner", "-encoders"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+        {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).contains("h264_nvenc"),
+            Err(_) => false,
+        }
+    })
+}
+
+fn source_dim_cache_key(source_video_path: &str) -> String {
+    let mut key = source_video_path.to_string();
+    if let Ok(meta) = fs::metadata(source_video_path) {
+        let len = meta.len();
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .unwrap_or_default();
+        key.push('|');
+        key.push_str(&len.to_string());
+        key.push('|');
+        key.push_str(&modified.as_secs().to_string());
+        key.push('|');
+        key.push_str(&modified.subsec_nanos().to_string());
+    } else {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        key.push('|');
+        key.push_str(&now.as_secs().to_string());
+    }
+    key
+}
+
+fn probe_source_dimensions(ffprobe_path: &std::path::Path, source_video_path: &str) -> Result<(u32, u32, bool), String> {
+    let key = source_dim_cache_key(source_video_path);
+    let cache = SOURCE_DIM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some((w, h)) = cache.lock().unwrap().get(&key).copied() {
+        return Ok((w, h, true));
+    }
+
+    let probe = Command::new(ffprobe_path)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=s=x:p=0",
+            source_video_path,
+        ])
+        .output()
+        .map_err(|e| format!("Probe failed: {}", e))?;
+
+    let dim_str = String::from_utf8_lossy(&probe.stdout);
+    let dims: Vec<&str> = dim_str.trim().split('x').collect();
+    let src_w: u32 = dims.first().and_then(|s| s.parse().ok()).unwrap_or(1920);
+    let src_h: u32 = dims.get(1).and_then(|s| s.parse().ok()).unwrap_or(1080);
+
+    cache.lock().unwrap().insert(key, (src_w, src_h));
+    Ok((src_w, src_h, false))
+}
+
 pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value, String> {
     let export_total_start = Instant::now();
+    let _active_export_guard = ExportActiveGuard::activate();
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
     println!("[Export][Timing] Request received");
 
@@ -520,6 +711,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let baked_path = config.baked_path.unwrap_or_default();
     let baked_cursor = config.baked_cursor_path.unwrap_or_default();
+    let used_cursor_slots = collect_used_cursor_slots(&baked_cursor);
+    println!(
+        "[Export][Timing] Cursor slots used: {}",
+        used_cursor_slots.len()
+    );
 
     println!("[Export] baked_cursor_path: {} frames, cursor_scale: {}", baked_cursor.len(), config.background_config.cursor_scale);
     if let Some(first) = baked_cursor.first() {
@@ -593,31 +789,25 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     // 2. Probe source dimensions
     let probe_start = Instant::now();
-    let probe = Command::new(&ffprobe_path)
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "csv=s=x:p=0",
-            &source_video_path,
-        ])
-        .output()
-        .map_err(|e| format!("Probe failed: {}", e))?;
-
-    let dim_str = String::from_utf8_lossy(&probe.stdout);
-    let dims: Vec<&str> = dim_str.trim().split('x').collect();
-    let src_w: u32 = dims.first().and_then(|s| s.parse().ok()).unwrap_or(1920);
-    let src_h: u32 = dims.get(1).and_then(|s| s.parse().ok()).unwrap_or(1080);
-    println!(
-        "[Export][Timing] ffprobe dimensions {}x{}: {:.3}s",
-        src_w,
-        src_h,
-        probe_start.elapsed().as_secs_f64()
-    );
+    let (src_w, src_h) = if config.source_width > 0 && config.source_height > 0 {
+        println!(
+            "[Export][Timing] source dimensions from frontend {}x{}: {:.3}s",
+            config.source_width,
+            config.source_height,
+            probe_start.elapsed().as_secs_f64()
+        );
+        (config.source_width, config.source_height)
+    } else {
+        let (w, h, probe_cache_hit) = probe_source_dimensions(&ffprobe_path, &source_video_path)?;
+        println!(
+            "[Export][Timing] ffprobe dimensions {}x{}: {:.3}s ({})",
+            w,
+            h,
+            probe_start.elapsed().as_secs_f64(),
+            if probe_cache_hit { "cache-hit" } else { "cache-miss" }
+        );
+        (w, h)
+    };
 
     // 3. Calculate dimensions
     let dims_start = Instant::now();
@@ -689,11 +879,17 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
 
     let cursor_init_start = Instant::now();
-    compositor.init_cursor_texture();
+    let used_cached_atlas = compositor.init_cursor_texture_fast(&used_cursor_slots);
     let cursor_init_secs = cursor_init_start.elapsed().as_secs_f64();
     println!(
-        "[Export][Timing] GPU init: {:.3}s, cursor atlas upload/init: {:.3}s",
-        gpu_device_secs, cursor_init_secs
+        "[Export][Timing] GPU init: {:.3}s, cursor atlas init ({}) : {:.3}s",
+        gpu_device_secs,
+        if used_cached_atlas {
+            "cached-full"
+        } else {
+            "fast-partial"
+        },
+        cursor_init_secs
     );
 
     // 5. Start FFmpeg decoder
@@ -781,7 +977,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let crf = "18";
 
     let has_audio = source_audio_path.is_some();
-    let mut encoder_args = vec![
+    let mut encoder_args_base = vec![
         "-y".to_string(),
         "-f".to_string(),
         "rawvideo".to_string(),
@@ -806,14 +1002,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
 
         if has_trim_segments {
-            encoder_args.extend([
+            encoder_args_base.extend([
                 "-i".to_string(),
                 audio.clone(),
                 "-af".to_string(),
                 audio_filter,
             ]);
         } else {
-            encoder_args.extend([
+            encoder_args_base.extend([
                 "-ss".to_string(),
                 config.trim_start.to_string(),
                 "-t".to_string(),
@@ -826,39 +1022,93 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
     }
 
-    encoder_args.extend([
-        "-c:v".to_string(),
-        "libx264".to_string(),
-        "-preset".to_string(),
-        "fast".to_string(),
-        "-crf".to_string(),
-        crf.to_string(), // Applied here
-        "-pix_fmt".to_string(),
-        "yuv420p".to_string(),
-    ]);
+    let x264_preset = "veryfast";
+    let can_use_nvenc = ffmpeg_has_nvenc(&ffmpeg_path);
+    println!(
+        "[Export][Timing] Encoder candidates: {} -> libx264",
+        if can_use_nvenc { "h264_nvenc" } else { "(no nvenc)" }
+    );
 
-    if has_audio {
-        encoder_args.extend([
-            "-c:a".to_string(),
-            "aac".to_string(),
-            "-b:a".to_string(),
-            "192k".to_string(),
+    let make_encoder_args = |use_nvenc: bool| {
+        let mut args = encoder_args_base.clone();
+        if use_nvenc {
+            args.extend([
+                "-c:v".to_string(),
+                "h264_nvenc".to_string(),
+                "-preset".to_string(),
+                "p1".to_string(), // fastest
+                "-cq".to_string(),
+                "19".to_string(),
+                "-b:v".to_string(),
+                "0".to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
+            ]);
+        } else {
+            args.extend([
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-preset".to_string(),
+                x264_preset.to_string(),
+                "-crf".to_string(),
+                crf.to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
+            ]);
+        }
+
+        if has_audio {
+            args.extend([
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                "192k".to_string(),
+            ]);
+        }
+
+        args.extend([
+            "-movflags".to_string(),
+            "+faststart".to_string(),
+            output_path.to_str().unwrap().to_string(),
         ]);
-    }
+        args
+    };
 
-    encoder_args.extend([
-        "-movflags".to_string(),
-        "+faststart".to_string(),
-        output_path.to_str().unwrap().to_string(),
-    ]);
-
-    let mut encoder = Command::new(&ffmpeg_path)
+    let mut encoder_args = make_encoder_args(can_use_nvenc);
+    let mut encoder = match Command::new(&ffmpeg_path)
         .args(&encoder_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(|e| format!("Encoder failed: {}", e))?;
+    {
+        Ok(enc) => {
+            if can_use_nvenc {
+                println!("[Export][Timing] Using encoder: h264_nvenc (preset p1)");
+            } else {
+                println!("[Export][Timing] Using encoder: libx264 (preset {})", x264_preset);
+            }
+            enc
+        }
+        Err(first_err) => {
+            if can_use_nvenc {
+                println!(
+                    "[Export][Timing] NVENC spawn failed ({}), falling back to libx264",
+                    first_err
+                );
+                encoder_args = make_encoder_args(false);
+                Command::new(&ffmpeg_path)
+                    .args(&encoder_args)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::inherit())
+                    .spawn()
+                    .map_err(|e| format!("Encoder failed (nvenc fallback): {}", e))?
+            } else {
+                return Err(format!("Encoder failed: {}", first_err));
+            }
+        }
+    };
     println!(
         "[Export][Timing] Start encoder process: {:.3}s",
         encoder_start.elapsed().as_secs_f64()
@@ -884,6 +1134,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let export_start = Instant::now();
     let mut first_frame_logged = false;
     let frame_stage_start = Instant::now();
+    let mut rendered = Vec::with_capacity((out_w * out_h * 4) as usize);
 
     println!("[Export] Frame loop: total_frames={}, decoder_fps={:.2}, step={:.6}", total_frames, decoder_fps, step);
 
@@ -939,73 +1190,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     let rel_x = (cx - crop_x_offset) / crop_w as f64;
                     let rel_y = (cy - crop_y_offset) / crop_h as f64;
 
-                    let type_id = match c_type.as_str() {
-                        // ScreenStudio set
-                        "default-screenstudio" | "default" => 0.0,
-                        "text-screenstudio" | "text" => 1.0,
-                        "pointer-screenstudio" | "pointer" => 2.0,
-                        "openhand-screenstudio" => 3.0,
-                        "closehand-screenstudio" => 4.0,
-                        "wait-screenstudio" | "wait" => 5.0,
-                        "appstarting-screenstudio" | "appstarting" => 6.0,
-                        "crosshair-screenstudio" | "crosshair" | "cross" => 7.0,
-                        "resize-ns-screenstudio" | "resize_ns" | "sizens" => 8.0,
-                        "resize-we-screenstudio" | "resize_we" | "sizewe" => 9.0,
-                        "resize-nwse-screenstudio" | "resize_nwse" | "sizenwse" => 10.0,
-                        "resize-nesw-screenstudio" | "resize_nesw" | "sizenesw" => 11.0,
-
-                        // macos26 expanded
-                        "default-macos26" => 12.0,
-                        "text-macos26" => 13.0,
-                        "pointer-macos26" => 14.0,
-                        "openhand-macos26" | "openhand" | "move" | "sizeall" => 15.0,
-                        "closehand-macos26" | "grabbing" => 16.0,
-                        "wait-macos26" => 17.0,
-                        "appstarting-macos26" => 18.0,
-                        "crosshair-macos26" => 19.0,
-                        "resize-ns-macos26" => 20.0,
-                        "resize-we-macos26" => 21.0,
-                        "resize-nwse-macos26" => 22.0,
-                        "resize-nesw-macos26" => 23.0,
-                        "default-sgtcute" => 24.0,
-                        "text-sgtcute" => 25.0,
-                        "pointer-sgtcute" => 26.0,
-                        "openhand-sgtcute" => 27.0,
-                        "closehand-sgtcute" => 28.0,
-                        "wait-sgtcute" => 29.0,
-                        "appstarting-sgtcute" => 30.0,
-                        "crosshair-sgtcute" => 31.0,
-                        "resize-ns-sgtcute" => 32.0,
-                        "resize-we-sgtcute" => 33.0,
-                        "resize-nwse-sgtcute" => 34.0,
-                        "resize-nesw-sgtcute" => 35.0,
-                        "default-sgtcool" => 36.0,
-                        "text-sgtcool" => 37.0,
-                        "pointer-sgtcool" => 38.0,
-                        "openhand-sgtcool" => 39.0,
-                        "closehand-sgtcool" => 40.0,
-                        "wait-sgtcool" => 41.0,
-                        "appstarting-sgtcool" => 42.0,
-                        "crosshair-sgtcool" => 43.0,
-                        "resize-ns-sgtcool" => 44.0,
-                        "resize-we-sgtcool" => 45.0,
-                        "resize-nwse-sgtcool" => 46.0,
-                        "resize-nesw-sgtcool" => 47.0,
-                        "default-sgtai" => 48.0,
-                        "text-sgtai" => 49.0,
-                        "pointer-sgtai" => 50.0,
-                        "openhand-sgtai" => 51.0,
-                        "closehand-sgtai" => 52.0,
-                        "wait-sgtai" => 53.0,
-                        "appstarting-sgtai" => 54.0,
-                        "crosshair-sgtai" => 55.0,
-                        "resize-ns-sgtai" => 56.0,
-                        "resize-we-sgtai" => 57.0,
-                        "resize-nwse-sgtai" => 58.0,
-                        "resize-nesw-sgtai" => 59.0,
-                        "other" => 12.0,
-                        _ => 0.0,
-                    };
+                    let type_id = cursor_type_to_id(c_type.as_str());
 
                     let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
                     let cursor_final_scale =
@@ -1051,7 +1236,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0),
         );
 
-        let mut rendered = compositor.render_frame(&uniforms);
+        compositor.render_frame_into(&uniforms, &mut rendered);
 
         // --- RENDER TEXT OVERLAY (baked bitmaps) ---
         let fade_dur = 0.3_f64;
