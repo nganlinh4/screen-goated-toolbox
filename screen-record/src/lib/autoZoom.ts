@@ -9,14 +9,17 @@ const PHYSICS = {
   FRICTION: 20.0,
   MASS: 5.0,      // Heavy camera for inertia
 
-  // Behaviour
-  LOOK_AHEAD: 0.25, // seconds - smoother anticipation
-  IDLE_ZOOM_SPEED: 0.3, // Slower idle zoom
-  ZOOM_OUT_SPEED: 1.5,  // Slower zoom out
+  // Behaviour — dynamic look-ahead
+  // Camera "leads" the cursor: minimal anticipation when still, more when fast.
+  // Exponential saturation: lookAhead = MAX * (1 - e^(-speed / SCALE))
+  LOOK_AHEAD_MAX: 0.45,   // seconds — ceiling even at extreme speeds
+  LOOK_AHEAD_SCALE: 700,  // px/s at which we reach ~63% of max
+
+  // Velocity-dependent zoom-out
+  MAX_VELOCITY_ZOOM_PENALTY: 1500, // px/s at which zoom fully drops to MIN
 
   // Limits
-  MAX_VELOCITY_ZOOM_PENALTY: 1500, // Higher threshold before zooming out
-  BASE_ZOOM: 1.4,
+  BASE_ZOOM: 2.0,
   MIN_ZOOM: 1.0,
   MAX_ZOOM: 2.0
 };
@@ -83,10 +86,14 @@ export class AutoZoomGenerator {
 
       // A. Identify Target (Where SHOULD the camera be?)
       const currentMouse = this.sample(data, t);
-      const futureMouse = this.sample(data, t + PHYSICS.LOOK_AHEAD);
 
       // Calculate Mouse Characteristics
       const velocity = this.getVelocity(data, t); // pixels per sec
+
+      // Dynamic look-ahead: still cursor → ~0s, fast cursor → up to MAX.
+      // Exponential saturation prevents over-prediction at extreme speeds.
+      const lookAhead = PHYSICS.LOOK_AHEAD_MAX * (1 - Math.exp(-velocity / PHYSICS.LOOK_AHEAD_SCALE));
+      const futureMouse = this.sample(data, t + lookAhead);
       const isClicked = this.checkClick(data, t, 0.5); // Check if click happens within 0.5s window
 
       // Update Interaction State
@@ -101,25 +108,19 @@ export class AutoZoomGenerator {
       // B. Determine Target Zoom
       let rawTargetZoom = PHYSICS.BASE_ZOOM;
 
-      // Rule 1: Velocity Penalty (Go fast -> Zoom out)
-      // factor goes from 0.0 (stopped) to 1.0 (max speed)
+      // Rule 1: Velocity Penalty — zoom out when cursor moves fast
       const speedFactor = Math.min(1.0, velocity / PHYSICS.MAX_VELOCITY_ZOOM_PENALTY);
-      // If moving fast, reduce zoom towards 1.0
       rawTargetZoom = rawTargetZoom * (1 - speedFactor) + PHYSICS.MIN_ZOOM * speedFactor;
 
-      // Rule 2: Click Focus (Clicking -> Zoom In)
+      // Click Focus (Clicking -> Zoom In)
       if (isClicked) {
         rawTargetZoom = Math.max(rawTargetZoom, 1.7);
       }
 
-      // Rule 3: Deep Read (Long Hover -> Zoom In Deep)
+      // Deep Read (Long Hover -> Zoom In Deep)
       if (interaction.hoverTime > 2.0) {
         rawTargetZoom = PHYSICS.MAX_ZOOM;
       }
-
-      // Edge penalty removed — position clamping (lines 184-187) already prevents
-      // off-screen camera, and with custom canvas padding the edges are fully visible.
-      // Forcing zoom-out near edges created jarring zoom drops for no benefit.
 
       // Smooth the zoom target to prevent jitter
       // Simple LERP filter
@@ -163,20 +164,10 @@ export class AutoZoomGenerator {
       state.y += state.vy * dt;
       state.zoom += state.vz * dt;
 
-      // E. Hard Constraints (Keep Viewport inside Screen)
-      // Viewport Dimensions
-      const viewW = videoWidth / state.zoom;
-      const viewH = videoHeight / state.zoom;
-
-      // Half dimensions
-      const hw = viewW / 2;
-      const hh = viewH / 2;
-
-      // Clamp Camera Center
-      if (state.x - hw < 0) { state.x = hw; state.vx = 0; }
-      if (state.x + hw > videoWidth) { state.x = videoWidth - hw; state.vx = 0; }
-      if (state.y - hh < 0) { state.y = hh; state.vy = 0; }
-      if (state.y + hh > videoHeight) { state.y = videoHeight - hh; state.vy = 0; }
+      // No hard position clamp — the camera freely tracks the cursor.
+      // With custom canvas padding, the contain-fit mapping and the renderer's
+      // [0,1] posX/posY clamp provide canvas-level safety.  The critically-damped
+      // spring won't overshoot, and cursor data is always within video bounds.
 
       // Clamp Zoom safety
       state.zoom = Math.max(1.0, Math.min(5.0, state.zoom)); // Absolute safety limits
