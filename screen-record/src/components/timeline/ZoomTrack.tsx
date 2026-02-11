@@ -62,6 +62,24 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   callbacksRef.current = { onUpdateKeyframes };
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
+  const handleDuplicateKeyframe = (index: number) => {
+    const keyframes = segmentRef.current.zoomKeyframes;
+    const source = keyframes[index];
+    if (!source) return;
+
+    const next = index < keyframes.length - 1 ? keyframes[index + 1] : null;
+    const minTime = source.time + 0.1;
+    const maxTime = next ? Math.min(duration, next.time - 0.1) : duration;
+    if (maxTime < minTime) return;
+
+    const duplicatedTime = Math.max(minTime, Math.min(source.time + 5, maxTime));
+    beginBatch();
+    callbacksRef.current.onUpdateKeyframes(
+      [...keyframes, { ...source, time: duplicatedTime }].sort((a, b) => a.time - b.time)
+    );
+    commitBatch();
+  };
+
   // Handle point deletion
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -340,6 +358,10 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                 }}
                 onClick={(e) => { e.stopPropagation(); onKeyframeClick(keyframe.time, index); }}
                 onMouseDown={(e) => { e.stopPropagation(); onKeyframeDragStart(index); }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  handleDuplicateKeyframe(index);
+                }}
               >
                 <div className="keyframe-marker-content relative flex flex-col items-center h-full justify-center">
                   {/* Zoom % pill */}
