@@ -5,8 +5,8 @@ import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/li
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
 const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
-const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.15;
-const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.74;
+const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.25;
+const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.55;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
 const CURSOR_ASSET_VERSION = `cursor-types-runtime-${Date.now()}`;
 
@@ -770,6 +770,7 @@ export class VideoRenderer {
         }
 
         const cursorVis = getCursorVisibility(t, segment.cursorVisibilitySegments);
+        const resolvedCursorType = this.resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig, Boolean(pos.isClicked));
 
         baked.push({
           time: compactCursor + (t - seg.startTime),
@@ -777,9 +778,9 @@ export class VideoRenderer {
           y: pos.y,
           scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
           isClicked: isClicked,
-          type: this.resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig, Boolean(pos.isClicked)),
+          type: resolvedCursorType,
           opacity: Number(cursorVis.opacity.toFixed(3)),
-          rotation: Number((pos.cursor_rotation || 0).toFixed(4)),
+          rotation: this.shouldCursorRotate(resolvedCursorType) ? Number((pos.cursor_rotation || 0).toFixed(4)) : 0,
         });
       }
       compactCursor += seg.endTime - seg.startTime;
@@ -1557,6 +1558,80 @@ export class VideoRenderer {
     return this.smoothDampScalar(current, adjustedTarget, velocity, smoothTime, maxSpeed, deltaTime);
   }
 
+  /**
+   * Analytical damped spring step for scalar values.
+   * Exact solution of the damped harmonic oscillator ODE — frame-rate independent.
+   * Supports underdamped (zeta<1, bouncy), critically damped (zeta=1), overdamped (zeta>1).
+   */
+  private springStepScalar(
+    current: number,
+    target: number,
+    velocity: number,
+    angularFreq: number,
+    dampingRatio: number,
+    dt: number
+  ): { value: number; velocity: number } {
+    const disp = current - target;
+
+    if (Math.abs(disp) < 1e-8 && Math.abs(velocity) < 1e-8) {
+      return { value: target, velocity: 0 };
+    }
+
+    const omega = angularFreq;
+    const zeta = dampingRatio;
+    let newDisp: number;
+    let newVel: number;
+
+    if (zeta < 1.0 - 1e-6) {
+      // Underdamped — oscillatory with exponential decay (the wiggle)
+      const alpha = omega * Math.sqrt(1 - zeta * zeta);
+      const decay = Math.exp(-omega * zeta * dt);
+      const cosA = Math.cos(alpha * dt);
+      const sinA = Math.sin(alpha * dt);
+
+      newDisp = decay * (
+        disp * cosA +
+        ((velocity + omega * zeta * disp) / alpha) * sinA
+      );
+      newVel = decay * (
+        velocity * cosA -
+        ((velocity * zeta * omega + omega * omega * disp) / alpha) * sinA
+      );
+    } else if (zeta > 1.0 + 1e-6) {
+      // Overdamped — exponential decay without oscillation
+      const disc = Math.sqrt(zeta * zeta - 1);
+      const s1 = -omega * (zeta - disc);
+      const s2 = -omega * (zeta + disc);
+      const c2 = (velocity - s1 * disp) / (s2 - s1);
+      const c1 = disp - c2;
+      const e1 = Math.exp(s1 * dt);
+      const e2 = Math.exp(s2 * dt);
+
+      newDisp = c1 * e1 + c2 * e2;
+      newVel = c1 * s1 * e1 + c2 * s2 * e2;
+    } else {
+      // Critically damped — fastest non-oscillatory settling
+      const decay = Math.exp(-omega * dt);
+      newDisp = (disp + (velocity + omega * disp) * dt) * decay;
+      newVel = (velocity - (velocity + omega * disp) * omega * dt) * decay;
+    }
+
+    return { value: target + newDisp, velocity: newVel };
+  }
+
+  /** Spring step for angle values — normalizes angle then delegates to scalar solver. */
+  private springStepAngle(
+    current: number,
+    target: number,
+    velocity: number,
+    angularFreq: number,
+    dampingRatio: number,
+    dt: number
+  ): { value: number; velocity: number } {
+    const adjustedTarget = current + this.normalizeAngleRad(target - current);
+    return this.springStepScalar(current, adjustedTarget, velocity, angularFreq, dampingRatio, dt);
+  }
+
   private smoothMousePositions(
     positions: MousePosition[],
     targetFps: number = 120,
@@ -1646,7 +1721,77 @@ export class VideoRenderer {
     backgroundConfig?: BackgroundConfig | null
   ): MousePosition[] {
     const smoothed = this.smoothMousePositions(positions, 120, backgroundConfig);
-    return this.applyAdaptiveCursorWiggle(smoothed, backgroundConfig);
+    const springed = this.applySpringPositionDynamics(smoothed, backgroundConfig);
+    return this.applyAdaptiveCursorWiggle(springed, backgroundConfig);
+  }
+
+  /**
+   * Spring-based cursor position dynamics — adds physical inertia to cursor movement.
+   * The cursor trails behind during fast movement and slightly overshoots on stop,
+   * creating the "alive" cinematic feel used by Screen Studio.
+   * Runs BEFORE rotation wiggle so tilt is computed from spring-smoothed velocities.
+   */
+  private applySpringPositionDynamics(
+    positions: MousePosition[],
+    backgroundConfig?: BackgroundConfig | null
+  ): MousePosition[] {
+    if (positions.length < 2) return positions;
+
+    const strength = this.getCursorWiggleStrength(backgroundConfig);
+    if (strength <= 0.001) return positions;
+
+    const dampingRatio = this.getCursorWiggleDamping(backgroundConfig);
+    const responseHz = this.getCursorWiggleResponse(backgroundConfig);
+
+    // Position spring: stiffer at low strength (subtle), looser at high (dramatic)
+    const baseOmega = 2 * Math.PI * responseHz;
+    const posOmega = baseOmega * (4.0 - strength * 2.5);
+    // More damped than rotation spring — position overshoot should be very subtle
+    const posZeta = Math.min(0.92, dampingRatio + 0.18);
+    // Max displacement cap prevents extreme lag at very fast mouse speeds
+    const maxDisp = 8 + strength * 28;
+
+    const result: MousePosition[] = [];
+    let sx = positions[0].x;
+    let sy = positions[0].y;
+    let vx = 0;
+    let vy = 0;
+
+    result.push({ ...positions[0] });
+
+    for (let i = 1; i < positions.length; i++) {
+      const prev = positions[i - 1];
+      const target = positions[i];
+      const dt = Math.max(1 / 1000, target.timestamp - prev.timestamp);
+
+      const stepX = this.springStepScalar(sx, target.x, vx, posOmega, posZeta, dt);
+      const stepY = this.springStepScalar(sy, target.y, vy, posOmega, posZeta, dt);
+
+      sx = stepX.value;
+      sy = stepY.value;
+      vx = stepX.velocity;
+      vy = stepY.velocity;
+
+      // Clamp displacement to prevent excessive trailing at extreme speeds
+      const dx = sx - target.x;
+      const dy = sy - target.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxDisp) {
+        const ratio = maxDisp / dist;
+        sx = target.x + dx * ratio;
+        sy = target.y + dy * ratio;
+        vx *= ratio;
+        vy *= ratio;
+      }
+
+      result.push({
+        ...target,
+        x: sx,
+        y: sy,
+      });
+    }
+
+    return result;
   }
 
   private applyAdaptiveCursorWiggle(
@@ -1658,6 +1803,9 @@ export class VideoRenderer {
     const strength = this.getCursorWiggleStrength(backgroundConfig);
     if (strength <= 0.001) return positions;
 
+    const dampingRatio = this.getCursorWiggleDamping(backgroundConfig);
+    const responseHz = this.getCursorWiggleResponse(backgroundConfig);
+
     const result: MousePosition[] = [];
     let lagHeading = 0;
     let lagHeadingVel = 0;
@@ -1665,12 +1813,17 @@ export class VideoRenderer {
     let cursorRotation = 0;
     let cursorRotationVel = 0;
 
+    // Derive physics params from user-facing knobs
     const maxTiltRad = (2.2 + strength * 8.8) * (Math.PI / 180);
     const headingSmoothTime = 0.28 - strength * 0.17;
-    const rotationSmoothTime = 0.20 - strength * 0.12;
     const tiltGain = 0.33 + strength * 0.92;
     const speedStart = 120;
     const speedFull = 1650;
+
+    // Underdamped spring params for the rotation channel
+    // omega = natural angular frequency; zeta = damping ratio (<1 → bounce)
+    const rotationOmega = 2 * Math.PI * responseHz;
+    const rotationZeta = dampingRatio;
 
     result.push({ ...positions[0], cursor_rotation: 0 });
 
@@ -1683,6 +1836,8 @@ export class VideoRenderer {
       const targetVy = (target.y - prevTarget.y) / dtRaw;
       const speed = Math.hypot(targetVx, targetVy);
 
+      let tiltTarget = 0;
+
       if (speed > speedStart) {
         const heading = Math.atan2(targetVy, targetVx);
         if (!hasHeading) {
@@ -1691,41 +1846,30 @@ export class VideoRenderer {
         }
 
         const headingStep = this.smoothDampAngleRad(
-          lagHeading,
-          heading,
-          lagHeadingVel,
-          headingSmoothTime,
-          18,
-          dtRaw
+          lagHeading, heading, lagHeadingVel,
+          headingSmoothTime, 18, dtRaw
         );
         lagHeading = headingStep.value;
         lagHeadingVel = headingStep.velocity;
 
-        const speedFade = Math.max(0, Math.min(1, (speed - speedStart) / (speedFull - speedStart)));
+        // SmoothStep speed fade (less abrupt than linear)
+        const t = Math.max(0, Math.min(1, (speed - speedStart) / (speedFull - speedStart)));
+        const speedFade = t * t * (3 - 2 * t);
+
         const rawTilt = this.normalizeAngleRad(heading - lagHeading) * tiltGain * speedFade;
-        const tiltTarget = Math.max(-maxTiltRad, Math.min(maxTiltRad, rawTilt));
-        const rotationStep = this.smoothDampAngleRad(
-          cursorRotation,
-          tiltTarget,
-          cursorRotationVel,
-          rotationSmoothTime,
-          22,
-          dtRaw
-        );
-        cursorRotation = rotationStep.value;
-        cursorRotationVel = rotationStep.velocity;
-      } else {
-        const settleStep = this.smoothDampAngleRad(
-          cursorRotation,
-          0,
-          cursorRotationVel,
-          0.18,
-          16,
-          dtRaw
-        );
-        cursorRotation = settleStep.value;
-        cursorRotationVel = settleStep.velocity;
+        tiltTarget = Math.max(-maxTiltRad, Math.min(maxTiltRad, rawTilt));
       }
+      // else: tiltTarget stays 0 → spring settles with bounce
+
+      // Underdamped spring drives rotation toward tiltTarget
+      // During movement: tracks smoothly (target changes gradually)
+      // On stop: target jumps to 0 → spring overshoots → wiggle
+      const rotStep = this.springStepAngle(
+        cursorRotation, tiltTarget, cursorRotationVel,
+        rotationOmega, rotationZeta, dtRaw
+      );
+      cursorRotation = rotStep.value;
+      cursorRotationVel = rotStep.velocity;
 
       result.push({
         ...target,
@@ -1815,6 +1959,12 @@ export class VideoRenderer {
       cursor_type: next.cursor_type || 'default',
       cursor_rotation: this.lerpAngleRad(prev.cursor_rotation || 0, next.cursor_rotation || 0, t),
     };
+  }
+
+  /** Arrow, pointing hand, and text cursors rotate. Grip cursors (grab, grabbing) stay upright. */
+  private shouldCursorRotate(cursorType: string): boolean {
+    const t = cursorType.toLowerCase();
+    return t.startsWith('default-') || t.startsWith('pointer-') || t.startsWith('text-');
   }
 
   private getCursorRotationPivot(cursorType: string): { x: number; y: number } {
@@ -1997,28 +2147,7 @@ export class VideoRenderer {
     const lowerType = cursorType.toLowerCase();
     ctx.save();
     ctx.translate(x, y);
-    const allowRotation =
-      lowerType === 'default-screenstudio'
-      || lowerType === 'pointer-screenstudio'
-      || lowerType === 'openhand-screenstudio'
-      || lowerType === 'closehand-screenstudio'
-      || lowerType === 'default-macos26'
-      || lowerType === 'pointer-macos26'
-      || lowerType === 'openhand-macos26'
-      || lowerType === 'closehand-macos26'
-      || lowerType === 'default-sgtcute'
-      || lowerType === 'pointer-sgtcute'
-      || lowerType === 'openhand-sgtcute'
-      || lowerType === 'closehand-sgtcute'
-      || lowerType === 'default-sgtcool'
-      || lowerType === 'pointer-sgtcool'
-      || lowerType === 'openhand-sgtcool'
-      || lowerType === 'closehand-sgtcool'
-      || lowerType === 'default-sgtai'
-      || lowerType === 'pointer-sgtai'
-      || lowerType === 'openhand-sgtai'
-      || lowerType === 'closehand-sgtai';
-    if (allowRotation && Math.abs(rotation) > 0.0001) {
+    if (this.shouldCursorRotate(lowerType) && Math.abs(rotation) > 0.0001) {
       const pivot = this.getCursorRotationPivot(lowerType);
       ctx.translate(pivot.x, pivot.y);
       ctx.rotate(rotation);
