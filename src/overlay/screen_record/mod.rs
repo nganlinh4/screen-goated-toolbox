@@ -886,6 +886,11 @@ unsafe fn internal_create_sr_loop() {
         IS_WARMED_UP = true;
     }
 
+    // Prepare export GPU pipeline in the background so first export starts faster.
+    thread::spawn(|| {
+        native_export::warm_up_export_pipeline();
+    });
+
     let mut msg = MSG::default();
     unsafe {
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {

@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{Options, Tree};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tiny_skia::{Pixmap, Transform};
 use wgpu::util::DeviceExt;
 
@@ -146,6 +146,116 @@ const CURSOR_ATLAS_COLS: u32 = 8;
 const CURSOR_ATLAS_ROWS: u32 = 8;
 const CURSOR_ATLAS_SLOTS: u32 = 60; // 5 packs * 12 cursor types
 const CURSOR_TILE_SIZE: u32 = 512;
+static CURSOR_ATLAS_CACHE: OnceLock<Vec<u8>> = OnceLock::new();
+
+fn build_cursor_atlas_rgba() -> Vec<u8> {
+    // Build atlas: (CURSOR_TILE_SIZE*CURSOR_ATLAS_COLS) x (CURSOR_TILE_SIZE*CURSOR_ATLAS_ROWS)
+    // 0..11: screenstudio set
+    // 12..23: macos26 set
+    // 24..35: sgtcute set
+    // 36..47: sgtcool set
+    // 48..59: sgtai set
+    let tile_size = CURSOR_TILE_SIZE;
+    let center = tile_size as f32 / 2.0;
+    let mut atlas = Pixmap::new(
+        tile_size * CURSOR_ATLAS_COLS,
+        tile_size * CURSOR_ATLAS_ROWS,
+    )
+    .unwrap();
+
+    // Render one cursor SVG into a specific atlas tile centered on hotspot.
+    let mut render_svg_slot = |svg: &[u8], slot: u32, target_size: f32| {
+        let opt = Options::default();
+        if let Ok(tree) = Tree::from_data(svg, &opt) {
+            let svg_size = tree.size();
+            let svg_w = svg_size.width().max(1.0);
+            let svg_h = svg_size.height().max(1.0);
+            let base_scale = target_size / svg_w.max(svg_h);
+            let hotspot_px_x = (svg_w * 0.5) * base_scale;
+            let hotspot_px_y = (svg_h * 0.5) * base_scale;
+            let col = slot % CURSOR_ATLAS_COLS;
+            let row = slot / CURSOR_ATLAS_COLS;
+            let x = (col * tile_size) as f32 + center - hotspot_px_x;
+            let y = (row * tile_size) as f32 + center - hotspot_px_y;
+            let ts = Transform::from_translate(x, y).pre_scale(base_scale, base_scale);
+            resvg::render(&tree, ts, &mut atlas.as_mut());
+        }
+    };
+
+    let cursor_svgs: [&[u8]; 60] = [
+        DEFAULT_SCREENSTUDIO_SVG,
+        TEXT_SCREENSTUDIO_SVG,
+        POINTER_SCREENSTUDIO_SVG,
+        OPENHAND_SCREENSTUDIO_SVG,
+        CLOSEHAND_SCREENSTUDIO_SVG,
+        WAIT_SCREENSTUDIO_SVG,
+        APPSTARTING_SCREENSTUDIO_SVG,
+        CROSSHAIR_SCREENSTUDIO_SVG,
+        RESIZE_NS_SCREENSTUDIO_SVG,
+        RESIZE_WE_SCREENSTUDIO_SVG,
+        RESIZE_NWSE_SCREENSTUDIO_SVG,
+        RESIZE_NESW_SCREENSTUDIO_SVG,
+        DEFAULT_MACOS26_SVG,
+        TEXT_MACOS26_SVG,
+        POINTER_MACOS26_SVG,
+        OPENHAND_MACOS26_SVG,
+        CLOSEHAND_MACOS26_SVG,
+        WAIT_MACOS26_SVG,
+        APPSTARTING_MACOS26_SVG,
+        CROSSHAIR_MACOS26_SVG,
+        RESIZE_NS_MACOS26_SVG,
+        RESIZE_WE_MACOS26_SVG,
+        RESIZE_NWSE_MACOS26_SVG,
+        RESIZE_NESW_MACOS26_SVG,
+        DEFAULT_SGTCUTE_SVG,
+        TEXT_SGTCUTE_SVG,
+        POINTER_SGTCUTE_SVG,
+        OPENHAND_SGTCUTE_SVG,
+        CLOSEHAND_SGTCUTE_SVG,
+        WAIT_SGTCUTE_SVG,
+        APPSTARTING_SGTCUTE_SVG,
+        CROSSHAIR_SGTCUTE_SVG,
+        RESIZE_NS_SGTCUTE_SVG,
+        RESIZE_WE_SGTCUTE_SVG,
+        RESIZE_NWSE_SGTCUTE_SVG,
+        RESIZE_NESW_SGTCUTE_SVG,
+        DEFAULT_SGTCOOL_SVG,
+        TEXT_SGTCOOL_SVG,
+        POINTER_SGTCOOL_SVG,
+        OPENHAND_SGTCOOL_SVG,
+        CLOSEHAND_SGTCOOL_SVG,
+        WAIT_SGTCOOL_SVG,
+        APPSTARTING_SGTCOOL_SVG,
+        CROSSHAIR_SGTCOOL_SVG,
+        RESIZE_NS_SGTCOOL_SVG,
+        RESIZE_WE_SGTCOOL_SVG,
+        RESIZE_NWSE_SGTCOOL_SVG,
+        RESIZE_NESW_SGTCOOL_SVG,
+        DEFAULT_SGTAI_SVG,
+        TEXT_SGTAI_SVG,
+        POINTER_SGTAI_SVG,
+        OPENHAND_SGTAI_SVG,
+        CLOSEHAND_SGTAI_SVG,
+        WAIT_SGTAI_SVG,
+        APPSTARTING_SGTAI_SVG,
+        CROSSHAIR_SGTAI_SVG,
+        RESIZE_NS_SGTAI_SVG,
+        RESIZE_WE_SGTAI_SVG,
+        RESIZE_NWSE_SGTAI_SVG,
+        RESIZE_NESW_SGTAI_SVG,
+    ];
+
+    for slot in 0..CURSOR_ATLAS_SLOTS {
+        let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 {
+            tile_size as f32 * 0.90
+        } else {
+            tile_size as f32 * 0.94
+        };
+        render_svg_slot(cursor_svgs[slot as usize], slot, target);
+    }
+
+    atlas.data().to_vec()
+}
 
 impl GpuCompositor {
     pub fn new(
@@ -424,115 +534,7 @@ impl GpuCompositor {
     }
 
     pub fn init_cursor_texture(&self) {
-        // Build atlas: (CURSOR_TILE_SIZE*CURSOR_ATLAS_COLS) x (CURSOR_TILE_SIZE*CURSOR_ATLAS_ROWS)
-        // 0..11: screenstudio set
-        // 12..23: macos26 set
-        // 24..35: sgtcute set
-        // 36..47: sgtcool set
-        // 48..59: sgtai set
-
-        let tile_size = CURSOR_TILE_SIZE;
-        let center = tile_size as f32 / 2.0;
-        let mut atlas = Pixmap::new(
-            tile_size * CURSOR_ATLAS_COLS,
-            tile_size * CURSOR_ATLAS_ROWS,
-        )
-        .unwrap();
-
-        // Helper: render svg into a specific slot with center hotspot.
-        let mut render_svg_slot = |svg: &[u8], slot: u32, target_size: f32| {
-            let opt = Options::default();
-            if let Ok(tree) = Tree::from_data(svg, &opt) {
-                let svg_size = tree.size();
-                let svg_w = svg_size.width().max(1.0);
-                let svg_h = svg_size.height().max(1.0);
-                let base_scale = target_size / svg_w.max(svg_h);
-                let hotspot_px_x = (svg_w * 0.5) * base_scale;
-                let hotspot_px_y = (svg_h * 0.5) * base_scale;
-                let col = slot % CURSOR_ATLAS_COLS;
-                let row = slot / CURSOR_ATLAS_COLS;
-                let x = (col * tile_size) as f32 + center - hotspot_px_x;
-                let y = (row * tile_size) as f32 + center - hotspot_px_y;
-                let ts = Transform::from_translate(x, y).pre_scale(base_scale, base_scale);
-                resvg::render(&tree, ts, &mut atlas.as_mut());
-            }
-        };
-
-        let cursor_svgs: [&[u8]; 60] = [
-            DEFAULT_SCREENSTUDIO_SVG,
-            TEXT_SCREENSTUDIO_SVG,
-            POINTER_SCREENSTUDIO_SVG,
-            OPENHAND_SCREENSTUDIO_SVG,
-            CLOSEHAND_SCREENSTUDIO_SVG,
-            WAIT_SCREENSTUDIO_SVG,
-            APPSTARTING_SCREENSTUDIO_SVG,
-            CROSSHAIR_SCREENSTUDIO_SVG,
-            RESIZE_NS_SCREENSTUDIO_SVG,
-            RESIZE_WE_SCREENSTUDIO_SVG,
-            RESIZE_NWSE_SCREENSTUDIO_SVG,
-            RESIZE_NESW_SCREENSTUDIO_SVG,
-            DEFAULT_MACOS26_SVG,
-            TEXT_MACOS26_SVG,
-            POINTER_MACOS26_SVG,
-            OPENHAND_MACOS26_SVG,
-            CLOSEHAND_MACOS26_SVG,
-            WAIT_MACOS26_SVG,
-            APPSTARTING_MACOS26_SVG,
-            CROSSHAIR_MACOS26_SVG,
-            RESIZE_NS_MACOS26_SVG,
-            RESIZE_WE_MACOS26_SVG,
-            RESIZE_NWSE_MACOS26_SVG,
-            RESIZE_NESW_MACOS26_SVG,
-            DEFAULT_SGTCUTE_SVG,
-            TEXT_SGTCUTE_SVG,
-            POINTER_SGTCUTE_SVG,
-            OPENHAND_SGTCUTE_SVG,
-            CLOSEHAND_SGTCUTE_SVG,
-            WAIT_SGTCUTE_SVG,
-            APPSTARTING_SGTCUTE_SVG,
-            CROSSHAIR_SGTCUTE_SVG,
-            RESIZE_NS_SGTCUTE_SVG,
-            RESIZE_WE_SGTCUTE_SVG,
-            RESIZE_NWSE_SGTCUTE_SVG,
-            RESIZE_NESW_SGTCUTE_SVG,
-            DEFAULT_SGTCOOL_SVG,
-            TEXT_SGTCOOL_SVG,
-            POINTER_SGTCOOL_SVG,
-            OPENHAND_SGTCOOL_SVG,
-            CLOSEHAND_SGTCOOL_SVG,
-            WAIT_SGTCOOL_SVG,
-            APPSTARTING_SGTCOOL_SVG,
-            CROSSHAIR_SGTCOOL_SVG,
-            RESIZE_NS_SGTCOOL_SVG,
-            RESIZE_WE_SGTCOOL_SVG,
-            RESIZE_NWSE_SGTCOOL_SVG,
-            RESIZE_NESW_SGTCOOL_SVG,
-            DEFAULT_SGTAI_SVG,
-            TEXT_SGTAI_SVG,
-            POINTER_SGTAI_SVG,
-            OPENHAND_SGTAI_SVG,
-            CLOSEHAND_SGTAI_SVG,
-            WAIT_SGTAI_SVG,
-            APPSTARTING_SGTAI_SVG,
-            CROSSHAIR_SGTAI_SVG,
-            RESIZE_NS_SGTAI_SVG,
-            RESIZE_WE_SGTAI_SVG,
-            RESIZE_NWSE_SGTAI_SVG,
-            RESIZE_NESW_SGTAI_SVG,
-        ];
-
-        for slot in 0..CURSOR_ATLAS_SLOTS {
-            let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 {
-                tile_size as f32 * 0.90
-            } else {
-                tile_size as f32 * 0.94
-            };
-            render_svg_slot(
-                cursor_svgs[slot as usize],
-                slot,
-                target,
-            );
-        }
+        let atlas = CURSOR_ATLAS_CACHE.get_or_init(build_cursor_atlas_rgba);
 
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -541,7 +543,7 @@ impl GpuCompositor {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            atlas.data(),
+            atlas.as_slice(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(CURSOR_TILE_SIZE * CURSOR_ATLAS_COLS * 4),
@@ -812,7 +814,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     // 4. Cursor Overlay (drawn over both video and background)
-    if u.cursor_pos.x >= 0.0 {
+    if u.cursor_pos.x > -99.0 {
         let cursor_pixel_size = 48.0 * u.cursor_scale;
         let cursor_px = (u.video_offset + (u.cursor_pos * u.video_scale)) * u.output_size;
         let hotspot = get_hotspot(u.cursor_type_id, cursor_pixel_size);
@@ -869,7 +871,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                         let atlas_row = floor(tile_idx / 8.0);
                         let atlas_uv = vec2<f32>(
                             (uv_in_tile.x + atlas_col) / 8.0,
-                            (uv_in_tile.y + atlas_row) / 6.0
+                            (uv_in_tile.y + atlas_row) / 8.0
                         );
                         shadow_alpha = shadow_alpha + textureSample(cursor_tex, cursor_samp, atlas_uv).a;
                     }
@@ -888,7 +890,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             let atlas_row = floor(tile_idx / 8.0);
             let atlas_uv = vec2<f32>(
                 (uv_in_tile.x + atlas_col) / 8.0,
-                (uv_in_tile.y + atlas_row) / 6.0
+                (uv_in_tile.y + atlas_row) / 8.0
             );
             let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
             let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
