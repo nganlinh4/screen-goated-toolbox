@@ -61,6 +61,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   const callbacksRef = useRef({ onUpdateKeyframes });
   callbacksRef.current = { onUpdateKeyframes };
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [hoveredRangeIdx, setHoveredRangeIdx] = useState<number | null>(null);
 
   const handleDuplicateKeyframe = (index: number) => {
     const keyframes = segmentRef.current.zoomKeyframes;
@@ -263,8 +264,28 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
     window.addEventListener('mouseup', mu);
   };
 
+  const handleTrackMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0 || duration <= 0 || segment.zoomKeyframes.length === 0) {
+      setHoveredRangeIdx(null);
+      return;
+    }
+
+    const hoverTime = ((e.clientX - rect.left) / rect.width) * duration;
+    const rangeIdx = segment.zoomKeyframes.findIndex((_, index) => {
+      const { rangeStart, rangeEnd } = getKeyframeRange(segment.zoomKeyframes, index, duration);
+      return hoverTime >= rangeStart && hoverTime <= rangeEnd;
+    });
+
+    setHoveredRangeIdx(rangeIdx >= 0 ? rangeIdx : null);
+  };
+
   return (
-    <div className="zoom-track relative h-10 rounded bg-[var(--surface-container)]/60">
+    <div
+      className="zoom-track relative h-10 rounded bg-[var(--surface-container)]/60"
+      onMouseMove={handleTrackMouseMove}
+      onMouseLeave={() => setHoveredRangeIdx(null)}
+    >
       {/* Influence curve layer */}
       {hasInfluenceCurve && (
         <div
@@ -334,7 +355,13 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   window.addEventListener('mouseup', onUp);
                 }}
               >
-                <div className="range-handle-bar absolute inset-y-1 w-0.5 bg-[var(--primary-color)]/40 group-hover/handle:bg-[var(--primary-color)] transition-colors left-1/2 -translate-x-1/2" />
+                <div
+                  className={`range-handle-bar absolute inset-y-1 w-0.5 transition-colors left-1/2 -translate-x-1/2 ${
+                    hoveredRangeIdx === index
+                      ? 'bg-[var(--primary-color)]'
+                      : 'bg-[var(--primary-color)]/40 group-hover/handle:bg-[var(--primary-color)]'
+                  }`}
+                />
               </div>
               {/* Gradient range background (visual only — pointer-events-none to not block green curve) */}
               <div
