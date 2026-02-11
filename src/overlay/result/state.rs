@@ -208,6 +208,10 @@ pub struct WindowState {
 
     // Font recalc throttling: timestamp of last font recalculation (for 200ms streaming throttle)
     pub last_font_calc_time: u32,
+    // Keep retrying markdown settle-fit for a short window so async JS fitting reaches final scale
+    pub markdown_settle_retry_until_ms: u64,
+    // Next timestamp when a markdown settle-fit retry is allowed (throttles expensive refits)
+    pub markdown_next_settle_fit_ms: u64,
 
     pub last_webview_update_time: u32,
 

@@ -85,6 +85,12 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
     let mut need_repaint = false;
 
     let mut pending_update: Option<String> = None;
+    let mut should_run_markdown_settle_fit = false;
+    let mut settle_fit_is_hovered = false;
+    let now_ms_u64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u32)
@@ -147,11 +153,35 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 // to ensure the final text is properly rendered (bypass 200ms throttle)
                 if not_streaming {
                     state.font_cache_dirty = true;
+                    // Keep a short retry window, but throttle retries to avoid end-of-stream lag.
+                    state.markdown_settle_retry_until_ms = now_ms_u64 + 320;
+                    state.markdown_next_settle_fit_ms = now_ms_u64 + 140;
                 }
             }
 
             // Note: Native EDIT control handling removed - both plain text and markdown modes
             // now use WebView-based refine input. Polling happens outside the lock below.
+
+            // Run one autonomous settle-fit pass when markdown content changed and streaming is idle.
+            // This avoids relying on hover transitions to reach the final visual scale.
+            if state.is_markdown_mode && !state.is_streaming_active && !state.is_refining {
+                let retry_window_active = state.markdown_settle_retry_until_ms > now_ms_u64;
+                let retry_due = retry_window_active && now_ms_u64 >= state.markdown_next_settle_fit_ms;
+                if state.font_cache_dirty || retry_due {
+                    should_run_markdown_settle_fit = true;
+                    settle_fit_is_hovered = state.is_hovered;
+                    state.font_cache_dirty = false;
+                    if retry_window_active {
+                        state.markdown_next_settle_fit_ms = now_ms_u64 + 140;
+                    } else {
+                        state.markdown_settle_retry_until_ms = 0;
+                        state.markdown_next_settle_fit_ms = 0;
+                    }
+                } else if !retry_window_active {
+                    state.markdown_settle_retry_until_ms = 0;
+                    state.markdown_next_settle_fit_ms = 0;
+                }
+            }
         }
     }
 
@@ -241,13 +271,20 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
                 markdown_view::fit_font_to_window(hwnd);
                 // Now reset for next session
                 markdown_view::reset_stream_counter(hwnd);
-                // Reset throttle for next time
+                // Reset throttle and suppress redundant settle-fit passes.
+                // This path already calls fit_font_to_window; the settle-fit
+                // (same-tick duplicate + 140ms retry) would trigger additional
+                // full 8-phase fitting cycles that cause visible post-stream lag.
                 {
                     let mut states = WINDOW_STATES.lock().unwrap();
                     if let Some(state) = states.get_mut(&(hwnd.0 as isize)) {
                         state.last_webview_update_time = 0;
+                        state.font_cache_dirty = false;
+                        state.markdown_settle_retry_until_ms = 0;
+                        state.markdown_next_settle_fit_ms = 0;
                     }
                 }
+                should_run_markdown_settle_fit = false;
                 // Register with button canvas
                 crate::overlay::result::button_canvas::register_markdown_window(hwnd);
             } else {
@@ -271,6 +308,11 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
             let _ = SetWindowTextW(hwnd, PCWSTR(wide_text.as_ptr()));
             need_repaint = true;
         }
+    }
+
+    if should_run_markdown_settle_fit {
+        markdown_view::resize_markdown_webview(hwnd, settle_fit_is_hovered);
+        markdown_view::fit_font_to_window(hwnd);
     }
 
     logic::handle_timer(hwnd, wparam);
