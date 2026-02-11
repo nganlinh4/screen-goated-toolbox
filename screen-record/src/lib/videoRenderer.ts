@@ -794,7 +794,9 @@ export class VideoRenderer {
     segment: VideoSegment,
     videoWidth: number,
     videoHeight: number,
-    fps: number = 60
+    fps: number = 60,
+    srcCropW?: number,  // actual cropped video source width (for auto-path coord transform)
+    srcCropH?: number   // actual cropped video source height
   ): BakedCameraFrame[] {
     const bakedPath: BakedCameraFrame[] = [];
     const step = 1 / fps;
@@ -811,8 +813,9 @@ export class VideoRenderer {
     for (const seg of trimSegments) {
       for (let t = seg.startTime; t <= seg.endTime + 0.00001; t += step) {
         // Pass CROPPED dimensions — calculateCurrentZoomStateInternal's crop
-        // conversion assumes viewW/viewH are crop-region pixel dimensions
-        const state = this.calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH);
+        // conversion assumes viewW/viewH are crop-region pixel dimensions.
+        // srcCropW/H tell it the actual video source crop dims for contain-fit.
+        const state = this.calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH, srcCropW, srcCropH);
 
         const globalX = cropOffsetX + (state.positionX * croppedW);
         const globalY = cropOffsetY + (state.positionY * croppedH);
@@ -967,7 +970,9 @@ export class VideoRenderer {
       const x = (canvasW - scaledWidth) / 2;
       const y = (canvasH - scaledHeight) / 2;
 
-      const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height);
+      // Pass actual cropped video source dims so auto-zoom can contain-fit
+      // correctly when canvas aspect ratio differs from video aspect ratio
+      const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH);
 
       // Supersample only during export to keep preview responsive
       const zf = zoomState?.zoomFactor ?? 1;
@@ -1246,7 +1251,9 @@ export class VideoRenderer {
     currentTime: number,
     segment: VideoSegment,
     viewW: number,
-    viewH: number
+    viewH: number,
+    srcCropW?: number,  // actual cropped video source width (for auto-path coord transform)
+    srcCropH?: number   // actual cropped video source height
   ): ZoomKeyframe {
     const isPaused = this.activeRenderContext?.video?.paused ?? true;
 
@@ -1269,7 +1276,7 @@ export class VideoRenderer {
       });
 
       if (this.lastBakeSignature !== signature) {
-        this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60);
+        this.cachedBakedPath = this.generateBakedPath(segment, viewW / (segment.crop?.width || 1), viewH / (segment.crop?.height || 1), 60, srcCropW, srcCropH);
         this.lastBakeSignature = signature;
       }
     }
@@ -1311,7 +1318,7 @@ export class VideoRenderer {
       }
     }
 
-    const state = this.calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH);
+    const state = this.calculateCurrentZoomStateInternal(currentTime, segment, viewW, viewH, srcCropW, srcCropH);
     this.lastCalculatedState = state;
     return state;
   }
@@ -1320,8 +1327,16 @@ export class VideoRenderer {
     currentTime: number,
     segment: VideoSegment,
     viewW: number,
-    viewH: number
+    viewH: number,
+    srcCropW?: number,  // actual cropped video source width (for auto-path coord transform)
+    srcCropH?: number   // actual cropped video source height
   ): ZoomKeyframe {
+
+    // Source crop dimensions — when provided, auto-path video-pixel coords are
+    // transformed through contain-fit into canvas-anchor space.  When not provided
+    // (backwards compat), viewW/viewH are assumed to match the source crop dims.
+    const sCropW = srcCropW ?? viewW;
+    const sCropH = srcCropH ?? viewH;
 
     // --- 1. CALCULATE AUTO-SMART ZOOM STATE (Background Track) ---
     const hasAutoPath = segment.smoothMotionPath && segment.smoothMotionPath.length > 0;
@@ -1330,7 +1345,11 @@ export class VideoRenderer {
     if (hasAutoPath) {
       const path = segment.smoothMotionPath!;
       const idx = path.findIndex((p: any) => p.time >= currentTime);
-      let cam = { x: viewW / 2, y: viewH / 2, zoom: 1.0 };
+      // Default in video-pixel space (center of cropped source)
+      const crop0 = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
+      const vidFullW = sCropW / crop0.width;
+      const vidFullH = sCropH / crop0.height;
+      let cam = { x: vidFullW * crop0.x + sCropW / 2, y: vidFullH * crop0.y + sCropH / 2, zoom: 1.0 };
 
       if (idx === -1) {
         const last = path[path.length - 1];
@@ -1366,29 +1385,48 @@ export class VideoRenderer {
           influence = ip1.value * (1 - cosT) + ip2.value * cosT;
         }
         cam.zoom = 1.0 + (cam.zoom - 1.0) * influence;
-        // Use crop center in full-video coords so influence=0 returns to crop center,
-        // not viewW/2 which is only half the cropped width (wrong for non-center crops)
+        // Use crop center in video-pixel coords so influence=0 returns to crop center
         const cropInf = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-        const fullWInf = viewW / cropInf.width;
-        const fullHInf = viewH / cropInf.height;
-        const centerX = fullWInf * cropInf.x + viewW / 2;
-        const centerY = fullHInf * cropInf.y + viewH / 2;
+        const fullWInf = sCropW / cropInf.width;
+        const fullHInf = sCropH / cropInf.height;
+        const centerX = fullWInf * cropInf.x + sCropW / 2;
+        const centerY = fullHInf * cropInf.y + sCropH / 2;
         cam.x = centerX + (cam.x - centerX) * influence;
         cam.y = centerY + (cam.y - centerY) * influence;
       }
 
+      // Convert auto-path coords (video pixel space) → canvas-anchor posX/posY
+      // via contain-fit when canvas dims differ from source dims
       const crop = segment.crop || { x: 0, y: 0, width: 1, height: 1 };
-      const fullW = viewW / crop.width;
-      const fullH = viewH / crop.height;
+      const fullW = sCropW / crop.width;
+      const fullH = sCropH / crop.height;
       const cropOffsetX = fullW * crop.x;
       const cropOffsetY = fullH * crop.y;
+
+      // Relative position within crop (0-1)
+      const relX = (cam.x - cropOffsetX) / sCropW;
+      const relY = (cam.y - cropOffsetY) / sCropH;
+
+      // Contain-fit of cropped source into canvas
+      const srcAspect = sCropW / sCropH;
+      const canvasAspect = viewW / viewH;
+      let fitW: number, fitH: number;
+      if (srcAspect > canvasAspect) {
+        fitW = viewW;
+        fitH = viewW / srcAspect;
+      } else {
+        fitH = viewH;
+        fitW = viewH * srcAspect;
+      }
+      const fitX = (viewW - fitW) / 2;
+      const fitY = (viewH - fitH) / 2;
 
       autoState = {
         time: currentTime,
         duration: 0,
         zoomFactor: cam.zoom,
-        positionX: (cam.x - cropOffsetX) / viewW,
-        positionY: (cam.y - cropOffsetY) / viewH,
+        positionX: (fitX + relX * fitW) / viewW,
+        positionY: (fitY + relY * fitH) / viewH,
         easingType: 'linear'
       };
     }

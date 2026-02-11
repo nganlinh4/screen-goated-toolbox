@@ -117,17 +117,9 @@ export class AutoZoomGenerator {
         rawTargetZoom = PHYSICS.MAX_ZOOM;
       }
 
-      // Rule 4: Edge Penalty (Near edge -> Zoom out to show context)
-      const edgeDistX = Math.min(futureMouse.x, videoWidth - futureMouse.x);
-      const edgeDistY = Math.min(futureMouse.y, videoHeight - futureMouse.y);
-      const edgeMargin = 200; // pixels
-
-      if (edgeDistX < edgeMargin || edgeDistY < edgeMargin) {
-        // Closer to edge = more zoom out
-        // If at 0 distance, force MIN_ZOOM
-        const factor = Math.min(edgeDistX, edgeDistY) / edgeMargin; // 0..1
-        rawTargetZoom = Math.min(rawTargetZoom, PHYSICS.MIN_ZOOM + (rawTargetZoom - PHYSICS.MIN_ZOOM) * factor);
-      }
+      // Edge penalty removed — position clamping (lines 184-187) already prevents
+      // off-screen camera, and with custom canvas padding the edges are fully visible.
+      // Forcing zoom-out near edges created jarring zoom drops for no benefit.
 
       // Smooth the zoom target to prevent jitter
       // Simple LERP filter
