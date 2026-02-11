@@ -1,6 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{Options, Tree};
 use std::sync::{Arc, OnceLock};
+use std::sync::Mutex;
 use tiny_skia::{Pixmap, Transform};
 use wgpu::util::DeviceExt;
 
@@ -146,43 +147,158 @@ const CURSOR_ATLAS_COLS: u32 = 8;
 const CURSOR_ATLAS_ROWS: u32 = 8;
 const CURSOR_ATLAS_SLOTS: u32 = 60; // 5 packs * 12 cursor types
 const CURSOR_TILE_SIZE: u32 = 512;
-static CURSOR_ATLAS_CACHE: OnceLock<Vec<u8>> = OnceLock::new();
+static SHARED_GPU_CONTEXT: OnceLock<Result<SharedGpuContext, String>> = OnceLock::new();
+static CURSOR_TILE_CACHE: OnceLock<Mutex<Vec<Option<Arc<Vec<u8>>>>>> = OnceLock::new();
 
-fn build_cursor_atlas_rgba() -> Vec<u8> {
-    // Build atlas: (CURSOR_TILE_SIZE*CURSOR_ATLAS_COLS) x (CURSOR_TILE_SIZE*CURSOR_ATLAS_ROWS)
-    // 0..11: screenstudio set
-    // 12..23: macos26 set
-    // 24..35: sgtcute set
-    // 36..47: sgtcool set
-    // 48..59: sgtai set
-    let tile_size = CURSOR_TILE_SIZE;
-    let center = tile_size as f32 / 2.0;
-    let mut atlas = Pixmap::new(
-        tile_size * CURSOR_ATLAS_COLS,
-        tile_size * CURSOR_ATLAS_ROWS,
-    )
-    .unwrap();
+struct SharedGpuContext {
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    uniform_layout: wgpu::BindGroupLayout,
+    texture_layout: wgpu::BindGroupLayout,
+}
 
-    // Render one cursor SVG into a specific atlas tile centered on hotspot.
-    let mut render_svg_slot = |svg: &[u8], slot: u32, target_size: f32| {
-        let opt = Options::default();
-        if let Ok(tree) = Tree::from_data(svg, &opt) {
-            let svg_size = tree.size();
-            let svg_w = svg_size.width().max(1.0);
-            let svg_h = svg_size.height().max(1.0);
-            let base_scale = target_size / svg_w.max(svg_h);
-            let hotspot_px_x = (svg_w * 0.5) * base_scale;
-            let hotspot_px_y = (svg_h * 0.5) * base_scale;
-            let col = slot % CURSOR_ATLAS_COLS;
-            let row = slot / CURSOR_ATLAS_COLS;
-            let x = (col * tile_size) as f32 + center - hotspot_px_x;
-            let y = (row * tile_size) as f32 + center - hotspot_px_y;
-            let ts = Transform::from_translate(x, y).pre_scale(base_scale, base_scale);
-            resvg::render(&tree, ts, &mut atlas.as_mut());
-        }
-    };
+fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..Default::default()
+    });
 
-    let cursor_svgs: [&[u8]; 60] = [
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    }))
+    .ok_or("Failed to find GPU adapter")?;
+
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: Some("SGT GPU Compositor"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            memory_hints: wgpu::MemoryHints::Performance,
+        },
+        None,
+    ))
+    .map_err(|e| format!("Failed to create device: {}", e))?;
+
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Compositor Shader"),
+        source: wgpu::ShaderSource::Wgsl(COMPOSITOR_SHADER.into()),
+    });
+
+    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Vertex Buffer"),
+        contents: bytemuck::cast_slice(QUAD_VERTICES),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Uniform Layout"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+
+    let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Texture Layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Pipeline Layout"),
+        bind_group_layouts: &[&uniform_layout, &texture_layout, &texture_layout],
+        push_constant_ranges: &[],
+    });
+
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 8,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                ],
+            }],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    Ok(SharedGpuContext {
+        device,
+        queue,
+        pipeline,
+        vertex_buffer,
+        uniform_layout,
+        texture_layout,
+    })
+}
+
+fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> {
+    match SHARED_GPU_CONTEXT.get_or_init(create_shared_gpu_context) {
+        Ok(ctx) => Ok(ctx),
+        Err(err) => Err(err.clone()),
+    }
+}
+
+fn cursor_svgs() -> [&'static [u8]; 60] {
+    [
         DEFAULT_SCREENSTUDIO_SVG,
         TEXT_SCREENSTUDIO_SVG,
         POINTER_SCREENSTUDIO_SVG,
@@ -243,63 +359,125 @@ fn build_cursor_atlas_rgba() -> Vec<u8> {
         RESIZE_WE_SGTAI_SVG,
         RESIZE_NWSE_SGTAI_SVG,
         RESIZE_NESW_SGTAI_SVG,
-    ];
+    ]
+}
 
-    for slot in 0..CURSOR_ATLAS_SLOTS {
-        let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 {
-            tile_size as f32 * 0.90
-        } else {
-            tile_size as f32 * 0.94
-        };
-        render_svg_slot(cursor_svgs[slot as usize], slot, target);
+fn cursor_tile_cache() -> &'static Mutex<Vec<Option<Arc<Vec<u8>>>>> {
+    CURSOR_TILE_CACHE.get_or_init(|| Mutex::new(vec![None; CURSOR_ATLAS_SLOTS as usize]))
+}
+
+fn render_cursor_tile_rgba(slot: u32) -> Option<Vec<u8>> {
+    if slot >= CURSOR_ATLAS_SLOTS {
+        return None;
     }
 
-    atlas.data().to_vec()
+    let tile_size = CURSOR_TILE_SIZE;
+    let center = tile_size as f32 / 2.0;
+    let mut tile = Pixmap::new(tile_size, tile_size).unwrap();
+    let cursor_svgs = cursor_svgs();
+
+    let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 {
+        tile_size as f32 * 0.90
+    } else {
+        tile_size as f32 * 0.94
+    };
+
+    let opt = Options::default();
+    let tree = Tree::from_data(cursor_svgs[slot as usize], &opt).ok()?;
+    let svg_size = tree.size();
+    let svg_w = svg_size.width().max(1.0);
+    let svg_h = svg_size.height().max(1.0);
+    let base_scale = target / svg_w.max(svg_h);
+    let hotspot_px_x = (svg_w * 0.5) * base_scale;
+    let hotspot_px_y = (svg_h * 0.5) * base_scale;
+    let x = center - hotspot_px_x;
+    let y = center - hotspot_px_y;
+    let ts = Transform::from_translate(x, y).pre_scale(base_scale, base_scale);
+    resvg::render(&tree, ts, &mut tile.as_mut());
+
+    Some(tile.data().to_vec())
+}
+
+fn get_or_render_cursor_tile(slot: u32) -> Option<Arc<Vec<u8>>> {
+    if slot >= CURSOR_ATLAS_SLOTS {
+        return None;
+    }
+
+    {
+        let cache = cursor_tile_cache().lock().unwrap();
+        if let Some(bytes) = &cache[slot as usize] {
+            return Some(Arc::clone(bytes));
+        }
+    }
+
+    let rendered = Arc::new(render_cursor_tile_rgba(slot)?);
+    let mut cache = cursor_tile_cache().lock().unwrap();
+    if let Some(bytes) = &cache[slot as usize] {
+        Some(Arc::clone(bytes))
+    } else {
+        cache[slot as usize] = Some(Arc::clone(&rendered));
+        Some(rendered)
+    }
+}
+
+fn dedupe_valid_slots(slots: &[u32]) -> Vec<u32> {
+    let mut seen = [false; CURSOR_ATLAS_SLOTS as usize];
+    let mut out = Vec::with_capacity(slots.len().max(1));
+    for slot in slots {
+        let idx = *slot as usize;
+        if idx >= CURSOR_ATLAS_SLOTS as usize || seen[idx] {
+            continue;
+        }
+        seen[idx] = true;
+        out.push(*slot);
+    }
+    if out.is_empty() {
+        out.push(0);
+    }
+    out
 }
 
 impl GpuCompositor {
+    fn upload_cursor_slot_rgba(&self, slot: u32, rgba: &[u8]) {
+        let col = slot % CURSOR_ATLAS_COLS;
+        let row = slot / CURSOR_ATLAS_COLS;
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.cursor_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: col * CURSOR_TILE_SIZE,
+                    y: row * CURSOR_TILE_SIZE,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(CURSOR_TILE_SIZE * 4),
+                rows_per_image: Some(CURSOR_TILE_SIZE),
+            },
+            wgpu::Extent3d {
+                width: CURSOR_TILE_SIZE,
+                height: CURSOR_TILE_SIZE,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     pub fn new(
         output_width: u32,
         output_height: u32,
         video_width: u32,
         video_height: u32,
     ) -> Result<Self, String> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .ok_or("Failed to find GPU adapter")?;
-
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("SGT GPU Compositor"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::Performance,
-            },
-            None,
-        ))
-        .map_err(|e| format!("Failed to create device: {}", e))?;
-
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Compositor Shader"),
-            source: wgpu::ShaderSource::Wgsl(COMPOSITOR_SHADER.into()),
-        });
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(QUAD_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let shared = shared_gpu_context()?;
+        let device = Arc::clone(&shared.device);
+        let queue = Arc::clone(&shared.queue);
+        let pipeline = shared.pipeline.clone();
+        let vertex_buffer = shared.vertex_buffer.clone();
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Uniform Buffer"),
@@ -390,41 +568,8 @@ impl GpuCompositor {
             mapped_at_creation: false,
         });
 
-        let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Uniform Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-
-        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Texture Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let uniform_layout = shared.uniform_layout.clone();
+        let texture_layout = shared.texture_layout.clone();
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Uniform BG"),
@@ -465,53 +610,6 @@ impl GpuCompositor {
             ],
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&uniform_layout, &texture_layout, &texture_layout],
-            push_constant_ranges: &[],
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        wgpu::VertexAttribute {
-                            offset: 8,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-
         Ok(Self {
             device,
             queue,
@@ -533,28 +631,13 @@ impl GpuCompositor {
         })
     }
 
-    pub fn init_cursor_texture(&self) {
-        let atlas = CURSOR_ATLAS_CACHE.get_or_init(build_cursor_atlas_rgba);
-
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.cursor_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            atlas.as_slice(),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(CURSOR_TILE_SIZE * CURSOR_ATLAS_COLS * 4),
-                rows_per_image: Some(CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS),
-            },
-            wgpu::Extent3d {
-                width: CURSOR_TILE_SIZE * CURSOR_ATLAS_COLS,
-                height: CURSOR_TILE_SIZE * CURSOR_ATLAS_ROWS,
-                depth_or_array_layers: 1,
-            },
-        );
+    pub fn init_cursor_texture_fast(&self, slots: &[u32]) -> bool {
+        for slot in dedupe_valid_slots(slots) {
+            if let Some(tile) = get_or_render_cursor_tile(slot) {
+                self.upload_cursor_slot_rgba(slot, tile.as_slice());
+            }
+        }
+        false
     }
 
     pub fn upload_frame(&self, rgba_data: &[u8]) {
@@ -579,7 +662,7 @@ impl GpuCompositor {
         );
     }
 
-    pub fn render_frame(&self, uniforms: &CompositorUniforms) -> Vec<u8> {
+    pub fn render_frame_into(&self, uniforms: &CompositorUniforms, out: &mut Vec<u8>) {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
 
@@ -648,19 +731,24 @@ impl GpuCompositor {
 
         let data = buffer_slice.get_mapped_range();
         let unpadded = self.width * 4;
-        let result = if self.padded_bytes_per_row == unpadded {
-            data.to_vec()
+        if self.padded_bytes_per_row == unpadded {
+            out.clear();
+            out.extend_from_slice(&data);
         } else {
-            let mut out = Vec::with_capacity((unpadded * self.height) as usize);
+            out.clear();
+            out.reserve((unpadded * self.height) as usize);
             for row in data.chunks(self.padded_bytes_per_row as usize) {
                 out.extend_from_slice(&row[..unpadded as usize]);
             }
-            out
-        };
+        }
         drop(data);
         self.output_buffer.unmap();
+    }
 
-        result
+    pub fn render_frame(&self, uniforms: &CompositorUniforms) -> Vec<u8> {
+        let mut out = Vec::with_capacity((self.width * self.height * 4) as usize);
+        self.render_frame_into(uniforms, &mut out);
+        out
     }
 }
 
