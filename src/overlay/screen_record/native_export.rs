@@ -512,13 +512,25 @@ fn cursor_type_to_id(c_type: &str) -> f32 {
         "resize-we-sgtai" => 57.0,
         "resize-nwse-sgtai" => 58.0,
         "resize-nesw-sgtai" => 59.0,
+        "default-sgtpixel" => 60.0,
+        "text-sgtpixel" => 61.0,
+        "pointer-sgtpixel" => 62.0,
+        "openhand-sgtpixel" => 63.0,
+        "closehand-sgtpixel" => 64.0,
+        "wait-sgtpixel" => 65.0,
+        "appstarting-sgtpixel" => 66.0,
+        "crosshair-sgtpixel" => 67.0,
+        "resize-ns-sgtpixel" => 68.0,
+        "resize-we-sgtpixel" => 69.0,
+        "resize-nwse-sgtpixel" => 70.0,
+        "resize-nesw-sgtpixel" => 71.0,
         "other" => 12.0,
         _ => 0.0,
     }
 }
 
 fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> {
-    let mut seen = [false; 60];
+    let mut seen = [false; 72];
     let mut slots = Vec::new();
     for frame in baked_cursor {
         let slot = cursor_type_to_id(&frame.cursor_type) as u32;

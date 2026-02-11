@@ -10,7 +10,8 @@ use raw_window_handle::{
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::num::NonZeroIsize;
-use std::sync::{Arc, Mutex, Once};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::thread;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
@@ -55,6 +56,62 @@ thread_local! {
 lazy_static::lazy_static! {
     pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
     static ref FFMPEG_PROCESS: Mutex<Option<std::process::Child>> = Mutex::new(None);
+}
+
+static REPO_ROOT_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+fn is_repo_root(path: &Path) -> bool {
+    path.join("Cargo.toml").exists()
+        && path.join("screen-record").exists()
+        && path.join("src").exists()
+}
+
+fn repo_root() -> Option<PathBuf> {
+    REPO_ROOT_CACHE
+        .get_or_init(|| {
+            let mut dir = std::env::current_dir().ok()?;
+            for _ in 0..8 {
+                if is_repo_root(&dir) {
+                    return Some(dir);
+                }
+                if !dir.pop() {
+                    break;
+                }
+            }
+            None
+        })
+        .clone()
+}
+
+fn try_read_runtime_cursor_svg(path: &str) -> Option<Vec<u8>> {
+    if !path.ends_with(".svg") {
+        return None;
+    }
+
+    let rel = path.trim_start_matches('/');
+    if rel.is_empty() || rel.contains("..") || rel.contains('\\') {
+        return None;
+    }
+    if !(rel.starts_with("cursor-") || rel.starts_with("cursors/")) {
+        return None;
+    }
+
+    let root = repo_root()?;
+    let candidates = [
+        root.join("src")
+            .join("overlay")
+            .join("screen_record")
+            .join("dist")
+            .join(rel),
+        root.join("screen-record").join("public").join(rel),
+    ];
+
+    for candidate in candidates {
+        if let Ok(bytes) = std::fs::read(&candidate) {
+            return Some(bytes);
+        }
+    }
+    None
 }
 
 #[derive(Deserialize)]
@@ -132,6 +189,18 @@ const ASSET_CURSOR_RESIZE_NS_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resi
 const ASSET_CURSOR_RESIZE_WE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtai.svg");
 const ASSET_CURSOR_RESIZE_NWSE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtai.svg");
 const ASSET_CURSOR_RESIZE_NESW_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtai.svg");
+const ASSET_CURSOR_DEFAULT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtpixel.svg");
+const ASSET_CURSOR_TEXT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtpixel.svg");
+const ASSET_CURSOR_POINTER_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtpixel.svg");
+const ASSET_CURSOR_OPENHAND_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtpixel.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtpixel.svg");
+const ASSET_CURSOR_WAIT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtpixel.svg");
+const ASSET_CURSOR_APPSTARTING_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtpixel.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtpixel.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_01_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-01.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_02_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-02.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_03_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-03.svg");
@@ -605,6 +674,9 @@ unsafe fn internal_create_sr_loop() {
                     let font_style_tag = font_style_tag.clone();
                     move |_id, request| {
                     let path = request.uri().path();
+                    if let Some(bytes) = try_read_runtime_cursor_svg(path) {
+                        return wnd_http_response(200, "image/svg+xml", Cow::Owned(bytes));
+                    }
                     let (content, mime) = if path == "/" || path == "/index.html" {
                         // Inject font CSS into HTML <head> for instant font rendering
                         let html = String::from_utf8_lossy(INDEX_HTML);
@@ -740,6 +812,30 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTAI_SVG), "image/svg+xml")
                     } else if path.ends_with("cursor-resize-nesw-sgtai.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTAI_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-default-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_DEFAULT_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-text-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_TEXT_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-pointer-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_POINTER_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-openhand-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_OPENHAND_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-closehand-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CLOSEHAND_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-wait-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_WAIT_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-appstarting-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_APPSTARTING_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-crosshair-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_CROSSHAIR_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-ns-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NS_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-we-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_WE_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nwse-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NWSE_SGTPIXEL_SVG), "image/svg+xml")
+                    } else if path.ends_with("cursor-resize-nesw-sgtpixel.svg") {
+                        (Cow::Borrowed(ASSET_CURSOR_RESIZE_NESW_SGTPIXEL_SVG), "image/svg+xml")
                     } else if path.ends_with("cursors/sgtcool_raw/slot-01.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_01_SVG), "image/svg+xml")
                     } else if path.ends_with("cursors/sgtcool_raw/slot-02.svg") {

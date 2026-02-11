@@ -20,6 +20,8 @@ type DragState = {
   startOffsetY: number;
 };
 
+const ADJUST_EPSILON = 0.0001;
+
 const STAGE_W = 220;
 const STAGE_H = 170;
 const CANVAS_W = 44;
@@ -69,6 +71,11 @@ const SGTAI_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
   label: `SGT AI • ${t.label}`,
   src: `/cursor-${t.id}-sgtai.svg`,
 }));
+const SGTPIXEL_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
+  key: `sgtpixel-${t.id}`,
+  label: `SGT Pixel • ${t.label}`,
+  src: `/cursor-${t.id}-sgtpixel.svg`,
+}));
 
 const CURSOR_ITEMS: CursorItem[] = [
   ...SCREENSTUDIO_ITEMS,
@@ -76,6 +83,7 @@ const CURSOR_ITEMS: CursorItem[] = [
   ...SGTCUTE_ITEMS,
   ...SGTCOOL_ITEMS,
   ...SGTAI_ITEMS,
+  ...SGTPIXEL_ITEMS,
 ];
 
 function makeDefaultAdjustments(): Record<string, CursorAdjustment> {
@@ -161,7 +169,19 @@ export default function CursorSvgLab() {
     setAdjust((prev) => ({ ...prev, [key]: { ...baselineAdjust[key] } }));
   };
 
+  const hasAdjustmentChange = (key: string) => {
+    const current = adjust[key];
+    const baseline = baselineAdjust[key];
+    if (!current || !baseline) return false;
+    return (
+      Math.abs(current.scale - baseline.scale) > ADJUST_EPSILON
+      || Math.abs(current.offsetX - baseline.offsetX) > ADJUST_EPSILON
+      || Math.abs(current.offsetY - baseline.offsetY) > ADJUST_EPSILON
+    );
+  };
+
   const applyOne = async (item: CursorItem) => {
+    if (!hasAdjustmentChange(item.key)) return;
     const a = adjust[item.key];
     const invoke = (window as unknown as { __TAURI__?: { core?: { invoke?: (cmd: string, args?: unknown) => Promise<unknown> } } })
       .__TAURI__?.core?.invoke;
@@ -177,6 +197,7 @@ export default function CursorSvgLab() {
         offsetX: a.offsetX,
         offsetY: a.offsetY,
       });
+      setBaselineAdjust((prev) => ({ ...prev, [item.key]: { ...a } }));
       setApplyStatus((prev) => ({ ...prev, [item.key]: 'ok' }));
       setAssetVersion((v) => v + 1);
       window.setTimeout(() => {
@@ -216,6 +237,7 @@ export default function CursorSvgLab() {
         {CURSOR_ITEMS.map((item) => {
           const a = adjust[item.key];
           const b = baselineAdjust[item.key];
+          const hasChanges = hasAdjustmentChange(item.key);
           const dispCanvasW = CANVAS_W * LAB_DISPLAY_SCALE;
           const dispCanvasH = CANVAS_H * LAB_DISPLAY_SCALE;
           const canvasLeft = STAGE_W / 2 - dispCanvasW / 2;
@@ -377,7 +399,7 @@ export default function CursorSvgLab() {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => applyOne(item)}
-                      disabled={Boolean(applying[item.key])}
+                      disabled={Boolean(applying[item.key]) || !hasChanges}
                       className="cursor-lab-apply-button text-[10px] px-2 py-0.5 rounded border border-[var(--primary-color)] text-[var(--primary-color)] hover:bg-[var(--glass-bg)] disabled:opacity-50"
                     >
                       {applying[item.key] ? 'Applying...' : 'Apply'}

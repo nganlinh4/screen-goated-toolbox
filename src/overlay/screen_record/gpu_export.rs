@@ -143,9 +143,21 @@ const RESIZE_NS_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtai.s
 const RESIZE_WE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtai.svg");
 const RESIZE_NWSE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtai.svg");
 const RESIZE_NESW_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtai.svg");
-const CURSOR_ATLAS_COLS: u32 = 8;
-const CURSOR_ATLAS_ROWS: u32 = 8;
-const CURSOR_ATLAS_SLOTS: u32 = 60; // 5 packs * 12 cursor types
+const DEFAULT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtpixel.svg");
+const TEXT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtpixel.svg");
+const POINTER_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtpixel.svg");
+const OPENHAND_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtpixel.svg");
+const CLOSEHAND_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtpixel.svg");
+const WAIT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtpixel.svg");
+const APPSTARTING_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtpixel.svg");
+const CROSSHAIR_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtpixel.svg");
+const RESIZE_NS_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtpixel.svg");
+const RESIZE_WE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtpixel.svg");
+const RESIZE_NWSE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtpixel.svg");
+const RESIZE_NESW_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtpixel.svg");
+const CURSOR_ATLAS_COLS: u32 = 9;
+const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
+const CURSOR_ATLAS_ROWS: u32 = (CURSOR_ATLAS_SLOTS + CURSOR_ATLAS_COLS - 1) / CURSOR_ATLAS_COLS;
 const CURSOR_TILE_SIZE: u32 = 512;
 static SHARED_GPU_CONTEXT: OnceLock<Result<SharedGpuContext, String>> = OnceLock::new();
 static CURSOR_TILE_CACHE: OnceLock<Mutex<Vec<Option<Arc<Vec<u8>>>>>> = OnceLock::new();
@@ -188,7 +200,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Compositor Shader"),
-        source: wgpu::ShaderSource::Wgsl(COMPOSITOR_SHADER.into()),
+        source: wgpu::ShaderSource::Wgsl(compositor_shader().into()),
     });
 
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -297,70 +309,87 @@ fn shared_gpu_context() -> Result<&'static SharedGpuContext, String> {
     }
 }
 
-fn cursor_svgs() -> [&'static [u8]; 60] {
-    [
-        DEFAULT_SCREENSTUDIO_SVG,
-        TEXT_SCREENSTUDIO_SVG,
-        POINTER_SCREENSTUDIO_SVG,
-        OPENHAND_SCREENSTUDIO_SVG,
-        CLOSEHAND_SCREENSTUDIO_SVG,
-        WAIT_SCREENSTUDIO_SVG,
-        APPSTARTING_SCREENSTUDIO_SVG,
-        CROSSHAIR_SCREENSTUDIO_SVG,
-        RESIZE_NS_SCREENSTUDIO_SVG,
-        RESIZE_WE_SCREENSTUDIO_SVG,
-        RESIZE_NWSE_SCREENSTUDIO_SVG,
-        RESIZE_NESW_SCREENSTUDIO_SVG,
-        DEFAULT_MACOS26_SVG,
-        TEXT_MACOS26_SVG,
-        POINTER_MACOS26_SVG,
-        OPENHAND_MACOS26_SVG,
-        CLOSEHAND_MACOS26_SVG,
-        WAIT_MACOS26_SVG,
-        APPSTARTING_MACOS26_SVG,
-        CROSSHAIR_MACOS26_SVG,
-        RESIZE_NS_MACOS26_SVG,
-        RESIZE_WE_MACOS26_SVG,
-        RESIZE_NWSE_MACOS26_SVG,
-        RESIZE_NESW_MACOS26_SVG,
-        DEFAULT_SGTCUTE_SVG,
-        TEXT_SGTCUTE_SVG,
-        POINTER_SGTCUTE_SVG,
-        OPENHAND_SGTCUTE_SVG,
-        CLOSEHAND_SGTCUTE_SVG,
-        WAIT_SGTCUTE_SVG,
-        APPSTARTING_SGTCUTE_SVG,
-        CROSSHAIR_SGTCUTE_SVG,
-        RESIZE_NS_SGTCUTE_SVG,
-        RESIZE_WE_SGTCUTE_SVG,
-        RESIZE_NWSE_SGTCUTE_SVG,
-        RESIZE_NESW_SGTCUTE_SVG,
-        DEFAULT_SGTCOOL_SVG,
-        TEXT_SGTCOOL_SVG,
-        POINTER_SGTCOOL_SVG,
-        OPENHAND_SGTCOOL_SVG,
-        CLOSEHAND_SGTCOOL_SVG,
-        WAIT_SGTCOOL_SVG,
-        APPSTARTING_SGTCOOL_SVG,
-        CROSSHAIR_SGTCOOL_SVG,
-        RESIZE_NS_SGTCOOL_SVG,
-        RESIZE_WE_SGTCOOL_SVG,
-        RESIZE_NWSE_SGTCOOL_SVG,
-        RESIZE_NESW_SGTCOOL_SVG,
-        DEFAULT_SGTAI_SVG,
-        TEXT_SGTAI_SVG,
-        POINTER_SGTAI_SVG,
-        OPENHAND_SGTAI_SVG,
-        CLOSEHAND_SGTAI_SVG,
-        WAIT_SGTAI_SVG,
-        APPSTARTING_SGTAI_SVG,
-        CROSSHAIR_SGTAI_SVG,
-        RESIZE_NS_SGTAI_SVG,
-        RESIZE_WE_SGTAI_SVG,
-        RESIZE_NWSE_SGTAI_SVG,
-        RESIZE_NESW_SGTAI_SVG,
-    ]
-}
+// Add new cursor pack SVGs here — SLOTS, ROWS, and shader constants auto-update.
+const CURSOR_SVG_DATA: &[&[u8]] = &[
+    // screenstudio
+    DEFAULT_SCREENSTUDIO_SVG,
+    TEXT_SCREENSTUDIO_SVG,
+    POINTER_SCREENSTUDIO_SVG,
+    OPENHAND_SCREENSTUDIO_SVG,
+    CLOSEHAND_SCREENSTUDIO_SVG,
+    WAIT_SCREENSTUDIO_SVG,
+    APPSTARTING_SCREENSTUDIO_SVG,
+    CROSSHAIR_SCREENSTUDIO_SVG,
+    RESIZE_NS_SCREENSTUDIO_SVG,
+    RESIZE_WE_SCREENSTUDIO_SVG,
+    RESIZE_NWSE_SCREENSTUDIO_SVG,
+    RESIZE_NESW_SCREENSTUDIO_SVG,
+    // macos26
+    DEFAULT_MACOS26_SVG,
+    TEXT_MACOS26_SVG,
+    POINTER_MACOS26_SVG,
+    OPENHAND_MACOS26_SVG,
+    CLOSEHAND_MACOS26_SVG,
+    WAIT_MACOS26_SVG,
+    APPSTARTING_MACOS26_SVG,
+    CROSSHAIR_MACOS26_SVG,
+    RESIZE_NS_MACOS26_SVG,
+    RESIZE_WE_MACOS26_SVG,
+    RESIZE_NWSE_MACOS26_SVG,
+    RESIZE_NESW_MACOS26_SVG,
+    // sgtcute
+    DEFAULT_SGTCUTE_SVG,
+    TEXT_SGTCUTE_SVG,
+    POINTER_SGTCUTE_SVG,
+    OPENHAND_SGTCUTE_SVG,
+    CLOSEHAND_SGTCUTE_SVG,
+    WAIT_SGTCUTE_SVG,
+    APPSTARTING_SGTCUTE_SVG,
+    CROSSHAIR_SGTCUTE_SVG,
+    RESIZE_NS_SGTCUTE_SVG,
+    RESIZE_WE_SGTCUTE_SVG,
+    RESIZE_NWSE_SGTCUTE_SVG,
+    RESIZE_NESW_SGTCUTE_SVG,
+    // sgtcool
+    DEFAULT_SGTCOOL_SVG,
+    TEXT_SGTCOOL_SVG,
+    POINTER_SGTCOOL_SVG,
+    OPENHAND_SGTCOOL_SVG,
+    CLOSEHAND_SGTCOOL_SVG,
+    WAIT_SGTCOOL_SVG,
+    APPSTARTING_SGTCOOL_SVG,
+    CROSSHAIR_SGTCOOL_SVG,
+    RESIZE_NS_SGTCOOL_SVG,
+    RESIZE_WE_SGTCOOL_SVG,
+    RESIZE_NWSE_SGTCOOL_SVG,
+    RESIZE_NESW_SGTCOOL_SVG,
+    // sgtai
+    DEFAULT_SGTAI_SVG,
+    TEXT_SGTAI_SVG,
+    POINTER_SGTAI_SVG,
+    OPENHAND_SGTAI_SVG,
+    CLOSEHAND_SGTAI_SVG,
+    WAIT_SGTAI_SVG,
+    APPSTARTING_SGTAI_SVG,
+    CROSSHAIR_SGTAI_SVG,
+    RESIZE_NS_SGTAI_SVG,
+    RESIZE_WE_SGTAI_SVG,
+    RESIZE_NWSE_SGTAI_SVG,
+    RESIZE_NESW_SGTAI_SVG,
+    // sgtpixel
+    DEFAULT_SGTPIXEL_SVG,
+    TEXT_SGTPIXEL_SVG,
+    POINTER_SGTPIXEL_SVG,
+    OPENHAND_SGTPIXEL_SVG,
+    CLOSEHAND_SGTPIXEL_SVG,
+    WAIT_SGTPIXEL_SVG,
+    APPSTARTING_SGTPIXEL_SVG,
+    CROSSHAIR_SGTPIXEL_SVG,
+    RESIZE_NS_SGTPIXEL_SVG,
+    RESIZE_WE_SGTPIXEL_SVG,
+    RESIZE_NWSE_SGTPIXEL_SVG,
+    RESIZE_NESW_SGTPIXEL_SVG,
+];
 
 fn cursor_tile_cache() -> &'static Mutex<Vec<Option<Arc<Vec<u8>>>>> {
     CURSOR_TILE_CACHE.get_or_init(|| Mutex::new(vec![None; CURSOR_ATLAS_SLOTS as usize]))
@@ -374,16 +403,14 @@ fn render_cursor_tile_rgba(slot: u32) -> Option<Vec<u8>> {
     let tile_size = CURSOR_TILE_SIZE;
     let center = tile_size as f32 / 2.0;
     let mut tile = Pixmap::new(tile_size, tile_size).unwrap();
-    let cursor_svgs = cursor_svgs();
-
-    let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 {
+    let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 || slot == 61 {
         tile_size as f32 * 0.90
     } else {
         tile_size as f32 * 0.94
     };
 
     let opt = Options::default();
-    let tree = Tree::from_data(cursor_svgs[slot as usize], &opt).ok()?;
+    let tree = Tree::from_data(CURSOR_SVG_DATA[slot as usize], &opt).ok()?;
     let svg_size = tree.size();
     let svg_w = svg_size.width().max(1.0);
     let svg_h = svg_size.height().max(1.0);
@@ -795,7 +822,10 @@ pub fn create_uniforms(
 }
 
 // Updated Shader with atlas support
-const COMPOSITOR_SHADER: &str = r#"
+// NOTE: COMPOSITOR_SHADER_BODY uses WGSL constants ATLAS_COLS / ATLAS_ROWS
+// which are injected by compositor_shader() from the Rust CURSOR_ATLAS_* values.
+// This guarantees the shader always matches the atlas layout — no manual sync needed.
+const COMPOSITOR_SHADER_BODY: &str = r#"
 struct Uniforms {
     video_offset: vec2<f32>,
     video_scale: vec2<f32>,
@@ -859,11 +889,12 @@ fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
         || abs(type_id - 14.0) < 0.5 || abs(type_id - 15.0) < 0.5 || abs(type_id - 16.0) < 0.5
         || abs(type_id - 26.0) < 0.5 || abs(type_id - 27.0) < 0.5 || abs(type_id - 28.0) < 0.5
         || abs(type_id - 38.0) < 0.5 || abs(type_id - 39.0) < 0.5 || abs(type_id - 40.0) < 0.5
-        || abs(type_id - 50.0) < 0.5 || abs(type_id - 51.0) < 0.5 || abs(type_id - 52.0) < 0.5 {
+        || abs(type_id - 50.0) < 0.5 || abs(type_id - 51.0) < 0.5 || abs(type_id - 52.0) < 0.5
+        || abs(type_id - 62.0) < 0.5 || abs(type_id - 63.0) < 0.5 || abs(type_id - 64.0) < 0.5 {
         // hand cursors
         return vec2<f32>(3.0 * unit, 8.5 * unit);
     }
-    if abs(type_id - 1.0) < 0.5 || abs(type_id - 13.0) < 0.5 || abs(type_id - 25.0) < 0.5 || abs(type_id - 37.0) < 0.5 || abs(type_id - 49.0) < 0.5 {
+    if abs(type_id - 1.0) < 0.5 || abs(type_id - 13.0) < 0.5 || abs(type_id - 25.0) < 0.5 || abs(type_id - 37.0) < 0.5 || abs(type_id - 49.0) < 0.5 || abs(type_id - 61.0) < 0.5 {
         // text ibeam should stay upright
         return vec2<f32>(0.0, 0.0);
     }
@@ -955,11 +986,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                     let p = shadow_pos + offsets[i];
                     if p.x >= 0.0 && p.x < cursor_pixel_size && p.y >= 0.0 && p.y < cursor_pixel_size {
                         let uv_in_tile = p / cursor_pixel_size;
-                        let atlas_col = tile_idx - floor(tile_idx / 8.0) * 8.0;
-                        let atlas_row = floor(tile_idx / 8.0);
+                        let atlas_col = tile_idx - floor(tile_idx / ATLAS_COLS) * ATLAS_COLS;
+                        let atlas_row = floor(tile_idx / ATLAS_COLS);
                         let atlas_uv = vec2<f32>(
-                            (uv_in_tile.x + atlas_col) / 8.0,
-                            (uv_in_tile.y + atlas_row) / 8.0
+                            (uv_in_tile.x + atlas_col) / ATLAS_COLS,
+                            (uv_in_tile.y + atlas_row) / ATLAS_ROWS
                         );
                         shadow_alpha = shadow_alpha + textureSample(cursor_tex, cursor_samp, atlas_uv).a;
                     }
@@ -974,11 +1005,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
         if in_bounds {
             let uv_in_tile = sample_pos / cursor_pixel_size;
-            let atlas_col = tile_idx - floor(tile_idx / 8.0) * 8.0;
-            let atlas_row = floor(tile_idx / 8.0);
+            let atlas_col = tile_idx - floor(tile_idx / ATLAS_COLS) * ATLAS_COLS;
+            let atlas_row = floor(tile_idx / ATLAS_COLS);
             let atlas_uv = vec2<f32>(
-                (uv_in_tile.x + atlas_col) / 8.0,
-                (uv_in_tile.y + atlas_row) / 8.0
+                (uv_in_tile.x + atlas_col) / ATLAS_COLS,
+                (uv_in_tile.y + atlas_row) / ATLAS_ROWS
             );
             let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
             let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
@@ -989,3 +1020,10 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     return col;
 }
 "#;
+
+fn compositor_shader() -> String {
+    format!(
+        "const ATLAS_COLS: f32 = {}.0;\nconst ATLAS_ROWS: f32 = {}.0;\n{}",
+        CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, COMPOSITOR_SHADER_BODY
+    )
+}

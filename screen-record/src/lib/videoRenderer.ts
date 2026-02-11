@@ -70,7 +70,19 @@ type CursorRenderType =
   | 'resize-ns-sgtai'
   | 'resize-we-sgtai'
   | 'resize-nwse-sgtai'
-  | 'resize-nesw-sgtai';
+  | 'resize-nesw-sgtai'
+  | 'default-sgtpixel'
+  | 'text-sgtpixel'
+  | 'pointer-sgtpixel'
+  | 'openhand-sgtpixel'
+  | 'closehand-sgtpixel'
+  | 'wait-sgtpixel'
+  | 'appstarting-sgtpixel'
+  | 'crosshair-sgtpixel'
+  | 'resize-ns-sgtpixel'
+  | 'resize-we-sgtpixel'
+  | 'resize-nwse-sgtpixel'
+  | 'resize-nesw-sgtpixel';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -153,6 +165,18 @@ export class VideoRenderer {
   private resizeWeSgtaiImage: HTMLImageElement;
   private resizeNwseSgtaiImage: HTMLImageElement;
   private resizeNeswSgtaiImage: HTMLImageElement;
+  private defaultSgtpixelImage: HTMLImageElement;
+  private textSgtpixelImage: HTMLImageElement;
+  private pointerSgtpixelImage: HTMLImageElement;
+  private openHandSgtpixelImage: HTMLImageElement;
+  private closeHandSgtpixelImage: HTMLImageElement;
+  private waitSgtpixelImage: HTMLImageElement;
+  private appStartingSgtpixelImage: HTMLImageElement;
+  private crosshairSgtpixelImage: HTMLImageElement;
+  private resizeNsSgtpixelImage: HTMLImageElement;
+  private resizeWeSgtpixelImage: HTMLImageElement;
+  private resizeNwseSgtpixelImage: HTMLImageElement;
+  private resizeNeswSgtpixelImage: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
 
@@ -449,6 +473,54 @@ export class VideoRenderer {
     this.resizeNeswSgtaiImage.src = `/cursor-resize-nesw-sgtai.svg?v=${CURSOR_ASSET_VERSION}`;
     this.resizeNeswSgtaiImage.onload = () => { };
 
+    this.defaultSgtpixelImage = new Image();
+    this.defaultSgtpixelImage.src = `/cursor-default-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.defaultSgtpixelImage.onload = () => { };
+
+    this.textSgtpixelImage = new Image();
+    this.textSgtpixelImage.src = `/cursor-text-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.textSgtpixelImage.onload = () => { };
+
+    this.pointerSgtpixelImage = new Image();
+    this.pointerSgtpixelImage.src = `/cursor-pointer-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.pointerSgtpixelImage.onload = () => { };
+
+    this.openHandSgtpixelImage = new Image();
+    this.openHandSgtpixelImage.src = `/cursor-openhand-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.openHandSgtpixelImage.onload = () => { };
+
+    this.closeHandSgtpixelImage = new Image();
+    this.closeHandSgtpixelImage.src = `/cursor-closehand-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.closeHandSgtpixelImage.onload = () => { };
+
+    this.waitSgtpixelImage = new Image();
+    this.waitSgtpixelImage.src = `/cursor-wait-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.waitSgtpixelImage.onload = () => { };
+
+    this.appStartingSgtpixelImage = new Image();
+    this.appStartingSgtpixelImage.src = `/cursor-appstarting-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.appStartingSgtpixelImage.onload = () => { };
+
+    this.crosshairSgtpixelImage = new Image();
+    this.crosshairSgtpixelImage.src = `/cursor-crosshair-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.crosshairSgtpixelImage.onload = () => { };
+
+    this.resizeNsSgtpixelImage = new Image();
+    this.resizeNsSgtpixelImage.src = `/cursor-resize-ns-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNsSgtpixelImage.onload = () => { };
+
+    this.resizeWeSgtpixelImage = new Image();
+    this.resizeWeSgtpixelImage.src = `/cursor-resize-we-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeWeSgtpixelImage.onload = () => { };
+
+    this.resizeNwseSgtpixelImage = new Image();
+    this.resizeNwseSgtpixelImage.src = `/cursor-resize-nwse-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNwseSgtpixelImage.onload = () => { };
+
+    this.resizeNeswSgtpixelImage = new Image();
+    this.resizeNeswSgtpixelImage.src = `/cursor-resize-nesw-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNeswSgtpixelImage.onload = () => { };
+
     this.cursorOffscreen = new OffscreenCanvas(128, 128);
     this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
   }
@@ -500,12 +572,19 @@ export class VideoRenderer {
     ].join('|');
   }
 
-  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' {
+  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' {
+    if (backgroundConfig?.cursorPack === 'sgtpixel') return 'sgtpixel';
     if (backgroundConfig?.cursorPack === 'sgtai') return 'sgtai';
     if (backgroundConfig?.cursorPack === 'sgtcool') return 'sgtcool';
     if (backgroundConfig?.cursorPack === 'sgtcute') return 'sgtcute';
     if (backgroundConfig?.cursorPack === 'macos26') return 'macos26';
     if (backgroundConfig?.cursorPack === 'screenstudio') return 'screenstudio';
+    if (backgroundConfig?.cursorDefaultVariant === 'sgtpixel'
+      || backgroundConfig?.cursorTextVariant === 'sgtpixel'
+      || backgroundConfig?.cursorPointerVariant === 'sgtpixel'
+      || backgroundConfig?.cursorOpenHandVariant === 'sgtpixel') {
+      return 'sgtpixel';
+    }
     if (backgroundConfig?.cursorDefaultVariant === 'sgtai'
       || backgroundConfig?.cursorTextVariant === 'sgtai'
       || backgroundConfig?.cursorPointerVariant === 'sgtai'
@@ -617,6 +696,23 @@ export class VideoRenderer {
         case 'resize_nwse': return 'resize-nwse-sgtai';
         case 'resize_nesw': return 'resize-nesw-sgtai';
         default: return 'default-sgtai';
+      }
+    }
+
+    if (pack === 'sgtpixel') {
+      switch (semanticType) {
+        case 'text': return 'text-sgtpixel';
+        case 'pointer': return 'pointer-sgtpixel';
+        case 'openhand': return 'openhand-sgtpixel';
+        case 'closehand': return 'closehand-sgtpixel';
+        case 'wait': return 'wait-sgtpixel';
+        case 'appstarting': return 'appstarting-sgtpixel';
+        case 'crosshair': return 'crosshair-sgtpixel';
+        case 'resize_ns': return 'resize-ns-sgtpixel';
+        case 'resize_we': return 'resize-we-sgtpixel';
+        case 'resize_nwse': return 'resize-nwse-sgtpixel';
+        case 'resize_nesw': return 'resize-nesw-sgtpixel';
+        default: return 'default-sgtpixel';
       }
     }
 
@@ -2022,12 +2118,16 @@ export class VideoRenderer {
       case 'pointer-sgtai':
       case 'openhand-sgtai':
       case 'closehand-sgtai':
+      case 'pointer-sgtpixel':
+      case 'openhand-sgtpixel':
+      case 'closehand-sgtpixel':
         return { x: 3.0, y: 8.5 };
       case 'text-screenstudio':
       case 'text-macos26':
       case 'text-sgtcute':
       case 'text-sgtcool':
       case 'text-sgtai':
+      case 'text-sgtpixel':
         return { x: 0, y: 0 };
       default:
         return { x: 3.6, y: 5.6 };
@@ -2141,6 +2241,24 @@ export class VideoRenderer {
     }
   }
 
+  private getSgtpixelCursorImage(type: CursorRenderType): HTMLImageElement | null {
+    switch (type) {
+      case 'default-sgtpixel': return this.defaultSgtpixelImage;
+      case 'text-sgtpixel': return this.textSgtpixelImage;
+      case 'pointer-sgtpixel': return this.pointerSgtpixelImage;
+      case 'openhand-sgtpixel': return this.openHandSgtpixelImage;
+      case 'closehand-sgtpixel': return this.closeHandSgtpixelImage;
+      case 'wait-sgtpixel': return this.waitSgtpixelImage;
+      case 'appstarting-sgtpixel': return this.appStartingSgtpixelImage;
+      case 'crosshair-sgtpixel': return this.crosshairSgtpixelImage;
+      case 'resize-ns-sgtpixel': return this.resizeNsSgtpixelImage;
+      case 'resize-we-sgtpixel': return this.resizeWeSgtpixelImage;
+      case 'resize-nwse-sgtpixel': return this.resizeNwseSgtpixelImage;
+      case 'resize-nesw-sgtpixel': return this.resizeNeswSgtpixelImage;
+      default: return null;
+    }
+  }
+
   private getScreenStudioCursorImage(type: CursorRenderType | string): HTMLImageElement | null {
     switch (type) {
       case 'default-screenstudio': return this.defaultScreenStudioImage;
@@ -2248,6 +2366,12 @@ export class VideoRenderer {
         effectiveType = 'default-screenstudio';
       }
     }
+    if (effectiveType.endsWith('-sgtpixel')) {
+      const image = this.getSgtpixelCursorImage(effectiveType as CursorRenderType);
+      if (!image || !image.complete || image.naturalWidth === 0) {
+        effectiveType = 'default-screenstudio';
+      }
+    }
 
     const mappingKey = `${cursorType}=>${effectiveType}`;
     if (!this.loggedCursorMappings.has(mappingKey)) {
@@ -2265,7 +2389,8 @@ export class VideoRenderer {
         this.getMacos26CursorImage(effectiveType as CursorRenderType) ??
         this.getSgtcuteCursorImage(effectiveType as CursorRenderType) ??
         this.getSgtcoolCursorImage(effectiveType as CursorRenderType) ??
-        this.getSgtaiCursorImage(effectiveType as CursorRenderType);
+        this.getSgtaiCursorImage(effectiveType as CursorRenderType) ??
+        this.getSgtpixelCursorImage(effectiveType as CursorRenderType);
       console.log('[CursorDebug] loaded', {
         effectiveType,
         src: debugImg?.src,
@@ -2356,6 +2481,23 @@ export class VideoRenderer {
       case 'resize-nwse-sgtai':
       case 'resize-nesw-sgtai': {
         const img = this.getSgtaiCursorImage(effectiveType);
+        if (img) this.drawCenteredCursorImage(ctx, img);
+        break;
+      }
+
+      case 'default-sgtpixel':
+      case 'text-sgtpixel':
+      case 'pointer-sgtpixel':
+      case 'openhand-sgtpixel':
+      case 'closehand-sgtpixel':
+      case 'wait-sgtpixel':
+      case 'appstarting-sgtpixel':
+      case 'crosshair-sgtpixel':
+      case 'resize-ns-sgtpixel':
+      case 'resize-we-sgtpixel':
+      case 'resize-nwse-sgtpixel':
+      case 'resize-nesw-sgtpixel': {
+        const img = this.getSgtpixelCursorImage(effectiveType);
         if (img) this.drawCenteredCursorImage(ctx, img);
         break;
       }
