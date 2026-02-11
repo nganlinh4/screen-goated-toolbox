@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{sync_channel, TryRecvError};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -142,6 +143,17 @@ pub struct BakedCursorFrame {
     pub opacity: f64,
     #[serde(default)]
     pub rotation: f64,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedBakedCursorFrame {
+    time: f64,
+    x: f64,
+    y: f64,
+    scale: f64,
+    type_id: f32,
+    opacity: f64,
+    rotation: f64,
 }
 
 pub fn warm_up_export_pipeline() {
@@ -383,10 +395,10 @@ fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f
     (x, y, zoom)
 }
 
-fn sample_baked_cursor(
+fn sample_parsed_baked_cursor(
     time: f64,
-    baked_path: &[BakedCursorFrame],
-) -> Option<(f64, f64, f64, bool, String, f64, f64)> {
+    baked_path: &[ParsedBakedCursorFrame],
+) -> Option<(f64, f64, f64, f32, f64, f64)> {
     if baked_path.is_empty() {
         return None;
     }
@@ -395,12 +407,12 @@ fn sample_baked_cursor(
 
     if idx == 0 {
         let p = &baked_path[0];
-        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity, p.rotation));
+        return Some((p.x, p.y, p.scale, p.type_id, p.opacity, p.rotation));
     }
 
     if idx >= baked_path.len() {
         let p = baked_path.last().unwrap();
-        return Some((p.x, p.y, p.scale, p.is_clicked, p.cursor_type.clone(), p.opacity, p.rotation));
+        return Some((p.x, p.y, p.scale, p.type_id, p.opacity, p.rotation));
     }
 
     let p1 = &baked_path[idx - 1];
@@ -414,20 +426,9 @@ fn sample_baked_cursor(
     let scale = p1.scale + (p2.scale - p1.scale) * t;
     let opacity = p1.opacity + (p2.opacity - p1.opacity) * t;
     let rotation = lerp_angle_rad(p1.rotation, p2.rotation, t);
+    let type_id = if t < 0.5 { p1.type_id } else { p2.type_id };
 
-    let is_clicked = if t < 0.5 {
-        p1.is_clicked
-    } else {
-        p2.is_clicked
-    };
-
-    let cursor_type = if t < 0.5 {
-        p1.cursor_type.clone()
-    } else {
-        p2.cursor_type.clone()
-    };
-
-    Some((x, y, scale, is_clicked, cursor_type, opacity, rotation))
+    Some((x, y, scale, type_id, opacity, rotation))
 }
 
 fn normalize_angle_rad(a: f64) -> f64 {
@@ -531,6 +532,26 @@ fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> {
         slots.push(0);
     }
     slots
+}
+
+fn parse_baked_cursor_frames(baked_cursor: &[BakedCursorFrame]) -> Vec<ParsedBakedCursorFrame> {
+    baked_cursor
+        .iter()
+        .map(|frame| ParsedBakedCursorFrame {
+            // Keep JSON schema compatibility for click-state payload even if export path doesn't use it.
+            // Reading the field here also prevents dead-code warnings.
+            time: {
+                let _ = frame.is_clicked;
+                frame.time
+            },
+            x: frame.x,
+            y: frame.y,
+            scale: frame.scale,
+            type_id: cursor_type_to_id(frame.cursor_type.as_str()),
+            opacity: frame.opacity,
+            rotation: frame.rotation,
+        })
+        .collect()
 }
 
 pub fn get_default_export_dir() -> String {
@@ -694,39 +715,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let export_total_start = Instant::now();
     let _active_export_guard = ExportActiveGuard::activate();
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
-    println!("[Export][Timing] Request received");
 
     let parse_start = Instant::now();
     let mut config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
-    println!(
-        "[Export][Timing] Parse config: {:.3}s",
-        parse_start.elapsed().as_secs_f64()
-    );
+    let parse_secs = parse_start.elapsed().as_secs_f64();
 
     println!("[Export] Starting GPU-accelerated export...");
-    println!(
-        "[Export][Timing] Config: out={}x{}, fps={}, speed={:.2}, duration={:.3}s",
-        config.width, config.height, config.framerate, config.speed, config.duration
-    );
 
     let baked_path = config.baked_path.unwrap_or_default();
     let baked_cursor = config.baked_cursor_path.unwrap_or_default();
+    let parsed_baked_cursor = parse_baked_cursor_frames(&baked_cursor);
     let used_cursor_slots = collect_used_cursor_slots(&baked_cursor);
-    println!(
-        "[Export][Timing] Cursor slots used: {}",
-        used_cursor_slots.len()
-    );
-
-    println!("[Export] baked_cursor_path: {} frames, cursor_scale: {}", baked_cursor.len(), config.background_config.cursor_scale);
-    if let Some(first) = baked_cursor.first() {
-        println!("[Export] cursor[0]: time={:.3}, x={:.1}, y={:.1}, scale={:.3}, opacity={:.3}, type={}", first.time, first.x, first.y, first.scale, first.opacity, first.cursor_type);
-    }
 
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
     let mut temp_audio_path: Option<PathBuf> = None;
 
-    let source_media_start = Instant::now();
     let source_video_path = if let Some(video_data) = config.video_data.take() {
         let path = std::env::temp_dir().join("sgt_temp_source.mp4");
         fs::write(&path, video_data).map_err(|e| format!("Failed to write temp video: {}", e))?;
@@ -746,12 +750,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     } else {
         None
     };
-    println!(
-        "[Export][Timing] Resolve source media: {:.3}s",
-        source_media_start.elapsed().as_secs_f64()
-    );
 
-    let output_path_start = Instant::now();
     let output_base_dir = if config.output_dir.trim().is_empty() {
         dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
     } else {
@@ -769,48 +768,24 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 .unwrap()
                 .as_secs()
         ));
-    println!(
-        "[Export][Timing] Resolve output path: {:.3}s",
-        output_path_start.elapsed().as_secs_f64()
-    );
 
     // 1. Setup FFmpeg
-    let ffmpeg_setup_start = Instant::now();
     let ffmpeg_path = super::get_ffmpeg_path();
     let ffprobe_path = super::get_ffprobe_path();
 
     if !ffmpeg_path.exists() {
         return Err("FFmpeg not found.".to_string());
     }
-    println!(
-        "[Export][Timing] Resolve ffmpeg binaries: {:.3}s",
-        ffmpeg_setup_start.elapsed().as_secs_f64()
-    );
 
     // 2. Probe source dimensions
-    let probe_start = Instant::now();
     let (src_w, src_h) = if config.source_width > 0 && config.source_height > 0 {
-        println!(
-            "[Export][Timing] source dimensions from frontend {}x{}: {:.3}s",
-            config.source_width,
-            config.source_height,
-            probe_start.elapsed().as_secs_f64()
-        );
         (config.source_width, config.source_height)
     } else {
-        let (w, h, probe_cache_hit) = probe_source_dimensions(&ffprobe_path, &source_video_path)?;
-        println!(
-            "[Export][Timing] ffprobe dimensions {}x{}: {:.3}s ({})",
-            w,
-            h,
-            probe_start.elapsed().as_secs_f64(),
-            if probe_cache_hit { "cache-hit" } else { "cache-miss" }
-        );
+        let (w, h, _) = probe_source_dimensions(&ffprobe_path, &source_video_path)?;
         (w, h)
     };
 
     // 3. Calculate dimensions
-    let dims_start = Instant::now();
     let crop = &config.segment.crop;
     let crop_w = if let Some(c) = crop {
         (src_w as f64 * c.width) as u32
@@ -861,16 +836,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let w = (h as f64 * crop_aspect) as u32;
         (w & !1, h & !1)
     };
-    println!(
-        "[Export][Timing] Compute dimensions/crop: {:.3}s (crop={}x{}, out={}x{}, video={}x{})",
-        dims_start.elapsed().as_secs_f64(),
-        crop_w,
-        crop_h,
-        out_w,
-        out_h,
-        video_w,
-        video_h
-    );
 
     // 4. Initialize GPU compositor with cursor
     let gpu_init_start = Instant::now();
@@ -881,16 +846,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let cursor_init_start = Instant::now();
     let used_cached_atlas = compositor.init_cursor_texture_fast(&used_cursor_slots);
     let cursor_init_secs = cursor_init_start.elapsed().as_secs_f64();
-    println!(
-        "[Export][Timing] GPU init: {:.3}s, cursor atlas init ({}) : {:.3}s",
-        gpu_device_secs,
-        if used_cached_atlas {
-            "cached-full"
-        } else {
-            "fast-partial"
-        },
-        cursor_init_secs
-    );
+    let cursor_init_mode = if used_cached_atlas {
+        "cached-full"
+    } else {
+        "fast-partial"
+    };
 
     // 5. Start FFmpeg decoder
     let decoder_start = Instant::now();
@@ -917,6 +877,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     let mut decoder_cmd = Command::new(&ffmpeg_path);
+    decoder_cmd.args(["-hide_banner", "-loglevel", "error"]);
     if has_trim_segments {
         decoder_cmd.args([
             "-i",
@@ -960,10 +921,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Decoder failed: {}", e))?;
-    println!(
-        "[Export][Timing] Start decoder process: {:.3}s",
-        decoder_start.elapsed().as_secs_f64()
-    );
+    let decoder_start_secs = decoder_start.elapsed().as_secs_f64();
 
     let mut decoder_stdout = decoder
         .stdout
@@ -978,6 +936,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let has_audio = source_audio_path.is_some();
     let mut encoder_args_base = vec![
+        "-hide_banner".to_string(),
+        "-loglevel".to_string(),
+        "error".to_string(),
         "-y".to_string(),
         "-f".to_string(),
         "rawvideo".to_string(),
@@ -1024,10 +985,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let x264_preset = "veryfast";
     let can_use_nvenc = ffmpeg_has_nvenc(&ffmpeg_path);
-    println!(
-        "[Export][Timing] Encoder candidates: {} -> libx264",
-        if can_use_nvenc { "h264_nvenc" } else { "(no nvenc)" }
-    );
 
     let make_encoder_args = |use_nvenc: bool| {
         let mut args = encoder_args_base.clone();
@@ -1075,6 +1032,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     let mut encoder_args = make_encoder_args(can_use_nvenc);
+    let mut encoder_name = if can_use_nvenc {
+        "h264_nvenc".to_string()
+    } else {
+        format!("libx264({})", x264_preset)
+    };
     let mut encoder = match Command::new(&ffmpeg_path)
         .args(&encoder_args)
         .stdin(Stdio::piped())
@@ -1082,21 +1044,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         .stderr(Stdio::inherit())
         .spawn()
     {
-        Ok(enc) => {
-            if can_use_nvenc {
-                println!("[Export][Timing] Using encoder: h264_nvenc (preset p1)");
-            } else {
-                println!("[Export][Timing] Using encoder: libx264 (preset {})", x264_preset);
-            }
-            enc
-        }
+        Ok(enc) => enc,
         Err(first_err) => {
             if can_use_nvenc {
-                println!(
-                    "[Export][Timing] NVENC spawn failed ({}), falling back to libx264",
-                    first_err
-                );
+                let _ = first_err;
                 encoder_args = make_encoder_args(false);
+                encoder_name = format!("libx264({})", x264_preset);
                 Command::new(&ffmpeg_path)
                     .args(&encoder_args)
                     .stdin(Stdio::piped())
@@ -1109,12 +1062,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             }
         }
     };
-    println!(
-        "[Export][Timing] Start encoder process: {:.3}s",
-        encoder_start.elapsed().as_secs_f64()
-    );
+    let encoder_start_secs = encoder_start.elapsed().as_secs_f64();
 
     let mut encoder_stdin = encoder.stdin.take().ok_or("Failed to open encoder stdin")?;
+    let (frame_tx, frame_rx) = sync_channel::<Vec<u8>>(8);
+    let (recycle_tx, recycle_rx) = sync_channel::<Vec<u8>>(8);
+    let writer_handle = std::thread::spawn(move || -> Result<(), String> {
+        while let Ok(mut frame) = frame_rx.recv() {
+            if let Err(e) = encoder_stdin.write_all(&frame) {
+                return Err(format!("Encoder stdin write failed: {}", e));
+            }
+            frame.clear();
+            // Never block writer shutdown on recycle path.
+            let _ = recycle_tx.try_send(frame);
+        }
+        Ok(())
+    });
 
     // Store PIDs so cancel_export() can kill them to unblock pipe IO
     *EXPORT_PIDS.lock().unwrap() = (decoder.id(), encoder.id());
@@ -1132,9 +1095,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut frame_count = 0u32;
     let mut cancelled = false;
     let export_start = Instant::now();
-    let mut first_frame_logged = false;
+    let mut first_frame_secs: Option<f64> = None;
     let frame_stage_start = Instant::now();
     let mut rendered = Vec::with_capacity((out_w * out_h * 4) as usize);
+    let mut writer_error: Option<String> = None;
 
     println!("[Export] Frame loop: total_frames={}, decoder_fps={:.2}, step={:.6}", total_frames, decoder_fps, step);
 
@@ -1154,7 +1118,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let (raw_cam_x, raw_cam_y, zoom) =
             sample_baked_path(current_time, &baked_path);
 
-        let cursor_state = sample_baked_cursor(current_time, &baked_cursor);
+        let cursor_state = sample_parsed_baked_cursor(current_time, &parsed_baked_cursor);
 
         let cam_x = raw_cam_x - crop_x_offset;
         let cam_y = raw_cam_y - crop_y_offset;
@@ -1177,20 +1141,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let offset_x = zoom_shift_x + bg_center_x;
         let offset_y = zoom_shift_y + bg_center_y;
 
-        if frame_idx < 3 {
-            println!("[Export] frame {}: cursor_state={:?}", frame_idx, cursor_state.as_ref().map(|(cx,cy,s,_,t,o,_)| format!("x={:.1},y={:.1},scale={:.3},type={},opacity={:.3}", cx, cy, s, t, o)));
-        }
-
         let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_opacity, cursor_type_id, cursor_rotation) =
-            if let Some((cx, cy, c_scale, _is_clicked, c_type, c_opacity, c_rotation)) = cursor_state {
+            if let Some((cx, cy, c_scale, c_type_id, c_opacity, c_rotation)) = cursor_state {
                 // Skip cursor entirely when opacity is near zero
                 if c_opacity < 0.001 {
                     (-100.0, -100.0, 0.0, 0.0_f32, 0.0, 0.0_f32)
                 } else {
                     let rel_x = (cx - crop_x_offset) / crop_w as f64;
                     let rel_y = (cy - crop_y_offset) / crop_h as f64;
-
-                    let type_id = cursor_type_to_id(c_type.as_str());
 
                     let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
                     let cursor_final_scale =
@@ -1201,7 +1159,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                         rel_y as f32,
                         cursor_final_scale as f32,
                         c_opacity as f32,
-                        type_id,
+                        c_type_id,
                         c_rotation as f32,
                     )
                 }
@@ -1251,15 +1209,24 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             }
         }
 
-        let _ = encoder_stdin.write_all(&rendered);
+        let mut to_send = Vec::new();
+        std::mem::swap(&mut rendered, &mut to_send);
+        if frame_tx.send(to_send).is_err() {
+            writer_error = Some("Encoder writer thread stopped".to_string());
+            break;
+        }
+        match recycle_rx.try_recv() {
+            Ok(mut recycled) => {
+                recycled.clear();
+                rendered = recycled;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {}
+        }
 
         frame_count += 1;
-        if !first_frame_logged {
-            println!(
-                "[Export][Timing] Time to first frame processed: {:.3}s",
-                frame_stage_start.elapsed().as_secs_f64()
-            );
-            first_frame_logged = true;
+        if first_frame_secs.is_none() {
+            first_frame_secs = Some(frame_stage_start.elapsed().as_secs_f64());
         }
         if frame_count.is_multiple_of(15) {
             let elapsed = export_start.elapsed().as_secs_f64();
@@ -1274,24 +1241,38 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     }
 
     println!("[Export] Loop exited: frame_count={}, cancelled={}", frame_count, cancelled);
-    println!(
-        "[Export][Timing] Frame loop total: {:.3}s",
-        export_start.elapsed().as_secs_f64()
-    );
+    let frame_loop_secs = export_start.elapsed().as_secs_f64();
+
+    // Stop writer and close encoder stdin.
+    drop(frame_tx);
+    if cancelled {
+        // If cancelled, kill encoder first to unblock a possible blocked stdin writer.
+        let _ = encoder.kill();
+    }
+    match writer_handle.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            if !cancelled {
+                writer_error = Some(e);
+            }
+        }
+        Err(_) => {
+            if !cancelled {
+                writer_error = Some("Encoder writer thread panicked".to_string());
+            }
+        }
+    }
 
     // Clear stored PIDs (processes are about to be cleaned up)
     *EXPORT_PIDS.lock().unwrap() = (0, 0);
 
-    // Close encoder input first so it starts flushing
-    drop(encoder_stdin);
     // Close decoder pipe and kill decoder (may have unread frames buffered)
     drop(decoder_stdout);
     let _ = decoder.kill();
     let _ = decoder.wait();
 
     if cancelled {
-        // On cancel: kill encoder immediately, don't wait for flush
-        let _ = encoder.kill();
+        // On cancel: encoder already killed before joining writer.
         let _ = encoder.wait();
     }
 
@@ -1305,22 +1286,111 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     if cancelled {
         let _ = fs::remove_file(&output_path);
+        println!(
+            "[Export][Summary] status=cancelled out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={}",
+            out_w,
+            out_h,
+            config.framerate,
+            config.speed,
+            config.duration,
+            frame_count,
+            total_frames,
+            used_cursor_slots.len(),
+            parse_secs,
+            gpu_device_secs,
+            cursor_init_secs,
+            cursor_init_mode,
+            decoder_start_secs,
+            encoder_start_secs,
+            first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
+            frame_loop_secs,
+            export_total_start.elapsed().as_secs_f64(),
+            encoder_name
+        );
         return Ok(serde_json::json!({ "status": "cancelled" }));
+    }
+
+    if let Some(err) = writer_error {
+        println!(
+            "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} error=writer",
+            out_w,
+            out_h,
+            config.framerate,
+            config.speed,
+            config.duration,
+            frame_count,
+            total_frames,
+            used_cursor_slots.len(),
+            parse_secs,
+            gpu_device_secs,
+            cursor_init_secs,
+            cursor_init_mode,
+            decoder_start_secs,
+            encoder_start_secs,
+            first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
+            frame_loop_secs,
+            export_total_start.elapsed().as_secs_f64(),
+            encoder_name
+        );
+        return Err(err);
     }
 
     // Wait for encoder to finish flushing (H.264 B-frames, moov atom, etc.)
     let encoder_result = encoder.wait();
-    println!(
-        "[Export][Timing] Total export wall time: {:.3}s",
-        export_total_start.elapsed().as_secs_f64()
-    );
+    let total_wall_secs = export_total_start.elapsed().as_secs_f64();
 
     match encoder_result {
-        Ok(status) if status.success() => Ok(serde_json::json!({
-            "status": "success",
-            "path": output_path.to_string_lossy(),
-            "frames": frame_count
-        })),
-        _ => Err("Encoder failed".to_string()),
+        Ok(status) if status.success() => {
+            println!(
+                "[Export][Summary] status=success out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={}",
+                out_w,
+                out_h,
+                config.framerate,
+                config.speed,
+                config.duration,
+                frame_count,
+                total_frames,
+                used_cursor_slots.len(),
+                parse_secs,
+                gpu_device_secs,
+                cursor_init_secs,
+                cursor_init_mode,
+                decoder_start_secs,
+                encoder_start_secs,
+                first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
+                frame_loop_secs,
+                total_wall_secs,
+                encoder_name
+            );
+            Ok(serde_json::json!({
+                "status": "success",
+                "path": output_path.to_string_lossy(),
+                "frames": frame_count
+            }))
+        }
+        _ => {
+            println!(
+                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} error=encoder",
+                out_w,
+                out_h,
+                config.framerate,
+                config.speed,
+                config.duration,
+                frame_count,
+                total_frames,
+                used_cursor_slots.len(),
+                parse_secs,
+                gpu_device_secs,
+                cursor_init_secs,
+                cursor_init_mode,
+                decoder_start_secs,
+                encoder_start_secs,
+                first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
+                frame_loop_secs,
+                total_wall_secs,
+                encoder_name
+            );
+            Err("Encoder failed".to_string())
+        }
     }
 }

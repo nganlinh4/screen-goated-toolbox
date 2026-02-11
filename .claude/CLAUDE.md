@@ -80,4 +80,5 @@ cargo test               # Run tests
   - wire frontend renderer types and image loading
   - wire native export cursor type IDs and GPU atlas entries (keep each pack as a contiguous 12-slot block)
   - update Rust WebView asset router (`src/overlay/screen_record/mod.rs`) so every new `cursor-*-<pack>.svg` is served
+  - **update GPU atlas dimensions AND shader UV divisors in `gpu_export.rs`**: `CURSOR_ATLAS_ROWS` must fit all slots (`ceil(total_slots / CURSOR_ATLAS_COLS)`), and the WGSL shader's atlas UV must divide by the same values — `/ {COLS}.0` for X, `/ {ROWS}.0` for Y. Forgetting the shader causes cursors to sample wrong atlas rows → invisible in export.
   - verify one preview screenshot and one exported frame for each pack.
