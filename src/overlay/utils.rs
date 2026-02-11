@@ -817,11 +817,17 @@ pub fn is_retryable_error(error: &str) -> bool {
         return false;
     }
 
-    // 3. Fallback text checks
+    // 3. Fallback text checks for transient transport/provider failures
     let lower_err = error.to_lowercase();
     if lower_err.contains("rate limit")
         || lower_err.contains("too many requests")
         || lower_err.contains("quota exceeded")
+        || lower_err.contains("peer disconnected")
+        || lower_err.contains("connection reset")
+        || lower_err.contains("connection aborted")
+        || lower_err.contains("broken pipe")
+        || lower_err.contains("timed out")
+        || lower_err.contains("timeout")
     {
         return true;
     }

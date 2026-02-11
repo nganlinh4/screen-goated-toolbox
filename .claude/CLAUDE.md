@@ -42,6 +42,7 @@ cargo test               # Run tests
 ## Testing
 - Always run `cargo clippy --all-targets` before commits
 - Test on Windows 10/11 for compatibility
+- For WSL validation, use `ORT_SKIP_DOWNLOAD=1 cargo check --target x86_64-pc-windows-gnu` (the `ort-sys` crate does not provide downloadable binaries for `x86_64-pc-windows-gnu`).
 
 ## Claude Code Rules
 - **Never run `cargo build --release`** - the user will build manually when ready
