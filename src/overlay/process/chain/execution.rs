@@ -122,6 +122,11 @@ pub fn execute_block(
         match res_inner {
             Ok(val) => break Ok(val),
             Err(e) => {
+                // Never retry after explicit user cancellation.
+                if cancel_token.is_cancelled() {
+                    break Err(e);
+                }
+
                 if retry_count < MAX_RETRIES
                     && crate::overlay::utils::is_retryable_error(&e.to_string())
                 {
