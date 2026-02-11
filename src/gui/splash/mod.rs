@@ -203,7 +203,13 @@ impl SplashScreen {
         let draw_list = self.draw_list.borrow();
         let mut circles = Vec::new();
 
-        for &(_, pos, r, col, _, _) in draw_list.iter() {
+        for &(_, pos, r, col, _, is_debris) in draw_list.iter() {
+            // Only SGT text voxels should fly outside the window.
+            // Debris remains window-contained by not drawing it on the escape overlay.
+            if is_debris {
+                continue;
+            }
+
             // Skip voxels whose center is inside the window (egui already renders those)
             if pos.x >= 0.0 && pos.x <= win_w && pos.y >= 0.0 && pos.y <= win_h {
                 continue;

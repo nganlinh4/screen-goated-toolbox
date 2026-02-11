@@ -266,19 +266,6 @@ lazy_static::lazy_static! {
             "250 requests/day"
         ),
         ModelConfig::new(
-            "cerebras_llama33_70b",
-            "cerebras",
-            "C-Nhanh",
-            "C-빠름",
-            "C-Fast",
-            "llama-3.3-70b",
-            ModelType::Text,
-            true,
-            "14400 lượt/ngày",
-            "14400 요청/일",
-            "14400 requests/day"
-        ),
-        ModelConfig::new(
             "cerebras_gpt_oss",
             "cerebras",
             "C-Chính xác",
