@@ -460,28 +460,67 @@ fn replace_nested_svg_geometry(
     width: f32,
     height: f32,
 ) -> Result<String, String> {
-    let start = content
-        .find("<svg x=\"")
-        .ok_or("Could not locate nested <svg x=...> block")?;
-    let vb_rel = content[start..]
-        .find(" viewBox=\"")
-        .ok_or("Could not locate nested <svg ... viewBox=...> block")?;
-    let vb_abs = start + vb_rel;
+    let mut cursor = 0usize;
+    let mut svg_index = 0usize;
+    let mut target: Option<(usize, usize)> = None;
 
-    let replacement = format!(
-        r#"<svg x="{}" y="{}" width="{}" height="{}""#,
-        fmt_num(x),
-        fmt_num(y),
-        fmt_num(width),
-        fmt_num(height)
-    );
+    while let Some(rel) = content[cursor..].find("<svg") {
+        let start = cursor + rel;
+        let end_rel = content[start..]
+            .find('>')
+            .ok_or("Could not locate end of nested <svg> tag")?;
+        let end = start + end_rel;
+        let tag = &content[start..=end];
 
-    Ok(format!(
-        "{}{}{}",
-        &content[..start],
-        replacement,
-        &content[vb_abs..]
-    ))
+        if svg_index > 0 && tag.contains("viewBox=") {
+            target = Some((start, end));
+            break;
+        }
+
+        svg_index += 1;
+        cursor = end + 1;
+    }
+
+    let (start, end) = target.ok_or("Could not locate nested <svg ... viewBox=...> block")?;
+    let tag = &content[start..=end];
+    let tag = set_or_insert_svg_attr(tag, "x", &fmt_num(x));
+    let tag = set_or_insert_svg_attr(&tag, "y", &fmt_num(y));
+    let tag = set_or_insert_svg_attr(&tag, "width", &fmt_num(width));
+    let tag = set_or_insert_svg_attr(&tag, "height", &fmt_num(height));
+
+    Ok(format!("{}{}{}", &content[..start], tag, &content[end + 1..]))
+}
+
+fn set_or_insert_svg_attr(tag: &str, name: &str, value: &str) -> String {
+    let double_pat = format!(r#"{}=""#, name);
+    if let Some(pos) = tag.find(&double_pat) {
+        let value_start = pos + double_pat.len();
+        if let Some(end_rel) = tag[value_start..].find('"') {
+            let value_end = value_start + end_rel;
+            return format!("{}{}{}", &tag[..value_start], value, &tag[value_end..]);
+        }
+    }
+
+    let single_pat = format!(r#"{}='"#, name);
+    if let Some(pos) = tag.find(&single_pat) {
+        let value_start = pos + single_pat.len();
+        if let Some(end_rel) = tag[value_start..].find('\'') {
+            let value_end = value_start + end_rel;
+            return format!("{}{}{}", &tag[..value_start], value, &tag[value_end..]);
+        }
+    }
+
+    if let Some(gt) = tag.rfind('>') {
+        return format!(
+            r#"{} {}="{}"{}"#,
+            &tag[..gt],
+            name,
+            value,
+            &tag[gt..]
+        );
+    }
+
+    tag.to_string()
 }
 
 fn replace_group_transform_geometry(content: &str, x: f32, y: f32, scale: f32) -> Result<String, String> {

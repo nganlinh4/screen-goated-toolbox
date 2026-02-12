@@ -351,7 +351,7 @@ interface CursorVariantButtonProps {
   children: React.ReactNode;
 }
 
-type CursorVariant = 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel';
+type CursorVariant = 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
 type CursorVariantRow = {
   id: string;
   label: string;
@@ -361,6 +361,7 @@ type CursorVariantRow = {
   sgtcoolSrc: string;
   sgtaiSrc: string;
   sgtpixelSrc: string;
+  jepriwin11Src: string;
 };
 
 function CursorVariantButton({ isSelected, onClick, label, children }: CursorVariantButtonProps) {
@@ -369,7 +370,7 @@ function CursorVariantButton({ isSelected, onClick, label, children }: CursorVar
       onClick={onClick}
       title={label}
       aria-label={label}
-      className={`cursor-variant-button w-10 h-10 rounded-[10px] border transition-all duration-150 flex items-center justify-center overflow-hidden ${
+      className={`cursor-variant-button w-full min-w-0 h-10 rounded-[10px] border transition-all duration-150 flex items-center justify-center overflow-hidden ${
         isSelected
           ? 'border-[var(--primary-color)] bg-[var(--primary-color)]/14 shadow-[0_0_0_1px_var(--primary-color)_inset,0_0_0_3px_rgba(59,130,246,0.16),0_6px_16px_rgba(59,130,246,0.2)]'
           : 'border-[var(--glass-border)] bg-[var(--glass-bg)] hover:border-[var(--primary-color)]/65 hover:bg-[var(--glass-bg-hover)]'
@@ -400,18 +401,18 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
       cursorOpenHandVariant: pack,
     }));
   const rows = useMemo<CursorVariantRow[]>(() => ([
-    { id: 'default', label: t.cursorDefault, screenstudioSrc: '/cursor-default-screenstudio.svg', macos26Src: '/cursor-default-macos26.svg', sgtcuteSrc: '/cursor-default-sgtcute.svg', sgtcoolSrc: '/cursor-default-sgtcool.svg', sgtaiSrc: '/cursor-default-sgtai.svg', sgtpixelSrc: '/cursor-default-sgtpixel.svg' },
-    { id: 'text', label: t.cursorText, screenstudioSrc: '/cursor-text-screenstudio.svg', macos26Src: '/cursor-text-macos26.svg', sgtcuteSrc: '/cursor-text-sgtcute.svg', sgtcoolSrc: '/cursor-text-sgtcool.svg', sgtaiSrc: '/cursor-text-sgtai.svg', sgtpixelSrc: '/cursor-text-sgtpixel.svg' },
-    { id: 'pointer', label: t.cursorPointer, screenstudioSrc: '/cursor-pointer-screenstudio.svg', macos26Src: '/cursor-pointer-macos26.svg', sgtcuteSrc: '/cursor-pointer-sgtcute.svg', sgtcoolSrc: '/cursor-pointer-sgtcool.svg', sgtaiSrc: '/cursor-pointer-sgtai.svg', sgtpixelSrc: '/cursor-pointer-sgtpixel.svg' },
-    { id: 'openhand', label: t.cursorOpenHand, screenstudioSrc: '/cursor-openhand-screenstudio.svg', macos26Src: '/cursor-openhand-macos26.svg', sgtcuteSrc: '/cursor-openhand-sgtcute.svg', sgtcoolSrc: '/cursor-openhand-sgtcool.svg', sgtaiSrc: '/cursor-openhand-sgtai.svg', sgtpixelSrc: '/cursor-openhand-sgtpixel.svg' },
-    { id: 'closehand', label: 'Closed Hand', screenstudioSrc: '/cursor-closehand-screenstudio.svg', macos26Src: '/cursor-closehand-macos26.svg', sgtcuteSrc: '/cursor-closehand-sgtcute.svg', sgtcoolSrc: '/cursor-closehand-sgtcool.svg', sgtaiSrc: '/cursor-closehand-sgtai.svg', sgtpixelSrc: '/cursor-closehand-sgtpixel.svg' },
-    { id: 'wait', label: 'Wait', screenstudioSrc: '/cursor-wait-screenstudio.svg', macos26Src: '/cursor-wait-macos26.svg', sgtcuteSrc: '/cursor-wait-sgtcute.svg', sgtcoolSrc: '/cursor-wait-sgtcool.svg', sgtaiSrc: '/cursor-wait-sgtai.svg', sgtpixelSrc: '/cursor-wait-sgtpixel.svg' },
-    { id: 'appstarting', label: 'App Starting', screenstudioSrc: '/cursor-appstarting-screenstudio.svg', macos26Src: '/cursor-appstarting-macos26.svg', sgtcuteSrc: '/cursor-appstarting-sgtcute.svg', sgtcoolSrc: '/cursor-appstarting-sgtcool.svg', sgtaiSrc: '/cursor-appstarting-sgtai.svg', sgtpixelSrc: '/cursor-appstarting-sgtpixel.svg' },
-    { id: 'crosshair', label: 'Crosshair', screenstudioSrc: '/cursor-crosshair-screenstudio.svg', macos26Src: '/cursor-crosshair-macos26.svg', sgtcuteSrc: '/cursor-crosshair-sgtcute.svg', sgtcoolSrc: '/cursor-crosshair-sgtcool.svg', sgtaiSrc: '/cursor-crosshair-sgtai.svg', sgtpixelSrc: '/cursor-crosshair-sgtpixel.svg' },
-    { id: 'resize_ns', label: 'Resize N-S', screenstudioSrc: '/cursor-resize-ns-screenstudio.svg', macos26Src: '/cursor-resize-ns-macos26.svg', sgtcuteSrc: '/cursor-resize-ns-sgtcute.svg', sgtcoolSrc: '/cursor-resize-ns-sgtcool.svg', sgtaiSrc: '/cursor-resize-ns-sgtai.svg', sgtpixelSrc: '/cursor-resize-ns-sgtpixel.svg' },
-    { id: 'resize_we', label: 'Resize W-E', screenstudioSrc: '/cursor-resize-we-screenstudio.svg', macos26Src: '/cursor-resize-we-macos26.svg', sgtcuteSrc: '/cursor-resize-we-sgtcute.svg', sgtcoolSrc: '/cursor-resize-we-sgtcool.svg', sgtaiSrc: '/cursor-resize-we-sgtai.svg', sgtpixelSrc: '/cursor-resize-we-sgtpixel.svg' },
-    { id: 'resize_nwse', label: 'Resize NW-SE', screenstudioSrc: '/cursor-resize-nwse-screenstudio.svg', macos26Src: '/cursor-resize-nwse-macos26.svg', sgtcuteSrc: '/cursor-resize-nwse-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nwse-sgtcool.svg', sgtaiSrc: '/cursor-resize-nwse-sgtai.svg', sgtpixelSrc: '/cursor-resize-nwse-sgtpixel.svg' },
-    { id: 'resize_nesw', label: 'Resize NE-SW', screenstudioSrc: '/cursor-resize-nesw-screenstudio.svg', macos26Src: '/cursor-resize-nesw-macos26.svg', sgtcuteSrc: '/cursor-resize-nesw-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nesw-sgtcool.svg', sgtaiSrc: '/cursor-resize-nesw-sgtai.svg', sgtpixelSrc: '/cursor-resize-nesw-sgtpixel.svg' },
+    { id: 'default', label: t.cursorDefault, screenstudioSrc: '/cursor-default-screenstudio.svg', macos26Src: '/cursor-default-macos26.svg', sgtcuteSrc: '/cursor-default-sgtcute.svg', sgtcoolSrc: '/cursor-default-sgtcool.svg', sgtaiSrc: '/cursor-default-sgtai.svg', sgtpixelSrc: '/cursor-default-sgtpixel.svg', jepriwin11Src: '/cursor-default-jepriwin11.svg' },
+    { id: 'text', label: t.cursorText, screenstudioSrc: '/cursor-text-screenstudio.svg', macos26Src: '/cursor-text-macos26.svg', sgtcuteSrc: '/cursor-text-sgtcute.svg', sgtcoolSrc: '/cursor-text-sgtcool.svg', sgtaiSrc: '/cursor-text-sgtai.svg', sgtpixelSrc: '/cursor-text-sgtpixel.svg', jepriwin11Src: '/cursor-text-jepriwin11.svg' },
+    { id: 'pointer', label: t.cursorPointer, screenstudioSrc: '/cursor-pointer-screenstudio.svg', macos26Src: '/cursor-pointer-macos26.svg', sgtcuteSrc: '/cursor-pointer-sgtcute.svg', sgtcoolSrc: '/cursor-pointer-sgtcool.svg', sgtaiSrc: '/cursor-pointer-sgtai.svg', sgtpixelSrc: '/cursor-pointer-sgtpixel.svg', jepriwin11Src: '/cursor-pointer-jepriwin11.svg' },
+    { id: 'openhand', label: t.cursorOpenHand, screenstudioSrc: '/cursor-openhand-screenstudio.svg', macos26Src: '/cursor-openhand-macos26.svg', sgtcuteSrc: '/cursor-openhand-sgtcute.svg', sgtcoolSrc: '/cursor-openhand-sgtcool.svg', sgtaiSrc: '/cursor-openhand-sgtai.svg', sgtpixelSrc: '/cursor-openhand-sgtpixel.svg', jepriwin11Src: '/cursor-openhand-jepriwin11.svg' },
+    { id: 'closehand', label: 'Closed Hand', screenstudioSrc: '/cursor-closehand-screenstudio.svg', macos26Src: '/cursor-closehand-macos26.svg', sgtcuteSrc: '/cursor-closehand-sgtcute.svg', sgtcoolSrc: '/cursor-closehand-sgtcool.svg', sgtaiSrc: '/cursor-closehand-sgtai.svg', sgtpixelSrc: '/cursor-closehand-sgtpixel.svg', jepriwin11Src: '/cursor-closehand-jepriwin11.svg' },
+    { id: 'wait', label: 'Wait', screenstudioSrc: '/cursor-wait-screenstudio.svg', macos26Src: '/cursor-wait-macos26.svg', sgtcuteSrc: '/cursor-wait-sgtcute.svg', sgtcoolSrc: '/cursor-wait-sgtcool.svg', sgtaiSrc: '/cursor-wait-sgtai.svg', sgtpixelSrc: '/cursor-wait-sgtpixel.svg', jepriwin11Src: '/cursor-wait-jepriwin11.svg' },
+    { id: 'appstarting', label: 'App Starting', screenstudioSrc: '/cursor-appstarting-screenstudio.svg', macos26Src: '/cursor-appstarting-macos26.svg', sgtcuteSrc: '/cursor-appstarting-sgtcute.svg', sgtcoolSrc: '/cursor-appstarting-sgtcool.svg', sgtaiSrc: '/cursor-appstarting-sgtai.svg', sgtpixelSrc: '/cursor-appstarting-sgtpixel.svg', jepriwin11Src: '/cursor-appstarting-jepriwin11.svg' },
+    { id: 'crosshair', label: 'Crosshair', screenstudioSrc: '/cursor-crosshair-screenstudio.svg', macos26Src: '/cursor-crosshair-macos26.svg', sgtcuteSrc: '/cursor-crosshair-sgtcute.svg', sgtcoolSrc: '/cursor-crosshair-sgtcool.svg', sgtaiSrc: '/cursor-crosshair-sgtai.svg', sgtpixelSrc: '/cursor-crosshair-sgtpixel.svg', jepriwin11Src: '/cursor-crosshair-jepriwin11.svg' },
+    { id: 'resize_ns', label: 'Resize N-S', screenstudioSrc: '/cursor-resize-ns-screenstudio.svg', macos26Src: '/cursor-resize-ns-macos26.svg', sgtcuteSrc: '/cursor-resize-ns-sgtcute.svg', sgtcoolSrc: '/cursor-resize-ns-sgtcool.svg', sgtaiSrc: '/cursor-resize-ns-sgtai.svg', sgtpixelSrc: '/cursor-resize-ns-sgtpixel.svg', jepriwin11Src: '/cursor-resize-ns-jepriwin11.svg' },
+    { id: 'resize_we', label: 'Resize W-E', screenstudioSrc: '/cursor-resize-we-screenstudio.svg', macos26Src: '/cursor-resize-we-macos26.svg', sgtcuteSrc: '/cursor-resize-we-sgtcute.svg', sgtcoolSrc: '/cursor-resize-we-sgtcool.svg', sgtaiSrc: '/cursor-resize-we-sgtai.svg', sgtpixelSrc: '/cursor-resize-we-sgtpixel.svg', jepriwin11Src: '/cursor-resize-we-jepriwin11.svg' },
+    { id: 'resize_nwse', label: 'Resize NW-SE', screenstudioSrc: '/cursor-resize-nwse-screenstudio.svg', macos26Src: '/cursor-resize-nwse-macos26.svg', sgtcuteSrc: '/cursor-resize-nwse-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nwse-sgtcool.svg', sgtaiSrc: '/cursor-resize-nwse-sgtai.svg', sgtpixelSrc: '/cursor-resize-nwse-sgtpixel.svg', jepriwin11Src: '/cursor-resize-nwse-jepriwin11.svg' },
+    { id: 'resize_nesw', label: 'Resize NE-SW', screenstudioSrc: '/cursor-resize-nesw-screenstudio.svg', macos26Src: '/cursor-resize-nesw-macos26.svg', sgtcuteSrc: '/cursor-resize-nesw-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nesw-sgtcool.svg', sgtaiSrc: '/cursor-resize-nesw-sgtai.svg', sgtpixelSrc: '/cursor-resize-nesw-sgtpixel.svg', jepriwin11Src: '/cursor-resize-nesw-jepriwin11.svg' },
   ]), [t.cursorDefault, t.cursorText, t.cursorPointer, t.cursorOpenHand]);
   const viewportHeight = CURSOR_VARIANT_VIEWPORT_HEIGHT;
   const totalHeight = rows.length * CURSOR_VARIANT_ROW_HEIGHT;
@@ -484,45 +485,51 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             style={{ height: `${viewportHeight}px` }}
           >
             <div
-              className="cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-y-auto pr-1"
+              className="cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-y-auto"
               onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
             >
-              <div className="cursor-variant-column-header sticky top-0 z-10 h-6 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-[40px_40px_40px_40px_40px_40px] gap-1.5 items-center bg-[var(--surface)]">
+              <div className="cursor-variant-column-header sticky top-0 z-10 min-h-8 py-1 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-7 gap-1.5 items-start bg-[var(--surface)]">
                 <span
-                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
                   style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
                 >
                   Mac OG
                 </span>
                 <span
-                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
                   style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
                 >
                   Mac Tahoe+
                 </span>
                 <span
-                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
                   style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
                 >
                   SGT Cute
                 </span>
                 <span
-                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
                   style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
                 >
                   SGT Cool
                 </span>
                 <span
-                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
                   style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
                 >
                   SGT AI
                 </span>
                 <span
-                  className="text-center text-[9px] leading-none tracking-tight whitespace-nowrap text-[var(--on-surface-variant)]"
+                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
                   style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
                 >
                   SGT Pixel
+                </span>
+                <span
+                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
+                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 0" }}
+                >
+                  Jepri Win11
                 </span>
               </div>
               <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
@@ -531,7 +538,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                   return (
                     <div
                       key={row.id}
-                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-[40px_40px_40px_40px_40px_40px] gap-1.5 items-center"
+                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-7 gap-1.5 items-center"
                       style={{ top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`, height: `${CURSOR_VARIANT_ROW_HEIGHT}px` }}
                     >
                       <CursorVariantButton
@@ -575,6 +582,13 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                         label={`${row.label} sgtpixel`}
                       >
                         <img src={`${row.sgtpixelSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                      </CursorVariantButton>
+                      <CursorVariantButton
+                        isSelected={inferredPack === 'jepriwin11'}
+                        onClick={() => setCursorPack('jepriwin11')}
+                        label={`${row.label} jepriwin11`}
+                      >
+                        <img src={`${row.jepriwin11Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
                       </CursorVariantButton>
                     </div>
                   );

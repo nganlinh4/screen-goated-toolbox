@@ -85,11 +85,11 @@ export interface BackgroundConfig {
   cursorWiggleStrength?: number; // 0-1, strength of spring follow effect
   cursorWiggleDamping?: number; // 0-1, lower = more wobble
   cursorWiggleResponse?: number; // Hz-ish response speed of spring
-  cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel';
-  cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel';
-  cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel';
-  cursorPointerVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel';
-  cursorOpenHandVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel';
+  cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
+  cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
+  cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
+  cursorPointerVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
+  cursorOpenHandVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1
