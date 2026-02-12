@@ -471,12 +471,26 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
             min="0"
             max="1"
             step="0.01"
-            value={backgroundConfig.cursorWiggleStrength ?? 0.15}
-            style={sv(backgroundConfig.cursorWiggleStrength ?? 0.15, 0, 1)}
+            value={backgroundConfig.cursorWiggleStrength ?? 0.30}
+            style={sv(backgroundConfig.cursorWiggleStrength ?? 0.30, 0, 1)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: Number(e.target.value) }))}
             className="cursor-wiggle-strength-slider flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.15) * 100)}%</span>
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%</span>
+        </div>
+        <div className="cursor-tilt-angle-field flex items-center gap-2">
+          <span className="cursor-tilt-angle-label text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.cursorTilt}</span>
+          <input
+            type="range"
+            min="-30"
+            max="30"
+            step="1"
+            value={backgroundConfig.cursorTiltAngle ?? -10}
+            style={sv(backgroundConfig.cursorTiltAngle ?? -10, -30, 30)}
+            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorTiltAngle: Number(e.target.value) }))}
+            className="cursor-tilt-angle-slider flex-1 min-w-0"
+          />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.cursorTiltAngle ?? -10}°</span>
         </div>
         <div className="cursor-variants-section space-y-2">
           <label className="cursor-variants-label text-xs text-[var(--on-surface-variant)] block">{t.cursorVariants}</label>
@@ -535,6 +549,9 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
               <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
                 {visibleRows.map((row, i) => {
                   const absoluteIndex = startIndex + i;
+                  const tiltDeg = backgroundConfig.cursorTiltAngle ?? -10;
+                  const hasTilt = (row.id === 'default' || row.id === 'pointer') && Math.abs(tiltDeg) > 0.5;
+                  const tiltStyle = hasTilt ? { rotate: `${tiltDeg}deg` } as React.CSSProperties : undefined;
                   return (
                     <div
                       key={row.id}
@@ -546,49 +563,49 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
                         onClick={() => setCursorPack('screenstudio')}
                         label={`${row.label} screen studio`}
                       >
-                        <img src={`${row.screenstudioSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                        <img src={`${row.screenstudioSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
                       </CursorVariantButton>
                       <CursorVariantButton
                         isSelected={inferredPack === 'macos26'}
                         onClick={() => setCursorPack('macos26')}
                         label={`${row.label} macos26`}
                       >
-                        <img src={`${row.macos26Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                        <img src={`${row.macos26Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
                       </CursorVariantButton>
                       <CursorVariantButton
                         isSelected={inferredPack === 'sgtcute'}
                         onClick={() => setCursorPack('sgtcute')}
                         label={`${row.label} sgtcute`}
                       >
-                        <img src={`${row.sgtcuteSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                        <img src={`${row.sgtcuteSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
                       </CursorVariantButton>
                       <CursorVariantButton
                         isSelected={inferredPack === 'sgtcool'}
                         onClick={() => setCursorPack('sgtcool')}
                         label={`${row.label} sgtcool`}
                       >
-                        <img src={`${row.sgtcoolSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                        <img src={`${row.sgtcoolSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
                       </CursorVariantButton>
                       <CursorVariantButton
                         isSelected={inferredPack === 'sgtai'}
                         onClick={() => setCursorPack('sgtai')}
                         label={`${row.label} sgtai`}
                       >
-                        <img src={`${row.sgtaiSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                        <img src={`${row.sgtaiSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
                       </CursorVariantButton>
                       <CursorVariantButton
                         isSelected={inferredPack === 'sgtpixel'}
                         onClick={() => setCursorPack('sgtpixel')}
                         label={`${row.label} sgtpixel`}
                       >
-                        <img src={`${row.sgtpixelSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                        <img src={`${row.sgtpixelSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
                       </CursorVariantButton>
                       <CursorVariantButton
                         isSelected={inferredPack === 'jepriwin11'}
                         onClick={() => setCursorPack('jepriwin11')}
                         label={`${row.label} jepriwin11`}
                       >
-                        <img src={`${row.jepriwin11Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" />
+                        <img src={`${row.jepriwin11Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
                       </CursorVariantButton>
                     </div>
                   );

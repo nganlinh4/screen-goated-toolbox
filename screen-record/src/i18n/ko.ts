@@ -47,6 +47,7 @@ const ko: Translations = {
   movementSmoothing: '움직임 부드러움',
   pointerMovementDelay: '포인터 이동 지연',
   pointerWiggleStrength: '포인터 흔들림 강도',
+  cursorTilt: '커서 기울기',
   pointerWiggleDamping: '흔들림 감쇠',
   pointerWiggleResponse: '흔들림 반응 속도',
   cursorVariants: '커서 스타일',
