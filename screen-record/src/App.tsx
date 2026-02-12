@@ -36,7 +36,8 @@ const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   cursorScale: 5,
   cursorMovementDelay: 0.03,
   cursorShadow: 100,
-  cursorWiggleStrength: 0.15,
+  cursorWiggleStrength: 0.30,
+  cursorTiltAngle: -10,
   cursorPack: 'macos26',
   cursorDefaultVariant: 'macos26',
   cursorTextVariant: 'macos26',
@@ -90,6 +91,8 @@ function App() {
   const wheelBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreImageRef = useRef<string | null>(null);
   const projectSaveSeqRef = useRef(0);
+  // Stable ref for persist callback — avoids cascading useEffect re-triggers
+  const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback((event: string, data?: Record<string, unknown>) => {
     if (!PROJECT_SAVE_DEBUG) return;
     const ts = new Date().toISOString();
@@ -306,6 +309,7 @@ function App() {
     currentVideo, segment, backgroundConfig, mousePositions,
     generateThumbnail, duration, debugProject
   ]);
+  persistRef.current = persistCurrentProjectNow;
 
   const handleLoadProjectFromGrid = useCallback(async (projectId: string) => {
     // Always persist the currently open project before loading another one.
@@ -351,17 +355,16 @@ function App() {
   useEffect(() => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
     const timer = setTimeout(() => {
-      void persistCurrentProjectNow({ refreshList: false, includeMedia: false });
-    }, 350);
+      void persistRef.current?.({ refreshList: false, includeMedia: false });
+    }, 500);
     return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     projects.currentProjectId,
     currentVideo,
-    segment,
     backgroundConfig.canvasMode,
     backgroundConfig.canvasWidth,
     backgroundConfig.canvasHeight,
-    persistCurrentProjectNow
   ]);
 
   const handleStartRecording = useCallback(async () => {
@@ -493,14 +496,19 @@ function App() {
     }
   }, [duration, segment, backgroundConfig, mousePositions, setSegment, videoRef, canvasRef, tempCanvasRef]);
 
-  // Auto-save
+  // Auto-save — debounced, skips during playback/export/recording to avoid jank
   useEffect(() => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
     const timer = setTimeout(() => {
-      void persistCurrentProjectNow({ refreshList: true, includeMedia: true });
-    }, 2000);
+      // Skip save during activities that need smooth performance
+      if (videoRef.current && !videoRef.current.paused) return;
+      if (exportHook.isProcessing) return;
+      if (isRecording) return;
+      void persistRef.current?.({ refreshList: true, includeMedia: true });
+    }, 3000);
     return () => clearTimeout(timer);
-  }, [segment, backgroundConfig, mousePositions, projects.currentProjectId, currentVideo, persistCurrentProjectNow]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segment, backgroundConfig, mousePositions, projects.currentProjectId, currentVideo]);
 
   // Text drag listeners
   useEffect(() => {

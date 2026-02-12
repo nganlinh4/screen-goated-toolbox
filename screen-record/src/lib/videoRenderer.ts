@@ -5,7 +5,7 @@ import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/li
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
 const DEFAULT_CURSOR_OFFSET_SEC = 0.03;
-const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.25;
+const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.30;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.55;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
 const CURSOR_ASSET_VERSION = `cursor-types-runtime-${Date.now()}`;
@@ -641,7 +641,12 @@ export class VideoRenderer {
       this.getCursorWiggleStrength(backgroundConfig).toFixed(2),
       this.getCursorWiggleDamping(backgroundConfig).toFixed(2),
       this.getCursorWiggleResponse(backgroundConfig).toFixed(2),
+      this.getCursorTiltAngleRad(backgroundConfig).toFixed(4),
     ].join('|');
+  }
+
+  private getCursorTiltAngleRad(backgroundConfig?: BackgroundConfig | null): number {
+    return (backgroundConfig?.cursorTiltAngle ?? -10) * (Math.PI / 180);
   }
 
   private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' {
@@ -1952,7 +1957,29 @@ export class VideoRenderer {
   ): MousePosition[] {
     const smoothed = this.smoothMousePositions(positions, 120, backgroundConfig);
     const springed = this.applySpringPositionDynamics(smoothed, backgroundConfig);
-    return this.applyAdaptiveCursorWiggle(springed, backgroundConfig);
+    const wiggled = this.applyAdaptiveCursorWiggle(springed, backgroundConfig);
+    return this.applyCursorTiltOffset(wiggled, backgroundConfig);
+  }
+
+  /** Only asymmetric pointer-like cursors get a static tilt offset.
+   *  Text beam, crosshair, resize handles etc. are symmetric and stay upright. */
+  private shouldCursorTilt(cursorType: string): boolean {
+    const t = cursorType.toLowerCase();
+    return t.startsWith('default') || t.startsWith('pointer');
+  }
+
+  /** Adds a static angular offset (resting tilt) to cursor rotation. */
+  private applyCursorTiltOffset(
+    positions: MousePosition[],
+    backgroundConfig?: BackgroundConfig | null
+  ): MousePosition[] {
+    const tiltRad = this.getCursorTiltAngleRad(backgroundConfig);
+    if (Math.abs(tiltRad) < 0.0001) return positions;
+    return positions.map(pos => ({
+      ...pos,
+      cursor_rotation: (pos.cursor_rotation || 0) +
+        (this.shouldCursorTilt(pos.cursor_type || 'default') ? tiltRad : 0),
+    }));
   }
 
   /**

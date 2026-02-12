@@ -45,6 +45,7 @@ const en = {
   movementSmoothing: 'Movement Smoothing',
   pointerMovementDelay: 'Pointer Movement Delay',
   pointerWiggleStrength: 'Pointer Wiggle Strength',
+  cursorTilt: 'Cursor Tilt',
   pointerWiggleDamping: 'Pointer Wiggle Damping',
   pointerWiggleResponse: 'Pointer Wiggle Response',
   cursorVariants: 'Cursor Variants',
