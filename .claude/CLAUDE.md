@@ -69,6 +69,7 @@ cargo test               # Run tests
   When baking Lab offsets into SVG `x/y`, convert first:  
   `svgOffsetX = labOffsetX * (44/86)` and `svgOffsetY = labOffsetY * (43/86)`.
 - If source is a spritesheet, crop by slot into per-type SVGs first, then normalize.
+  - Use `node screen-record/scripts/generate_cursor_pack.mjs --input <spritesheet.svg> --slug <packslug>` to generate the 12 normalized `cursor-*-<packslug>.svg` files into both `screen-record/public` and `src/overlay/screen_record/dist`.
 - Mirror every cursor asset update into both locations:
   - `screen-record/public/...`
   - `src/overlay/screen_record/dist/...`

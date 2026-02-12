@@ -155,6 +155,18 @@ const RESIZE_NS_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtp
 const RESIZE_WE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtpixel.svg");
 const RESIZE_NWSE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtpixel.svg");
 const RESIZE_NESW_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtpixel.svg");
+const DEFAULT_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-default-jepriwin11.svg");
+const TEXT_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-text-jepriwin11.svg");
+const POINTER_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-pointer-jepriwin11.svg");
+const OPENHAND_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-openhand-jepriwin11.svg");
+const CLOSEHAND_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-closehand-jepriwin11.svg");
+const WAIT_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-wait-jepriwin11.svg");
+const APPSTARTING_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-jepriwin11.svg");
+const CROSSHAIR_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-jepriwin11.svg");
+const RESIZE_NS_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-jepriwin11.svg");
+const RESIZE_WE_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-jepriwin11.svg");
+const RESIZE_NWSE_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-jepriwin11.svg");
+const RESIZE_NESW_JEPRIWIN11_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-jepriwin11.svg");
 const CURSOR_ATLAS_COLS: u32 = 9;
 const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
 const CURSOR_ATLAS_ROWS: u32 = (CURSOR_ATLAS_SLOTS + CURSOR_ATLAS_COLS - 1) / CURSOR_ATLAS_COLS;
@@ -389,6 +401,19 @@ const CURSOR_SVG_DATA: &[&[u8]] = &[
     RESIZE_WE_SGTPIXEL_SVG,
     RESIZE_NWSE_SGTPIXEL_SVG,
     RESIZE_NESW_SGTPIXEL_SVG,
+    // jepriwin11
+    DEFAULT_JEPRIWIN11_SVG,
+    TEXT_JEPRIWIN11_SVG,
+    POINTER_JEPRIWIN11_SVG,
+    OPENHAND_JEPRIWIN11_SVG,
+    CLOSEHAND_JEPRIWIN11_SVG,
+    WAIT_JEPRIWIN11_SVG,
+    APPSTARTING_JEPRIWIN11_SVG,
+    CROSSHAIR_JEPRIWIN11_SVG,
+    RESIZE_NS_JEPRIWIN11_SVG,
+    RESIZE_WE_JEPRIWIN11_SVG,
+    RESIZE_NWSE_JEPRIWIN11_SVG,
+    RESIZE_NESW_JEPRIWIN11_SVG,
 ];
 
 fn cursor_tile_cache() -> &'static Mutex<Vec<Option<Arc<Vec<u8>>>>> {
@@ -403,7 +428,7 @@ fn render_cursor_tile_rgba(slot: u32) -> Option<Vec<u8>> {
     let tile_size = CURSOR_TILE_SIZE;
     let center = tile_size as f32 / 2.0;
     let mut tile = Pixmap::new(tile_size, tile_size).unwrap();
-    let target = if slot == 1 || slot == 13 || slot == 25 || slot == 37 || slot == 49 || slot == 61 {
+    let target = if slot % 12 == 1 {
         tile_size as f32 * 0.90
     } else {
         tile_size as f32 * 0.94
@@ -885,17 +910,14 @@ fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
 
 fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
     let unit = size / 48.0;
-    if abs(type_id - 2.0) < 0.5 || abs(type_id - 3.0) < 0.5 || abs(type_id - 4.0) < 0.5
-        || abs(type_id - 14.0) < 0.5 || abs(type_id - 15.0) < 0.5 || abs(type_id - 16.0) < 0.5
-        || abs(type_id - 26.0) < 0.5 || abs(type_id - 27.0) < 0.5 || abs(type_id - 28.0) < 0.5
-        || abs(type_id - 38.0) < 0.5 || abs(type_id - 39.0) < 0.5 || abs(type_id - 40.0) < 0.5
-        || abs(type_id - 50.0) < 0.5 || abs(type_id - 51.0) < 0.5 || abs(type_id - 52.0) < 0.5
-        || abs(type_id - 62.0) < 0.5 || abs(type_id - 63.0) < 0.5 || abs(type_id - 64.0) < 0.5 {
-        // hand cursors
+    let slot = i32(floor(type_id + 0.5));
+    let kind = slot % 12;
+    if kind == 2 || kind == 3 || kind == 4 {
+        // pointer/openhand/closehand
         return vec2<f32>(3.0 * unit, 8.5 * unit);
     }
-    if abs(type_id - 1.0) < 0.5 || abs(type_id - 13.0) < 0.5 || abs(type_id - 25.0) < 0.5 || abs(type_id - 37.0) < 0.5 || abs(type_id - 49.0) < 0.5 || abs(type_id - 61.0) < 0.5 {
-        // text ibeam should stay upright
+    if kind == 1 {
+        // text i-beam should stay upright
         return vec2<f32>(0.0, 0.0);
     }
     // default arrow

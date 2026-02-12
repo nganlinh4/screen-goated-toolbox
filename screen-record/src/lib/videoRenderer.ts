@@ -82,7 +82,19 @@ type CursorRenderType =
   | 'resize-ns-sgtpixel'
   | 'resize-we-sgtpixel'
   | 'resize-nwse-sgtpixel'
-  | 'resize-nesw-sgtpixel';
+  | 'resize-nesw-sgtpixel'
+  | 'default-jepriwin11'
+  | 'text-jepriwin11'
+  | 'pointer-jepriwin11'
+  | 'openhand-jepriwin11'
+  | 'closehand-jepriwin11'
+  | 'wait-jepriwin11'
+  | 'appstarting-jepriwin11'
+  | 'crosshair-jepriwin11'
+  | 'resize-ns-jepriwin11'
+  | 'resize-we-jepriwin11'
+  | 'resize-nwse-jepriwin11'
+  | 'resize-nesw-jepriwin11';
 
 export interface RenderContext {
   video: HTMLVideoElement;
@@ -177,6 +189,18 @@ export class VideoRenderer {
   private resizeWeSgtpixelImage: HTMLImageElement;
   private resizeNwseSgtpixelImage: HTMLImageElement;
   private resizeNeswSgtpixelImage: HTMLImageElement;
+  private defaultJepriwin11Image: HTMLImageElement;
+  private textJepriwin11Image: HTMLImageElement;
+  private pointerJepriwin11Image: HTMLImageElement;
+  private openHandJepriwin11Image: HTMLImageElement;
+  private closeHandJepriwin11Image: HTMLImageElement;
+  private waitJepriwin11Image: HTMLImageElement;
+  private appStartingJepriwin11Image: HTMLImageElement;
+  private crosshairJepriwin11Image: HTMLImageElement;
+  private resizeNsJepriwin11Image: HTMLImageElement;
+  private resizeWeJepriwin11Image: HTMLImageElement;
+  private resizeNwseJepriwin11Image: HTMLImageElement;
+  private resizeNeswJepriwin11Image: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
 
@@ -521,6 +545,54 @@ export class VideoRenderer {
     this.resizeNeswSgtpixelImage.src = `/cursor-resize-nesw-sgtpixel.svg?v=${CURSOR_ASSET_VERSION}`;
     this.resizeNeswSgtpixelImage.onload = () => { };
 
+    this.defaultJepriwin11Image = new Image();
+    this.defaultJepriwin11Image.src = `/cursor-default-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.defaultJepriwin11Image.onload = () => { };
+
+    this.textJepriwin11Image = new Image();
+    this.textJepriwin11Image.src = `/cursor-text-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.textJepriwin11Image.onload = () => { };
+
+    this.pointerJepriwin11Image = new Image();
+    this.pointerJepriwin11Image.src = `/cursor-pointer-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.pointerJepriwin11Image.onload = () => { };
+
+    this.openHandJepriwin11Image = new Image();
+    this.openHandJepriwin11Image.src = `/cursor-openhand-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.openHandJepriwin11Image.onload = () => { };
+
+    this.closeHandJepriwin11Image = new Image();
+    this.closeHandJepriwin11Image.src = `/cursor-closehand-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.closeHandJepriwin11Image.onload = () => { };
+
+    this.waitJepriwin11Image = new Image();
+    this.waitJepriwin11Image.src = `/cursor-wait-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.waitJepriwin11Image.onload = () => { };
+
+    this.appStartingJepriwin11Image = new Image();
+    this.appStartingJepriwin11Image.src = `/cursor-appstarting-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.appStartingJepriwin11Image.onload = () => { };
+
+    this.crosshairJepriwin11Image = new Image();
+    this.crosshairJepriwin11Image.src = `/cursor-crosshair-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.crosshairJepriwin11Image.onload = () => { };
+
+    this.resizeNsJepriwin11Image = new Image();
+    this.resizeNsJepriwin11Image.src = `/cursor-resize-ns-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNsJepriwin11Image.onload = () => { };
+
+    this.resizeWeJepriwin11Image = new Image();
+    this.resizeWeJepriwin11Image.src = `/cursor-resize-we-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeWeJepriwin11Image.onload = () => { };
+
+    this.resizeNwseJepriwin11Image = new Image();
+    this.resizeNwseJepriwin11Image.src = `/cursor-resize-nwse-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNwseJepriwin11Image.onload = () => { };
+
+    this.resizeNeswJepriwin11Image = new Image();
+    this.resizeNeswJepriwin11Image.src = `/cursor-resize-nesw-jepriwin11.svg?v=${CURSOR_ASSET_VERSION}`;
+    this.resizeNeswJepriwin11Image.onload = () => { };
+
     this.cursorOffscreen = new OffscreenCanvas(128, 128);
     this.cursorOffscreenCtx = this.cursorOffscreen.getContext('2d')!;
   }
@@ -572,13 +644,20 @@ export class VideoRenderer {
     ].join('|');
   }
 
-  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' {
+  private getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' {
+    if (backgroundConfig?.cursorPack === 'jepriwin11') return 'jepriwin11';
     if (backgroundConfig?.cursorPack === 'sgtpixel') return 'sgtpixel';
     if (backgroundConfig?.cursorPack === 'sgtai') return 'sgtai';
     if (backgroundConfig?.cursorPack === 'sgtcool') return 'sgtcool';
     if (backgroundConfig?.cursorPack === 'sgtcute') return 'sgtcute';
     if (backgroundConfig?.cursorPack === 'macos26') return 'macos26';
     if (backgroundConfig?.cursorPack === 'screenstudio') return 'screenstudio';
+    if (backgroundConfig?.cursorDefaultVariant === 'jepriwin11'
+      || backgroundConfig?.cursorTextVariant === 'jepriwin11'
+      || backgroundConfig?.cursorPointerVariant === 'jepriwin11'
+      || backgroundConfig?.cursorOpenHandVariant === 'jepriwin11') {
+      return 'jepriwin11';
+    }
     if (backgroundConfig?.cursorDefaultVariant === 'sgtpixel'
       || backgroundConfig?.cursorTextVariant === 'sgtpixel'
       || backgroundConfig?.cursorPointerVariant === 'sgtpixel'
@@ -713,6 +792,23 @@ export class VideoRenderer {
         case 'resize_nwse': return 'resize-nwse-sgtpixel';
         case 'resize_nesw': return 'resize-nesw-sgtpixel';
         default: return 'default-sgtpixel';
+      }
+    }
+
+    if (pack === 'jepriwin11') {
+      switch (semanticType) {
+        case 'text': return 'text-jepriwin11';
+        case 'pointer': return 'pointer-jepriwin11';
+        case 'openhand': return 'openhand-jepriwin11';
+        case 'closehand': return 'closehand-jepriwin11';
+        case 'wait': return 'wait-jepriwin11';
+        case 'appstarting': return 'appstarting-jepriwin11';
+        case 'crosshair': return 'crosshair-jepriwin11';
+        case 'resize_ns': return 'resize-ns-jepriwin11';
+        case 'resize_we': return 'resize-we-jepriwin11';
+        case 'resize_nwse': return 'resize-nwse-jepriwin11';
+        case 'resize_nesw': return 'resize-nesw-jepriwin11';
+        default: return 'default-jepriwin11';
       }
     }
 
@@ -2121,6 +2217,9 @@ export class VideoRenderer {
       case 'pointer-sgtpixel':
       case 'openhand-sgtpixel':
       case 'closehand-sgtpixel':
+      case 'pointer-jepriwin11':
+      case 'openhand-jepriwin11':
+      case 'closehand-jepriwin11':
         return { x: 3.0, y: 8.5 };
       case 'text-screenstudio':
       case 'text-macos26':
@@ -2128,6 +2227,7 @@ export class VideoRenderer {
       case 'text-sgtcool':
       case 'text-sgtai':
       case 'text-sgtpixel':
+      case 'text-jepriwin11':
         return { x: 0, y: 0 };
       default:
         return { x: 3.6, y: 5.6 };
@@ -2259,6 +2359,24 @@ export class VideoRenderer {
     }
   }
 
+  private getJepriwin11CursorImage(type: CursorRenderType): HTMLImageElement | null {
+    switch (type) {
+      case 'default-jepriwin11': return this.defaultJepriwin11Image;
+      case 'text-jepriwin11': return this.textJepriwin11Image;
+      case 'pointer-jepriwin11': return this.pointerJepriwin11Image;
+      case 'openhand-jepriwin11': return this.openHandJepriwin11Image;
+      case 'closehand-jepriwin11': return this.closeHandJepriwin11Image;
+      case 'wait-jepriwin11': return this.waitJepriwin11Image;
+      case 'appstarting-jepriwin11': return this.appStartingJepriwin11Image;
+      case 'crosshair-jepriwin11': return this.crosshairJepriwin11Image;
+      case 'resize-ns-jepriwin11': return this.resizeNsJepriwin11Image;
+      case 'resize-we-jepriwin11': return this.resizeWeJepriwin11Image;
+      case 'resize-nwse-jepriwin11': return this.resizeNwseJepriwin11Image;
+      case 'resize-nesw-jepriwin11': return this.resizeNeswJepriwin11Image;
+      default: return null;
+    }
+  }
+
   private getScreenStudioCursorImage(type: CursorRenderType | string): HTMLImageElement | null {
     switch (type) {
       case 'default-screenstudio': return this.defaultScreenStudioImage;
@@ -2372,6 +2490,12 @@ export class VideoRenderer {
         effectiveType = 'default-screenstudio';
       }
     }
+    if (effectiveType.endsWith('-jepriwin11')) {
+      const image = this.getJepriwin11CursorImage(effectiveType as CursorRenderType);
+      if (!image || !image.complete || image.naturalWidth === 0) {
+        effectiveType = 'default-screenstudio';
+      }
+    }
 
     const mappingKey = `${cursorType}=>${effectiveType}`;
     if (!this.loggedCursorMappings.has(mappingKey)) {
@@ -2390,7 +2514,8 @@ export class VideoRenderer {
         this.getSgtcuteCursorImage(effectiveType as CursorRenderType) ??
         this.getSgtcoolCursorImage(effectiveType as CursorRenderType) ??
         this.getSgtaiCursorImage(effectiveType as CursorRenderType) ??
-        this.getSgtpixelCursorImage(effectiveType as CursorRenderType);
+        this.getSgtpixelCursorImage(effectiveType as CursorRenderType) ??
+        this.getJepriwin11CursorImage(effectiveType as CursorRenderType);
       console.log('[CursorDebug] loaded', {
         effectiveType,
         src: debugImg?.src,
@@ -2498,6 +2623,23 @@ export class VideoRenderer {
       case 'resize-nwse-sgtpixel':
       case 'resize-nesw-sgtpixel': {
         const img = this.getSgtpixelCursorImage(effectiveType);
+        if (img) this.drawCenteredCursorImage(ctx, img);
+        break;
+      }
+
+      case 'default-jepriwin11':
+      case 'text-jepriwin11':
+      case 'pointer-jepriwin11':
+      case 'openhand-jepriwin11':
+      case 'closehand-jepriwin11':
+      case 'wait-jepriwin11':
+      case 'appstarting-jepriwin11':
+      case 'crosshair-jepriwin11':
+      case 'resize-ns-jepriwin11':
+      case 'resize-we-jepriwin11':
+      case 'resize-nwse-jepriwin11':
+      case 'resize-nesw-jepriwin11': {
+        const img = this.getJepriwin11CursorImage(effectiveType);
         if (img) this.drawCenteredCursorImage(ctx, img);
         break;
       }
