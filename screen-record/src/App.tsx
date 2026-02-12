@@ -25,6 +25,7 @@ import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
 
 const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
 const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
+const PROJECT_SAVE_DEBUG = true;
 
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   scale: 90,
@@ -88,6 +89,12 @@ function App() {
   const wheelBatchActiveRef = useRef(false);
   const wheelBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreImageRef = useRef<string | null>(null);
+  const projectSaveSeqRef = useRef(0);
+  const debugProject = useCallback((event: string, data?: Record<string, unknown>) => {
+    if (!PROJECT_SAVE_DEBUG) return;
+    const ts = new Date().toISOString();
+    console.log(`[ProjectSave][${ts}] ${event}`, data || {});
+  }, []);
 
   // Utility hooks
   const { needsSetup, ffmpegInstallStatus, handleCancelInstall } = useFfmpegSetup();
@@ -234,19 +241,128 @@ function App() {
     window.location.hash = '#cursor-lab';
   }, []);
 
-  const handleToggleProjects = useCallback(() => {
-    if (projects.showProjectsDialog) {
-      window.dispatchEvent(new CustomEvent('sr-close-projects'));
-    } else {
-      if (canvasRef.current && currentVideo) {
-        try { restoreImageRef.current = canvasRef.current.toDataURL('image/jpeg', 0.8); }
-        catch { restoreImageRef.current = null; }
-      } else {
-        restoreImageRef.current = null;
+  const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
+    if (!projects.currentProjectId || !currentVideo || !segment) return;
+    const projectId = projects.currentProjectId;
+    const saveSeq = ++projectSaveSeqRef.current;
+    const includeMedia = options?.includeMedia !== false;
+    debugProject('persist:start', {
+      saveSeq,
+      projectId,
+      refreshList: options?.refreshList ?? true,
+      includeMedia,
+      canvasMode: backgroundConfig.canvasMode,
+      canvasWidth: backgroundConfig.canvasWidth,
+      canvasHeight: backgroundConfig.canvasHeight
+    });
+    try {
+      let videoBlob: Blob | undefined;
+      let thumbnail: string | undefined;
+      if (includeMedia) {
+        // Use the currently rendered preview frame whenever possible so the
+        // project card thumbnail matches exactly what the user just saw.
+        const canvasSnapshot = (() => {
+          try { return canvasRef.current?.toDataURL('image/jpeg', 0.8); }
+          catch { return undefined; }
+        })();
+
+        const response = await fetch(currentVideo);
+        videoBlob = await response.blob();
+        const generated = await videoControllerRef.current?.generateThumbnail({
+          segment, backgroundConfig, mousePositions
+        });
+        thumbnail = canvasSnapshot || generated || generateThumbnail();
       }
-      projects.setShowProjectsDialog(true);
+      // Drop stale in-flight saves so older state never overwrites newer edits.
+      if (saveSeq !== projectSaveSeqRef.current) {
+        debugProject('persist:stale-before-write', { saveSeq, latestSeq: projectSaveSeqRef.current, projectId });
+        return;
+      }
+      await projectManager.updateProject(projectId, {
+        name: projects.projects.find(p => p.id === projectId)?.name || "Auto Saved",
+        videoBlob, segment, backgroundConfig, mousePositions, thumbnail,
+        duration: videoControllerRef.current?.duration || duration
+      });
+      if (saveSeq !== projectSaveSeqRef.current) {
+        debugProject('persist:stale-after-write', { saveSeq, latestSeq: projectSaveSeqRef.current, projectId });
+        return;
+      }
+      debugProject('persist:committed', {
+        saveSeq,
+        projectId,
+        canvasMode: backgroundConfig.canvasMode,
+        canvasWidth: backgroundConfig.canvasWidth,
+        canvasHeight: backgroundConfig.canvasHeight
+      });
+      if (options?.refreshList !== false) {
+        await projects.loadProjects();
+        debugProject('persist:projects-refreshed', { saveSeq, projectId });
+      }
+    } catch (error) {
+      debugProject('persist:error', { saveSeq, projectId, error: String(error) });
     }
-  }, [projects.showProjectsDialog, currentVideo]);
+  }, [
+    projects.currentProjectId, projects.projects, projects.loadProjects,
+    currentVideo, segment, backgroundConfig, mousePositions,
+    generateThumbnail, duration, debugProject
+  ]);
+
+  const handleLoadProjectFromGrid = useCallback(async (projectId: string) => {
+    // Always persist the currently open project before loading another one.
+    debugProject('grid-load:start', { targetProjectId: projectId, currentProjectId: projects.currentProjectId });
+    if (projectId === projects.currentProjectId) {
+      projects.setShowProjectsDialog(false);
+      debugProject('grid-load:same-project-close', { targetProjectId: projectId });
+      return;
+    }
+    void persistCurrentProjectNow({ refreshList: false, includeMedia: false });
+    await projects.handleLoadProject(projectId);
+    debugProject('grid-load:done', { targetProjectId: projectId });
+  }, [persistCurrentProjectNow, projects, debugProject]);
+
+  const handleToggleProjects = useCallback(async () => {
+    if (projects.showProjectsDialog) {
+      debugProject('projects-toggle:close');
+      window.dispatchEvent(new CustomEvent('sr-close-projects'));
+      return;
+    }
+
+    debugProject('projects-toggle:open:start', {
+      currentProjectId: projects.currentProjectId,
+      canvasMode: backgroundConfig.canvasMode,
+      canvasWidth: backgroundConfig.canvasWidth,
+      canvasHeight: backgroundConfig.canvasHeight
+    });
+    // Persist in background to keep opening Projects instant.
+    void persistCurrentProjectNow({ refreshList: true, includeMedia: false });
+
+    if (canvasRef.current && currentVideo) {
+      try { restoreImageRef.current = canvasRef.current.toDataURL('image/jpeg', 0.8); }
+      catch { restoreImageRef.current = null; }
+    } else {
+      restoreImageRef.current = null;
+    }
+    projects.setShowProjectsDialog(true);
+    debugProject('projects-toggle:open:done', { currentProjectId: projects.currentProjectId });
+  }, [projects.showProjectsDialog, projects.currentProjectId, currentVideo, backgroundConfig.canvasMode, backgroundConfig.canvasWidth, backgroundConfig.canvasHeight, persistCurrentProjectNow, debugProject, projects]);
+
+  // Persist canvas mode/size changes quickly so reopening projects can't
+  // resurrect stale custom-canvas settings from an older autosave.
+  useEffect(() => {
+    if (!projects.currentProjectId || !currentVideo || !segment) return;
+    const timer = setTimeout(() => {
+      void persistCurrentProjectNow({ refreshList: false, includeMedia: false });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [
+    projects.currentProjectId,
+    currentVideo,
+    segment,
+    backgroundConfig.canvasMode,
+    backgroundConfig.canvasWidth,
+    backgroundConfig.canvasHeight,
+    persistCurrentProjectNow
+  ]);
 
   const handleStartRecording = useCallback(async () => {
     if (isRecording) return;
@@ -380,23 +496,11 @@ function App() {
   // Auto-save
   useEffect(() => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
-    const timer = setTimeout(async () => {
-      try {
-        const response = await fetch(currentVideo);
-        const videoBlob = await response.blob();
-        const thumbnail = await videoControllerRef.current?.generateThumbnail({
-          segment, backgroundConfig, mousePositions
-        }) || generateThumbnail();
-        await projectManager.updateProject(projects.currentProjectId!, {
-          name: projects.projects.find(p => p.id === projects.currentProjectId)?.name || "Auto Saved",
-          videoBlob, segment, backgroundConfig, mousePositions, thumbnail,
-          duration: videoControllerRef.current?.duration || duration
-        });
-        await projects.loadProjects();
-      } catch {}
+    const timer = setTimeout(() => {
+      void persistCurrentProjectNow({ refreshList: true, includeMedia: true });
     }, 2000);
     return () => clearTimeout(timer);
-  }, [segment, backgroundConfig, mousePositions, projects.currentProjectId, currentVideo, generateThumbnail, projects]);
+  }, [segment, backgroundConfig, mousePositions, projects.currentProjectId, currentVideo, persistCurrentProjectNow]);
 
   // Text drag listeners
   useEffect(() => {
@@ -524,7 +628,7 @@ function App() {
               {projects.showProjectsDialog && (
                 <ProjectsView
                   projects={projects.projects}
-                  onLoadProject={projects.handleLoadProject}
+                  onLoadProject={handleLoadProjectFromGrid}
                   onProjectsChange={projects.loadProjects}
                   onClose={() => projects.setShowProjectsDialog(false)}
                   currentProjectId={projects.currentProjectId}

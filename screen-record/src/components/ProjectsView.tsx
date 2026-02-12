@@ -30,6 +30,21 @@ function containRect(
   return { left: (cw - w) / 2, top: (ch - h) / 2, width: w, height: h };
 }
 
+/** Resolve the rendered preview canvas rect relative to a parent, if present. */
+function getPreviewCanvasRect(parent: HTMLElement): { left: number; top: number; width: number; height: number } | null {
+  const canvas = parent.querySelector('.preview-canvas-element') as HTMLCanvasElement | null;
+  if (!canvas) return null;
+  const parentRect = parent.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  if (canvasRect.width <= 0 || canvasRect.height <= 0) return null;
+  return {
+    left: canvasRect.left - parentRect.left,
+    top: canvasRect.top - parentRect.top,
+    width: canvasRect.width,
+    height: canvasRect.height,
+  };
+}
+
 export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClose, currentProjectId, restoreImage }: ProjectsViewProps) {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -165,13 +180,14 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
 
     const parentRect = portalTarget.getBoundingClientRect();
     const thumbRect = thumbnailImg.getBoundingClientRect();
-
-    // Thumbnail natural dimensions = canvas pixel dimensions
+    const canvasTarget = getPreviewCanvasRect(portalTarget);
     const natW = thumbnailImg.naturalWidth || 16;
     const natH = thumbnailImg.naturalHeight || 9;
-
-    // Where the canvas will actually render (object-fit:contain, flex-centered)
-    const target = containRect(parentRect.width, parentRect.height, natW, natH);
+    // For cross-project switches, target the clicked project's own aspect.
+    // For reopening current project, use the live preview canvas rect.
+    const target = projectId === currentProjectId
+      ? (canvasTarget ?? containRect(parentRect.width, parentRect.height, natW, natH))
+      : containRect(parentRect.width, parentRect.height, natW, natH);
 
     // Thumbnail position relative to portal target
     const thumbRelLeft = thumbRect.left - parentRect.left;
@@ -263,9 +279,8 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
 
     const parentRect = portalTarget.getBoundingClientRect();
     const thumbRect = thumbnailImg.getBoundingClientRect();
-    const natW = thumbnailImg.naturalWidth || 16;
-    const natH = thumbnailImg.naturalHeight || 9;
-    const target = containRect(parentRect.width, parentRect.height, natW, natH);
+    const canvasTarget = getPreviewCanvasRect(portalTarget);
+    const target = canvasTarget ?? containRect(parentRect.width, parentRect.height, 16, 9);
     const thumbRelLeft = thumbRect.left - parentRect.left;
     const thumbRelTop = thumbRect.top - parentRect.top;
 
@@ -364,8 +379,12 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
                     className="project-thumbnail bg-[var(--surface-container-high)] relative cursor-pointer overflow-hidden"
                     onClick={(e) => handleProjectClick(project.id, e)}
                   >
-                    {project.thumbnail ? (
-                      <img src={project.thumbnail} className="w-full block" alt="" />
+                    {(project.id === currentProjectId && restoreImage) || project.thumbnail ? (
+                      <img
+                        src={(project.id === currentProjectId && restoreImage) ? restoreImage : project.thumbnail}
+                        className="w-full block"
+                        alt=""
+                      />
                     ) : (
                       <div className="thumbnail-placeholder w-full aspect-video flex items-center justify-center">
                         <Video className="w-6 h-6 text-[var(--outline-variant)]" />
