@@ -38,6 +38,9 @@ const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   cursorShadow: 100,
   cursorWiggleStrength: 0.30,
   cursorTiltAngle: -10,
+  motionBlurCursor: 25,
+  motionBlurZoom: 10,
+  motionBlurPan: 10,
   cursorPack: 'macos26',
   cursorDefaultVariant: 'macos26',
   cursorTextVariant: 'macos26',
@@ -647,7 +650,7 @@ function App() {
           </div>
 
           {/* Side Panel */}
-          <div className={`side-panel-container w-72 flex-shrink-0 min-h-0 relative ${isOverlayMode ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
+          <div className={`side-panel-container w-80 flex-shrink-0 min-h-0 relative ${isOverlayMode ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}

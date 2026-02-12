@@ -255,6 +255,11 @@ export class VideoRenderer {
   private readonly RELEASE_SPEED = 0.01;
   private cursorOffscreen: OffscreenCanvas;
   private cursorOffscreenCtx: OffscreenCanvasRenderingContext2D;
+  // Motion blur canvases (reused across frames)
+  private blurAccumCanvas: OffscreenCanvas | null = null;
+  private blurAccumCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private blurSubCanvas: OffscreenCanvas | null = null;
+  private blurSubCtx: OffscreenCanvasRenderingContext2D | null = null;
 
   constructor() {
     this.defaultScreenStudioImage = new Image();
@@ -1175,25 +1180,7 @@ export class VideoRenderer {
       const zf = zoomState?.zoomFactor ?? 1;
       const ss = isExportMode && zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
 
-      ctx.save();
-
-      if (zoomState && zoomState.zoomFactor !== 1) {
-        const zoomedWidth = canvas.width * zoomState.zoomFactor;
-        const zoomedHeight = canvas.height * zoomState.zoomFactor;
-        const zoomOffsetX = (canvas.width - zoomedWidth) * zoomState.positionX;
-        const zoomOffsetY = (canvas.height - zoomedHeight) * zoomState.positionY;
-
-        ctx.translate(zoomOffsetX, zoomOffsetY);
-        ctx.scale(zoomState.zoomFactor, zoomState.zoomFactor);
-      }
-
-      ctx.fillStyle = this.getBackgroundStyle(
-        ctx,
-        backgroundConfig.backgroundType,
-        backgroundConfig.customBackground
-      );
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
+      // --- Prepare tempCanvas (video + shadow + border radius) - same for all sub-frames ---
       const tempW = canvasW * ss;
       const tempH = canvasH * ss;
       if (tempCanvas.width !== tempW || tempCanvas.height !== tempH) {
@@ -1263,68 +1250,216 @@ export class VideoRenderer {
       tempCtx.stroke();
       tempCtx.restore();
 
-      ctx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);
-
+      // --- Compute cursor state (squish, visibility) once per frame ---
       const cursorTime = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig);
-      const interpolatedPosition = this.interpolateCursorPosition(
-        cursorTime,
-        mousePositions,
-        backgroundConfig
-      );
+      const interpolatedPosition = this.interpolateCursorPosition(cursorTime, mousePositions, backgroundConfig);
+      const cursorVis = getCursorVisibility(video.currentTime, segment.cursorVisibilitySegments);
+      const showCursor = interpolatedPosition && cursorVis.opacity > 0.001;
 
-      if (interpolatedPosition) {
-        // Cursor visibility (smart pointer hiding)
-        const cursorVis = getCursorVisibility(video.currentTime, segment.cursorVisibilitySegments);
-
-        if (cursorVis.opacity > 0.001) {
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-          const mX = interpolatedPosition.x;
-          const mY = interpolatedPosition.y;
-
-          const relX = (mX - srcX) / srcW;
-          const relY = (mY - srcY) / (srcH * (1 - legacyCrop));
-
-          let cursorX = x + (relX * scaledWidth);
-          let cursorY = y + (relY * scaledHeight);
-
-          if (zoomState && zoomState.zoomFactor !== 1) {
-            cursorX = cursorX * zoomState.zoomFactor + (canvas.width - canvas.width * zoomState.zoomFactor) * zoomState.positionX;
-            cursorY = cursorY * zoomState.zoomFactor + (canvas.height - canvas.height * zoomState.zoomFactor) * zoomState.positionY;
-          }
-
-          const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
-          const cursorSizeScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1) * cursorVis.scale;
-
-          const isActuallyClicked = interpolatedPosition.isClicked;
-          const timeSinceLastHold = video.currentTime - this.lastHoldTime;
-          const shouldBeSquished = isActuallyClicked || (this.lastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
-
-          if (isActuallyClicked) {
-            this.lastHoldTime = video.currentTime;
-          }
-
-          const targetScale = shouldBeSquished ? 0.75 : 1.0;
-          if (this.currentSquishScale > targetScale) {
-            this.currentSquishScale = Math.max(targetScale, this.currentSquishScale - this.SQUISH_SPEED * (this.latestElapsed / (1000 / 120)));
-          } else if (this.currentSquishScale < targetScale) {
-            this.currentSquishScale = Math.min(targetScale, this.currentSquishScale + this.RELEASE_SPEED * (this.latestElapsed / (1000 / 120)));
-          }
-
-          ctx.globalAlpha = cursorVis.opacity;
-          this.drawMouseCursor(
-            ctx,
-            cursorX,
-            cursorY,
-            shouldBeSquished,
-            cursorSizeScale,
-            this.resolveCursorRenderType(interpolatedPosition.cursor_type || 'default', backgroundConfig, Boolean(interpolatedPosition.isClicked)),
-            interpolatedPosition.cursor_rotation || 0
-          );
-
-          ctx.restore();
+      if (showCursor) {
+        const isActuallyClicked = interpolatedPosition!.isClicked;
+        const timeSinceLastHold = video.currentTime - this.lastHoldTime;
+        const shouldBeSquished = isActuallyClicked || (this.lastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+        if (isActuallyClicked) this.lastHoldTime = video.currentTime;
+        const targetScale = shouldBeSquished ? 0.75 : 1.0;
+        if (this.currentSquishScale > targetScale) {
+          this.currentSquishScale = Math.max(targetScale, this.currentSquishScale - this.SQUISH_SPEED * (this.latestElapsed / (1000 / 120)));
+        } else if (this.currentSquishScale < targetScale) {
+          this.currentSquishScale = Math.min(targetScale, this.currentSquishScale + this.RELEASE_SPEED * (this.latestElapsed / (1000 / 120)));
         }
+      }
+
+      const bgStyle = this.getBackgroundStyle(ctx, backgroundConfig.backgroundType, backgroundConfig.customBackground);
+      const sizeRatio = Math.min(canvas.width / srcW, canvas.height / srcH);
+
+      // Helper: compute cursor screen position for a given cursor + zoom state
+      const cursorScreenPos = (
+        cur: { x: number; y: number },
+        zs: ZoomKeyframe | null
+      ) => {
+        const relCX = (cur.x - srcX) / srcW;
+        const relCY = (cur.y - srcY) / (srcH * (1 - legacyCrop));
+        let cx = x + relCX * scaledWidth;
+        let cy = y + relCY * scaledHeight;
+        if (zs && zs.zoomFactor !== 1) {
+          cx = cx * zs.zoomFactor + (canvasW - canvasW * zs.zoomFactor) * zs.positionX;
+          cy = cy * zs.zoomFactor + (canvasH - canvasH * zs.zoomFactor) * zs.positionY;
+        }
+        return { x: cx, y: cy };
+      };
+
+      // Helper: draw one composited sub-frame (background + video + cursor) with normal compositing
+      const drawSubFrame = (
+        tCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+        subZoom: ZoomKeyframe | null,
+        subCur: { x: number; y: number; isClicked: boolean; cursor_type: string; cursor_rotation?: number } | null,
+      ) => {
+        // Scene (background + video) with zoom transform
+        tCtx.save();
+        if (subZoom && subZoom.zoomFactor !== 1) {
+          const zW = canvasW * subZoom.zoomFactor;
+          const zH = canvasH * subZoom.zoomFactor;
+          tCtx.translate((canvasW - zW) * subZoom.positionX, (canvasH - zH) * subZoom.positionY);
+          tCtx.scale(subZoom.zoomFactor, subZoom.zoomFactor);
+        }
+        tCtx.fillStyle = bgStyle;
+        tCtx.fillRect(0, 0, canvasW, canvasH);
+        tCtx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);
+        tCtx.restore();
+
+        // Cursor (screen space)
+        if (subCur && showCursor) {
+          tCtx.save();
+          tCtx.setTransform(1, 0, 0, 1, 0, 0);
+          tCtx.globalAlpha = cursorVis.opacity;
+          const sp = cursorScreenPos(subCur, subZoom);
+          const cScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (subZoom?.zoomFactor || 1) * cursorVis.scale;
+          this.drawMouseCursor(
+            tCtx as unknown as CanvasRenderingContext2D, sp.x, sp.y,
+            interpolatedPosition!.isClicked,
+            cScale,
+            this.resolveCursorRenderType(subCur.cursor_type || 'default', backgroundConfig, Boolean(subCur.isClicked)),
+            subCur.cursor_rotation || 0
+          );
+          tCtx.restore();
+        }
+      };
+
+      // --- Motion blur detection (slider-based: 0=off, 50=standard, 100=heavy) ---
+      const blurZoomVal = backgroundConfig.motionBlurZoom ?? 10;
+      const blurPanVal = backgroundConfig.motionBlurPan ?? 10;
+      const blurCursorVal = backgroundConfig.motionBlurCursor ?? 25;
+      const maxBlurVal = Math.max(blurZoomVal, blurPanVal, blurCursorVal);
+      const anyBlurEnabled = maxBlurVal > 0;
+      // Shutter angle: val=50 → 270° (cinematic+), val=100 → 540° (extreme)
+      const shutterAngle = maxBlurVal * 5.4;
+      // Use 30fps as reference frame interval (matches typical recording/export FPS)
+      // so preview blur width matches what export produces
+      const refFps = 30;
+      const shutterSec = anyBlurEnabled ? (shutterAngle / 360) / refFps : 0;
+      // Per-channel shutter (proportional to their slider)
+      const cursorShutterSec = blurCursorVal > 0 ? (blurCursorVal * 5.4 / 360) / refFps : 0;
+      // Preview is real-time: cap samples to avoid starving the video decoder
+      // High zoom = heavier per-draw, so reduce samples further
+      // Export uses 12-32 samples offline for perfect quality
+      const blurZf = zoomState?.zoomFactor ?? 1;
+      const maxN = video.paused ? 2 : blurZf > 5 ? 1 : blurZf > 3 ? 2 : 3;
+      const N = Math.min(maxN, shutterAngle <= 0 ? 1 : shutterAngle <= 180 ? 2 : 3);
+
+      // Check if camera/cursor is actually moving
+      let cameraMoving = false;
+      let cursorMoving = false;
+      if (anyBlurEnabled && shutterSec > 0) {
+        const halfShutter = shutterSec / 2;
+        const t0 = video.currentTime - halfShutter;
+        const t1 = video.currentTime + halfShutter;
+        if (blurZoomVal > 0 || blurPanVal > 0) {
+          const z0 = this.calculateCurrentZoomState(t0, segment, canvasW, canvasH, srcW, srcH);
+          const z1 = this.calculateCurrentZoomState(t1, segment, canvasW, canvasH, srcW, srcH);
+          if (z0 && z1) {
+            if (blurZoomVal > 0 && Math.abs(z0.zoomFactor - z1.zoomFactor) > 0.002) cameraMoving = true;
+            if (blurPanVal > 0 && (Math.abs(z0.positionX - z1.positionX) > 0.001 || Math.abs(z0.positionY - z1.positionY) > 0.001)) cameraMoving = true;
+          }
+        }
+        if (blurCursorVal > 0 && interpolatedPosition) {
+          const c0 = this.interpolateCursorPosition(t0 + this.getCursorMovementDelaySec(backgroundConfig), mousePositions, backgroundConfig);
+          const c1 = this.interpolateCursorPosition(t1 + this.getCursorMovementDelaySec(backgroundConfig), mousePositions, backgroundConfig);
+          if (c0 && c1 && Math.hypot(c1.x - c0.x, c1.y - c0.y) > 1.0) cursorMoving = true;
+        }
+      }
+
+      ctx.save();
+
+      if (cameraMoving) {
+        // --- CAMERA BLUR PATH: render each sub-frame to temp canvas, accumulate with lighter ---
+        // Ensure accumulation canvas
+        if (!this.blurAccumCanvas || this.blurAccumCanvas.width !== canvasW || this.blurAccumCanvas.height !== canvasH) {
+          this.blurAccumCanvas = new OffscreenCanvas(canvasW, canvasH);
+          this.blurAccumCtx = this.blurAccumCanvas.getContext('2d')!;
+        }
+        // Ensure sub-frame canvas (rendered with NORMAL compositing, then blitted additively)
+        if (!this.blurSubCanvas || this.blurSubCanvas.width !== canvasW || this.blurSubCanvas.height !== canvasH) {
+          this.blurSubCanvas = new OffscreenCanvas(canvasW, canvasH);
+          this.blurSubCtx = this.blurSubCanvas.getContext('2d')!;
+        }
+        const aCtx = this.blurAccumCtx!;
+        const sCtx = this.blurSubCtx!;
+        aCtx.clearRect(0, 0, canvasW, canvasH);
+
+        const centerZoom = zoomState;
+        for (let i = 0; i < N; i++) {
+          const f = (i + 0.5) / N - 0.5; // [-0.5, +0.5]
+          const cameraSubT = video.currentTime + f * shutterSec;
+          const cursorSubT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) + f * cursorShutterSec;
+
+          // Sample camera — cherry-pick per channel
+          const subCamState = this.calculateCurrentZoomState(cameraSubT, segment, canvasW, canvasH, srcW, srcH);
+          const subZoom: ZoomKeyframe | null = subCamState ? {
+            ...subCamState,
+            zoomFactor: blurZoomVal > 0 ? subCamState.zoomFactor : (centerZoom?.zoomFactor ?? 1),
+            positionX: blurPanVal > 0 ? subCamState.positionX : (centerZoom?.positionX ?? 0.5),
+            positionY: blurPanVal > 0 ? subCamState.positionY : (centerZoom?.positionY ?? 0.5),
+          } : centerZoom;
+
+          const subCur = cursorMoving
+            ? this.interpolateCursorPosition(cursorSubT, mousePositions, backgroundConfig)
+            : interpolatedPosition;
+
+          // Render sub-frame with NORMAL compositing to temp canvas
+          sCtx.clearRect(0, 0, canvasW, canvasH);
+          drawSubFrame(sCtx, subZoom, subCur);
+
+          // Accumulate onto blur canvas with source-over averaging
+          // Online average: frame_i gets alpha = 1/(i+1), blending equally with all prior frames
+          // This avoids 8-bit quantization banding that 'lighter' with 1/N alpha causes
+          aCtx.save();
+          aCtx.globalAlpha = 1 / (i + 1);
+          aCtx.drawImage(this.blurSubCanvas!, 0, 0);
+          aCtx.restore();
+        }
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(this.blurAccumCanvas, 0, 0);
+
+      } else if (cursorMoving && showCursor) {
+        // --- CURSOR-ONLY BLUR PATH: single video draw + multi-cursor ---
+        drawSubFrame(ctx, zoomState, null);
+
+        // Blurred cursor overlay
+        if (!this.blurAccumCanvas || this.blurAccumCanvas.width !== canvasW || this.blurAccumCanvas.height !== canvasH) {
+          this.blurAccumCanvas = new OffscreenCanvas(canvasW, canvasH);
+          this.blurAccumCtx = this.blurAccumCanvas.getContext('2d')!;
+        }
+        const aCtx = this.blurAccumCtx!;
+        aCtx.clearRect(0, 0, canvasW, canvasH);
+
+        for (let i = 0; i < N; i++) {
+          const f = (i + 0.5) / N - 0.5;
+          const subCursorT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) + f * cursorShutterSec;
+          const subCur = this.interpolateCursorPosition(subCursorT, mousePositions, backgroundConfig);
+          if (!subCur) continue;
+
+          aCtx.save();
+          aCtx.setTransform(1, 0, 0, 1, 0, 0);
+          aCtx.globalCompositeOperation = 'lighter';
+          aCtx.globalAlpha = cursorVis.opacity / N;
+          const sp = cursorScreenPos(subCur, zoomState);
+          const cScale = (backgroundConfig.cursorScale || 2) * sizeRatio * (zoomState?.zoomFactor || 1) * cursorVis.scale;
+          this.drawMouseCursor(
+            aCtx as unknown as CanvasRenderingContext2D, sp.x, sp.y,
+            interpolatedPosition!.isClicked, cScale,
+            this.resolveCursorRenderType(subCur.cursor_type || 'default', backgroundConfig, Boolean(subCur.isClicked)),
+            subCur.cursor_rotation || 0
+          );
+          aCtx.restore();
+        }
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.drawImage(this.blurAccumCanvas, 0, 0);
+
+      } else {
+        // --- NO BLUR PATH: single draw (existing behavior) ---
+        drawSubFrame(ctx, zoomState, interpolatedPosition);
       }
 
 

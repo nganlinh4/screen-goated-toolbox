@@ -67,6 +67,7 @@ pub struct GpuCompositor {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
+    accumulate_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
@@ -178,6 +179,7 @@ struct SharedGpuContext {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
+    accumulate_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     uniform_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
@@ -304,10 +306,66 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         cache: None,
     });
 
+    // Online-average accumulation pipeline: src * Constant + dst * OneMinusConstant
+    // With weight = 1/(i+1), computes a running average preserving full 8-bit precision
+    // (avoids contour-line banding that additive 1/N accumulation causes)
+    let accumulate_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Accumulate Pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 8,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                ],
+            }],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Constant,
+                        dst_factor: wgpu::BlendFactor::OneMinusConstant,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::Constant,
+                        dst_factor: wgpu::BlendFactor::OneMinusConstant,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
     Ok(SharedGpuContext {
         device,
         queue,
         pipeline,
+        accumulate_pipeline,
         vertex_buffer,
         uniform_layout,
         texture_layout,
@@ -529,6 +587,7 @@ impl GpuCompositor {
         let device = Arc::clone(&shared.device);
         let queue = Arc::clone(&shared.queue);
         let pipeline = shared.pipeline.clone();
+        let accumulate_pipeline = shared.accumulate_pipeline.clone();
         let vertex_buffer = shared.vertex_buffer.clone();
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -666,6 +725,7 @@ impl GpuCompositor {
             device,
             queue,
             pipeline,
+            accumulate_pipeline,
             vertex_buffer,
             uniform_buffer,
             uniform_bind_group,
@@ -801,6 +861,111 @@ impl GpuCompositor {
         let mut out = Vec::with_capacity((self.width * self.height * 4) as usize);
         self.render_frame_into(uniforms, &mut out);
         out
+    }
+
+    /// Render one sub-frame with additive blending (weight via blend constant).
+    /// GPU-only — no CPU readback. Call `readback_output` once after all sub-frames.
+    pub fn render_accumulate(&self, uniforms: &CompositorUniforms, clear: bool, weight: f64) {
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        {
+            let output_view = self
+                .output_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let load_op = if clear {
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+            } else {
+                wgpu::LoadOp::Load
+            };
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: load_op,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            pass.set_pipeline(&self.accumulate_pipeline);
+            pass.set_blend_constant(wgpu::Color {
+                r: weight,
+                g: weight,
+                b: weight,
+                a: weight,
+            });
+            pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            pass.set_bind_group(1, &self.video_bind_group, &[]);
+            pass.set_bind_group(2, &self.cursor_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            pass.draw(0..6, 0..1);
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// Read back the current output texture to CPU. Call after render_accumulate loop.
+    pub fn readback_output(&self, out: &mut Vec<u8>) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.output_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.padded_bytes_per_row),
+                    rows_per_image: Some(self.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let buffer_slice = self.output_buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+
+        let data = buffer_slice.get_mapped_range();
+        let unpadded = self.width * 4;
+        if self.padded_bytes_per_row == unpadded {
+            out.clear();
+            out.extend_from_slice(&data);
+        } else {
+            out.clear();
+            out.reserve((unpadded * self.height) as usize);
+            for row in data.chunks(self.padded_bytes_per_row as usize) {
+                out.extend_from_slice(&row[..unpadded as usize]);
+            }
+        }
+        drop(data);
+        self.output_buffer.unmap();
     }
 }
 

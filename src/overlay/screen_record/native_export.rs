@@ -10,7 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Instant;
 
-use super::gpu_export::{create_uniforms, GpuCompositor};
+use super::gpu_export::{create_uniforms, CompositorUniforms, GpuCompositor};
 use super::SR_HWND;
 use crate::overlay::screen_record::engine::VIDEO_PATH;
 use windows::Win32::Foundation::*;
@@ -273,6 +273,12 @@ pub struct BackgroundConfig {
     pub cursor_scale: f64,
     #[serde(default)]
     pub cursor_shadow: f64,
+    #[serde(default)]
+    pub motion_blur_cursor: f64, // 0-100 intensity
+    #[serde(default)]
+    pub motion_blur_zoom: f64,
+    #[serde(default)]
+    pub motion_blur_pan: f64,
 }
 
 // --- TEXT RENDERER (baked bitmap compositing) ---
@@ -1124,7 +1130,97 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut rendered = Vec::with_capacity((out_w * out_h * 4) as usize);
     let mut writer_error: Option<String> = None;
 
-    println!("[Export] Frame loop: total_frames={}, decoder_fps={:.2}, step={:.6}", total_frames, decoder_fps, step);
+    // --- Motion blur configuration (slider: 0=off, 50=standard 180°, 100=heavy 360°) ---
+    let blur_cursor_val = config.background_config.motion_blur_cursor;
+    let blur_zoom_val = config.background_config.motion_blur_zoom;
+    let blur_pan_val = config.background_config.motion_blur_pan;
+    let max_blur_val = blur_cursor_val.max(blur_zoom_val).max(blur_pan_val);
+    let any_blur = max_blur_val > 0.0;
+    // Shutter angle: 50→270° (cinematic+), 100→540° (extreme)
+    let shutter_angle_deg = max_blur_val * 5.4;
+    let shutter_fraction = shutter_angle_deg / 360.0;
+    // Sample count for smooth blur in export (GPU accumulation = cheap per-sample)
+    let blur_samples: usize = if shutter_angle_deg <= 0.0 {
+        1
+    } else if shutter_angle_deg <= 90.0 {
+        12
+    } else if shutter_angle_deg <= 180.0 {
+        16
+    } else if shutter_angle_deg <= 360.0 {
+        24
+    } else {
+        32
+    };
+
+    // Pre-compute constants for uniform builder (all Copy — no borrow issues)
+    let shadow_opacity_f32 = (config.background_config.shadow / 100.0).min(0.5) as f32;
+    let shadow_blur_f32 = (config.background_config.shadow * 1.5) as f32;
+    let border_radius_f32 = config.background_config.border_radius as f32;
+    let shadow_offset_f32 = config.background_config.shadow as f32 / 4.0;
+    let cursor_scale_cfg = config.background_config.cursor_scale;
+    let cursor_shadow_f32 = (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0);
+    let size_ratio_cursor = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
+    let video_w_f = video_w as f64;
+    let video_h_f = video_h as f64;
+    let out_w_f = out_w as f64;
+    let out_h_f = out_h as f64;
+    let crop_w_f = crop_w as f64;
+    let crop_h_f = crop_h as f64;
+    let out_w_f32 = out_w as f32;
+    let out_h_f32 = out_h as f32;
+
+    let build_uniforms = |cam_x_raw: f64, cam_y_raw: f64, zoom: f64,
+                          cursor: Option<(f64, f64, f64, f32, f64, f64)>,
+                          t: f64| -> CompositorUniforms {
+        let cam_x = cam_x_raw - crop_x_offset;
+        let cam_y = cam_y_raw - crop_y_offset;
+        let zvw = video_w_f * zoom;
+        let zvh = video_h_f * zoom;
+        let rx = (cam_x / crop_w_f).clamp(0.0, 1.0);
+        let ry = (cam_y / crop_h_f).clamp(0.0, 1.0);
+        let zsx = (1.0 - zoom) * rx;
+        let zsy = (1.0 - zoom) * ry;
+        let bcx = (1.0 - video_w_f / out_w_f) / 2.0 * zoom;
+        let bcy = (1.0 - video_h_f / out_h_f) / 2.0 * zoom;
+        let ox = zsx + bcx;
+        let oy = zsy + bcy;
+
+        let (cp_x, cp_y, cs, co, ct, cr) =
+            if let Some((cx, cy, c_s, c_t, c_o, c_r)) = cursor {
+                if c_o < 0.001 {
+                    (-100.0_f32, -100.0_f32, 0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32)
+                } else {
+                    let rel_x = (cx - crop_x_offset) / crop_w_f;
+                    let rel_y = (cy - crop_y_offset) / crop_h_f;
+                    let fs = c_s * cursor_scale_cfg * zoom * size_ratio_cursor;
+                    (rel_x as f32, rel_y as f32, fs as f32, c_o as f32, c_t, c_r as f32)
+                }
+            } else {
+                (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+            };
+
+        create_uniforms(
+            (ox as f32, oy as f32),
+            (zvw as f32 / out_w_f32, zvh as f32 / out_h_f32),
+            (out_w_f32, out_h_f32),
+            (zvw as f32, zvh as f32),
+            border_radius_f32,
+            shadow_offset_f32,
+            shadow_blur_f32,
+            shadow_opacity_f32,
+            gradient1,
+            gradient2,
+            t as f32,
+            (cp_x, cp_y),
+            cs,
+            co,
+            ct,
+            cr,
+            cursor_shadow_f32,
+        )
+    };
+
+    println!("[Export] Frame loop: total_frames={}, decoder_fps={:.2}, step={:.6}, blur={}", total_frames, decoder_fps, step, any_blur);
 
     for frame_idx in 0..total_frames {
         if EXPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -1138,87 +1234,83 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
 
         let current_time = frame_idx as f64 * step;
-
-        let (raw_cam_x, raw_cam_y, zoom) =
-            sample_baked_path(current_time, &baked_path);
-
-        let cursor_state = sample_parsed_baked_cursor(current_time, &parsed_baked_cursor);
-
-        let cam_x = raw_cam_x - crop_x_offset;
-        let cam_y = raw_cam_y - crop_y_offset;
-
         compositor.upload_frame(&buffer);
 
-        let zoomed_video_w = video_w as f64 * zoom;
-        let zoomed_video_h = video_h as f64 * zoom;
+        // Sample center state (always needed as fallback / single-render)
+        let (center_cam_x, center_cam_y, center_zoom) =
+            sample_baked_path(current_time, &baked_path);
+        let center_cursor = sample_parsed_baked_cursor(current_time, &parsed_baked_cursor);
 
-        let ratio_x = (cam_x / crop_w as f64).clamp(0.0, 1.0);
-        let ratio_y = (cam_y / crop_h as f64).clamp(0.0, 1.0);
+        if any_blur {
+            let half_shutter = step * shutter_fraction / 2.0;
+            let t_start = (current_time - half_shutter).max(0.0);
+            let t_end = current_time + half_shutter;
 
-        let zoom_shift_x = (1.0 - zoom) * ratio_x;
-        let zoom_shift_y = (1.0 - zoom) * ratio_y;
+            // Detect motion per enabled channel (higher thresholds to avoid micro-jitter blur)
+            let (cam_x0, cam_y0, zoom0) = sample_baked_path(t_start, &baked_path);
+            let (cam_x1, cam_y1, zoom1) = sample_baked_path(t_end, &baked_path);
+            let zoom_moved = blur_zoom_val > 0.0 && (zoom0 - zoom1).abs() > 1e-5;
+            let pan_moved = blur_pan_val > 0.0
+                && ((cam_x0 - cam_x1).abs() > 1.0 || (cam_y0 - cam_y1).abs() > 1.0);
+            let camera_needs_sample = zoom_moved || pan_moved;
 
-        // Center using actual video-to-canvas ratio per axis (contain-fit aware)
-        let bg_center_x = (1.0 - video_w as f64 / out_w as f64) / 2.0 * zoom;
-        let bg_center_y = (1.0 - video_h as f64 / out_h as f64) / 2.0 * zoom;
+            let cursor0 = sample_parsed_baked_cursor(t_start, &parsed_baked_cursor);
+            let cursor1 = sample_parsed_baked_cursor(t_end, &parsed_baked_cursor);
+            let cursor_moved = blur_cursor_val > 0.0
+                && match (cursor0, cursor1) {
+                    (Some(c0), Some(c1)) => {
+                        (c0.0 - c1.0).abs() > 2.0 || (c0.1 - c1.1).abs() > 2.0
+                    }
+                    _ => false,
+                };
 
-        let offset_x = zoom_shift_x + bg_center_x;
-        let offset_y = zoom_shift_y + bg_center_y;
+            if camera_needs_sample || cursor_moved {
+                // GPU online-average accumulation: N renders + 1 readback
+                // weight = 1/(i+1) with dst=OneMinusConstant → running average, no 8-bit banding
+                for si in 0..blur_samples {
+                    let f = (si as f64 + 0.5) / blur_samples as f64 - 0.5;
 
-        let (cursor_pos_x, cursor_pos_y, cursor_scale, cursor_opacity, cursor_type_id, cursor_rotation) =
-            if let Some((cx, cy, c_scale, c_type_id, c_opacity, c_rotation)) = cursor_state {
-                // Skip cursor entirely when opacity is near zero
-                if c_opacity < 0.001 {
-                    (-100.0, -100.0, 0.0, 0.0_f32, 0.0, 0.0_f32)
-                } else {
-                    let rel_x = (cx - crop_x_offset) / crop_w as f64;
-                    let rel_y = (cy - crop_y_offset) / crop_h as f64;
+                    // Per-channel: use sub-time for enabled channels, center for disabled
+                    let cam_sub_t = current_time + f * (step * shutter_fraction);
+                    let (sub_raw_x, sub_raw_y, sub_zoom) = if camera_needs_sample {
+                        let (rx, ry, rz) = sample_baked_path(cam_sub_t, &baked_path);
+                        let sx = if blur_pan_val > 0.0 { rx } else { center_cam_x };
+                        let sy = if blur_pan_val > 0.0 { ry } else { center_cam_y };
+                        let sz = if blur_zoom_val > 0.0 { rz } else { center_zoom };
+                        (sx, sy, sz)
+                    } else {
+                        (center_cam_x, center_cam_y, center_zoom)
+                    };
 
-                    let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
-                    let cursor_final_scale =
-                        c_scale * config.background_config.cursor_scale * zoom * size_ratio;
+                    let cursor_sub_t = current_time
+                        + f * (step * (blur_cursor_val * 3.6 / 360.0));
+                    let sub_cursor = if cursor_moved {
+                        sample_parsed_baked_cursor(cursor_sub_t, &parsed_baked_cursor)
+                    } else {
+                        center_cursor
+                    };
 
-                    (
-                        rel_x as f32,
-                        rel_y as f32,
-                        cursor_final_scale as f32,
-                        c_opacity as f32,
-                        c_type_id,
-                        c_rotation as f32,
-                    )
+                    let weight = 1.0 / (si + 1) as f64;
+                    let sub_uniforms =
+                        build_uniforms(sub_raw_x, sub_raw_y, sub_zoom, sub_cursor, cam_sub_t);
+                    compositor.render_accumulate(&sub_uniforms, si == 0, weight);
                 }
+                // Single readback after all sub-frames
+                compositor.readback_output(&mut rendered);
             } else {
-                (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
-            };
-
-        // Increase shadow opacity slightly to match Canvas visuals (heuristic)
-        let shadow_opacity = (config.background_config.shadow / 100.0).min(0.5);
-        let shadow_blur = (config.background_config.shadow * 1.5) as f32;
-
-        let uniforms = create_uniforms(
-            (offset_x as f32, offset_y as f32),
-            (
-                zoomed_video_w as f32 / out_w as f32,
-                zoomed_video_h as f32 / out_h as f32,
-            ),
-            (out_w as f32, out_h as f32),
-            (zoomed_video_w as f32, zoomed_video_h as f32),
-            config.background_config.border_radius as f32,
-            config.background_config.shadow as f32 / 4.0,
-            shadow_blur,
-            shadow_opacity as f32,
-            gradient1,
-            gradient2,
-            current_time as f32,
-            (cursor_pos_x, cursor_pos_y),
-            cursor_scale,
-            cursor_opacity,
-            cursor_type_id,
-            cursor_rotation,
-            (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0),
-        );
-
-        compositor.render_frame_into(&uniforms, &mut rendered);
+                // No motion detected — single render
+                let uniforms = build_uniforms(
+                    center_cam_x, center_cam_y, center_zoom, center_cursor, current_time,
+                );
+                compositor.render_frame_into(&uniforms, &mut rendered);
+            }
+        } else {
+            // No blur enabled — single render
+            let uniforms = build_uniforms(
+                center_cam_x, center_cam_y, center_zoom, center_cursor, current_time,
+            );
+            compositor.render_frame_into(&uniforms, &mut rendered);
+        }
 
         // --- RENDER TEXT OVERLAY (baked bitmaps) ---
         let fade_dur = 0.3_f64;

@@ -86,6 +86,9 @@ export interface BackgroundConfig {
   cursorWiggleDamping?: number; // 0-1, lower = more wobble
   cursorWiggleResponse?: number; // Hz-ish response speed of spring
   cursorTiltAngle?: number; // degrees, static resting tilt offset (CCW positive)
+  motionBlurCursor?: number; // 0-100 intensity (default 25, 0=off, 100=extreme)
+  motionBlurZoom?: number;   // 0-100 intensity
+  motionBlurPan?: number;    // 0-100 intensity
   cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
   cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';
   cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11';

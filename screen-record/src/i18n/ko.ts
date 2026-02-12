@@ -21,6 +21,7 @@ const ko: Translations = {
   tabZoom: '확대',
   tabBackground: '배경',
   tabCursor: '커서',
+  tabBlur: '블러',
   tabText: '텍스트',
 
   // ZoomPanel
@@ -48,6 +49,11 @@ const ko: Translations = {
   pointerMovementDelay: '포인터 이동 지연',
   pointerWiggleStrength: '포인터 흔들림 강도',
   cursorTilt: '커서 기울기',
+  motionBlur: '모션 블러',
+  motionBlurCursor: '커서 움직임',
+  motionBlurZoom: '화면 확대/축소',
+  motionBlurPan: '화면 이동',
+  motionBlurNote: '모션 블러는 내보내기 시 GPU로 완전히 렌더링됩니다. 미리보기는 근사치만 표시합니다.',
   pointerWiggleDamping: '흔들림 감쇠',
   pointerWiggleResponse: '흔들림 반응 속도',
   cursorVariants: '커서 스타일',

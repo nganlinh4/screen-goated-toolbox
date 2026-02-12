@@ -21,6 +21,7 @@ const vi: Translations = {
   tabZoom: 'Phóng To',
   tabBackground: 'Nền',
   tabCursor: 'Con Trỏ',
+  tabBlur: 'Nhòe',
   tabText: 'Chữ',
 
   // ZoomPanel
@@ -48,6 +49,11 @@ const vi: Translations = {
   pointerMovementDelay: 'Độ Trễ Di Chuyển Con Trỏ',
   pointerWiggleStrength: 'Độ Lắc Con Trỏ',
   cursorTilt: 'Độ Nghiêng Con Trỏ',
+  motionBlur: 'Nhòe Chuyển Động',
+  motionBlurCursor: 'Di Chuyển Con Trỏ',
+  motionBlurZoom: 'Thu Phóng Màn Hình',
+  motionBlurPan: 'Di Chuyển Màn Hình',
+  motionBlurNote: 'Nhòe chuyển động được GPU render đầy đủ khi xuất video. Bản xem trước chỉ hiển thị gần đúng.',
   pointerWiggleDamping: 'Giảm Chấn Lắc',
   pointerWiggleResponse: 'Độ Nhạy Lắc',
   cursorVariants: 'Kiểu Con Trỏ',
