@@ -28,6 +28,10 @@ fn default_graphics_mode() -> String {
     "standard".to_string()
 }
 
+fn default_favorite_overlay_opacity() -> u8 {
+    85
+}
+
 fn default_tts_voice() -> String {
     "Aoede".to_string()
 }
@@ -121,6 +125,10 @@ pub struct Config {
     /// Graphics mode: "standard" or "low"
     #[serde(default = "default_graphics_mode")]
     pub graphics_mode: String,
+
+    /// Default opacity percentage for new result overlays
+    #[serde(default = "default_favorite_overlay_opacity")]
+    pub favorite_overlay_opacity: u8,
 
     // -------------------------------------------------------------------------
     // Startup Behavior
@@ -344,6 +352,7 @@ impl Default for Config {
             max_history_items: DEFAULT_HISTORY_LIMIT,
             max_screen_record_projects: DEFAULT_PROJECTS_LIMIT,
             graphics_mode: "standard".to_string(),
+            favorite_overlay_opacity: default_favorite_overlay_opacity(),
 
             // Startup
             start_in_tray: false,

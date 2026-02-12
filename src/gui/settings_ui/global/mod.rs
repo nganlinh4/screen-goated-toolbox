@@ -513,6 +513,22 @@ pub fn render_global_settings(
 
             ui.add_space(8.0);
 
+            config.favorite_overlay_opacity = config.favorite_overlay_opacity.clamp(10, 100);
+            ui.horizontal(|ui| {
+                ui.label(text.favorite_overlay_opacity_label);
+                if ui
+                    .add(
+                        egui::Slider::new(&mut config.favorite_overlay_opacity, 10..=100)
+                            .suffix("%"),
+                    )
+                    .changed()
+                {
+                    changed = true;
+                }
+            });
+
+            ui.add_space(8.0);
+
             // Graphics Mode + Reset button on same row
             ui.horizontal(|ui| {
                 let current_label = match config.ui_language.as_str() {

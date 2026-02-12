@@ -175,6 +175,7 @@ pub fn get() -> LocaleText {
         groq_label: "Groq API 키:",
         software_update_header: "⬆ 소프트웨어 업데이트",
         startup_display_header: "⚙ 시작 및 표시",
+        favorite_overlay_opacity_label: "결과 오버레이 기본 불투명도",
         model_thinking: "💭 생각 중...",
         // --- REALTIME OVERLAY KO ---
         realtime_listening: "듣고 있는 중...",

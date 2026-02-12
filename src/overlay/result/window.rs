@@ -79,6 +79,12 @@ pub fn create_result_window(
 
         let width = (target_rect.right - target_rect.left).abs();
         let height = (target_rect.bottom - target_rect.top).abs();
+        let favorite_overlay_opacity = {
+            let app = crate::APP.lock().unwrap();
+            app.config.favorite_overlay_opacity.clamp(10, 100)
+        };
+        let favorite_overlay_alpha =
+            ((favorite_overlay_opacity as f32 / 100.0) * 255.0).round() as u8;
 
         // WindowType logic essentially just sets color now, but we override it via custom_bg_color usually
         let (x, y) = (target_rect.left, target_rect.top);
@@ -122,7 +128,8 @@ pub fn create_result_window(
         if is_any_markdown_mode {
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_ALPHA);
             let _ = super::markdown_view::create_markdown_webview(hwnd, &initial_text, false);
-            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 217, LWA_ALPHA);
+            let _ =
+                SetLayeredWindowAttributes(hwnd, COLORREF(0), favorite_overlay_alpha, LWA_ALPHA);
         }
 
         let mut physics = CursorPhysics::default();
@@ -205,14 +212,14 @@ pub fn create_result_window(
                     on_speaker_btn: false,
                     tts_request_id: 0,
                     tts_loading: false,
-                    opacity_percent: 85,
+                    opacity_percent: favorite_overlay_opacity,
                     preset_id: preset_id.clone(),
                     is_chain_root,
                 },
             );
         }
 
-        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 217, LWA_ALPHA);
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), favorite_overlay_alpha, LWA_ALPHA);
 
         let corner_preference = 2u32;
         let _ = DwmSetWindowAttribute(

@@ -383,51 +383,12 @@ lazy_static::lazy_static! {
             "50 shared requests/day"
         ),
         ModelConfig::new(
-            "or-mimo",
-            "openrouter",
-            "OR-Cân bằng",
-            "OR-균형",
-            "OR-Balanced",
-            "xiaomi/mimo-v2-flash:free",
-            ModelType::Text,
-            true,
-            "50 lượt chung/ngày",
-            "50 공유 요청/일",
-            "50 shared requests/day"
-        ),
-        ModelConfig::new(
             "or-deepseek-chimera",
             "openrouter",
             "OR-Ch.xác, chậm",
             "OR-정확, 느림",
             "OR-Accurate, Slow",
             "tngtech/deepseek-r1t2-chimera:free",
-            ModelType::Text,
-            true,
-            "50 lượt chung/ngày",
-            "50 공유 요청/일",
-            "50 shared requests/day"
-        ),
-        ModelConfig::new(
-            "or-kat-coder",
-            "openrouter",
-            "OR-Chính xác",
-            "OR-정확함",
-            "OR-Accurate",
-            "kwaipilot/kat-coder-pro:free",
-            ModelType::Text,
-            true,
-            "50 lượt chung/ngày",
-            "50 공유 요청/일",
-            "50 shared requests/day"
-        ),
-        ModelConfig::new(
-            "or-devstral",
-            "openrouter",
-            "OR-Rất ch.xác",
-            "OR-매우 정확",
-            "OR-Very Accurate",
-            "mistralai/devstral-2512:free",
             ModelType::Text,
             true,
             "50 lượt chung/ngày",
@@ -576,17 +537,18 @@ pub fn resolve_fallback_model(
         .map(|m| m.provider.as_str())
         .unwrap_or("");
 
-    // Helper to check if a provider is configured
+    // Helper to check if a provider is enabled AND configured (has API key)
+    // Both the toggle must be on and the key must be present.
     let is_provider_configured = |provider: &str| -> bool {
         match provider {
-            "groq" => !config.api_key.is_empty(),
-            "google" => !config.gemini_api_key.is_empty(),
-            "openai" => false, // We don't have openai_api_key in config struct (only openrouter/cerebras) - wait, checking Config struct..
-            // Ah, standard OpenAI is not in the Config struct I saw.
-            "openrouter" => !config.openrouter_api_key.is_empty(),
-            "cerebras" => !config.cerebras_api_key.is_empty(),
-            "ollama" => config.use_ollama, // No key needed, just enabled
-            _ => true, // Assume others (like internal ones) are "configured" or we can't check
+            "groq" => config.use_groq && !config.api_key.is_empty(),
+            "google" | "gemini-live" => config.use_gemini && !config.gemini_api_key.is_empty(),
+            "openrouter" => config.use_openrouter && !config.openrouter_api_key.is_empty(),
+            "cerebras" => config.use_cerebras && !config.cerebras_api_key.is_empty(),
+            "ollama" => config.use_ollama,
+            // Non-LLM providers (google-gtx, qrserver) - always available, no key needed
+            "google-gtx" | "qrserver" | "parakeet" => true,
+            _ => false,
         }
     };
 

@@ -14,15 +14,34 @@ let lastSentRegions = new Map();
 // Track cursor position for radius-based opacity
 let cursorX = 0, cursorY = 0;
 let broomDragData = null;
+const activeGrabbingSources = new Set();
 
 // Opacity slider state
 window.opacityValues = {};
 
 function setBroomDraggingCursor(active) {
+    if (active) {
+        activeGrabbingSources.add("broom");
+    } else {
+        activeGrabbingSources.delete("broom");
+    }
+    applyGrabbingCursorState();
+}
+
+function setOpacityDraggingCursor(active) {
+    if (active) {
+        activeGrabbingSources.add("opacity");
+    } else {
+        activeGrabbingSources.delete("opacity");
+    }
+    applyGrabbingCursorState();
+}
+
+function applyGrabbingCursorState() {
     const html = document.documentElement;
     if (!html) return;
 
-    if (active) {
+    if (activeGrabbingSources.size > 0) {
         html.style.cursor = "grabbing";
         if (document.body) document.body.style.cursor = "grabbing";
     } else {
@@ -299,6 +318,18 @@ window.addEventListener("mouseup", () => setBroomDraggingCursor(false));
 window.addEventListener("blur", () => setBroomDraggingCursor(false));
 document.addEventListener("visibilitychange", () => {
     if (document.hidden) setBroomDraggingCursor(false);
+});
+window.addEventListener("pointerup", () => setOpacityDraggingCursor(false));
+window.addEventListener("blur", () => setOpacityDraggingCursor(false));
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) setOpacityDraggingCursor(false);
+});
+document.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".opacity-slider-inline")) {
+        setOpacityDraggingCursor(true);
+    }
 });
 
 function action(hwnd, cmd) {

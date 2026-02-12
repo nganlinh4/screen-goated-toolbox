@@ -174,6 +174,7 @@ pub fn get() -> LocaleText {
         groq_label: "Groq API Key:",
         software_update_header: "⬆ Software Update",
         startup_display_header: "⚙ Startup & Display",
+        favorite_overlay_opacity_label: "Favorite overlay opacity",
         model_thinking: "💭 Thinking...",
         // --- REALTIME OVERLAY EN ---
         realtime_listening: "Listening...",

@@ -253,8 +253,12 @@ html, body {
     height: 3px;
     background: var(--btn-border);
     border-radius: 2px;
-    cursor: pointer;
+    cursor: grab;
     outline: none;
+}
+
+.opacity-slider-inline:active {
+    cursor: grabbing;
 }
 
 .opacity-slider-inline::-webkit-slider-thumb {
@@ -264,8 +268,12 @@ html, body {
     height: 12px;
     background: var(--btn-active-color);
     border-radius: 50%;
-    cursor: pointer;
+    cursor: grab;
     border: none;
+}
+
+.opacity-slider-inline:active::-webkit-slider-thumb {
+    cursor: grabbing;
 }
 
 .opacity-btn-expandable.vertical-slider .opacity-slider-inline {
