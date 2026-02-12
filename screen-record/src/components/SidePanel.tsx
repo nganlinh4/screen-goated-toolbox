@@ -23,7 +23,7 @@ const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 // ============================================================================
 // Types
 // ============================================================================
-export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'text';
+export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'blur' | 'text';
 
 const GRADIENT_PRESETS = {
   solid: 'bg-[var(--surface-dim)]',
@@ -46,6 +46,7 @@ function PanelTabs({ activePanel, onPanelChange }: PanelTabsProps) {
     { id: 'zoom', label: t.tabZoom },
     { id: 'background', label: t.tabBackground },
     { id: 'cursor', label: t.tabCursor },
+    { id: 'blur', label: t.tabBlur },
     { id: 'text', label: t.tabText }
   ];
 
@@ -630,6 +631,49 @@ interface TextPanelProps {
   commitBatch: () => void;
 }
 
+// ============================================================================
+// BlurPanel
+// ============================================================================
+interface BlurPanelProps {
+  backgroundConfig: BackgroundConfig;
+  setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+}
+
+function BlurPanel({ backgroundConfig, setBackgroundConfig }: BlurPanelProps) {
+  const { t } = useSettings();
+  return (
+    <div className="blur-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+      <div className="blur-controls space-y-3">
+        <div className="blur-sliders space-y-1.5">
+          {([
+            ['motionBlurCursor', t.motionBlurCursor, 25] as const,
+            ['motionBlurZoom', t.motionBlurZoom, 10] as const,
+            ['motionBlurPan', t.motionBlurPan, 10] as const,
+          ]).map(([key, label, def]) => (
+            <div key={key} className={`motion-blur-slider-${key} flex items-center gap-2`}>
+              <span className="text-[10px] text-[var(--on-surface-variant)] w-24 flex-shrink-0">{label}</span>
+              <input
+                type="range" min="0" max="100" step="1"
+                value={backgroundConfig[key] ?? def}
+                style={sv(backgroundConfig[key] ?? def, 0, 100)}
+                onChange={(e) => setBackgroundConfig(prev => ({ ...prev, [key]: Number(e.target.value) }))}
+                className="motion-blur-range flex-1 min-w-0"
+              />
+              <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-8 text-right flex-shrink-0">{backgroundConfig[key] ?? def}%</span>
+            </div>
+          ))}
+        </div>
+        <p className="blur-gpu-note text-[10px] text-[var(--on-surface-variant)] leading-relaxed opacity-70">
+          {t.motionBlurNote}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// TextPanel
+// ============================================================================
 function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commitBatch }: TextPanelProps) {
   const { t } = useSettings();
   const editingText = editingTextId ? segment?.textSegments?.find(ts => ts.id === editingTextId) : null;
@@ -924,6 +968,10 @@ export function SidePanel({
 
       {activePanel === 'cursor' && (
         <CursorPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
+      )}
+
+      {activePanel === 'blur' && (
+        <BlurPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
       )}
 
       {activePanel === 'text' && (

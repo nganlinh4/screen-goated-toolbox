@@ -19,6 +19,7 @@ const en = {
   tabZoom: 'Zoom',
   tabBackground: 'Background',
   tabCursor: 'Cursor',
+  tabBlur: 'Blur',
   tabText: 'Text',
 
   // ZoomPanel
@@ -46,6 +47,11 @@ const en = {
   pointerMovementDelay: 'Pointer Movement Delay',
   pointerWiggleStrength: 'Pointer Wiggle Strength',
   cursorTilt: 'Cursor Tilt',
+  motionBlur: 'Motion Blur',
+  motionBlurCursor: 'Cursor Movement',
+  motionBlurZoom: 'Screen Zoom',
+  motionBlurPan: 'Screen Movement',
+  motionBlurNote: 'Motion blur is fully rendered by the GPU during export. The preview shows an approximation only.',
   pointerWiggleDamping: 'Pointer Wiggle Damping',
   pointerWiggleResponse: 'Pointer Wiggle Response',
   cursorVariants: 'Cursor Variants',
