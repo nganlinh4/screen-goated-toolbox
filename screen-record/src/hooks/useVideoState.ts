@@ -384,6 +384,10 @@ export function useProjects(props: UseProjectsProps) {
   const [projects, setProjects] = useState<Omit<Project, 'videoBlob'>[]>([]);
   const [showProjectsDialog, setShowProjectsDialog] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const logProjectLoad = (event: string, data?: Record<string, unknown>) => {
+    const ts = new Date().toISOString();
+    console.log(`[ProjectLoad][${ts}] ${event}`, data || {});
+  };
 
   const loadProjects = useCallback(async () => {
     const projects = await projectManager.getProjects();
@@ -391,8 +395,18 @@ export function useProjects(props: UseProjectsProps) {
   }, []);
 
   const handleLoadProject = useCallback(async (projectId: string) => {
+    logProjectLoad('load:start', { projectId });
     const project = await projectManager.loadProject(projectId);
-    if (!project) return;
+    if (!project) {
+      logProjectLoad('load:missing', { projectId });
+      return;
+    }
+    logProjectLoad('load:fetched', {
+      projectId,
+      canvasMode: project.backgroundConfig?.canvasMode,
+      canvasWidth: project.backgroundConfig?.canvasWidth,
+      canvasHeight: project.backgroundConfig?.canvasHeight
+    });
 
     if (props.currentVideo) URL.revokeObjectURL(props.currentVideo);
     if (props.currentAudio) URL.revokeObjectURL(props.currentAudio);
@@ -434,6 +448,12 @@ export function useProjects(props: UseProjectsProps) {
     props.setSegment(correctedSegment);
     props.setBackgroundConfig(project.backgroundConfig);
     props.setMousePositions(project.mousePositions);
+    logProjectLoad('load:applied', {
+      projectId,
+      canvasMode: project.backgroundConfig?.canvasMode,
+      canvasWidth: project.backgroundConfig?.canvasWidth,
+      canvasHeight: project.backgroundConfig?.canvasHeight
+    });
 
     if (props.videoControllerRef.current && project.backgroundConfig.volume !== undefined) {
       props.videoControllerRef.current.setVolume(project.backgroundConfig.volume);
