@@ -175,6 +175,7 @@ pub fn get() -> LocaleText {
         groq_label: "Mã API Groq:",
         software_update_header: "⬆ Cập Nhật Phần Mềm",
         startup_display_header: "⚙ Khởi Động & Hiển Thị",
+        favorite_overlay_opacity_label: "Độ mờ mặc định cửa sổ kết quả",
         model_thinking: "💭 Đang suy nghĩ...",
         // --- REALTIME OVERLAY VI ---
         realtime_listening: "Đang nghe...",

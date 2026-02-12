@@ -135,6 +135,7 @@ pub struct LocaleText {
     pub groq_label: &'static str,
     pub software_update_header: &'static str,
     pub startup_display_header: &'static str,
+    pub favorite_overlay_opacity_label: &'static str,
     // --- MODEL THINKING INDICATOR ---
     pub model_thinking: &'static str,
     // --- REALTIME OVERLAY ---
