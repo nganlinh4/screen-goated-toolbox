@@ -2416,7 +2416,15 @@ export class VideoRenderer {
     const shadowOffset = (2.2 * Math.min(normalizedShadow, 1)) + (1.8 * shadowOverdrive);
     const shapeRadius = Math.max(28, scale * 32);
     const margin = Math.ceil(shapeRadius + shadowBlur + shadowOffset + 24);
-    const size = margin * 2;
+    const idealSize = margin * 2;
+
+    // Cap offscreen canvas to prevent quadratic cost at high zoom.
+    // At 11x zoom the ideal size reaches ~1500px — shadow blur on a 1500x1500
+    // canvas every frame is extremely expensive. Cap to 512 and scale up via
+    // drawImage; the shadow is soft so bilinear upsampling is imperceptible.
+    const maxPreviewSize = 512;
+    const ratio = idealSize > maxPreviewSize ? maxPreviewSize / idealSize : 1;
+    const size = Math.ceil(idealSize * ratio);
 
     if (this.cursorOffscreen.width !== size || this.cursorOffscreen.height !== size) {
       this.cursorOffscreen.width = size;
@@ -2427,9 +2435,23 @@ export class VideoRenderer {
     const oCtx = this.cursorOffscreenCtx;
     oCtx.clearRect(0, 0, size, size);
     oCtx.globalAlpha = 1;
-    this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType, rotation);
+
+    if (ratio < 1) {
+      oCtx.save();
+      oCtx.scale(ratio, ratio);
+      this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType, rotation, ratio);
+      oCtx.restore();
+    } else {
+      this.drawCursorShape(oCtx as unknown as CanvasRenderingContext2D, margin, margin, isClicked, scale, cursorType, rotation);
+    }
+
     ctx.save();
-    ctx.drawImage(this.cursorOffscreen, x - margin, y - margin);
+    if (ratio < 1) {
+      // Scale capped canvas back to ideal size — cursor + shadow appear full-res
+      ctx.drawImage(this.cursorOffscreen, x - margin, y - margin, idealSize, idealSize);
+    } else {
+      ctx.drawImage(this.cursorOffscreen, x - margin, y - margin);
+    }
     ctx.restore();
   }
 
@@ -2580,7 +2602,8 @@ export class VideoRenderer {
     _isClicked: boolean,
     scale: number = 2,
     cursorType: string,
-    rotation: number = 0
+    rotation: number = 0,
+    shadowScale: number = 1
   ) {
     const lowerType = cursorType.toLowerCase();
     ctx.save();
@@ -2601,9 +2624,9 @@ export class VideoRenderer {
       const overdrive = Math.max(0, normalized - 1);
       const alpha = Math.min(1, (0.9 * base) + (0.6 * overdrive));
       ctx.shadowColor = `rgba(0, 0, 0, ${alpha.toFixed(3)})`;
-      ctx.shadowBlur = 1.2 + (9.0 * base) + (8.0 * overdrive);
-      ctx.shadowOffsetX = (1.1 * base) + (1.0 * overdrive);
-      ctx.shadowOffsetY = (2.2 * base) + (1.8 * overdrive);
+      ctx.shadowBlur = (1.2 + (9.0 * base) + (8.0 * overdrive)) * shadowScale;
+      ctx.shadowOffsetX = ((1.1 * base) + (1.0 * overdrive)) * shadowScale;
+      ctx.shadowOffsetY = ((2.2 * base) + (1.8 * overdrive)) * shadowScale;
     } else {
       ctx.shadowColor = 'rgba(0,0,0,0)';
       ctx.shadowBlur = 0;

@@ -1,6 +1,7 @@
 // --- SCREEN RECORD MODULE ---
 // Screen recording overlay with WebView interface.
 
+mod bg_download;
 mod ffmpeg;
 mod ipc;
 
@@ -213,6 +214,7 @@ const ASSET_CURSOR_SGTCOOL_SLOT_09_SVG: &[u8] = include_bytes!("dist/cursors/sgt
 const ASSET_CURSOR_SGTCOOL_SLOT_10_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-10.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_11_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-11.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_12_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-12.svg");
+const ASSET_BG_WARM_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-warm-abstract.svg");
 const ASSET_SCREENSHOT_PNG: &[u8] = include_bytes!("dist/screenshot.png");
 
 // --- WINDOW PROCEDURE ---
@@ -860,6 +862,8 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_11_SVG), "image/svg+xml")
                     } else if path.ends_with("cursors/sgtcool_raw/slot-12.svg") {
                         (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_12_SVG), "image/svg+xml")
+                    } else if path.ends_with("bg-warm-abstract.svg") {
+                        (Cow::Borrowed(ASSET_BG_WARM_ABSTRACT_SVG), "image/svg+xml")
                     } else if path.ends_with("screenshot.png") {
                         (Cow::Borrowed(ASSET_SCREENSHOT_PNG), "image/png")
                     } else {
