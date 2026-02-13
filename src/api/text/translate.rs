@@ -59,6 +59,10 @@ where
     let mut full_content = String::new();
     let prompt = format!("{}\n\n{}", instruction, text);
 
+    // DEBUG: Log the instruction being sent to the API
+    println!("[DEBUG translate] instruction=«{}»", instruction);
+    println!("[DEBUG translate] text_len={} prompt_len={}", text.len(), prompt.len());
+
     if provider == "ollama" {
         // --- OLLAMA LOCAL API ---
         let (ollama_base_url, ollama_text_model) = crate::APP
