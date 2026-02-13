@@ -4,7 +4,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use windows::Win32::Media::Audio::*;
 use windows::Win32::System::Com::*;
 
@@ -49,9 +49,9 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
             // Mark that we're now playing audio
             manager.is_playing.store(true, Ordering::SeqCst);
 
-            // Loop reading chunks from this channel
+            // Loop reading chunks from this channel (with timeout to check interrupts)
             loop {
-                match rx.recv() {
+                match rx.recv_timeout(Duration::from_millis(500)) {
                     Ok(AudioEvent::Data(data)) => {
                         // Check interrupt before playing
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
@@ -85,11 +85,23 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                         clear_tts_state(hwnd);
                         break; // Job done
                     }
-                    Err(e) => {
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                        // Check interrupt while waiting for data (e.g. WebSocket stall)
+                        if generation < manager.interrupt_generation.load(Ordering::SeqCst)
+                            || manager.shutdown.load(Ordering::SeqCst)
+                        {
+                            eprintln!("[TTS Player] Interrupted/shutdown during recv timeout");
+                            audio_player.stop();
+                            clear_tts_state(hwnd);
+                            break;
+                        }
+                        continue;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         // Sender disconnected
                         eprintln!(
-                            "[TTS Player] ERROR: Channel recv failed after {} chunks: {:?}",
-                            chunks_received, e
+                            "[TTS Player] Channel disconnected after {} chunks",
+                            chunks_received
                         );
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
                             audio_player.stop();
@@ -453,10 +465,22 @@ impl AudioPlayer {
     }
 
     fn drain(&self) {
-        // Wait for buffer to drain
+        // Wait for buffer to drain (with timeout to prevent permanent hang if WASAPI dies)
+        let start = Instant::now();
         loop {
             let len = self.shared_buffer.lock().map(|b| b.len()).unwrap_or(0);
             if len == 0 {
+                break;
+            }
+            if start.elapsed() > Duration::from_secs(30) {
+                eprintln!(
+                    "[TTS Player] WARNING: drain() timed out after 30s, {} samples remaining",
+                    len
+                );
+                // Clear the buffer to unblock
+                if let Ok(mut buf) = self.shared_buffer.lock() {
+                    buf.clear();
+                }
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));

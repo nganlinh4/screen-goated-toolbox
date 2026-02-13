@@ -125,12 +125,31 @@ pub fn handle_auto_copy(
 }
 
 /// Handle auto-speak functionality.
-pub fn handle_auto_speak(block: &ProcessingBlock, result_text: &str) {
+/// Pass the result window's HWND so the speaker button correctly reflects TTS state.
+pub fn handle_auto_speak(block: &ProcessingBlock, result_text: &str, hwnd: Option<HWND>) {
     if block.auto_speak && !result_text.trim().is_empty() {
         let txt_s = result_text.to_string();
+        let hwnd_key = hwnd.map(|h| h.0 as isize).unwrap_or(0);
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(200));
-            crate::api::tts::TTS_MANAGER.speak(&txt_s, 0);
+
+            // Set loading state on the window so the speaker button shows "loading"
+            if hwnd_key != 0 {
+                let mut states = crate::overlay::result::WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&hwnd_key) {
+                    state.tts_loading = true;
+                }
+            }
+
+            let request_id = crate::api::tts::TTS_MANAGER.speak(&txt_s, hwnd_key);
+
+            // Set request_id so the speaker button can stop this TTS
+            if hwnd_key != 0 {
+                let mut states = crate::overlay::result::WINDOW_STATES.lock().unwrap();
+                if let Some(state) = states.get_mut(&hwnd_key) {
+                    state.tts_request_id = request_id;
+                }
+            }
         });
     }
 }
