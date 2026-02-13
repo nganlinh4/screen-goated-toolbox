@@ -120,11 +120,13 @@ export function useTimelineDrag({
       ),
     });
 
-    if (videoRef.current) {
+    if (onSeek) {
+      onSeek(finalTime);
+    } else if (videoRef.current) {
       videoRef.current.currentTime = finalTime;
       setCurrentTime(finalTime);
     }
-  }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, setSegment, videoRef, setCurrentTime]);
+  }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, setSegment, onSeek, videoRef, setCurrentTime]);
 
   // Trim drag
   const handleTrimDragStart = useCallback((id: string, type: 'start' | 'end') => {
@@ -371,13 +373,15 @@ export function useTimelineDrag({
 
   // Keyframe click
   const handleKeyframeClick = useCallback((time: number, index: number) => {
-    if (videoRef.current) {
+    if (onSeek) {
+      onSeek(time);
+    } else if (videoRef.current) {
       videoRef.current.currentTime = time;
       setCurrentTime(time);
-      setEditingKeyframeId(index);
-      setActivePanel('zoom');
     }
-  }, [videoRef, setCurrentTime, setEditingKeyframeId, setActivePanel]);
+    setEditingKeyframeId(index);
+    setActivePanel('zoom');
+  }, [onSeek, videoRef, setCurrentTime, setEditingKeyframeId, setActivePanel]);
 
   // Unified mouse handlers for TimelineArea
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
