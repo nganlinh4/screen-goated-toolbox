@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{sync_channel, TryRecvError};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,6 +18,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Flag to signal export cancellation from the frontend.
 static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
@@ -63,6 +65,7 @@ fn terminate_pid(pid: u32) {
     // Use Windows taskkill to forcefully terminate the ffmpeg process tree
     let _ = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F", "/T"])
+        .creation_flags(CREATE_NO_WINDOW)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
@@ -371,6 +374,23 @@ fn get_gradient_colors(bg_type: &str) -> ([f32; 4], [f32; 4]) {
 
 // --- NEW SAMPLING LOGIC using Baked Path ---
 
+/// Map compact output time → source time using trim segments.
+/// Baked paths now use source time keys, so the export frame loop needs this mapping.
+fn output_to_source_time(output_time: f64, trim_segments: &[TrimSegment], trim_start: f64) -> f64 {
+    if trim_segments.is_empty() {
+        return trim_start + output_time;
+    }
+    let mut remaining = output_time;
+    for seg in trim_segments {
+        let seg_len = seg.end_time - seg.start_time;
+        if remaining <= seg_len + 1e-9 {
+            return seg.start_time + remaining.min(seg_len);
+        }
+        remaining -= seg_len;
+    }
+    trim_segments.last().map(|s| s.end_time).unwrap_or(output_time)
+}
+
 fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f64) {
     if baked_path.is_empty() {
         return (0.0, 0.0, 1.0);
@@ -675,6 +695,7 @@ fn ffmpeg_has_nvenc(ffmpeg_path: &std::path::Path) -> bool {
     *NVENC_AVAILABLE.get_or_init(|| {
         match Command::new(ffmpeg_path)
             .args(["-hide_banner", "-encoders"])
+            .creation_flags(CREATE_NO_WINDOW)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .output()
@@ -729,6 +750,7 @@ fn probe_source_dimensions(ffprobe_path: &std::path::Path, source_video_path: &s
             "csv=s=x:p=0",
             source_video_path,
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("Probe failed: {}", e))?;
 
@@ -947,6 +969,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     }
 
     let mut decoder = decoder_cmd
+        .creation_flags(CREATE_NO_WINDOW)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -1069,6 +1092,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
     let mut encoder = match Command::new(&ffmpeg_path)
         .args(&encoder_args)
+        .creation_flags(CREATE_NO_WINDOW)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -1082,6 +1106,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 encoder_name = format!("libx264({})", x264_preset);
                 Command::new(&ffmpeg_path)
                     .args(&encoder_args)
+                    .creation_flags(CREATE_NO_WINDOW)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::null())
                     .stderr(Stdio::inherit())
@@ -1234,17 +1259,25 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
 
         let current_time = frame_idx as f64 * step;
+        // Map compact output time → source time for baked path lookups.
+        // Baked paths use source-time keys so camera/cursor evolve naturally
+        // through hidden trim gaps (no jarring jumps at segment bridges).
+        let source_time = output_to_source_time(
+            current_time,
+            &config.segment.trim_segments,
+            config.trim_start,
+        );
         compositor.upload_frame(&buffer);
 
         // Sample center state (always needed as fallback / single-render)
         let (center_cam_x, center_cam_y, center_zoom) =
-            sample_baked_path(current_time, &baked_path);
-        let center_cursor = sample_parsed_baked_cursor(current_time, &parsed_baked_cursor);
+            sample_baked_path(source_time, &baked_path);
+        let center_cursor = sample_parsed_baked_cursor(source_time, &parsed_baked_cursor);
 
         if any_blur {
             let half_shutter = step * shutter_fraction / 2.0;
-            let t_start = (current_time - half_shutter).max(0.0);
-            let t_end = current_time + half_shutter;
+            let t_start = source_time - half_shutter;
+            let t_end = source_time + half_shutter;
 
             // Detect motion per enabled channel (higher thresholds to avoid micro-jitter blur)
             let (cam_x0, cam_y0, zoom0) = sample_baked_path(t_start, &baked_path);
@@ -1271,7 +1304,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     let f = (si as f64 + 0.5) / blur_samples as f64 - 0.5;
 
                     // Per-channel: use sub-time for enabled channels, center for disabled
-                    let cam_sub_t = current_time + f * (step * shutter_fraction);
+                    let cam_sub_t = source_time + f * (step * shutter_fraction);
                     let (sub_raw_x, sub_raw_y, sub_zoom) = if camera_needs_sample {
                         let (rx, ry, rz) = sample_baked_path(cam_sub_t, &baked_path);
                         let sx = if blur_pan_val > 0.0 { rx } else { center_cam_x };
@@ -1282,7 +1315,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                         (center_cam_x, center_cam_y, center_zoom)
                     };
 
-                    let cursor_sub_t = current_time
+                    let cursor_sub_t = source_time
                         + f * (step * (blur_cursor_val * 3.6 / 360.0));
                     let sub_cursor = if cursor_moved {
                         sample_parsed_baked_cursor(cursor_sub_t, &parsed_baked_cursor)
@@ -1300,14 +1333,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             } else {
                 // No motion detected — single render
                 let uniforms = build_uniforms(
-                    center_cam_x, center_cam_y, center_zoom, center_cursor, current_time,
+                    center_cam_x, center_cam_y, center_zoom, center_cursor, source_time,
                 );
                 compositor.render_frame_into(&uniforms, &mut rendered);
             }
         } else {
             // No blur enabled — single render
             let uniforms = build_uniforms(
-                center_cam_x, center_cam_y, center_zoom, center_cursor, current_time,
+                center_cam_x, center_cam_y, center_zoom, center_cursor, source_time,
             );
             compositor.render_frame_into(&uniforms, &mut rendered);
         }

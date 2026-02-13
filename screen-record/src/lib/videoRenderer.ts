@@ -931,61 +931,62 @@ export class VideoRenderer {
 
     const cursorOffsetSec = this.getCursorMovementDelaySec(backgroundConfig);
 
-    let compactCursor = 0;
-    for (const seg of trimSegments) {
-      for (let t = seg.startTime; t <= seg.endTime + 0.00001; t += step) {
-        const cursorT = t + cursorOffsetSec;
-        const pos = this.interpolateCursorPositionInternal(cursorT, processed);
+    // Bake the full source-time range (including hidden gaps between trim segments)
+    // so cursor state evolves naturally through cuts — no jarring jumps at bridges.
+    const fullStart = trimSegments[0].startTime;
+    const fullEnd = trimSegments[trimSegments.length - 1].endTime;
 
-        if (!pos) {
-          if (baked.length > 0) {
-            const last = baked[baked.length - 1];
-            baked.push({ ...last, time: compactCursor + (t - seg.startTime) });
-          } else {
-            baked.push({
-              time: compactCursor + (t - seg.startTime),
-              x: 0,
-              y: 0,
-              scale: 1,
-              isClicked: false,
-              type: this.resolveCursorRenderType('default', backgroundConfig, false),
-              opacity: 1
-            });
-          }
-          continue;
+    for (let t = fullStart; t <= fullEnd + 0.00001; t += step) {
+      const cursorT = t + cursorOffsetSec;
+      const pos = this.interpolateCursorPositionInternal(cursorT, processed);
+
+      if (!pos) {
+        if (baked.length > 0) {
+          const last = baked[baked.length - 1];
+          baked.push({ ...last, time: t });
+        } else {
+          baked.push({
+            time: t,
+            x: 0,
+            y: 0,
+            scale: 1,
+            isClicked: false,
+            type: this.resolveCursorRenderType('default', backgroundConfig, false),
+            opacity: 1
+          });
         }
-
-        const isClicked = pos.isClicked;
-        const timeSinceLastHold = cursorT - simLastHoldTime;
-        const shouldBeSquished = isClicked || (simLastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
-
-        if (isClicked) {
-          simLastHoldTime = cursorT;
-        }
-
-        const targetScale = shouldBeSquished ? 0.75 : 1.0;
-
-        if (simSquishScale > targetScale) {
-          simSquishScale = Math.max(targetScale, simSquishScale - this.SQUISH_SPEED * simRatio);
-        } else if (simSquishScale < targetScale) {
-          simSquishScale = Math.min(targetScale, simSquishScale + this.RELEASE_SPEED * simRatio);
-        }
-
-        const cursorVis = getCursorVisibility(t, segment.cursorVisibilitySegments);
-        const resolvedCursorType = this.resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig, Boolean(pos.isClicked));
-
-        baked.push({
-          time: compactCursor + (t - seg.startTime),
-          x: pos.x,
-          y: pos.y,
-          scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
-          isClicked: isClicked,
-          type: resolvedCursorType,
-          opacity: Number(cursorVis.opacity.toFixed(3)),
-          rotation: this.shouldCursorRotate(resolvedCursorType) ? Number((pos.cursor_rotation || 0).toFixed(4)) : 0,
-        });
+        continue;
       }
-      compactCursor += seg.endTime - seg.startTime;
+
+      const isClicked = pos.isClicked;
+      const timeSinceLastHold = cursorT - simLastHoldTime;
+      const shouldBeSquished = isClicked || (simLastHoldTime >= 0 && timeSinceLastHold < this.CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+
+      if (isClicked) {
+        simLastHoldTime = cursorT;
+      }
+
+      const targetScale = shouldBeSquished ? 0.75 : 1.0;
+
+      if (simSquishScale > targetScale) {
+        simSquishScale = Math.max(targetScale, simSquishScale - this.SQUISH_SPEED * simRatio);
+      } else if (simSquishScale < targetScale) {
+        simSquishScale = Math.min(targetScale, simSquishScale + this.RELEASE_SPEED * simRatio);
+      }
+
+      const cursorVis = getCursorVisibility(t, segment.cursorVisibilitySegments);
+      const resolvedCursorType = this.resolveCursorRenderType(pos.cursor_type || 'default', backgroundConfig, Boolean(pos.isClicked));
+
+      baked.push({
+        time: t,
+        x: pos.x,
+        y: pos.y,
+        scale: Number((simSquishScale * cursorVis.scale).toFixed(3)),
+        isClicked: isClicked,
+        type: resolvedCursorType,
+        opacity: Number(cursorVis.opacity.toFixed(3)),
+        rotation: this.shouldCursorRotate(resolvedCursorType) ? Number((pos.cursor_rotation || 0).toFixed(4)) : 0,
+      });
     }
 
     return baked;
@@ -1011,25 +1012,26 @@ export class VideoRenderer {
     const cropOffsetX = videoWidth * crop.x;
     const cropOffsetY = videoHeight * crop.y;
 
-    let compactCursor = 0;
-    for (const seg of trimSegments) {
-      for (let t = seg.startTime; t <= seg.endTime + 0.00001; t += step) {
-        // Pass CROPPED dimensions — calculateCurrentZoomStateInternal's crop
-        // conversion assumes viewW/viewH are crop-region pixel dimensions.
-        // srcCropW/H tell it the actual video source crop dims for contain-fit.
-        const state = this.calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH, srcCropW, srcCropH);
+    // Bake the full source-time range (including hidden gaps between trim segments)
+    // so camera motion evolves naturally through cuts — no jarring jumps at bridges.
+    const fullStart = trimSegments[0].startTime;
+    const fullEnd = trimSegments[trimSegments.length - 1].endTime;
 
-        const globalX = cropOffsetX + (state.positionX * croppedW);
-        const globalY = cropOffsetY + (state.positionY * croppedH);
+    for (let t = fullStart; t <= fullEnd + 0.00001; t += step) {
+      // Pass CROPPED dimensions — calculateCurrentZoomStateInternal's crop
+      // conversion assumes viewW/viewH are crop-region pixel dimensions.
+      // srcCropW/H tell it the actual video source crop dims for contain-fit.
+      const state = this.calculateCurrentZoomStateInternal(t, segment, croppedW, croppedH, srcCropW, srcCropH);
 
-        bakedPath.push({
-          time: compactCursor + (t - seg.startTime),
-          x: globalX,
-          y: globalY,
-          zoom: state.zoomFactor
-        });
-      }
-      compactCursor += seg.endTime - seg.startTime;
+      const globalX = cropOffsetX + (state.positionX * croppedW);
+      const globalY = cropOffsetY + (state.positionY * croppedH);
+
+      bakedPath.push({
+        time: t,
+        x: globalX,
+        y: globalY,
+        zoom: state.zoomFactor
+      });
     }
 
     return bakedPath;
