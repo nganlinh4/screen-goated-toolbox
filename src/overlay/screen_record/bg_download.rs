@@ -174,6 +174,19 @@ pub fn start_download(id: String, url: String) {
 /// For Google Photos sharing URLs, try multiple strategies to get the actual image URL.
 /// For other URLs, return as-is.
 fn resolve_image_url(url: &str) -> Result<String, String> {
+    // Google Drive: convert /file/d/ID/view → direct download URL
+    if url.contains("drive.google.com/file/d/") {
+        if let Some(start) = url.find("/file/d/") {
+            let after = &url[start + 8..];
+            let file_id = after.split('/').next().unwrap_or(after);
+            if !file_id.is_empty() {
+                return Ok(format!(
+                    "https://drive.google.com/uc?export=download&id={file_id}"
+                ));
+            }
+        }
+    }
+
     if !url.contains("photos.google.com") {
         return Ok(url.to_string());
     }

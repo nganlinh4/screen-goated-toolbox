@@ -365,6 +365,10 @@ fn get_gradient_colors(bg_type: &str) -> ([f32; 4], [f32; 4]) {
             hex_to_linear(0x10, 0xB9, 0x81),
             hex_to_linear(0x2D, 0xD4, 0xBF),
         ),
+        "white" => (
+            hex_to_linear(0xF5, 0xF5, 0xF5),
+            hex_to_linear(0xFF, 0xFF, 0xFF),
+        ),
         _ => (
             hex_to_linear(0x0A, 0x0A, 0x0A),
             hex_to_linear(0x00, 0x00, 0x00),

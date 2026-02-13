@@ -27,7 +27,6 @@ const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'blur' | 'text';
 
 const GRADIENT_PRESETS = {
-  solid: 'bg-[var(--surface-dim)]',
   gradient1: 'bg-gradient-to-r from-blue-600 to-violet-600',
   gradient2: 'bg-gradient-to-r from-rose-400 to-orange-300',
   gradient3: 'bg-gradient-to-r from-emerald-500 to-teal-400'
@@ -45,9 +44,24 @@ const DOWNLOADABLE_BACKGROUNDS: DownloadableBg[] = [
     preview: '/bg-warm-abstract.svg',
     downloadUrl: 'https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPN4cVT1Rngl_wMHjLy1uWx0aiSyENSm8GWW3Ez?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3',
   },
+  {
+    id: 'cool-abstract',
+    preview: '/bg-cool-abstract.svg',
+    downloadUrl: 'https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipNUuKkC-kKZKGQjJ7ga59EJY1d4YwYp0HVeuJ0L?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3',
+  },
+  {
+    id: 'deep-abstract',
+    preview: '/bg-deep-abstract.svg',
+    downloadUrl: 'https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPufDAGMvOMDpTHKG574-ERmZxQN-CtcUCYnzKF?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3',
+  },
+  {
+    id: 'vivid-abstract',
+    preview: '/bg-vivid-abstract.svg',
+    downloadUrl: 'https://drive.google.com/file/d/1Eq9-T4smcInRljcvAjBMKi_BAqtXn1Er/view',
+  },
 ];
 
-type BgDlState = { status: 'idle' } | { status: 'checking' } | { status: 'downloading'; progress: number } | { status: 'done' } | { status: 'error'; message: string };
+type BgDlState = { status: 'idle' } | { status: 'checking' } | { status: 'downloading'; progress: number } | { status: 'done'; ext: string } | { status: 'error'; message: string };
 
 function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>) {
   const [state, setState] = useState<BgDlState>({ status: 'checking' });
@@ -55,8 +69,8 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
 
   // Check on mount if already downloaded
   useEffect(() => {
-    invoke<{ downloaded: boolean }>('check_bg_downloaded', { id: bg.id }).then(res => {
-      setState(res.downloaded ? { status: 'done' } : { status: 'idle' });
+    invoke<{ downloaded: boolean; ext: string | null }>('check_bg_downloaded', { id: bg.id }).then(res => {
+      setState(res.downloaded && res.ext ? { status: 'done', ext: res.ext } : { status: 'idle' });
     }).catch(() => setState({ status: 'idle' }));
   }, [bg.id]);
 
@@ -71,7 +85,9 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
         if (progress === 'Idle') {
           setState({ status: 'idle' });
         } else if (progress === 'Done') {
-          setState({ status: 'done' });
+          // Fetch the extension of the downloaded file
+          const info = await invoke<{ downloaded: boolean; ext: string | null }>('check_bg_downloaded', { id: bg.id });
+          setState({ status: 'done', ext: info.ext ?? 'png' });
           if (pollRef.current) clearInterval(pollRef.current);
         } else if (typeof progress === 'object') {
           if ('Downloading' in progress) {
@@ -87,15 +103,12 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
     }, 150);
   }, [bg.id, bg.downloadUrl, state.status]);
 
-  const selectBg = useCallback(async () => {
+  const selectBg = useCallback(() => {
     if (state.status !== 'done') return;
-    try {
-      const dataUrl = await invoke<string>('read_bg_as_data_url', { id: bg.id });
-      setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: dataUrl }));
-    } catch (e) {
-      console.error('Failed to load downloaded background:', e);
-    }
-  }, [bg.id, state.status, setBackgroundConfig]);
+    // Use protocol URL — served by the custom protocol handler from local app data
+    const url = `/bg-downloaded/${bg.id}.${state.ext}`;
+    setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: url }));
+  }, [bg.id, state, setBackgroundConfig]);
 
   const deleteBg = useCallback(async () => {
     try {
@@ -303,9 +316,9 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
     deleteBg();
   };
 
-  // Check if this downloaded bg is currently selected (match by id in the stored data url)
+  // Check if this downloaded bg is currently selected
   const isSelected = isDownloaded && backgroundConfig.backgroundType === 'custom'
-    && backgroundConfig.customBackground?.includes('data:image/');
+    && backgroundConfig.customBackground?.includes(`/bg-downloaded/${bg.id}.`);
 
   return (
     <button
@@ -476,7 +489,36 @@ function BackgroundPanel({
         </div>
         <div className="background-style-field">
           <label className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-2 block">{t.backgroundStyle}</label>
-          <div className="background-presets-grid grid grid-cols-4 gap-2">
+          <div className="background-presets-grid grid grid-cols-6 gap-2">
+            {/* Upload button */}
+            <label className="background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105 relative overflow-hidden group bg-[var(--glass-bg)]">
+              <input type="file" accept="image/*" onChange={onBackgroundUpload} className="hidden" />
+              <div className="upload-icon absolute inset-0 flex items-center justify-center">
+                <svg className="w-4 h-4 text-[var(--on-surface-variant)] group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+            </label>
+
+            {/* Black */}
+            <button
+              onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: 'solid' }))}
+              className={`bg-preset-black aspect-square h-10 rounded-lg transition-all duration-150 bg-[#0a0a0a] ${
+                backgroundConfig.backgroundType === 'solid'
+                  ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
+                  : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+              }`}
+            />
+
+            {/* White */}
+            <button
+              onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: 'white' }))}
+              className={`bg-preset-white aspect-square h-10 rounded-lg transition-all duration-150 bg-white ${
+                backgroundConfig.backgroundType === 'white'
+                  ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
+                  : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+              }`}
+            />
+
+            {/* Gradients */}
             {Object.entries(GRADIENT_PRESETS).map(([key, gradient]) => (
               <button
                 key={key}
@@ -488,13 +530,6 @@ function BackgroundPanel({
                 }`}
               />
             ))}
-
-            <label className="background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105 relative overflow-hidden group bg-[var(--glass-bg)]">
-              <input type="file" accept="image/*" onChange={onBackgroundUpload} className="hidden" />
-              <div className="upload-icon absolute inset-0 flex items-center justify-center">
-                <svg className="w-4 h-4 text-[var(--on-surface-variant)] group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              </div>
-            </label>
 
             {DOWNLOADABLE_BACKGROUNDS.map(bg => (
               <DownloadableBgButton
