@@ -279,6 +279,7 @@ pub fn get() -> LocaleText {
         prompt_dj_title: "PromptDJ - Be a DJ",
         screen_record_btn: "Record Screen (beta)",
         screen_record_title: "Screen Record (beta)",
+        pointer_gallery_btn: "Pointer gallery (Upcoming)",
         // --- PARAKEET DOWNLOAD MODAL EN ---
         parakeet_downloading_title: "Downloading Parakeet (0.6 GB)",
         parakeet_downloading_message: "Please wait...",

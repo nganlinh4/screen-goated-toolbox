@@ -38,6 +38,7 @@ pub enum Icon {
     DragHandle,      // New: Drag handle for reordering
     History,         // New: History icon (clock)
     Parakeet,        // New: Parakeet icon (Bird)
+    Pointer,         // New: Mouse pointer/cursor icon
 
     // Window Controls
     Minimize,

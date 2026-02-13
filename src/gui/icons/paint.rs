@@ -880,6 +880,32 @@ pub(super) fn paint_internal(
             painter.add(egui::Shape::convex_polygon(beak_pts, color, stroke));
         }
 
+        Icon::Pointer => {
+            // Mouse pointer/cursor arrow icon
+            let a = center + egui::vec2(-5.0 * scale, -9.0 * scale); // Tip
+            let b = center + egui::vec2(-5.0 * scale, 4.0 * scale); // Bottom-left
+            let c = center + egui::vec2(-2.0 * scale, 1.5 * scale); // Notch left
+            let d = center + egui::vec2(0.5 * scale, 7.0 * scale); // Stem bottom-left
+            let e = center + egui::vec2(3.0 * scale, 5.0 * scale); // Stem bottom-right
+            let f = center + egui::vec2(-0.5 * scale, 0.0 * scale); // Notch right
+            let g = center + egui::vec2(2.0 * scale, -3.0 * scale); // Right edge of head
+
+            // Fill: concave shape decomposed into convex triangles
+            for tri in [[a, b, c], [c, d, e], [c, e, f], [a, c, f], [a, f, g]] {
+                painter.add(egui::Shape::convex_polygon(
+                    tri.to_vec(),
+                    color,
+                    egui::Stroke::NONE,
+                ));
+            }
+
+            // Outline
+            let outline = [a, b, c, d, e, f, g, a];
+            for w in outline.windows(2) {
+                painter.line_segment([w[0], w[1]], stroke);
+            }
+        }
+
         Icon::Minimize => {
             let h_line = 0.5 * scale;
             let w = 6.0 * scale;
