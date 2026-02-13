@@ -110,7 +110,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
         .blocks
         .iter()
         .find(|b| b.block_type == "audio")
-        .or_else(|| preset.blocks.first());
+        .or_else(|| preset.blocks.iter().find(|b| b.block_type != "input_adapter"));
 
     let streaming_enabled = audio_block
         .map(|b| {
@@ -171,7 +171,7 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
             .blocks
             .iter()
             .find(|b| b.block_type == "audio")
-            .or_else(|| preset_for_thread.blocks.first());
+            .or_else(|| preset_for_thread.blocks.iter().find(|b| b.block_type != "input_adapter"));
 
         let model_id = active_block.map(|b| b.model.clone()).unwrap_or_default();
         let render_mode = active_block

@@ -91,6 +91,13 @@ fn migrate_config(config: &mut Config) {
             preset.auto_paste = default_preset.auto_paste;
             preset.auto_paste_newline = default_preset.auto_paste_newline;
 
+            // Sync prompt_mode (critical: determines whether text input appears for dynamic presets)
+            preset.prompt_mode = default_preset.prompt_mode.clone();
+
+            // Sync blocks (prompts, models, render modes) from defaults
+            // This ensures built-in preset prompts stay up-to-date
+            preset.blocks = default_preset.blocks.clone();
+
             // Sync audio-specific settings
             if preset.preset_type == "audio" {
                 preset.auto_stop_recording = default_preset.auto_stop_recording;

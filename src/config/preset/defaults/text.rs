@@ -177,7 +177,7 @@ pub fn create_text_presets() -> Vec<Preset> {
             .auto_paste()
             .blocks(vec![
                 BlockBuilder::text("cerebras_gpt_oss")
-                    .prompt("Edit the following text according to the user's specific instructions. CRITICAL: Maintain the original language of the text unless instructed otherwise. Output ONLY the edited result without any introductory text, explanations, or quotes.")
+                    .prompt("Edit the following text according to the user's instructions below. Follow the user's request precisely — if they ask to change the language, change it. Output ONLY the edited result without any introductory text, explanations, or quotes.")
                     .language("Vietnamese")
                     .show_overlay(false)
                     .markdown() // Upgraded: Thường -> Đẹp

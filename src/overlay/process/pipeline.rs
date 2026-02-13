@@ -32,18 +32,21 @@ pub fn start_text_processing(
     localized_preset_name: String, // Already localized by caller
     cancel_hotkey_name: String,    // The actual hotkey name like "Ctrl+Shift+D"
 ) {
+    println!("[DEBUG start_text_processing] preset_id={} text_input_mode={} prompt_mode={} blocks_count={} initial_text_len={}",
+        preset.id, preset.text_input_mode, preset.prompt_mode, preset.blocks.len(), initial_text_content.len());
     if preset.text_input_mode == "type" {
-        // Use blocks[0].prompt instead of legacy preset.prompt
-        let first_block_prompt = preset
+        // Use first processing block's prompt (skip input_adapter)
+        let first_processing_block = preset
             .blocks
-            .first()
+            .iter()
+            .find(|b| b.block_type != "input_adapter");
+
+        let first_block_prompt = first_processing_block
             .map(|b| b.prompt.as_str())
             .unwrap_or("");
 
         // Also check if model is non-LLM (doesn't use prompts)
-        let first_block_model = preset
-            .blocks
-            .first()
+        let first_block_model = first_processing_block
             .map(|b| b.model.as_str())
             .unwrap_or("");
 
@@ -297,20 +300,29 @@ pub fn start_text_processing(
             cancel_hotkey_name,
             false,
             move |user_prompt, input_hwnd| {
+                println!("[DEBUG dynamic] user_prompt=«{}»", user_prompt);
+
                 // Close the input window
                 unsafe {
                     let _ = PostMessageW(Some(input_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
                 }
 
-                // Clone preset and modify the first block's prompt with user's input
+                // Clone preset and modify the first actual processing block's prompt
                 let mut modified_preset = (*preset).clone();
-                if let Some(block0) = modified_preset.blocks.get_mut(0) {
-                    if block0.prompt.is_empty() {
-                        block0.prompt = user_prompt.clone();
+                if let Some(target_block) = modified_preset
+                    .blocks
+                    .iter_mut()
+                    .find(|b| b.block_type != "input_adapter")
+                {
+                    if target_block.prompt.is_empty() {
+                        target_block.prompt = user_prompt.clone();
                     } else {
-                        block0.prompt =
-                            format!("{}\n\nUser request: {}", block0.prompt, user_prompt);
+                        target_block.prompt =
+                            format!("{}\n\nUser request: {}", target_block.prompt, user_prompt);
                     }
+                    println!("[DEBUG dynamic] final target_block.prompt=«{}»", target_block.prompt);
+                } else {
+                    println!("[DEBUG dynamic] WARNING: no processing block found in preset!");
                 }
 
                 let config_clone = (*config).clone();
