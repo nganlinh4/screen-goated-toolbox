@@ -182,7 +182,7 @@ pub fn run_chain_step(
         &config,
         disable_auto_paste,
     );
-    handle_auto_speak(&block, &result_text);
+    handle_auto_speak(&block, &result_text, my_hwnd);
     save_to_history(&block, &result_text, &input_text_for_history, &context);
 
     // 6. Chain Next Steps
