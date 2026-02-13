@@ -642,7 +642,7 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
             }
 
             // 2. Draw Borders (SDF)
-            let default_radius = 12.0f32;
+            let default_radius = 8.0f32;
             let border_width = 2.0f32;
 
             // Box coordinates
