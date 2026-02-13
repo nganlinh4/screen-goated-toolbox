@@ -84,6 +84,31 @@ fn repo_root() -> Option<PathBuf> {
         .clone()
 }
 
+/// Serve downloaded background images from %LOCALAPPDATA%/screen-goated-toolbox/backgrounds/
+/// Path format: /bg-downloaded/{filename}  e.g. /bg-downloaded/warm-abstract.png
+fn try_read_downloaded_bg(path: &str) -> Option<(Vec<u8>, &'static str)> {
+    let prefix = "/bg-downloaded/";
+    let rel = path.strip_prefix(prefix)?;
+    if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
+        return None;
+    }
+    let dir = dirs::data_local_dir()?
+        .join("screen-goated-toolbox")
+        .join("backgrounds");
+    let file_path = dir.join(rel);
+    let bytes = std::fs::read(&file_path).ok()?;
+    let mime = if rel.ends_with(".jpg") || rel.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if rel.ends_with(".webp") {
+        "image/webp"
+    } else if rel.ends_with(".svg") {
+        "image/svg+xml"
+    } else {
+        "image/png"
+    };
+    Some((bytes, mime))
+}
+
 fn try_read_runtime_cursor_svg(path: &str) -> Option<Vec<u8>> {
     if !path.ends_with(".svg") {
         return None;
@@ -215,6 +240,9 @@ const ASSET_CURSOR_SGTCOOL_SLOT_10_SVG: &[u8] = include_bytes!("dist/cursors/sgt
 const ASSET_CURSOR_SGTCOOL_SLOT_11_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-11.svg");
 const ASSET_CURSOR_SGTCOOL_SLOT_12_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-12.svg");
 const ASSET_BG_WARM_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-warm-abstract.svg");
+const ASSET_BG_COOL_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-cool-abstract.svg");
+const ASSET_BG_DEEP_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-deep-abstract.svg");
+const ASSET_BG_VIVID_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-vivid-abstract.svg");
 const ASSET_SCREENSHOT_PNG: &[u8] = include_bytes!("dist/screenshot.png");
 
 // --- WINDOW PROCEDURE ---
@@ -679,6 +707,9 @@ unsafe fn internal_create_sr_loop() {
                     if let Some(bytes) = try_read_runtime_cursor_svg(path) {
                         return wnd_http_response(200, "image/svg+xml", Cow::Owned(bytes));
                     }
+                    if let Some((bytes, mime)) = try_read_downloaded_bg(path) {
+                        return wnd_http_response(200, mime, Cow::Owned(bytes));
+                    }
                     let (content, mime) = if path == "/" || path == "/index.html" {
                         // Inject font CSS into HTML <head> for instant font rendering
                         let html = String::from_utf8_lossy(INDEX_HTML);
@@ -864,6 +895,12 @@ unsafe fn internal_create_sr_loop() {
                         (Cow::Borrowed(ASSET_CURSOR_SGTCOOL_SLOT_12_SVG), "image/svg+xml")
                     } else if path.ends_with("bg-warm-abstract.svg") {
                         (Cow::Borrowed(ASSET_BG_WARM_ABSTRACT_SVG), "image/svg+xml")
+                    } else if path.ends_with("bg-cool-abstract.svg") {
+                        (Cow::Borrowed(ASSET_BG_COOL_ABSTRACT_SVG), "image/svg+xml")
+                    } else if path.ends_with("bg-deep-abstract.svg") {
+                        (Cow::Borrowed(ASSET_BG_DEEP_ABSTRACT_SVG), "image/svg+xml")
+                    } else if path.ends_with("bg-vivid-abstract.svg") {
+                        (Cow::Borrowed(ASSET_BG_VIVID_ABSTRACT_SVG), "image/svg+xml")
                     } else if path.ends_with("screenshot.png") {
                         (Cow::Borrowed(ASSET_SCREENSHOT_PNG), "image/png")
                     } else {

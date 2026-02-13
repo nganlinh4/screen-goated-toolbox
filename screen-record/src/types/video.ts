@@ -76,7 +76,7 @@ export interface VideoSegment {
 export interface BackgroundConfig {
   scale: number;
   borderRadius: number;
-  backgroundType: 'solid' | 'gradient1' | 'gradient2' | 'gradient3' | 'custom';
+  backgroundType: 'solid' | 'white' | 'gradient1' | 'gradient2' | 'gradient3' | 'custom';
   shadow?: number;
   cursorScale?: number;
   cursorShadow?: number; // 0-200

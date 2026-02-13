@@ -1554,6 +1554,25 @@ export class VideoRenderer {
         }
         return '#000000';
       }
+      case 'white': {
+        const wGrad = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
+        wGrad.addColorStop(0, '#f5f5f5');
+        wGrad.addColorStop(0.5, '#ffffff');
+        wGrad.addColorStop(1, '#f5f5f5');
+
+        const wCx = ctx.canvas.width / 2;
+        const wCy = ctx.canvas.height / 2;
+        const wRadial = ctx.createRadialGradient(wCx, wCy, 0, wCx, wCy, ctx.canvas.width * 0.8);
+        wRadial.addColorStop(0, 'rgba(225, 225, 225, 0.15)');
+        wRadial.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+        ctx.fillStyle = wGrad;
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.fillStyle = wRadial;
+        ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+        return 'rgba(0,0,0,0)';
+      }
       case 'solid': {
         const gradient = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
         gradient.addColorStop(0, '#0a0a0a');
