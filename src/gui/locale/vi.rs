@@ -280,6 +280,7 @@ pub fn get() -> LocaleText {
         prompt_dj_title: "PromptDJ - Làm DJ",
         screen_record_btn: "Quay MH (beta)",
         screen_record_title: "Screen Record - Quay MH (beta)",
+        pointer_gallery_btn: "Kho trỏ chuột (Sắp có)",
         // --- PARAKEET DOWNLOAD MODAL VI ---
         parakeet_downloading_title: "Đang tải mô hình Parakeet (0.6 GB)",
         parakeet_downloading_message: "Vui lòng đợi...",

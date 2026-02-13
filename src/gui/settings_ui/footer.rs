@@ -11,93 +11,104 @@ pub fn render_footer(
     show_modal: &mut bool,
 ) {
     ui.horizontal(|ui| {
-        // 1. Left Side: Admin Status
-        // Use a fixed width container for left side to ensure stability
-        ui.allocate_ui(egui::vec2(180.0, ui.available_height()), |ui| {
-            ui.horizontal_centered(|ui| {
-                let is_admin =
-                    cfg!(target_os = "windows") && crate::gui::utils::is_running_as_admin();
-                let footer_text = if is_admin {
-                    egui::RichText::new(text.footer_admin_running)
-                        .size(11.0)
-                        .color(egui::Color32::from_rgb(34, 139, 34))
-                } else {
-                    egui::RichText::new(text.footer_admin_text)
-                        .size(11.0)
-                        .color(ui.visuals().weak_text_color())
-                };
-                ui.label(footer_text);
-            });
-        });
-
-        // 2. Right Side: Version
-        // We use with_layout to pack from right, but we need to reserve space first
-        // or egui might push the center content over it.
-        // A better approach in horizontal layout: Left -> Expanded Center -> Right.
-
-        // 3. Center: Tips (Takes available space)
-        let version_text = format!("{} v{}", text.footer_version, env!("CARGO_PKG_VERSION"));
-        let version_galley = ui.painter().layout_no_wrap(
-            version_text.clone(),
-            egui::FontId::proportional(11.0),
-            ui.visuals().weak_text_color(),
+        // 1. Left Side: Pointer Gallery Button (icon inside, matches header button style)
+        let btn_label = text.pointer_gallery_btn;
+        let is_dark = ui.visuals().dark_mode;
+        let btn_color = if is_dark {
+            egui::Color32::from_rgb(150, 150, 150)
+        } else {
+            egui::Color32::from_rgb(120, 120, 120)
+        };
+        let btn_bg = if is_dark {
+            egui::Color32::from_rgb(80, 80, 80)
+        } else {
+            egui::Color32::from_rgb(210, 210, 210)
+        };
+        let btn_galley = ui.painter().layout_no_wrap(
+            btn_label.to_string(),
+            egui::FontId::proportional(12.0),
+            btn_color,
         );
-        let version_width = version_galley.rect.width() + 10.0;
+        let icon_sz = 12.0;
+        let icon_gap = 4.0;
+        let h_pad = 6.0;
+        let v_pad = 1.0; // match egui::Button default vertical padding
+        let btn_w = h_pad + icon_sz + icon_gap + btn_galley.rect.width() + h_pad;
+        let btn_h = btn_galley.rect.height() + v_pad * 2.0;
 
-        // Allocate center space: Total - Left - Right
-        let available_w = (ui.available_width() - version_width).max(0.0);
+        let (btn_rect, _) =
+            ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::hover());
+        let p = ui.painter();
+        p.rect_filled(btn_rect, 6.0, btn_bg);
+        let icon_rect = egui::Rect::from_min_size(
+            egui::pos2(btn_rect.left() + h_pad, btn_rect.center().y - icon_sz / 2.0),
+            egui::vec2(icon_sz, icon_sz),
+        );
+        paint_icon(p, icon_rect, Icon::Pointer, btn_color);
+        p.galley(
+            egui::pos2(
+                icon_rect.right() + icon_gap,
+                btn_rect.center().y - btn_galley.rect.height() / 2.0,
+            ),
+            btn_galley,
+            btn_color,
+        );
 
-        ui.allocate_ui(egui::vec2(available_w, ui.available_height()), |ui| {
-            ui.vertical_centered(|ui| {
-                let tip_color = ui.visuals().text_color().linear_multiply(tip_alpha);
-                let icon_color =
-                    egui::Color32::from_rgba_unmultiplied(255, 200, 50, (tip_alpha * 255.0) as u8); // Yellow/gold color for lightbulb
+        ui.add_space(8.0);
 
-                // First, calculate text width to properly center everything
-                let icon_size = 14.0;
-                let icon_spacing = 4.0;
+        // 2. Center: Tips (Takes remaining space)
+        let tip_color = ui.visuals().text_color().linear_multiply(tip_alpha);
+        let icon_color =
+            egui::Color32::from_rgba_unmultiplied(255, 200, 50, (tip_alpha * 255.0) as u8);
 
-                // Format tip with bold text
-                let is_dark_mode = ui.visuals().dark_mode;
-                let layout_job =
-                    format_footer_tip(&current_tip, tip_color, is_dark_mode, tip_alpha);
-                let text_galley = ui.painter().layout_job(layout_job);
-                let total_width = icon_size + icon_spacing + text_galley.rect.width();
+        let icon_size = 14.0;
+        let icon_spacing = 4.0;
 
-                // Allocate space for icon + text centered
-                let (response, painter) = ui.allocate_painter(
-                    egui::vec2(total_width + 8.0, ui.available_height().max(18.0)),
-                    egui::Sense::click(),
-                );
-                let rect = response.rect;
+        let is_dark_mode = ui.visuals().dark_mode;
+        let layout_job = format_footer_tip(&current_tip, tip_color, is_dark_mode, tip_alpha);
+        let text_galley = ui.painter().layout_job(layout_job);
+        let total_width = icon_size + icon_spacing + text_galley.rect.width();
 
-                // Draw lightbulb icon on the left
-                let icon_rect = egui::Rect::from_min_size(
-                    egui::pos2(rect.left(), rect.center().y - icon_size / 2.0),
-                    egui::vec2(icon_size, icon_size),
-                );
-                paint_icon(&painter, icon_rect, Icon::Lightbulb, icon_color);
+        // Reserve ~180px for the right-side admin text
+        let available = ui.available_width() - 180.0;
+        let tip_width = total_width.min(available.max(100.0));
 
-                // Draw text to the right of icon
-                let text_pos = egui::pos2(
-                    icon_rect.right() + icon_spacing,
-                    rect.center().y - text_galley.rect.height() / 2.0,
-                );
-                painter.galley(text_pos, text_galley, egui::Color32::WHITE);
+        let (response, painter) = ui.allocate_painter(
+            egui::vec2(tip_width + 8.0, ui.available_height().max(18.0)),
+            egui::Sense::click(),
+        );
+        let rect = response.rect;
 
-                if response.on_hover_text(text.tips_click_hint).clicked() {
-                    *show_modal = true;
-                }
-            });
-        });
+        let icon_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.left(), rect.center().y - icon_size / 2.0),
+            egui::vec2(icon_size, icon_size),
+        );
+        paint_icon(&painter, icon_rect, Icon::Lightbulb, icon_color);
 
-        // 4. Draw Version on the far right
+        let text_pos = egui::pos2(
+            icon_rect.right() + icon_spacing,
+            rect.center().y - text_galley.rect.height() / 2.0,
+        );
+        painter.galley(text_pos, text_galley, egui::Color32::WHITE);
+
+        if response.on_hover_text(text.tips_click_hint).clicked() {
+            *show_modal = true;
+        }
+
+        // 3. Right Side: Admin Text (moved from left)
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                egui::RichText::new(version_text)
+            let is_admin =
+                cfg!(target_os = "windows") && crate::gui::utils::is_running_as_admin();
+            let footer_text = if is_admin {
+                egui::RichText::new(text.footer_admin_running)
                     .size(11.0)
-                    .color(ui.visuals().weak_text_color()),
-            );
+                    .color(egui::Color32::from_rgb(34, 139, 34))
+            } else {
+                egui::RichText::new(text.footer_admin_text)
+                    .size(11.0)
+                    .color(ui.visuals().weak_text_color())
+            };
+            ui.label(footer_text);
         });
     });
 }

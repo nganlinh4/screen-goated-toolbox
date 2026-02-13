@@ -232,6 +232,7 @@ pub struct LocaleText {
     pub prompt_dj_title: &'static str,
     pub screen_record_btn: &'static str,
     pub screen_record_title: &'static str,
+    pub pointer_gallery_btn: &'static str,
     // --- PARAKEET DOWNLOAD MODAL ---
     pub parakeet_downloading_title: &'static str,
     pub parakeet_downloading_message: &'static str,

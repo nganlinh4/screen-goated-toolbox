@@ -336,6 +336,7 @@ pub fn get() -> LocaleText {
         prompt_dj_title: "PromptDJ - DJ 되기",
         screen_record_btn: "화면 녹화 (beta)",
         screen_record_title: "Screen Record - 화면 녹화 (beta)",
+        pointer_gallery_btn: "포인터 갤러리 (준비 중)",
         // --- PARAKEET DOWNLOAD MODAL KO ---
         parakeet_downloading_title: "Parakeet 모델 다운로드 중 (0.6 GB)",
         parakeet_downloading_message: "잠시만 기다려주세요...",
