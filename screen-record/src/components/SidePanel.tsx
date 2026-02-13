@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
 import { ColorPicker } from '@/components/ui/ColorPicker';
-import { Trash2, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { Trash2, AlignLeft, AlignCenter, AlignRight, Download } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, TextSegment } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 
@@ -31,6 +32,87 @@ const GRADIENT_PRESETS = {
   gradient2: 'bg-gradient-to-r from-rose-400 to-orange-300',
   gradient3: 'bg-gradient-to-r from-emerald-500 to-teal-400'
 } as const;
+
+interface DownloadableBg {
+  id: string;
+  preview: string;
+  downloadUrl: string;
+}
+
+const DOWNLOADABLE_BACKGROUNDS: DownloadableBg[] = [
+  {
+    id: 'warm-abstract',
+    preview: '/bg-warm-abstract.svg',
+    downloadUrl: 'https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPN4cVT1Rngl_wMHjLy1uWx0aiSyENSm8GWW3Ez?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3',
+  },
+];
+
+type BgDlState = { status: 'idle' } | { status: 'checking' } | { status: 'downloading'; progress: number } | { status: 'done' } | { status: 'error'; message: string };
+
+function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>) {
+  const [state, setState] = useState<BgDlState>({ status: 'checking' });
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Check on mount if already downloaded
+  useEffect(() => {
+    invoke<{ downloaded: boolean }>('check_bg_downloaded', { id: bg.id }).then(res => {
+      setState(res.downloaded ? { status: 'done' } : { status: 'idle' });
+    }).catch(() => setState({ status: 'idle' }));
+  }, [bg.id]);
+
+  const startDownload = useCallback(() => {
+    if (state.status === 'downloading') return;
+    setState({ status: 'downloading', progress: 0 });
+    invoke('start_bg_download', { id: bg.id, url: bg.downloadUrl });
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const progress = await invoke<any>('get_bg_download_progress');
+        if (progress === 'Idle') {
+          setState({ status: 'idle' });
+        } else if (progress === 'Done') {
+          setState({ status: 'done' });
+          if (pollRef.current) clearInterval(pollRef.current);
+        } else if (typeof progress === 'object') {
+          if ('Downloading' in progress) {
+            setState({ status: 'downloading', progress: progress.Downloading.progress });
+          } else if ('Error' in progress) {
+            setState({ status: 'error', message: progress.Error });
+            if (pollRef.current) clearInterval(pollRef.current);
+          }
+        }
+      } catch {
+        // keep polling
+      }
+    }, 150);
+  }, [bg.id, bg.downloadUrl, state.status]);
+
+  const selectBg = useCallback(async () => {
+    if (state.status !== 'done') return;
+    try {
+      const dataUrl = await invoke<string>('read_bg_as_data_url', { id: bg.id });
+      setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: dataUrl }));
+    } catch (e) {
+      console.error('Failed to load downloaded background:', e);
+    }
+  }, [bg.id, state.status, setBackgroundConfig]);
+
+  const deleteBg = useCallback(async () => {
+    try {
+      await invoke('delete_bg_download', { id: bg.id });
+      setState({ status: 'idle' });
+    } catch (e) {
+      console.error('Failed to delete downloaded background:', e);
+    }
+  }, [bg.id]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  return { state, startDownload, selectBg, deleteBg };
+}
 
 // ============================================================================
 // PanelTabs
@@ -192,6 +274,103 @@ function ZoomPanel({
 }
 
 // ============================================================================
+// DownloadableBgButton
+// ============================================================================
+function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
+  bg: DownloadableBg;
+  backgroundConfig: BackgroundConfig;
+  setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+}) {
+  const { state, startDownload, selectBg, deleteBg } = useDownloadableBg(bg, setBackgroundConfig);
+
+  const isDownloaded = state.status === 'done';
+  const isDownloading = state.status === 'downloading';
+  const progress = isDownloading ? (state as { status: 'downloading'; progress: number }).progress : 0;
+
+  // Overlay opacity: 1 when not downloaded, wipes to 0 as download progresses
+  const overlayOpacity = isDownloaded ? 0 : isDownloading ? 1 - (progress / 100) : 1;
+
+  const handleClick = () => {
+    if (isDownloaded) {
+      selectBg();
+    } else if (state.status === 'idle' || state.status === 'error') {
+      startDownload();
+    }
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteBg();
+  };
+
+  // Check if this downloaded bg is currently selected (match by id in the stored data url)
+  const isSelected = isDownloaded && backgroundConfig.backgroundType === 'custom'
+    && backgroundConfig.customBackground?.includes('data:image/');
+
+  return (
+    <button
+      onClick={handleClick}
+      title={
+        isDownloading ? `Downloading... ${Math.round(progress)}%`
+        : isDownloaded ? bg.id
+        : state.status === 'error' ? `Error: ${(state as { status: 'error'; message: string }).message}. Click to retry.`
+        : 'Click to download'
+      }
+      className={`downloadable-bg-btn aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden group ${
+        isSelected
+          ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
+          : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
+      }`}
+    >
+      {/* Preview image */}
+      <img
+        src={bg.preview}
+        alt={bg.id}
+        className="absolute inset-0 w-full h-full object-cover"
+        draggable={false}
+      />
+
+      {/* Delete button (top-right, shown on hover when downloaded) */}
+      {isDownloaded && (
+        <div
+          onClick={handleDelete}
+          className="downloadable-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-sm bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
+          title="Delete downloaded file"
+        >
+          <Trash2 className="w-2 h-2 text-white" />
+        </div>
+      )}
+
+      {/* Download overlay: opacity decreases as download progresses */}
+      {overlayOpacity > 0 && (
+        <div
+          className="downloadable-bg-overlay absolute inset-0 flex items-center justify-center transition-opacity duration-200"
+          style={{
+            backgroundColor: `rgba(0, 0, 0, ${0.18 * overlayOpacity})`,
+            backdropFilter: overlayOpacity > 0.3 ? 'blur(1px)' : 'none',
+          }}
+        >
+          {isDownloading ? (
+            <div className="download-progress-ring relative w-5 h-5">
+              <svg viewBox="0 0 20 20" className="w-full h-full -rotate-90">
+                <circle cx="10" cy="10" r="8" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
+                <circle
+                  cx="10" cy="10" r="8" fill="none" stroke="white" strokeWidth="2"
+                  strokeDasharray={`${(progress / 100) * 50.3} 50.3`}
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+          ) : (
+            <Download className="w-3.5 h-3.5 text-white/80 drop-shadow-sm" />
+          )}
+        </div>
+      )}
+    </button>
+  );
+}
+
+// ============================================================================
 // BackgroundPanel
 // ============================================================================
 interface BackgroundPanelProps {
@@ -316,6 +495,15 @@ function BackgroundPanel({
                 <svg className="w-4 h-4 text-[var(--on-surface-variant)] group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               </div>
             </label>
+
+            {DOWNLOADABLE_BACKGROUNDS.map(bg => (
+              <DownloadableBgButton
+                key={bg.id}
+                bg={bg}
+                backgroundConfig={backgroundConfig}
+                setBackgroundConfig={setBackgroundConfig}
+              />
+            ))}
 
             {recentUploads.map((imageUrl, index) => (
               <button

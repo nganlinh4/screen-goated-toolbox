@@ -5,6 +5,7 @@ use super::engine::{
     get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODING_FINISHED,
     MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
+use super::bg_download;
 use super::ffmpeg::{
     get_ffmpeg_path, get_ffprobe_path, start_ffmpeg_installation, FfmpegInstallStatus,
     FFMPEG_INSTALL_STATUS,
@@ -64,6 +65,33 @@ pub fn handle_ipc_command(
         "cancel_ffmpeg_install" => {
             *FFMPEG_INSTALL_STATUS.lock().unwrap() = FfmpegInstallStatus::Cancelled;
             Ok(serde_json::Value::Null)
+        }
+        "check_bg_downloaded" => {
+            let id = args["id"].as_str().unwrap_or("");
+            let ext = bg_download::is_downloaded(id);
+            Ok(serde_json::json!({ "downloaded": ext.is_some(), "ext": ext }))
+        }
+        "start_bg_download" => {
+            let id = args["id"].as_str().unwrap_or("").to_string();
+            let url = args["url"].as_str().unwrap_or("").to_string();
+            bg_download::start_download(id, url);
+            Ok(serde_json::Value::Null)
+        }
+        "get_bg_download_progress" => {
+            let status = bg_download::BG_DOWNLOAD_STATUS.lock().unwrap().clone();
+            Ok(serde_json::to_value(&status).unwrap())
+        }
+        "delete_bg_download" => {
+            let id = args["id"].as_str().unwrap_or("");
+            bg_download::delete_downloaded(id);
+            Ok(serde_json::Value::Null)
+        }
+        "read_bg_as_data_url" => {
+            let id = args["id"].as_str().unwrap_or("");
+            match bg_download::read_as_data_url(id) {
+                Ok(data_url) => Ok(serde_json::json!(data_url)),
+                Err(e) => Err(e),
+            }
         }
         "start_export_server" => native_export::start_native_export(args),
         "cancel_export" => {
