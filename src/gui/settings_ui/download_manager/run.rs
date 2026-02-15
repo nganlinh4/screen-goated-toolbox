@@ -11,6 +11,58 @@ use super::DownloadManager;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+const FFMPEG_DOWNLOAD_URL: &str =
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip";
+const FFMPEG_RELEASE_API_URL: &str = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
+const FFMPEG_RELEASE_MARKER_FILE: &str = "ffmpeg_release_source.txt";
+
+fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
+    let needle = format!("\"{}\"", field);
+    let pos = json.find(&needle)?;
+    let sub = &json[pos..];
+    let colon = sub.find(':')?;
+    let after_colon = &sub[colon + 1..];
+    let quote1 = after_colon.find('"')?;
+    let value_start = quote1 + 1;
+    let quote2 = after_colon[value_start..].find('"')?;
+    Some(after_colon[value_start..value_start + quote2].to_string())
+}
+
+fn fetch_btbn_release_label() -> Result<String, String> {
+    let response = ureq::get(FFMPEG_RELEASE_API_URL)
+        .header("User-Agent", "ScreenGoatedToolbox")
+        .call()
+        .map_err(|e| e.to_string())?;
+    let json_str = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+
+    // Prefer human-friendly release name, fallback to published timestamp.
+    if let Some(name) = extract_json_string_field(&json_str, "name") {
+        if !name.trim().is_empty() {
+            return Ok(name);
+        }
+    }
+    if let Some(published_at) = extract_json_string_field(&json_str, "published_at") {
+        if !published_at.trim().is_empty() {
+            return Ok(published_at);
+        }
+    }
+
+    Err("Could not parse BtbN latest release metadata".to_string())
+}
+
+fn parse_ffmpeg_version(output: &str) -> Option<String> {
+    let line = output.lines().next()?;
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() >= 3 && parts[0] == "ffmpeg" && parts[1] == "version" {
+        Some(parts[2].to_string())
+    } else {
+        None
+    }
+}
+
 impl DownloadManager {
     pub fn check_status(&self) {
         let bin = self.bin_dir.clone();
@@ -164,41 +216,32 @@ impl DownloadManager {
 
                 if let Ok(out) = output {
                     let stdout = String::from_utf8_lossy(&out.stdout);
-                    // Line 1: ffmpeg version 6.1.1-essentials...
-                    if let Some(line) = stdout.lines().next() {
-                        let parts: Vec<&str> = line.split_whitespace().collect();
-                        if parts.len() >= 3 && parts[0] == "ffmpeg" && parts[1] == "version" {
-                            let ver_chunk = parts[2]; // 6.1.1-essentials...
-                                                      // Extract just the version number (digits and dots)
-                            let local_ver: String = ver_chunk
-                                .chars()
-                                .take_while(|c| c.is_ascii_digit() || *c == '.')
-                                .collect();
-                            *ffmpeg_ver.lock().unwrap() = Some(local_ver.clone());
+                    if let Some(local_ver) = parse_ffmpeg_version(&stdout) {
+                        *ffmpeg_ver.lock().unwrap() = Some(local_ver.clone());
 
-                            // Fetch remote
-                            if let Ok(r) =
-                                ureq::get("https://www.gyan.dev/ffmpeg/builds/release-version")
-                                    .header("User-Agent", "ScreenGoatedToolbox")
-                                    .call()
-                            {
-                                if let Ok(remote_ver) = r.into_body().read_to_string() {
-                                    let remote_ver = remote_ver.trim();
-                                    log(
-                                        &logs,
-                                        format!(
-                                            "ffmpeg: local={}, remote={}",
-                                            local_ver, remote_ver
-                                        ),
-                                    );
-                                    if remote_ver != local_ver && !remote_ver.is_empty() {
-                                        *ffmpeg_status_store.lock().unwrap() =
-                                            UpdateStatus::UpdateAvailable(remote_ver.to_string());
-                                    } else {
-                                        *ffmpeg_status_store.lock().unwrap() =
-                                            UpdateStatus::UpToDate;
-                                    }
+                        match fetch_btbn_release_label() {
+                            Ok(remote_release) => {
+                                let marker_path = bin.join(FFMPEG_RELEASE_MARKER_FILE);
+                                let local_release = fs::read_to_string(marker_path)
+                                    .ok()
+                                    .map(|s| s.trim().to_string())
+                                    .unwrap_or_default();
+                                log(
+                                    &logs,
+                                    format!(
+                                        "ffmpeg: local_ver={}, local_release='{}', remote_release='{}'",
+                                        local_ver, local_release, remote_release
+                                    ),
+                                );
+                                if !local_release.is_empty() && local_release == remote_release {
+                                    *ffmpeg_status_store.lock().unwrap() = UpdateStatus::UpToDate;
+                                } else {
+                                    *ffmpeg_status_store.lock().unwrap() =
+                                        UpdateStatus::UpdateAvailable(remote_release);
                                 }
+                            }
+                            Err(e) => {
+                                *ffmpeg_status_store.lock().unwrap() = UpdateStatus::Error(e);
                             }
                         }
                     }
@@ -228,9 +271,11 @@ impl DownloadManager {
     pub fn delete_dependencies(&self) {
         let ytdlp_path = self.bin_dir.join("yt-dlp.exe");
         let ffmpeg_path = self.bin_dir.join("ffmpeg.exe");
+        let ffmpeg_marker_path = self.bin_dir.join(FFMPEG_RELEASE_MARKER_FILE);
 
         let _ = fs::remove_file(ytdlp_path);
         let _ = fs::remove_file(ffmpeg_path);
+        let _ = fs::remove_file(ffmpeg_marker_path);
 
         // Reset status
         *self.ytdlp_status.lock().unwrap() = InstallStatus::Missing;
@@ -351,8 +396,9 @@ impl DownloadManager {
         }
 
         thread::spawn(move || {
-            let url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+            let url = FFMPEG_DOWNLOAD_URL;
             log(&logs, format!("Starting download: {}", url));
+            let remote_release = fetch_btbn_release_label().ok();
 
             let zip_path = bin.join("ffmpeg.zip");
             match download_file(url, &zip_path, &status, &cancel) {
@@ -371,6 +417,9 @@ impl DownloadManager {
                             log(&logs, "ffmpeg installed successfully");
                             let _ = fs::remove_file(zip_path); // Cleanup
                             *update_status.lock().unwrap() = UpdateStatus::Idle;
+                            if let Some(label) = remote_release {
+                                let _ = fs::write(bin.join(FFMPEG_RELEASE_MARKER_FILE), label);
+                            }
 
                             // Update version string
                             #[cfg(target_os = "windows")]
@@ -382,19 +431,8 @@ impl DownloadManager {
 
                             if let Ok(out) = output {
                                 let stdout = String::from_utf8_lossy(&out.stdout);
-                                if let Some(line) = stdout.lines().next() {
-                                    let parts: Vec<&str> = line.split_whitespace().collect();
-                                    if parts.len() >= 3
-                                        && parts[0] == "ffmpeg"
-                                        && parts[1] == "version"
-                                    {
-                                        let ver_chunk = parts[2];
-                                        let local_ver: String = ver_chunk
-                                            .chars()
-                                            .take_while(|c| c.is_ascii_digit() || *c == '.')
-                                            .collect();
-                                        *ffmpeg_ver_store.lock().unwrap() = Some(local_ver);
-                                    }
+                                if let Some(local_ver) = parse_ffmpeg_version(&stdout) {
+                                    *ffmpeg_ver_store.lock().unwrap() = Some(local_ver);
                                 }
                             }
                         }

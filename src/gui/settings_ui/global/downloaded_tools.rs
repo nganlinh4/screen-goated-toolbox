@@ -233,6 +233,28 @@ pub fn render_downloaded_tools_modal(
 
                 // --- ffmpeg ---
                 ui.group(|ui| {
+                    let ffmpeg_exists = download_manager.bin_dir.join("ffmpeg.exe").exists();
+                    let ffprobe_exists = download_manager.bin_dir.join("ffprobe.exe").exists();
+                    let installed_on_disk = ffmpeg_exists && ffprobe_exists;
+
+                    // Keep UI status in sync when ffmpeg is installed externally
+                    // (e.g., from the screen recorder panel).
+                    {
+                        let mut s = download_manager.ffmpeg_status.lock().unwrap();
+                        let in_downloading_state =
+                            matches!(*s, InstallStatus::Downloading(_) | InstallStatus::Extracting);
+                        if !in_downloading_state {
+                            match (&*s, installed_on_disk) {
+                                (InstallStatus::Installed, false) => *s = InstallStatus::Missing,
+                                (InstallStatus::Missing, true) => *s = InstallStatus::Installed,
+                                (InstallStatus::Checking, true) => *s = InstallStatus::Installed,
+                                (InstallStatus::Checking, false) => *s = InstallStatus::Missing,
+                                (InstallStatus::Error(_), true) => *s = InstallStatus::Installed,
+                                _ => {}
+                            }
+                        }
+                    }
+
                     let status = download_manager.ffmpeg_status.lock().unwrap().clone();
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(text.tool_ffmpeg).strong());
@@ -250,6 +272,11 @@ pub fn render_downloaded_tools_modal(
                                         let _ = fs::remove_file(&path);
                                         let _ = fs::remove_file(
                                             download_manager.bin_dir.join("ffprobe.exe"),
+                                        );
+                                        let _ = fs::remove_file(
+                                            download_manager
+                                                .bin_dir
+                                                .join("ffmpeg_release_source.txt"),
                                         );
                                         *download_manager.ffmpeg_status.lock().unwrap() =
                                             InstallStatus::Missing;
