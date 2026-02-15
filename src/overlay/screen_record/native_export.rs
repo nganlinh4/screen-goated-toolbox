@@ -1,15 +1,16 @@
+use base64::Engine;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
 use std::os::windows::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::mpsc::{sync_channel, TryRecvError};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{sync_channel, TryRecvError};
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::gpu_export::{create_uniforms, CompositorUniforms, GpuCompositor};
 use super::SR_HWND;
@@ -91,7 +92,9 @@ fn push_export_progress(percent: f64, eta: f64) {
         }
     } else {
         // No window — free the allocation
-        unsafe { drop(Box::from_raw(script_ptr)); }
+        unsafe {
+            drop(Box::from_raw(script_ptr));
+        }
     }
 }
 
@@ -177,7 +180,7 @@ pub fn warm_up_export_pipeline() {
         warm_w, warm_h
     );
 
-    match GpuCompositor::new(warm_w, warm_h, warm_w, warm_h) {
+    match GpuCompositor::new(warm_w, warm_h, warm_w, warm_h, warm_w, warm_h) {
         Ok(compositor) => {
             // Lightweight warm-up: avoid full 60-slot SVG atlas build here.
             // First export uses fast-partial slots; this keeps startup contention low.
@@ -204,6 +207,9 @@ pub fn warm_up_export_pipeline() {
                 0.0,
                 0.0,
                 0.0,
+                false,
+                1.0,
+                (0.5, 0.5),
             );
 
             let _ = compositor.render_frame(&uniforms);
@@ -272,6 +278,8 @@ pub struct BackgroundConfig {
     pub scale: f64,
     pub border_radius: f64,
     pub background_type: String,
+    #[serde(default)]
+    pub custom_background: Option<String>,
     pub shadow: f64,
     pub cursor_scale: f64,
     #[serde(default)]
@@ -282,6 +290,68 @@ pub struct BackgroundConfig {
     pub motion_blur_zoom: f64,
     #[serde(default)]
     pub motion_blur_pan: f64,
+}
+
+fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>, String> {
+    if let Some(rest) = custom_background.strip_prefix("data:") {
+        let (meta, data) = rest
+            .split_once(',')
+            .ok_or_else(|| "Invalid custom background data URL".to_string())?;
+        if !meta.contains(";base64") {
+            return Err("Custom background data URL must be base64".to_string());
+        }
+        return base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|e| format!("Failed to decode custom background base64: {}", e));
+    }
+
+    if let Some(rel) = custom_background.strip_prefix("/bg-downloaded/") {
+        if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
+            return Err("Invalid downloadable background path".to_string());
+        }
+        let file_path = dirs::data_local_dir()
+            .ok_or_else(|| "Failed to resolve local app data directory".to_string())?
+            .join("screen-goated-toolbox")
+            .join("backgrounds")
+            .join(rel);
+        return fs::read(&file_path).map_err(|e| {
+            format!(
+                "Failed to read downloadable background {}: {}",
+                file_path.display(),
+                e
+            )
+        });
+    }
+
+    Err("Unsupported custom background source".to_string())
+}
+
+fn load_custom_background_rgba(
+    custom_background: &str,
+    target_w: u32,
+    target_h: u32,
+) -> Result<Vec<u8>, String> {
+    let raw = decode_custom_background_bytes(custom_background)?;
+    let decoded = image::load_from_memory(&raw)
+        .map_err(|e| format!("Failed to decode custom background image: {}", e))?
+        .to_rgba8();
+
+    let src_w = decoded.width().max(1);
+    let src_h = decoded.height().max(1);
+    let scale = (target_w as f64 / src_w as f64).max(target_h as f64 / src_h as f64);
+    let scaled_w = ((src_w as f64 * scale).ceil() as u32).max(target_w);
+    let scaled_h = ((src_h as f64 * scale).ceil() as u32).max(target_h);
+    let resized = image::imageops::resize(
+        &decoded,
+        scaled_w,
+        scaled_h,
+        image::imageops::FilterType::Triangle,
+    );
+    let crop_x = (scaled_w.saturating_sub(target_w)) / 2;
+    let crop_y = (scaled_h.saturating_sub(target_h)) / 2;
+    let cropped =
+        image::imageops::crop_imm(&resized, crop_x, crop_y, target_w, target_h).to_image();
+    Ok(cropped.into_raw())
 }
 
 // --- TEXT RENDERER (baked bitmap compositing) ---
@@ -295,25 +365,35 @@ fn composite_baked_text(
     overlay: &BakedTextOverlay,
     fade_alpha: f64,
 ) {
-    if fade_alpha <= 0.001 || overlay.data.is_empty() { return; }
+    if fade_alpha <= 0.001 || overlay.data.is_empty() {
+        return;
+    }
 
     let ow = overlay.width as usize;
     let oh = overlay.height as usize;
     let expected = ow * oh * 4;
-    if overlay.data.len() < expected { return; }
+    if overlay.data.len() < expected {
+        return;
+    }
 
     for row in 0..oh {
         let dst_y = overlay.y + row as i32;
-        if dst_y < 0 || dst_y >= buf_h as i32 { continue; }
+        if dst_y < 0 || dst_y >= buf_h as i32 {
+            continue;
+        }
 
         for col in 0..ow {
             let dst_x = overlay.x + col as i32;
-            if dst_x < 0 || dst_x >= buf_w as i32 { continue; }
+            if dst_x < 0 || dst_x >= buf_w as i32 {
+                continue;
+            }
 
             let src_off = (row * ow + col) * 4;
             let src_a_raw = overlay.data[src_off + 3] as f64 / 255.0;
             let src_a = src_a_raw * fade_alpha;
-            if src_a < 0.004 { continue; } // ~1/255
+            if src_a < 0.004 {
+                continue;
+            } // ~1/255
 
             let src_r = overlay.data[src_off] as f64;
             let src_g = overlay.data[src_off + 1] as f64;
@@ -325,7 +405,7 @@ fn composite_baked_text(
             let dst_b = buffer[dst_off + 2] as f64;
             let inv = 1.0 - src_a;
 
-            buffer[dst_off]     = (src_r * src_a + dst_r * inv) as u8;
+            buffer[dst_off] = (src_r * src_a + dst_r * inv) as u8;
             buffer[dst_off + 1] = (src_g * src_a + dst_g * inv) as u8;
             buffer[dst_off + 2] = (src_b * src_a + dst_b * inv) as u8;
         }
@@ -392,7 +472,10 @@ fn output_to_source_time(output_time: f64, trim_segments: &[TrimSegment], trim_s
         }
         remaining -= seg_len;
     }
-    trim_segments.last().map(|s| s.end_time).unwrap_or(output_time)
+    trim_segments
+        .last()
+        .map(|s| s.end_time)
+        .unwrap_or(output_time)
 }
 
 fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f64) {
@@ -624,9 +707,9 @@ pub fn pick_export_folder(initial_dir: Option<String>) -> Result<Option<String>,
     };
     use windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG;
     use windows::Win32::UI::Shell::{
-        FileOpenDialog, FOLDERID_Downloads, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
-        FOS_PICKFOLDERS, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName,
-        SHGetKnownFolderPath, SIGDN_FILESYSPATH,
+        FOLDERID_Downloads, FileOpenDialog, IFileOpenDialog, IShellItem,
+        SHCreateItemFromParsingName, SHGetKnownFolderPath, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST,
+        FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
     };
 
     unsafe {
@@ -735,7 +818,10 @@ fn source_dim_cache_key(source_video_path: &str) -> String {
     key
 }
 
-fn probe_source_dimensions(ffprobe_path: &std::path::Path, source_video_path: &str) -> Result<(u32, u32, bool), String> {
+fn probe_source_dimensions(
+    ffprobe_path: &std::path::Path,
+    source_video_path: &str,
+) -> Result<(u32, u32, bool), String> {
     let key = source_dim_cache_key(source_video_path);
     let cache = SOURCE_DIM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some((w, h)) = cache.lock().unwrap().get(&key).copied() {
@@ -793,7 +879,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         temp_video_path = Some(path.clone());
         path.to_string_lossy().to_string()
     } else {
-        VIDEO_PATH.lock().unwrap().clone().ok_or("No source video found")?
+        VIDEO_PATH
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or("No source video found")?
     };
 
     let source_audio_path = if let Some(audio_data) = config.audio_data.take() {
@@ -816,14 +906,13 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     fs::create_dir_all(&output_base_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
-    let output_path = output_base_dir
-        .join(format!(
-            "SGT_Export_{}.mp4",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-        ));
+    let output_path = output_base_dir.join(format!(
+        "SGT_Export_{}.mp4",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    ));
 
     // 1. Setup FFmpeg
     let ffmpeg_path = super::get_ffmpeg_path();
@@ -894,8 +983,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     // 4. Initialize GPU compositor with cursor
+    // Custom backgrounds can be supersampled up to max zoom (capped) so high zooms stay crisp.
+    let mut background_w = out_w;
+    let mut background_h = out_h;
+    if config.background_config.background_type == "custom" {
+        let max_zoom = baked_path
+            .iter()
+            .fold(1.0_f64, |acc, p| acc.max(p.zoom.max(1.0)));
+        let desired_scale = max_zoom.ceil().clamp(1.0, 2.0);
+        let cap_scale = (8192.0 / out_w as f64).min(8192.0 / out_h as f64).max(1.0);
+        let bg_scale = desired_scale.min(cap_scale);
+        background_w = ((out_w as f64 * bg_scale).round() as u32).max(out_w);
+        background_h = ((out_h as f64 * bg_scale).round() as u32).max(out_h);
+    }
+
     let gpu_init_start = Instant::now();
-    let compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h)
+    let compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, background_w, background_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
 
@@ -907,6 +1010,23 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     } else {
         "fast-partial"
     };
+    let mut use_custom_background = false;
+    if config.background_config.background_type == "custom" {
+        if let Some(custom_background) = &config.background_config.custom_background {
+            match load_custom_background_rgba(custom_background, background_w, background_h) {
+                Ok(rgba) => {
+                    compositor.upload_background(&rgba);
+                    use_custom_background = true;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[Export] Custom background load failed, falling back to gradient: {}",
+                        e
+                    );
+                }
+            }
+        }
+    }
 
     // 5. Start FFmpeg decoder
     let decoder_start = Instant::now();
@@ -1042,22 +1162,52 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let x264_preset = "veryfast";
     let can_use_nvenc = ffmpeg_has_nvenc(&ffmpeg_path);
+    let is_custom_background = config.background_config.background_type == "custom";
 
     let make_encoder_args = |use_nvenc: bool| {
         let mut args = encoder_args_base.clone();
         if use_nvenc {
-            args.extend([
-                "-c:v".to_string(),
-                "h264_nvenc".to_string(),
-                "-preset".to_string(),
-                "p1".to_string(), // fastest
-                "-cq".to_string(),
-                "19".to_string(),
-                "-b:v".to_string(),
-                "0".to_string(),
-                "-pix_fmt".to_string(),
-                "yuv420p".to_string(),
-            ]);
+            if is_custom_background {
+                // Detailed moving image backgrounds can bottleneck NVENC at high quality.
+                // Use a throughput-oriented profile to keep export latency predictable.
+                args.extend([
+                    "-c:v".to_string(),
+                    "h264_nvenc".to_string(),
+                    "-preset".to_string(),
+                    "p1".to_string(), // fastest
+                    "-tune".to_string(),
+                    "ll".to_string(),
+                    "-rc".to_string(),
+                    "constqp".to_string(),
+                    "-qp".to_string(),
+                    "28".to_string(),
+                    "-bf".to_string(),
+                    "0".to_string(),
+                    "-rc-lookahead".to_string(),
+                    "0".to_string(),
+                    "-spatial-aq".to_string(),
+                    "0".to_string(),
+                    "-temporal-aq".to_string(),
+                    "0".to_string(),
+                    "-b_ref_mode".to_string(),
+                    "disabled".to_string(),
+                    "-pix_fmt".to_string(),
+                    "yuv420p".to_string(),
+                ]);
+            } else {
+                args.extend([
+                    "-c:v".to_string(),
+                    "h264_nvenc".to_string(),
+                    "-preset".to_string(),
+                    "p1".to_string(), // fastest
+                    "-cq".to_string(),
+                    "19".to_string(),
+                    "-b:v".to_string(),
+                    "0".to_string(),
+                    "-pix_fmt".to_string(),
+                    "yuv420p".to_string(),
+                ]);
+            }
         } else {
             args.extend([
                 "-c:v".to_string(),
@@ -1080,11 +1230,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             ]);
         }
 
-        args.extend([
-            "-movflags".to_string(),
-            "+faststart".to_string(),
-            output_path.to_str().unwrap().to_string(),
-        ]);
+        if !is_custom_background {
+            args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+        }
+        args.push(output_path.to_str().unwrap().to_string());
         args
     };
 
@@ -1198,9 +1347,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let out_w_f32 = out_w as f32;
     let out_h_f32 = out_h as f32;
 
-    let build_uniforms = |cam_x_raw: f64, cam_y_raw: f64, zoom: f64,
+    let build_uniforms = |cam_x_raw: f64,
+                          cam_y_raw: f64,
+                          zoom: f64,
                           cursor: Option<(f64, f64, f64, f32, f64, f64)>,
-                          t: f64| -> CompositorUniforms {
+                          t: f64|
+     -> CompositorUniforms {
         let cam_x = cam_x_raw - crop_x_offset;
         let cam_y = cam_y_raw - crop_y_offset;
         let zvw = video_w_f * zoom;
@@ -1214,19 +1366,25 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let ox = zsx + bcx;
         let oy = zsy + bcy;
 
-        let (cp_x, cp_y, cs, co, ct, cr) =
-            if let Some((cx, cy, c_s, c_t, c_o, c_r)) = cursor {
-                if c_o < 0.001 {
-                    (-100.0_f32, -100.0_f32, 0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32)
-                } else {
-                    let rel_x = (cx - crop_x_offset) / crop_w_f;
-                    let rel_y = (cy - crop_y_offset) / crop_h_f;
-                    let fs = c_s * cursor_scale_cfg * zoom * size_ratio_cursor;
-                    (rel_x as f32, rel_y as f32, fs as f32, c_o as f32, c_t, c_r as f32)
-                }
+        let (cp_x, cp_y, cs, co, ct, cr) = if let Some((cx, cy, c_s, c_t, c_o, c_r)) = cursor {
+            if c_o < 0.001 {
+                (-100.0_f32, -100.0_f32, 0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32)
             } else {
-                (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
-            };
+                let rel_x = (cx - crop_x_offset) / crop_w_f;
+                let rel_y = (cy - crop_y_offset) / crop_h_f;
+                let fs = c_s * cursor_scale_cfg * zoom * size_ratio_cursor;
+                (
+                    rel_x as f32,
+                    rel_y as f32,
+                    fs as f32,
+                    c_o as f32,
+                    c_t,
+                    c_r as f32,
+                )
+            }
+        } else {
+            (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+        };
 
         create_uniforms(
             (ox as f32, oy as f32),
@@ -1246,19 +1404,31 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             ct,
             cr,
             cursor_shadow_f32,
+            use_custom_background,
+            zoom as f32,
+            (rx as f32, ry as f32),
         )
     };
 
-    println!("[Export] Frame loop: total_frames={}, decoder_fps={:.2}, step={:.6}, blur={}", total_frames, decoder_fps, step, any_blur);
+    println!(
+        "[Export] Frame loop: total_frames={}, decoder_fps={:.2}, step={:.6}, blur={}",
+        total_frames, decoder_fps, step, any_blur
+    );
 
     for frame_idx in 0..total_frames {
         if EXPORT_CANCELLED.load(Ordering::SeqCst) {
-            println!("[Cancel] Flag detected at frame {}, breaking loop", frame_idx);
+            println!(
+                "[Cancel] Flag detected at frame {}, breaking loop",
+                frame_idx
+            );
             cancelled = true;
             break;
         }
         if std::io::Read::read_exact(&mut decoder_stdout, &mut buffer).is_err() {
-            println!("[Export] read_exact failed at frame {}/{}", frame_idx, total_frames);
+            println!(
+                "[Export] read_exact failed at frame {}/{}",
+                frame_idx, total_frames
+            );
             break;
         }
 
@@ -1274,8 +1444,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         compositor.upload_frame(&buffer);
 
         // Sample center state (always needed as fallback / single-render)
-        let (center_cam_x, center_cam_y, center_zoom) =
-            sample_baked_path(source_time, &baked_path);
+        let (center_cam_x, center_cam_y, center_zoom) = sample_baked_path(source_time, &baked_path);
         let center_cursor = sample_parsed_baked_cursor(source_time, &parsed_baked_cursor);
 
         if any_blur {
@@ -1295,9 +1464,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             let cursor1 = sample_parsed_baked_cursor(t_end, &parsed_baked_cursor);
             let cursor_moved = blur_cursor_val > 0.0
                 && match (cursor0, cursor1) {
-                    (Some(c0), Some(c1)) => {
-                        (c0.0 - c1.0).abs() > 2.0 || (c0.1 - c1.1).abs() > 2.0
-                    }
+                    (Some(c0), Some(c1)) => (c0.0 - c1.0).abs() > 2.0 || (c0.1 - c1.1).abs() > 2.0,
                     _ => false,
                 };
 
@@ -1319,8 +1486,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                         (center_cam_x, center_cam_y, center_zoom)
                     };
 
-                    let cursor_sub_t = source_time
-                        + f * (step * (blur_cursor_val * 3.6 / 360.0));
+                    let cursor_sub_t = source_time + f * (step * (blur_cursor_val * 3.6 / 360.0));
                     let sub_cursor = if cursor_moved {
                         sample_parsed_baked_cursor(cursor_sub_t, &parsed_baked_cursor)
                     } else {
@@ -1337,14 +1503,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             } else {
                 // No motion detected — single render
                 let uniforms = build_uniforms(
-                    center_cam_x, center_cam_y, center_zoom, center_cursor, source_time,
+                    center_cam_x,
+                    center_cam_y,
+                    center_zoom,
+                    center_cursor,
+                    source_time,
                 );
                 compositor.render_frame_into(&uniforms, &mut rendered);
             }
         } else {
             // No blur enabled — single render
             let uniforms = build_uniforms(
-                center_cam_x, center_cam_y, center_zoom, center_cursor, source_time,
+                center_cam_x,
+                center_cam_y,
+                center_zoom,
+                center_cursor,
+                source_time,
             );
             compositor.render_frame_into(&uniforms, &mut rendered);
         }
@@ -1356,8 +1530,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 let elapsed = current_time - overlay.start_time;
                 let remaining = overlay.end_time - current_time;
                 let mut fade = 1.0_f64;
-                if elapsed < fade_dur { fade = elapsed / fade_dur; }
-                if remaining < fade_dur { fade = fade.min(remaining / fade_dur); }
+                if elapsed < fade_dur {
+                    fade = elapsed / fade_dur;
+                }
+                if remaining < fade_dur {
+                    fade = fade.min(remaining / fade_dur);
+                }
                 composite_baked_text(&mut rendered, out_w, out_h, overlay, fade);
             }
         }
@@ -1393,7 +1571,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
     }
 
-    println!("[Export] Loop exited: frame_count={}, cancelled={}", frame_count, cancelled);
+    println!(
+        "[Export] Loop exited: frame_count={}, cancelled={}",
+        frame_count, cancelled
+    );
     let frame_loop_secs = export_start.elapsed().as_secs_f64();
 
     // Stop writer and close encoder stdin.
