@@ -1362,10 +1362,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     // Pre-compute constants for uniform builder (all Copy — no borrow issues)
-    let shadow_opacity_f32 = (config.background_config.shadow / 100.0).min(0.5) as f32;
-    let shadow_blur_f32 = (config.background_config.shadow * 1.5) as f32;
+    // Match preview model:
+    // - fixed 0.5 shadow alpha when enabled
+    // - blur directly from slider
+    // - vertical offset = 0.5 * slider
+    let shadow_opacity_f32 = if config.background_config.shadow > 0.0 { 0.5 } else { 0.0 };
+    let shadow_blur_f32 = config.background_config.shadow as f32;
     let border_radius_f32 = config.background_config.border_radius as f32;
-    let shadow_offset_f32 = config.background_config.shadow as f32 / 4.0;
+    let shadow_offset_f32 = config.background_config.shadow as f32 * 0.5;
     let cursor_scale_cfg = config.background_config.cursor_scale;
     let cursor_shadow_f32 = (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0);
     let size_ratio_cursor = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
@@ -1500,49 +1504,42 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     _ => false,
                 };
 
-            if camera_needs_sample || cursor_moved {
-                // GPU online-average accumulation: N renders + 1 readback
-                // weight = 1/(i+1) with dst=OneMinusConstant → running average, no 8-bit banding
-                for si in 0..blur_samples {
-                    let f = (si as f64 + 0.5) / blur_samples as f64 - 0.5;
-
-                    // Per-channel: use sub-time for enabled channels, center for disabled
-                    let cam_sub_t = source_time + f * (step * shutter_fraction);
-                    let (sub_raw_x, sub_raw_y, sub_zoom) = if camera_needs_sample {
-                        let (rx, ry, rz) = sample_baked_path(cam_sub_t, &baked_path);
-                        let sx = if blur_pan_val > 0.0 { rx } else { center_cam_x };
-                        let sy = if blur_pan_val > 0.0 { ry } else { center_cam_y };
-                        let sz = if blur_zoom_val > 0.0 { rz } else { center_zoom };
-                        (sx, sy, sz)
-                    } else {
-                        (center_cam_x, center_cam_y, center_zoom)
-                    };
-
-                    let cursor_sub_t = source_time + f * (step * (blur_cursor_val * 3.6 / 360.0));
-                    let sub_cursor = if cursor_moved {
-                        sample_parsed_baked_cursor(cursor_sub_t, &parsed_baked_cursor)
-                    } else {
-                        center_cursor
-                    };
-
-                    let weight = 1.0 / (si + 1) as f64;
-                    let sub_uniforms =
-                        build_uniforms(sub_raw_x, sub_raw_y, sub_zoom, sub_cursor, cam_sub_t);
-                    compositor.render_accumulate(&sub_uniforms, si == 0, weight);
-                }
-                // Single readback after all sub-frames
-                compositor.readback_output(&mut rendered);
+            // Keep one consistent accumulation path to avoid pulsing from mode switches.
+            // When there is no motion, use a single sample to preserve shadow contrast.
+            let effective_samples = if camera_needs_sample || cursor_moved {
+                blur_samples
             } else {
-                // No motion detected — single render
-                let uniforms = build_uniforms(
-                    center_cam_x,
-                    center_cam_y,
-                    center_zoom,
-                    center_cursor,
-                    source_time,
-                );
-                compositor.render_frame_into(&uniforms, &mut rendered);
+                1
+            };
+            for si in 0..effective_samples {
+                let f = (si as f64 + 0.5) / effective_samples as f64 - 0.5;
+
+                // Per-channel: use sub-time for enabled channels, center for disabled
+                let cam_sub_t = source_time + f * (step * shutter_fraction);
+                let (sub_raw_x, sub_raw_y, sub_zoom) = if camera_needs_sample {
+                    let (rx, ry, rz) = sample_baked_path(cam_sub_t, &baked_path);
+                    let sx = if blur_pan_val > 0.0 { rx } else { center_cam_x };
+                    let sy = if blur_pan_val > 0.0 { ry } else { center_cam_y };
+                    let sz = if blur_zoom_val > 0.0 { rz } else { center_zoom };
+                    (sx, sy, sz)
+                } else {
+                    (center_cam_x, center_cam_y, center_zoom)
+                };
+
+                let cursor_sub_t = source_time + f * (step * (blur_cursor_val * 3.6 / 360.0));
+                let sub_cursor = if cursor_moved {
+                    sample_parsed_baked_cursor(cursor_sub_t, &parsed_baked_cursor)
+                } else {
+                    center_cursor
+                };
+
+                let weight = 1.0 / (si + 1) as f64;
+                let sub_uniforms =
+                    build_uniforms(sub_raw_x, sub_raw_y, sub_zoom, sub_cursor, cam_sub_t);
+                compositor.render_accumulate(&sub_uniforms, si == 0, weight);
             }
+            // Single readback after all sub-frames
+            compositor.readback_output(&mut rendered);
         } else {
             // No blur enabled — single render
             let uniforms = build_uniforms(
