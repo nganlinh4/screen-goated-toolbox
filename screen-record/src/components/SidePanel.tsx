@@ -27,7 +27,7 @@ const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'blur' | 'text';
 
 const GRADIENT_PRESETS: Record<string, { className?: string; style?: React.CSSProperties }> = {
-  gradient1: { className: 'bg-gradient-to-r from-blue-600 to-violet-600' },
+  gradient1: { className: 'bg-gradient-to-r from-[#4f7fd9] to-[#8a72d8]' },
   gradient2: { className: 'bg-gradient-to-r from-rose-400 to-orange-300' },
   gradient3: { className: 'bg-gradient-to-r from-emerald-500 to-teal-400' },
   gradient4: {
@@ -97,7 +97,12 @@ const DOWNLOADABLE_BACKGROUNDS: DownloadableBg[] = [
   },
 ];
 
-type BgDlState = { status: 'idle' } | { status: 'checking' } | { status: 'downloading'; progress: number } | { status: 'done'; ext: string } | { status: 'error'; message: string };
+type BgDlState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'downloading'; progress: number }
+  | { status: 'done'; ext: string; version: number }
+  | { status: 'error'; message: string };
 
 function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>) {
   const [state, setState] = useState<BgDlState>({ status: 'checking' });
@@ -105,8 +110,8 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
 
   // Check on mount if already downloaded
   useEffect(() => {
-    invoke<{ downloaded: boolean; ext: string | null }>('check_bg_downloaded', { id: bg.id }).then(res => {
-      setState(res.downloaded && res.ext ? { status: 'done', ext: res.ext } : { status: 'idle' });
+    invoke<{ downloaded: boolean; ext: string | null; version?: number | null }>('check_bg_downloaded', { id: bg.id }).then(res => {
+      setState(res.downloaded && res.ext ? { status: 'done', ext: res.ext, version: res.version ?? 0 } : { status: 'idle' });
     }).catch(() => setState({ status: 'idle' }));
   }, [bg.id]);
 
@@ -127,8 +132,8 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
           if (pollRef.current) clearInterval(pollRef.current);
         } else if (progress === 'Done') {
           // Fetch the extension of the downloaded file
-          const info = await invoke<{ downloaded: boolean; ext: string | null }>('check_bg_downloaded', { id: bg.id });
-          setState({ status: 'done', ext: info.ext ?? 'png' });
+          const info = await invoke<{ downloaded: boolean; ext: string | null; version?: number | null }>('check_bg_downloaded', { id: bg.id });
+          setState({ status: 'done', ext: info.ext ?? 'png', version: info.version ?? Date.now() });
           if (pollRef.current) clearInterval(pollRef.current);
         } else if (typeof progress === 'object') {
           if ('Downloading' in progress) {
@@ -147,7 +152,7 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
   const selectBg = useCallback(() => {
     if (state.status !== 'done') return;
     // Use protocol URL — served by the custom protocol handler from local app data
-    const url = `/bg-downloaded/${bg.id}.${state.ext}?v=${Date.now()}`;
+    const url = `/bg-downloaded/${bg.id}.${state.ext}?v=${state.version}`;
     setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: url }));
   }, [bg.id, state, setBackgroundConfig]);
 

@@ -440,8 +440,8 @@ fn hex_to_linear(r: u8, g: u8, b: u8) -> [f32; 4] {
 fn get_gradient_colors(bg_type: &str) -> ([f32; 4], [f32; 4]) {
     match bg_type {
         "gradient1" => (
-            hex_to_linear(0x25, 0x63, 0xEB),
-            hex_to_linear(0x7C, 0x3A, 0xED),
+            hex_to_linear(0x4F, 0x7F, 0xD9),
+            hex_to_linear(0x8A, 0x72, 0xD8),
         ),
         "gradient2" => (
             hex_to_linear(0xFB, 0x71, 0x85),

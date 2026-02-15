@@ -68,8 +68,12 @@ pub fn handle_ipc_command(
         }
         "check_bg_downloaded" => {
             let id = args["id"].as_str().unwrap_or("");
-            let ext = bg_download::is_downloaded(id);
-            Ok(serde_json::json!({ "downloaded": ext.is_some(), "ext": ext }))
+            let info = bg_download::download_info(id);
+            Ok(serde_json::json!({
+                "downloaded": info.is_some(),
+                "ext": info.as_ref().map(|(ext, _)| ext.clone()),
+                "version": info.as_ref().map(|(_, version)| *version)
+            }))
         }
         "start_bg_download" => {
             let id = args["id"].as_str().unwrap_or("").to_string();
