@@ -1323,7 +1323,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     
     // 2. Shadow
     if u.shadow_opacity > 0.0 {
-        let sh_center = vid_center + vec2<f32>(u.shadow_offset);
+        // Match preview shadow direction: vertical drop only (no X offset).
+        let sh_center = vid_center + vec2<f32>(0.0, u.shadow_offset);
         let sh_dist = sd_box(in.pixel_pos - sh_center, vid_half, u.border_radius);
         // Improved shadow softness matching canvas
         let sh_alpha = 1.0 - smoothstep(-u.shadow_blur, u.shadow_blur, sh_dist);
