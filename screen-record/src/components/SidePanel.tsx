@@ -93,7 +93,7 @@ const DOWNLOADABLE_BACKGROUNDS: DownloadableBg[] = [
   {
     id: 'vivid-abstract',
     preview: '/bg-vivid-abstract.svg',
-    downloadUrl: 'https://drive.google.com/file/d/1Eq9-T4smcInRljcvAjBMKi_BAqtXn1Er/view',
+    downloadUrl: 'https://drive.google.com/file/d/1kYsxUons_HfjMVxeFU4Rkyw27gK83IVv/view?usp=sharing',
   },
 ];
 
@@ -112,14 +112,19 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
 
   const startDownload = useCallback(() => {
     if (state.status === 'downloading') return;
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
     setState({ status: 'downloading', progress: 0 });
     invoke('start_bg_download', { id: bg.id, url: bg.downloadUrl });
 
     pollRef.current = setInterval(async () => {
       try {
-        const progress = await invoke<any>('get_bg_download_progress');
+        const progress = await invoke<any>('get_bg_download_progress', { id: bg.id });
         if (progress === 'Idle') {
           setState({ status: 'idle' });
+          if (pollRef.current) clearInterval(pollRef.current);
         } else if (progress === 'Done') {
           // Fetch the extension of the downloaded file
           const info = await invoke<{ downloaded: boolean; ext: string | null }>('check_bg_downloaded', { id: bg.id });
@@ -142,7 +147,7 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
   const selectBg = useCallback(() => {
     if (state.status !== 'done') return;
     // Use protocol URL — served by the custom protocol handler from local app data
-    const url = `/bg-downloaded/${bg.id}.${state.ext}`;
+    const url = `/bg-downloaded/${bg.id}.${state.ext}?v=${Date.now()}`;
     setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: url }));
   }, [bg.id, state, setBackgroundConfig]);
 
@@ -150,10 +155,20 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
     try {
       await invoke('delete_bg_download', { id: bg.id });
       setState({ status: 'idle' });
+      setBackgroundConfig(prev => {
+        if (
+          prev.backgroundType === 'custom' &&
+          typeof prev.customBackground === 'string' &&
+          prev.customBackground.includes(`/bg-downloaded/${bg.id}.`)
+        ) {
+          return { ...prev, backgroundType: 'gradient2', customBackground: undefined };
+        }
+        return prev;
+      });
     } catch (e) {
       console.error('Failed to delete downloaded background:', e);
     }
-  }, [bg.id]);
+  }, [bg.id, setBackgroundConfig]);
 
   // Cleanup interval on unmount
   useEffect(() => {

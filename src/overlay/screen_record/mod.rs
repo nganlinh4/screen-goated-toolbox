@@ -89,6 +89,13 @@ fn repo_root() -> Option<PathBuf> {
 fn try_read_downloaded_bg(path: &str) -> Option<(Vec<u8>, &'static str)> {
     let prefix = "/bg-downloaded/";
     let rel = path.strip_prefix(prefix)?;
+    let rel = rel
+        .split_once('?')
+        .map(|(p, _)| p)
+        .unwrap_or(rel)
+        .split_once('#')
+        .map(|(p, _)| p)
+        .unwrap_or(rel);
     if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
         return None;
     }

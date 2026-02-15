@@ -306,7 +306,12 @@ fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>, St
             .map_err(|e| format!("Failed to decode custom background base64: {}", e));
     }
 
-    if let Some(rel) = custom_background.strip_prefix("/bg-downloaded/") {
+    if let Some(pos) = custom_background.find("/bg-downloaded/") {
+        let rel = &custom_background[pos + "/bg-downloaded/".len()..];
+        let rel = rel
+            .split(['?', '#'])
+            .next()
+            .unwrap_or(rel);
         if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
             return Err("Invalid downloadable background path".to_string());
         }
@@ -1035,13 +1040,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     compositor.upload_background(&rgba);
                     use_custom_background = true;
                 }
-                Err(e) => {
-                    eprintln!(
-                        "[Export] Custom background load failed, falling back to gradient: {}",
-                        e
-                    );
-                }
+                Err(e) => return Err(format!("Custom background load failed: {}", e)),
             }
+        } else {
+            return Err("Custom background is selected but missing path".to_string());
         }
     }
 
