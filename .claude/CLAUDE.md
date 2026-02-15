@@ -58,6 +58,14 @@ cargo test               # Run tests
 - This applies to all components — tracks, handles, labels, overlays, buttons, etc.
 - **Preview = Export (WYSIWYG)**: The frontend preview must always be streamlined and baked/calculated for the backend export. What the user sees in preview must be completely identical to the exported result. Minimize work/changes in the export/render backend when adding new features or changing things in the frontend — keep the preview as the single source of truth.
 
+### Background WYSIWYG Contract
+- For any new background preset/effect, do not maintain separate "look tuning" paths for preview and export.
+- Implement one shared parameter model (colors, stops, glow centers/radii/intensity, vignette) and consume that model in both:
+  - `screen-record/src/lib/videoRenderer.ts`
+  - `src/overlay/screen_record/gpu_export.rs`
+- If exact canvas primitives cannot match shader behavior, preview must render a cached per-pixel texture using the same math/parameters as export.
+- For each new/changed background, verify with side-by-side screenshot: one preview frame and one exported frame at same timestamp.
+
 ### Cursor Collection Onboarding Checklist (Critical)
 - New cursor collections must be generated as **single-cursor SVG files per type** (`cursor-*.svg`), never as full spritesheet content inside each file.
 - Keep cursor file format consistent with existing stable packs:
