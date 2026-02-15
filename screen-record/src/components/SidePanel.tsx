@@ -26,11 +26,47 @@ const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 // ============================================================================
 export type ActivePanel = 'zoom' | 'background' | 'cursor' | 'blur' | 'text';
 
-const GRADIENT_PRESETS = {
-  gradient1: 'bg-gradient-to-r from-blue-600 to-violet-600',
-  gradient2: 'bg-gradient-to-r from-rose-400 to-orange-300',
-  gradient3: 'bg-gradient-to-r from-emerald-500 to-teal-400'
-} as const;
+const GRADIENT_PRESETS: Record<string, { className?: string; style?: React.CSSProperties }> = {
+  gradient1: { className: 'bg-gradient-to-r from-blue-600 to-violet-600' },
+  gradient2: { className: 'bg-gradient-to-r from-rose-400 to-orange-300' },
+  gradient3: { className: 'bg-gradient-to-r from-emerald-500 to-teal-400' },
+  gradient4: {
+    style: {
+      backgroundImage: [
+        'radial-gradient(circle at 18% 78%, rgba(8,85,170,0.18) 0%, rgba(8,85,170,0) 78%)',
+        'radial-gradient(circle at 86% 22%, rgba(249,115,22,0.14) 0%, rgba(249,115,22,0) 80%)',
+        'linear-gradient(45deg, #061a40 0%, #0353a4 55%, #f97316 100%)',
+      ].join(','),
+    },
+  },
+  gradient5: {
+    style: {
+      backgroundImage: [
+        'radial-gradient(circle at 82% 26%, rgba(239,71,111,0.18) 0%, rgba(239,71,111,0) 70%)',
+        'radial-gradient(circle at 22% 86%, rgba(36,123,160,0.18) 0%, rgba(36,123,160,0) 72%)',
+        'linear-gradient(52deg, #0d1b4c 0%, #4b4c99 52%, #ef476f 100%)',
+      ].join(','),
+    },
+  },
+  gradient6: {
+    style: {
+      backgroundImage: [
+        'radial-gradient(circle at 22% 80%, rgba(0,212,255,0.22) 0%, rgba(0,212,255,0) 72%)',
+        'radial-gradient(circle at 78% 22%, rgba(255,228,94,0.26) 0%, rgba(255,228,94,0) 66%)',
+        'linear-gradient(48deg, #00d4ff 0%, #ffe45e 50%, #ff3d81 100%)',
+      ].join(','),
+    },
+  },
+  gradient7: {
+    style: {
+      backgroundImage: [
+        'radial-gradient(circle at 24% 78%, rgba(63,167,214,0.16) 0%, rgba(63,167,214,0) 72%)',
+        'radial-gradient(circle at 78% 26%, rgba(242,158,109,0.16) 0%, rgba(242,158,109,0) 70%)',
+        'linear-gradient(42deg, #3fa7d6 0%, #8d7ae6 52%, #f29e6d 100%)',
+      ].join(','),
+    },
+  },
+};
 
 interface DownloadableBg {
   id: string;
@@ -390,6 +426,7 @@ interface BackgroundPanelProps {
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   recentUploads: string[];
+  onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
@@ -398,6 +435,7 @@ function BackgroundPanel({
   backgroundConfig,
   setBackgroundConfig,
   recentUploads,
+  onRemoveRecentUpload,
   onBackgroundUpload,
   canvasRef
 }: BackgroundPanelProps) {
@@ -523,7 +561,8 @@ function BackgroundPanel({
               <button
                 key={key}
                 onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: key as BackgroundConfig['backgroundType'] }))}
-                className={`aspect-square h-10 rounded-lg transition-all duration-150 ${gradient} ${
+                style={gradient.style}
+                className={`aspect-square h-10 rounded-lg transition-all duration-150 ${gradient.className ?? ''} ${
                   backgroundConfig.backgroundType === key
                     ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
                     : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
@@ -544,13 +583,25 @@ function BackgroundPanel({
               <button
                 key={index}
                 onClick={() => setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: imageUrl }))}
-                className={`aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden ${
+                className={`uploaded-bg-btn aspect-square h-10 rounded-lg transition-all duration-150 relative overflow-hidden group ${
                   backgroundConfig.backgroundType === 'custom' && backgroundConfig.customBackground === imageUrl
                     ? 'ring-2 ring-[var(--primary-color)] ring-offset-2 ring-offset-[var(--surface)] shadow-[0_0_12px_var(--primary-color)/30]'
                     : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
                 }`}
               >
                 <img src={imageUrl} alt={`Upload ${index + 1}`} className="absolute inset-0 w-full h-full object-cover" />
+                <div
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRemoveRecentUpload(imageUrl);
+                  }}
+                  className="uploaded-bg-delete absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-sm bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-red-500/80 z-10"
+                  title="Remove uploaded background"
+                  aria-label="Remove uploaded background"
+                >
+                  <Trash2 className="w-2.5 h-2.5 text-white" />
+                </div>
               </button>
             ))}
           </div>
@@ -1135,6 +1186,7 @@ interface SidePanelProps {
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   recentUploads: string[];
+  onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   editingTextId: string | null;
   onUpdateSegment: (segment: VideoSegment) => void;
@@ -1155,6 +1207,7 @@ export function SidePanel({
   backgroundConfig,
   setBackgroundConfig,
   recentUploads,
+  onRemoveRecentUpload,
   onBackgroundUpload,
   editingTextId,
   onUpdateSegment,
@@ -1184,6 +1237,7 @@ export function SidePanel({
           backgroundConfig={backgroundConfig}
           setBackgroundConfig={setBackgroundConfig}
           recentUploads={recentUploads}
+          onRemoveRecentUpload={onRemoveRecentUpload}
           onBackgroundUpload={onBackgroundUpload}
           canvasRef={canvasRef}
         />

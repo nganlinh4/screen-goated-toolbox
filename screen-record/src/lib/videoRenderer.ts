@@ -9,6 +9,10 @@ const DEFAULT_CURSOR_WIGGLE_STRENGTH = 0.30;
 const DEFAULT_CURSOR_WIGGLE_DAMPING = 0.55;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE = 6.5;
 const CURSOR_ASSET_VERSION = `cursor-types-runtime-${Date.now()}`;
+const GRADIENT4_STYLE_TOKEN = '__gradient4__';
+const GRADIENT5_STYLE_TOKEN = '__gradient5__';
+const GRADIENT6_STYLE_TOKEN = '__gradient6__';
+const GRADIENT7_STYLE_TOKEN = '__gradient7__';
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -205,6 +209,14 @@ export class VideoRenderer {
   private lastCustomBackground: string | undefined = undefined;
   private customBackgroundImage: HTMLImageElement | null = null;
   private customBackgroundCacheKey: string | undefined = undefined;
+  private gradient4Canvas: HTMLCanvasElement | null = null;
+  private gradient4CacheKey: string | undefined = undefined;
+  private gradient5Canvas: HTMLCanvasElement | null = null;
+  private gradient5CacheKey: string | undefined = undefined;
+  private gradient6Canvas: HTMLCanvasElement | null = null;
+  private gradient6CacheKey: string | undefined = undefined;
+  private gradient7Canvas: HTMLCanvasElement | null = null;
+  private gradient7CacheKey: string | undefined = undefined;
 
   private readonly DEFAULT_STATE: ZoomKeyframe = {
     time: 0,
@@ -1306,8 +1318,18 @@ export class VideoRenderer {
           tCtx.translate((canvasW - zW) * subZoom.positionX, (canvasH - zH) * subZoom.positionY);
           tCtx.scale(subZoom.zoomFactor, subZoom.zoomFactor);
         }
-        tCtx.fillStyle = bgStyle;
-        tCtx.fillRect(0, 0, canvasW, canvasH);
+        if (bgStyle === GRADIENT4_STYLE_TOKEN) {
+          this.fillGradient4Background(tCtx, canvasW, canvasH);
+        } else if (bgStyle === GRADIENT5_STYLE_TOKEN) {
+          this.fillGradient5Background(tCtx, canvasW, canvasH);
+        } else if (bgStyle === GRADIENT6_STYLE_TOKEN) {
+          this.fillGradient6Background(tCtx, canvasW, canvasH);
+        } else if (bgStyle === GRADIENT7_STYLE_TOKEN) {
+          this.fillGradient7Background(tCtx, canvasW, canvasH);
+        } else {
+          tCtx.fillStyle = bgStyle;
+          tCtx.fillRect(0, 0, canvasW, canvasH);
+        }
         tCtx.drawImage(tempCanvas, 0, 0, canvasW, canvasH);
         tCtx.restore();
 
@@ -1492,6 +1514,395 @@ export class VideoRenderer {
     }
   };
 
+  private clamp01(v: number): number {
+    return Math.max(0, Math.min(1, v));
+  }
+
+  private mix(a: number, b: number, t: number): number {
+    return a + (b - a) * t;
+  }
+
+  private smoothstep(edge0: number, edge1: number, x: number): number {
+    const t = this.clamp01((x - edge0) / (edge1 - edge0));
+    return t * t * (3 - 2 * t);
+  }
+
+  private linearToSrgb(c: number): number {
+    if (c <= 0.0031308) return c * 12.92;
+    return 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  }
+
+  private hexToLinear(hex: string): [number, number, number] {
+    const raw = hex.replace('#', '');
+    const r = parseInt(raw.slice(0, 2), 16) / 255;
+    const g = parseInt(raw.slice(2, 4), 16) / 255;
+    const b = parseInt(raw.slice(4, 6), 16) / 255;
+    const toLinear = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    return [toLinear(r), toLinear(g), toLinear(b)];
+  }
+
+  private getGradient4Canvas(width: number, height: number): HTMLCanvasElement {
+    const key = `${width}x${height}`;
+    if (this.gradient4Canvas && this.gradient4CacheKey === key) {
+      return this.gradient4Canvas;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const gctx = canvas.getContext('2d');
+    if (!gctx) {
+      this.gradient4Canvas = canvas;
+      this.gradient4CacheKey = key;
+      return canvas;
+    }
+
+    const img = gctx.createImageData(width, height);
+    const data = img.data;
+
+    const c1 = this.hexToLinear('#061a40');
+    const cMid = this.hexToLinear('#0353a4');
+    const c2 = this.hexToLinear('#f97316');
+    const cool: [number, number, number] = [0.03, 0.33, 0.67];
+    const warm: [number, number, number] = [0.98, 0.47, 0.09];
+
+    let idx = 0;
+    for (let y = 0; y < height; y++) {
+      const uy = (y + 0.5) / height;
+      for (let x = 0; x < width; x++) {
+        const ux = (x + 0.5) / width;
+
+        const diag = this.clamp01((ux * 0.68) + ((1 - uy) * 0.32));
+        let baseR: number;
+        let baseG: number;
+        let baseB: number;
+        if (diag < 0.55) {
+          const t = diag / 0.55;
+          baseR = this.mix(c1[0], cMid[0], t);
+          baseG = this.mix(c1[1], cMid[1], t);
+          baseB = this.mix(c1[2], cMid[2], t);
+        } else {
+          const t = (diag - 0.55) / 0.45;
+          baseR = this.mix(cMid[0], c2[0], t);
+          baseG = this.mix(cMid[1], c2[1], t);
+          baseB = this.mix(cMid[2], c2[2], t);
+        }
+
+        const dCool = Math.hypot(ux - 0.18, uy - 0.78);
+        const dWarm = Math.hypot(ux - 0.86, uy - 0.22);
+        const coolGlow = this.smoothstep(0.78, 0.05, dCool);
+        const warmGlow = this.smoothstep(0.80, 0.08, dWarm);
+
+        let litR = baseR + (cool[0] * coolGlow * 0.18) + (warm[0] * warmGlow * 0.14);
+        let litG = baseG + (cool[1] * coolGlow * 0.18) + (warm[1] * warmGlow * 0.14);
+        let litB = baseB + (cool[2] * coolGlow * 0.18) + (warm[2] * warmGlow * 0.14);
+
+        const dCenter = Math.hypot(ux - 0.5, uy - 0.5);
+        const vignette = this.smoothstep(0.20, 1.05, dCenter);
+        const shadeT = vignette * 0.12;
+        litR = this.mix(litR, litR * 0.82, shadeT);
+        litG = this.mix(litG, litG * 0.82, shadeT);
+        litB = this.mix(litB, litB * 0.82, shadeT);
+
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litR)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litG)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litB)) * 255);
+        data[idx++] = 255;
+      }
+    }
+
+    gctx.putImageData(img, 0, 0);
+    this.gradient4Canvas = canvas;
+    this.gradient4CacheKey = key;
+    return canvas;
+  }
+
+  private getGradient5Canvas(width: number, height: number): HTMLCanvasElement {
+    const key = `${width}x${height}`;
+    if (this.gradient5Canvas && this.gradient5CacheKey === key) {
+      return this.gradient5Canvas;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const gctx = canvas.getContext('2d');
+    if (!gctx) {
+      this.gradient5Canvas = canvas;
+      this.gradient5CacheKey = key;
+      return canvas;
+    }
+
+    const img = gctx.createImageData(width, height);
+    const data = img.data;
+
+    const c1 = this.hexToLinear('#0d1b4c');
+    const cMid = this.hexToLinear('#4b4c99');
+    const c2 = this.hexToLinear('#ef476f');
+    const cool: [number, number, number] = [0.14, 0.48, 0.62];
+    const warm: [number, number, number] = [0.93, 0.28, 0.44];
+
+    let idx = 0;
+    for (let y = 0; y < height; y++) {
+      const uy = (y + 0.5) / height;
+      for (let x = 0; x < width; x++) {
+        const ux = (x + 0.5) / width;
+
+        const diag = this.clamp01((ux * 0.62) + ((1 - uy) * 0.38));
+        let baseR: number;
+        let baseG: number;
+        let baseB: number;
+        if (diag < 0.52) {
+          const t = diag / 0.52;
+          baseR = this.mix(c1[0], cMid[0], t);
+          baseG = this.mix(c1[1], cMid[1], t);
+          baseB = this.mix(c1[2], cMid[2], t);
+        } else {
+          const t = (diag - 0.52) / 0.48;
+          baseR = this.mix(cMid[0], c2[0], t);
+          baseG = this.mix(cMid[1], c2[1], t);
+          baseB = this.mix(cMid[2], c2[2], t);
+        }
+
+        const dCool = Math.hypot(ux - 0.22, uy - 0.86);
+        const dWarm = Math.hypot(ux - 0.82, uy - 0.26);
+        const coolGlow = this.smoothstep(0.76, 0.10, dCool);
+        const warmGlow = this.smoothstep(0.74, 0.10, dWarm);
+
+        let litR = baseR + (cool[0] * coolGlow * 0.14) + (warm[0] * warmGlow * 0.16);
+        let litG = baseG + (cool[1] * coolGlow * 0.14) + (warm[1] * warmGlow * 0.16);
+        let litB = baseB + (cool[2] * coolGlow * 0.14) + (warm[2] * warmGlow * 0.16);
+
+        const dCenter = Math.hypot(ux - 0.5, uy - 0.5);
+        const vignette = this.smoothstep(0.24, 1.02, dCenter);
+        const shadeT = vignette * 0.09;
+        litR = this.mix(litR, litR * 0.84, shadeT);
+        litG = this.mix(litG, litG * 0.84, shadeT);
+        litB = this.mix(litB, litB * 0.84, shadeT);
+
+        // Tiny deterministic dithering to reduce visible bands in low-frequency gradients.
+        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
+        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
+        const noise = (noiseUnit - 0.5) * (1.6 / 255.0);
+        litR += noise;
+        litG += noise;
+        litB += noise;
+
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litR)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litG)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litB)) * 255);
+        data[idx++] = 255;
+      }
+    }
+
+    gctx.putImageData(img, 0, 0);
+    this.gradient5Canvas = canvas;
+    this.gradient5CacheKey = key;
+    return canvas;
+  }
+
+  private getGradient6Canvas(width: number, height: number): HTMLCanvasElement {
+    const key = `${width}x${height}`;
+    if (this.gradient6Canvas && this.gradient6CacheKey === key) {
+      return this.gradient6Canvas;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const gctx = canvas.getContext('2d');
+    if (!gctx) {
+      this.gradient6Canvas = canvas;
+      this.gradient6CacheKey = key;
+      return canvas;
+    }
+
+    const img = gctx.createImageData(width, height);
+    const data = img.data;
+
+    const c1 = this.hexToLinear('#00d4ff');
+    const cMid = this.hexToLinear('#ffe45e');
+    const c2 = this.hexToLinear('#ff3d81');
+    const cool: [number, number, number] = [0.00, 0.78, 0.98];
+    const warm: [number, number, number] = [1.00, 0.89, 0.37];
+
+    let idx = 0;
+    for (let y = 0; y < height; y++) {
+      const uy = (y + 0.5) / height;
+      for (let x = 0; x < width; x++) {
+        const ux = (x + 0.5) / width;
+
+        const diag = this.clamp01((ux * 0.66) + ((1 - uy) * 0.34));
+        let baseR: number;
+        let baseG: number;
+        let baseB: number;
+        if (diag < 0.50) {
+          const t = diag / 0.50;
+          baseR = this.mix(c1[0], cMid[0], t);
+          baseG = this.mix(c1[1], cMid[1], t);
+          baseB = this.mix(c1[2], cMid[2], t);
+        } else {
+          const t = (diag - 0.50) / 0.50;
+          baseR = this.mix(cMid[0], c2[0], t);
+          baseG = this.mix(cMid[1], c2[1], t);
+          baseB = this.mix(cMid[2], c2[2], t);
+        }
+
+        const dCool = Math.hypot(ux - 0.20, uy - 0.80);
+        const dWarm = Math.hypot(ux - 0.78, uy - 0.22);
+        const coolGlow = this.smoothstep(0.78, 0.10, dCool);
+        const warmGlow = this.smoothstep(0.72, 0.08, dWarm);
+
+        let litR = baseR + (cool[0] * coolGlow * 0.16) + (warm[0] * warmGlow * 0.18);
+        let litG = baseG + (cool[1] * coolGlow * 0.16) + (warm[1] * warmGlow * 0.18);
+        let litB = baseB + (cool[2] * coolGlow * 0.16) + (warm[2] * warmGlow * 0.18);
+
+        const dCenter = Math.hypot(ux - 0.5, uy - 0.5);
+        const vignette = this.smoothstep(0.26, 1.02, dCenter);
+        const shadeT = vignette * 0.06;
+        litR = this.mix(litR, litR * 0.88, shadeT);
+        litG = this.mix(litG, litG * 0.88, shadeT);
+        litB = this.mix(litB, litB * 0.88, shadeT);
+
+        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
+        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
+        const noise = (noiseUnit - 0.5) * (1.6 / 255.0);
+        litR += noise;
+        litG += noise;
+        litB += noise;
+
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litR)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litG)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litB)) * 255);
+        data[idx++] = 255;
+      }
+    }
+
+    gctx.putImageData(img, 0, 0);
+    this.gradient6Canvas = canvas;
+    this.gradient6CacheKey = key;
+    return canvas;
+  }
+
+  private getGradient7Canvas(width: number, height: number): HTMLCanvasElement {
+    const key = `${width}x${height}`;
+    if (this.gradient7Canvas && this.gradient7CacheKey === key) {
+      return this.gradient7Canvas;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const gctx = canvas.getContext('2d');
+    if (!gctx) {
+      this.gradient7Canvas = canvas;
+      this.gradient7CacheKey = key;
+      return canvas;
+    }
+
+    const img = gctx.createImageData(width, height);
+    const data = img.data;
+
+    const c1 = this.hexToLinear('#3fa7d6');
+    const cMid = this.hexToLinear('#8d7ae6');
+    const c2 = this.hexToLinear('#f29e6d');
+    const cool: [number, number, number] = [0.25, 0.60, 0.78];
+    const warm: [number, number, number] = [0.90, 0.58, 0.36];
+
+    let idx = 0;
+    for (let y = 0; y < height; y++) {
+      const uy = (y + 0.5) / height;
+      for (let x = 0; x < width; x++) {
+        const ux = (x + 0.5) / width;
+
+        const diag = this.clamp01((ux * 0.64) + ((1 - uy) * 0.36));
+        let baseR: number;
+        let baseG: number;
+        let baseB: number;
+        if (diag < 0.52) {
+          const t = diag / 0.52;
+          baseR = this.mix(c1[0], cMid[0], t);
+          baseG = this.mix(c1[1], cMid[1], t);
+          baseB = this.mix(c1[2], cMid[2], t);
+        } else {
+          const t = (diag - 0.52) / 0.48;
+          baseR = this.mix(cMid[0], c2[0], t);
+          baseG = this.mix(cMid[1], c2[1], t);
+          baseB = this.mix(cMid[2], c2[2], t);
+        }
+
+        const dCool = Math.hypot(ux - 0.24, uy - 0.78);
+        const dWarm = Math.hypot(ux - 0.78, uy - 0.26);
+        const coolGlow = this.smoothstep(0.78, 0.12, dCool);
+        const warmGlow = this.smoothstep(0.76, 0.12, dWarm);
+
+        let litR = baseR + (cool[0] * coolGlow * 0.10) + (warm[0] * warmGlow * 0.10);
+        let litG = baseG + (cool[1] * coolGlow * 0.10) + (warm[1] * warmGlow * 0.10);
+        let litB = baseB + (cool[2] * coolGlow * 0.10) + (warm[2] * warmGlow * 0.10);
+
+        const dCenter = Math.hypot(ux - 0.5, uy - 0.5);
+        const vignette = this.smoothstep(0.26, 1.02, dCenter);
+        const shadeT = vignette * 0.08;
+        litR = this.mix(litR, litR * 0.90, shadeT);
+        litG = this.mix(litG, litG * 0.90, shadeT);
+        litB = this.mix(litB, litB * 0.90, shadeT);
+
+        const noiseSeed = Math.sin((x * 12.9898) + (y * 78.233)) * 43758.5453;
+        const noiseUnit = noiseSeed - Math.floor(noiseSeed);
+        const noise = (noiseUnit - 0.5) * (1.2 / 255.0);
+        litR += noise;
+        litG += noise;
+        litB += noise;
+
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litR)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litG)) * 255);
+        data[idx++] = Math.round(this.clamp01(this.linearToSrgb(litB)) * 255);
+        data[idx++] = 255;
+      }
+    }
+
+    gctx.putImageData(img, 0, 0);
+    this.gradient7Canvas = canvas;
+    this.gradient7CacheKey = key;
+    return canvas;
+  }
+
+  private fillGradient4Background(
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    width: number,
+    height: number
+  ): void {
+    const gradientCanvas = this.getGradient4Canvas(width, height);
+    ctx.drawImage(gradientCanvas, 0, 0, width, height);
+  }
+
+  private fillGradient5Background(
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    width: number,
+    height: number
+  ): void {
+    const gradientCanvas = this.getGradient5Canvas(width, height);
+    ctx.drawImage(gradientCanvas, 0, 0, width, height);
+  }
+
+  private fillGradient6Background(
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    width: number,
+    height: number
+  ): void {
+    const gradientCanvas = this.getGradient6Canvas(width, height);
+    ctx.drawImage(gradientCanvas, 0, 0, width, height);
+  }
+
+  private fillGradient7Background(
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+    width: number,
+    height: number
+  ): void {
+    const gradientCanvas = this.getGradient7Canvas(width, height);
+    ctx.drawImage(gradientCanvas, 0, 0, width, height);
+  }
+
   private getBackgroundStyle(
     ctx: CanvasRenderingContext2D,
     type: BackgroundConfig['backgroundType'],
@@ -1516,6 +1927,14 @@ export class VideoRenderer {
         gradient.addColorStop(1, '#2dd4bf');
         return gradient;
       }
+      case 'gradient5':
+        return GRADIENT5_STYLE_TOKEN;
+      case 'gradient6':
+        return GRADIENT6_STYLE_TOKEN;
+      case 'gradient7':
+        return GRADIENT7_STYLE_TOKEN;
+      case 'gradient4':
+        return GRADIENT4_STYLE_TOKEN;
       case 'custom': {
         if (customBackground) {
           if (this.lastCustomBackground !== customBackground || !this.customBackgroundImage) {

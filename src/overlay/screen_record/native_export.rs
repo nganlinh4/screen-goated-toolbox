@@ -210,6 +210,7 @@ pub fn warm_up_export_pipeline() {
                 false,
                 1.0,
                 (0.5, 0.5),
+                0.0,
             );
 
             let _ = compositor.render_frame(&uniforms);
@@ -444,6 +445,22 @@ fn get_gradient_colors(bg_type: &str) -> ([f32; 4], [f32; 4]) {
         "gradient3" => (
             hex_to_linear(0x10, 0xB9, 0x81),
             hex_to_linear(0x2D, 0xD4, 0xBF),
+        ),
+        "gradient4" => (
+            hex_to_linear(0x06, 0x1A, 0x40),
+            hex_to_linear(0xF9, 0x73, 0x16),
+        ),
+        "gradient5" => (
+            hex_to_linear(0x0D, 0x1B, 0x4C),
+            hex_to_linear(0xEF, 0x47, 0x6F),
+        ),
+        "gradient6" => (
+            hex_to_linear(0x00, 0xD4, 0xFF),
+            hex_to_linear(0xFF, 0x3D, 0x81),
+        ),
+        "gradient7" => (
+            hex_to_linear(0x3F, 0xA7, 0xD6),
+            hex_to_linear(0xF2, 0x9E, 0x6D),
         ),
         "white" => (
             hex_to_linear(0xF5, 0xF5, 0xF5),
@@ -1291,7 +1308,19 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     *EXPORT_PIDS.lock().unwrap() = (decoder.id(), encoder.id());
 
     // 7. Process frames
-    let (gradient1, gradient2) = get_gradient_colors(&config.background_config.background_type);
+    let bg_type = &config.background_config.background_type;
+    let (gradient1, gradient2) = get_gradient_colors(bg_type);
+    let background_style = if bg_type == "gradient4" {
+        1.0
+    } else if bg_type == "gradient5" {
+        2.0
+    } else if bg_type == "gradient6" {
+        3.0
+    } else if bg_type == "gradient7" {
+        4.0
+    } else {
+        0.0
+    };
     let frame_size = (crop_w * crop_h * 4) as usize;
     let mut buffer = vec![0u8; frame_size];
 
@@ -1407,6 +1436,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             use_custom_background,
             zoom as f32,
             (rx as f32, ry as f32),
+            background_style,
         )
     };
 

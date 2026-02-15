@@ -25,6 +25,7 @@ import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
 
 const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
 const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
+const RECENT_UPLOADS_KEY = 'screen-record-recent-uploads-v1';
 const PROJECT_SAVE_DEBUG = true;
 
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
@@ -62,6 +63,18 @@ function getInitialBackgroundConfig(): BackgroundConfig {
   }
 }
 
+function getInitialRecentUploads(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_UPLOADS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0).slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
 function ResizeBorders() {
   const resize = (dir: string) => (e: React.MouseEvent) => { e.preventDefault(); ipc(`resize_${dir}`); };
   return (
@@ -84,7 +97,7 @@ function App() {
   const { state: segment, setState: setSegment, undo, redo, canUndo, canRedo, beginBatch, commitBatch } = useUndoRedo<VideoSegment | null>(null);
   const [activePanel, setActivePanel] = useState<ActivePanel>('zoom');
   const [isCropping, setIsCropping] = useState(false);
-  const [recentUploads, setRecentUploads] = useState<string[]>([]);
+  const [recentUploads, setRecentUploads] = useState<string[]>(getInitialRecentUploads);
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>(getInitialBackgroundConfig);
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -183,6 +196,14 @@ function App() {
     }
   }, [backgroundConfig]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_UPLOADS_KEY, JSON.stringify(recentUploads));
+    } catch {
+      // ignore persistence failures
+    }
+  }, [recentUploads]);
+
   // Handlers
   const handleToggleCrop = useCallback(() => {
     if (isCropping) {
@@ -237,10 +258,20 @@ function App() {
       reader.onload = (event) => {
         const imageUrl = event.target?.result as string;
         setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: imageUrl }));
-        setRecentUploads(prev => [imageUrl, ...prev].slice(0, 3));
+        setRecentUploads(prev => [imageUrl, ...prev.filter(v => v !== imageUrl)].slice(0, 12));
       };
       reader.readAsDataURL(file);
     }
+  }, []);
+
+  const handleRemoveRecentUpload = useCallback((imageUrl: string) => {
+    setRecentUploads(prev => prev.filter(v => v !== imageUrl));
+    setBackgroundConfig(prev => {
+      if (prev.backgroundType === 'custom' && prev.customBackground === imageUrl) {
+        return { ...prev, backgroundType: 'gradient2', customBackground: undefined };
+      }
+      return prev;
+    });
   }, []);
 
   const handleOpenCursorLab = useCallback(() => {
@@ -656,7 +687,8 @@ function App() {
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
               onDeleteKeyframe={handleDeleteKeyframe} onUpdateZoom={throttledUpdateZoom}
               backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig}
-              recentUploads={recentUploads} onBackgroundUpload={handleBackgroundUpload}
+              recentUploads={recentUploads} onRemoveRecentUpload={handleRemoveRecentUpload}
+              onBackgroundUpload={handleBackgroundUpload}
               editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
               canvasRef={canvasRef}
