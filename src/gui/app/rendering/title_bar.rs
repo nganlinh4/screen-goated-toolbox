@@ -5,6 +5,16 @@ use super::super::types::SettingsApp;
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::ViewMode;
 use eframe::egui;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{LPARAM, WPARAM};
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{
+    FindWindowW, GetForegroundWindow, SendMessageW, HTCAPTION, WM_NCLBUTTONDOWN,
+};
+#[cfg(target_os = "windows")]
+use windows::core::w;
 
 impl SettingsApp {
     pub(crate) fn render_title_bar(&mut self, ctx: &egui::Context) {
@@ -55,6 +65,7 @@ impl SettingsApp {
                     ui.interact(ui.max_rect(), ui.id().with("drag_bar"), egui::Sense::drag());
                 if drag_resp.drag_started() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    start_native_window_drag_fallback();
                 }
 
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -386,3 +397,39 @@ impl SettingsApp {
         }
     }
 }
+
+#[cfg(target_os = "windows")]
+fn start_native_window_drag_fallback() {
+    unsafe {
+        // eframe StartDrag can be ignored after hidden-start restore on some setups.
+        // Fall back to native caption dragging to guarantee draggability.
+        let hwnd = {
+            let fg = GetForegroundWindow();
+            if !fg.is_invalid() {
+                fg
+            } else {
+                let class_name = w!("eframe");
+                let h = FindWindowW(class_name, None).unwrap_or_default();
+                if !h.is_invalid() {
+                    h
+                } else {
+                    let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+                    FindWindowW(None, title).unwrap_or_default()
+                }
+            }
+        };
+
+        if !hwnd.is_invalid() {
+            let _ = ReleaseCapture();
+            let _ = SendMessageW(
+                hwnd,
+                WM_NCLBUTTONDOWN,
+                Some(WPARAM(HTCAPTION as usize)),
+                Some(LPARAM(0)),
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn start_native_window_drag_fallback() {}
