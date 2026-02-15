@@ -68,8 +68,7 @@ fn is_valid_image_file(path: &std::path::Path, ext: &str) -> bool {
     }
 }
 
-/// Check if a background with the given id has been downloaded.
-pub fn is_downloaded(id: &str) -> Option<String> {
+pub fn download_info(id: &str) -> Option<(String, u64)> {
     let dir = backgrounds_dir();
     for ext in &["png", "jpg", "jpeg", "webp"] {
         let path = dir.join(format!("{id}.{ext}"));
@@ -78,7 +77,13 @@ pub fn is_downloaded(id: &str) -> Option<String> {
                 let _ = std::fs::remove_file(&path);
                 continue;
             }
-            return Some(ext.to_string());
+            let version = std::fs::metadata(&path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            return Some((ext.to_string(), version));
         }
     }
     None

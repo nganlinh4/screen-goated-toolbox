@@ -1911,8 +1911,8 @@ export class VideoRenderer {
     switch (type) {
       case 'gradient1': {
         const gradient = ctx.createLinearGradient(0, 0, ctx.canvas.width, 0);
-        gradient.addColorStop(0, '#2563eb');
-        gradient.addColorStop(1, '#7c3aed');
+        gradient.addColorStop(0, '#4f7fd9');
+        gradient.addColorStop(1, '#8a72d8');
         return gradient;
       }
       case 'gradient2': {
@@ -1939,10 +1939,21 @@ export class VideoRenderer {
         if (customBackground) {
           if (this.lastCustomBackground !== customBackground || !this.customBackgroundImage) {
             const img = new Image();
+            img.onload = () => {
+              if (this.customBackgroundImage !== img) return;
+              this.customBackgroundCacheKey = undefined;
+              const active = this.activeRenderContext;
+              if (active) {
+                requestAnimationFrame(() => this.drawFrame(active));
+              }
+            };
+            img.onerror = () => {
+              if (this.customBackgroundImage !== img) return;
+              this.customBackgroundCacheKey = undefined;
+            };
             img.src = customBackground;
             this.customBackgroundImage = img;
             this.lastCustomBackground = customBackground;
-            this.customBackgroundPattern = null;
             this.customBackgroundCacheKey = undefined;
           }
 
@@ -1976,10 +1987,11 @@ export class VideoRenderer {
               }
             }
 
-            if (this.customBackgroundPattern) {
-              this.customBackgroundPattern.setTransform(new DOMMatrix());
-              return this.customBackgroundPattern;
-            }
+          }
+
+          if (this.customBackgroundPattern) {
+            this.customBackgroundPattern.setTransform(new DOMMatrix());
+            return this.customBackgroundPattern;
           }
         }
         return '#000000';
