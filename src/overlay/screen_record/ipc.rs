@@ -78,7 +78,8 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "get_bg_download_progress" => {
-            let status = bg_download::BG_DOWNLOAD_STATUS.lock().unwrap().clone();
+            let id = args["id"].as_str().unwrap_or("");
+            let status = bg_download::get_download_status(id);
             Ok(serde_json::to_value(&status).unwrap())
         }
         "delete_bg_download" => {
