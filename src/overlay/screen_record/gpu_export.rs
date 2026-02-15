@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{Options, Tree};
-use std::sync::{Arc, OnceLock};
 use std::sync::Mutex;
+use std::sync::{Arc, OnceLock};
 use tiny_skia::{Pixmap, Transform};
 use wgpu::util::DeviceExt;
 
@@ -42,25 +42,29 @@ const QUAD_VERTICES: &[Vertex] = &[
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable)]
 pub struct CompositorUniforms {
-    pub video_offset: [f32; 2],    // 0-8
-    pub video_scale: [f32; 2],     // 8-16
-    pub output_size: [f32; 2],     // 16-24
-    pub video_size: [f32; 2],      // 24-32
-    pub border_radius: f32,        // 32-36
-    pub shadow_offset: f32,        // 36-40
-    pub shadow_blur: f32,          // 40-44
-    pub shadow_opacity: f32,       // 44-48
-    pub gradient_color1: [f32; 4], // 48-64
-    pub gradient_color2: [f32; 4], // 64-80
-    pub time: f32,                 // 80-84
-    pub _pad1: f32,                // 84-88
-    pub cursor_pos: [f32; 2],      // 88-96
-    pub cursor_scale: f32,         // 96-100
-    pub cursor_opacity: f32,       // 100-104 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
-    pub cursor_type_id: f32,       // 104-108
-    pub cursor_rotation: f32,      // 108-112 (radians, tip anchored)
-    pub cursor_shadow: f32,        // 112-116 (0-1)
-    pub _pad3: [f32; 3],           // 116-128 (Total 128 bytes)
+    pub video_offset: [f32; 2],      // 0-8
+    pub video_scale: [f32; 2],       // 8-16
+    pub output_size: [f32; 2],       // 16-24
+    pub video_size: [f32; 2],        // 24-32
+    pub border_radius: f32,          // 32-36
+    pub shadow_offset: f32,          // 36-40
+    pub shadow_blur: f32,            // 40-44
+    pub shadow_opacity: f32,         // 44-48
+    pub gradient_color1: [f32; 4],   // 48-64
+    pub gradient_color2: [f32; 4],   // 64-80
+    pub time: f32,                   // 80-84
+    pub _pad1: f32,                  // 84-88
+    pub cursor_pos: [f32; 2],        // 88-96
+    pub cursor_scale: f32,           // 96-100
+    pub cursor_opacity: f32, // 100-104 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
+    pub cursor_type_id: f32, // 104-108
+    pub cursor_rotation: f32, // 108-112 (radians, tip anchored)
+    pub cursor_shadow: f32,  // 112-116 (0-1)
+    pub use_background_texture: f32, // 116-120 (0.0=gradient, 1.0=custom texture)
+    pub bg_zoom: f32,        // 120-124
+    pub bg_anchor_x: f32,    // 124-128
+    pub bg_anchor_y: f32,    // 128-132
+    pub _pad3: [f32; 3],     // 132-144 (Total 144 bytes)
 }
 
 pub struct GpuCompositor {
@@ -75,10 +79,14 @@ pub struct GpuCompositor {
     video_bind_group: wgpu::BindGroup,
     cursor_texture: wgpu::Texture,
     cursor_bind_group: wgpu::BindGroup,
+    background_texture: wgpu::Texture,
+    background_bind_group: wgpu::BindGroup,
     output_texture: wgpu::Texture,
     output_buffer: wgpu::Buffer,
     width: u32,
     height: u32,
+    background_width: u32,
+    background_height: u32,
     padded_bytes_per_row: u32,
     video_width: u32,
     video_height: u32,
@@ -90,12 +98,15 @@ const POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-scre
 const OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
 const CLOSEHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-closehand-screenstudio.svg");
 const WAIT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-wait-screenstudio.svg");
-const APPSTARTING_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-screenstudio.svg");
+const APPSTARTING_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-screenstudio.svg");
 const CROSSHAIR_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-screenstudio.svg");
 const RESIZE_NS_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-screenstudio.svg");
 const RESIZE_WE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-screenstudio.svg");
-const RESIZE_NWSE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-screenstudio.svg");
-const RESIZE_NESW_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-screenstudio.svg");
+const RESIZE_NWSE_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-screenstudio.svg");
+const RESIZE_NESW_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-screenstudio.svg");
 const DEFAULT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-default-macos26.svg");
 const TEXT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-text-macos26.svg");
 const POINTER_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-pointer-macos26.svg");
@@ -261,7 +272,12 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Pipeline Layout"),
-        bind_group_layouts: &[&uniform_layout, &texture_layout, &texture_layout],
+        bind_group_layouts: &[
+            &uniform_layout,
+            &texture_layout,
+            &texture_layout,
+            &texture_layout,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -582,6 +598,8 @@ impl GpuCompositor {
         output_height: u32,
         video_width: u32,
         video_height: u32,
+        background_width: u32,
+        background_height: u32,
     ) -> Result<Self, String> {
         let shared = shared_gpu_context()?;
         let device = Arc::clone(&shared.device);
@@ -631,6 +649,23 @@ impl GpuCompositor {
         });
         let cursor_view = cursor_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let background_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Background Texture"),
+            size: wgpu::Extent3d {
+                width: background_width.max(1),
+                height: background_height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let background_view =
+            background_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         let video_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -645,6 +680,16 @@ impl GpuCompositor {
         // Atlas tile bleeding is not an issue — cursors are centered in 512×512 tiles
         // with >60px transparent padding on each side.
         let cursor_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // Background sampler uses linear filtering for smooth scaling.
+        let background_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
@@ -721,6 +766,21 @@ impl GpuCompositor {
             ],
         });
 
+        let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Background BG"),
+            layout: &texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&background_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&background_sampler),
+                },
+            ],
+        });
+
         Ok(Self {
             device,
             queue,
@@ -733,10 +793,14 @@ impl GpuCompositor {
             video_bind_group,
             cursor_texture,
             cursor_bind_group,
+            background_texture,
+            background_bind_group,
             output_texture,
             output_buffer,
             width: output_width,
             height: output_height,
+            background_width: background_width.max(1),
+            background_height: background_height.max(1),
             padded_bytes_per_row,
             video_width,
             video_height,
@@ -774,6 +838,28 @@ impl GpuCompositor {
         );
     }
 
+    pub fn upload_background(&self, rgba_data: &[u8]) {
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.background_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(self.background_width * 4),
+                rows_per_image: Some(self.background_height),
+            },
+            wgpu::Extent3d {
+                width: self.background_width,
+                height: self.background_height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     pub fn render_frame_into(&self, uniforms: &CompositorUniforms, out: &mut Vec<u8>) {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
@@ -805,6 +891,7 @@ impl GpuCompositor {
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             pass.set_bind_group(1, &self.video_bind_group, &[]);
             pass.set_bind_group(2, &self.cursor_bind_group, &[]);
+            pass.set_bind_group(3, &self.background_bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             pass.draw(0..6, 0..1);
         }
@@ -907,6 +994,7 @@ impl GpuCompositor {
             pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             pass.set_bind_group(1, &self.video_bind_group, &[]);
             pass.set_bind_group(2, &self.cursor_bind_group, &[]);
+            pass.set_bind_group(3, &self.background_bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             pass.draw(0..6, 0..1);
         }
@@ -987,6 +1075,9 @@ pub fn create_uniforms(
     cursor_type_id: f32,
     cursor_rotation: f32,
     cursor_shadow: f32,
+    use_background_texture: bool,
+    bg_zoom: f32,
+    bg_anchor: (f32, f32),
 ) -> CompositorUniforms {
     CompositorUniforms {
         video_offset: [video_offset.0, video_offset.1],
@@ -1007,6 +1098,10 @@ pub fn create_uniforms(
         cursor_type_id,
         cursor_rotation,
         cursor_shadow,
+        use_background_texture: if use_background_texture { 1.0 } else { 0.0 },
+        bg_zoom,
+        bg_anchor_x: bg_anchor.0,
+        bg_anchor_y: bg_anchor.1,
         _pad3: [0.0; 3],
     }
 }
@@ -1035,7 +1130,13 @@ struct Uniforms {
     cursor_type_id: f32,
     cursor_rotation: f32,
     cursor_shadow: f32,
-    _pad3: f32,
+    use_background_texture: f32,
+    bg_zoom: f32,
+    bg_anchor_x: f32,
+    bg_anchor_y: f32,
+    _pad3_0: f32,
+    _pad3_1: f32,
+    _pad3_2: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -1045,6 +1146,9 @@ struct Uniforms {
 
 @group(2) @binding(0) var cursor_tex: texture_2d<f32>;
 @group(2) @binding(1) var cursor_samp: sampler;
+
+@group(3) @binding(0) var bg_tex: texture_2d<f32>;
+@group(3) @binding(1) var bg_samp: sampler;
 
 struct VertexOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -1091,9 +1195,19 @@ fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let bg_zoom = max(u.bg_zoom, 0.0001);
+    let bg_off = vec2<f32>(
+        (1.0 - bg_zoom) * u.bg_anchor_x,
+        (1.0 - bg_zoom) * u.bg_anchor_y
+    );
+    let bg_uv = (in.tex_coord - bg_off) / bg_zoom;
+
     // 1. Background
-    let t = in.tex_coord.x;
+    let t = clamp(bg_uv.x, 0.0, 1.0);
     var col = mix(u.gradient_color1, u.gradient_color2, t);
+    if (u.use_background_texture > 0.5) {
+        col = textureSample(bg_tex, bg_samp, bg_uv);
+    }
     
     // Video positioning
     let vid_center = u.video_offset * u.output_size + u.video_size * 0.5;

@@ -203,6 +203,8 @@ export class VideoRenderer {
   private resizeNeswJepriwin11Image: HTMLImageElement;
   private customBackgroundPattern: CanvasPattern | null = null;
   private lastCustomBackground: string | undefined = undefined;
+  private customBackgroundImage: HTMLImageElement | null = null;
+  private customBackgroundCacheKey: string | undefined = undefined;
 
   private readonly DEFAULT_STATE: ZoomKeyframe = {
     time: 0,
@@ -1516,40 +1518,49 @@ export class VideoRenderer {
       }
       case 'custom': {
         if (customBackground) {
-          if (this.lastCustomBackground !== customBackground || !this.customBackgroundPattern) {
+          if (this.lastCustomBackground !== customBackground || !this.customBackgroundImage) {
             const img = new Image();
             img.src = customBackground;
+            this.customBackgroundImage = img;
+            this.lastCustomBackground = customBackground;
+            this.customBackgroundPattern = null;
+            this.customBackgroundCacheKey = undefined;
+          }
 
-            if (img.complete) {
+          const img = this.customBackgroundImage;
+          if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            const cacheKey = `${customBackground}|${ctx.canvas.width}x${ctx.canvas.height}`;
+            if (!this.customBackgroundPattern || this.customBackgroundCacheKey !== cacheKey) {
               const tempCanvas = document.createElement('canvas');
               const tempCtx = tempCanvas.getContext('2d');
 
               if (tempCtx) {
-                const targetWidth = Math.min(1920, window.innerWidth);
-                const scale = targetWidth / img.width;
-                const targetHeight = img.height * scale;
+                const cw = ctx.canvas.width;
+                const ch = ctx.canvas.height;
+                const iw = img.naturalWidth;
+                const ih = img.naturalHeight;
+                const coverScale = Math.max(cw / iw, ch / ih);
+                const dw = iw * coverScale;
+                const dh = ih * coverScale;
+                const dx = (cw - dw) / 2;
+                const dy = (ch - dh) / 2;
 
-                tempCanvas.width = targetWidth;
-                tempCanvas.height = targetHeight;
+                tempCanvas.width = cw;
+                tempCanvas.height = ch;
                 tempCtx.imageSmoothingEnabled = true;
                 tempCtx.imageSmoothingQuality = 'high';
-                tempCtx.drawImage(img, 0, 0, targetWidth, targetHeight);
-                this.customBackgroundPattern = ctx.createPattern(tempCanvas, 'repeat');
-                this.lastCustomBackground = customBackground;
+                tempCtx.clearRect(0, 0, cw, ch);
+                tempCtx.drawImage(img, dx, dy, dw, dh);
+                this.customBackgroundPattern = ctx.createPattern(tempCanvas, 'no-repeat');
+                this.customBackgroundCacheKey = cacheKey;
                 tempCanvas.remove();
               }
             }
-          }
 
-          if (this.customBackgroundPattern) {
-            this.customBackgroundPattern.setTransform(new DOMMatrix());
-            const scale = Math.max(
-              ctx.canvas.width / window.innerWidth,
-              ctx.canvas.height / window.innerHeight
-            ) * 1.1;
-            const matrix = new DOMMatrix().scale(scale);
-            this.customBackgroundPattern.setTransform(matrix);
-            return this.customBackgroundPattern;
+            if (this.customBackgroundPattern) {
+              this.customBackgroundPattern.setTransform(new DOMMatrix());
+              return this.customBackgroundPattern;
+            }
           }
         }
         return '#000000';
