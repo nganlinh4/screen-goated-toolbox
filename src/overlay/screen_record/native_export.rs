@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, TryRecvError};
@@ -109,6 +109,8 @@ pub struct ExportConfig {
     pub source_width: u32,
     #[serde(default)]
     pub source_height: u32,
+    #[serde(default)]
+    pub source_video_path: String,
     pub framerate: u32,
     pub audio_path: String,
     #[serde(default)]
@@ -892,7 +894,13 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut temp_video_path: Option<PathBuf> = None;
     let mut temp_audio_path: Option<PathBuf> = None;
 
-    let source_video_path = if let Some(video_data) = config.video_data.take() {
+    let explicit_source_video_path = config.source_video_path.trim().to_string();
+
+    let source_video_path = if !explicit_source_video_path.is_empty()
+        && Path::new(&explicit_source_video_path).exists()
+    {
+        explicit_source_video_path
+    } else if let Some(video_data) = config.video_data.take() {
         let path = std::env::temp_dir().join("sgt_temp_source.mp4");
         fs::write(&path, video_data).map_err(|e| format!("Failed to write temp video: {}", e))?;
         temp_video_path = Some(path.clone());

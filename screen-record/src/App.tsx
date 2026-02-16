@@ -139,7 +139,7 @@ function App() {
   });
   const {
     isRecording, recordingDuration, isLoadingVideo, loadingProgress,
-    mousePositions, setMousePositions, audioFilePath, error, setError,
+    mousePositions, setMousePositions, audioFilePath, videoFilePath, videoFilePathOwnerUrl, error, setError,
     startNewRecording, handleStopRecording
   } = recording;
 
@@ -158,7 +158,7 @@ function App() {
   // Export
   const exportHook = useExport({
     videoRef, canvasRef, tempCanvasRef, audioRef, segment, backgroundConfig,
-    mousePositions, audioFilePath, currentVideo
+    mousePositions, audioFilePath, videoFilePath, videoFilePathOwnerUrl, currentVideo
   });
 
   // Zoom keyframes

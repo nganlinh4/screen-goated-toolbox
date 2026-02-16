@@ -220,6 +220,7 @@ pub fn handle_ipc_command(
 
             let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
             let audio_path = AUDIO_PATH.lock().unwrap().clone().ok_or("No audio path")?;
+            let video_file_path = video_path.clone();
 
             let port = start_media_server(video_path, audio_path.clone())?;
 
@@ -234,7 +235,8 @@ pub fn handle_ipc_command(
                 video_url,
                 audio_url,
                 mouse_positions,
-                audio_file_path
+                audio_file_path,
+                video_file_path
             ]))
         }
         "get_hotkeys" => {
