@@ -106,24 +106,15 @@ impl SettingsApp {
 
             // E. Update Favorite Bubble + Panel
             unsafe {
-                use crate::overlay::favorite_bubble::{
-                    state::BUBBLE_HWND, WM_BUBBLE_THEME_UPDATE,
-                };
+                use crate::overlay::favorite_bubble::{state::BUBBLE_HWND, WM_BUBBLE_THEME_UPDATE};
                 use windows::Win32::Foundation::{LPARAM, WPARAM};
                 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-                let bubble_val =
-                    BUBBLE_HWND.load(std::sync::atomic::Ordering::SeqCst);
+                let bubble_val = BUBBLE_HWND.load(std::sync::atomic::Ordering::SeqCst);
                 if bubble_val != 0 {
-                    let hwnd = windows::Win32::Foundation::HWND(
-                        bubble_val as *mut std::ffi::c_void,
-                    );
-                    let _ = PostMessageW(
-                        Some(hwnd),
-                        WM_BUBBLE_THEME_UPDATE,
-                        WPARAM(0),
-                        LPARAM(0),
-                    );
+                    let hwnd =
+                        windows::Win32::Foundation::HWND(bubble_val as *mut std::ffi::c_void);
+                    let _ = PostMessageW(Some(hwnd), WM_BUBBLE_THEME_UPDATE, WPARAM(0), LPARAM(0));
                 }
             }
         }

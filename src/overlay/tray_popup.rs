@@ -26,11 +26,11 @@ static IS_WARMED_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 static IS_WARMING_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static WARMUP_START_TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 // Flag to track if WebView has permanently failed to initialize
-static WEBVIEW_INIT_FAILED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WEBVIEW_INIT_FAILED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 // Custom window messages
 const WM_APP_SHOW: u32 = WM_APP + 1;
-
 
 thread_local! {
     static POPUP_WEBVIEW: RefCell<Option<WebView>> = RefCell::new(None);
@@ -43,9 +43,7 @@ const BASE_POPUP_HEIGHT: i32 = 152; // Base height at 100% scaling (96 DPI) - in
 
 /// Get DPI-scaled dimension
 fn get_scaled_dimension(base: i32) -> i32 {
-    let dpi = unsafe {
-        windows::Win32::UI::HiDpi::GetDpiForSystem()
-    };
+    let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForSystem() };
     // Scale: 96 DPI = 100%, 120 DPI = 125%, 144 DPI = 150%, etc.
     // Using 93 instead of 96 provides a small buffer (~3%) to ensure content fits comfortably
     (base * dpi as i32) / 93
@@ -80,18 +78,19 @@ pub fn show_tray_popup() {
         if !IS_WARMED_UP.load(Ordering::SeqCst) {
             // Not ready yet - trigger warmup and show notification
             warmup_tray_popup();
-            
+
             let ui_lang = APP.lock().unwrap().config.ui_language.clone();
             let locale = crate::gui::locale::LocaleText::get(&ui_lang);
             crate::overlay::auto_copy_badge::show_notification(locale.tray_popup_loading);
-            
+
             // Spawn thread to wait for warmup completion and auto-show
             std::thread::spawn(move || {
                 // Poll for 5 seconds (50 * 100ms)
                 for _ in 0..50 {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     // Check if ready
-                    let ready = IS_WARMED_UP.load(Ordering::SeqCst) && POPUP_HWND.load(Ordering::SeqCst) != 0;
+                    let ready = IS_WARMED_UP.load(Ordering::SeqCst)
+                        && POPUP_HWND.load(Ordering::SeqCst) != 0;
                     if ready {
                         show_tray_popup();
                         return;
@@ -100,7 +99,7 @@ pub fn show_tray_popup() {
             });
             return;
         }
-        
+
         let hwnd_val = POPUP_HWND.load(Ordering::SeqCst);
         if hwnd_val == 0 {
             // Should be warmed up but handle missing? Retry warmup
@@ -108,9 +107,9 @@ pub fn show_tray_popup() {
             warmup_tray_popup();
             return;
         }
-        
+
         let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-        
+
         // Check if window still valid logic...
         if !IsWindow(Some(hwnd)).as_bool() {
             // Window destroyed
@@ -119,13 +118,13 @@ pub fn show_tray_popup() {
             warmup_tray_popup();
             return;
         }
-        
+
         // Check if already visible
         if IsWindowVisible(hwnd).as_bool() {
             hide_tray_popup();
             return;
         }
-        
+
         // Post message to show
         let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
     }
@@ -168,9 +167,12 @@ pub fn warmup_tray_popup() {
 
     // Update timestamp
     unsafe {
-        WARMUP_START_TIME.store(windows::Win32::System::SystemInformation::GetTickCount64(), Ordering::SeqCst);
+        WARMUP_START_TIME.store(
+            windows::Win32::System::SystemInformation::GetTickCount64(),
+            Ordering::SeqCst,
+        );
     }
-    
+
     std::thread::spawn(|| {
         create_popup_window();
     });
@@ -190,51 +192,71 @@ pub fn is_popup_open() -> bool {
 
 fn generate_popup_html() -> String {
     use crate::config::ThemeMode;
-    
-    let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, is_dark_mode) = if let Ok(app) = APP.lock() {
-        let lang = &app.config.ui_language;
-        let settings = match lang.as_str() {
-            "vi" => "Cài đặt",
-            "ko" => "설정",
-            _ => "Settings",
+
+    let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, is_dark_mode) =
+        if let Ok(app) = APP.lock() {
+            let lang = &app.config.ui_language;
+            let settings = match lang.as_str() {
+                "vi" => "Cài đặt",
+                "ko" => "설정",
+                _ => "Settings",
+            };
+            let bubble = match lang.as_str() {
+                "vi" => "Hiện bong bóng",
+                "ko" => "즐겨찾기 버블",
+                _ => "Favorite Bubble",
+            };
+            let stop_tts = match lang.as_str() {
+                "vi" => "Dừng đọc",
+                "ko" => "재생 중인 모든 음성 중지",
+                _ => "Stop All Playing TTS",
+            };
+            let quit = match lang.as_str() {
+                "vi" => "Thoát",
+                "ko" => "종료",
+                _ => "Quit",
+            };
+            let checked = app.config.show_favorite_bubble;
+
+            // Theme detection
+            let is_dark = match app.config.theme_mode {
+                ThemeMode::Dark => true,
+                ThemeMode::Light => false,
+                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+            };
+
+            (settings, bubble, stop_tts, quit, checked, is_dark)
+        } else {
+            (
+                "Settings",
+                "Favorite Bubble",
+                "Stop All TTS",
+                "Quit",
+                false,
+                true,
+            )
         };
-        let bubble = match lang.as_str() {
-            "vi" => "Hiện bong bóng",
-            "ko" => "즐겨찾기 버블",
-            _ => "Favorite Bubble",
-        };
-        let stop_tts = match lang.as_str() {
-            "vi" => "Dừng đọc",
-            "ko" => "재생 중인 모든 음성 중지",
-            _ => "Stop All Playing TTS",
-        };
-        let quit = match lang.as_str() {
-            "vi" => "Thoát",
-            "ko" => "종료",
-            _ => "Quit",
-        };
-        let checked = app.config.show_favorite_bubble;
-        
-        // Theme detection
-        let is_dark = match app.config.theme_mode {
-            ThemeMode::Dark => true,
-            ThemeMode::Light => false,
-            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
-        
-        (settings, bubble, stop_tts, quit, checked, is_dark)
-    } else {
-        ("Settings", "Favorite Bubble", "Stop All TTS", "Quit", false, true)
-    };
 
     // Check if TTS has pending audio
     let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
 
     // Define Colors based on theme
     let (bg_color, text_color, hover_color, border_color, separator_color) = if is_dark_mode {
-        ("#2c2c2c", "#ffffff", "#3c3c3c", "#454545", "rgba(255,255,255,0.08)")
+        (
+            "#2c2c2c",
+            "#ffffff",
+            "#3c3c3c",
+            "#454545",
+            "rgba(255,255,255,0.08)",
+        )
     } else {
-        ("#f9f9f9", "#1a1a1a", "#eaeaea", "#dcdcdc", "rgba(0,0,0,0.06)")
+        (
+            "#f9f9f9",
+            "#1a1a1a",
+            "#eaeaea",
+            "#dcdcdc",
+            "rgba(0,0,0,0.06)",
+        )
     };
 
     let check_mark = if bubble_checked {
@@ -242,12 +264,8 @@ fn generate_popup_html() -> String {
     } else {
         ""
     };
-    
-    let active_class = if bubble_checked {
-        "active"
-    } else {
-        ""
-    };
+
+    let active_class = if bubble_checked { "active" } else { "" };
 
     let stop_tts_disabled_class = if has_tts_pending { "" } else { "disabled" };
 
@@ -481,44 +499,71 @@ window.addEventListener('blur', function() {{
 fn generate_popup_update_script() -> String {
     use crate::config::ThemeMode;
 
-    let (bubble_checked, is_dark_mode, settings_text, bubble_text, stop_tts_text, quit_text) = if let Ok(app) = APP.lock() {
-        let is_dark = match app.config.theme_mode {
-            ThemeMode::Dark => true,
-            ThemeMode::Light => false,
-            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+    let (bubble_checked, is_dark_mode, settings_text, bubble_text, stop_tts_text, quit_text) =
+        if let Ok(app) = APP.lock() {
+            let is_dark = match app.config.theme_mode {
+                ThemeMode::Dark => true,
+                ThemeMode::Light => false,
+                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+            };
+            let lang = &app.config.ui_language;
+            let settings = match lang.as_str() {
+                "vi" => "Cài đặt",
+                "ko" => "설정",
+                _ => "Settings",
+            };
+            let bubble = match lang.as_str() {
+                "vi" => "Hiện bong bóng",
+                "ko" => "즐겨찾기 버블",
+                _ => "Favorite Bubble",
+            };
+            let stop_tts = match lang.as_str() {
+                "vi" => "Dừng đọc",
+                "ko" => "재생 중인 모든 음성 중지",
+                _ => "Stop All Playing TTS",
+            };
+            let quit = match lang.as_str() {
+                "vi" => "Thoát",
+                "ko" => "종료",
+                _ => "Quit",
+            };
+            (
+                app.config.show_favorite_bubble,
+                is_dark,
+                settings,
+                bubble,
+                stop_tts,
+                quit,
+            )
+        } else {
+            (
+                false,
+                true,
+                "Settings",
+                "Favorite Bubble",
+                "Stop All Playing TTS",
+                "Quit",
+            )
         };
-        let lang = &app.config.ui_language;
-        let settings = match lang.as_str() {
-            "vi" => "Cài đặt",
-            "ko" => "설정",
-            _ => "Settings",
-        };
-        let bubble = match lang.as_str() {
-            "vi" => "Hiện bong bóng",
-            "ko" => "즐겨찾기 버블",
-            _ => "Favorite Bubble",
-        };
-        let stop_tts = match lang.as_str() {
-            "vi" => "Dừng đọc",
-            "ko" => "재생 중인 모든 음성 중지",
-            _ => "Stop All Playing TTS",
-        };
-        let quit = match lang.as_str() {
-            "vi" => "Thoát",
-            "ko" => "종료",
-            _ => "Quit",
-        };
-        (app.config.show_favorite_bubble, is_dark, settings, bubble, stop_tts, quit)
-    } else {
-        (false, true, "Settings", "Favorite Bubble", "Stop All Playing TTS", "Quit")
-    };
 
     let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
 
     let (bg_color, text_color, hover_color, border_color, separator_color) = if is_dark_mode {
-        ("#2c2c2c", "#ffffff", "#3c3c3c", "#454545", "rgba(255,255,255,0.08)")
+        (
+            "#2c2c2c",
+            "#ffffff",
+            "#3c3c3c",
+            "#454545",
+            "rgba(255,255,255,0.08)",
+        )
     } else {
-        ("#f9f9f9", "#1a1a1a", "#eaeaea", "#dcdcdc", "rgba(0,0,0,0.06)")
+        (
+            "#f9f9f9",
+            "#1a1a1a",
+            "#eaeaea",
+            "#dcdcdc",
+            "rgba(0,0,0,0.06)",
+        )
     };
 
     format!(
@@ -558,7 +603,7 @@ fn create_popup_window() {
         // Initialize COM for the thread (Critical for WebView2/Wry)
         let coinit = windows::Win32::System::Com::CoInitialize(None);
         crate::log_info!("[TrayPopup] Loop Start - CoInit: {:?}", coinit);
-        
+
         let instance = GetModuleHandleW(None).unwrap_or_default();
         let class_name = w!("SGTTrayPopup");
 
@@ -628,11 +673,11 @@ fn create_popup_window() {
                 *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
-        
+
         crate::log_info!("[TrayPopup] Starting WebView initialization...");
 
         let mut final_webview: Option<WebView> = None;
-        
+
         // Stagger startup to avoid collision
         std::thread::sleep(std::time::Duration::from_millis(250));
 
@@ -640,8 +685,11 @@ fn create_popup_window() {
             let res = {
                 // LOCK SCOPE: Only one WebView builds at a time to prevent "Not enough quota"
                 let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-                crate::log_info!("[TrayPopup] (Attempt {}) Acquired init lock. Building...", attempt);
-                
+                crate::log_info!(
+                    "[TrayPopup] (Attempt {}) Acquired init lock. Building...",
+                    attempt
+                );
+
                 let build_res = POPUP_WEB_CONTEXT.with(|ctx| {
                     let mut ctx_ref = ctx.borrow_mut();
                     let builder = if let Some(web_ctx) = ctx_ref.as_mut() {
@@ -732,15 +780,23 @@ fn create_popup_window() {
                 build_res
             };
 
-            crate::log_info!("[TrayPopup] (Attempt {}) Release lock. Result: {}", attempt, if res.is_ok() { "OK" } else { "ERR" });
-    
+            crate::log_info!(
+                "[TrayPopup] (Attempt {}) Release lock. Result: {}",
+                attempt,
+                if res.is_ok() { "OK" } else { "ERR" }
+            );
+
             match res {
                 Ok(wv) => {
                     final_webview = Some(wv);
                     break;
                 }
                 Err(e) => {
-                    crate::log_info!("[TrayPopup] WebView init attempt {} failed: {:?}", attempt, e);
+                    crate::log_info!(
+                        "[TrayPopup] WebView init attempt {} failed: {:?}",
+                        attempt,
+                        e
+                    );
                     std::thread::sleep(std::time::Duration::from_millis(2000));
                 }
             }
@@ -776,7 +832,7 @@ fn create_popup_window() {
         POPUP_WEBVIEW.with(|cell| {
             *cell.borrow_mut() = None;
         });
-        
+
         let _ = windows::Win32::System::Com::CoUninitialize();
     }
 }
@@ -792,15 +848,17 @@ unsafe extern "system" fn popup_wnd_proc(
             // Reposition window to cursor and show
             let popup_height = get_scaled_dimension(BASE_POPUP_HEIGHT);
             let popup_width = get_scaled_dimension(BASE_POPUP_WIDTH);
-            
+
             let mut pt = POINT::default();
             let _ = GetCursorPos(&mut pt);
             let screen_w = GetSystemMetrics(SM_CXSCREEN);
             let screen_h = GetSystemMetrics(SM_CYSCREEN);
 
             let popup_x = (pt.x - popup_width / 2).max(0).min(screen_w - popup_width);
-            let popup_y = (pt.y - popup_height - 10).max(0).min(screen_h - popup_height);
-            
+            let popup_y = (pt.y - popup_height - 10)
+                .max(0)
+                .min(screen_h - popup_height);
+
             // Update state via JavaScript (preserves font cache - no reload flash)
             POPUP_WEBVIEW.with(|cell| {
                 if let Some(webview) = cell.borrow().as_ref() {
@@ -808,12 +866,14 @@ unsafe extern "system" fn popup_wnd_proc(
                     let _ = webview.evaluate_script(&update_script);
                 }
             });
-            
+
             // Resize WebView to current DPI
             POPUP_WEBVIEW.with(|cell| {
                 if let Some(webview) = cell.borrow().as_ref() {
                     let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
+                        position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(
+                            0.0, 0.0,
+                        )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
                             popup_width as u32,
                             popup_height as u32,
@@ -821,38 +881,44 @@ unsafe extern "system" fn popup_wnd_proc(
                     });
                 }
             });
-            
+
             // Reposition and resize window
-            let _ = SetWindowPos(hwnd, None, popup_x, popup_y, popup_width, popup_height, SWP_NOZORDER);
-            
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                popup_x,
+                popup_y,
+                popup_width,
+                popup_height,
+                SWP_NOZORDER,
+            );
+
             // Make fully visible (undo the warmup transparency)
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
-            
+
             // Show and focus
             let _ = ShowWindow(hwnd, SW_SHOW);
             let _ = SetForegroundWindow(hwnd);
-            
+
             // Start focus-polling timer
             let _ = SetTimer(Some(hwnd), 888, 100, None);
-            
+
             LRESULT(0)
         }
-        
-        WM_ACTIVATE => {
-            LRESULT(0)
-        }
+
+        WM_ACTIVATE => LRESULT(0),
 
         WM_TIMER => {
             if wparam.0 == 888 {
                 // Focus polling: check if we're still the active window
                 let fg = GetForegroundWindow();
                 let root = GetAncestor(fg, GA_ROOT);
-                
+
                 // If focus is on this popup or its children (WebView2), stay open
                 if fg == hwnd || root == hwnd {
                     return LRESULT(0);
                 }
-                
+
                 // Focus is elsewhere - check grace period
                 let now = windows::Win32::System::SystemInformation::GetTickCount64();
                 if now > IGNORE_FOCUS_LOSS_UNTIL.load(Ordering::SeqCst) {
@@ -884,40 +950,48 @@ unsafe fn show_native_context_menu() {
     use crate::config::ThemeMode;
     use windows::core::{HSTRING, PCWSTR};
 
-    let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, _is_dark) = if let Ok(app) = APP.lock() {
-        let lang = &app.config.ui_language;
-        let settings = match lang.as_str() {
-            "vi" => "Cài đặt",
-            "ko" => "설정",
-            _ => "Settings",
+    let (settings_text, bubble_text, stop_tts_text, quit_text, bubble_checked, _is_dark) =
+        if let Ok(app) = APP.lock() {
+            let lang = &app.config.ui_language;
+            let settings = match lang.as_str() {
+                "vi" => "Cài đặt",
+                "ko" => "설정",
+                _ => "Settings",
+            };
+            let bubble = match lang.as_str() {
+                "vi" => "Hiện bong bóng",
+                "ko" => "즐겨찾기 버블",
+                _ => "Favorite Bubble",
+            };
+            let stop_tts = match lang.as_str() {
+                "vi" => "Dừng đọc",
+                "ko" => "재생 중인 모든 음성 중지",
+                _ => "Stop All Playing TTS",
+            };
+            let quit = match lang.as_str() {
+                "vi" => "Thoát",
+                "ko" => "종료",
+                _ => "Quit",
+            };
+            let checked = app.config.show_favorite_bubble;
+
+            let is_dark = match app.config.theme_mode {
+                ThemeMode::Dark => true,
+                ThemeMode::Light => false,
+                ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+            };
+
+            (settings, bubble, stop_tts, quit, checked, is_dark)
+        } else {
+            (
+                "Settings",
+                "Favorite Bubble",
+                "Stop All TTS",
+                "Quit",
+                false,
+                true,
+            )
         };
-        let bubble = match lang.as_str() {
-            "vi" => "Hiện bong bóng",
-            "ko" => "즐겨찾기 버블",
-            _ => "Favorite Bubble",
-        };
-        let stop_tts = match lang.as_str() {
-            "vi" => "Dừng đọc",
-            "ko" => "재생 중인 모든 음성 중지",
-            _ => "Stop All Playing TTS",
-        };
-        let quit = match lang.as_str() {
-            "vi" => "Thoát",
-            "ko" => "종료",
-            _ => "Quit",
-        };
-        let checked = app.config.show_favorite_bubble;
-        
-        let is_dark = match app.config.theme_mode {
-            ThemeMode::Dark => true,
-            ThemeMode::Light => false,
-            ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-        };
-        
-        (settings, bubble, stop_tts, quit, checked, is_dark)
-    } else {
-        ("Settings", "Favorite Bubble", "Stop All TTS", "Quit", false, true)
-    };
 
     let has_tts_pending = crate::api::tts::TTS_MANAGER.has_pending_audio();
 
@@ -928,9 +1002,16 @@ unsafe fn show_native_context_menu() {
         w!("STATIC"),
         w!("SGTNativeMenu"),
         WS_POPUP,
-        0, 0, 0, 0,
-        None, None, Some(instance.into()), None
-    ).unwrap_or_default();
+        0,
+        0,
+        0,
+        0,
+        None,
+        None,
+        Some(instance.into()),
+        None,
+    )
+    .unwrap_or_default();
 
     if hwnd.is_invalid() {
         return;
@@ -942,9 +1023,13 @@ unsafe fn show_native_context_menu() {
 
     fn add_item(hmenu: HMENU, id: usize, text: &str, checked: bool, disabled: bool) {
         let mut flags = MF_STRING;
-        if checked { flags |= MF_CHECKED; }
-        if disabled { flags |= MF_DISABLED | MF_GRAYED; }
-        
+        if checked {
+            flags |= MF_CHECKED;
+        }
+        if disabled {
+            flags |= MF_DISABLED | MF_GRAYED;
+        }
+
         let h_text = HSTRING::from(text);
         unsafe {
             let _ = AppendMenuW(hmenu, flags, id, PCWSTR(h_text.as_ptr()));
@@ -967,7 +1052,7 @@ unsafe fn show_native_context_menu() {
         pt.y,
         None,
         hwnd,
-        None
+        None,
     );
 
     let _ = DestroyMenu(hmenu);
@@ -976,8 +1061,8 @@ unsafe fn show_native_context_menu() {
     match cmd_id.0 as u32 {
         1 => {
             // Settings
-             crate::gui::signal_restore_window();
-        },
+            crate::gui::signal_restore_window();
+        }
         2 => {
             // Toggle Bubble
             if let Ok(mut app) = APP.lock() {
@@ -995,15 +1080,15 @@ unsafe fn show_native_context_menu() {
                     crate::overlay::favorite_bubble::hide_favorite_bubble();
                 }
             }
-        },
+        }
         3 => {
             // Stop TTS
             crate::api::tts::TTS_MANAGER.stop();
-        },
+        }
         4 => {
             // Quit
             std::process::exit(0);
-        },
+        }
         _ => {}
     }
 }

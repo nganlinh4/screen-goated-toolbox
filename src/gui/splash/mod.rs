@@ -179,10 +179,12 @@ impl SplashScreen {
 
     fn update_escape_overlay(&self, ctx: &egui::Context) {
         let viewport = ctx.input(|i| i.viewport().clone());
-        let inner = viewport.inner_rect.unwrap_or(eframe::egui::Rect::from_min_size(
-            Pos2::ZERO,
-            Vec2::new(crate::WINDOW_WIDTH, crate::WINDOW_HEIGHT),
-        ));
+        let inner = viewport
+            .inner_rect
+            .unwrap_or(eframe::egui::Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(crate::WINDOW_WIDTH, crate::WINDOW_HEIGHT),
+            ));
         let ppp = ctx.pixels_per_point();
 
         // Window position in physical pixels

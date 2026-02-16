@@ -162,90 +162,146 @@ const ASSET_INDEX_CSS: &[u8] = include_bytes!("dist/assets/index.css");
 const ASSET_VITE_SVG: &[u8] = include_bytes!("dist/vite.svg");
 const ASSET_TAURI_SVG: &[u8] = include_bytes!("dist/tauri.svg");
 const ASSET_POINTER_SVG: &[u8] = include_bytes!("dist/pointer.svg");
-const ASSET_CURSOR_DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-default-screenstudio.svg");
-const ASSET_CURSOR_TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-text-screenstudio.svg");
-const ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-pointer-screenstudio.svg");
-const ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-openhand-screenstudio.svg");
-const ASSET_CURSOR_CLOSEHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-closehand-screenstudio.svg");
-const ASSET_CURSOR_WAIT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-wait-screenstudio.svg");
-const ASSET_CURSOR_APPSTARTING_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-screenstudio.svg");
-const ASSET_CURSOR_CROSSHAIR_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-screenstudio.svg");
-const ASSET_CURSOR_RESIZE_NS_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-screenstudio.svg");
-const ASSET_CURSOR_RESIZE_WE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-screenstudio.svg");
-const ASSET_CURSOR_RESIZE_NWSE_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-screenstudio.svg");
-const ASSET_CURSOR_RESIZE_NESW_SCREENSTUDIO_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-screenstudio.svg");
+const ASSET_CURSOR_DEFAULT_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-default-screenstudio.svg");
+const ASSET_CURSOR_TEXT_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-text-screenstudio.svg");
+const ASSET_CURSOR_POINTER_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-pointer-screenstudio.svg");
+const ASSET_CURSOR_OPENHAND_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-screenstudio.svg");
+const ASSET_CURSOR_CLOSEHAND_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-screenstudio.svg");
+const ASSET_CURSOR_WAIT_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-wait-screenstudio.svg");
+const ASSET_CURSOR_APPSTARTING_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-screenstudio.svg");
+const ASSET_CURSOR_CROSSHAIR_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_NS_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_WE_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-screenstudio.svg");
+const ASSET_CURSOR_RESIZE_NESW_SCREENSTUDIO_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-screenstudio.svg");
 const ASSET_CURSOR_DEFAULT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-default-macos26.svg");
 const ASSET_CURSOR_TEXT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-text-macos26.svg");
 const ASSET_CURSOR_POINTER_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-pointer-macos26.svg");
 const ASSET_CURSOR_OPENHAND_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-openhand-macos26.svg");
-const ASSET_CURSOR_CLOSEHAND_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-closehand-macos26.svg");
+const ASSET_CURSOR_CLOSEHAND_MACOS26_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-macos26.svg");
 const ASSET_CURSOR_WAIT_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-wait-macos26.svg");
-const ASSET_CURSOR_APPSTARTING_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-macos26.svg");
-const ASSET_CURSOR_CROSSHAIR_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-macos26.svg");
-const ASSET_CURSOR_RESIZE_NS_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-macos26.svg");
-const ASSET_CURSOR_RESIZE_WE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-macos26.svg");
-const ASSET_CURSOR_RESIZE_NWSE_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-macos26.svg");
-const ASSET_CURSOR_RESIZE_NESW_MACOS26_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-macos26.svg");
+const ASSET_CURSOR_APPSTARTING_MACOS26_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-macos26.svg");
+const ASSET_CURSOR_CROSSHAIR_MACOS26_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-macos26.svg");
+const ASSET_CURSOR_RESIZE_NS_MACOS26_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-macos26.svg");
+const ASSET_CURSOR_RESIZE_WE_MACOS26_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-macos26.svg");
+const ASSET_CURSOR_RESIZE_NWSE_MACOS26_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-macos26.svg");
+const ASSET_CURSOR_RESIZE_NESW_MACOS26_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-macos26.svg");
 const ASSET_CURSOR_DEFAULT_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtcute.svg");
 const ASSET_CURSOR_TEXT_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtcute.svg");
 const ASSET_CURSOR_POINTER_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtcute.svg");
 const ASSET_CURSOR_OPENHAND_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtcute.svg");
-const ASSET_CURSOR_CLOSEHAND_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtcute.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTCUTE_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtcute.svg");
 const ASSET_CURSOR_WAIT_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtcute.svg");
-const ASSET_CURSOR_APPSTARTING_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtcute.svg");
-const ASSET_CURSOR_CROSSHAIR_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtcute.svg");
-const ASSET_CURSOR_RESIZE_NS_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtcute.svg");
-const ASSET_CURSOR_RESIZE_WE_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtcute.svg");
-const ASSET_CURSOR_RESIZE_NWSE_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtcute.svg");
-const ASSET_CURSOR_RESIZE_NESW_SGTCUTE_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtcute.svg");
+const ASSET_CURSOR_APPSTARTING_SGTCUTE_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtcute.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTCUTE_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTCUTE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTCUTE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTCUTE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtcute.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTCUTE_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtcute.svg");
 const ASSET_CURSOR_DEFAULT_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtcool.svg");
 const ASSET_CURSOR_TEXT_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtcool.svg");
 const ASSET_CURSOR_POINTER_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtcool.svg");
 const ASSET_CURSOR_OPENHAND_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtcool.svg");
-const ASSET_CURSOR_CLOSEHAND_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtcool.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTCOOL_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtcool.svg");
 const ASSET_CURSOR_WAIT_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtcool.svg");
-const ASSET_CURSOR_APPSTARTING_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtcool.svg");
-const ASSET_CURSOR_CROSSHAIR_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtcool.svg");
-const ASSET_CURSOR_RESIZE_NS_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtcool.svg");
-const ASSET_CURSOR_RESIZE_WE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtcool.svg");
-const ASSET_CURSOR_RESIZE_NWSE_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtcool.svg");
-const ASSET_CURSOR_RESIZE_NESW_SGTCOOL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtcool.svg");
+const ASSET_CURSOR_APPSTARTING_SGTCOOL_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtcool.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTCOOL_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTCOOL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTCOOL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTCOOL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtcool.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTCOOL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtcool.svg");
 const ASSET_CURSOR_DEFAULT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtai.svg");
 const ASSET_CURSOR_TEXT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtai.svg");
 const ASSET_CURSOR_POINTER_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtai.svg");
 const ASSET_CURSOR_OPENHAND_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtai.svg");
 const ASSET_CURSOR_CLOSEHAND_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtai.svg");
 const ASSET_CURSOR_WAIT_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtai.svg");
-const ASSET_CURSOR_APPSTARTING_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtai.svg");
+const ASSET_CURSOR_APPSTARTING_SGTAI_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtai.svg");
 const ASSET_CURSOR_CROSSHAIR_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtai.svg");
 const ASSET_CURSOR_RESIZE_NS_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtai.svg");
 const ASSET_CURSOR_RESIZE_WE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtai.svg");
-const ASSET_CURSOR_RESIZE_NWSE_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtai.svg");
-const ASSET_CURSOR_RESIZE_NESW_SGTAI_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtai.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTAI_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtai.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTAI_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtai.svg");
 const ASSET_CURSOR_DEFAULT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-default-sgtpixel.svg");
 const ASSET_CURSOR_TEXT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-text-sgtpixel.svg");
 const ASSET_CURSOR_POINTER_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-pointer-sgtpixel.svg");
-const ASSET_CURSOR_OPENHAND_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-openhand-sgtpixel.svg");
-const ASSET_CURSOR_CLOSEHAND_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-closehand-sgtpixel.svg");
+const ASSET_CURSOR_OPENHAND_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-openhand-sgtpixel.svg");
+const ASSET_CURSOR_CLOSEHAND_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-closehand-sgtpixel.svg");
 const ASSET_CURSOR_WAIT_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-wait-sgtpixel.svg");
-const ASSET_CURSOR_APPSTARTING_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-appstarting-sgtpixel.svg");
-const ASSET_CURSOR_CROSSHAIR_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-crosshair-sgtpixel.svg");
-const ASSET_CURSOR_RESIZE_NS_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-ns-sgtpixel.svg");
-const ASSET_CURSOR_RESIZE_WE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-we-sgtpixel.svg");
-const ASSET_CURSOR_RESIZE_NWSE_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nwse-sgtpixel.svg");
-const ASSET_CURSOR_RESIZE_NESW_SGTPIXEL_SVG: &[u8] = include_bytes!("dist/cursor-resize-nesw-sgtpixel.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_01_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-01.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_02_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-02.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_03_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-03.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_04_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-04.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_05_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-05.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_06_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-06.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_07_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-07.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_08_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-08.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_09_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-09.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_10_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-10.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_11_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-11.svg");
-const ASSET_CURSOR_SGTCOOL_SLOT_12_SVG: &[u8] = include_bytes!("dist/cursors/sgtcool_raw/slot-12.svg");
+const ASSET_CURSOR_APPSTARTING_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-appstarting-sgtpixel.svg");
+const ASSET_CURSOR_CROSSHAIR_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-crosshair-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_NS_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-ns-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_WE_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-we-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_NWSE_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nwse-sgtpixel.svg");
+const ASSET_CURSOR_RESIZE_NESW_SGTPIXEL_SVG: &[u8] =
+    include_bytes!("dist/cursor-resize-nesw-sgtpixel.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_01_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-01.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_02_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-02.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_03_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-03.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_04_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-04.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_05_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-05.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_06_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-06.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_07_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-07.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_08_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-08.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_09_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-09.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_10_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-10.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_11_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-11.svg");
+const ASSET_CURSOR_SGTCOOL_SLOT_12_SVG: &[u8] =
+    include_bytes!("dist/cursors/sgtcool_raw/slot-12.svg");
 const ASSET_BG_WARM_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-warm-abstract.svg");
 const ASSET_BG_COOL_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-cool-abstract.svg");
 const ASSET_BG_DEEP_ABSTRACT_SVG: &[u8] = include_bytes!("dist/bg-deep-abstract.svg");
@@ -288,8 +344,10 @@ unsafe extern "system" fn sr_wnd_proc(
             if wparam.0 == 1 {
                 let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
                 if IsZoomed(hwnd).as_bool() {
-                    let frame_x = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-                    let frame_y = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                    let frame_x =
+                        GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                    let frame_y =
+                        GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
                     params.rgrc[0].left += frame_x;
                     params.rgrc[0].top += frame_y;
                     params.rgrc[0].right -= frame_x;
@@ -388,8 +446,7 @@ unsafe extern "system" fn sr_wnd_proc(
                             0, 0,
                         )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            w as u32,
-                            h as u32,
+                            w as u32, h as u32,
                         )),
                     });
                 }
@@ -399,8 +456,9 @@ unsafe extern "system" fn sr_wnd_proc(
         WM_APP_TOGGLE => {
             SR_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
-                    let _ = webview
-                        .evaluate_script("window.dispatchEvent(new CustomEvent('toggle-recording'));");
+                    let _ = webview.evaluate_script(
+                        "window.dispatchEvent(new CustomEvent('toggle-recording'));",
+                    );
                 }
             });
             LRESULT(0)
@@ -521,12 +579,7 @@ pub fn update_settings() {
     unsafe {
         let hwnd = std::ptr::addr_of!(SR_HWND).read();
         if !hwnd.is_invalid() {
-            let _ = PostMessageW(
-                Some(hwnd.0),
-                WM_APP_UPDATE_SETTINGS,
-                WPARAM(0),
-                LPARAM(0),
-            );
+            let _ = PostMessageW(Some(hwnd.0), WM_APP_UPDATE_SETTINGS, WPARAM(0), LPARAM(0));
         }
     }
 }
@@ -602,7 +655,13 @@ unsafe fn internal_create_sr_loop() {
         WS_EX_APPWINDOW,
         class_name,
         windows::core::w!("Screen Record"),
-        WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN,
+        WS_POPUP
+            | WS_THICKFRAME
+            | WS_CAPTION
+            | WS_SYSMENU
+            | WS_MINIMIZEBOX
+            | WS_MAXIMIZEBOX
+            | WS_CLIPCHILDREN,
         x,
         y,
         width,

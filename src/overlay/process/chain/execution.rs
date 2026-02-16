@@ -150,7 +150,8 @@ pub fn execute_block(
                         current_model_full_name = next_model.full_name;
 
                         if let Some(h) = my_hwnd {
-                            let retry_msg = get_retry_message(&config.ui_language, &current_model_full_name);
+                            let retry_msg =
+                                get_retry_message(&config.ui_language, &current_model_full_name);
                             update_window_text(h, &retry_msg);
                         }
                         continue;
@@ -162,7 +163,14 @@ pub fn execute_block(
     };
 
     // Handle result
-    handle_execution_result(res, my_hwnd, &window_shown, &processing_hwnd_arc, config, &current_model_full_name)
+    handle_execution_result(
+        res,
+        my_hwnd,
+        &window_shown,
+        &processing_hwnd_arc,
+        config,
+        &current_model_full_name,
+    )
 }
 
 /// Execute an image processing block.
@@ -208,7 +216,13 @@ fn execute_image_block(
                     api_cancel_cb.store(true, Ordering::SeqCst);
                     return;
                 }
-                handle_streaming_chunk(chunk, &accumulated, my_hwnd, &window_shown, &processing_hwnd);
+                handle_streaming_chunk(
+                    chunk,
+                    &accumulated,
+                    my_hwnd,
+                    &window_shown,
+                    &processing_hwnd,
+                );
             },
         )
     } else {

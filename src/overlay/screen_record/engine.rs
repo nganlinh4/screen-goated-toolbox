@@ -22,7 +22,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows_capture::{
     capture::{Context, GraphicsCaptureApiHandler},
-    encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder},
+    encoder::{
+        AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
+        VideoSettingsSubType,
+    },
     frame::Frame,
     graphics_capture_api::InternalCaptureControl,
     monitor::Monitor,
@@ -66,6 +69,14 @@ lazy_static::lazy_static! {
     static ref CUSTOM_GRAB_SIGNATURES: Mutex<HashSet<String>> = {
         Mutex::new(load_grab_signatures())
     };
+    // Resolve system cursor handles once; avoids repeated LoadCursorW calls per sample.
+    static ref SYSTEM_CURSOR_HANDLES: SystemCursorHandles = load_system_cursor_handles();
+    // Set SCREEN_RECORD_CURSOR_DEBUG=1 to enable verbose cursor classification logs.
+    static ref CURSOR_DEBUG_ENABLED: bool = {
+        std::env::var("SCREEN_RECORD_CURSOR_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    };
 }
 
 pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -74,12 +85,39 @@ pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
 
 const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
+const TARGET_FPS: u32 = 60;
+const FRAME_INTERVAL_100NS: i64 = 10_000_000 / TARGET_FPS as i64;
+const ENCODER_MAX_PENDING_FRAMES: usize = 3;
+const TIMESTAMP_RESYNC_THRESHOLD_100NS: i64 = 10_000_000;
+const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;
+
+#[derive(Clone, Copy)]
+struct SystemCursorHandles {
+    arrow: isize,
+    ibeam: isize,
+    wait: isize,
+    appstarting: isize,
+    cross: isize,
+    hand: isize,
+    size_all: isize,
+    size_ns: isize,
+    size_we: isize,
+    size_nwse: isize,
+    size_nesw: isize,
+}
 
 pub struct CaptureHandler {
     encoder: Option<VideoEncoder>,
     start: Instant,
     last_mouse_capture: Instant,
-    frame_count: u32,
+    next_submit_timestamp_100ns: Option<i64>,
+    last_pending_frames: usize,
+    frame_count: u64,
+    window_arrivals: u32,
+    window_enqueued: u32,
+    window_dropped: u32,
+    window_paced_skips: u32,
+    stats_window_start: Instant,
 }
 
 fn get_cursor_type(is_clicked: bool) -> String {
@@ -90,81 +128,100 @@ fn get_cursor_type(is_clicked: bool) -> String {
         if GetCursorInfo(&mut cursor_info).is_ok() && cursor_info.flags.0 != 0 {
             let current_handle = cursor_info.hCursor.0;
             let current_handle_key = current_handle as isize;
-
-            let arrow = LoadCursorW(None, IDC_ARROW).unwrap().0;
-            let ibeam = LoadCursorW(None, IDC_IBEAM).unwrap().0;
-            let wait = LoadCursorW(None, IDC_WAIT).unwrap().0;
-            let appstarting = LoadCursorW(None, IDC_APPSTARTING).unwrap().0;
-            let cross = LoadCursorW(None, IDC_CROSS).unwrap().0;
-            let hand = LoadCursorW(None, IDC_HAND).unwrap().0;
-            let size_all = LoadCursorW(None, IDC_SIZEALL).unwrap().0;
-            let size_ns = LoadCursorW(None, IDC_SIZENS).unwrap().0;
-            let size_we = LoadCursorW(None, IDC_SIZEWE).unwrap().0;
-            let size_nwse = LoadCursorW(None, IDC_SIZENWSE).unwrap().0;
-            let size_nesw = LoadCursorW(None, IDC_SIZENESW).unwrap().0;
-
-            let signature = cursor_signature(cursor_info.hCursor).unwrap_or_else(|| "n/a".to_string());
-            let cursor_type = if current_handle == arrow {
+            let handles = *SYSTEM_CURSOR_HANDLES;
+            let mut signature = "system".to_string();
+            let cursor_type = if current_handle_key == handles.arrow {
                 "default".to_string()
-            } else if current_handle == ibeam {
+            } else if current_handle_key == handles.ibeam {
                 "text".to_string()
-            } else if current_handle == wait {
+            } else if current_handle_key == handles.wait {
                 "wait".to_string()
-            } else if current_handle == appstarting {
+            } else if current_handle_key == handles.appstarting {
                 "appstarting".to_string()
-            } else if current_handle == cross {
+            } else if current_handle_key == handles.cross {
                 "crosshair".to_string()
-            } else if current_handle == size_all {
+            } else if current_handle_key == handles.size_all {
                 "move".to_string()
-            } else if current_handle == size_ns {
+            } else if current_handle_key == handles.size_ns {
                 "resize_ns".to_string()
-            } else if current_handle == size_we {
+            } else if current_handle_key == handles.size_we {
                 "resize_we".to_string()
-            } else if current_handle == size_nwse {
+            } else if current_handle_key == handles.size_nwse {
                 "resize_nwse".to_string()
-            } else if current_handle == size_nesw {
+            } else if current_handle_key == handles.size_nesw {
                 "resize_nesw".to_string()
-            } else if current_handle == hand {
+            } else if current_handle_key == handles.hand {
                 "pointer".to_string()
-            } else if CUSTOM_GRAB_SIGNATURES.lock().contains(&signature) {
-                "grab".to_string()
-            } else if is_clicked {
-                let should_persist = {
-                    let mut set = CUSTOM_GRAB_SIGNATURES.lock();
-                    set.insert(signature.clone())
-                };
-                if should_persist {
-                    println!("[CursorDetect] learn-grab-signature {}", signature);
-                    persist_grab_signatures();
-                }
-                "grab".to_string()
             } else {
-                "other".to_string()
+                signature =
+                    cursor_signature(cursor_info.hCursor).unwrap_or_else(|| "n/a".to_string());
+                if CUSTOM_GRAB_SIGNATURES.lock().contains(&signature) {
+                    "grab".to_string()
+                } else if is_clicked {
+                    let should_persist = {
+                        let mut set = CUSTOM_GRAB_SIGNATURES.lock();
+                        set.insert(signature.clone())
+                    };
+                    if should_persist {
+                        println!("[CursorDetect] learn-grab-signature {}", signature);
+                        persist_grab_signatures();
+                    }
+                    "grab".to_string()
+                } else {
+                    "other".to_string()
+                }
             };
 
             // Debug logging: emit only when cursor handle/type/click-state changes.
             let mut last = LAST_CURSOR_DEBUG.lock();
             let changed = match &*last {
                 Some((h, t, c, s)) => {
-                    *h != current_handle_key || t != &cursor_type || *c != is_clicked || s != &signature
+                    *h != current_handle_key
+                        || t != &cursor_type
+                        || *c != is_clicked
+                        || s != &signature
                 }
                 None => true,
             };
             if changed {
-                println!(
-                    "[CursorDetect] handle=0x{:X} type={} clicked={} sig={}",
-                    current_handle_key as usize,
-                    cursor_type,
+                if *CURSOR_DEBUG_ENABLED {
+                    println!(
+                        "[CursorDetect] handle=0x{:X} type={} clicked={} sig={}",
+                        current_handle_key as usize, cursor_type, is_clicked, signature
+                    );
+                }
+                *last = Some((
+                    current_handle_key,
+                    cursor_type.clone(),
                     is_clicked,
-                    signature
-                );
-                *last = Some((current_handle_key, cursor_type.clone(), is_clicked, signature));
+                    signature,
+                ));
             }
 
             cursor_type
         } else {
             "default".to_string()
         }
+    }
+}
+
+fn load_system_cursor_handle(cursor_id: windows::core::PCWSTR) -> isize {
+    unsafe { LoadCursorW(None, cursor_id).map(|cursor| cursor.0 as isize).unwrap_or_default() }
+}
+
+fn load_system_cursor_handles() -> SystemCursorHandles {
+    SystemCursorHandles {
+        arrow: load_system_cursor_handle(IDC_ARROW),
+        ibeam: load_system_cursor_handle(IDC_IBEAM),
+        wait: load_system_cursor_handle(IDC_WAIT),
+        appstarting: load_system_cursor_handle(IDC_APPSTARTING),
+        cross: load_system_cursor_handle(IDC_CROSS),
+        hand: load_system_cursor_handle(IDC_HAND),
+        size_all: load_system_cursor_handle(IDC_SIZEALL),
+        size_ns: load_system_cursor_handle(IDC_SIZENS),
+        size_we: load_system_cursor_handle(IDC_SIZEWE),
+        size_nwse: load_system_cursor_handle(IDC_SIZENWSE),
+        size_nesw: load_system_cursor_handle(IDC_SIZENESW),
     }
 }
 
@@ -255,6 +312,30 @@ fn cursor_signature(handle: windows::Win32::UI::WindowsAndMessaging::HCURSOR) ->
     }
 }
 
+fn sample_mouse_position(start: Instant, last_mouse_capture: &mut Instant) {
+    if last_mouse_capture.elapsed().as_millis() < 16 {
+        return;
+    }
+
+    unsafe {
+        let mut point = POINT::default();
+        if GetCursorPos(&mut point).is_ok() {
+            let is_clicked = IS_MOUSE_CLICKED.load(Ordering::SeqCst);
+            let cursor_type = get_cursor_type(is_clicked);
+
+            let mouse_pos = MousePosition {
+                x: point.x - MONITOR_X,
+                y: point.y - MONITOR_Y,
+                timestamp: start.elapsed().as_secs_f64(),
+                is_clicked,
+                cursor_type,
+            };
+            MOUSE_POSITIONS.lock().push_back(mouse_pos);
+        }
+    }
+    *last_mouse_capture = Instant::now();
+}
+
 impl GraphicsCaptureApiHandler for CaptureHandler {
     type Flags = String;
     type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -312,24 +393,23 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // Cap bitrate at 150Mbps to avoid massive files for 4K while maintaining very high quality
         let final_bitrate = target_bitrate.clamp(10_000_000, 150_000_000);
 
-        let video_settings = VideoSettingsBuilder::new(width, height)
-            .frame_rate(60)
-            .bitrate(final_bitrate);
-
+        let encoder = VideoEncoder::new(
+            VideoSettingsBuilder::new(width, height)
+                .sub_type(VideoSettingsSubType::H264)
+                .bitrate(final_bitrate)
+                .frame_rate(TARGET_FPS),
+            AudioSettingsBuilder::new().disabled(true),
+            ContainerSettingsBuilder::new(),
+            &video_path,
+        )?;
         println!(
-            "Initializing VideoEncoder: {}x{} @ 60fps, Bitrate: {} Mbps, Monitor Index: {}",
+            "Initializing VideoEncoder: {}x{} @ {}fps, Codec: H264 (MediaFoundation HW), Bitrate: {} Mbps, Monitor Index: {}",
             width,
             height,
+            TARGET_FPS,
             final_bitrate / 1_000_000,
             monitor_index
         );
-
-        let encoder = VideoEncoder::new(
-            video_settings,
-            AudioSettingsBuilder::default().disabled(true),
-            ContainerSettingsBuilder::default(),
-            &video_path,
-        )?;
 
         SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
         AUDIO_ENCODING_FINISHED.store(false, Ordering::SeqCst);
@@ -346,7 +426,14 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             encoder: Some(encoder),
             start: Instant::now(),
             last_mouse_capture: Instant::now(),
+            next_submit_timestamp_100ns: None,
+            last_pending_frames: 0,
             frame_count: 0,
+            window_arrivals: 0,
+            window_enqueued: 0,
+            window_dropped: 0,
+            window_paced_skips: 0,
+            stats_window_start: Instant::now(),
         })
     }
 
@@ -359,44 +446,104 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             return Ok(());
         }
 
-        if let Err(e) = self.encoder.as_mut().unwrap().send_frame(frame) {
-            eprintln!("Encoder error: {}", e);
-        }
+        let mut queue_depth = 0usize;
+        let mut dropped_total = 0usize;
+        let now_100ns = (self.start.elapsed().as_nanos() / 100) as i64;
+        let mut should_submit = false;
 
-        if self.frame_count % 60 == 0 {
-            // Debug log every ~1 second
-            println!("Captured frame {}", self.frame_count);
-        }
-        self.frame_count += 1;
+        match self.next_submit_timestamp_100ns {
+            Some(mut due_100ns) => {
+                if now_100ns.saturating_add(TIMESTAMP_RESYNC_THRESHOLD_100NS) < due_100ns {
+                    due_100ns = now_100ns;
+                }
 
-        if self.last_mouse_capture.elapsed().as_millis() >= 16 {
-            unsafe {
-                let mut point = POINT::default();
-                if GetCursorPos(&mut point).is_ok() {
-                    // Record actual held state - cursor should stay squished while held
-                    let is_clicked = IS_MOUSE_CLICKED.load(Ordering::SeqCst);
-                    let cursor_type = get_cursor_type(is_clicked);
-
-                    let mouse_pos = MousePosition {
-                        x: point.x - MONITOR_X,
-                        y: point.y - MONITOR_Y,
-                        timestamp: self.start.elapsed().as_secs_f64(),
-                        is_clicked,
-                        cursor_type,
-                    };
-
-                    MOUSE_POSITIONS.lock().push_back(mouse_pos);
+                if now_100ns >= due_100ns {
+                    let due_ticks = ((now_100ns.saturating_sub(due_100ns)) / FRAME_INTERVAL_100NS)
+                        .saturating_add(1);
+                    let missed_ticks = due_ticks.saturating_sub(1) as u32;
+                    self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);
+                    self.next_submit_timestamp_100ns = Some(
+                        due_100ns
+                            .saturating_add(FRAME_INTERVAL_100NS.saturating_mul(due_ticks)),
+                    );
+                    should_submit = true;
+                } else {
+                    self.window_paced_skips = self.window_paced_skips.saturating_add(1);
+                    self.next_submit_timestamp_100ns = Some(due_100ns);
                 }
             }
-            self.last_mouse_capture = Instant::now();
+            None => {
+                self.next_submit_timestamp_100ns = Some(now_100ns.saturating_add(FRAME_INTERVAL_100NS));
+                should_submit = true;
+            }
         }
+
+        if should_submit {
+            if let Some(encoder) = self.encoder.as_mut() {
+                match encoder.send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES) {
+                    Ok(true) => {
+                        self.window_enqueued = self.window_enqueued.saturating_add(1);
+                    }
+                    Ok(false) => {
+                        self.window_dropped = self.window_dropped.saturating_add(1);
+                    }
+                    Err(e) => {
+                        eprintln!("Encoder error: {}", e);
+                    }
+                }
+                queue_depth = encoder.pending_video_frames();
+                dropped_total = encoder.dropped_video_frames();
+            }
+        } else {
+            if let Some(encoder) = self.encoder.as_ref() {
+                queue_depth = encoder.pending_video_frames();
+                dropped_total = encoder.dropped_video_frames();
+            }
+        }
+
+        self.frame_count = self.frame_count.saturating_add(1);
+        self.window_arrivals = self.window_arrivals.saturating_add(1);
+
+        let elapsed = self.stats_window_start.elapsed().as_secs_f64();
+        if elapsed >= CAPTURE_STATS_WINDOW_SECS {
+            let capture_fps = self.window_arrivals as f64 / elapsed.max(0.001);
+            let queued_fps = self.window_enqueued as f64 / elapsed.max(0.001);
+            let pending_now = self
+                .encoder
+                .as_ref()
+                .map(|encoder| encoder.pending_video_frames())
+                .unwrap_or(self.last_pending_frames);
+            let encoded_window = (self.last_pending_frames + self.window_enqueued as usize)
+                .saturating_sub(pending_now);
+            self.last_pending_frames = pending_now;
+            let encoded_fps = encoded_window as f64 / elapsed.max(0.001);
+            println!(
+                "[CaptureStats] backend=monitor capture_fps={:.1} queue_fps={:.1} encode_fps={:.1} paced_skips={} queue_depth={} dropped_window={} dropped_total={}",
+                capture_fps,
+                queued_fps,
+                encoded_fps,
+                self.window_paced_skips,
+                queue_depth,
+                self.window_dropped,
+                dropped_total
+            );
+            self.window_arrivals = 0;
+            self.window_enqueued = 0;
+            self.window_dropped = 0;
+            self.window_paced_skips = 0;
+            self.stats_window_start = Instant::now();
+        }
+
+        sample_mouse_position(self.start, &mut self.last_mouse_capture);
 
         if SHOULD_STOP.load(Ordering::SeqCst) {
             ENCODER_ACTIVE.store(false, Ordering::SeqCst);
             SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
             if let Some(encoder) = self.encoder.take() {
                 std::thread::spawn(move || {
-                    let _ = encoder.finish();
+                    if let Err(error) = encoder.finish() {
+                        eprintln!("video encoder finalize error: {}", error);
+                    }
                     ENCODING_FINISHED.store(true, Ordering::SeqCst);
                 });
             }

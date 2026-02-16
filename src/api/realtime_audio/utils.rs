@@ -33,7 +33,12 @@ pub fn refresh_transcription_window() {
     unsafe {
         let realtime_hwnd = crate::overlay::realtime_webview::REALTIME_HWND;
         if !realtime_hwnd.is_invalid() {
-            let _ = PostMessageW(Some(realtime_hwnd), WM_REALTIME_UPDATE, WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(
+                Some(realtime_hwnd),
+                WM_REALTIME_UPDATE,
+                WPARAM(0),
+                LPARAM(0),
+            );
         }
     }
 }

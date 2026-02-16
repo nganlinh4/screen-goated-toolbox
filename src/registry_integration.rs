@@ -1,5 +1,5 @@
-use winreg::RegKey;
 use winreg::enums::*;
+use winreg::RegKey;
 
 // Image extensions supported by input handler
 const IMAGE_EXTENSIONS: &[&str] = &[

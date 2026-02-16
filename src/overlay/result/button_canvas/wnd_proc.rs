@@ -106,9 +106,7 @@ unsafe fn handle_show_canvas(hwnd: HWND) {
         if let Some(webview) = cell.borrow().as_ref() {
             let _ = webview.set_bounds(Rect {
                 position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    v_w as u32, v_h as u32,
-                )),
+                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(v_w as u32, v_h as u32)),
             });
             let _ = webview.set_visible(true);
         }
@@ -151,12 +149,7 @@ fn handle_send_refine_text(wparam: WPARAM, lparam: LPARAM) {
     }
 }
 
-unsafe fn handle_mouse_move(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
+unsafe fn handle_mouse_move(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
     if target_val != 0 {
         let mut pt = POINT::default();
@@ -218,12 +211,7 @@ unsafe fn handle_mouse_move(
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-unsafe fn handle_button_up(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
+unsafe fn handle_button_up(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     let target_val = ACTIVE_DRAG_TARGET.load(Ordering::SeqCst);
     if target_val != 0 {
         use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
@@ -340,9 +328,7 @@ unsafe fn handle_display_change(hwnd: HWND) {
         if let Some(webview) = cell.borrow().as_ref() {
             let _ = webview.set_bounds(Rect {
                 position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
-                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                    v_w as u32, v_h as u32,
-                )),
+                size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(v_w as u32, v_h as u32)),
             });
         }
     });

@@ -6,6 +6,8 @@ use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::ViewMode;
 use eframe::egui;
 #[cfg(target_os = "windows")]
+use windows::core::w;
+#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
@@ -13,8 +15,6 @@ use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GetForegroundWindow, SendMessageW, HTCAPTION, WM_NCLBUTTONDOWN,
 };
-#[cfg(target_os = "windows")]
-use windows::core::w;
 
 impl SettingsApp {
     pub(crate) fn render_title_bar(&mut self, ctx: &egui::Context) {
@@ -218,7 +218,10 @@ impl SettingsApp {
         crate::gui::icons::draw_icon_static(ui, crate::gui::icons::Icon::Settings, Some(14.0));
         let is_global = matches!(self.view_mode, ViewMode::Global);
         if ui
-            .selectable_label(is_global, egui::RichText::new(text.global_settings).size(13.0))
+            .selectable_label(
+                is_global,
+                egui::RichText::new(text.global_settings).size(13.0),
+            )
             .clicked()
         {
             self.view_mode = ViewMode::Global;
@@ -369,8 +372,7 @@ impl SettingsApp {
                     let size = [image_buffer.width() as _, image_buffer.height() as _];
                     let pixels = image_buffer.as_raw();
                     let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels);
-                    let handle =
-                        ctx.load_texture("app-icon-dark", color_image, Default::default());
+                    let handle = ctx.load_texture("app-icon-dark", color_image, Default::default());
                     self.icon_dark = Some(handle);
                 }
             }

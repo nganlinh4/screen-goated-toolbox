@@ -372,9 +372,6 @@ progressBar.onclick = (e) => {{
 </script>
 </body>
 </html>"#,
-        font_css,
-        locale.downloaded_successfully,
-        locale.download_recording_tooltip,
-        base64_audio
+        font_css, locale.downloaded_successfully, locale.download_recording_tooltip, base64_audio
     )
 }

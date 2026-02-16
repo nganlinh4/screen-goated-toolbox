@@ -1,7 +1,7 @@
 //! Default image presets using the builder pattern.
 
-use crate::config::preset::{BlockBuilder, PresetBuilder};
 use crate::config::preset::Preset;
+use crate::config::preset::{BlockBuilder, PresetBuilder};
 use crate::config::types::Hotkey;
 
 /// Create all default image presets

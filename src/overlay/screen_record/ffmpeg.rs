@@ -56,8 +56,10 @@ pub fn start_ffmpeg_installation() {
         }
     }
 
-    *FFMPEG_INSTALL_STATUS.lock().unwrap() =
-        FfmpegInstallStatus::Downloading { progress: 0.0, total_size: 0 };
+    *FFMPEG_INSTALL_STATUS.lock().unwrap() = FfmpegInstallStatus::Downloading {
+        progress: 0.0,
+        total_size: 0,
+    };
 
     thread::spawn(move || {
         let bin_dir = get_bin_dir();

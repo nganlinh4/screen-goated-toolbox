@@ -1,11 +1,11 @@
 // --- SCREEN RECORD IPC ---
 // IPC command handling for screen recording WebView.
 
+use super::bg_download;
 use super::engine::{
     get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODING_FINISHED,
     MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
-use super::bg_download;
 use super::ffmpeg::{
     get_ffmpeg_path, get_ffprobe_path, start_ffmpeg_installation, FfmpegInstallStatus,
     FFMPEG_INSTALL_STATUS,
@@ -167,7 +167,8 @@ pub fn handle_ipc_command(
                     LPARAM(&mut monitors as *mut _ as isize),
                 );
                 if let Some(&hmonitor) = monitors.get(monitor_index) {
-                    let mut info: windows::Win32::Graphics::Gdi::MONITORINFOEXW = std::mem::zeroed();
+                    let mut info: windows::Win32::Graphics::Gdi::MONITORINFOEXW =
+                        std::mem::zeroed();
                     info.monitorInfo.cbSize =
                         std::mem::size_of::<windows::Win32::Graphics::Gdi::MONITORINFOEXW>() as u32;
                     if windows::Win32::Graphics::Gdi::GetMonitorInfoW(
@@ -187,13 +188,15 @@ pub fn handle_ipc_command(
                 CursorCaptureSettings::WithoutCursor,
                 DrawBorderSettings::Default,
                 SecondaryWindowSettings::Include,
-                MinimumUpdateIntervalSettings::Default,
+                MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_millis(0)),
                 DirtyRegionSettings::Default,
                 ColorFormat::Bgra8,
                 monitor_id.to_string(),
             );
 
             let _ = keyviz::start();
+
+            println!("[CaptureBackend] selected=wgc reason=single_active_backend");
 
             std::thread::spawn(move || {
                 let _ = CaptureHandler::start_free_threaded(settings);
@@ -225,7 +228,12 @@ pub fn handle_ipc_command(
 
             let audio_file_path = audio_path;
 
-            Ok(serde_json::json!([video_url, audio_url, mouse_positions, audio_file_path]))
+            Ok(serde_json::json!([
+                video_url,
+                audio_url,
+                mouse_positions,
+                audio_file_path
+            ]))
         }
         "get_hotkeys" => {
             let app = APP.lock().unwrap();
@@ -316,7 +324,8 @@ pub fn handle_ipc_command(
                     windows::core::w!("Listener"),
                 ) {
                     if !hwnd.is_invalid() {
-                        let _ = PostMessageW(Some(hwnd), WM_UNREGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
+                        let _ =
+                            PostMessageW(Some(hwnd), WM_UNREGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
                     }
                 }
             }
@@ -455,7 +464,8 @@ fn apply_cursor_svg_adjustment(
             continue;
         }
         found += 1;
-        let content = fs::read_to_string(&path).map_err(|e| format!("read {:?} failed: {}", path, e))?;
+        let content =
+            fs::read_to_string(&path).map_err(|e| format!("read {:?} failed: {}", path, e))?;
         let replaced = replace_cursor_svg_geometry(&content, x, y, draw_w, draw_h, scale)?;
         if replaced != content {
             let next = normalize_sgt_offset_transform(replaced);
@@ -521,7 +531,12 @@ fn replace_nested_svg_geometry(
     let tag = set_or_insert_svg_attr(&tag, "width", &fmt_num(width));
     let tag = set_or_insert_svg_attr(&tag, "height", &fmt_num(height));
 
-    Ok(format!("{}{}{}", &content[..start], tag, &content[end + 1..]))
+    Ok(format!(
+        "{}{}{}",
+        &content[..start],
+        tag,
+        &content[end + 1..]
+    ))
 }
 
 fn set_or_insert_svg_attr(tag: &str, name: &str, value: &str) -> String {
@@ -544,19 +559,18 @@ fn set_or_insert_svg_attr(tag: &str, name: &str, value: &str) -> String {
     }
 
     if let Some(gt) = tag.rfind('>') {
-        return format!(
-            r#"{} {}="{}"{}"#,
-            &tag[..gt],
-            name,
-            value,
-            &tag[gt..]
-        );
+        return format!(r#"{} {}="{}"{}"#, &tag[..gt], name, value, &tag[gt..]);
     }
 
     tag.to_string()
 }
 
-fn replace_group_transform_geometry(content: &str, x: f32, y: f32, scale: f32) -> Result<String, String> {
+fn replace_group_transform_geometry(
+    content: &str,
+    x: f32,
+    y: f32,
+    scale: f32,
+) -> Result<String, String> {
     let marker = r#"<g transform="translate("#;
     let start = content
         .find(marker)
@@ -574,7 +588,12 @@ fn replace_group_transform_geometry(content: &str, x: f32, y: f32, scale: f32) -
         fmt_num(scale)
     );
 
-    Ok(format!("{}{}{}", &content[..start], replacement, &content[end..]))
+    Ok(format!(
+        "{}{}{}",
+        &content[..start],
+        replacement,
+        &content[end..]
+    ))
 }
 
 fn normalize_sgt_offset_transform(mut content: String) -> String {
@@ -703,8 +722,11 @@ pub fn start_media_server(video_path: String, audio_path: String) -> Result<u16,
                     .unwrap(),
                 );
                 res.add_header(
-                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Range"[..])
-                        .unwrap(),
+                    tiny_http::Header::from_bytes(
+                        &b"Access-Control-Allow-Headers"[..],
+                        &b"Range"[..],
+                    )
+                    .unwrap(),
                 );
                 let _ = request.respond(res);
                 continue;
@@ -776,7 +798,8 @@ pub fn start_media_server(video_path: String, audio_path: String) -> Result<u16,
                     let _ = request.respond(res);
                 }
             } else {
-                let _ = request.respond(Response::from_string("File not found").with_status_code(404));
+                let _ =
+                    request.respond(Response::from_string("File not found").with_status_code(404));
             }
         }
     });

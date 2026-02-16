@@ -2,8 +2,10 @@
 
 use windows::Win32::Foundation::*;
 
-use super::webview::{create_markdown_webview, create_markdown_webview_ex, destroy_markdown_webview};
 use super::conversion::markdown_to_html;
+use super::webview::{
+    create_markdown_webview, create_markdown_webview_ex, destroy_markdown_webview,
+};
 use super::{SKIP_NEXT_NAVIGATION, WEBVIEWS};
 
 /// Navigate back in browser history

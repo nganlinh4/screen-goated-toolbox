@@ -308,10 +308,7 @@ fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>, St
 
     if let Some(pos) = custom_background.find("/bg-downloaded/") {
         let rel = &custom_background[pos + "/bg-downloaded/".len()..];
-        let rel = rel
-            .split(['?', '#'])
-            .next()
-            .unwrap_or(rel);
+        let rel = rel.split(['?', '#']).next().unwrap_or(rel);
         if rel.is_empty() || rel.contains("..") || rel.contains('/') || rel.contains('\\') {
             return Err("Invalid downloadable background path".to_string());
         }
@@ -1366,7 +1363,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     // - fixed 0.5 shadow alpha when enabled
     // - blur directly from slider
     // - vertical offset = 0.5 * slider
-    let shadow_opacity_f32 = if config.background_config.shadow > 0.0 { 0.5 } else { 0.0 };
+    let shadow_opacity_f32 = if config.background_config.shadow > 0.0 {
+        0.5
+    } else {
+        0.0
+    };
     let shadow_blur_f32 = config.background_config.shadow as f32;
     let border_radius_f32 = config.background_config.border_radius as f32;
     let shadow_offset_f32 = config.background_config.shadow as f32 * 0.5;

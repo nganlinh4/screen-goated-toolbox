@@ -287,7 +287,9 @@ fn handle_ipc(parent_hwnd: HWND, body: &str) {
             let alpha = ((opacity_percent / 100.0) * 255.0) as u8;
             unsafe {
                 use windows::Win32::Foundation::COLORREF;
-                use windows::Win32::UI::WindowsAndMessaging::{LWA_ALPHA, SetLayeredWindowAttributes};
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    SetLayeredWindowAttributes, LWA_ALPHA,
+                };
                 let _ = SetLayeredWindowAttributes(parent_hwnd, COLORREF(0), alpha, LWA_ALPHA);
             }
         }

@@ -294,8 +294,7 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
         ZOOM_ALPHA_OVERRIDE = Some(60);
         sync_layered_window_contents(hwnd);
 
-        let selected =
-            crate::overlay::preset_wheel::show_preset_wheel("image", None, cursor_pos);
+        let selected = crate::overlay::preset_wheel::show_preset_wheel("image", None, cursor_pos);
 
         if let Some(idx) = selected {
             Some(idx)
@@ -320,9 +319,7 @@ unsafe fn handle_selection(hwnd: HWND, rect: RECT) -> Option<LRESULT> {
 
         let held_detected = HOLD_DETECTED_THIS_SESSION.load(Ordering::SeqCst);
 
-        if (is_held || held_detected)
-            && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst)
-        {
+        if (is_held || held_detected) && !CONTINUOUS_ACTIVATED_THIS_SESSION.load(Ordering::SeqCst) {
             let mut hotkey_name = crate::overlay::continuous_mode::get_hotkey_name();
             if hotkey_name.is_empty() {
                 hotkey_name = crate::overlay::continuous_mode::get_latest_hotkey_name();
@@ -470,8 +467,7 @@ unsafe fn handle_zoom_timer(hwnd: HWND) {
 unsafe fn handle_continuous_check_timer(hwnd: HWND) {
     // SYNC PHYSICAL KEY STATE
     if TRIGGER_VK_CODE != 0 {
-        let is_physically_down =
-            (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
+        let is_physically_down = (GetAsyncKeyState(TRIGGER_VK_CODE as i32) as u16 & 0x8000) != 0;
         if !is_physically_down && IS_HOTKEY_HELD.load(Ordering::SeqCst) {
             IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
         }
@@ -532,8 +528,8 @@ unsafe fn handle_fade_timer(hwnd: HWND) {
         }
     } else {
         if CURRENT_ALPHA < TARGET_OPACITY {
-            CURRENT_ALPHA = (CURRENT_ALPHA as u16 + FADE_STEP as u16)
-                .min(TARGET_OPACITY as u16) as u8;
+            CURRENT_ALPHA =
+                (CURRENT_ALPHA as u16 + FADE_STEP as u16).min(TARGET_OPACITY as u16) as u8;
             changed = true;
         } else {
             let _ = KillTimer(Some(hwnd), FADE_TIMER_ID);

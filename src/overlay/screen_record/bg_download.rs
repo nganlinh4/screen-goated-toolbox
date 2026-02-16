@@ -136,7 +136,10 @@ pub fn start_download(id: String, url: String) {
         let image_url = match resolve_image_url(&url) {
             Ok(u) => u,
             Err(e) => {
-                set_download_status(&id, BgDownloadStatus::Error(format!("URL resolve failed: {e}")));
+                set_download_status(
+                    &id,
+                    BgDownloadStatus::Error(format!("URL resolve failed: {e}")),
+                );
                 return;
             }
         };
@@ -180,7 +183,10 @@ pub fn start_download(id: String, url: String) {
                 let mut file = match std::fs::File::create(&file_path) {
                     Ok(f) => f,
                     Err(e) => {
-                        set_download_status(&id, BgDownloadStatus::Error(format!("File create error: {e}")));
+                        set_download_status(
+                            &id,
+                            BgDownloadStatus::Error(format!("File create error: {e}")),
+                        );
                         return;
                     }
                 };
@@ -193,17 +199,26 @@ pub fn start_download(id: String, url: String) {
                         Ok(0) => break,
                         Ok(n) => {
                             if let Err(e) = file.write_all(&buffer[..n]) {
-                                set_download_status(&id, BgDownloadStatus::Error(format!("Write error: {e}")));
+                                set_download_status(
+                                    &id,
+                                    BgDownloadStatus::Error(format!("Write error: {e}")),
+                                );
                                 return;
                             }
                             downloaded += n as u64;
                             if total_size > 0 {
                                 let progress = (downloaded as f32 / total_size as f32) * 100.0;
-                                set_download_status(&id, BgDownloadStatus::Downloading { progress });
+                                set_download_status(
+                                    &id,
+                                    BgDownloadStatus::Downloading { progress },
+                                );
                             }
                         }
                         Err(e) => {
-                            set_download_status(&id, BgDownloadStatus::Error(format!("Read error: {e}")));
+                            set_download_status(
+                                &id,
+                                BgDownloadStatus::Error(format!("Read error: {e}")),
+                            );
                             return;
                         }
                     }
@@ -332,9 +347,7 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
         let after = &url[photo_pos + 7..];
         let photo_id = after.split('?').next().unwrap_or(after);
         if !photo_id.is_empty() {
-            let direct = format!(
-                "https://lh3.googleusercontent.com/pw/{photo_id}=w4096-h4096"
-            );
+            let direct = format!("https://lh3.googleusercontent.com/pw/{photo_id}=w4096-h4096");
             // Verify it returns an image (HEAD request)
             if let Ok(resp) = ureq::head(&direct).header("User-Agent", ua).call() {
                 let ct = resp
@@ -349,9 +362,7 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
         }
     }
 
-    Err(
-        "Could not resolve a direct image URL from Google Photos. \
+    Err("Could not resolve a direct image URL from Google Photos. \
          Try using a direct image link instead (e.g. Imgur, Google Drive export, etc.)"
-            .to_string(),
-    )
+        .to_string())
 }

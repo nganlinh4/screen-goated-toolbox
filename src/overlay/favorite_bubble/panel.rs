@@ -244,11 +244,7 @@ pub fn move_panel_to_bubble(bubble_x: i32, bubble_y: i32) {
             )
         } else {
             // Bubble on left - panel starts at bubble's left edge
-            (
-                bubble_x,
-                bubble_y - panel_h / 2 + bubble_size / 2,
-                "left",
-            )
+            (bubble_x, bubble_y - panel_h / 2 + bubble_size / 2, "left")
         };
 
         let actual_panel_y = panel_y.max(10);
@@ -823,16 +819,16 @@ fn activate_continuous_from_panel(preset_idx: usize) {
     } else if p_type == "text" {
         // TEXT CONTINUOUS MODE: Show badge and activate continuous mode
         // This is equivalent to holding the text hotkey until continuous mode activates
-        
+
         // 1. Activate continuous mode FIRST
         crate::overlay::continuous_mode::activate(preset_idx, hotkey_name.clone());
-        
+
         // 2. Show the badge with continuous mode text
         crate::overlay::text_selection::show_text_selection_tag(preset_idx);
-        
+
         // 3. Update badge to show continuous mode suffix
         crate::overlay::text_selection::update_badge_for_continuous_mode();
-        
+
         // 4. Show activation notification
         crate::overlay::continuous_mode::show_activation_notification(&p_id, &hotkey_name);
     }

@@ -89,7 +89,10 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
             match APP.lock() {
                 Ok(app) => app.config.gemini_api_key.clone(),
                 Err(e) => {
-                    eprintln!("[TTS Worker] ERROR: Failed to lock APP for API key: {:?}", e);
+                    eprintln!(
+                        "[TTS Worker] ERROR: Failed to lock APP for API key: {:?}",
+                        e
+                    );
                     let _ = tx.send(AudioEvent::End);
                     std::thread::sleep(Duration::from_secs(1));
                     continue;
@@ -313,7 +316,10 @@ fn handle_google_tts(
     // Download audio (blocking)
     let resp = match UREQ_AGENT.get(&url).call() {
         Ok(r) => {
-            eprintln!("[TTS Google] HTTP response received (status: {})", r.status());
+            eprintln!(
+                "[TTS Google] HTTP response received (status: {})",
+                r.status()
+            );
             r
         }
         Err(e) => {
@@ -446,7 +452,10 @@ fn handle_edge_tts(
         (voice, settings.pitch, settings.rate)
     };
 
-    eprintln!("[TTS Edge] Using voice: {}, pitch: {}, rate: {}", voice_name, pitch, rate);
+    eprintln!(
+        "[TTS Edge] Using voice: {}, pitch: {}, rate: {}",
+        voice_name, pitch, rate
+    );
 
     // Edge TTS WebSocket constants
     let trusted_token = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
@@ -478,7 +487,10 @@ fn handle_edge_tts(
     let stream = match std::net::TcpStream::connect(format!("{}:443", host)) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[TTS Edge] ERROR: TCP connection to {} failed: {:?}", host, e);
+            eprintln!(
+                "[TTS Edge] ERROR: TCP connection to {} failed: {:?}",
+                host, e
+            );
             let _ = tx.send(AudioEvent::End);
             clear_tts_state(request.req.hwnd);
             return;

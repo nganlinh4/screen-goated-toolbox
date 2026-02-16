@@ -13,7 +13,8 @@ use std::os::windows::process::CommandExt;
 
 const FFMPEG_DOWNLOAD_URL: &str =
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-8.0.zip";
-const FFMPEG_RELEASE_API_URL: &str = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
+const FFMPEG_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 const FFMPEG_RELEASE_MARKER_FILE: &str = "ffmpeg_release_source.txt";
 
 fn extract_json_string_field(json: &str, field: &str) -> Option<String> {

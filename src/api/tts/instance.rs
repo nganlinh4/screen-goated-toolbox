@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use lazy_static::lazy_static;
 use super::manager::TtsManager;
+use lazy_static::lazy_static;
+use std::sync::Arc;
 
 lazy_static! {
     /// The global TTS connection manager

@@ -1,7 +1,7 @@
-use eframe::egui;
 use crate::config::{Config, TtsMethod};
+use crate::gui::icons::{icon_button, Icon};
 use crate::gui::locale::LocaleText;
-use crate::gui::icons::{Icon, icon_button};
+use eframe::egui;
 
 pub fn render_tts_settings_modal(
     ui: &mut egui::Ui,
@@ -12,19 +12,41 @@ pub fn render_tts_settings_modal(
     if !*show_modal {
         return false;
     }
-    
+
     let mut changed = false;
 
     // List of voices (Name, Gender)
     const VOICES: &[(&str, &str)] = &[
-        ("Achernar", "Female"), ("Achird", "Male"), ("Algenib", "Male"), ("Algieba", "Male"), 
-        ("Alnilam", "Male"), ("Aoede", "Female"), ("Autonoe", "Female"), ("Callirrhoe", "Female"), 
-        ("Charon", "Male"), ("Despina", "Female"), ("Enceladus", "Male"), ("Erinome", "Female"), 
-        ("Fenrir", "Male"), ("Gacrux", "Female"), ("Iapetus", "Male"), ("Kore", "Female"), 
-        ("Laomedeia", "Female"), ("Leda", "Female"), ("Orus", "Male"), ("Pulcherrima", "Female"), 
-        ("Puck", "Male"), ("Rasalgethi", "Male"), ("Sadachbia", "Male"), ("Sadaltager", "Male"), 
-        ("Schedar", "Male"), ("Sulafat", "Female"), ("Umbriel", "Male"), ("Vindemiatrix", "Female"), 
-        ("Zephyr", "Female"), ("Zubenelgenubi", "Male"),
+        ("Achernar", "Female"),
+        ("Achird", "Male"),
+        ("Algenib", "Male"),
+        ("Algieba", "Male"),
+        ("Alnilam", "Male"),
+        ("Aoede", "Female"),
+        ("Autonoe", "Female"),
+        ("Callirrhoe", "Female"),
+        ("Charon", "Male"),
+        ("Despina", "Female"),
+        ("Enceladus", "Male"),
+        ("Erinome", "Female"),
+        ("Fenrir", "Male"),
+        ("Gacrux", "Female"),
+        ("Iapetus", "Male"),
+        ("Kore", "Female"),
+        ("Laomedeia", "Female"),
+        ("Leda", "Female"),
+        ("Orus", "Male"),
+        ("Pulcherrima", "Female"),
+        ("Puck", "Male"),
+        ("Rasalgethi", "Male"),
+        ("Sadachbia", "Male"),
+        ("Sadaltager", "Male"),
+        ("Schedar", "Male"),
+        ("Sulafat", "Female"),
+        ("Umbriel", "Male"),
+        ("Vindemiatrix", "Female"),
+        ("Zephyr", "Female"),
+        ("Zubenelgenubi", "Male"),
     ];
 
     let male_voices: Vec<_> = VOICES.iter().filter(|(_, g)| *g == "Male").collect();
@@ -449,6 +471,6 @@ pub fn render_tts_settings_modal(
                 }
             }
         });
-        
+
     changed
 }

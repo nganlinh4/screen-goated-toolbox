@@ -83,4 +83,3 @@ pub fn create_bitmap_from_pixels(pixels: &[u32], w: i32, h: i32) -> HBITMAP {
         hbm
     }
 }
-

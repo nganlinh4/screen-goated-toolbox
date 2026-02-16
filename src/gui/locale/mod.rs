@@ -273,24 +273,24 @@ pub struct LocaleText {
     pub download_size_label: &'static str,
     pub download_change_folder_btn: &'static str,
     // Format: "{percent}% of {total} at {speed}, ETA {eta}"
-    pub download_progress_info_fmt: &'static str, 
+    pub download_progress_info_fmt: &'static str,
     pub download_advanced_header: &'static str,
     pub download_opt_metadata: &'static str,
     pub download_opt_sponsorblock: &'static str,
     pub download_opt_subtitles: &'static str,
     pub download_opt_playlist: &'static str,
     pub download_opt_cookies: &'static str,
-    pub download_scan_ignore_btn: &'static str, // NEW
+    pub download_scan_ignore_btn: &'static str,    // NEW
     pub download_quality_label_text: &'static str, // NEW
-    pub download_quality_best: &'static str, // NEW
-    pub download_scanning_label: &'static str, // NEW
-    pub download_no_cookie_option: &'static str, // NEW
-    pub download_show_log_btn: &'static str, // NEW
-    pub download_hide_log_btn: &'static str, // NEW
-    pub download_subtitle_label: &'static str, // NEW
+    pub download_quality_best: &'static str,       // NEW
+    pub download_scanning_label: &'static str,     // NEW
+    pub download_no_cookie_option: &'static str,   // NEW
+    pub download_show_log_btn: &'static str,       // NEW
+    pub download_hide_log_btn: &'static str,       // NEW
+    pub download_subtitle_label: &'static str,     // NEW
     pub download_subtitle_auto: &'static str,
     pub download_subs_found_header: &'static str, // NEW
-    pub download_subs_none_found: &'static str, // NEW
+    pub download_subs_none_found: &'static str,   // NEW
 
     // --- DOWNLOADED TOOLS MODAL ---
     pub downloaded_tools_button: &'static str,

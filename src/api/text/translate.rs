@@ -61,7 +61,11 @@ where
 
     // DEBUG: Log the instruction being sent to the API
     println!("[DEBUG translate] instruction=«{}»", instruction);
-    println!("[DEBUG translate] text_len={} prompt_len={}", text.len(), prompt.len());
+    println!(
+        "[DEBUG translate] text_len={} prompt_len={}",
+        text.len(),
+        prompt.len()
+    );
 
     if provider == "ollama" {
         // --- OLLAMA LOCAL API ---
@@ -708,8 +712,9 @@ where
                     }
 
                     if !all_sources.is_empty() {
-                        all_sources
-                            .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                        all_sources.sort_by(|a, b| {
+                            b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
+                        });
 
                         let context_quote = get_context_quote(prompt);
                         let mut phase2 = format!(
