@@ -59,7 +59,12 @@ pub fn restore_badges_after_capture() {
     if hwnd_val != 0 {
         unsafe {
             let hwnd = HWND(hwnd_val as *mut _);
-            let _ = PostMessageW(Some(hwnd), WM_APP_RESTORE_AFTER_CAPTURE, WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(
+                Some(hwnd),
+                WM_APP_RESTORE_AFTER_CAPTURE,
+                WPARAM(0),
+                LPARAM(0),
+            );
         }
     }
 }

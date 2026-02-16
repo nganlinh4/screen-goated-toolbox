@@ -97,7 +97,10 @@ impl TtsManager {
                 },
                 tx,
             ));
-            eprintln!("[TTS Manager] Added to work_queue (queue size now: {})", queue_len + 1);
+            eprintln!(
+                "[TTS Manager] Added to work_queue (queue size now: {})",
+                queue_len + 1
+            );
         }
         self.work_signal.notify_one();
 

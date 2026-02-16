@@ -428,11 +428,7 @@ pub fn paint(
         if star_alpha > 0.1 {
             let size = star.size * (1.0 - warp_prog);
             if is_dark {
-                painter.circle_filled(
-                    Pos2::new(sx, sy),
-                    size,
-                    C_WHITE.linear_multiply(star_alpha),
-                );
+                painter.circle_filled(Pos2::new(sx, sy), size, C_WHITE.linear_multiply(star_alpha));
             } else {
                 let day_star_alpha = star_alpha * 0.3;
                 painter.circle_filled(
@@ -714,8 +710,10 @@ pub fn paint(
         let x1 = center.x - w;
         let x2 = center.x + w;
 
-        let alpha_grid =
-            (1.0 - (y - horizon) / (rect.bottom() - horizon)).powf(0.5) * master_alpha * 0.5 * local_fade;
+        let alpha_grid = (1.0 - (y - horizon) / (rect.bottom() - horizon)).powf(0.5)
+            * master_alpha
+            * 0.5
+            * local_fade;
 
         let (grid_col, thickness) = if is_dark {
             (C_MAGENTA, 1.5)
@@ -931,7 +929,8 @@ pub fn paint(
             loading_col,
         );
 
-        let bar_rect = Rect::from_center_size(center + Vec2::new(0.0, 230.0), Vec2::new(200.0, 4.0));
+        let bar_rect =
+            Rect::from_center_size(center + Vec2::new(0.0, 230.0), Vec2::new(200.0, 4.0));
         let bar_bg_col = if is_dark {
             Color32::from_white_alpha((30.0 * ui_alpha) as u8)
         } else {

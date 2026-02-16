@@ -4,8 +4,7 @@ use pulldown_cmark::{html, Event, Options, Parser, Tag, TagEnd};
 
 use super::css::{get_font_style, get_theme_css, MARKDOWN_CSS};
 use super::html_utils::{
-    escape_html_text, inject_gridjs, inject_scrollbar_css, inject_storage_polyfill,
-    is_html_content,
+    escape_html_text, inject_gridjs, inject_scrollbar_css, inject_storage_polyfill, is_html_content,
 };
 
 /// Convert markdown text to styled HTML, or pass through raw HTML

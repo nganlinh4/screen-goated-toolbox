@@ -85,12 +85,15 @@ pub fn render_refinement_glow(
                                 let fg_g = ((rgb >> 8) & 0xFF) as f32;
                                 let fg_b = (rgb & 0xFF) as f32;
 
-                                let out_r =
-                                    (fg_r * final_intensity + bg_r * (1.0 - final_intensity)) as u32;
-                                let out_g =
-                                    (fg_g * final_intensity + bg_g * (1.0 - final_intensity)) as u32;
-                                let out_b =
-                                    (fg_b * final_intensity + bg_b * (1.0 - final_intensity)) as u32;
+                                let out_r = (fg_r * final_intensity
+                                    + bg_r * (1.0 - final_intensity))
+                                    as u32;
+                                let out_g = (fg_g * final_intensity
+                                    + bg_g * (1.0 - final_intensity))
+                                    as u32;
+                                let out_b = (fg_b * final_intensity
+                                    + bg_b * (1.0 - final_intensity))
+                                    as u32;
                                 raw_pixels[idx] =
                                     (255 << 24) | (out_r << 16) | (out_g << 8) | out_b;
                             }

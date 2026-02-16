@@ -24,7 +24,6 @@ use windows::Win32::UI::HiDpi::GetDpiForSystem;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use wry::{WebContext, WebView};
 
-
 // Re-export window creation for external use
 pub use window::create_canvas_window;
 

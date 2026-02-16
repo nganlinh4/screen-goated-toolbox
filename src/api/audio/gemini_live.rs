@@ -283,12 +283,7 @@ pub fn record_and_stream_gemini_live(
             let _ = send_audio_chunk(&mut socket, &remaining);
         }
 
-        wait_for_final_transcriptions(
-            &mut socket,
-            &accumulated_text,
-            &preset,
-            streaming_hwnd,
-        );
+        wait_for_final_transcriptions(&mut socket, &accumulated_text, &preset, streaming_hwnd);
     }
 
     let _ = socket.close(None);

@@ -318,7 +318,9 @@ fn create_block_window(
 
         unsafe {
             if is_input_adapter_image {
-                use windows::Win32::UI::WindowsAndMessaging::{LWA_ALPHA, SetLayeredWindowAttributes};
+                use windows::Win32::UI::WindowsAndMessaging::{
+                    SetLayeredWindowAttributes, LWA_ALPHA,
+                };
                 let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
             }
 

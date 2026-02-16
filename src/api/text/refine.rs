@@ -685,7 +685,8 @@ where
                     break;
                 }
                 if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data) {
-                    if let Some(content) = chunk.choices.get(0).and_then(|c| c.delta.content.as_ref())
+                    if let Some(content) =
+                        chunk.choices.get(0).and_then(|c| c.delta.content.as_ref())
                     {
                         full_content.push_str(content);
                         on_chunk(content);
@@ -825,8 +826,9 @@ where
                     }
 
                     if !all_sources.is_empty() {
-                        all_sources
-                            .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                        all_sources.sort_by(|a, b| {
+                            b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
+                        });
                         let context_quote = get_context_quote(final_prompt);
                         let mut phase2 = format!(
                             "{}\n\n{}\n\n",

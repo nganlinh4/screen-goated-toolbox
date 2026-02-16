@@ -241,8 +241,10 @@ pub fn render_downloaded_tools_modal(
                     // (e.g., from the screen recorder panel).
                     {
                         let mut s = download_manager.ffmpeg_status.lock().unwrap();
-                        let in_downloading_state =
-                            matches!(*s, InstallStatus::Downloading(_) | InstallStatus::Extracting);
+                        let in_downloading_state = matches!(
+                            *s,
+                            InstallStatus::Downloading(_) | InstallStatus::Extracting
+                        );
                         if !in_downloading_state {
                             match (&*s, installed_on_disk) {
                                 (InstallStatus::Installed, false) => *s = InstallStatus::Missing,

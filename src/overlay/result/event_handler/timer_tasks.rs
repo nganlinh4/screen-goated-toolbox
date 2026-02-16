@@ -166,7 +166,8 @@ pub unsafe fn handle_timer(hwnd: HWND, wparam: WPARAM) -> LRESULT {
             // This avoids relying on hover transitions to reach the final visual scale.
             if state.is_markdown_mode && !state.is_streaming_active && !state.is_refining {
                 let retry_window_active = state.markdown_settle_retry_until_ms > now_ms_u64;
-                let retry_due = retry_window_active && now_ms_u64 >= state.markdown_next_settle_fit_ms;
+                let retry_due =
+                    retry_window_active && now_ms_u64 >= state.markdown_next_settle_fit_ms;
                 if state.font_cache_dirty || retry_due {
                     should_run_markdown_settle_fit = true;
                     settle_fit_is_hovered = state.is_hovered;

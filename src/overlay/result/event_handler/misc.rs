@@ -78,7 +78,10 @@ pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
     if GetWindowRect(hwnd, &mut rect).is_ok() {
         let center_x = (rect.left + rect.right) / 2;
         let center_y = (rect.top + rect.bottom) / 2;
-        let center = POINT { x: center_x, y: center_y };
+        let center = POINT {
+            x: center_x,
+            y: center_y,
+        };
 
         // Check if the center point maps to any monitor
         let h_monitor = MonitorFromPoint(center, MONITOR_DEFAULTTONULL);
@@ -105,7 +108,7 @@ pub unsafe fn handle_display_change(hwnd: HWND) -> LRESULT {
                     new_y,
                     0,
                     0,
-                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
                 );
 
                 // IMPORTANT: Update button canvas about the new position

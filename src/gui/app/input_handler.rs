@@ -5,12 +5,12 @@
 // 2. Shows the appropriate preset wheel
 // 3. Triggers the processing pipeline with the selected preset
 
-use crate::APP;
 use crate::overlay::preset_wheel::show_preset_wheel;
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
 };
 use crate::overlay::utils::get_clipboard_image_bytes;
+use crate::APP;
 use eframe::egui;
 use image::{ImageBuffer, Rgba};
 use std::io::Cursor;
@@ -359,10 +359,10 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
                     let rgba = img.to_rgba8();
                     // For direct bytes drop, we also pass the bytes as "original"
                     process_image_content(rgba); // Fallback to serial for bytes-drop or update process_image_content?
-                // NOTE: process_image_content expects just ImageBuffer.
-                // To support zero-copy for bytes-drop too, we would need to update process_image_content.
-                // But user specifically asked for "dragging job" (files).
-                // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
+                                                 // NOTE: process_image_content expects just ImageBuffer.
+                                                 // To support zero-copy for bytes-drop too, we would need to update process_image_content.
+                                                 // But user specifically asked for "dragging job" (files).
+                                                 // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
                 }
                 // Try as text
                 else if let Ok(text) = String::from_utf8(bytes_clone.to_vec()) {

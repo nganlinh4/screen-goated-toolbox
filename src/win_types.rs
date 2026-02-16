@@ -1,9 +1,9 @@
 // Windows 0.62+ type wrappers for thread safety
 // HWND, HANDLE, HHOOK etc. are now *mut c_void which don't implement Send/Sync
 
-use windows::Win32::Foundation::{HWND, HANDLE};
-use windows::Win32::UI::WindowsAndMessaging::HHOOK;
+use windows::Win32::Foundation::{HANDLE, HWND};
 use windows::Win32::Graphics::Gdi::HBITMAP;
+use windows::Win32::UI::WindowsAndMessaging::HHOOK;
 
 /// Thread-safe wrapper for HWND
 #[derive(Clone, Copy, Debug)]
@@ -21,11 +21,11 @@ impl SendHwnd {
     pub fn is_invalid(&self) -> bool {
         self.0.is_invalid()
     }
-    
+
     pub fn as_isize(&self) -> isize {
-        self.0.0 as isize
+        self.0 .0 as isize
     }
-    
+
     pub fn from_isize(val: isize) -> Self {
         SendHwnd(HWND(val as *mut std::ffi::c_void))
     }
@@ -44,7 +44,7 @@ impl SendHandle {
 }
 
 /// Thread-safe wrapper for HHOOK
-#[derive(Clone, Copy, Debug)]  
+#[derive(Clone, Copy, Debug)]
 pub struct SendHhook(pub HHOOK);
 unsafe impl Send for SendHhook {}
 unsafe impl Sync for SendHhook {}

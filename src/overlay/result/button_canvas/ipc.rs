@@ -257,7 +257,7 @@ fn handle_set_opacity(hwnd: HWND, json: &serde_json::Value) {
         }
 
         unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::{LWA_ALPHA, SetLayeredWindowAttributes};
+            use windows::Win32::UI::WindowsAndMessaging::{SetLayeredWindowAttributes, LWA_ALPHA};
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
         }
     }

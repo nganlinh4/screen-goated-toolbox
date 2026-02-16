@@ -320,7 +320,10 @@ pub fn start_text_processing(
                         target_block.prompt =
                             format!("{}\n\nUser request: {}", target_block.prompt, user_prompt);
                     }
-                    println!("[DEBUG dynamic] final target_block.prompt=«{}»", target_block.prompt);
+                    println!(
+                        "[DEBUG dynamic] final target_block.prompt=«{}»",
+                        target_block.prompt
+                    );
                 } else {
                     println!("[DEBUG dynamic] WARNING: no processing block found in preset!");
                 }
@@ -393,7 +396,7 @@ pub fn show_audio_result(
         RefineContext::Audio(wav_data), // Pass audio data for input overlay
         true, // skip_execution: audio already done, just display and chain forward
         processing_hwnd.map(SendHwnd), // Pass recording overlay - will close when first visible block appears
-        ChainCancelToken::new(), // New chains start with cancellation = false
+        ChainCancelToken::new(),       // New chains start with cancellation = false
         preset.id.clone(),
         // Check if we should disable auto-paste (e.g. for Gemini Live real-time typing)
         is_streaming_result,
@@ -560,7 +563,7 @@ pub fn start_processing_pipeline(
             context,
             false,
             Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
-            ChainCancelToken::new(), // New chains start with cancellation = false
+            ChainCancelToken::new(),         // New chains start with cancellation = false
             preset_id,
             false,    // disable_auto_paste
             chain_id, // Per-chain position tracking

@@ -36,8 +36,7 @@ pub fn render_footer(
         let btn_w = h_pad + icon_sz + icon_gap + btn_galley.rect.width() + h_pad;
         let btn_h = btn_galley.rect.height() + v_pad * 2.0;
 
-        let (btn_rect, _) =
-            ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::hover());
+        let (btn_rect, _) = ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::hover());
         let p = ui.painter();
         p.rect_filled(btn_rect, 6.0, btn_bg);
         let icon_rect = egui::Rect::from_min_size(
@@ -97,8 +96,7 @@ pub fn render_footer(
 
         // 3. Right Side: Admin Text (moved from left)
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let is_admin =
-                cfg!(target_os = "windows") && crate::gui::utils::is_running_as_admin();
+            let is_admin = cfg!(target_os = "windows") && crate::gui::utils::is_running_as_admin();
             let footer_text = if is_admin {
                 egui::RichText::new(text.footer_admin_running)
                     .size(11.0)

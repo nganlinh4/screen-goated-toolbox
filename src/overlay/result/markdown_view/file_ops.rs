@@ -114,9 +114,9 @@ pub fn save_html_file(markdown_text: &str) -> bool {
     use windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC;
     use windows::Win32::UI::Shell::KNOWN_FOLDER_FLAG;
     use windows::Win32::UI::Shell::{
-        FileSaveDialog, IFileSaveDialog, IShellItem, SHCreateItemFromParsingName,
-        SHGetKnownFolderPath, FOLDERID_Downloads, FOS_OVERWRITEPROMPT, FOS_STRICTFILETYPES,
-        SIGDN_FILESYSPATH,
+        FOLDERID_Downloads, FileSaveDialog, IFileSaveDialog, IShellItem,
+        SHCreateItemFromParsingName, SHGetKnownFolderPath, FOS_OVERWRITEPROMPT,
+        FOS_STRICTFILETYPES, SIGDN_FILESYSPATH,
     };
 
     unsafe {

@@ -14,7 +14,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-
 pub fn paint_window(hwnd: HWND) {
     unsafe {
         let mut ps = PAINTSTRUCT::default();
@@ -68,21 +67,12 @@ pub fn paint_window(hwnd: HWND) {
         }
 
         // --- PHASE 3: TEXT RENDERING ---
-        let cached_text_bm = render_text_content(
-            hwnd,
-            hdc,
-            mem_dc,
-            width,
-            height,
-            &state_snapshot,
-        );
+        let cached_text_bm = render_text_content(hwnd, hdc, mem_dc, width, height, &state_snapshot);
 
         // --- PHASE 4: PIXEL MANIPULATION ---
         if !scratch_bits.is_null() {
-            let raw_pixels = std::slice::from_raw_parts_mut(
-                scratch_bits as *mut u32,
-                (width * height) as usize,
-            );
+            let raw_pixels =
+                std::slice::from_raw_parts_mut(scratch_bits as *mut u32, (width * height) as usize);
 
             // Refinement glow
             if state_snapshot.is_refining {
@@ -314,7 +304,11 @@ unsafe fn render_text_content(
         let bg_g = (snapshot.bg_color_u32 >> 8) & 0xFF;
         let bg_b = snapshot.bg_color_u32 & 0xFF;
         let luminance = (0.299 * bg_r as f32) + (0.587 * bg_g as f32) + (0.114 * bg_b as f32);
-        let text_col = if luminance > 140.0 { 0x00000000 } else { 0x00FFFFFF };
+        let text_col = if luminance > 140.0 {
+            0x00000000
+        } else {
+            0x00FFFFFF
+        };
         SetTextColor(cache_dc, COLORREF(text_col));
 
         let mut buf = if snapshot.is_refining {
@@ -367,7 +361,11 @@ unsafe fn render_text_content(
         }
         let font_size_val = best_fit;
 
-        let font_weight = if snapshot.is_refining { FW_NORMAL } else { FW_MEDIUM };
+        let font_weight = if snapshot.is_refining {
+            FW_NORMAL
+        } else {
+            FW_MEDIUM
+        };
         let hfont = CreateFontW(
             font_size_val,
             0,

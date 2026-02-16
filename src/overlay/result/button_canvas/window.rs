@@ -1,8 +1,8 @@
 //! Window creation for button canvas
 
 use super::{
-    html::generate_canvas_html, ipc::handle_ipc_message, wnd_proc::canvas_wnd_proc,
-    CANVAS_HWND, CANVAS_WEBVIEW, CANVAS_WEB_CONTEXT, IS_WARMED_UP, REGISTER_CANVAS_CLASS,
+    html::generate_canvas_html, ipc::handle_ipc_message, wnd_proc::canvas_wnd_proc, CANVAS_HWND,
+    CANVAS_WEBVIEW, CANVAS_WEB_CONTEXT, IS_WARMED_UP, REGISTER_CANVAS_CLASS,
 };
 use std::sync::atomic::Ordering;
 use windows::core::w;

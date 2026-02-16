@@ -1,12 +1,12 @@
-use eframe::egui;
+use crate::gui::icons::{icon_button, Icon};
 use crate::gui::locale::LocaleText;
-use crate::gui::icons::{Icon, icon_button};
 use crate::model_config::{get_all_models, get_all_models_with_ollama};
+use eframe::egui;
 use std::collections::HashMap;
 
 pub fn render_usage_modal(
-    ui: &mut egui::Ui, 
-    usage_stats: &HashMap<String, String>, 
+    ui: &mut egui::Ui,
+    usage_stats: &HashMap<String, String>,
     text: &LocaleText,
     show_modal: &mut bool,
     use_groq: bool,
@@ -18,7 +18,7 @@ pub fn render_usage_modal(
     if !*show_modal {
         return;
     }
-    
+
     egui::Window::new(format!("📊 {}", text.usage_statistics_title))
         .collapsible(false)
         .resizable(false)

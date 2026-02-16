@@ -649,33 +649,35 @@ unsafe fn internal_create_pdj_loop() {
                 .with_custom_protocol("promptdj".to_string(), {
                     let font_style_tag = font_style_tag.clone();
                     move |_id, request| {
-                    let path = request.uri().path();
-                    let (content, mime) = if path == "/" || path == "/index.html" {
-                        // Inject font CSS into HTML <head> for instant font rendering
-                        let html = String::from_utf8_lossy(INDEX_HTML);
-                        let modified = html.replace("</head>", &format!("{font_style_tag}</head>"));
-                        (Cow::Owned(modified.into_bytes()), "text/html")
-                    } else if path.ends_with("index.js") {
-                        (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
-                    } else if path.ends_with("index.css") {
-                        (Cow::Borrowed(ASSET_INDEX_CSS), "text/css")
-                    } else if path.ends_with("cubic.js") {
-                        (Cow::Borrowed(ASSET_CUBIC_JS), "application/javascript")
-                    } else if path.ends_with("morph-fixed.js") {
-                        (Cow::Borrowed(ASSET_MORPH_JS), "application/javascript")
-                    } else if path.ends_with("roundedPolygon.js") {
-                        (Cow::Borrowed(ASSET_ROUNDED_JS), "application/javascript")
-                    } else if path.ends_with("utils.js") {
-                        (Cow::Borrowed(ASSET_UTILS_JS), "application/javascript")
-                    } else {
-                        return wnd_http_response(
-                            404,
-                            "text/plain",
-                            Cow::Borrowed(b"Not Found".as_slice()),
-                        );
-                    };
-                    wnd_http_response(200, mime, content)
-                }})
+                        let path = request.uri().path();
+                        let (content, mime) = if path == "/" || path == "/index.html" {
+                            // Inject font CSS into HTML <head> for instant font rendering
+                            let html = String::from_utf8_lossy(INDEX_HTML);
+                            let modified =
+                                html.replace("</head>", &format!("{font_style_tag}</head>"));
+                            (Cow::Owned(modified.into_bytes()), "text/html")
+                        } else if path.ends_with("index.js") {
+                            (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
+                        } else if path.ends_with("index.css") {
+                            (Cow::Borrowed(ASSET_INDEX_CSS), "text/css")
+                        } else if path.ends_with("cubic.js") {
+                            (Cow::Borrowed(ASSET_CUBIC_JS), "application/javascript")
+                        } else if path.ends_with("morph-fixed.js") {
+                            (Cow::Borrowed(ASSET_MORPH_JS), "application/javascript")
+                        } else if path.ends_with("roundedPolygon.js") {
+                            (Cow::Borrowed(ASSET_ROUNDED_JS), "application/javascript")
+                        } else if path.ends_with("utils.js") {
+                            (Cow::Borrowed(ASSET_UTILS_JS), "application/javascript")
+                        } else {
+                            return wnd_http_response(
+                                404,
+                                "text/plain",
+                                Cow::Borrowed(b"Not Found".as_slice()),
+                            );
+                        };
+                        wnd_http_response(200, mime, content)
+                    }
+                })
                 .with_initialization_script(&init_script)
                 .with_ipc_handler(move |msg: wry::http::Request<String>| {
                     let body = msg.body().as_str();

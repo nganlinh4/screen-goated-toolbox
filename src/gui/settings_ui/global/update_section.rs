@@ -51,10 +51,7 @@ pub fn render_update_section_content(
             } else {
                 egui::Color32::from_rgb(200, 100, 0) // Dark orange for light mode
             };
-            ui.colored_label(
-                color,
-                format!("{} {}", text.new_version_available, version),
-            );
+            ui.colored_label(color, format!("{} {}", text.new_version_available, version));
             ui.collapsing(text.release_notes_label, |ui| {
                 ui.label(body);
             });

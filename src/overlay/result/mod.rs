@@ -543,7 +543,10 @@ pub fn trigger_speaker(hwnd: HWND) {
 
     if current_tts_id != 0 && crate::api::tts::TTS_MANAGER.is_speaking(current_tts_id) {
         // Stop speaking
-        crate::log_info!("[TTS] Stopping current speech (request_id: {})", current_tts_id);
+        crate::log_info!(
+            "[TTS] Stopping current speech (request_id: {})",
+            current_tts_id
+        );
         crate::api::tts::TTS_MANAGER.stop();
         {
             let mut states = WINDOW_STATES.lock().unwrap();
@@ -566,7 +569,10 @@ pub fn trigger_speaker(hwnd: HWND) {
         }
 
         let request_id = crate::api::tts::TTS_MANAGER.speak(&full_text, hwnd_key);
-        crate::log_info!("[TTS] TTS_MANAGER.speak returned request_id: {}", request_id);
+        crate::log_info!(
+            "[TTS] TTS_MANAGER.speak returned request_id: {}",
+            request_id
+        );
         {
             let mut states = WINDOW_STATES.lock().unwrap();
             if let Some(state) = states.get_mut(&hwnd_key) {

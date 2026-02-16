@@ -76,7 +76,7 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(255, 255, 255, 0.6)",
             "rgba(60, 60, 70, 0.8)",
             "rgba(64, 196, 255, 0.9)", // Bright cyan
-            "rgba(20, 20, 30, 0.85)", // Match item_bg
+            "rgba(20, 20, 30, 0.85)",  // Match item_bg
         )
     } else {
         // Light mode colors
@@ -91,7 +91,7 @@ pub fn generate_panel_css(is_dark: bool) -> String {
             "rgba(0, 0, 0, 0.08)",
             "rgba(0, 0, 0, 0.6)",
             "rgba(200, 200, 210, 0.8)",
-            "rgba(33, 100, 200, 0.9)", // Deeper blue for light mode
+            "rgba(33, 100, 200, 0.9)",   // Deeper blue for light mode
             "rgba(255, 255, 255, 0.92)", // Match item_bg
         )
     };

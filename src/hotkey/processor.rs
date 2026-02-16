@@ -164,7 +164,8 @@ fn handle_hotkey(id: i32) {
     let preset_idx = ((id - 1) / 1000) as usize;
 
     // Get preset context
-    let (preset_type, text_mode, is_audio_stopping, hotkey_name) = get_preset_context(id, preset_idx);
+    let (preset_type, text_mode, is_audio_stopping, hotkey_name) =
+        get_preset_context(id, preset_idx);
 
     // Capture target window for paste (unless stopping audio)
     if !is_audio_stopping {
@@ -177,7 +178,12 @@ fn handle_hotkey(id: i32) {
     // Dispatch based on preset type
     match preset_type.as_str() {
         "audio" => handle_audio_preset(preset_idx),
-        "text" => handle_text_preset(preset_idx, &text_mode, &hotkey_name, just_activated_continuous),
+        "text" => handle_text_preset(
+            preset_idx,
+            &text_mode,
+            &hotkey_name,
+            just_activated_continuous,
+        ),
         _ => handle_image_preset(preset_idx, id),
     }
 }
@@ -210,7 +216,12 @@ fn get_preset_context(id: i32, preset_idx: usize) -> (String, String, bool, Stri
             return (p_type, t_mode, stopping, hk_name);
         }
     }
-    ("image".to_string(), "select".to_string(), false, String::new())
+    (
+        "image".to_string(),
+        "select".to_string(),
+        false,
+        String::new(),
+    )
 }
 
 /// Handle audio preset hotkey.
@@ -322,7 +333,9 @@ fn handle_text_select_mode(preset_idx: usize, hotkey_name: &str, just_activated_
                 };
 
                 if is_master {
-                    crate::log_info!("[TextHotkey] Held - but master preset, skipping continuous mode");
+                    crate::log_info!(
+                        "[TextHotkey] Held - but master preset, skipping continuous mode"
+                    );
                 } else {
                     crate::log_info!("[TextHotkey] Held - activating text continuous mode");
                     overlay::continuous_mode::activate(preset_idx, hotkey_name.to_string());
@@ -451,7 +464,8 @@ fn handle_image_preset(preset_idx: usize, id: i32) {
                 }
             }
 
-            if !overlay::continuous_mode::is_active() && !overlay::image_continuous_mode::is_active()
+            if !overlay::continuous_mode::is_active()
+                && !overlay::image_continuous_mode::is_active()
             {
                 break;
             }

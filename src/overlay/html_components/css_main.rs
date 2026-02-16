@@ -56,15 +56,9 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
 
     // Softer shadow matching system glassmorphism style
     let box_shadow = if is_dark {
-        format!(
-            "0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px {}20",
-            glow_color
-        )
+        format!("0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px {}20", glow_color)
     } else {
-        format!(
-            "0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 1px {}15",
-            glow_color
-        )
+        format!("0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 1px {}15", glow_color)
     };
 
     let ctrl_border = if is_dark {
@@ -74,11 +68,11 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
     };
 
     // MD3 accent colors
-    let primary = "#5D5FEF";       // Purple - main accent
+    let primary = "#5D5FEF"; // Purple - main accent
     let primary_light = "#B4B5FF"; // Light purple
-    let secondary = "#2979FF";     // Blue
-    let tertiary = "#F50057";      // Pink
-    let success = "#4CAF50";       // Green for success states
+    let secondary = "#2979FF"; // Blue
+    let tertiary = "#F50057"; // Pink
+    let success = "#4CAF50"; // Green for success states
 
     let _ = surface_tint; // Used for future surface tint effects
 

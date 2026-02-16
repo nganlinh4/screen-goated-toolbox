@@ -3,8 +3,8 @@
 
 use super::math::Vec3;
 use super::{C_CYAN, C_DAY_REP, C_DAY_SEC, C_MAGENTA, C_SHADOW, C_WHITE};
-use eframe::egui::Vec2;
 use eframe::egui::Color32;
+use eframe::egui::Vec2;
 use std::f32::consts::PI;
 
 // --- ATMOSPHERE ENTITIES ---
@@ -60,9 +60,7 @@ pub fn init_scene(
         .unwrap_or(987654321u64);
 
     let mut rng = || {
-        rng_state = rng_state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1);
+        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
         (rng_state >> 32) as f32 / 4294967295.0
     };
 

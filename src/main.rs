@@ -13,9 +13,9 @@ mod model_config;
 mod overlay;
 mod registry_integration;
 mod screen_capture;
+mod unpack_dlls;
 mod updater;
 pub mod win_types;
-mod unpack_dlls;
 
 use config::{load_config, Config, ThemeMode};
 use gui::locale::LocaleText;

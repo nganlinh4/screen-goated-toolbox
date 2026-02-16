@@ -208,11 +208,7 @@ pub fn internal_create_tag_thread() {
         });
 
         let hwnd = CreateWindowExW(
-            WS_EX_LAYERED
-                | WS_EX_TOPMOST
-                | WS_EX_TOOLWINDOW
-                | WS_EX_TRANSPARENT
-                | WS_EX_NOACTIVATE,
+            WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
             class_name,
             w!("SGT Tag"),
             WS_POPUP,
@@ -518,8 +514,7 @@ pub fn internal_create_tag_thread() {
                                 );
                                 CONTINUOUS_ACTIVATED_THIS_SESSION.store(true, Ordering::SeqCst);
                                 super::update_badge_for_continuous_mode();
-                                let _ =
-                                    PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
+                                let _ = PostMessageW(Some(hwnd), WM_APP_SHOW, WPARAM(0), LPARAM(0));
                             }
                         }
                     }
@@ -683,8 +678,7 @@ unsafe fn worker_thread(hwnd_val: usize, preset_idx_for_thread: usize) {
 
     let mut clipboard_text = String::new();
     for _ in 0..10 {
-        if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed)
-        {
+        if TAG_ABORT_SIGNAL.load(Ordering::Relaxed) || !TEXT_BADGE_VISIBLE.load(Ordering::Relaxed) {
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(25));

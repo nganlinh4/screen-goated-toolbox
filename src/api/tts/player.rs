@@ -55,7 +55,10 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                     Ok(AudioEvent::Data(data)) => {
                         // Check interrupt before playing
                         if generation < manager.interrupt_generation.load(Ordering::SeqCst) {
-                            eprintln!("[TTS Player] Interrupted during playback (after {} chunks)", chunks_received);
+                            eprintln!(
+                                "[TTS Player] Interrupted during playback (after {} chunks)",
+                                chunks_received
+                            );
                             audio_player.stop();
                             clear_tts_state(hwnd);
                             break;
@@ -64,7 +67,9 @@ pub fn run_player_thread(manager: Arc<TtsManager>) {
                         chunks_received += 1;
                         if !loading_cleared {
                             loading_cleared = true;
-                            eprintln!("[TTS Player] First audio chunk received, clearing loading state");
+                            eprintln!(
+                                "[TTS Player] First audio chunk received, clearing loading state"
+                            );
                             clear_tts_loading_state(hwnd);
                         }
                         audio_player.play(&data, is_realtime);
@@ -187,10 +192,7 @@ impl AudioPlayer {
             );
 
             if let Err(e) = result {
-                eprintln!(
-                    "[TTS Player] ERROR: WASAPI stream creation failed: {}",
-                    e
-                );
+                eprintln!("[TTS Player] ERROR: WASAPI stream creation failed: {}", e);
             }
         });
 
@@ -297,7 +299,10 @@ impl AudioPlayer {
 
         client.Start()?;
 
-        eprintln!("[TTS WASAPI] Audio client started successfully (buffer size: {})", buffer_size);
+        eprintln!(
+            "[TTS WASAPI] Audio client started successfully (buffer size: {})",
+            buffer_size
+        );
 
         let channels = mix_format.nChannels as usize;
         let is_float = mix_format.wFormatTag == 3 // WAVE_FORMAT_IEEE_FLOAT
