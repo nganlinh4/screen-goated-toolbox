@@ -3,9 +3,11 @@ import { CursorVisibilitySegment, MousePosition, VideoSegment } from '@/types/vi
 // --- Configuration ---
 const IDLE_VELOCITY_THRESHOLD = 2;    // px/s — below this is considered idle
 const IDLE_DURATION_THRESHOLD = 1.5;  // seconds of low velocity to trigger idle
-const ANCHORED_RADIUS = 5;            // px — all positions within this radius = idle
-const ANCHORED_DURATION = 2.0;        // seconds to confirm anchored idle
+const ANCHORED_RADIUS = 18;           // px — sustained drift within this radius counts as anchored idle
+const ANCHORED_DURATION = 0.9;        // seconds to confirm anchored idle (faster for center-lock gameplay)
 const VELOCITY_WINDOW = 0.1;          // seconds — sliding window for velocity calc
+const ACTIVE_NET_DISTANCE_MIN = 3.5;  // px — min first→last displacement in the velocity window to count as active
+const ACTIVE_PATH_DISTANCE_MIN = 6;   // px — min accumulated path distance in window to count as active
 const MARGIN_BEFORE = 0.3;            // seconds — show cursor before movement starts
 const MARGIN_AFTER = 0.2;             // seconds — keep cursor visible after movement stops
 const MIN_GAP_TO_MERGE = 0.5;        // seconds — merge visible segments closer than this
@@ -75,7 +77,7 @@ export function generateCursorVisibility(
   }
 
   // Build activity timeline: for each position, determine if cursor is "active"
-  const activeFlags: { time: number; active: boolean }[] = [];
+  const activeFlags: { time: number; active: boolean; clicked: boolean }[] = [];
 
   for (let i = 0; i < positions.length; i++) {
     const t = positions[i].timestamp;
@@ -88,6 +90,10 @@ export function generateCursorVisibility(
     );
 
     let velocity = 0;
+    let netDistance = 0;
+    let pathDistance = 0;
+    const clicked = windowPositions.some(p => !!p.isClicked);
+
     if (windowPositions.length >= 2) {
       const first = windowPositions[0];
       const last = windowPositions[windowPositions.length - 1];
@@ -96,35 +102,78 @@ export function generateCursorVisibility(
         const dx = last.x - first.x;
         const dy = last.y - first.y;
         velocity = Math.sqrt(dx * dx + dy * dy) / dt;
+        netDistance = Math.sqrt(dx * dx + dy * dy);
+      }
+
+      for (let j = 1; j < windowPositions.length; j++) {
+        const dx = windowPositions[j].x - windowPositions[j - 1].x;
+        const dy = windowPositions[j].y - windowPositions[j - 1].y;
+        pathDistance += Math.sqrt(dx * dx + dy * dy);
       }
     }
 
-    activeFlags.push({ time: t, active: velocity >= IDLE_VELOCITY_THRESHOLD });
+    const meaningfulMovement =
+      velocity >= IDLE_VELOCITY_THRESHOLD &&
+      (netDistance >= ACTIVE_NET_DISTANCE_MIN || pathDistance >= ACTIVE_PATH_DISTANCE_MIN);
+
+    activeFlags.push({ time: t, active: clicked || meaningfulMovement, clicked });
   }
 
-  // Anchored detection: check if all positions within a window stay within a small radius
+  // Anchored detection: sustained micro-drift (common in locked-center gameplay) should be treated as idle.
+  const anchoredRanges: { start: number; end: number }[] = [];
   for (let i = 0; i < positions.length; i++) {
-    if (activeFlags[i].active) continue; // Already marked active
-
     const t = positions[i].timestamp;
-    const cx = positions[i].x;
-    const cy = positions[i].y;
 
     // Check if positions over ANCHORED_DURATION all stay within ANCHORED_RADIUS
     const windowPositions = positions.filter(
       p => p.timestamp >= t && p.timestamp <= t + ANCHORED_DURATION
     );
 
-    if (windowPositions.length >= 2) {
-      const allAnchored = windowPositions.every(p => {
-        const dx = p.x - cx;
-        const dy = p.y - cy;
-        return Math.sqrt(dx * dx + dy * dy) <= ANCHORED_RADIUS;
-      });
+    if (windowPositions.length < 2) continue;
 
-      if (allAnchored && (windowPositions[windowPositions.length - 1].timestamp - t) >= ANCHORED_DURATION * 0.8) {
-        // Mark the entire anchored window as idle (not active)
-        // Already idle by default, so nothing to do
+    const first = windowPositions[0];
+    const last = windowPositions[windowPositions.length - 1];
+    const windowDuration = last.timestamp - first.timestamp;
+    if (windowDuration < ANCHORED_DURATION * 0.8) continue;
+
+    const cx = windowPositions.reduce((sum, p) => sum + p.x, 0) / windowPositions.length;
+    const cy = windowPositions.reduce((sum, p) => sum + p.y, 0) / windowPositions.length;
+    const maxDist = windowPositions.reduce((max, p) => {
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      return Math.max(max, Math.sqrt(dx * dx + dy * dy));
+    }, 0);
+
+    if (maxDist <= ANCHORED_RADIUS) {
+      anchoredRanges.push({ start: first.timestamp, end: last.timestamp });
+    }
+  }
+
+  // Merge anchored ranges to make membership checks stable.
+  const mergedAnchored: { start: number; end: number }[] = [];
+  for (const range of anchoredRanges) {
+    if (
+      mergedAnchored.length > 0 &&
+      range.start <= mergedAnchored[mergedAnchored.length - 1].end + 0.05
+    ) {
+      mergedAnchored[mergedAnchored.length - 1].end = Math.max(
+        mergedAnchored[mergedAnchored.length - 1].end,
+        range.end
+      );
+    } else {
+      mergedAnchored.push({ ...range });
+    }
+  }
+
+  // Force anchored ranges to idle unless there is an actual click signal.
+  if (mergedAnchored.length > 0) {
+    for (const flag of activeFlags) {
+      if (flag.clicked) continue;
+      const inAnchoredRange = mergedAnchored.some(
+        range => flag.time >= range.start && flag.time <= range.end
+      );
+      if (inAnchoredRange) {
+        flag.active = false;
       }
     }
   }
