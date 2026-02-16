@@ -86,7 +86,8 @@ pub static mut MONITOR_Y: i32 = 0;
 
 const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
 const DEFAULT_TARGET_FPS: u32 = 60;
-const ENCODER_MAX_PENDING_FRAMES: usize = 3;
+const ENCODER_MAX_PENDING_FRAMES: usize = 12;
+const MAX_CATCHUP_SUBMITS_PER_CALLBACK: u32 = 6;
 const TIMESTAMP_RESYNC_THRESHOLD_100NS: i64 = 10_000_000;
 const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;
 
@@ -131,6 +132,16 @@ fn select_target_fps(monitor_hz: u32) -> u32 {
     }
 
     DEFAULT_TARGET_FPS
+}
+
+fn mf_hw_accel_enabled() -> bool {
+    match std::env::var("SCREEN_RECORD_MF_HW_ACCEL") {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => false,
+    }
 }
 
 fn get_cursor_type(is_clicked: bool) -> String {
@@ -420,11 +431,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             &video_path,
         )?;
         println!(
-            "Initializing VideoEncoder: {}x{} @ {}fps (monitor={}Hz), Codec: H264 (MediaFoundation HW), Bitrate: {} Mbps, Monitor Index: {}",
+            "Initializing VideoEncoder: {}x{} @ {}fps (monitor={}Hz), Codec: H264 (MediaFoundation {}), Bitrate: {} Mbps, Monitor Index: {}",
             width,
             height,
             target_fps,
             monitor_hz,
+            if mf_hw_accel_enabled() { "HW" } else { "SW" },
             final_bitrate / 1_000_000,
             monitor_index
         );
@@ -508,21 +520,52 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 // OBS-style catch-up: when we miss ticks, duplicate the latest frame
                 // for those ticks instead of jumping timeline forward.
                 let mut remaining = frames_to_submit.max(1);
+                let mut submitted = 0u32;
+                let mut used_blocking_fallback = false;
                 while remaining > 0 {
+                    if submitted >= MAX_CATCHUP_SUBMITS_PER_CALLBACK {
+                        // Avoid long duplicate bursts in one callback after a hitch.
+                        // Advance timeline for any unsent tail to keep A/V in sync.
+                        encoder.skip_video_frames(remaining);
+                        self.window_dropped = self.window_dropped.saturating_add(remaining);
+                        break;
+                    }
+
                     match encoder.send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES) {
                         Ok(true) => {
                             self.window_enqueued = self.window_enqueued.saturating_add(1);
+                            submitted = submitted.saturating_add(1);
                             remaining -= 1;
                         }
                         Ok(false) => {
-                            self.window_dropped =
-                                self.window_dropped.saturating_add(remaining);
+                            // On transient queue-full pressure, wait once for encoder
+                            // consumption before dropping the remainder.
+                            if !used_blocking_fallback {
+                                used_blocking_fallback = true;
+                                match encoder.send_frame(frame) {
+                                    Ok(()) => {
+                                        self.window_enqueued =
+                                            self.window_enqueued.saturating_add(1);
+                                        submitted = submitted.saturating_add(1);
+                                        remaining -= 1;
+                                        continue;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Encoder blocking fallback error: {}", e);
+                                    }
+                                }
+                            }
+
+                            // Sustained queue-full: preserve timeline for unsent tail
+                            // so video duration stays aligned with audio duration.
+                            encoder.skip_video_frames(remaining);
+                            self.window_dropped = self.window_dropped.saturating_add(remaining);
                             break;
                         }
                         Err(e) => {
                             eprintln!("Encoder error: {}", e);
-                            self.window_dropped =
-                                self.window_dropped.saturating_add(remaining);
+                            encoder.skip_video_frames(remaining);
+                            self.window_dropped = self.window_dropped.saturating_add(remaining);
                             break;
                         }
                     }

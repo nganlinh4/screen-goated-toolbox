@@ -511,6 +511,18 @@ fn video_frame_interval_100ns(frame_rate: u32) -> i64 {
     (10_000_000 + (fps / 2)) / fps
 }
 
+#[inline]
+fn mf_hw_accel_enabled() -> bool {
+    match std::env::var("SCREEN_RECORD_MF_HW_ACCEL") {
+        Ok(value) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            matches!(normalized.as_str(), "1" | "true" | "yes" | "on")
+        }
+        // Default to software-transcode mode for stability under heavy GPU contention.
+        Err(_) => false,
+    }
+}
+
 impl VideoEncoder {
     /// Creates a new `VideoEncoder` instance with the specified parameters.
     ///
@@ -699,7 +711,7 @@ impl VideoEncoder {
         }))?;
 
         let media_transcoder = MediaTranscoder::new()?;
-        media_transcoder.SetHardwareAccelerationEnabled(true)?;
+        media_transcoder.SetHardwareAccelerationEnabled(mf_hw_accel_enabled())?;
 
         File::create(path)?;
         let path = fs::canonicalize(path).unwrap().to_string_lossy()[4..].to_string();
@@ -944,7 +956,7 @@ impl VideoEncoder {
         }))?;
 
         let media_transcoder = MediaTranscoder::new()?;
-        media_transcoder.SetHardwareAccelerationEnabled(true)?;
+        media_transcoder.SetHardwareAccelerationEnabled(mf_hw_accel_enabled())?;
 
         let transcode = media_transcoder
             .PrepareMediaStreamSourceTranscodeAsync(
