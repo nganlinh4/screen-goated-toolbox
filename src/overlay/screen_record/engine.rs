@@ -85,8 +85,7 @@ pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
 
 const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
-const TARGET_FPS: u32 = 60;
-const FRAME_INTERVAL_100NS: i64 = 10_000_000 / TARGET_FPS as i64;
+const DEFAULT_TARGET_FPS: u32 = 60;
 const ENCODER_MAX_PENDING_FRAMES: usize = 3;
 const TIMESTAMP_RESYNC_THRESHOLD_100NS: i64 = 10_000_000;
 const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;
@@ -108,6 +107,8 @@ struct SystemCursorHandles {
 
 pub struct CaptureHandler {
     encoder: Option<VideoEncoder>,
+    target_fps: u32,
+    frame_interval_100ns: i64,
     start: Instant,
     last_mouse_capture: Instant,
     next_submit_timestamp_100ns: Option<i64>,
@@ -118,6 +119,18 @@ pub struct CaptureHandler {
     window_dropped: u32,
     window_paced_skips: u32,
     stats_window_start: Instant,
+}
+
+fn select_target_fps(monitor_hz: u32) -> u32 {
+    // Prefer exact monitor divisors in the 50-60fps export band.
+    // Example: 165Hz -> 55fps (exact), which removes recurring pacing drift.
+    for candidate in (50..=60).rev() {
+        if monitor_hz % candidate == 0 {
+            return candidate;
+        }
+    }
+
+    DEFAULT_TARGET_FPS
 }
 
 fn get_cursor_type(is_clicked: bool) -> String {
@@ -381,32 +394,37 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
         *AUDIO_PATH.lock().unwrap() = Some(audio_path.to_string_lossy().to_string());
 
-        // DYNAMIC BITRATE CALCULATION
-        // Old Value: 15_000_000 (15 Mbps) -> Resulted in blur on High-DPI/Text
-        // New Value: Based on resolution. Target 0.35 bits per pixel for high quality capture.
-        // 1920x1080 @ 60fps = ~43 Mbps
-        // 2560x1440 @ 60fps = ~79 Mbps
-        // 3840x2160 @ 60fps = ~179 Mbps
-        let pixel_count = width as u64 * height as u64;
-        let target_bitrate = (pixel_count as f64 * 60.0 * 0.35) as u32;
+        let monitor_hz = monitor.refresh_rate().unwrap_or(DEFAULT_TARGET_FPS).max(1);
+        let target_fps = select_target_fps(monitor_hz);
+        let frame_interval_100ns = 10_000_000 / target_fps as i64;
 
-        // Cap bitrate at 150Mbps to avoid massive files for 4K while maintaining very high quality
-        let final_bitrate = target_bitrate.clamp(10_000_000, 150_000_000);
+        // DYNAMIC BITRATE CALCULATION
+        // Prior 0.35 bpp target could trigger intermittent MediaFoundation HW encoder
+        // backpressure during heavy gameplay. Use a more stable 0.22 bpp target.
+        // 1920x1080 @ 60fps = ~27 Mbps
+        // 2560x1440 @ 60fps = ~48 Mbps
+        // 3840x2160 @ 60fps = ~109 Mbps
+        let pixel_count = width as u64 * height as u64;
+        let target_bitrate = (pixel_count as f64 * target_fps as f64 * 0.22) as u32;
+
+        // Keep a quality floor while capping peak encoder pressure.
+        let final_bitrate = target_bitrate.clamp(8_000_000, 80_000_000);
 
         let encoder = VideoEncoder::new(
             VideoSettingsBuilder::new(width, height)
                 .sub_type(VideoSettingsSubType::H264)
                 .bitrate(final_bitrate)
-                .frame_rate(TARGET_FPS),
+                .frame_rate(target_fps),
             AudioSettingsBuilder::new().disabled(true),
             ContainerSettingsBuilder::new(),
             &video_path,
         )?;
         println!(
-            "Initializing VideoEncoder: {}x{} @ {}fps, Codec: H264 (MediaFoundation HW), Bitrate: {} Mbps, Monitor Index: {}",
+            "Initializing VideoEncoder: {}x{} @ {}fps (monitor={}Hz), Codec: H264 (MediaFoundation HW), Bitrate: {} Mbps, Monitor Index: {}",
             width,
             height,
-            TARGET_FPS,
+            target_fps,
+            monitor_hz,
             final_bitrate / 1_000_000,
             monitor_index
         );
@@ -424,6 +442,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         Ok(Self {
             encoder: Some(encoder),
+            target_fps,
+            frame_interval_100ns,
             start: Instant::now(),
             last_mouse_capture: Instant::now(),
             next_submit_timestamp_100ns: None,
@@ -450,6 +470,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let mut dropped_total = 0usize;
         let now_100ns = (self.start.elapsed().as_nanos() / 100) as i64;
         let mut should_submit = false;
+        let mut frames_to_submit = 0u32;
 
         match self.next_submit_timestamp_100ns {
             Some(mut due_100ns) => {
@@ -458,13 +479,15 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 }
 
                 if now_100ns >= due_100ns {
-                    let due_ticks = ((now_100ns.saturating_sub(due_100ns)) / FRAME_INTERVAL_100NS)
-                        .saturating_add(1);
+                    let due_ticks =
+                        ((now_100ns.saturating_sub(due_100ns)) / self.frame_interval_100ns)
+                            .saturating_add(1);
                     let missed_ticks = due_ticks.saturating_sub(1) as u32;
+                    frames_to_submit = due_ticks as u32;
                     self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);
                     self.next_submit_timestamp_100ns = Some(
                         due_100ns
-                            .saturating_add(FRAME_INTERVAL_100NS.saturating_mul(due_ticks)),
+                            .saturating_add(self.frame_interval_100ns.saturating_mul(due_ticks)),
                     );
                     should_submit = true;
                 } else {
@@ -473,22 +496,35 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 }
             }
             None => {
-                self.next_submit_timestamp_100ns = Some(now_100ns.saturating_add(FRAME_INTERVAL_100NS));
+                self.next_submit_timestamp_100ns =
+                    Some(now_100ns.saturating_add(self.frame_interval_100ns));
+                frames_to_submit = 1;
                 should_submit = true;
             }
         }
 
         if should_submit {
             if let Some(encoder) = self.encoder.as_mut() {
-                match encoder.send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES) {
-                    Ok(true) => {
-                        self.window_enqueued = self.window_enqueued.saturating_add(1);
-                    }
-                    Ok(false) => {
-                        self.window_dropped = self.window_dropped.saturating_add(1);
-                    }
-                    Err(e) => {
-                        eprintln!("Encoder error: {}", e);
+                // OBS-style catch-up: when we miss ticks, duplicate the latest frame
+                // for those ticks instead of jumping timeline forward.
+                let mut remaining = frames_to_submit.max(1);
+                while remaining > 0 {
+                    match encoder.send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES) {
+                        Ok(true) => {
+                            self.window_enqueued = self.window_enqueued.saturating_add(1);
+                            remaining -= 1;
+                        }
+                        Ok(false) => {
+                            self.window_dropped =
+                                self.window_dropped.saturating_add(remaining);
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("Encoder error: {}", e);
+                            self.window_dropped =
+                                self.window_dropped.saturating_add(remaining);
+                            break;
+                        }
                     }
                 }
                 queue_depth = encoder.pending_video_frames();
@@ -518,10 +554,11 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             self.last_pending_frames = pending_now;
             let encoded_fps = encoded_window as f64 / elapsed.max(0.001);
             println!(
-                "[CaptureStats] backend=monitor capture_fps={:.1} queue_fps={:.1} encode_fps={:.1} paced_skips={} queue_depth={} dropped_window={} dropped_total={}",
+                "[CaptureStats] backend=monitor capture_fps={:.1} queue_fps={:.1} encode_fps={:.1} target_fps={} paced_skips={} queue_depth={} dropped_window={} dropped_total={}",
                 capture_fps,
                 queued_fps,
                 encoded_fps,
+                self.target_fps,
                 self.window_paced_skips,
                 queue_depth,
                 self.window_dropped,

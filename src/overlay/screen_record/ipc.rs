@@ -188,7 +188,9 @@ pub fn handle_ipc_command(
                 CursorCaptureSettings::WithoutCursor,
                 DrawBorderSettings::Default,
                 SecondaryWindowSettings::Include,
-                MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_millis(0)),
+                // Keep capture callbacks near output cadence to avoid callback storms
+                // (165Hz+ arrivals for a 60fps output target) that add scheduler pressure.
+                MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros(16_000)),
                 DirtyRegionSettings::Default,
                 ColorFormat::Bgra8,
                 monitor_id.to_string(),
