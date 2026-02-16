@@ -1094,6 +1094,21 @@ impl VideoEncoder {
         self.dropped_video_frames.load(Ordering::Relaxed)
     }
 
+    /// Advances the internal video timeline without queueing a frame.
+    ///
+    /// This is used when the caller intentionally skips one or more output ticks
+    /// (for example, due to backpressure) and still needs monotonic CFR timing.
+    #[inline]
+    pub fn skip_video_frames(&mut self, count: u32) {
+        if count == 0 || self.is_video_disabled {
+            return;
+        }
+
+        self.next_video_timestamp_100ns = self.next_video_timestamp_100ns.saturating_add(
+            self.video_frame_interval_100ns.saturating_mul(count as i64),
+        );
+    }
+
     /// Sends a video frame with audio to the video encoder for encoding.
     ///
     /// # Arguments
