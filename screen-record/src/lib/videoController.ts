@@ -315,9 +315,23 @@ export class VideoController {
   private handleError = (e: Event) => {
     const video = e.target as HTMLVideoElement;
     const mediaError = video.error;
+    const srcAttr = video.getAttribute('src');
+    const isIntentionalResetError =
+      mediaError?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED &&
+      (!srcAttr || srcAttr.length === 0) &&
+      this.isChangingSource;
+    if (isIntentionalResetError) {
+      return;
+    }
     console.error('Video error:', mediaError?.message || 'Unknown error', `(code: ${mediaError?.code})`);
     this.options.onError?.(mediaError?.message || 'Unknown video error');
   };
+
+  private clearMediaElementSource(element: HTMLMediaElement) {
+    element.pause();
+    element.removeAttribute('src');
+    element.load();
+  }
 
   private setPlaying(playing: boolean) {
     this.state.isPlaying = playing;
@@ -538,10 +552,7 @@ export class VideoController {
     try {
       // Clear previous audio
       if (this.audio) {
-        this.audio.pause();
-        this.audio.src = "";
-        this.audio.load();
-        this.audio.removeAttribute('src');
+        this.clearMediaElementSource(this.audio);
       }
 
       let blob: Blob;
@@ -636,9 +647,7 @@ export class VideoController {
     this.setPlaying(false);
 
     // Reset video element
-    this.video.pause();
-    this.video.src = "";
-    this.video.removeAttribute('src');
+    this.clearMediaElementSource(this.video);
 
     return new Promise<void>((resolve) => {
       const handleCanPlayThrough = () => {

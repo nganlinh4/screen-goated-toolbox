@@ -55,14 +55,28 @@ export function getCanvasBaseDimensions(
 
 export class VideoExporter {
   private isExporting = false;
+  private static readonly MAX_INLINE_MEDIA_BYTES = 128 * 1024 * 1024;
 
-  async exportAndDownload(options: ExportOptions & { audioFilePath: string; audio?: HTMLAudioElement | null }) {
+  async exportAndDownload(options: ExportOptions & {
+    audioFilePath: string;
+    videoFilePath?: string;
+    audio?: HTMLAudioElement | null;
+  }) {
     if (this.isExporting) {
       throw new Error('Export already in progress');
     }
     this.isExporting = true;
 
-    const { video, segment, backgroundConfig, mousePositions, speed = 1, audioFilePath, audio } = options;
+    const {
+      video,
+      segment,
+      backgroundConfig,
+      mousePositions,
+      speed = 1,
+      audioFilePath,
+      videoFilePath,
+      audio
+    } = options;
     const normalizedSegment = segment && video
       ? normalizeSegmentTrimData(segment, video.duration || segment.trimEnd)
       : segment ?? null;
@@ -95,14 +109,21 @@ export class VideoExporter {
     const bakedTextOverlays = normalizedSegment ? videoRenderer.bakeTextOverlays(normalizedSegment, width, height) : [];
     console.log(`[Exporter] Baked ${bakedPath.length} camera, ${bakedCursorPath.length} cursor, ${bakedTextOverlays.length} text`);
 
-    // Convert video/audio blobs to arrays for Rust
+    // Convert media blobs to arrays for Rust only when we do not have a native source path.
+    // Large recordings should flow by file path to avoid huge JS allocations.
     let videoDataArray: number[] | null = null;
     let audioDataArray: number[] | null = null;
+    const sourceVideoPath = (videoFilePath || '').trim();
 
-    if (video && video.src && video.src.startsWith('blob:')) {
+    if (!sourceVideoPath && video && video.src && video.src.startsWith('blob:')) {
       try {
         const resp = await fetch(video.src);
         const blob = await resp.blob();
+        if (blob.size > VideoExporter.MAX_INLINE_MEDIA_BYTES) {
+          throw new Error(
+            `Video blob too large for inline transfer (${Math.round(blob.size / (1024 * 1024))} MB).`
+          );
+        }
         const buffer = await blob.arrayBuffer();
         videoDataArray = Array.from(new Uint8Array(buffer));
       } catch (e) {
@@ -134,6 +155,7 @@ export class VideoExporter {
       height,
       sourceWidth: vidW,
       sourceHeight: vidH,
+      sourceVideoPath,
       framerate: fps,
       audioPath: audioFilePath,
       outputDir: options.outputDir || '',
