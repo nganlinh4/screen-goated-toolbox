@@ -47,6 +47,28 @@ export function mergePointerSegments(segments: CursorVisibilitySegment[]): Curso
 }
 
 /**
+ * Clamp visibility segments to [0, duration], drop invalid ranges, and merge overlaps.
+ * Use this for stale project data and post-delay/drag writes.
+ */
+export function clampVisibilitySegmentsToDuration(
+  segments: CursorVisibilitySegment[] | undefined,
+  duration: number
+): CursorVisibilitySegment[] {
+  const safeDuration = Math.max(0, duration);
+  if (!segments?.length || safeDuration <= 0) return [];
+
+  const clipped = segments
+    .map((segment) => ({
+      id: segment.id,
+      startTime: Math.max(0, Math.min(safeDuration, segment.startTime)),
+      endTime: Math.max(0, Math.min(safeDuration, segment.endTime)),
+    }))
+    .filter((segment) => segment.endTime - segment.startTime > 0.001);
+
+  return mergePointerSegments(clipped);
+}
+
+/**
  * Analyze mouse positions to find idle periods and generate visibility segments.
  * Returns segments where the cursor should be VISIBLE.
  */

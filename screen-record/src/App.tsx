@@ -22,6 +22,7 @@ import {
 } from '@/components/Dialogs';
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
+import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
 import {
   ensureKeystrokeVisibilitySegments,
   getKeystrokeVisibilitySegmentsForMode,
@@ -288,11 +289,14 @@ function App() {
   }, []);
 
   const getKeystrokeTimelineDuration = useCallback((s: VideoSegment) => {
-    return Math.max(
+    const segmentDuration = Math.max(
       s.trimEnd,
       ...(s.trimSegments || []).map((trimSegment) => trimSegment.endTime),
       duration
     );
+    // Timeline tracks are rendered against `duration`; visibility segments must stay inside it.
+    if (duration > 0) return duration;
+    return segmentDuration;
   }, [duration]);
 
   const handleAddKeystrokeSegment = useCallback((atTime?: number) => {
@@ -371,7 +375,16 @@ function App() {
           };
         })
         .filter((range): range is NonNullable<typeof range> => Boolean(range));
-      nextSegment = withKeystrokeVisibilitySegmentsForMode(nextSegment, shifted);
+      nextSegment = withKeystrokeVisibilitySegmentsForMode(
+        nextSegment,
+        clampVisibilitySegmentsToDuration(shifted, duration)
+      );
+    } else if (mode === 'keyboard' || mode === 'keyboardMouse') {
+      const duration = getKeystrokeTimelineDuration(segment);
+      nextSegment = withKeystrokeVisibilitySegmentsForMode(
+        nextSegment,
+        clampVisibilitySegmentsToDuration(getKeystrokeVisibilitySegmentsForMode(segment), duration)
+      );
     }
 
     setSegment(nextSegment);

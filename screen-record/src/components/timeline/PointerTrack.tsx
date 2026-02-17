@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { VideoSegment } from '@/types/video';
+import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
 
 interface PointerTrackProps {
   segment: VideoSegment;
@@ -19,12 +20,13 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
   onPointerHover,
 }) => {
   const [hoverX, setHoverX] = useState<number | null>(null);
-  const segments = segment.cursorVisibilitySegments ?? [];
+  const safeDuration = Math.max(duration, 0.001);
+  const segments = clampVisibilitySegmentsToDuration(segment.cursorVisibilitySegments, safeDuration);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const time = (x / rect.width) * duration;
+    const time = (x / rect.width) * safeDuration;
     const isOverSegment = segments.some(
       seg => time >= seg.startTime && time <= seg.endTime
     );
@@ -45,7 +47,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
-            const clickTime = (clickX / rect.width) * duration;
+            const clickTime = (clickX / rect.width) * safeDuration;
             onHandleDragStart(seg.id, 'body', clickTime - seg.startTime);
           }}
           onClick={(e) => {
@@ -59,8 +61,8 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
           onMouseLeave={() => onPointerHover?.(null)}
           className="pointer-segment absolute h-full rounded bg-amber-500/20 hover:bg-amber-500/30 cursor-move group"
           style={{
-            left: `${(seg.startTime / duration) * 100}%`,
-            width: `${((seg.endTime - seg.startTime) / duration) * 100}%`,
+            left: `${(seg.startTime / safeDuration) * 100}%`,
+            width: `${((seg.endTime - seg.startTime) / safeDuration) * 100}%`,
           }}
         >
           <div className="pointer-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1">
@@ -98,7 +100,7 @@ export const PointerTrack: React.FC<PointerTrackProps> = ({
           onMouseDown={(e) => {
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
-            const time = (hoverX / rect.width) * duration;
+            const time = (hoverX / rect.width) * safeDuration;
             onAddPointerSegment(time);
             setHoverX(null);
           }}
