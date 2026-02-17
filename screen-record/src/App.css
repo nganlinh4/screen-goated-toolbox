@@ -243,3 +243,28 @@ textarea.subtle-resize {
 textarea.subtle-resize::-webkit-resizer {
     background-color: transparent;
 }
+
+.playback-keystroke-delay-popover {
+    border-color: color-mix(in srgb, var(--overlay-divider) 78%, white 10%);
+    background:
+        linear-gradient(165deg,
+            color-mix(in srgb, var(--overlay-panel-bg) 84%, white 10%) 0%,
+            color-mix(in srgb, var(--overlay-panel-bg) 92%, black 10%) 100%);
+    box-shadow:
+        0 14px 34px rgba(0, 0, 0, 0.34),
+        inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(16px) saturate(1.12);
+}
+
+.playback-keystroke-delay-popover::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.08) 0%,
+        rgba(255, 255, 255, 0) 56%
+    );
+}

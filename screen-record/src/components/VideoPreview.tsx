@@ -158,7 +158,7 @@ export function PlaybackControls({
       {keystrokeToggle && (
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
-          <div className="playback-keystroke-toggle-slot flex items-center">
+          <div className="playback-keystroke-toggle-slot relative group/playback-keystroke flex items-center">
             {keystrokeToggle}
           </div>
         </>

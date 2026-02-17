@@ -16,8 +16,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
     UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL,
-    WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEWHEEL,
-    WM_RBUTTONDOWN, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_QUIT,
+    WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+    WM_MBUTTONUP, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_QUIT,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -32,16 +33,16 @@ pub struct InputModifiers {
 #[serde(rename_all = "camelCase")]
 pub struct RawInputEvent {
     #[serde(rename = "type")]
-    pub event_type: String,
+    pub event_type: &'static str,
     pub timestamp: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vk: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
+    pub key: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub btn: Option<String>,
+    pub btn: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub direction: Option<String>,
+    pub direction: Option<&'static str>,
     pub modifiers: InputModifiers,
 }
 
@@ -59,6 +60,9 @@ lazy_static::lazy_static! {
     static ref CAPTURE_STATE: Mutex<CaptureState> = Mutex::new(CaptureState::default());
 }
 
+const INITIAL_CAPTURE_EVENT_CAPACITY: usize = 8_192;
+const MAX_CAPTURE_EVENTS: usize = 250_000;
+
 pub fn start_capture() -> anyhow::Result<()> {
     {
         let mut state = CAPTURE_STATE.lock();
@@ -67,7 +71,7 @@ pub fn start_capture() -> anyhow::Result<()> {
         }
         state.running = true;
         state.start_time = Some(Instant::now());
-        state.events.clear();
+        state.events = Vec::with_capacity(INITIAL_CAPTURE_EVENT_CAPACITY);
         state.known_key_state.clear();
         state.hook_thread_id = 0;
         state.hook_thread = None;
@@ -186,6 +190,19 @@ pub fn stop_capture_and_drain() -> Vec<RawInputEvent> {
     std::mem::take(&mut state.events)
 }
 
+fn capture_timestamp(state: &CaptureState) -> f64 {
+    state
+        .start_time
+        .map(|t| t.elapsed().as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+fn push_event(state: &mut CaptureState, event: RawInputEvent) {
+    if state.events.len() < MAX_CAPTURE_EVENTS {
+        state.events.push(event);
+    }
+}
+
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code != HC_ACTION as i32 {
         return CallNextHookEx(None, code, wparam, lparam);
@@ -213,24 +230,39 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
             }
             state.known_key_state.insert(vk);
 
-            let timestamp = state
-                .start_time
-                .map(|t| t.elapsed().as_secs_f64())
-                .unwrap_or(0.0);
-
-            state.events.push(RawInputEvent {
-                event_type: "keyboard".to_string(),
-                timestamp,
-                vk: Some(vk),
-                key: Some(vk_to_name(vk)),
-                btn: None,
-                direction: None,
-                modifiers: get_modifiers(),
-            });
+            let timestamp = capture_timestamp(&state);
+            push_event(
+                &mut state,
+                RawInputEvent {
+                    event_type: "keyboard",
+                    timestamp,
+                    vk: Some(vk),
+                    key: vk_to_name(vk),
+                    btn: None,
+                    direction: Some("down"),
+                    modifiers: get_modifiers(),
+                },
+            );
         }
         WM_KEYUP | WM_SYSKEYUP => {
             let mut state = CAPTURE_STATE.lock();
             state.known_key_state.remove(&vk);
+            if !state.running {
+                return CallNextHookEx(None, code, wparam, lparam);
+            }
+            let timestamp = capture_timestamp(&state);
+            push_event(
+                &mut state,
+                RawInputEvent {
+                    event_type: "keyboard",
+                    timestamp,
+                    vk: Some(vk),
+                    key: vk_to_name(vk),
+                    btn: None,
+                    direction: Some("up"),
+                    modifiers: get_modifiers(),
+                },
+            );
         }
         _ => {}
     }
@@ -248,54 +280,57 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
     let modifiers = get_modifiers();
 
     match message {
-        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN => {
+        WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONUP
+        | WM_MBUTTONUP => {
             let mut state = CAPTURE_STATE.lock();
             if !state.running {
                 return CallNextHookEx(None, code, wparam, lparam);
             }
-            let timestamp = state
-                .start_time
-                .map(|t| t.elapsed().as_secs_f64())
-                .unwrap_or(0.0);
-
-            state.events.push(RawInputEvent {
-                event_type: "mousedown".to_string(),
-                timestamp,
-                vk: None,
-                key: None,
-                btn: Some(mouse_button_name(message)),
-                direction: None,
-                modifiers,
-            });
+            let timestamp = capture_timestamp(&state);
+            let direction = match message {
+                WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => "up",
+                _ => "down",
+            };
+            push_event(
+                &mut state,
+                RawInputEvent {
+                    event_type: "mousedown",
+                    timestamp,
+                    vk: None,
+                    key: None,
+                    btn: Some(mouse_button_name(message)),
+                    direction: Some(direction),
+                    modifiers,
+                },
+            );
         }
         WM_MOUSEWHEEL => {
             let delta = ((mouse.mouseData >> 16) & 0xFFFF) as u16 as i16;
             let direction = if delta > 0 {
-                "up".to_string()
+                "up"
             } else if delta < 0 {
-                "down".to_string()
+                "down"
             } else {
-                "none".to_string()
+                "none"
             };
 
             let mut state = CAPTURE_STATE.lock();
             if !state.running {
                 return CallNextHookEx(None, code, wparam, lparam);
             }
-            let timestamp = state
-                .start_time
-                .map(|t| t.elapsed().as_secs_f64())
-                .unwrap_or(0.0);
-
-            state.events.push(RawInputEvent {
-                event_type: "wheel".to_string(),
-                timestamp,
-                vk: None,
-                key: None,
-                btn: None,
-                direction: Some(direction),
-                modifiers,
-            });
+            let timestamp = capture_timestamp(&state);
+            push_event(
+                &mut state,
+                RawInputEvent {
+                    event_type: "wheel",
+                    timestamp,
+                    vk: None,
+                    key: None,
+                    btn: None,
+                    direction: Some(direction),
+                    modifiers,
+                },
+            );
         }
         _ => {}
     }
@@ -303,12 +338,12 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
     CallNextHookEx(None, code, wparam, lparam)
 }
 
-fn mouse_button_name(message: u32) -> String {
+fn mouse_button_name(message: u32) -> &'static str {
     match message {
-        WM_LBUTTONDOWN => "left".to_string(),
-        WM_RBUTTONDOWN => "right".to_string(),
-        WM_MBUTTONDOWN => "middle".to_string(),
-        _ => String::new(),
+        WM_LBUTTONDOWN | WM_LBUTTONUP => "left",
+        WM_RBUTTONDOWN | WM_RBUTTONUP => "right",
+        WM_MBUTTONDOWN | WM_MBUTTONUP => "middle",
+        _ => "",
     }
 }
 
@@ -325,53 +360,107 @@ fn get_modifiers() -> InputModifiers {
     }
 }
 
-fn vk_to_name(vk: u32) -> String {
+fn vk_to_name(vk: u32) -> Option<&'static str> {
     match vk {
-        8 => "Backspace".to_string(),
-        9 => "Tab".to_string(),
-        13 => "Enter".to_string(),
-        20 => "CapsLock".to_string(),
-        27 => "Esc".to_string(),
-        32 => "Space".to_string(),
-        33 => "PageUp".to_string(),
-        34 => "PageDown".to_string(),
-        35 => "End".to_string(),
-        36 => "Home".to_string(),
-        37 => "Left".to_string(),
-        38 => "Up".to_string(),
-        39 => "Right".to_string(),
-        40 => "Down".to_string(),
-        44 => "PrintScreen".to_string(),
-        45 => "Insert".to_string(),
-        46 => "Delete".to_string(),
-        91 | 92 => "Win".to_string(),
-        93 => "Menu".to_string(),
-        144 => "NumLock".to_string(),
-        145 => "ScrollLock".to_string(),
-        19 => "Pause".to_string(),
-        160 | 161 => "Shift".to_string(),
-        162 | 163 => "Ctrl".to_string(),
-        164 | 165 => "Alt".to_string(),
-        48..=57 => char::from_u32(vk).unwrap_or('?').to_string(),
-        65..=90 => char::from_u32(vk).unwrap_or('?').to_string(),
-        96..=105 => format!("Num{}", vk - 96),
-        106 => "*".to_string(),
-        107 => "+".to_string(),
-        109 => "-".to_string(),
-        110 => ".".to_string(),
-        111 => "/".to_string(),
-        112..=123 => format!("F{}", vk - 111),
-        186 => ";".to_string(),
-        187 => "=".to_string(),
-        188 => ",".to_string(),
-        189 => "-".to_string(),
-        190 => ".".to_string(),
-        191 => "/".to_string(),
-        192 => "`".to_string(),
-        219 => "[".to_string(),
-        220 => "\\".to_string(),
-        221 => "]".to_string(),
-        222 => "'".to_string(),
-        _ => format!("VK_{}", vk),
+        8 => Some("Backspace"),
+        9 => Some("Tab"),
+        13 => Some("Enter"),
+        20 => Some("CapsLock"),
+        27 => Some("Esc"),
+        32 => Some("Space"),
+        33 => Some("PageUp"),
+        34 => Some("PageDown"),
+        35 => Some("End"),
+        36 => Some("Home"),
+        37 => Some("Left"),
+        38 => Some("Up"),
+        39 => Some("Right"),
+        40 => Some("Down"),
+        44 => Some("PrintScreen"),
+        45 => Some("Insert"),
+        46 => Some("Delete"),
+        91 | 92 => Some("Win"),
+        93 => Some("Menu"),
+        144 => Some("NumLock"),
+        145 => Some("ScrollLock"),
+        19 => Some("Pause"),
+        160 | 161 => Some("Shift"),
+        162 | 163 => Some("Ctrl"),
+        164 | 165 => Some("Alt"),
+        48 => Some("0"),
+        49 => Some("1"),
+        50 => Some("2"),
+        51 => Some("3"),
+        52 => Some("4"),
+        53 => Some("5"),
+        54 => Some("6"),
+        55 => Some("7"),
+        56 => Some("8"),
+        57 => Some("9"),
+        65 => Some("A"),
+        66 => Some("B"),
+        67 => Some("C"),
+        68 => Some("D"),
+        69 => Some("E"),
+        70 => Some("F"),
+        71 => Some("G"),
+        72 => Some("H"),
+        73 => Some("I"),
+        74 => Some("J"),
+        75 => Some("K"),
+        76 => Some("L"),
+        77 => Some("M"),
+        78 => Some("N"),
+        79 => Some("O"),
+        80 => Some("P"),
+        81 => Some("Q"),
+        82 => Some("R"),
+        83 => Some("S"),
+        84 => Some("T"),
+        85 => Some("U"),
+        86 => Some("V"),
+        87 => Some("W"),
+        88 => Some("X"),
+        89 => Some("Y"),
+        90 => Some("Z"),
+        96 => Some("Num0"),
+        97 => Some("Num1"),
+        98 => Some("Num2"),
+        99 => Some("Num3"),
+        100 => Some("Num4"),
+        101 => Some("Num5"),
+        102 => Some("Num6"),
+        103 => Some("Num7"),
+        104 => Some("Num8"),
+        105 => Some("Num9"),
+        106 => Some("*"),
+        107 => Some("+"),
+        109 => Some("-"),
+        110 => Some("."),
+        111 => Some("/"),
+        112 => Some("F1"),
+        113 => Some("F2"),
+        114 => Some("F3"),
+        115 => Some("F4"),
+        116 => Some("F5"),
+        117 => Some("F6"),
+        118 => Some("F7"),
+        119 => Some("F8"),
+        120 => Some("F9"),
+        121 => Some("F10"),
+        122 => Some("F11"),
+        123 => Some("F12"),
+        186 => Some(";"),
+        187 => Some("="),
+        188 => Some(","),
+        189 => Some("-"),
+        190 => Some("."),
+        191 => Some("/"),
+        192 => Some("`"),
+        219 => Some("["),
+        220 => Some("\\"),
+        221 => Some("]"),
+        222 => Some("'"),
+        _ => None,
     }
 }

@@ -74,6 +74,7 @@ export interface KeystrokeEvent {
   endTime: number;
   label: string;
   count: number;
+  isHold?: boolean;
   modifiers: InputModifiers;
   key?: string;
   btn?: 'left' | 'right' | 'middle';
@@ -103,6 +104,7 @@ export interface VideoSegment {
   textSegments: TextSegment[];
   cursorVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeMode?: KeystrokeMode;
+  keystrokeDelaySec?: number;
   keystrokeEvents?: KeystrokeEvent[];
   keyboardVisibilitySegments?: CursorVisibilitySegment[];
   keyboardMouseVisibilitySegments?: CursorVisibilitySegment[];
@@ -191,7 +193,7 @@ export interface BakedKeystrokeOverlay {
   y: number;
   width: number;
   height: number;
-  data: number[];
+  data: number[] | string;
 }
 
 export interface ExportOptions {
