@@ -4541,6 +4541,9 @@ export class VideoRenderer {
     const safeDuration = Math.max(0, duration);
     const cache = this.rebuildKeystrokeRenderCache(segment, safeDuration);
     if (!cache) return null;
+    const visibilitySegments = cache.visibilityRef ?? [];
+    if (!visibilitySegments.length) return null;
+    if (!this.isTimeInsideSegments(currentTime, visibilitySegments)) return null;
     const overlayTransform = this.getKeystrokeOverlayTransform(segment, canvas.width, canvas.height);
     const delaySec = this.getKeystrokeDelaySec(segment);
     const keyboard = this.findActiveKeystrokeEventsForKind(cache, currentTime, delaySec, 'keyboard');

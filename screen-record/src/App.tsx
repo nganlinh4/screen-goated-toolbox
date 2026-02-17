@@ -131,6 +131,9 @@ function App() {
     startRadius: number;
   } | null>(null);
   const [isKeystrokeOverlaySelected, setIsKeystrokeOverlaySelected] = useState(false);
+  const [isPreviewDragging, setIsPreviewDragging] = useState(false);
+  const [isKeystrokeResizeHandleHover, setIsKeystrokeResizeHandleHover] = useState(false);
+  const [isKeystrokeResizeDragging, setIsKeystrokeResizeDragging] = useState(false);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback((event: string, data?: Record<string, unknown>) => {
@@ -259,6 +262,7 @@ function App() {
     const { positionX: startPosX, positionY: startPosY, zoomFactor: z } = lastState;
     const rect = e.currentTarget.getBoundingClientRect();
     beginBatch();
+    setIsPreviewDragging(true);
 
     const handleMouseMove = (me: MouseEvent) => {
       const dx = me.clientX - startX, dy = me.clientY - startY;
@@ -273,11 +277,19 @@ function App() {
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      setIsPreviewDragging(false);
       commitBatch();
     };
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   }, [currentVideo, isCropping, activePanel, isPlaying, togglePlayPause, handleAddKeyframe, beginBatch, commitBatch]);
+
+  const previewCursorClass = useMemo(() => {
+    if (isKeystrokeResizeDragging || isKeystrokeResizeHandleHover) return 'cursor-nwse-resize';
+    if (isPreviewDragging) return 'cursor-grabbing';
+    if (currentVideo && !isCropping) return 'cursor-grab';
+    return 'cursor-default';
+  }, [isKeystrokeResizeDragging, isKeystrokeResizeHandleHover, isPreviewDragging, currentVideo, isCropping]);
 
   const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -758,6 +770,9 @@ function App() {
             };
             isDraggingKeystrokeOverlayRef.current = !inHandle;
             isResizingKeystrokeOverlayRef.current = inHandle;
+            setIsPreviewDragging(true);
+            setIsKeystrokeResizeDragging(inHandle);
+            setIsKeystrokeResizeHandleHover(inHandle);
             setIsKeystrokeOverlaySelected(true);
             beginBatch();
             e.stopPropagation();
@@ -772,16 +787,44 @@ function App() {
         e.preventDefault();
         setEditingTextId(hitId);
         setActivePanel('text');
+        setIsPreviewDragging(true);
         setIsKeystrokeOverlaySelected(false);
       } else {
+        setIsKeystrokeResizeHandleHover(false);
         setIsKeystrokeOverlaySelected(false);
       }
     };
     const onMove = (e: MouseEvent) => {
+      const liveSegment = segmentRef.current;
+      if (!liveSegment) return;
+      const mode = liveSegment.keystrokeMode ?? 'off';
+      if (
+        !isDraggingKeystrokeOverlayRef.current &&
+        !isResizingKeystrokeOverlayRef.current &&
+        mode !== 'off'
+      ) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+        const editBounds = videoRenderer.getKeystrokeOverlayEditBounds(
+          liveSegment,
+          canvas,
+          currentTime,
+          getKeystrokeTimelineDuration(liveSegment)
+        );
+        if (editBounds) {
+          const handleSize = editBounds.handleSize;
+          const handleX = editBounds.x + editBounds.width - handleSize;
+          const handleY = editBounds.y + editBounds.height - handleSize;
+          const inHandle = x >= handleX && x <= handleX + handleSize
+            && y >= handleY && y <= handleY + handleSize;
+          setIsKeystrokeResizeHandleHover(inHandle);
+        } else {
+          setIsKeystrokeResizeHandleHover(false);
+        }
+      }
       const dragState = keystrokeOverlayDragStartRef.current;
       if (dragState && (isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current)) {
-        const liveSegment = segmentRef.current;
-        if (!liveSegment) return;
         const rect = canvas.getBoundingClientRect();
         const x = (e.clientX - rect.left) * (canvas.width / rect.width);
         const y = (e.clientY - rect.top) * (canvas.height / rect.height);
@@ -819,18 +862,19 @@ function App() {
       isDraggingKeystrokeOverlayRef.current = false;
       isResizingKeystrokeOverlayRef.current = false;
       keystrokeOverlayDragStartRef.current = null;
+      setIsPreviewDragging(false);
+      setIsKeystrokeResizeDragging(false);
+      setIsKeystrokeResizeHandleHover(false);
       if (wasOverlayEditing) commitBatch();
       videoRenderer.handleMouseUp();
     };
     canvas.addEventListener('mousedown', onDown);
-    canvas.addEventListener('mousemove', onMove);
-    canvas.addEventListener('mouseup', onUp);
-    canvas.addEventListener('mouseleave', onUp);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
     return () => {
       canvas.removeEventListener('mousedown', onDown);
-      canvas.removeEventListener('mousemove', onMove);
-      canvas.removeEventListener('mouseup', onUp);
-      canvas.removeEventListener('mouseleave', onUp);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
     };
   }, [segment, handleTextDragMove, canvasRef, setEditingTextId, setActivePanel, beginBatch, commitBatch, currentTime, getKeystrokeTimelineDuration, setSegment]);
 
@@ -857,7 +901,7 @@ function App() {
             <div className="preview-inner relative w-full h-full flex justify-center items-center">
               <div
                 ref={previewContainerRef}
-                className="preview-canvas relative flex items-center justify-center cursor-crosshair group w-full h-full"
+                className={`preview-canvas relative flex items-center justify-center ${previewCursorClass} group w-full h-full`}
                 onMouseDown={handlePreviewMouseDown}
               >
                 <canvas ref={canvasRef} className="preview-canvas-element absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full" />
