@@ -7,11 +7,11 @@ use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 use std::fs;
 use std::path::PathBuf;
-
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
-
+mod backgrounds;
+use backgrounds::render_background_downloads_section;
 pub fn render_downloaded_tools_modal(
     ctx: &egui::Context,
     _ui: &mut egui::Ui,
@@ -25,7 +25,7 @@ pub fn render_downloaded_tools_modal(
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(500.0)
+            .default_width(620.0)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 ui.add_space(8.0);
@@ -229,6 +229,167 @@ pub fn render_downloaded_tools_modal(
                     });
                 });
 
+                ui.add_space(8.0);
+
+                // --- Deno (JS Runtime for yt-dlp) ---
+                ui.group(|ui| {
+                    let deno_exists = download_manager.bin_dir.join("deno.exe").exists();
+
+                    {
+                        let mut s = download_manager.deno_status.lock().unwrap();
+                        let in_downloading_state = matches!(
+                            *s,
+                            InstallStatus::Downloading(_) | InstallStatus::Extracting
+                        );
+                        if !in_downloading_state {
+                            match (&*s, deno_exists) {
+                                (InstallStatus::Installed, false) => *s = InstallStatus::Missing,
+                                (InstallStatus::Missing, true) => *s = InstallStatus::Installed,
+                                (InstallStatus::Checking, true) => *s = InstallStatus::Installed,
+                                (InstallStatus::Checking, false) => *s = InstallStatus::Missing,
+                                (InstallStatus::Error(_), true) => *s = InstallStatus::Installed,
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    let status = download_manager.deno_status.lock().unwrap().clone();
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(text.tool_deno).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            match status {
+                                InstallStatus::Installed => {
+                                    let path = download_manager.bin_dir.join("deno.exe");
+                                    if ui
+                                        .button(
+                                            egui::RichText::new(text.tool_action_delete)
+                                                .color(egui::Color32::RED),
+                                        )
+                                        .clicked()
+                                    {
+                                        let _ = fs::remove_file(path);
+                                        *download_manager.deno_status.lock().unwrap() =
+                                            InstallStatus::Missing;
+                                    }
+
+                                    let size = if let Ok(meta) =
+                                        fs::metadata(download_manager.bin_dir.join("deno.exe"))
+                                    {
+                                        meta.len()
+                                    } else {
+                                        0
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(
+                                            text.tool_status_installed
+                                                .replace("{}", &format_size(size)),
+                                        )
+                                        .color(egui::Color32::from_rgb(34, 139, 34)),
+                                    );
+                                }
+                                InstallStatus::Downloading(p) => {
+                                    ui.spinner();
+                                    ui.label(format!("{:.0}%", p * 100.0));
+                                }
+                                InstallStatus::Extracting => {
+                                    ui.spinner();
+                                    ui.label(text.download_status_extracting);
+                                }
+                                InstallStatus::Checking => {
+                                    ui.spinner();
+                                }
+                                _ => {
+                                    if ui.button(text.tool_action_download).clicked() {
+                                        download_manager.start_download_deno();
+                                    }
+                                    ui.label(
+                                        egui::RichText::new(text.tool_status_missing)
+                                            .color(egui::Color32::GRAY),
+                                    );
+                                }
+                            }
+                        });
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label(text.tool_desc_deno);
+                        if matches!(status, InstallStatus::Installed) {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let u_status = {
+                                        if let Ok(s) = download_manager.deno_update_status.lock() {
+                                            s.clone()
+                                        } else {
+                                            UpdateStatus::Idle
+                                        }
+                                    };
+
+                                    match u_status {
+                                        UpdateStatus::UpdateAvailable(ver) => {
+                                            if ui
+                                                .button(
+                                                    egui::RichText::new(
+                                                        text.tool_update_available
+                                                            .replace("{}", &ver),
+                                                    )
+                                                    .color(egui::Color32::from_rgb(255, 165, 0)),
+                                                )
+                                                .clicked()
+                                            {
+                                                download_manager.start_download_deno();
+                                            }
+                                        }
+                                        UpdateStatus::Checking => {
+                                            ui.spinner();
+                                            ui.label(text.tool_update_checking);
+                                        }
+                                        UpdateStatus::UpToDate => {
+                                            if ui
+                                                .small_button(text.tool_update_check_again)
+                                                .clicked()
+                                            {
+                                                download_manager.check_updates();
+                                            }
+                                            ui.label(
+                                                egui::RichText::new(text.tool_update_latest)
+                                                    .color(egui::Color32::from_rgb(34, 139, 34)),
+                                            );
+                                        }
+                                        UpdateStatus::Error(e) => {
+                                            if ui.small_button(text.tool_update_retry).clicked() {
+                                                download_manager.check_updates();
+                                            }
+                                            ui.label(
+                                                egui::RichText::new(text.tool_update_error)
+                                                    .color(egui::Color32::RED),
+                                            )
+                                            .on_hover_text(e);
+                                        }
+                                        UpdateStatus::Idle => {
+                                            if ui.small_button(text.tool_update_check_btn).clicked()
+                                            {
+                                                download_manager.check_updates();
+                                            }
+                                        }
+                                    }
+
+                                    if let Ok(guard) = download_manager.deno_version.lock() {
+                                        if let Some(ver) = &*guard {
+                                            ui.label(
+                                                egui::RichText::new(format!("v{}", ver))
+                                                    .color(egui::Color32::GRAY),
+                                            );
+                                        }
+                                    }
+                                },
+                            );
+                        }
+                    });
+                });
+
+                ui.add_space(8.0);
+                render_background_downloads_section(ui, text);
                 ui.add_space(8.0);
 
                 // --- ffmpeg ---

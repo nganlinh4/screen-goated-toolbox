@@ -5,6 +5,7 @@ import { ColorPicker } from '@/components/ui/ColorPicker';
 import { Trash2, AlignLeft, AlignCenter, AlignRight, Download } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, TextSegment } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
+import downloadableBackgrounds from '@/config/downloadable-backgrounds.json';
 
 function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): string | undefined {
   const parts: string[] = [];
@@ -74,28 +75,7 @@ interface DownloadableBg {
   downloadUrl: string;
 }
 
-const DOWNLOADABLE_BACKGROUNDS: DownloadableBg[] = [
-  {
-    id: 'warm-abstract',
-    preview: '/bg-warm-abstract.svg',
-    downloadUrl: 'https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPN4cVT1Rngl_wMHjLy1uWx0aiSyENSm8GWW3Ez?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3',
-  },
-  {
-    id: 'cool-abstract',
-    preview: '/bg-cool-abstract.svg',
-    downloadUrl: 'https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipNUuKkC-kKZKGQjJ7ga59EJY1d4YwYp0HVeuJ0L?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3',
-  },
-  {
-    id: 'deep-abstract',
-    preview: '/bg-deep-abstract.svg',
-    downloadUrl: 'https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPufDAGMvOMDpTHKG574-ERmZxQN-CtcUCYnzKF?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3',
-  },
-  {
-    id: 'vivid-abstract',
-    preview: '/bg-vivid-abstract.svg',
-    downloadUrl: 'https://drive.google.com/file/d/1kYsxUons_HfjMVxeFU4Rkyw27gK83IVv/view?usp=sharing',
-  },
-];
+const DOWNLOADABLE_BACKGROUNDS: ReadonlyArray<DownloadableBg> = downloadableBackgrounds;
 
 type BgDlState =
   | { status: 'idle' }
@@ -104,55 +84,103 @@ type BgDlState =
   | { status: 'done'; ext: string; version: number }
   | { status: 'error'; message: string };
 
+const buildDownloadedBgUrl = (id: string, ext: string, version: number): string =>
+  `/bg-downloaded/${id}.${ext}?v=${version}`;
+
 function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>) {
   const [state, setState] = useState<BgDlState>({ status: 'checking' });
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const syncInFlightRef = useRef(false);
 
-  // Check on mount if already downloaded
-  useEffect(() => {
-    invoke<{ downloaded: boolean; ext: string | null; version?: number | null }>('check_bg_downloaded', { id: bg.id }).then(res => {
-      setState(res.downloaded && res.ext ? { status: 'done', ext: res.ext, version: res.version ?? 0 } : { status: 'idle' });
-    }).catch(() => setState({ status: 'idle' }));
-  }, [bg.id]);
+  const syncState = useCallback(async () => {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
+
+    try {
+      const [infoRes, progressRes] = await Promise.allSettled([
+        invoke<{ downloaded: boolean; ext: string | null; version?: number | null }>('check_bg_downloaded', { id: bg.id }),
+        invoke<any>('get_bg_download_progress', { id: bg.id }),
+      ]);
+
+      let isDownloaded = false;
+      let ext = '';
+      let version = 0;
+
+      if (infoRes.status === 'fulfilled') {
+        const info = infoRes.value;
+        isDownloaded = Boolean(info.downloaded && info.ext);
+        ext = info.ext ?? '';
+        version = info.version ?? 0;
+
+        if (isDownloaded) {
+          const syncedUrl = buildDownloadedBgUrl(bg.id, ext, version);
+          setBackgroundConfig(prev => {
+            if (
+              prev.backgroundType === 'custom' &&
+              typeof prev.customBackground === 'string' &&
+              prev.customBackground.includes(`/bg-downloaded/${bg.id}.`) &&
+              prev.customBackground !== syncedUrl
+            ) {
+              return { ...prev, customBackground: syncedUrl };
+            }
+            return prev;
+          });
+        } else {
+          setBackgroundConfig(prev => {
+            if (
+              prev.backgroundType === 'custom' &&
+              typeof prev.customBackground === 'string' &&
+              prev.customBackground.includes(`/bg-downloaded/${bg.id}.`)
+            ) {
+              return { ...prev, backgroundType: 'gradient2', customBackground: undefined };
+            }
+            return prev;
+          });
+        }
+      }
+
+      let next: BgDlState = isDownloaded && ext
+        ? { status: 'done', ext, version }
+        : { status: 'idle' };
+
+      if (progressRes.status === 'fulfilled') {
+        const progress = progressRes.value;
+        if (typeof progress === 'object' && progress !== null) {
+          if ('Downloading' in progress) {
+            next = { status: 'downloading', progress: progress.Downloading.progress };
+          } else if ('Error' in progress) {
+            next = { status: 'error', message: progress.Error };
+          }
+        } else if (progress === 'Done') {
+          if (isDownloaded && ext) {
+            next = { status: 'done', ext, version };
+          } else {
+            next = { status: 'idle' };
+          }
+        }
+      }
+
+      setState(prev => {
+        if (prev.status !== next.status) return next;
+        if (prev.status === 'downloading' && next.status === 'downloading' && prev.progress !== next.progress) return next;
+        if (prev.status === 'done' && next.status === 'done' && (prev.ext !== next.ext || prev.version !== next.version)) return next;
+        if (prev.status === 'error' && next.status === 'error' && prev.message !== next.message) return next;
+        return prev;
+      });
+    } finally {
+      syncInFlightRef.current = false;
+    }
+  }, [bg.id, setBackgroundConfig]);
 
   const startDownload = useCallback(() => {
     if (state.status === 'downloading') return;
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
     setState({ status: 'downloading', progress: 0 });
     invoke('start_bg_download', { id: bg.id, url: bg.downloadUrl });
-
-    pollRef.current = setInterval(async () => {
-      try {
-        const progress = await invoke<any>('get_bg_download_progress', { id: bg.id });
-        if (progress === 'Idle') {
-          setState({ status: 'idle' });
-          if (pollRef.current) clearInterval(pollRef.current);
-        } else if (progress === 'Done') {
-          // Fetch the extension of the downloaded file
-          const info = await invoke<{ downloaded: boolean; ext: string | null; version?: number | null }>('check_bg_downloaded', { id: bg.id });
-          setState({ status: 'done', ext: info.ext ?? 'png', version: info.version ?? Date.now() });
-          if (pollRef.current) clearInterval(pollRef.current);
-        } else if (typeof progress === 'object') {
-          if ('Downloading' in progress) {
-            setState({ status: 'downloading', progress: progress.Downloading.progress });
-          } else if ('Error' in progress) {
-            setState({ status: 'error', message: progress.Error });
-            if (pollRef.current) clearInterval(pollRef.current);
-          }
-        }
-      } catch {
-        // keep polling
-      }
-    }, 150);
   }, [bg.id, bg.downloadUrl, state.status]);
 
   const selectBg = useCallback(() => {
     if (state.status !== 'done') return;
     // Use protocol URL — served by the custom protocol handler from local app data
-    const url = `/bg-downloaded/${bg.id}.${state.ext}?v=${state.version}`;
+    const url = buildDownloadedBgUrl(bg.id, state.ext, state.version);
     setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: url }));
   }, [bg.id, state, setBackgroundConfig]);
 
@@ -175,10 +203,21 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
     }
   }, [bg.id, setBackgroundConfig]);
 
-  // Cleanup interval on unmount
+  // Keep tile state synced even when downloads/deletes happen outside this panel
   useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled) return;
+      await syncState();
+    };
+
+    run();
+    const interval = setInterval(run, 500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [syncState]);
 
   return { state, startDownload, selectBg, deleteBg };
 }
