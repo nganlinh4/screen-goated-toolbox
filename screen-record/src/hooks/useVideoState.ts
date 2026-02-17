@@ -366,6 +366,7 @@ export function useRecording(props: UseRecordingProps) {
           keystrokeEvents,
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,
+          keystrokeOverlay: { x: 50, y: 100, scale: 1 },
         };
         props.setSegment(initialSegment);
 
@@ -505,6 +506,14 @@ export function useProjects(props: UseProjectsProps) {
     } else {
       correctedSegment.keystrokeDelaySec = Math.max(-1, Math.min(1, correctedSegment.keystrokeDelaySec));
     }
+    const overlay = correctedSegment.keystrokeOverlay;
+    correctedSegment.keystrokeOverlay = {
+      x: typeof overlay?.x === 'number' ? Math.max(0, Math.min(100, overlay.x)) : 50,
+      y: typeof overlay?.y === 'number' ? Math.max(0, Math.min(100, overlay.y)) : 100,
+      scale: typeof overlay?.scale === 'number' && Number.isFinite(overlay.scale)
+        ? Math.max(0.45, Math.min(2.4, overlay.scale))
+        : 1,
+    };
     correctedSegment = ensureKeystrokeVisibilitySegments(correctedSegment, videoDuration);
     const loadedMode = correctedSegment.keystrokeMode ?? 'off';
     if (loadedMode === 'keyboard' || loadedMode === 'keyboardMouse') {
