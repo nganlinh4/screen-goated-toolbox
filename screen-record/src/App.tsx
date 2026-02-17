@@ -1050,7 +1050,7 @@ function App() {
                     className="playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+4px)] min-w-[172px] px-2 py-1.5 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto"
                   >
                     <div className="playback-keystroke-delay-row flex items-center gap-2">
-                      <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full border border-[var(--overlay-divider)]/70 bg-[color-mix(in_srgb,var(--overlay-panel-bg)_68%,white_8%)] px-1 py-[3px]">
+                      <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full px-1 py-[3px]">
                         <input
                           type="range"
                           min="-1"

@@ -456,30 +456,27 @@ pub fn execute_audio_processing_logic(
 ) -> anyhow::Result<String> {
     // Find the first block that is specifically an "audio" processing block
     // OR allow input_adapter if no audio block exists (for raw audio overlay)
-    let (audio_block, is_raw_input_adapter) = match preset
-        .blocks
-        .iter()
-        .find(|b| b.block_type == "audio")
-    {
-        Some(b) => (b.clone(), false),
-        None => match preset
-            .blocks
-            .iter()
-            .find(|b| b.block_type == "input_adapter")
-        {
-            Some(b) => (b.clone(), true),
-            None => {
-                let debug_types: Vec<_> = preset.blocks.iter().map(|b| &b.block_type).collect();
-                eprintln!(
+    let (audio_block, is_raw_input_adapter) =
+        match preset.blocks.iter().find(|b| b.block_type == "audio") {
+            Some(b) => (b.clone(), false),
+            None => match preset
+                .blocks
+                .iter()
+                .find(|b| b.block_type == "input_adapter")
+            {
+                Some(b) => (b.clone(), true),
+                None => {
+                    let debug_types: Vec<_> = preset.blocks.iter().map(|b| &b.block_type).collect();
+                    eprintln!(
                     "DEBUG [Audio]: No 'audio' blocks found in preset. Block types present: {:?}",
                     debug_types
                 );
-                return Err(anyhow::anyhow!(
-                    "Audio preset has no 'audio' processing blocks configured"
-                ));
-            }
-        },
-    };
+                    return Err(anyhow::anyhow!(
+                        "Audio preset has no 'audio' processing blocks configured"
+                    ));
+                }
+            },
+        };
 
     if is_raw_input_adapter {
         return Ok(String::new());

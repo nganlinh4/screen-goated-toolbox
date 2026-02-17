@@ -230,7 +230,11 @@ fn get_cursor_type(is_clicked: bool) -> String {
 }
 
 fn load_system_cursor_handle(cursor_id: windows::core::PCWSTR) -> isize {
-    unsafe { LoadCursorW(None, cursor_id).map(|cursor| cursor.0 as isize).unwrap_or_default() }
+    unsafe {
+        LoadCursorW(None, cursor_id)
+            .map(|cursor| cursor.0 as isize)
+            .unwrap_or_default()
+    }
 }
 
 fn load_system_cursor_handles() -> SystemCursorHandles {
@@ -491,9 +495,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 }
 
                 if now_100ns >= due_100ns {
-                    let due_ticks =
-                        ((now_100ns.saturating_sub(due_100ns)) / self.frame_interval_100ns)
-                            .saturating_add(1);
+                    let due_ticks = ((now_100ns.saturating_sub(due_100ns))
+                        / self.frame_interval_100ns)
+                        .saturating_add(1);
                     let missed_ticks = due_ticks.saturating_sub(1) as u32;
                     frames_to_submit = due_ticks as u32;
                     self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);

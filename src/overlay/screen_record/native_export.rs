@@ -1,8 +1,8 @@
 use base64::Engine;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::Deserialize;
-use std::fmt;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::os::windows::process::CommandExt;
