@@ -970,7 +970,7 @@ function App() {
           </div>
 
           {/* Side Panel */}
-          <div className={`side-panel-container w-80 flex-shrink-0 min-h-0 relative ${isOverlayMode ? 'overflow-hidden' : 'overflow-y-auto thin-scrollbar'}`}>
+          <div className="side-panel-container w-[23rem] flex-shrink-0 min-h-0 relative overflow-visible">
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}

@@ -48,7 +48,7 @@ const en = {
   cursorSettings: 'Cursor Settings',
   cursorSize: 'Cursor Size',
   movementSmoothing: 'Movement Smoothing',
-  pointerMovementDelay: 'Pointer Movement Delay',
+  pointerMovementDelay: 'Cursor Delay',
   pointerWiggleStrength: 'Pointer Wiggle Strength',
   cursorTilt: 'Cursor Tilt',
   motionBlur: 'Motion Blur',

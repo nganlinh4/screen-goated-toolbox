@@ -202,12 +202,12 @@ function PanelTabs({ activePanel, onPanelChange }: PanelTabsProps) {
   ];
 
   return (
-    <div className="panel-tabs flex border-b border-[var(--glass-border)]">
+    <div className="panel-tabs flex flex-nowrap border-b border-[var(--glass-border)]">
       {tabs.map(tab => (
         <button
           key={tab.id}
           onClick={() => onPanelChange(tab.id)}
-          className={`flex-1 px-2 py-2 text-xs font-medium transition-colors relative ${
+          className={`panel-tab-button flex-1 px-2 py-2 text-[11px] font-medium whitespace-nowrap transition-colors relative ${
             activePanel === tab.id
               ? 'text-[var(--primary-color)]'
               : 'text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]'
@@ -668,7 +668,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="cursor-controls space-y-2">
         <div className="cursor-size-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.cursorSize}</span>
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.cursorSize}</span>
           <input type="range" min="1" max="8" step="0.1" value={backgroundConfig.cursorScale ?? 2}
             style={sv(backgroundConfig.cursorScale ?? 2, 1, 8)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorScale: Number(e.target.value) }))}
@@ -677,7 +677,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorScale ?? 2).toFixed(1)}x</span>
         </div>
         <div className="cursor-shadow-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">Shadow</span>
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">Shadow</span>
           <input type="range" min="0" max="200" step="1" value={backgroundConfig.cursorShadow ?? 35}
             style={sv(backgroundConfig.cursorShadow ?? 35, 0, 200)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: Number(e.target.value) }))}
@@ -686,7 +686,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round(backgroundConfig.cursorShadow ?? 35)}%</span>
         </div>
         <div className="cursor-smoothness-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.movementSmoothing}</span>
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.movementSmoothing}</span>
           <input type="range" min="0" max="10" step="1" value={backgroundConfig.cursorSmoothness ?? 5}
             style={sv(backgroundConfig.cursorSmoothness ?? 5, 0, 10)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: Number(e.target.value) }))}
@@ -695,7 +695,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.cursorSmoothness ?? 5}</span>
         </div>
         <div className="cursor-movement-delay-field flex items-center gap-2">
-          <span className="cursor-movement-delay-label text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pointerMovementDelay}</span>
+          <span className="cursor-movement-delay-label text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.pointerMovementDelay}</span>
           <input
             type="range"
             min="-0.5"
@@ -709,7 +709,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
         </div>
         <div className="cursor-wiggle-strength-field flex items-center gap-2">
-          <span className="cursor-wiggle-strength-label text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pointerWiggleStrength}</span>
+          <span className="cursor-wiggle-strength-label text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.pointerWiggleStrength}</span>
           <input
             type="range"
             min="0"
@@ -723,7 +723,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%</span>
         </div>
         <div className="cursor-tilt-angle-field flex items-center gap-2">
-          <span className="cursor-tilt-angle-label text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.cursorTilt}</span>
+          <span className="cursor-tilt-angle-label text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.cursorTilt}</span>
           <input
             type="range"
             min="-30"
@@ -1183,49 +1183,50 @@ export function SidePanel({
   commitBatch
 }: SidePanelProps) {
   return (
-    <div className="side-panel space-y-3">
+    <div className="side-panel h-full min-h-0 flex flex-col">
       <PanelTabs activePanel={activePanel} onPanelChange={setActivePanel} />
+      <div className="side-panel-content mt-3 flex-1 min-h-0 overflow-y-auto thin-scrollbar px-2 pb-2">
+        {activePanel === 'zoom' && (
+          <ZoomPanel
+            segment={segment}
+            editingKeyframeId={editingKeyframeId}
+            zoomFactor={zoomFactor}
+            setZoomFactor={setZoomFactor}
+            onDeleteKeyframe={onDeleteKeyframe}
+            onUpdateZoom={onUpdateZoom}
+            beginBatch={beginBatch}
+            commitBatch={commitBatch}
+          />
+        )}
 
-      {activePanel === 'zoom' && (
-        <ZoomPanel
-          segment={segment}
-          editingKeyframeId={editingKeyframeId}
-          zoomFactor={zoomFactor}
-          setZoomFactor={setZoomFactor}
-          onDeleteKeyframe={onDeleteKeyframe}
-          onUpdateZoom={onUpdateZoom}
-          beginBatch={beginBatch}
-          commitBatch={commitBatch}
-        />
-      )}
+        {activePanel === 'background' && (
+          <BackgroundPanel
+            backgroundConfig={backgroundConfig}
+            setBackgroundConfig={setBackgroundConfig}
+            recentUploads={recentUploads}
+            onRemoveRecentUpload={onRemoveRecentUpload}
+            onBackgroundUpload={onBackgroundUpload}
+          />
+        )}
 
-      {activePanel === 'background' && (
-        <BackgroundPanel
-          backgroundConfig={backgroundConfig}
-          setBackgroundConfig={setBackgroundConfig}
-          recentUploads={recentUploads}
-          onRemoveRecentUpload={onRemoveRecentUpload}
-          onBackgroundUpload={onBackgroundUpload}
-        />
-      )}
+        {activePanel === 'cursor' && (
+          <CursorPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
+        )}
 
-      {activePanel === 'cursor' && (
-        <CursorPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
-      )}
+        {activePanel === 'blur' && (
+          <BlurPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
+        )}
 
-      {activePanel === 'blur' && (
-        <BlurPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
-      )}
-
-      {activePanel === 'text' && (
-        <TextPanel
-          segment={segment}
-          editingTextId={editingTextId}
-          onUpdateSegment={onUpdateSegment}
-          beginBatch={beginBatch}
-          commitBatch={commitBatch}
-        />
-      )}
+        {activePanel === 'text' && (
+          <TextPanel
+            segment={segment}
+            editingTextId={editingTextId}
+            onUpdateSegment={onUpdateSegment}
+            beginBatch={beginBatch}
+            commitBatch={commitBatch}
+          />
+        )}
+      </div>
     </div>
   );
 }
