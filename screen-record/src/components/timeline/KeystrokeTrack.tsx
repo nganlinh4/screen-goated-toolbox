@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Keyboard, MousePointer2 } from 'lucide-react';
 import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/video';
+import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
 import {
   filterKeystrokeEventsByMode,
   KEYSTROKE_SAME_LANE_OVERLAP_SEC,
@@ -182,8 +183,8 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
 }) => {
   const [hoverX, setHoverX] = useState<number | null>(null);
   const mode = segment.keystrokeMode ?? 'off';
-  const segments = getSegmentsForMode(segment);
   const safeDuration = Math.max(duration, 0.001);
+  const segments = clampVisibilitySegmentsToDuration(getSegmentsForMode(segment), safeDuration);
   const rawEventRanges = getRawEventRanges(segment, safeDuration);
   const visualActivityRanges = getVisualActivityRanges(rawEventRanges, safeDuration);
 

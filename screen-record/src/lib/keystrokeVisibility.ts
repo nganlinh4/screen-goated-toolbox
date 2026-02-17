@@ -1,5 +1,5 @@
 import { CursorVisibilitySegment, KeystrokeEvent, KeystrokeMode, VideoSegment } from '@/types/video';
-import { mergePointerSegments } from '@/lib/cursorHiding';
+import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
 
 export const KEYSTROKE_VISIBILITY_MARGIN_BEFORE = 0.04;
 export const KEYSTROKE_VISIBILITY_MARGIN_AFTER = 0.08;
@@ -155,6 +155,7 @@ export function ensureKeystrokeVisibilitySegments(
   segment: VideoSegment,
   duration: number
 ): VideoSegment {
+  const safeDuration = Math.max(0, duration);
   const allEvents = segment.keystrokeEvents ?? [];
   const keyboardEvents = filterKeystrokeEventsByMode(allEvents, 'keyboard');
   const keyboardMouseEvents = filterKeystrokeEventsByMode(allEvents, 'keyboardMouse');
@@ -183,16 +184,18 @@ export function ensureKeystrokeVisibilitySegments(
   return {
     ...segment,
     keyboardVisibilitySegments: (() => {
-      const existing = segment.keyboardVisibilitySegments;
-      if (!existing) return keyboardAutoWithDelay;
+      const existingRaw = segment.keyboardVisibilitySegments;
+      if (!existingRaw) return keyboardAutoWithDelay;
+      const existing = clampVisibilitySegmentsToDuration(existingRaw, safeDuration);
       const shouldMigrateAutoFromNoDelay = delaySec !== 0
         && areVisibilitySegmentsEquivalent(existing, keyboardAutoNoDelay)
         && !areVisibilitySegmentsEquivalent(existing, keyboardAutoWithDelay);
       return shouldMigrateAutoFromNoDelay ? keyboardAutoWithDelay : existing;
     })(),
     keyboardMouseVisibilitySegments: (() => {
-      const existing = segment.keyboardMouseVisibilitySegments;
-      if (!existing) return keyboardMouseAutoWithDelay;
+      const existingRaw = segment.keyboardMouseVisibilitySegments;
+      if (!existingRaw) return keyboardMouseAutoWithDelay;
+      const existing = clampVisibilitySegmentsToDuration(existingRaw, safeDuration);
       const shouldMigrateAutoFromNoDelay = delaySec !== 0
         && areVisibilitySegmentsEquivalent(existing, keyboardMouseAutoNoDelay)
         && !areVisibilitySegmentsEquivalent(existing, keyboardMouseAutoWithDelay);

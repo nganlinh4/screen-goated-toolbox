@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { VideoSegment, CursorVisibilitySegment, TrimSegment } from '@/types/video';
-import { mergePointerSegments } from '@/lib/cursorHiding';
+import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
 import { getTrimBounds, getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
 import { getKeystrokeVisibilitySegmentsForMode, withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
 
@@ -303,7 +303,10 @@ export function useTimelineDrag({
     if (!segment || (segment.keystrokeMode ?? 'off') === 'off') return;
     beginBatch();
     keystrokeDragDidMove.current = false;
-    keystrokeDragOriginals.current = getKeystrokeVisibilitySegmentsForMode(segment).map((seg) => ({ ...seg }));
+    keystrokeDragOriginals.current = clampVisibilitySegmentsToDuration(
+      getKeystrokeVisibilitySegmentsForMode(segment),
+      duration
+    ).map((seg) => ({ ...seg }));
     setDraggingKeystrokeId(id);
     setEditingKeystrokeId?.(id);
     if (type === 'start') setIsDraggingKeystrokeStart(true);
@@ -312,7 +315,7 @@ export function useTimelineDrag({
       setIsDraggingKeystrokeBody(true);
       if (offset !== undefined) keystrokeDragOffsetRef.current = offset;
     }
-  }, [beginBatch, segment, setEditingKeystrokeId]);
+  }, [beginBatch, segment, setEditingKeystrokeId, duration]);
 
   const handleKeystrokeDrag = useCallback((clientX: number) => {
     if (
@@ -346,7 +349,10 @@ export function useTimelineDrag({
       return { ...seg };
     });
 
-    setSegment(withKeystrokeVisibilitySegmentsForMode(segment, mergePointerSegments(modified)));
+    setSegment(withKeystrokeVisibilitySegmentsForMode(
+      segment,
+      clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration)
+    ));
   }, [
     isDraggingKeystrokeStart,
     isDraggingKeystrokeEnd,
@@ -365,7 +371,7 @@ export function useTimelineDrag({
     pointerDragDidMove.current = false;
     // Snapshot originals so merge/unmerge is reversible during drag
     pointerDragOriginals.current = segment?.cursorVisibilitySegments
-      ? segment.cursorVisibilitySegments.map(s => ({ ...s }))
+      ? clampVisibilitySegmentsToDuration(segment.cursorVisibilitySegments, duration).map(s => ({ ...s }))
       : null;
     setDraggingPointerId(id);
     if (type === 'start') setIsDraggingPointerStart(true);
@@ -403,7 +409,7 @@ export function useTimelineDrag({
 
     setSegment({
       ...segment,
-      cursorVisibilitySegments: mergePointerSegments(modified),
+      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(mergePointerSegments(modified), duration),
     });
   }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, draggingPointerId, segment, getTimeFromClientX, setSegment, duration]);
 
@@ -431,14 +437,14 @@ export function useTimelineDrag({
 
     setSegment({
       ...segment,
-      cursorVisibilitySegments: segment.cursorVisibilitySegments
+      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(segment.cursorVisibilitySegments, duration)
         .filter(s => s.id !== id)
         .concat([left, right])
         .sort((a, b) => a.startTime - b.startTime),
     });
     setEditingPointerId?.(null);
     commitBatch();
-  }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, segment, setSegment, setEditingPointerId, beginBatch, commitBatch]);
+  }, [isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, segment, setSegment, setEditingPointerId, beginBatch, commitBatch, duration]);
 
   // Text click (select)
   const handleTextClick = useCallback((id: string) => {
@@ -457,7 +463,10 @@ export function useTimelineDrag({
     }
     if (!segment || (segment.keystrokeMode ?? 'off') === 'off') return;
 
-    const segments = getKeystrokeVisibilitySegmentsForMode(segment);
+    const segments = clampVisibilitySegmentsToDuration(
+      getKeystrokeVisibilitySegmentsForMode(segment),
+      duration
+    );
     const seg = segments.find((s) => s.id === id);
     if (!seg) return;
 
@@ -474,14 +483,14 @@ export function useTimelineDrag({
 
     setSegment(withKeystrokeVisibilitySegmentsForMode(
       segment,
-      segments
+      clampVisibilitySegmentsToDuration(segments
         .filter((s) => s.id !== id)
         .concat([left, right])
-        .sort((a, b) => a.startTime - b.startTime)
+        .sort((a, b) => a.startTime - b.startTime), duration)
     ));
     setEditingKeystrokeId?.(null);
     commitBatch();
-  }, [isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, segment, setSegment, setEditingKeystrokeId, beginBatch, commitBatch]);
+  }, [isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, segment, setSegment, setEditingKeystrokeId, beginBatch, commitBatch, duration]);
 
   // Keyframe click
   const handleKeyframeClick = useCallback((time: number, index: number) => {

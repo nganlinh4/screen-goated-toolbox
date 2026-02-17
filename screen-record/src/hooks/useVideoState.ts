@@ -7,7 +7,7 @@ import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
 import { videoExporter } from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
 import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment, RawInputEvent } from '@/types/video';
-import { generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
+import { clampVisibilitySegmentsToDuration, generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
 import { normalizeSegmentTrimData } from '@/lib/trimSegments';
 import { getKeyframeRange } from '@/utils/helpers';
 import { useThrottle } from './useAppHooks';
@@ -318,7 +318,9 @@ export function useRecording(props: UseRecordingProps) {
           const ts = typeof entry?.timestamp === 'number' ? entry.timestamp : 0;
           return Math.max(max, ts);
         }, 0);
-        const timelineDuration = Math.max(videoDuration, maxMouseTimestamp, maxInputTimestamp);
+        const timelineDuration = videoDuration > 0
+          ? videoDuration
+          : Math.max(maxMouseTimestamp, maxInputTimestamp);
         const baseSegment: VideoSegment = {
           trimStart: 0,
           trimEnd: timelineDuration,
@@ -467,12 +469,25 @@ export function useProjects(props: UseProjectsProps) {
 
     const videoDuration = props.videoControllerRef.current?.duration || 0;
     let correctedSegment = { ...project.segment };
+    const hasExplicitPointerSegments = Array.isArray(correctedSegment.cursorVisibilitySegments);
     if (correctedSegment.trimEnd === 0 || correctedSegment.trimEnd > videoDuration) {
       correctedSegment.trimEnd = videoDuration;
     }
     correctedSegment = normalizeSegmentTrimData(correctedSegment, videoDuration);
+    correctedSegment.cursorVisibilitySegments = clampVisibilitySegmentsToDuration(
+      correctedSegment.cursorVisibilitySegments,
+      videoDuration
+    );
+    correctedSegment.keyboardVisibilitySegments = clampVisibilitySegmentsToDuration(
+      correctedSegment.keyboardVisibilitySegments,
+      videoDuration
+    );
+    correctedSegment.keyboardMouseVisibilitySegments = clampVisibilitySegmentsToDuration(
+      correctedSegment.keyboardMouseVisibilitySegments,
+      videoDuration
+    );
     // Materialize pointer segments for backward-compat (old projects have undefined)
-    if (!correctedSegment.cursorVisibilitySegments) {
+    if (!hasExplicitPointerSegments) {
       correctedSegment.cursorVisibilitySegments = [{
         id: crypto.randomUUID(),
         startTime: 0,
@@ -888,7 +903,10 @@ export function useCursorHiding(props: UseCursorHidingProps) {
 
     // Default or empty → generate from mouse data
     const segments = generateCursorVisibility(props.segment, props.mousePositions, props.duration);
-    props.setSegment({ ...props.segment, cursorVisibilitySegments: segments });
+    props.setSegment({
+      ...props.segment,
+      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(segments, props.duration),
+    });
   }, [props.segment, props.mousePositions, props.setSegment, props.duration]);
 
   const handleAddPointerSegment = useCallback((atTime?: number) => {
@@ -906,7 +924,7 @@ export function useCursorHiding(props: UseCursorHidingProps) {
     const allSegs = [...(props.segment.cursorVisibilitySegments || []), newSeg];
     props.setSegment({
       ...props.segment,
-      cursorVisibilitySegments: mergePointerSegments(allSegs),
+      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(mergePointerSegments(allSegs), props.duration),
     });
     setEditingPointerId(null);
   }, [props.segment, props.currentTime, props.duration, props.setSegment]);
@@ -916,7 +934,7 @@ export function useCursorHiding(props: UseCursorHidingProps) {
     const remaining = props.segment.cursorVisibilitySegments?.filter(s => s.id !== editingPointerId) ?? [];
     props.setSegment({
       ...props.segment,
-      cursorVisibilitySegments: remaining,
+      cursorVisibilitySegments: clampVisibilitySegmentsToDuration(remaining, props.duration),
     });
     setEditingPointerId(null);
   }, [props.segment, editingPointerId, props.setSegment]);
