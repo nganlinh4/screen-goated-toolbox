@@ -11,7 +11,11 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
 mod backgrounds;
-use backgrounds::render_background_downloads_section;
+mod pointer_packs;
+use self::{
+    backgrounds::render_background_downloads_section,
+    pointer_packs::render_pointer_pack_downloads_section,
+};
 pub fn render_downloaded_tools_modal(
     ctx: &egui::Context,
     _ui: &mut egui::Ui,
@@ -30,7 +34,6 @@ pub fn render_downloaded_tools_modal(
             .show(ctx, |ui| {
                 ui.add_space(8.0);
 
-                // --- Parakeet ---
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(text.tool_parakeet).strong());
@@ -231,7 +234,6 @@ pub fn render_downloaded_tools_modal(
 
                 ui.add_space(8.0);
 
-                // --- Deno (JS Runtime for yt-dlp) ---
                 ui.group(|ui| {
                     let deno_exists = download_manager.bin_dir.join("deno.exe").exists();
 
@@ -391,8 +393,9 @@ pub fn render_downloaded_tools_modal(
                 ui.add_space(8.0);
                 render_background_downloads_section(ui, text);
                 ui.add_space(8.0);
+                render_pointer_pack_downloads_section(ui, text);
+                ui.add_space(8.0);
 
-                // --- ffmpeg ---
                 ui.group(|ui| {
                     let ffmpeg_exists = download_manager.bin_dir.join("ffmpeg.exe").exists();
                     let ffprobe_exists = download_manager.bin_dir.join("ffprobe.exe").exists();

@@ -54,11 +54,15 @@ impl SettingsApp {
                     current_tip.clone(),
                     self.tip_fade_state,
                     &mut self.show_tips_modal,
+                    &mut self.pointer_gallery.show_window,
                 );
             });
 
         // [TIPS POPUP]
         self.render_tips_popup(ctx, &text);
+
+        // Pointer Gallery Window
+        self.pointer_gallery.render(ctx, &text);
 
         // Render Download Manager Modal
         self.download_manager.render(ctx, &text);

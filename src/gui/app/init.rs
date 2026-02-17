@@ -358,6 +358,7 @@ impl SettingsApp {
 
             // --- DOWNLOAD MANAGER INIT ---
             download_manager: crate::gui::settings_ui::download_manager::DownloadManager::new(),
+            pointer_gallery: crate::gui::settings_ui::pointer_gallery::PointerGallery::new(),
             // -----------------------------
 
             // --- ARGUMENT HANDLING ---

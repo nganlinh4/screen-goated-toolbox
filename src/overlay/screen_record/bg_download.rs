@@ -32,6 +32,7 @@ pub struct DownloadableBackgroundSummary {
     pub downloaded_count: usize,
     pub total_count: usize,
     pub downloading_count: usize,
+    pub downloaded_bytes: u64,
 }
 
 const DOWNLOADABLE_BACKGROUNDS_MANIFEST: &str =
@@ -73,11 +74,26 @@ pub fn downloadable_backgrounds() -> &'static [DownloadableBackground] {
 pub fn downloadable_background_summary() -> DownloadableBackgroundSummary {
     let mut downloaded_count = 0usize;
     let mut downloading_count = 0usize;
+    let mut downloaded_bytes = 0u64;
     let backgrounds = downloadable_backgrounds();
+    let dir = backgrounds_dir();
 
     for bg in backgrounds {
         if download_info(&bg.id).is_some() {
             downloaded_count += 1;
+            for ext in &["png", "jpg", "jpeg", "webp"] {
+                let path = dir.join(format!("{}.{ext}", bg.id));
+                if path.exists() {
+                    if !is_valid_image_file(&path, ext) {
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    }
+                    if let Ok(meta) = std::fs::metadata(path) {
+                        downloaded_bytes += meta.len();
+                    }
+                    break;
+                }
+            }
         }
         if matches!(
             get_download_status(&bg.id),
@@ -91,6 +107,7 @@ pub fn downloadable_background_summary() -> DownloadableBackgroundSummary {
         downloaded_count,
         total_count: backgrounds.len(),
         downloading_count,
+        downloaded_bytes,
     }
 }
 
