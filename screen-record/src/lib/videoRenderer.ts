@@ -1,7 +1,11 @@
 import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay, KeystrokeEvent, BakedKeystrokeOverlay, CursorVisibilitySegment } from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
 import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/lib/trimSegments';
-import { filterKeystrokeEventsByMode, getKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
+import {
+  filterKeystrokeEventsByMode,
+  getKeystrokeVisibilitySegmentsForMode,
+  KEYSTROKE_SAME_LANE_OVERLAP_SEC
+} from '@/lib/keystrokeVisibility';
 
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
@@ -14,9 +18,10 @@ const GRADIENT4_STYLE_TOKEN = '__gradient4__';
 const GRADIENT5_STYLE_TOKEN = '__gradient5__';
 const GRADIENT6_STYLE_TOKEN = '__gradient6__';
 const GRADIENT7_STYLE_TOKEN = '__gradient7__';
-const DEFAULT_KEYSTROKE_DELAY_SEC = -0.65;
+const DEFAULT_KEYSTROKE_DELAY_SEC = -0.33;
 const KEYSTROKE_ANIM_ENTER_SEC = 0.18;
 const KEYSTROKE_ANIM_EXIT_SEC = 0.2;
+const KEYSTROKE_SLOT_SPARSE_GAP_LIMIT = 2;
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -160,17 +165,44 @@ interface KeystrokeRenderCache {
   keyboardIndices: number[];
   mouseStartTimes: number[];
   mouseIndices: number[];
+  keyboardMaxDuration: number;
+  mouseMaxDuration: number;
+  eventSlots: number[];
+  eventIdentities: string[];
+  keyboardSlotRepresentatives: number[];
+  mouseSlotRepresentatives: number[];
 }
 
 interface ActiveKeystrokeEvent {
   event: KeystrokeEvent;
   startTime: number;
   endTime: number;
+  slot: number;
+  identity: string;
 }
 
-interface ActiveKeystrokePair {
-  keyboard: ActiveKeystrokeEvent | null;
-  mouse: ActiveKeystrokeEvent | null;
+interface ActiveKeystrokeLanes {
+  keyboard: ActiveKeystrokeEvent[];
+  mouse: ActiveKeystrokeEvent[];
+}
+
+interface KeystrokeLaneRenderItem {
+  active: ActiveKeystrokeEvent;
+  layout: KeystrokeBubbleLayout;
+  visual: KeystrokeVisualState;
+  bubbleWidth: number;
+}
+
+interface KeystrokeLanePlacement {
+  item: KeystrokeLaneRenderItem;
+  x: number;
+  y: number;
+  align: 'left' | 'right';
+}
+
+interface ActiveKeystrokeFrameLayout {
+  keyboard: KeystrokeLanePlacement[];
+  mouse: KeystrokeLanePlacement[];
 }
 
 export class VideoRenderer {
@@ -311,6 +343,12 @@ export class VideoRenderer {
     keyboardIndices: [],
     mouseStartTimes: [],
     mouseIndices: [],
+    keyboardMaxDuration: 0,
+    mouseMaxDuration: 0,
+    eventSlots: [],
+    eventIdentities: [],
+    keyboardSlotRepresentatives: [],
+    mouseSlotRepresentatives: [],
   };
   private keystrokeLayoutCache: Map<string, KeystrokeBubbleLayout> = new Map();
 
@@ -3414,6 +3452,12 @@ export class VideoRenderer {
           keyboardIndices: [],
           mouseStartTimes: [],
           mouseIndices: [],
+          keyboardMaxDuration: 0,
+          mouseMaxDuration: 0,
+          eventSlots: [],
+          eventIdentities: [],
+          keyboardSlotRepresentatives: [],
+          mouseSlotRepresentatives: [],
         };
         this.keystrokeLayoutCache.clear();
       }
@@ -3444,6 +3488,14 @@ export class VideoRenderer {
     const keyboardIndices: number[] = [];
     const mouseStartTimes: number[] = [];
     const mouseIndices: number[] = [];
+    const eventIdentities = new Array<string>(displayEvents.length);
+    const eventSlots = new Array<number>(displayEvents.length).fill(0);
+    const keyboardSlotRepresentatives: number[] = [];
+    const keyboardSlotLabelLengths: number[] = [];
+    const mouseSlotRepresentatives: number[] = [];
+    const mouseSlotLabelLengths: number[] = [];
+    let keyboardMaxDuration = 0;
+    let mouseMaxDuration = 0;
     let nextAnyStart = Number.POSITIVE_INFINITY;
     let nextKeyboardStart = Number.POSITIVE_INFINITY;
     let nextMouseStart = Number.POSITIVE_INFINITY;
@@ -3452,7 +3504,10 @@ export class VideoRenderer {
       const nextStart = mode === 'keyboardMouse'
         ? (event.type === 'keyboard' ? nextKeyboardStart : nextMouseStart)
         : nextAnyStart;
-      effectiveEnds[i] = Math.min(event.endTime, nextStart, safeDuration);
+      const overlapLimitedEnd = Number.isFinite(nextStart)
+        ? nextStart + KEYSTROKE_SAME_LANE_OVERLAP_SEC
+        : Number.POSITIVE_INFINITY;
+      effectiveEnds[i] = Math.min(event.endTime, overlapLimitedEnd, safeDuration);
       nextAnyStart = event.startTime;
       if (event.type === 'keyboard') {
         nextKeyboardStart = event.startTime;
@@ -3462,15 +3517,56 @@ export class VideoRenderer {
     }
     for (let i = 0; i < displayEvents.length; i++) {
       const event = displayEvents[i];
+      eventIdentities[i] = this.getKeystrokeIdentity(event);
       startTimes.push(event.startTime);
+      const effectiveDuration = Math.max(0, effectiveEnds[i] - event.startTime);
       if (event.type === 'keyboard') {
         keyboardStartTimes.push(event.startTime);
         keyboardIndices.push(i);
+        if (effectiveDuration > keyboardMaxDuration) keyboardMaxDuration = effectiveDuration;
       } else {
         mouseStartTimes.push(event.startTime);
         mouseIndices.push(i);
+        if (effectiveDuration > mouseMaxDuration) mouseMaxDuration = effectiveDuration;
       }
     }
+    this.assignKeystrokeLaneSlots(
+      keyboardIndices,
+      displayEvents,
+      effectiveEnds,
+      eventIdentities,
+      eventSlots
+    );
+    this.assignKeystrokeLaneSlots(
+      mouseIndices,
+      displayEvents,
+      effectiveEnds,
+      eventIdentities,
+      eventSlots
+    );
+    for (let i = 0; i < displayEvents.length; i++) {
+      const event = displayEvents[i];
+      const slot = eventSlots[i];
+      const labelLength = this.getKeystrokeLabel(event).length;
+      if (event.type === 'keyboard') {
+        const currentLen = keyboardSlotLabelLengths[slot] ?? -1;
+        if (labelLength >= currentLen) {
+          keyboardSlotLabelLengths[slot] = labelLength;
+          keyboardSlotRepresentatives[slot] = i;
+        }
+      } else {
+        const currentLen = mouseSlotLabelLengths[slot] ?? -1;
+        if (labelLength >= currentLen) {
+          mouseSlotLabelLengths[slot] = labelLength;
+          mouseSlotRepresentatives[slot] = i;
+        }
+      }
+    }
+    this.debugKeystrokeDurations(
+      'RenderCache',
+      displayEvents.map((event, index) => Math.max(0, effectiveEnds[index] - event.startTime)),
+      { mode, duration: safeDuration }
+    );
 
     this.keystrokeRenderCache = {
       mode,
@@ -3485,6 +3581,12 @@ export class VideoRenderer {
       keyboardIndices,
       mouseStartTimes,
       mouseIndices,
+      keyboardMaxDuration,
+      mouseMaxDuration,
+      eventSlots,
+      eventIdentities,
+      keyboardSlotRepresentatives,
+      mouseSlotRepresentatives,
     };
     this.keystrokeLayoutCache.clear();
     return this.keystrokeRenderCache;
@@ -3538,8 +3640,78 @@ export class VideoRenderer {
     return intersections;
   }
 
-  private isMouseKeystrokeType(type: KeystrokeEvent['type']): boolean {
-    return type === 'mousedown' || type === 'wheel';
+  private getKeystrokeIdentity(event: KeystrokeEvent): string {
+    if (event.type === 'keyboard') {
+      const key = event.key || event.label;
+      const mods = event.modifiers || {};
+      return `keyboard:${key}|c:${mods.ctrl ? 1 : 0}|a:${mods.alt ? 1 : 0}|s:${mods.shift ? 1 : 0}|w:${mods.win ? 1 : 0}`;
+    }
+    if (event.type === 'mousedown') {
+      return `mousedown:${event.btn ?? 'mouse'}`;
+    }
+    return `wheel:${event.direction ?? 'none'}`;
+  }
+
+  private assignKeystrokeLaneSlots(
+    laneIndices: number[],
+    displayEvents: KeystrokeEvent[],
+    effectiveEnds: number[],
+    eventIdentities: string[],
+    eventSlots: number[]
+  ) {
+    const active: Array<{ endTime: number; slot: number; identity: string }> = [];
+    const usedSlots = new Set<number>();
+    const preferredSlots = new Map<string, number>();
+    const highestUsedSlot = () => {
+      let max = -1;
+      for (const slot of usedSlots) {
+        if (slot > max) max = slot;
+      }
+      return max;
+    };
+
+    const releaseFinished = (startTime: number) => {
+      for (let i = active.length - 1; i >= 0; i--) {
+        if (active[i].endTime <= startTime + 0.000001) {
+          usedSlots.delete(active[i].slot);
+          preferredSlots.set(active[i].identity, active[i].slot);
+          active.splice(i, 1);
+        }
+      }
+    };
+
+    for (const eventIndex of laneIndices) {
+      const event = displayEvents[eventIndex];
+      releaseFinished(event.startTime);
+      const identity = eventIdentities[eventIndex];
+
+      // Same identity override: the latest occurrence keeps the slot.
+      for (let i = active.length - 1; i >= 0; i--) {
+        if (active[i].identity === identity) {
+          usedSlots.delete(active[i].slot);
+          preferredSlots.set(identity, active[i].slot);
+          active.splice(i, 1);
+        }
+      }
+
+      const preferred = preferredSlots.get(identity);
+      let slot: number;
+      if (preferred !== undefined && !usedSlots.has(preferred)) {
+        slot = preferred;
+      } else {
+        slot = highestUsedSlot() + 1;
+        while (usedSlots.has(slot)) slot += 1;
+      }
+
+      preferredSlots.set(identity, slot);
+      eventSlots[eventIndex] = slot;
+      usedSlots.add(slot);
+      active.push({
+        endTime: effectiveEnds[eventIndex],
+        slot,
+        identity,
+      });
+    }
   }
 
   private getKeystrokeDelaySec(segment: VideoSegment): number {
@@ -3561,6 +3733,30 @@ export class VideoRenderer {
 
   private lerp(a: number, b: number, t: number): number {
     return a + (b - a) * this.clamp01(t);
+  }
+
+  private computePercentile(values: number[], percentile: number): number {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * percentile)));
+    return sorted[idx];
+  }
+
+  private debugKeystrokeDurations(tag: string, durations: number[], extras: Record<string, unknown> = {}) {
+    const min = durations.length ? Math.min(...durations) : 0;
+    const max = durations.length ? Math.max(...durations) : 0;
+    const p50 = this.computePercentile(durations, 0.5);
+    const p90 = this.computePercentile(durations, 0.9);
+    const short = durations.filter((d) => d <= 0.12).length;
+    console.info(`[KeystrokeDebug][${tag}]`, {
+      count: durations.length,
+      min,
+      p50,
+      p90,
+      max,
+      shortLE120ms: short,
+      ...extras,
+    });
   }
 
   private lerpRgba(
@@ -3600,8 +3796,8 @@ export class VideoRenderer {
   ): KeystrokeVisualState {
     const isMouse = eventType === 'mousedown' || eventType === 'wheel';
     const duration = Math.max(0.001, eventEnd - eventStart);
-    const enterSpan = Math.min(KEYSTROKE_ANIM_ENTER_SEC, duration * 0.68);
-    const exitSpan = Math.min(KEYSTROKE_ANIM_EXIT_SEC, duration * 0.7);
+    const enterSpan = Math.min(KEYSTROKE_ANIM_ENTER_SEC, duration * 0.36);
+    const exitSpan = Math.min(KEYSTROKE_ANIM_EXIT_SEC, duration * 0.36);
     const exitStart = Math.max(eventStart, eventEnd - exitSpan);
 
     const baseSlnt = isMouse ? -6 : 0;
@@ -3688,45 +3884,62 @@ export class VideoRenderer {
     ctx.canvas.style.fontVariationSettings = `'wdth' ${visual.wdth.toFixed(2)}, 'wght' ${visual.wght.toFixed(2)}, 'slnt' ${visual.slnt.toFixed(2)}, 'ROND' ${visual.rond.toFixed(2)}`;
   }
 
-  private findActiveKeystrokeEventForKind(
+  private findActiveKeystrokeEventsForKind(
     cache: KeystrokeRenderCache,
     currentTime: number,
     delaySec: number,
     kind: 'keyboard' | 'mouse'
-  ): ActiveKeystrokeEvent | null {
+  ): ActiveKeystrokeEvent[] {
     const startTimes = kind === 'keyboard' ? cache.keyboardStartTimes : cache.mouseStartTimes;
     const indices = kind === 'keyboard' ? cache.keyboardIndices : cache.mouseIndices;
-    if (!startTimes.length || !indices.length) return null;
+    if (!startTimes.length || !indices.length) return [];
     const idx = this.upperBound(startTimes, currentTime - delaySec) - 1;
-    if (idx < 0) return null;
-    const eventIndex = indices[idx];
-    const event = cache.displayEvents[eventIndex];
-    const delayed = this.getDelayedKeystrokeRange(event.startTime, cache.effectiveEnds[eventIndex], delaySec);
-    if (currentTime < delayed.startTime || currentTime > delayed.endTime) return null;
-    return {
-      event,
-      startTime: delayed.startTime,
-      endTime: delayed.endTime,
-    };
+    if (idx < 0) return [];
+    const maxDuration = kind === 'keyboard' ? cache.keyboardMaxDuration : cache.mouseMaxDuration;
+    const minStartCandidate = currentTime - delaySec - maxDuration - 0.000001;
+    const active: ActiveKeystrokeEvent[] = [];
+    const seenIdentities = new Set<string>();
+    for (let cursor = idx; cursor >= 0; cursor--) {
+      const eventIndex = indices[cursor];
+      const event = cache.displayEvents[eventIndex];
+      if (event.startTime < minStartCandidate) break;
+      const delayed = this.getDelayedKeystrokeRange(event.startTime, cache.effectiveEnds[eventIndex], delaySec);
+      if (currentTime < delayed.startTime || currentTime > delayed.endTime) continue;
+      const identity = cache.eventIdentities[eventIndex];
+      if (seenIdentities.has(identity)) continue;
+      seenIdentities.add(identity);
+      active.push({
+        event,
+        startTime: delayed.startTime,
+        endTime: delayed.endTime,
+        slot: cache.eventSlots[eventIndex],
+        identity,
+      });
+    }
+    active.sort((a, b) => {
+      if (a.slot !== b.slot) return a.slot - b.slot;
+      return b.startTime - a.startTime;
+    });
+    return active;
   }
 
   private findActiveKeystrokeEvents(
     segment: VideoSegment,
     currentTime: number,
     duration: number
-  ): ActiveKeystrokePair | null {
+  ): ActiveKeystrokeLanes | null {
     const cache = this.rebuildKeystrokeRenderCache(segment, duration);
     if (!cache) return null;
     const visibilitySegments = cache.visibilityRef ?? [];
     if (!visibilitySegments.length) return null;
     const delaySec = this.getKeystrokeDelaySec(segment);
     if (!this.isTimeInsideSegments(currentTime, visibilitySegments)) return null;
-    const keyboard = this.findActiveKeystrokeEventForKind(cache, currentTime, delaySec, 'keyboard');
+    const keyboard = this.findActiveKeystrokeEventsForKind(cache, currentTime, delaySec, 'keyboard');
     const mouse = cache.mode === 'keyboardMouse'
-      ? this.findActiveKeystrokeEventForKind(cache, currentTime, delaySec, 'mouse')
-      : null;
+      ? this.findActiveKeystrokeEventsForKind(cache, currentTime, delaySec, 'mouse')
+      : [];
 
-    if (!keyboard && !mouse) return null;
+    if (!keyboard.length && !mouse.length) return null;
     return {
       keyboard,
       mouse,
@@ -3771,7 +3984,7 @@ export class VideoRenderer {
     const isMouse = event.type === 'mousedown' || event.type === 'wheel';
     const label = this.getKeystrokeLabel(event);
     const fontSize = Math.round(Math.max(16, Math.min(38, canvasHeight * 0.036)));
-    const paddingX = Math.round(fontSize * (isMouse ? 0.24 : 0.52));
+    const paddingX = Math.round(fontSize * 0.24);
     const paddingY = Math.round(fontSize * 0.38);
     const radius = Math.round(fontSize * 0.64);
     const marginBottom = Math.round(Math.max(14, canvasHeight * 0.06));
@@ -3825,6 +4038,35 @@ export class VideoRenderer {
     const measured = this.measureKeystrokeBubble(ctx, event, canvasHeight);
     this.keystrokeLayoutCache.set(cacheKey, measured);
     return measured;
+  }
+
+  private measureKeystrokeTextWidth(
+    ctx: CanvasRenderingContext2D,
+    label: string,
+    fontSize: number,
+    visual: KeystrokeVisualState
+  ): number {
+    ctx.save();
+    const originalVariations = ctx.canvas.style.fontVariationSettings;
+    this.applyKeystrokeFontVariations(ctx, visual);
+    ctx.font = `${Math.round(visual.wght)} ${fontSize}px 'Google Sans Flex', sans-serif`;
+    const width = ctx.measureText(label).width;
+    ctx.canvas.style.fontVariationSettings = originalVariations || 'normal';
+    ctx.restore();
+    return width;
+  }
+
+  private getKeystrokeBubbleWidthForVisual(
+    ctx: CanvasRenderingContext2D,
+    layout: KeystrokeBubbleLayout,
+    visual: KeystrokeVisualState
+  ): number {
+    const textWidth = this.measureKeystrokeTextWidth(ctx, layout.label, layout.fontSize, visual);
+    const rawWidth = textWidth + layout.iconBoxWidth + layout.iconGap + layout.paddingX * 2;
+    const minLabelWidth = layout.showMouseIcon
+      ? (layout.iconBoxWidth + layout.iconGap + layout.fontSize * 1.12 + layout.paddingX * 2)
+      : (layout.fontSize * 1.08 + layout.paddingX * 2);
+    return Math.ceil(Math.max(rawWidth, minLabelWidth));
   }
 
   private drawMouseIndicatorIcon(
@@ -3897,6 +4139,7 @@ export class VideoRenderer {
     showMouseIcon: boolean,
     iconBoxWidth: number,
     iconGap: number,
+    contentAlign: 'left' | 'center' | 'right' = 'center',
     alpha: number = 1,
     visual: KeystrokeVisualState = {
       alpha: 1,
@@ -3949,32 +4192,263 @@ export class VideoRenderer {
       const textX = paddingX + iconBoxWidth + iconGap;
       ctx.fillText(label, textX, height / 2);
     } else {
-      ctx.textAlign = 'center';
-      ctx.fillText(label, width / 2, height / 2);
+      if (contentAlign === 'right') {
+        ctx.textAlign = 'right';
+        ctx.fillText(label, width - paddingX, height / 2);
+      } else if (contentAlign === 'left') {
+        ctx.textAlign = 'left';
+        ctx.fillText(label, paddingX, height / 2);
+      } else {
+        ctx.textAlign = 'center';
+        ctx.fillText(label, width / 2, height / 2);
+      }
     }
     ctx.canvas.style.fontVariationSettings = originalVariations || 'normal';
     ctx.restore();
   }
 
   private getKeystrokePairGapPx(primaryFontSize: number, secondaryFontSize: number): number {
-    return Math.round(Math.max(10, Math.max(primaryFontSize, secondaryFontSize) * 0.55));
+    return Math.round(Math.max(14, Math.max(primaryFontSize, secondaryFontSize) * 0.58));
   }
 
-  private resolveKeystrokeBubbleCenterX(
-    eventType: KeystrokeEvent['type'],
-    baseCenterX: number,
-    ownLayout: KeystrokeBubbleLayout,
-    counterpartLayout: KeystrokeBubbleLayout | null,
-    counterpartLaneWeight: number
+  private getKeystrokeBarrierGapPx(
+    layoutA: KeystrokeBubbleLayout | null,
+    layoutB: KeystrokeBubbleLayout | null
   ): number {
-    if (!counterpartLayout) return baseCenterX;
-    const gap = this.getKeystrokePairGapPx(ownLayout.fontSize, counterpartLayout.fontSize);
-    const offset = counterpartLayout.width / 2 + gap / 2;
-    const target = this.isMouseKeystrokeType(eventType)
-      ? baseCenterX + offset
-      : baseCenterX - offset;
-    const laneWeight = this.easeOutCubic(this.clamp01(Math.max(counterpartLaneWeight, 0.26)));
-    return this.lerp(baseCenterX, target, laneWeight);
+    const fontA = layoutA?.fontSize ?? 16;
+    const fontB = layoutB?.fontSize ?? 16;
+    return this.getKeystrokePairGapPx(fontA, fontB);
+  }
+
+  private getKeystrokeLaneBubbleGapPx(fontSize: number): number {
+    return Math.round(Math.max(8, fontSize * 0.22));
+  }
+
+  private getKeystrokeSlotWidthHints(
+    ctx: CanvasRenderingContext2D,
+    cache: KeystrokeRenderCache,
+    kind: 'keyboard' | 'mouse',
+    canvasHeight: number,
+    laneItems: KeystrokeLaneRenderItem[]
+  ): number[] {
+    const representatives = kind === 'keyboard'
+      ? cache.keyboardSlotRepresentatives
+      : cache.mouseSlotRepresentatives;
+    const slotWidths: number[] = new Array(representatives.length);
+    const measuredWidths: number[] = [];
+
+    for (let slot = 0; slot < representatives.length; slot++) {
+      const eventIndex = representatives[slot];
+      if (typeof eventIndex !== 'number') continue;
+      const event = cache.displayEvents[eventIndex];
+      if (!event) continue;
+      const layout = this.getCachedKeystrokeBubbleLayout(ctx, event, canvasHeight);
+      slotWidths[slot] = layout.width;
+      measuredWidths.push(layout.width);
+    }
+
+    const laneAverage = laneItems.length > 0
+      ? laneItems.reduce((sum, item) => sum + item.bubbleWidth, 0) / laneItems.length
+      : 0;
+    const medianWidth = measuredWidths.length > 0
+      ? this.computePercentile(measuredWidths, 0.5)
+      : 0;
+    const fallbackWidth = medianWidth > 0
+      ? medianWidth
+      : (laneAverage > 0 ? laneAverage : Math.max(110, canvasHeight * 0.09));
+    const minWidth = Math.max(36, fallbackWidth * 0.56);
+    const maxWidth = Math.max(minWidth, fallbackWidth * 1.24);
+
+    for (let slot = 0; slot < slotWidths.length; slot++) {
+      const rawWidth = (typeof slotWidths[slot] === 'number' && !Number.isNaN(slotWidths[slot]))
+        ? slotWidths[slot]
+        : fallbackWidth;
+      slotWidths[slot] = Math.max(minWidth, Math.min(maxWidth, rawWidth));
+    }
+
+    return slotWidths;
+  }
+
+  private getKeystrokeSlotAdvancePx(
+    slotIndex: number,
+    bubbleGap: number,
+    slotWidthHints: number[],
+    fallbackSlotWidth: number
+  ): number {
+    const slotWidth = slotWidthHints[slotIndex] ?? fallbackSlotWidth;
+    const fullAdvance = slotWidth + bubbleGap;
+    if (slotIndex < KEYSTROKE_SLOT_SPARSE_GAP_LIMIT) {
+      return fullAdvance;
+    }
+    // Preserve stickiness but compress far slots to avoid runaway width.
+    const tailOffset = slotIndex - KEYSTROKE_SLOT_SPARSE_GAP_LIMIT + 1;
+    return fullAdvance * (0.64 / Math.sqrt(tailOffset));
+  }
+
+  private buildKeystrokeLaneRenderItems(
+    ctx: CanvasRenderingContext2D,
+    laneEvents: ActiveKeystrokeEvent[],
+    currentTime: number,
+    canvasHeight: number
+  ): KeystrokeLaneRenderItem[] {
+    const items: KeystrokeLaneRenderItem[] = [];
+    for (const active of laneEvents) {
+      const layout = this.getCachedKeystrokeBubbleLayout(ctx, active.event, canvasHeight);
+      const visual = this.getKeystrokeVisualState(
+        currentTime,
+        active.startTime,
+        active.endTime,
+        active.event.type,
+        Boolean(active.event.isHold)
+      );
+      if (visual.alpha <= 0.001) continue;
+      const bubbleWidth = this.getKeystrokeBubbleWidthForVisual(ctx, layout, visual);
+      items.push({
+        active,
+        layout,
+        visual,
+        bubbleWidth,
+      });
+    }
+    items.sort((a, b) => {
+      if (a.active.slot !== b.active.slot) return a.active.slot - b.active.slot;
+      return b.active.startTime - a.active.startTime;
+    });
+    return items;
+  }
+
+  private layoutKeystrokeLane(
+    laneItems: KeystrokeLaneRenderItem[],
+    canvasWidth: number,
+    canvasHeight: number,
+    laneGapPx: number,
+    align: 'left' | 'right',
+    slotWidthHints: number[]
+  ): KeystrokeLanePlacement[] {
+    if (!laneItems.length) return [];
+    const maxFont = laneItems.reduce((max, item) => Math.max(max, item.layout.fontSize), 16);
+    const marginX = Math.round(Math.max(10, maxFont * 0.34));
+    const leftBound = marginX;
+    const rightBound = Math.max(leftBound, canvasWidth - marginX);
+    const barrierX = canvasWidth / 2;
+    const centerAnchor = align === 'right'
+      ? barrierX - laneGapPx * 0.5
+      : barrierX + laneGapPx * 0.5;
+    const bubbleGap = this.getKeystrokeLaneBubbleGapPx(maxFont);
+    const hintAverage = slotWidthHints.length > 0
+      ? (slotWidthHints.reduce((sum, width) => sum + width, 0) / slotWidthHints.length)
+      : (laneItems.reduce((sum, item) => sum + item.bubbleWidth, 0) / laneItems.length);
+    const maxActiveSlot = laneItems.reduce((max, item) => Math.max(max, item.active.slot), 0);
+    const maxHintSlot = Math.max(0, slotWidthHints.length - 1);
+    const maxSlot = Math.max(maxActiveSlot, maxHintSlot);
+    const slotOffsets: number[] = new Array(maxSlot + 1).fill(0);
+    for (let slot = 1; slot <= maxSlot; slot++) {
+      slotOffsets[slot] = slotOffsets[slot - 1] + this.getKeystrokeSlotAdvancePx(
+        slot - 1,
+        bubbleGap,
+        slotWidthHints,
+        hintAverage
+      );
+    }
+    const maxRawOffset = slotOffsets[maxSlot] ?? 0;
+    const maxSpreadPx = Math.round(Math.max(150, Math.min(canvasWidth * 0.24, 290)));
+    if (maxRawOffset > maxSpreadPx) {
+      const preserveSlot = Math.min(2, maxSlot);
+      const preservePx = slotOffsets[preserveSlot] ?? 0;
+      const compressibleRaw = Math.max(0, maxRawOffset - preservePx);
+      const compressibleTarget = Math.max(0, maxSpreadPx - preservePx);
+      const compression = compressibleRaw > 0
+        ? this.clamp01(compressibleTarget / compressibleRaw)
+        : 1;
+      for (let slot = preserveSlot + 1; slot <= maxSlot; slot++) {
+        const raw = slotOffsets[slot];
+        slotOffsets[slot] = preservePx + ((raw - preservePx) * compression);
+      }
+    }
+
+    const placements: KeystrokeLanePlacement[] = laneItems.map((item) => {
+      const y = Math.round(canvasHeight - item.layout.height - item.layout.marginBottom);
+      const slotOffset = slotOffsets[item.active.slot] ?? 0;
+      if (align === 'right') {
+        const rightEdge = centerAnchor - slotOffset;
+        return {
+          item,
+          x: rightEdge - item.bubbleWidth,
+          y,
+          align,
+        };
+      }
+      const leftEdge = centerAnchor + slotOffset;
+      return {
+        item,
+        x: leftEdge,
+        y,
+        align,
+      };
+    });
+
+    if (align === 'right') {
+      for (let i = 1; i < placements.length; i++) {
+        const prev = placements[i - 1];
+        const cur = placements[i];
+        const pairGap = this.getKeystrokeLaneBubbleGapPx(
+          Math.max(prev.item.layout.fontSize, cur.item.layout.fontSize)
+        );
+        const maxAllowedX = prev.x - pairGap - cur.item.bubbleWidth;
+        if (cur.x > maxAllowedX) {
+          cur.x = maxAllowedX;
+        }
+      }
+      const leftMost = placements[placements.length - 1];
+      const overflow = leftBound - leftMost.x;
+      if (overflow > 0.001) {
+        let maxShift = Number.POSITIVE_INFINITY;
+        for (const placement of placements) {
+          const placementMaxX = Math.max(leftBound, rightBound - placement.item.bubbleWidth);
+          maxShift = Math.min(maxShift, placementMaxX - placement.x);
+        }
+        const shift = Math.max(0, Math.min(overflow, maxShift));
+        if (shift > 0.001) {
+          for (const placement of placements) {
+            placement.x += shift;
+          }
+        }
+      }
+    } else {
+      for (let i = 1; i < placements.length; i++) {
+        const prev = placements[i - 1];
+        const cur = placements[i];
+        const pairGap = this.getKeystrokeLaneBubbleGapPx(
+          Math.max(prev.item.layout.fontSize, cur.item.layout.fontSize)
+        );
+        const minAllowedX = prev.x + prev.item.bubbleWidth + pairGap;
+        if (cur.x < minAllowedX) {
+          cur.x = minAllowedX;
+        }
+      }
+      const rightMost = placements[placements.length - 1];
+      const rightMostEdge = rightMost.x + rightMost.item.bubbleWidth;
+      const overflow = rightMostEdge - rightBound;
+      if (overflow > 0.001) {
+        let maxLeftShift = Number.POSITIVE_INFINITY;
+        for (const placement of placements) {
+          maxLeftShift = Math.min(maxLeftShift, placement.x - leftBound);
+        }
+        const shift = Math.max(0, Math.min(overflow, maxLeftShift));
+        if (shift > 0.001) {
+          for (const placement of placements) {
+            placement.x -= shift;
+          }
+        }
+      }
+    }
+
+    for (const placement of placements) {
+      const maxX = Math.max(leftBound, rightBound - placement.item.bubbleWidth);
+      placement.x = Math.round(Math.max(leftBound, Math.min(maxX, placement.x)));
+    }
+
+    return placements;
   }
 
   private drawActiveKeystrokeOverlays(
@@ -3985,97 +4459,137 @@ export class VideoRenderer {
     canvasHeight: number,
     duration: number
   ) {
-    const activePair = this.findActiveKeystrokeEvents(segment, currentTime, duration);
-    if (!activePair) return;
+    const cache = this.rebuildKeystrokeRenderCache(segment, duration);
+    if (!cache) return;
+    const activeLanes = this.findActiveKeystrokeEvents(segment, currentTime, duration);
+    if (!activeLanes) return;
 
-    const keyboardActive = activePair.keyboard;
-    const mouseActive = activePair.mouse;
-    const keyboardLayout = keyboardActive
-      ? this.getCachedKeystrokeBubbleLayout(ctx, keyboardActive.event, canvasHeight)
-      : null;
-    const mouseLayout = mouseActive
-      ? this.getCachedKeystrokeBubbleLayout(ctx, mouseActive.event, canvasHeight)
-      : null;
-    const keyboardVisual = keyboardActive
-      ? this.getKeystrokeVisualState(
-          currentTime,
-          keyboardActive.startTime,
-          keyboardActive.endTime,
-          keyboardActive.event.type,
-          Boolean(keyboardActive.event.isHold)
-        )
-      : null;
-    const mouseVisual = mouseActive
-      ? this.getKeystrokeVisualState(
-          currentTime,
-          mouseActive.startTime,
-          mouseActive.endTime,
-          mouseActive.event.type,
-          Boolean(mouseActive.event.isHold)
-        )
-      : null;
+    const keyboardItems = this.buildKeystrokeLaneRenderItems(
+      ctx,
+      activeLanes.keyboard,
+      currentTime,
+      canvasHeight
+    );
+    const mouseItems = this.buildKeystrokeLaneRenderItems(
+      ctx,
+      activeLanes.mouse,
+      currentTime,
+      canvasHeight
+    );
+    if (!keyboardItems.length && !mouseItems.length) return;
 
-    const keyboardPresence = keyboardVisual?.laneWeight ?? 0;
-    const mousePresence = mouseVisual?.laneWeight ?? 0;
-    const baseCenterX = canvasWidth / 2;
+    const laneGapPx = this.getKeystrokeBarrierGapPx(
+      keyboardItems[0]?.layout ?? null,
+      mouseItems[0]?.layout ?? null
+    );
+    const keyboardSlotWidths = this.getKeystrokeSlotWidthHints(
+      ctx,
+      cache,
+      'keyboard',
+      canvasHeight,
+      keyboardItems
+    );
+    const mouseSlotWidths = this.getKeystrokeSlotWidthHints(
+      ctx,
+      cache,
+      'mouse',
+      canvasHeight,
+      mouseItems
+    );
+    const keyboardPlacements = this.layoutKeystrokeLane(
+      keyboardItems,
+      canvasWidth,
+      canvasHeight,
+      laneGapPx,
+      'right',
+      keyboardSlotWidths
+    );
+    const mousePlacements = this.layoutKeystrokeLane(
+      mouseItems,
+      canvasWidth,
+      canvasHeight,
+      laneGapPx,
+      'left',
+      mouseSlotWidths
+    );
+    const drawPlacements = (placements: KeystrokeLanePlacement[]) => {
+      for (let index = placements.length - 1; index >= 0; index--) {
+        const placement = placements[index];
+        this.drawKeystrokeBubble(
+          ctx,
+          placement.item.active.event,
+          placement.x,
+          placement.y,
+          placement.item.bubbleWidth,
+          placement.item.layout.height,
+          placement.item.layout.label,
+          placement.item.layout.fontSize,
+          placement.item.layout.radius,
+          placement.item.layout.paddingX,
+          placement.item.layout.showMouseIcon,
+          placement.item.layout.iconBoxWidth,
+          placement.item.layout.iconGap,
+          placement.align,
+          1,
+          placement.item.visual
+        );
+      }
+    };
 
-    if (keyboardActive && keyboardLayout && keyboardVisual) {
-      const keyboardCenterX = this.resolveKeystrokeBubbleCenterX(
-        keyboardActive.event.type,
-        baseCenterX,
-        keyboardLayout,
-        mouseLayout,
-        mousePresence
-      );
-      const x = Math.round(keyboardCenterX - keyboardLayout.width / 2);
-      const y = Math.round(canvasHeight - keyboardLayout.height - keyboardLayout.marginBottom);
-      this.drawKeystrokeBubble(
-        ctx,
-        keyboardActive.event,
-        x,
-        y,
-        keyboardLayout.width,
-        keyboardLayout.height,
-        keyboardLayout.label,
-        keyboardLayout.fontSize,
-        keyboardLayout.radius,
-        keyboardLayout.paddingX,
-        keyboardLayout.showMouseIcon,
-        keyboardLayout.iconBoxWidth,
-        keyboardLayout.iconGap,
-        1,
-        keyboardVisual
-      );
-    }
+    drawPlacements(keyboardPlacements);
+    drawPlacements(mousePlacements);
+  }
 
-    if (mouseActive && mouseLayout && mouseVisual) {
-      const mouseCenterX = this.resolveKeystrokeBubbleCenterX(
-        mouseActive.event.type,
-        baseCenterX,
-        mouseLayout,
-        keyboardLayout,
-        keyboardPresence
-      );
-      const x = Math.round(mouseCenterX - mouseLayout.width / 2);
-      const y = Math.round(canvasHeight - mouseLayout.height - mouseLayout.marginBottom);
-      this.drawKeystrokeBubble(
-        ctx,
-        mouseActive.event,
-        x,
-        y,
-        mouseLayout.width,
-        mouseLayout.height,
-        mouseLayout.label,
-        mouseLayout.fontSize,
-        mouseLayout.radius,
-        mouseLayout.paddingX,
-        mouseLayout.showMouseIcon,
-        mouseLayout.iconBoxWidth,
-        mouseLayout.iconGap,
-        1,
-        mouseVisual
-      );
-    }
+  private buildActiveKeystrokeFrameLayout(
+    ctx: CanvasRenderingContext2D,
+    cache: KeystrokeRenderCache,
+    sampleTime: number,
+    delaySec: number,
+    canvasWidth: number,
+    canvasHeight: number
+  ): ActiveKeystrokeFrameLayout {
+    const keyboard = this.findActiveKeystrokeEventsForKind(cache, sampleTime, delaySec, 'keyboard');
+    const mouse = cache.mode === 'keyboardMouse'
+      ? this.findActiveKeystrokeEventsForKind(cache, sampleTime, delaySec, 'mouse')
+      : [];
+    const keyboardItems = this.buildKeystrokeLaneRenderItems(ctx, keyboard, sampleTime, canvasHeight);
+    const mouseItems = this.buildKeystrokeLaneRenderItems(ctx, mouse, sampleTime, canvasHeight);
+    const laneGapPx = this.getKeystrokeBarrierGapPx(
+      keyboardItems[0]?.layout ?? null,
+      mouseItems[0]?.layout ?? null
+    );
+    const keyboardSlotWidths = this.getKeystrokeSlotWidthHints(
+      ctx,
+      cache,
+      'keyboard',
+      canvasHeight,
+      keyboardItems
+    );
+    const mouseSlotWidths = this.getKeystrokeSlotWidthHints(
+      ctx,
+      cache,
+      'mouse',
+      canvasHeight,
+      mouseItems
+    );
+    return {
+      keyboard: this.layoutKeystrokeLane(
+        keyboardItems,
+        canvasWidth,
+        canvasHeight,
+        laneGapPx,
+        'right',
+        keyboardSlotWidths
+      ),
+      mouse: this.layoutKeystrokeLane(
+        mouseItems,
+        canvasWidth,
+        canvasHeight,
+        laneGapPx,
+        'left',
+        mouseSlotWidths
+      ),
+    };
   }
 
   private drawTextOverlay(
@@ -4509,6 +5023,8 @@ export class VideoRenderer {
     }
     let bakeCtx: CanvasRenderingContext2D = initialBakeCtx;
     const bitmapCache = new Map<string, string>();
+    const activeLaneCache = new Map<number, ActiveKeystrokeFrameLayout>();
+    const safeFps = Math.max(1, Math.round(fps));
 
     try {
       for (let i = 0; i < events.length; i++) {
@@ -4516,20 +5032,6 @@ export class VideoRenderer {
         const effectiveEndRaw = cache.effectiveEnds[i];
         const delayedRange = this.getDelayedKeystrokeRange(event.startTime, effectiveEndRaw, delaySec);
         if (delayedRange.endTime - delayedRange.startTime <= 0.001) continue;
-
-        const layout = this.measureKeystrokeBubble(bakeCtx, event, outputHeight);
-        if (layout.width <= 0 || layout.height <= 0) continue;
-        const bakePadding = this.getKeystrokeBakePadding(layout);
-        const drawWidth = layout.width + bakePadding * 2;
-        const drawHeight = layout.height + bakePadding * 2;
-
-        if (bakeCanvas.width !== drawWidth || bakeCanvas.height !== drawHeight) {
-          bakeCanvas.width = drawWidth;
-          bakeCanvas.height = drawHeight;
-          const resizedBakeCtx = bakeCanvas.getContext('2d', { willReadFrequently: true });
-          if (!resizedBakeCtx) continue;
-          bakeCtx = resizedBakeCtx;
-        }
 
         const visibleIntervals = this.intersectIntervalWithSegments(
           delayedRange.startTime,
@@ -4544,52 +5046,51 @@ export class VideoRenderer {
             fps
           );
           for (const slice of slices) {
-            const visual = this.getKeystrokeVisualState(
-              slice.sampleTime,
-              delayedRange.startTime,
-              delayedRange.endTime,
-              event.type,
-              Boolean(event.isHold)
-            );
-            if (visual.alpha <= 0.001) continue;
+            const frameKey = Math.floor(slice.sampleTime * safeFps + 0.000001);
+            let frameLayout = activeLaneCache.get(frameKey);
+            if (!frameLayout) {
+              frameLayout = this.buildActiveKeystrokeFrameLayout(
+                bakeCtx,
+                cache,
+                slice.sampleTime,
+                delaySec,
+                outputWidth,
+                outputHeight
+              );
+              activeLaneCache.set(frameKey, frameLayout);
+            }
 
-            const counterpartKind = this.isMouseKeystrokeType(event.type) ? 'keyboard' : 'mouse';
-            const counterpart = cache.mode === 'keyboardMouse'
-              ? this.findActiveKeystrokeEventForKind(cache, slice.sampleTime, delaySec, counterpartKind)
-              : null;
-            const counterpartLayout = counterpart
-              ? this.measureKeystrokeBubble(bakeCtx, counterpart.event, outputHeight)
-              : null;
-            const counterpartVisual = counterpart
-              ? this.getKeystrokeVisualState(
-                  slice.sampleTime,
-                  counterpart.startTime,
-                  counterpart.endTime,
-                  counterpart.event.type,
-                  Boolean(counterpart.event.isHold)
-                )
-              : null;
-            const counterpartPresence = counterpartVisual?.laneWeight ?? 0;
-            const centerX = outputWidth / 2;
-            const pillCenterX = this.resolveKeystrokeBubbleCenterX(
-              event.type,
-              centerX,
-              layout,
-              counterpartLayout,
-              counterpartPresence
+            const lanePlacements = event.type === 'keyboard'
+              ? frameLayout.keyboard
+              : frameLayout.mouse;
+            const placement = lanePlacements.find(
+              (candidate) => candidate.item.active.event.id === event.id
             );
-            const x = Math.round(pillCenterX - layout.width / 2);
-            const y = Math.round(outputHeight - layout.height - layout.marginBottom);
-            const bitmapKey = this.getKeystrokeBakeVisualKey(event, visual, drawWidth, drawHeight);
+            if (!placement) continue;
+            const laneEvent = placement.item.active.event;
+            const layout = placement.item.layout;
+            const visual = placement.item.visual;
+            const bubbleWidth = placement.item.bubbleWidth;
+            const bakePadding = this.getKeystrokeBakePadding(layout);
+            const drawWidth = bubbleWidth + bakePadding * 2;
+            const drawHeight = layout.height + bakePadding * 2;
+            if (bakeCanvas.width !== drawWidth || bakeCanvas.height !== drawHeight) {
+              bakeCanvas.width = drawWidth;
+              bakeCanvas.height = drawHeight;
+              const resizedBakeCtx = bakeCanvas.getContext('2d', { willReadFrequently: true });
+              if (!resizedBakeCtx) continue;
+              bakeCtx = resizedBakeCtx;
+            }
+            const bitmapKey = this.getKeystrokeBakeVisualKey(laneEvent, visual, drawWidth, drawHeight);
             let data = bitmapCache.get(bitmapKey);
             if (!data) {
               bakeCtx.clearRect(0, 0, drawWidth, drawHeight);
               this.drawKeystrokeBubble(
                 bakeCtx,
-                event,
+                laneEvent,
                 bakePadding,
                 bakePadding,
-                layout.width,
+                bubbleWidth,
                 layout.height,
                 layout.label,
                 layout.fontSize,
@@ -4598,6 +5099,7 @@ export class VideoRenderer {
                 layout.showMouseIcon,
                 layout.iconBoxWidth,
                 layout.iconGap,
+                placement.align,
                 1,
                 visual
               );
@@ -4610,8 +5112,8 @@ export class VideoRenderer {
               this.pushMergedKeystrokeOverlay(result, {
                 startTime: range.start,
                 endTime: range.end,
-                x: x - bakePadding,
-                y: y - bakePadding,
+                x: placement.x - bakePadding,
+                y: placement.y - bakePadding,
                 width: drawWidth,
                 height: drawHeight,
                 data

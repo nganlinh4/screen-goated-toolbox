@@ -19,7 +19,7 @@ import {
   rebuildKeystrokeVisibilitySegmentsForMode
 } from '@/lib/keystrokeVisibility';
 
-const DEFAULT_KEYSTROKE_DELAY_SEC = -0.65;
+const DEFAULT_KEYSTROKE_DELAY_SEC = -0.33;
 
 // ============================================================================
 // useVideoPlayback

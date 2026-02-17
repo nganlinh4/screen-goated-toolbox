@@ -3,6 +3,7 @@ import { mergePointerSegments } from '@/lib/cursorHiding';
 
 export const KEYSTROKE_VISIBILITY_MARGIN_BEFORE = 0.04;
 export const KEYSTROKE_VISIBILITY_MARGIN_AFTER = 0.08;
+export const KEYSTROKE_SAME_LANE_OVERLAP_SEC = 0.18;
 const MIN_GAP_TO_MERGE = 0.2;
 type ActiveKeystrokeMode = Exclude<KeystrokeMode, 'off'>;
 
@@ -74,7 +75,10 @@ export function generateKeystrokeVisibilitySegments(
     const nextStart = mode === 'keyboardMouse'
       ? (event.type === 'keyboard' ? nextKeyboardStart : nextMouseStart)
       : nextAnyStart;
-    effectiveEnds[i] = Math.min(event.endTime, nextStart, safeDuration);
+    const overlapLimitedEnd = Number.isFinite(nextStart)
+      ? nextStart + KEYSTROKE_SAME_LANE_OVERLAP_SEC
+      : Number.POSITIVE_INFINITY;
+    effectiveEnds[i] = Math.min(event.endTime, overlapLimitedEnd, safeDuration);
     nextAnyStart = event.startTime;
     if (event.type === 'keyboard') {
       nextKeyboardStart = event.startTime;
