@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import { Wand2, MousePointer2, Volume2, Keyboard } from "lucide-react";
 import "./App.css";
 import { Button } from "@/components/ui/button";
-import { videoRenderer } from '@/lib/videoRenderer';
+import { videoRenderer, type KeystrokeOverlayEditBounds } from '@/lib/videoRenderer';
 import { BackgroundConfig, MousePosition, VideoSegment, KeystrokeMode } from '@/types/video';
 import { projectManager } from '@/lib/projectManager';
 import { TimelineArea } from '@/components/timeline';
@@ -117,6 +117,20 @@ function App() {
   const wheelBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreImageRef = useRef<string | null>(null);
   const projectSaveSeqRef = useRef(0);
+  const segmentRef = useRef<VideoSegment | null>(null);
+  const isDraggingKeystrokeOverlayRef = useRef(false);
+  const isResizingKeystrokeOverlayRef = useRef(false);
+  const keystrokeOverlayDragStartRef = useRef<{
+    pointerX: number;
+    pointerY: number;
+    anchorXPx: number;
+    baselineYPx: number;
+    startScale: number;
+    centerX: number;
+    centerY: number;
+    startRadius: number;
+  } | null>(null);
+  const [isKeystrokeOverlaySelected, setIsKeystrokeOverlaySelected] = useState(false);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback((event: string, data?: Record<string, unknown>) => {
@@ -196,6 +210,10 @@ function App() {
   const { editingPointerId, setEditingPointerId, handleSmartPointerHiding,
     handleAddPointerSegment, handleDeletePointerSegment } = cursorHiding;
   const isOverlayMode = projects.showProjectsDialog || isCropping;
+
+  useEffect(() => {
+    segmentRef.current = segment;
+  }, [segment]);
 
   // Persist last-used background config so new projects inherit previous project settings.
   useEffect(() => {
@@ -298,6 +316,37 @@ function App() {
     if (duration > 0) return duration;
     return segmentDuration;
   }, [duration]);
+
+  const keystrokeOverlayEditBounds = useMemo<KeystrokeOverlayEditBounds | null>(() => {
+    if (!segment || !canvasRef.current || (segment.keystrokeMode ?? 'off') === 'off') return null;
+    return videoRenderer.getKeystrokeOverlayEditBounds(
+      segment,
+      canvasRef.current,
+      currentTime,
+      getKeystrokeTimelineDuration(segment)
+    );
+  }, [segment, currentTime, getKeystrokeTimelineDuration]);
+
+  const keystrokeOverlayEditFrame = useMemo(() => {
+    if (!keystrokeOverlayEditBounds || !canvasRef.current || !previewContainerRef.current) return null;
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const previewRect = previewContainerRef.current.getBoundingClientRect();
+    const scaleX = canvasRect.width / Math.max(1, canvasRef.current.width);
+    const scaleY = canvasRect.height / Math.max(1, canvasRef.current.height);
+    return {
+      left: (canvasRect.left - previewRect.left) + keystrokeOverlayEditBounds.x * scaleX,
+      top: (canvasRect.top - previewRect.top) + keystrokeOverlayEditBounds.y * scaleY,
+      width: keystrokeOverlayEditBounds.width * scaleX,
+      height: keystrokeOverlayEditBounds.height * scaleY,
+      handleSize: Math.max(8, keystrokeOverlayEditBounds.handleSize * Math.min(scaleX, scaleY)),
+    };
+  }, [keystrokeOverlayEditBounds]);
+
+  useEffect(() => {
+    if (!segment || (segment.keystrokeMode ?? 'off') === 'off') {
+      setIsKeystrokeOverlaySelected(false);
+    }
+  }, [segment]);
 
   const handleAddKeystrokeSegment = useCallback((atTime?: number) => {
     if (!segment || (segment.keystrokeMode ?? 'off') === 'off') return;
@@ -636,6 +685,7 @@ function App() {
           keystrokeEvents: [],
           keyboardVisibilitySegments: [],
           keyboardMouseVisibilitySegments: [],
+          keystrokeOverlay: { x: 50, y: 100, scale: 1 },
         };
         setSegment(initialSegment);
       setTimeout(() => {
@@ -668,16 +718,110 @@ function App() {
     const canvas = canvasRef.current;
     if (!canvas || !segment) return;
     const onDown = (e: MouseEvent) => {
+      const liveSegment = segmentRef.current;
+      if (!liveSegment) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+      const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+      const keystrokeMode = liveSegment.keystrokeMode ?? 'off';
+      if (keystrokeMode !== 'off') {
+        const editBounds = videoRenderer.getKeystrokeOverlayEditBounds(
+          liveSegment,
+          canvas,
+          currentTime,
+          getKeystrokeTimelineDuration(liveSegment)
+        );
+        if (editBounds) {
+          const handleSize = editBounds.handleSize;
+          const handleX = editBounds.x + editBounds.width - handleSize;
+          const handleY = editBounds.y + editBounds.height - handleSize;
+          const inBox = x >= editBounds.x && x <= editBounds.x + editBounds.width
+            && y >= editBounds.y && y <= editBounds.y + editBounds.height;
+          const inHandle = x >= handleX && x <= handleX + handleSize
+            && y >= handleY && y <= handleY + handleSize;
+          if (inBox || inHandle) {
+            const overlay = videoRenderer.getKeystrokeOverlayConfig(liveSegment);
+            const anchorXPx = (overlay.x / 100) * canvas.width;
+            const baselineYPx = (overlay.y / 100) * canvas.height;
+            const centerX = editBounds.x + editBounds.width / 2;
+            const centerY = editBounds.y + editBounds.height / 2;
+            const radius = Math.max(6, Math.hypot(x - centerX, y - centerY));
+            keystrokeOverlayDragStartRef.current = {
+              pointerX: x,
+              pointerY: y,
+              anchorXPx,
+              baselineYPx,
+              startScale: overlay.scale,
+              centerX,
+              centerY,
+              startRadius: radius,
+            };
+            isDraggingKeystrokeOverlayRef.current = !inHandle;
+            isResizingKeystrokeOverlayRef.current = inHandle;
+            setIsKeystrokeOverlaySelected(true);
+            beginBatch();
+            e.stopPropagation();
+            e.preventDefault();
+            return;
+          }
+        }
+      }
       const hitId = videoRenderer.handleMouseDown(e, segment, canvas);
       if (hitId) {
         e.stopPropagation();
         e.preventDefault();
         setEditingTextId(hitId);
         setActivePanel('text');
+        setIsKeystrokeOverlaySelected(false);
+      } else {
+        setIsKeystrokeOverlaySelected(false);
       }
     };
-    const onMove = (e: MouseEvent) => videoRenderer.handleMouseMove(e, segment, canvas, handleTextDragMove);
-    const onUp = () => videoRenderer.handleMouseUp();
+    const onMove = (e: MouseEvent) => {
+      const dragState = keystrokeOverlayDragStartRef.current;
+      if (dragState && (isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current)) {
+        const liveSegment = segmentRef.current;
+        if (!liveSegment) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+        if (isDraggingKeystrokeOverlayRef.current) {
+          const dx = x - dragState.pointerX;
+          const dy = y - dragState.pointerY;
+          const nextX = Math.max(0, Math.min(100, ((dragState.anchorXPx + dx) / canvas.width) * 100));
+          const nextY = Math.max(0, Math.min(100, ((dragState.baselineYPx + dy) / canvas.height) * 100));
+          setSegment({
+            ...liveSegment,
+            keystrokeOverlay: {
+              ...videoRenderer.getKeystrokeOverlayConfig(liveSegment),
+              x: nextX,
+              y: nextY,
+            },
+          });
+        } else if (isResizingKeystrokeOverlayRef.current) {
+          const radius = Math.max(6, Math.hypot(x - dragState.centerX, y - dragState.centerY));
+          const ratio = radius / Math.max(6, dragState.startRadius);
+          const nextScale = Math.max(0.45, Math.min(2.4, dragState.startScale * ratio));
+          setSegment({
+            ...liveSegment,
+            keystrokeOverlay: {
+              ...videoRenderer.getKeystrokeOverlayConfig(liveSegment),
+              scale: nextScale,
+            },
+          });
+        }
+        return;
+      }
+      videoRenderer.handleMouseMove(e, segment, canvas, handleTextDragMove);
+    };
+    const onUp = () => {
+      const wasOverlayEditing = isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current;
+      isDraggingKeystrokeOverlayRef.current = false;
+      isResizingKeystrokeOverlayRef.current = false;
+      keystrokeOverlayDragStartRef.current = null;
+      if (wasOverlayEditing) commitBatch();
+      videoRenderer.handleMouseUp();
+    };
     canvas.addEventListener('mousedown', onDown);
     canvas.addEventListener('mousemove', onMove);
     canvas.addEventListener('mouseup', onUp);
@@ -688,7 +832,7 @@ function App() {
       canvas.removeEventListener('mouseup', onUp);
       canvas.removeEventListener('mouseleave', onUp);
     };
-  }, [segment, handleTextDragMove, canvasRef, setEditingTextId, setActivePanel]);
+  }, [segment, handleTextDragMove, canvasRef, setEditingTextId, setActivePanel, beginBatch, commitBatch, currentTime, getKeystrokeTimelineDuration, setSegment]);
 
   return (
     <SettingsContext.Provider value={settings}>
@@ -720,6 +864,28 @@ function App() {
                 <canvas ref={tempCanvasRef} className="hidden" />
                 <video ref={videoRef} className="hidden" playsInline preload="auto" />
                 <audio ref={audioRef} className="hidden" />
+                {keystrokeOverlayEditFrame && (isKeystrokeOverlaySelected || isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current) && (
+                  <div
+                    className="keystroke-overlay-edit-frame absolute z-30 pointer-events-none"
+                    style={{
+                      left: `${keystrokeOverlayEditFrame.left}px`,
+                      top: `${keystrokeOverlayEditFrame.top}px`,
+                      width: `${keystrokeOverlayEditFrame.width}px`,
+                      height: `${keystrokeOverlayEditFrame.height}px`,
+                    }}
+                  >
+                    <div className="keystroke-overlay-edit-outline absolute inset-0 rounded-lg border border-emerald-300/85 bg-emerald-400/8 shadow-[0_0_0_1px_rgba(0,0,0,0.28)]" />
+                    <div
+                      className="keystroke-overlay-edit-handle absolute rounded-sm border border-emerald-100/90 bg-emerald-300/95 shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+                      style={{
+                        width: `${keystrokeOverlayEditFrame.handleSize}px`,
+                        height: `${keystrokeOverlayEditFrame.handleSize}px`,
+                        right: `${Math.max(-keystrokeOverlayEditFrame.handleSize * 0.35, -6)}px`,
+                        bottom: `${Math.max(-keystrokeOverlayEditFrame.handleSize * 0.35, -6)}px`,
+                      }}
+                    />
+                  </div>
+                )}
 
                 {(!currentVideo || isLoadingVideo) && (
                   <Placeholder isLoadingVideo={isLoadingVideo} loadingProgress={loadingProgress}

@@ -81,6 +81,12 @@ export interface KeystrokeEvent {
   direction?: 'up' | 'down' | 'none';
 }
 
+export interface KeystrokeOverlayConfig {
+  x: number; // 0-100 (% of canvas width), lane barrier anchor
+  y: number; // 0-100 (% of canvas height), baseline anchor
+  scale: number; // uniform scale
+}
+
 export interface CropRect {
   x: number; // 0-1
   y: number; // 0-1
@@ -108,6 +114,7 @@ export interface VideoSegment {
   keystrokeEvents?: KeystrokeEvent[];
   keyboardVisibilitySegments?: CursorVisibilitySegment[];
   keyboardMouseVisibilitySegments?: CursorVisibilitySegment[];
+  keystrokeOverlay?: KeystrokeOverlayConfig;
   crop?: CropRect;
 }
 

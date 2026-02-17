@@ -22,6 +22,11 @@ const DEFAULT_KEYSTROKE_DELAY_SEC = -0.33;
 const KEYSTROKE_ANIM_ENTER_SEC = 0.18;
 const KEYSTROKE_ANIM_EXIT_SEC = 0.2;
 const KEYSTROKE_SLOT_SPARSE_GAP_LIMIT = 2;
+const DEFAULT_KEYSTROKE_OVERLAY_X = 50;
+const DEFAULT_KEYSTROKE_OVERLAY_Y = 100;
+const DEFAULT_KEYSTROKE_OVERLAY_SCALE = 1;
+const KEYSTROKE_OVERLAY_MIN_SCALE = 0.45;
+const KEYSTROKE_OVERLAY_MAX_SCALE = 2.4;
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -203,6 +208,20 @@ interface KeystrokeLanePlacement {
 interface ActiveKeystrokeFrameLayout {
   keyboard: KeystrokeLanePlacement[];
   mouse: KeystrokeLanePlacement[];
+}
+
+interface KeystrokeOverlayTransform {
+  anchorXPx: number;
+  baselineYPx: number;
+  scale: number;
+}
+
+export interface KeystrokeOverlayEditBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  handleSize: number;
 }
 
 export class VideoRenderer {
@@ -3720,6 +3739,30 @@ export class VideoRenderer {
     return Math.max(-1, Math.min(1, raw));
   }
 
+  public getKeystrokeOverlayConfig(segment: VideoSegment): { x: number; y: number; scale: number } {
+    const raw = segment.keystrokeOverlay;
+    return {
+      x: typeof raw?.x === 'number' ? Math.max(0, Math.min(100, raw.x)) : DEFAULT_KEYSTROKE_OVERLAY_X,
+      y: typeof raw?.y === 'number' ? Math.max(0, Math.min(100, raw.y)) : DEFAULT_KEYSTROKE_OVERLAY_Y,
+      scale: typeof raw?.scale === 'number' && Number.isFinite(raw.scale)
+        ? Math.max(KEYSTROKE_OVERLAY_MIN_SCALE, Math.min(KEYSTROKE_OVERLAY_MAX_SCALE, raw.scale))
+        : DEFAULT_KEYSTROKE_OVERLAY_SCALE,
+    };
+  }
+
+  private getKeystrokeOverlayTransform(
+    segment: VideoSegment,
+    canvasWidth: number,
+    canvasHeight: number
+  ): KeystrokeOverlayTransform {
+    const overlay = this.getKeystrokeOverlayConfig(segment);
+    return {
+      anchorXPx: (overlay.x / 100) * canvasWidth,
+      baselineYPx: (overlay.y / 100) * canvasHeight,
+      scale: overlay.scale,
+    };
+  }
+
   private getDelayedKeystrokeRange(
     startTime: number,
     endTime: number,
@@ -3979,11 +4022,13 @@ export class VideoRenderer {
   private measureKeystrokeBubble(
     ctx: CanvasRenderingContext2D,
     event: KeystrokeEvent,
-    canvasHeight: number
+    canvasHeight: number,
+    overlayScale: number
   ): KeystrokeBubbleLayout {
     const isMouse = event.type === 'mousedown' || event.type === 'wheel';
     const label = this.getKeystrokeLabel(event);
-    const fontSize = Math.round(Math.max(16, Math.min(38, canvasHeight * 0.036)));
+    const safeScale = Math.max(KEYSTROKE_OVERLAY_MIN_SCALE, Math.min(KEYSTROKE_OVERLAY_MAX_SCALE, overlayScale));
+    const fontSize = Math.round(Math.max(16, Math.min(38, canvasHeight * 0.036)) * safeScale);
     const paddingX = Math.round(fontSize * 0.24);
     const paddingY = Math.round(fontSize * 0.38);
     const radius = Math.round(fontSize * 0.64);
@@ -4030,12 +4075,13 @@ export class VideoRenderer {
   private getCachedKeystrokeBubbleLayout(
     ctx: CanvasRenderingContext2D,
     event: KeystrokeEvent,
-    canvasHeight: number
+    canvasHeight: number,
+    overlayScale: number
   ): KeystrokeBubbleLayout {
-    const cacheKey = `${event.id}@${Math.round(canvasHeight)}`;
+    const cacheKey = `${event.id}@${Math.round(canvasHeight)}@${overlayScale.toFixed(3)}`;
     const cached = this.keystrokeLayoutCache.get(cacheKey);
     if (cached) return cached;
-    const measured = this.measureKeystrokeBubble(ctx, event, canvasHeight);
+    const measured = this.measureKeystrokeBubble(ctx, event, canvasHeight, overlayScale);
     this.keystrokeLayoutCache.set(cacheKey, measured);
     return measured;
   }
@@ -4229,7 +4275,8 @@ export class VideoRenderer {
     cache: KeystrokeRenderCache,
     kind: 'keyboard' | 'mouse',
     canvasHeight: number,
-    laneItems: KeystrokeLaneRenderItem[]
+    laneItems: KeystrokeLaneRenderItem[],
+    overlayScale: number
   ): number[] {
     const representatives = kind === 'keyboard'
       ? cache.keyboardSlotRepresentatives
@@ -4242,7 +4289,7 @@ export class VideoRenderer {
       if (typeof eventIndex !== 'number') continue;
       const event = cache.displayEvents[eventIndex];
       if (!event) continue;
-      const layout = this.getCachedKeystrokeBubbleLayout(ctx, event, canvasHeight);
+      const layout = this.getCachedKeystrokeBubbleLayout(ctx, event, canvasHeight, overlayScale);
       slotWidths[slot] = layout.width;
       measuredWidths.push(layout.width);
     }
@@ -4289,11 +4336,12 @@ export class VideoRenderer {
     ctx: CanvasRenderingContext2D,
     laneEvents: ActiveKeystrokeEvent[],
     currentTime: number,
-    canvasHeight: number
+    canvasHeight: number,
+    overlayScale: number
   ): KeystrokeLaneRenderItem[] {
     const items: KeystrokeLaneRenderItem[] = [];
     for (const active of laneEvents) {
-      const layout = this.getCachedKeystrokeBubbleLayout(ctx, active.event, canvasHeight);
+      const layout = this.getCachedKeystrokeBubbleLayout(ctx, active.event, canvasHeight, overlayScale);
       const visual = this.getKeystrokeVisualState(
         currentTime,
         active.startTime,
@@ -4320,17 +4368,19 @@ export class VideoRenderer {
   private layoutKeystrokeLane(
     laneItems: KeystrokeLaneRenderItem[],
     canvasWidth: number,
-    canvasHeight: number,
+    _canvasHeight: number,
     laneGapPx: number,
     align: 'left' | 'right',
-    slotWidthHints: number[]
+    slotWidthHints: number[],
+    anchorXPx: number,
+    baselineYPx: number
   ): KeystrokeLanePlacement[] {
     if (!laneItems.length) return [];
     const maxFont = laneItems.reduce((max, item) => Math.max(max, item.layout.fontSize), 16);
     const marginX = Math.round(Math.max(10, maxFont * 0.34));
     const leftBound = marginX;
     const rightBound = Math.max(leftBound, canvasWidth - marginX);
-    const barrierX = canvasWidth / 2;
+    const barrierX = anchorXPx;
     const centerAnchor = align === 'right'
       ? barrierX - laneGapPx * 0.5
       : barrierX + laneGapPx * 0.5;
@@ -4367,7 +4417,7 @@ export class VideoRenderer {
     }
 
     const placements: KeystrokeLanePlacement[] = laneItems.map((item) => {
-      const y = Math.round(canvasHeight - item.layout.height - item.layout.marginBottom);
+      const y = Math.round(baselineYPx - item.layout.height - item.layout.marginBottom);
       const slotOffset = slotOffsets[item.active.slot] ?? 0;
       if (align === 'right') {
         const rightEdge = centerAnchor - slotOffset;
@@ -4451,6 +4501,114 @@ export class VideoRenderer {
     return placements;
   }
 
+  private getKeystrokeOverlayBoundsFromPlacements(
+    keyboardPlacements: KeystrokeLanePlacement[],
+    mousePlacements: KeystrokeLanePlacement[]
+  ): { x: number; y: number; width: number; height: number } | null {
+    const all = [...keyboardPlacements, ...mousePlacements];
+    if (!all.length) return null;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const placement of all) {
+      minX = Math.min(minX, placement.x);
+      minY = Math.min(minY, placement.y);
+      maxX = Math.max(maxX, placement.x + placement.item.bubbleWidth);
+      maxY = Math.max(maxY, placement.y + placement.item.layout.height);
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return null;
+    }
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(1, maxX - minX),
+      height: Math.max(1, maxY - minY),
+    };
+  }
+
+  public getKeystrokeOverlayEditBounds(
+    segment: VideoSegment,
+    canvas: HTMLCanvasElement,
+    currentTime: number,
+    duration: number
+  ): KeystrokeOverlayEditBounds | null {
+    const mode = segment.keystrokeMode ?? 'off';
+    if (mode === 'off') return null;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    const safeDuration = Math.max(0, duration);
+    const cache = this.rebuildKeystrokeRenderCache(segment, safeDuration);
+    if (!cache) return null;
+    const overlayTransform = this.getKeystrokeOverlayTransform(segment, canvas.width, canvas.height);
+    const delaySec = this.getKeystrokeDelaySec(segment);
+    const keyboard = this.findActiveKeystrokeEventsForKind(cache, currentTime, delaySec, 'keyboard');
+    const mouse = mode === 'keyboardMouse'
+      ? this.findActiveKeystrokeEventsForKind(cache, currentTime, delaySec, 'mouse')
+      : [];
+    const keyboardItems = this.buildKeystrokeLaneRenderItems(ctx, keyboard, currentTime, canvas.height, overlayTransform.scale);
+    const mouseItems = this.buildKeystrokeLaneRenderItems(ctx, mouse, currentTime, canvas.height, overlayTransform.scale);
+    const laneGapPx = this.getKeystrokeBarrierGapPx(
+      keyboardItems[0]?.layout ?? null,
+      mouseItems[0]?.layout ?? null
+    );
+    const keyboardSlotWidths = this.getKeystrokeSlotWidthHints(
+      ctx,
+      cache,
+      'keyboard',
+      canvas.height,
+      keyboardItems,
+      overlayTransform.scale
+    );
+    const mouseSlotWidths = this.getKeystrokeSlotWidthHints(
+      ctx,
+      cache,
+      'mouse',
+      canvas.height,
+      mouseItems,
+      overlayTransform.scale
+    );
+    const keyboardPlacements = this.layoutKeystrokeLane(
+      keyboardItems,
+      canvas.width,
+      canvas.height,
+      laneGapPx,
+      'right',
+      keyboardSlotWidths,
+      overlayTransform.anchorXPx,
+      overlayTransform.baselineYPx
+    );
+    const mousePlacements = this.layoutKeystrokeLane(
+      mouseItems,
+      canvas.width,
+      canvas.height,
+      laneGapPx,
+      'left',
+      mouseSlotWidths,
+      overlayTransform.anchorXPx,
+      overlayTransform.baselineYPx
+    );
+    const placementBounds = this.getKeystrokeOverlayBoundsFromPlacements(keyboardPlacements, mousePlacements);
+    const fallbackWidth = Math.round(Math.max(150, canvas.width * 0.16) * overlayTransform.scale);
+    const fallbackHeight = Math.round(Math.max(46, canvas.height * 0.06) * overlayTransform.scale);
+    const fallbackX = overlayTransform.anchorXPx - (fallbackWidth * 0.5);
+    const fallbackY = overlayTransform.baselineYPx - fallbackHeight - Math.round(26 * overlayTransform.scale);
+    const bounds = placementBounds ?? {
+      x: fallbackX,
+      y: fallbackY,
+      width: fallbackWidth,
+      height: fallbackHeight,
+    };
+    const pad = Math.round(Math.max(8, 14 * overlayTransform.scale));
+    const x = Math.max(0, bounds.x - pad);
+    const y = Math.max(0, bounds.y - pad);
+    const width = Math.min(canvas.width - x, bounds.width + pad * 2);
+    const height = Math.min(canvas.height - y, bounds.height + pad * 2);
+    const handleSize = Math.round(Math.max(10, 14 * overlayTransform.scale));
+    return { x, y, width, height, handleSize };
+  }
+
   private drawActiveKeystrokeOverlays(
     ctx: CanvasRenderingContext2D,
     segment: VideoSegment,
@@ -4461,6 +4619,7 @@ export class VideoRenderer {
   ) {
     const cache = this.rebuildKeystrokeRenderCache(segment, duration);
     if (!cache) return;
+    const overlayTransform = this.getKeystrokeOverlayTransform(segment, canvasWidth, canvasHeight);
     const activeLanes = this.findActiveKeystrokeEvents(segment, currentTime, duration);
     if (!activeLanes) return;
 
@@ -4468,13 +4627,15 @@ export class VideoRenderer {
       ctx,
       activeLanes.keyboard,
       currentTime,
-      canvasHeight
+      canvasHeight,
+      overlayTransform.scale
     );
     const mouseItems = this.buildKeystrokeLaneRenderItems(
       ctx,
       activeLanes.mouse,
       currentTime,
-      canvasHeight
+      canvasHeight,
+      overlayTransform.scale
     );
     if (!keyboardItems.length && !mouseItems.length) return;
 
@@ -4487,14 +4648,16 @@ export class VideoRenderer {
       cache,
       'keyboard',
       canvasHeight,
-      keyboardItems
+      keyboardItems,
+      overlayTransform.scale
     );
     const mouseSlotWidths = this.getKeystrokeSlotWidthHints(
       ctx,
       cache,
       'mouse',
       canvasHeight,
-      mouseItems
+      mouseItems,
+      overlayTransform.scale
     );
     const keyboardPlacements = this.layoutKeystrokeLane(
       keyboardItems,
@@ -4502,7 +4665,9 @@ export class VideoRenderer {
       canvasHeight,
       laneGapPx,
       'right',
-      keyboardSlotWidths
+      keyboardSlotWidths,
+      overlayTransform.anchorXPx,
+      overlayTransform.baselineYPx
     );
     const mousePlacements = this.layoutKeystrokeLane(
       mouseItems,
@@ -4510,7 +4675,9 @@ export class VideoRenderer {
       canvasHeight,
       laneGapPx,
       'left',
-      mouseSlotWidths
+      mouseSlotWidths,
+      overlayTransform.anchorXPx,
+      overlayTransform.baselineYPx
     );
     const drawPlacements = (placements: KeystrokeLanePlacement[]) => {
       for (let index = placements.length - 1; index >= 0; index--) {
@@ -4542,18 +4709,20 @@ export class VideoRenderer {
 
   private buildActiveKeystrokeFrameLayout(
     ctx: CanvasRenderingContext2D,
+    segment: VideoSegment,
     cache: KeystrokeRenderCache,
     sampleTime: number,
     delaySec: number,
     canvasWidth: number,
     canvasHeight: number
   ): ActiveKeystrokeFrameLayout {
+    const overlayTransform = this.getKeystrokeOverlayTransform(segment, canvasWidth, canvasHeight);
     const keyboard = this.findActiveKeystrokeEventsForKind(cache, sampleTime, delaySec, 'keyboard');
     const mouse = cache.mode === 'keyboardMouse'
       ? this.findActiveKeystrokeEventsForKind(cache, sampleTime, delaySec, 'mouse')
       : [];
-    const keyboardItems = this.buildKeystrokeLaneRenderItems(ctx, keyboard, sampleTime, canvasHeight);
-    const mouseItems = this.buildKeystrokeLaneRenderItems(ctx, mouse, sampleTime, canvasHeight);
+    const keyboardItems = this.buildKeystrokeLaneRenderItems(ctx, keyboard, sampleTime, canvasHeight, overlayTransform.scale);
+    const mouseItems = this.buildKeystrokeLaneRenderItems(ctx, mouse, sampleTime, canvasHeight, overlayTransform.scale);
     const laneGapPx = this.getKeystrokeBarrierGapPx(
       keyboardItems[0]?.layout ?? null,
       mouseItems[0]?.layout ?? null
@@ -4563,14 +4732,16 @@ export class VideoRenderer {
       cache,
       'keyboard',
       canvasHeight,
-      keyboardItems
+      keyboardItems,
+      overlayTransform.scale
     );
     const mouseSlotWidths = this.getKeystrokeSlotWidthHints(
       ctx,
       cache,
       'mouse',
       canvasHeight,
-      mouseItems
+      mouseItems,
+      overlayTransform.scale
     );
     return {
       keyboard: this.layoutKeystrokeLane(
@@ -4579,7 +4750,9 @@ export class VideoRenderer {
         canvasHeight,
         laneGapPx,
         'right',
-        keyboardSlotWidths
+        keyboardSlotWidths,
+        overlayTransform.anchorXPx,
+        overlayTransform.baselineYPx
       ),
       mouse: this.layoutKeystrokeLane(
         mouseItems,
@@ -4587,7 +4760,9 @@ export class VideoRenderer {
         canvasHeight,
         laneGapPx,
         'left',
-        mouseSlotWidths
+        mouseSlotWidths,
+        overlayTransform.anchorXPx,
+        overlayTransform.baselineYPx
       ),
     };
   }
@@ -5051,6 +5226,7 @@ export class VideoRenderer {
             if (!frameLayout) {
               frameLayout = this.buildActiveKeystrokeFrameLayout(
                 bakeCtx,
+                segment,
                 cache,
                 slice.sampleTime,
                 delaySec,
