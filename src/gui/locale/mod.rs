@@ -253,7 +253,7 @@ pub struct LocaleText {
     pub overlay_opacity_tooltip: &'static str,
     pub download_feature_btn: &'static str,
     pub download_feature_title: &'static str,
-    pub download_delete_deps_btn: &'static str, // "delete yt-dlp (xx MB) and ffmpeg (xx MB)"
+    pub download_delete_deps_btn: &'static str, // "delete yt-dlp (xx MB), ffmpeg (xx MB) and Deno (xx MB)"
     pub download_url_label: &'static str,
     pub download_format_label: &'static str,
     pub download_start_btn: &'static str,
@@ -291,12 +291,21 @@ pub struct LocaleText {
     pub download_subtitle_auto: &'static str,
     pub download_subs_found_header: &'static str, // NEW
     pub download_subs_none_found: &'static str,   // NEW
+    pub download_deno_required_title: &'static str,
+    pub download_deno_required_body: &'static str,
+    pub download_deno_required_question: &'static str,
+    pub download_deno_downloading_fmt: &'static str,
+    pub download_deno_extracting: &'static str,
+    pub download_deno_failed_fmt: &'static str,
+    pub download_deno_yes_btn: &'static str,
+    pub download_deno_no_btn: &'static str,
 
     // --- DOWNLOADED TOOLS MODAL ---
     pub downloaded_tools_button: &'static str,
     pub downloaded_tools_title: &'static str,
     pub tool_parakeet: &'static str,
     pub tool_ytdlp: &'static str,
+    pub tool_deno: &'static str,
     pub tool_ffmpeg: &'static str,
     pub tool_status_installed: &'static str, // "Installed ({})"
     pub tool_status_missing: &'static str,
@@ -304,7 +313,16 @@ pub struct LocaleText {
     pub tool_action_delete: &'static str,
     pub tool_desc_parakeet: &'static str,
     pub tool_desc_ytdlp: &'static str,
+    pub tool_desc_deno: &'static str,
     pub tool_desc_ffmpeg: &'static str,
+    pub tool_downloadable_backgrounds: &'static str,
+    pub tool_desc_downloadable_backgrounds: &'static str,
+    pub tool_bg_downloaded_count_fmt: &'static str,
+    pub tool_bg_action_download_all: &'static str,
+    pub tool_bg_action_download_rest: &'static str,
+    pub tool_bg_action_delete_downloaded: &'static str,
+    pub tool_bg_action_delete_all: &'static str,
+    pub tool_bg_downloading_fmt: &'static str,
     pub tool_update_checking: &'static str,
     pub tool_update_latest: &'static str,
     pub tool_update_check_again: &'static str,

@@ -1,5 +1,5 @@
 use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, UpdateStatus};
-use super::utils::{download_file, extract_ffmpeg, log};
+use super::utils::{download_file, extract_deno, extract_ffmpeg, log};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -22,6 +22,9 @@ const YTDLP_RELEASE_API_URL: &str =
     "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest";
 const YTDLP_DOWNLOAD_URL: &str =
     "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe";
+const DENO_RELEASE_API_URL: &str = "https://api.github.com/repos/denoland/deno/releases/latest";
+const DENO_DOWNLOAD_URL: &str =
+    "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip";
 
 fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
     let needle = format!("\"{}\"", field);
@@ -105,6 +108,54 @@ fn read_local_ytdlp_version(ytdlp_path: &PathBuf) -> Result<String, String> {
         return Err("yt-dlp --version returned empty output".to_string());
     }
     Ok(local_ver)
+}
+
+fn normalize_semver_version(ver: &str) -> String {
+    ver.trim().trim_start_matches('v').to_string()
+}
+
+fn fetch_latest_deno_version() -> Result<String, String> {
+    let response = ureq::get(DENO_RELEASE_API_URL)
+        .header("User-Agent", "ScreenGoatedToolbox")
+        .call()
+        .map_err(|e| e.to_string())?;
+    let json_str = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+
+    let tag = extract_json_string_field(&json_str, "tag_name")
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| "Could not parse latest Deno tag_name".to_string())?;
+    Ok(normalize_semver_version(&tag))
+}
+
+fn read_local_deno_version(deno_path: &PathBuf) -> Result<String, String> {
+    let mut cmd = std::process::Command::new(deno_path);
+    cmd.arg("--version");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(format!("deno --version failed: {}", output.status));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_line = stdout
+        .lines()
+        .next()
+        .ok_or_else(|| "deno --version returned empty output".to_string())?;
+    let parts: Vec<&str> = first_line.split_whitespace().collect();
+    if parts.len() >= 2 && parts[0].eq_ignore_ascii_case("deno") {
+        let version = normalize_semver_version(parts[1]);
+        if version.is_empty() {
+            return Err("Could not parse Deno version".to_string());
+        }
+        Ok(version)
+    } else {
+        Err("Could not parse Deno version line".to_string())
+    }
 }
 
 fn set_download_stage(state: &Arc<Mutex<DownloadState>>, msg: impl Into<String>) {
@@ -410,6 +461,7 @@ impl DownloadManager {
         let bin = self.bin_dir.clone();
         let ffmpeg_s = self.ffmpeg_status.clone();
         let ytdlp_s = self.ytdlp_status.clone();
+        let deno_s = self.deno_status.clone();
         let logs = self.logs.clone();
 
         thread::spawn(move || {
@@ -435,6 +487,15 @@ impl DownloadManager {
                 log(&logs, "ffmpeg missing");
             }
 
+            // Check Deno runtime
+            let deno_path = bin.join("deno.exe");
+            if deno_path.exists() {
+                *deno_s.lock().unwrap() = InstallStatus::Installed;
+            } else {
+                *deno_s.lock().unwrap() = InstallStatus::Missing;
+                log(&logs, "deno runtime missing");
+            }
+
             // Cleanup any partial downloads (.tmp files)
             if let Ok(entries) = fs::read_dir(&bin) {
                 for entry in entries.flatten() {
@@ -456,11 +517,14 @@ impl DownloadManager {
         let bin = self.bin_dir.clone();
         let ytdlp_status_store = self.ytdlp_update_status.clone();
         let ffmpeg_status_store = self.ffmpeg_update_status.clone();
+        let deno_status_store = self.deno_update_status.clone();
         let ytdlp_ver = self.ytdlp_version.clone();
         let ffmpeg_ver = self.ffmpeg_version.clone();
+        let deno_ver = self.deno_version.clone();
         let logs = self.logs.clone();
         let ytdlp_install = self.ytdlp_status.clone();
         let ffmpeg_install = self.ffmpeg_status.clone();
+        let deno_install = self.deno_status.clone();
         let checking_flag = self.is_checking_updates.clone();
 
         thread::spawn(move || {
@@ -469,6 +533,7 @@ impl DownloadManager {
             // Set Checking
             *ytdlp_status_store.lock().unwrap() = UpdateStatus::Checking;
             *ffmpeg_status_store.lock().unwrap() = UpdateStatus::Checking;
+            *deno_status_store.lock().unwrap() = UpdateStatus::Checking;
 
             // 1. Check yt-dlp
             // Only if installed
@@ -561,14 +626,54 @@ impl DownloadManager {
                     }
                 }
             }
+
+            // 3. Check Deno
+            let mut check_deno = false;
+            {
+                let s = deno_install.lock().unwrap();
+                if *s == InstallStatus::Installed {
+                    check_deno = true;
+                } else {
+                    *deno_status_store.lock().unwrap() = UpdateStatus::Idle;
+                }
+            }
+            if check_deno {
+                let deno_path = bin.join("deno.exe");
+                match read_local_deno_version(&deno_path) {
+                    Ok(local_ver) => {
+                        *deno_ver.lock().unwrap() = Some(local_ver.clone());
+                        match fetch_latest_deno_version() {
+                            Ok(remote_ver) => {
+                                log(
+                                    &logs,
+                                    format!("deno: local={}, remote={}", local_ver, remote_ver),
+                                );
+                                if remote_ver != local_ver {
+                                    *deno_status_store.lock().unwrap() =
+                                        UpdateStatus::UpdateAvailable(remote_ver);
+                                } else {
+                                    *deno_status_store.lock().unwrap() = UpdateStatus::UpToDate;
+                                }
+                            }
+                            Err(e) => {
+                                *deno_status_store.lock().unwrap() = UpdateStatus::Error(e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        *deno_status_store.lock().unwrap() = UpdateStatus::Error(e);
+                    }
+                }
+            }
             checking_flag.store(false, Ordering::Relaxed);
             log(&logs, "Update check complete.");
         });
     }
 
-    pub fn get_dependency_sizes(&self) -> (String, String) {
+    pub fn get_dependency_sizes(&self) -> (String, String, String) {
         let ytdlp_path = self.bin_dir.join("yt-dlp.exe");
         let ffmpeg_path = self.bin_dir.join("ffmpeg.exe");
+        let deno_path = self.bin_dir.join("deno.exe");
 
         let size_to_string = |path: PathBuf| -> String {
             if let Ok(metadata) = fs::metadata(path) {
@@ -579,21 +684,28 @@ impl DownloadManager {
             }
         };
 
-        (size_to_string(ytdlp_path), size_to_string(ffmpeg_path))
+        (
+            size_to_string(ytdlp_path),
+            size_to_string(ffmpeg_path),
+            size_to_string(deno_path),
+        )
     }
 
     pub fn delete_dependencies(&self) {
         let ytdlp_path = self.bin_dir.join("yt-dlp.exe");
         let ffmpeg_path = self.bin_dir.join("ffmpeg.exe");
         let ffmpeg_marker_path = self.bin_dir.join(FFMPEG_RELEASE_MARKER_FILE);
+        let deno_path = self.bin_dir.join("deno.exe");
 
         let _ = fs::remove_file(ytdlp_path);
         let _ = fs::remove_file(ffmpeg_path);
         let _ = fs::remove_file(ffmpeg_marker_path);
+        let _ = fs::remove_file(deno_path);
 
         // Reset status
         *self.ytdlp_status.lock().unwrap() = InstallStatus::Missing;
         *self.ffmpeg_status.lock().unwrap() = InstallStatus::Missing;
+        *self.deno_status.lock().unwrap() = InstallStatus::Missing;
     }
 
     pub fn cancel_download(&self) {
@@ -676,6 +788,68 @@ impl DownloadManager {
                 Err(e) => {
                     *status.lock().unwrap() = InstallStatus::Error(e.clone());
                     log(&logs, format!("yt-dlp error: {}", e));
+                }
+            }
+        });
+    }
+
+    pub fn start_download_deno(&self) {
+        let bin = self.bin_dir.clone();
+        let status = self.deno_status.clone();
+        let update_status = self.deno_update_status.clone();
+        let logs = self.logs.clone();
+        let cancel = self.cancel_flag.clone();
+        let deno_ver_store = self.deno_version.clone();
+
+        {
+            let mut s = status.lock().unwrap();
+            if matches!(
+                *s,
+                InstallStatus::Downloading(_) | InstallStatus::Extracting
+            ) {
+                return;
+            }
+            *s = InstallStatus::Downloading(0.0);
+            cancel.store(false, Ordering::Relaxed);
+        }
+
+        thread::spawn(move || {
+            log(&logs, format!("Starting download: {}", DENO_DOWNLOAD_URL));
+
+            let zip_path = bin.join("deno.zip");
+            let deno_path = bin.join("deno.exe");
+            match download_file(DENO_DOWNLOAD_URL, &zip_path, &status, &cancel) {
+                Ok(_) => {
+                    log(&logs, "Deno download complete. Extracting...");
+                    *status.lock().unwrap() = InstallStatus::Extracting;
+
+                    if cancel.load(Ordering::Relaxed) {
+                        *status.lock().unwrap() = InstallStatus::Error("Cancelled".to_string());
+                        return;
+                    }
+
+                    match extract_deno(&zip_path, &bin) {
+                        Ok(_) => {
+                            *status.lock().unwrap() = InstallStatus::Installed;
+                            *update_status.lock().unwrap() = UpdateStatus::Idle;
+                            let _ = fs::remove_file(zip_path);
+                            log(&logs, "Deno runtime installed successfully");
+
+                            if let Ok(local_ver) = read_local_deno_version(&deno_path) {
+                                *deno_ver_store.lock().unwrap() = Some(local_ver);
+                            }
+                        }
+                        Err(e) => {
+                            *status.lock().unwrap() = InstallStatus::Error(e.clone());
+                            *update_status.lock().unwrap() = UpdateStatus::Error(e.clone());
+                            log(&logs, format!("Deno extract error: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    *status.lock().unwrap() = InstallStatus::Error(e.clone());
+                    *update_status.lock().unwrap() = UpdateStatus::Error(e.clone());
+                    log(&logs, format!("Deno download error: {}", e));
                 }
             }
         });
@@ -851,6 +1025,12 @@ impl DownloadManager {
             // Point to ffmpeg
             args.push("--ffmpeg-location".to_string());
             args.push(bin_dir.to_string_lossy().to_string());
+
+            let deno_path = bin_dir.join("deno.exe");
+            if deno_path.exists() {
+                args.push("--js-runtimes".to_string());
+                args.push(format!("deno:{}", deno_path.to_string_lossy()));
+            }
 
             // Progress per line for potential parsing
             args.push("--newline".to_string());

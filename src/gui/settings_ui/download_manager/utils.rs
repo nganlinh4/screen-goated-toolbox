@@ -107,6 +107,24 @@ pub fn extract_ffmpeg(zip_path: &PathBuf, bin_dir: &PathBuf) -> Result<(), Strin
     Ok(())
 }
 
+pub fn extract_deno(zip_path: &PathBuf, bin_dir: &PathBuf) -> Result<(), String> {
+    let file = fs::File::open(zip_path).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+        let name = file.name().to_string();
+        if name.ends_with("deno.exe") {
+            let mut out_file =
+                fs::File::create(bin_dir.join("deno.exe")).map_err(|e| e.to_string())?;
+            io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    }
+
+    Err("deno.exe not found in archive".to_string())
+}
+
 use super::types::CookieBrowser;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -123,6 +141,12 @@ pub fn fetch_video_formats(
     }
 
     let mut args = vec!["--dump-json".to_string(), "--no-playlist".to_string()];
+
+    let deno_path = bin_dir.join("deno.exe");
+    if deno_path.exists() {
+        args.push("--js-runtimes".to_string());
+        args.push(format!("deno:{}", deno_path.to_string_lossy()));
+    }
 
     // Add cookie args
     match cookie_browser {

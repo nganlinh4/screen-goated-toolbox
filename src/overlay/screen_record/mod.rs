@@ -1,7 +1,7 @@
 // --- SCREEN RECORD MODULE ---
 // Screen recording overlay with WebView interface.
 
-mod bg_download;
+pub(crate) mod bg_download;
 mod ffmpeg;
 mod ipc;
 

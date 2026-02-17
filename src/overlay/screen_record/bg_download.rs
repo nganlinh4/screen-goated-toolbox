@@ -5,7 +5,7 @@ use base64::Engine;
 use std::collections::HashMap;
 use std::io::{Read as IoRead, Write};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 lazy_static::lazy_static! {
@@ -18,6 +18,102 @@ pub enum BgDownloadStatus {
     Downloading { progress: f32 },
     Done,
     Error(String),
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadableBackground {
+    pub id: String,
+    pub download_url: String,
+}
+
+#[derive(Clone, Copy)]
+pub struct DownloadableBackgroundSummary {
+    pub downloaded_count: usize,
+    pub total_count: usize,
+    pub downloading_count: usize,
+}
+
+const DOWNLOADABLE_BACKGROUNDS_MANIFEST: &str =
+    include_str!("../../../screen-record/src/config/downloadable-backgrounds.json");
+
+pub fn downloadable_backgrounds() -> &'static [DownloadableBackground] {
+    static CACHE: OnceLock<Vec<DownloadableBackground>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            serde_json::from_str::<Vec<DownloadableBackground>>(DOWNLOADABLE_BACKGROUNDS_MANIFEST)
+                .unwrap_or_else(|err| {
+                    eprintln!(
+                        "[screen_record::bg_download] Failed to parse downloadable background manifest: {}",
+                        err
+                    );
+                    vec![
+                        DownloadableBackground {
+                            id: "warm-abstract".to_string(),
+                            download_url: "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPN4cVT1Rngl_wMHjLy1uWx0aiSyENSm8GWW3Ez?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3".to_string(),
+                        },
+                        DownloadableBackground {
+                            id: "cool-abstract".to_string(),
+                            download_url: "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipNUuKkC-kKZKGQjJ7ga59EJY1d4YwYp0HVeuJ0L?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3".to_string(),
+                        },
+                        DownloadableBackground {
+                            id: "deep-abstract".to_string(),
+                            download_url: "https://photos.google.com/share/AF1QipNNQyeVrqxBdNmBkq9ILswizuj-RYJFNt5GlxJZ90Y6hx0okrVSLKSnmFFbX7j5Mg/photo/AF1QipPufDAGMvOMDpTHKG574-ERmZxQN-CtcUCYnzKF?key=RV8tSXVJVGdfS1RIQUI0Q3RZZVhlTmw0WmhFZ2V3".to_string(),
+                        },
+                        DownloadableBackground {
+                            id: "vivid-abstract".to_string(),
+                            download_url: "https://drive.google.com/file/d/1kYsxUons_HfjMVxeFU4Rkyw27gK83IVv/view?usp=sharing".to_string(),
+                        },
+                    ]
+                })
+        })
+        .as_slice()
+}
+
+pub fn downloadable_background_summary() -> DownloadableBackgroundSummary {
+    let mut downloaded_count = 0usize;
+    let mut downloading_count = 0usize;
+    let backgrounds = downloadable_backgrounds();
+
+    for bg in backgrounds {
+        if download_info(&bg.id).is_some() {
+            downloaded_count += 1;
+        }
+        if matches!(
+            get_download_status(&bg.id),
+            BgDownloadStatus::Downloading { .. }
+        ) {
+            downloading_count += 1;
+        }
+    }
+
+    DownloadableBackgroundSummary {
+        downloaded_count,
+        total_count: backgrounds.len(),
+        downloading_count,
+    }
+}
+
+pub fn start_download_all_missing() -> usize {
+    let mut started = 0usize;
+    for bg in downloadable_backgrounds() {
+        if download_info(&bg.id).is_none() {
+            start_download(bg.id.clone(), bg.download_url.clone());
+            started += 1;
+        }
+    }
+    started
+}
+
+pub fn delete_all_downloaded() -> usize {
+    let mut deleted = 0usize;
+    for bg in downloadable_backgrounds() {
+        if download_info(&bg.id).is_some() {
+            delete_downloaded(&bg.id);
+            deleted += 1;
+        }
+    }
+    deleted
 }
 
 pub fn get_download_status(id: &str) -> BgDownloadStatus {
