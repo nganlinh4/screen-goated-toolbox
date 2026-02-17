@@ -56,6 +56,15 @@ export function getCanvasBaseDimensions(
 export class VideoExporter {
   private isExporting = false;
   private static readonly MAX_INLINE_MEDIA_BYTES = 128 * 1024 * 1024;
+  private async yieldToUiFrame() {
+    await new Promise<void>((resolve) => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => resolve());
+      } else {
+        setTimeout(() => resolve(), 0);
+      }
+    });
+  }
 
   async exportAndDownload(options: ExportOptions & {
     audioFilePath: string;
@@ -66,6 +75,7 @@ export class VideoExporter {
       throw new Error('Export already in progress');
     }
     this.isExporting = true;
+    await this.yieldToUiFrame();
 
     const {
       video,
@@ -98,15 +108,19 @@ export class VideoExporter {
     console.log('[Exporter] Video:', vidW, '×', vidH, '→ Canvas:', baseW, '×', baseH, '→ Export:', width, '×', height, '@', fps, 'fps');
 
     // 1. Bake camera path
+    await this.yieldToUiFrame();
     const bakedPath = normalizedSegment ? videoRenderer.generateBakedPath(normalizedSegment, vidW, vidH, fps) : [];
 
     // 2. Bake cursor path
+    await this.yieldToUiFrame();
     const bakedCursorPath = normalizedSegment && mousePositions
       ? videoRenderer.generateBakedCursorPath(normalizedSegment, mousePositions, backgroundConfig, fps)
       : [];
 
     // 3. Bake text overlays
+    await this.yieldToUiFrame();
     const bakedTextOverlays = normalizedSegment ? videoRenderer.bakeTextOverlays(normalizedSegment, width, height) : [];
+    await this.yieldToUiFrame();
     const bakedKeystrokeOverlays = normalizedSegment
       ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, width, height, fps)
       : [];
