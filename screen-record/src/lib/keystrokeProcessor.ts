@@ -1,6 +1,7 @@
 import { KeystrokeEvent, RawInputEvent, InputModifiers } from '@/types/video';
 
 const DEFAULT_DISPLAY_DURATION_SEC = 1.2;
+const HOLD_MIN_DURATION_SEC = 0.2;
 
 function createEventId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -54,6 +55,15 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
+function keyboardToken(event: RawInputEvent): string {
+  if (typeof event.vk === 'number') return `vk:${event.vk}`;
+  return `key:${event.key ?? ''}`;
+}
+
+function mouseToken(event: RawInputEvent): string {
+  return `btn:${event.btn ?? 'mouse'}`;
+}
+
 export function buildKeystrokeEvents(
   rawEvents: RawInputEvent[],
   duration: number,
@@ -67,11 +77,86 @@ export function buildKeystrokeEvents(
   const sorted = [...rawEvents]
     .filter((event) => typeof event.timestamp === 'number' && Number.isFinite(event.timestamp))
     .sort((a, b) => a.timestamp - b.timestamp);
+  const activeKeyboardEvents = new Map<string, number>();
+  const activeMouseEvents = new Map<string, number>();
 
   for (const raw of sorted) {
     const mods = normalizeModifiers(raw.modifiers);
 
-    if (raw.type === 'keyboard' && isModifierKey(raw.key)) continue;
+    if (raw.type === 'keyboard') {
+      if (isModifierKey(raw.key)) continue;
+      const token = keyboardToken(raw);
+      const keyDirection = raw.direction ?? 'down';
+      const timestamp = clamp(raw.timestamp, 0, maxTime);
+
+      if (keyDirection === 'up') {
+        const activeIndex = activeKeyboardEvents.get(token);
+        if (activeIndex !== undefined && out[activeIndex]) {
+          const active = out[activeIndex];
+          active.endTime = clamp(Math.max(active.startTime + 0.02, timestamp), 0, maxTime);
+          active.isHold = active.endTime - active.startTime >= HOLD_MIN_DURATION_SEC;
+          activeKeyboardEvents.delete(token);
+        }
+        continue;
+      }
+
+      const endTime = clamp(timestamp + displayDurationSec, 0, maxTime);
+      if (endTime - timestamp <= 0.001) continue;
+      const label = formatLabel(raw, mods);
+      const candidate: KeystrokeEvent = {
+        id: createEventId(),
+        type: raw.type,
+        startTime: timestamp,
+        endTime,
+        label,
+        count: 1,
+        isHold: false,
+        modifiers: mods,
+        key: raw.key,
+        btn: raw.btn,
+        direction: 'down',
+      };
+      out.push(candidate);
+      activeKeyboardEvents.set(token, out.length - 1);
+      continue;
+    }
+
+    if (raw.type === 'mousedown') {
+      const token = mouseToken(raw);
+      const buttonDirection = raw.direction ?? 'down';
+      const timestamp = clamp(raw.timestamp, 0, maxTime);
+
+      if (buttonDirection === 'up') {
+        const activeIndex = activeMouseEvents.get(token);
+        if (activeIndex !== undefined && out[activeIndex]) {
+          const active = out[activeIndex];
+          active.endTime = clamp(Math.max(active.startTime + 0.02, timestamp), 0, maxTime);
+          active.isHold = active.endTime - active.startTime >= HOLD_MIN_DURATION_SEC;
+          activeMouseEvents.delete(token);
+        }
+        continue;
+      }
+
+      const endTime = clamp(timestamp + displayDurationSec, 0, maxTime);
+      if (endTime - timestamp <= 0.001) continue;
+      const label = formatLabel(raw, mods);
+      const candidate: KeystrokeEvent = {
+        id: createEventId(),
+        type: raw.type,
+        startTime: timestamp,
+        endTime,
+        label,
+        count: 1,
+        isHold: false,
+        modifiers: mods,
+        key: raw.key,
+        btn: raw.btn,
+        direction: 'down',
+      };
+      out.push(candidate);
+      activeMouseEvents.set(token, out.length - 1);
+      continue;
+    }
 
     const startTime = clamp(raw.timestamp, 0, maxTime);
     const endTime = clamp(startTime + displayDurationSec, 0, maxTime);
@@ -85,6 +170,7 @@ export function buildKeystrokeEvents(
       endTime,
       label,
       count: 1,
+      isHold: false,
       modifiers: mods,
       key: raw.key,
       btn: raw.btn,

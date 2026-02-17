@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Keyboard, MousePointer2 } from 'lucide-react';
 import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/video';
 import {
   filterKeystrokeEventsByMode,
@@ -42,12 +43,34 @@ function getRawEventRanges(segment: VideoSegment, duration: number): TypedTimeRa
   if (!events.length) return [];
 
   const safeDuration = Math.max(duration, 0);
+  const delaySecRaw = segment.keystrokeDelaySec;
+  const delaySec = typeof delaySecRaw === 'number' && Number.isFinite(delaySecRaw)
+    ? Math.max(-1, Math.min(1, delaySecRaw))
+    : 0;
   const ranges: TypedTimeRange[] = [];
+  const effectiveEnds = new Array<number>(events.length);
+  let nextAnyStart = Number.POSITIVE_INFINITY;
+  let nextKeyboardStart = Number.POSITIVE_INFINITY;
+  let nextMouseStart = Number.POSITIVE_INFINITY;
+
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    const nextStart = mode === 'keyboardMouse'
+      ? (event.type === 'keyboard' ? nextKeyboardStart : nextMouseStart)
+      : nextAnyStart;
+    effectiveEnds[i] = Math.min(event.endTime, nextStart, safeDuration);
+    nextAnyStart = event.startTime;
+    if (event.type === 'keyboard') {
+      nextKeyboardStart = event.startTime;
+    } else {
+      nextMouseStart = event.startTime;
+    }
+  }
+
   for (let i = 0; i < events.length; i++) {
     const event: KeystrokeEvent = events[i];
-    const nextStart = i < events.length - 1 ? events[i + 1].startTime : Number.POSITIVE_INFINITY;
-    const startTime = Math.max(0, event.startTime);
-    const endTime = Math.min(event.endTime, nextStart, safeDuration);
+    const startTime = Math.max(0, Math.min(safeDuration, event.startTime + delaySec));
+    const endTime = Math.max(0, Math.min(safeDuration, effectiveEnds[i] + delaySec));
     if (endTime - startTime > 0.001) {
       ranges.push({
         startTime,
@@ -200,11 +223,11 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
           const segmentDuration = Math.max(seg.endTime - seg.startTime, 0.001);
           const segmentKinds = getSegmentInputKinds(seg.startTime, seg.endTime, rawEventRanges);
           const segmentIcon = (() => {
-            if (!hasIndicators) return '·';
-            if (mode === 'keyboard') return '⌨';
-            if (segmentKinds.hasKeyboard && segmentKinds.hasMouse) return '⌨🖱';
-            if (segmentKinds.hasMouse) return '🖱';
-            return '⌨';
+            if (!hasIndicators) return 'none' as const;
+            if (mode === 'keyboard') return 'keyboard' as const;
+            if (segmentKinds.hasKeyboard && segmentKinds.hasMouse) return 'both' as const;
+            if (segmentKinds.hasMouse) return 'mouse' as const;
+            return 'keyboard' as const;
           })();
 
           return (
@@ -263,9 +286,21 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
                 />
               ))}
               <div className="keystroke-segment-content absolute inset-0 flex items-center justify-center overflow-hidden px-1 pointer-events-none">
-                <span className={`keystroke-segment-icon text-[10px] truncate ${hasIndicators ? 'text-emerald-200/85' : 'text-slate-200/55'}`}>
-                  {segmentIcon}
-                </span>
+                <div
+                  className={`keystroke-segment-icon keystroke-segment-icon-${segmentIcon} flex items-center gap-[2px] ${
+                    hasIndicators ? 'text-emerald-200/85' : 'text-slate-200/55'
+                  }`}
+                >
+                  {segmentIcon === 'none' && (
+                    <span className="keystroke-segment-icon-empty text-[10px] leading-none">·</span>
+                  )}
+                  {(segmentIcon === 'keyboard' || segmentIcon === 'both') && (
+                    <Keyboard className="keystroke-segment-icon-keyboard w-2.5 h-2.5" strokeWidth={2.2} />
+                  )}
+                  {(segmentIcon === 'mouse' || segmentIcon === 'both') && (
+                    <MousePointer2 className="keystroke-segment-icon-mouse w-2.5 h-2.5" strokeWidth={2.2} />
+                  )}
+                </div>
               </div>
               <div
                 className="keystroke-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"

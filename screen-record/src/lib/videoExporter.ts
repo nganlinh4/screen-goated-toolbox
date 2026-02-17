@@ -108,7 +108,7 @@ export class VideoExporter {
     // 3. Bake text overlays
     const bakedTextOverlays = normalizedSegment ? videoRenderer.bakeTextOverlays(normalizedSegment, width, height) : [];
     const bakedKeystrokeOverlays = normalizedSegment
-      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, width, height)
+      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, width, height, fps)
       : [];
     console.log(
       `[Exporter] Baked ${bakedPath.length} camera, ${bakedCursorPath.length} cursor, ${bakedTextOverlays.length} text, ${bakedKeystrokeOverlays.length} keystroke`

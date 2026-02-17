@@ -24,7 +24,6 @@ import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
 import {
   ensureKeystrokeVisibilitySegments,
-  filterKeystrokeEventsByMode,
   getKeystrokeVisibilitySegmentsForMode,
   rebuildKeystrokeVisibilitySegmentsForMode,
   withKeystrokeVisibilitySegmentsForMode
@@ -34,6 +33,7 @@ const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
 const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
 const RECENT_UPLOADS_KEY = 'screen-record-recent-uploads-v1';
 const PROJECT_SAVE_DEBUG = true;
+const DEFAULT_KEYSTROKE_DELAY_SEC = -0.65;
 const sv = (v: number, min: number, max: number): CSSProperties =>
   ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
 
@@ -332,23 +332,27 @@ function App() {
       current === 'off' ? 'keyboard' : current === 'keyboard' ? 'keyboardMouse' : 'off';
 
     if (next === 'keyboard' || next === 'keyboardMouse') {
-      const modeEvents = filterKeystrokeEventsByMode(prepared.keystrokeEvents ?? [], next);
-      const modeSegments = next === 'keyboard'
-        ? (prepared.keyboardVisibilitySegments ?? [])
-        : (prepared.keyboardMouseVisibilitySegments ?? []);
-
-      if (modeSegments.length === 0 && modeEvents.length > 0) {
-        prepared = rebuildKeystrokeVisibilitySegmentsForMode(prepared, next, timelineDuration);
-      }
+      // Toggle intent = reset to fresh auto-generated visibility ranges for that mode.
+      prepared = rebuildKeystrokeVisibilitySegmentsForMode(prepared, next, timelineDuration);
     }
 
     setSegment({
       ...prepared,
       keystrokeMode: next,
+      keystrokeDelaySec: prepared.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC,
       keystrokeEvents: prepared.keystrokeEvents ?? [],
     });
     setEditingKeystrokeSegmentId(null);
   }, [segment, setSegment, getKeystrokeTimelineDuration]);
+
+  const handleKeystrokeDelayChange = useCallback((value: number) => {
+    if (!segment) return;
+    const clamped = Math.max(-1, Math.min(1, value));
+    setSegment({
+      ...segment,
+      keystrokeDelaySec: clamped,
+    });
+  }, [segment, setSegment]);
 
   const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
@@ -592,6 +596,7 @@ function App() {
           zoomKeyframes: [],
           textSegments: [],
           keystrokeMode: 'off',
+          keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
           keystrokeEvents: [],
           keyboardVisibilitySegments: [],
           keyboardMouseVisibilitySegments: [],
@@ -746,6 +751,9 @@ function App() {
                     return (
                       <button
                         key={mode}
+                        type="button"
+                        aria-pressed={isActive}
+                        data-active={isActive ? 'true' : 'false'}
                         onClick={() => {
                           if (mode === 'custom') {
                             setBackgroundConfig((prev) => {
@@ -757,9 +765,9 @@ function App() {
                             setBackgroundConfig((prev) => ({ ...prev, canvasMode: 'auto' }));
                           }
                         }}
-                        className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} px-2 py-1 text-[10px] font-medium transition-colors ${
+                        className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} ${isActive ? 'playback-canvas-mode-btn-active' : 'playback-canvas-mode-btn-inactive'} px-2 py-1 text-[10px] font-semibold transition-colors ${
                           isActive
-                            ? 'bg-[var(--primary-color)] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.24)]'
+                            ? 'bg-[var(--primary-color)] text-white ring-1 ring-white/45 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.26),0_0_0_1px_rgba(0,0,0,0.28)]'
                             : 'bg-transparent text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]/70 hover:text-[var(--overlay-panel-fg)]'
                         }`}
                       >
@@ -770,26 +778,51 @@ function App() {
                 </div>
               }
               keystrokeToggle={
-                <Button
-                  onClick={handleToggleKeystrokeMode}
-                  disabled={!segment}
-                  className={`playback-keystroke-toggle-btn h-7 text-[11px] transition-colors ${
-                    !segment
-                      ? 'text-[var(--overlay-panel-fg)]/40 cursor-not-allowed'
-                      : (segment.keystrokeMode ?? 'off') === 'off'
-                        ? 'text-[var(--overlay-panel-fg)]/85 bg-transparent hover:bg-[var(--glass-bg)]'
-                        : 'text-white bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85'
-                  }`}
-                >
-                  <Keyboard className="playback-keystroke-toggle-icon w-3.5 h-3.5 mr-1.5" />
-                  <span className="playback-keystroke-toggle-label">
-                    {(segment?.keystrokeMode ?? 'off') === 'keyboard'
-                      ? t.keystrokeModeKeyboard
-                      : (segment?.keystrokeMode ?? 'off') === 'keyboardMouse'
-                        ? t.keystrokeModeKeyboardMouse
-                        : t.keystrokeModeOff}
-                  </span>
-                </Button>
+                <div className="playback-keystroke-control relative">
+                  <div className="playback-keystroke-delay-hover-bridge absolute left-0 right-0 bottom-full h-3" />
+                  <Button
+                    onClick={handleToggleKeystrokeMode}
+                    disabled={!segment}
+                    className={`playback-keystroke-toggle-btn h-7 text-[11px] transition-colors ${
+                      !segment
+                        ? 'text-[var(--overlay-panel-fg)]/40 cursor-not-allowed'
+                        : (segment.keystrokeMode ?? 'off') === 'off'
+                          ? 'text-[var(--overlay-panel-fg)]/85 bg-transparent hover:bg-[var(--glass-bg)]'
+                          : 'text-white bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85'
+                    }`}
+                  >
+                    <Keyboard className="playback-keystroke-toggle-icon w-3.5 h-3.5 mr-1.5" />
+                    <span className="playback-keystroke-toggle-label">
+                      {(segment?.keystrokeMode ?? 'off') === 'keyboard'
+                        ? t.keystrokeModeKeyboard
+                        : (segment?.keystrokeMode ?? 'off') === 'keyboardMouse'
+                          ? t.keystrokeModeKeyboardMouse
+                          : t.keystrokeModeOff}
+                    </span>
+                  </Button>
+                  <div
+                    className="playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+4px)] min-w-[172px] px-2 py-1.5 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto"
+                  >
+                    <div className="playback-keystroke-delay-row flex items-center gap-2">
+                      <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full border border-[var(--overlay-divider)]/70 bg-[color-mix(in_srgb,var(--overlay-panel-bg)_68%,white_8%)] px-1 py-[3px]">
+                        <input
+                          type="range"
+                          min="-1"
+                          max="1"
+                          step="0.01"
+                          disabled={!segment}
+                          value={segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC}
+                          style={sv(segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC, -1, 1)}
+                          onChange={(e) => handleKeystrokeDelayChange(Number(e.target.value))}
+                          className="playback-keystroke-delay-slider block w-full"
+                        />
+                      </div>
+                      <span className="playback-keystroke-delay-value text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-11 text-right">
+                        {(segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC).toFixed(2)}s
+                      </span>
+                    </div>
+                  </div>
+                </div>
               }
               autoZoomButton={
                 <Button onClick={handleAutoZoom}

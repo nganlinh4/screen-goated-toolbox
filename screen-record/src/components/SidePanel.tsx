@@ -698,11 +698,11 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="cursor-movement-delay-label text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pointerMovementDelay}</span>
           <input
             type="range"
-            min="0"
+            min="-0.5"
             max="0.5"
             step="0.01"
             value={backgroundConfig.cursorMovementDelay ?? 0.03}
-            style={sv(backgroundConfig.cursorMovementDelay ?? 0.03, 0, 0.5)}
+            style={sv(backgroundConfig.cursorMovementDelay ?? 0.03, -0.5, 0.5)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: Number(e.target.value) }))}
             className="cursor-movement-delay-slider flex-1 min-w-0"
           />

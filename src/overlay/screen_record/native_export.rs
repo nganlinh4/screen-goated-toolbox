@@ -1,5 +1,7 @@
 use base64::Engine;
+use serde::de::{self, SeqAccess, Visitor};
 use serde::Deserialize;
+use std::fmt;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
@@ -278,7 +280,52 @@ pub struct BakedKeystrokeOverlay {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    #[serde(deserialize_with = "deserialize_overlay_rgba_bytes")]
     pub data: Vec<u8>,
+}
+
+fn deserialize_overlay_rgba_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct OverlayBytesVisitor;
+
+    impl<'de> Visitor<'de> for OverlayBytesVisitor {
+        type Value = Vec<u8>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("RGBA byte array or base64-encoded RGBA string")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut bytes = Vec::new();
+            while let Some(value) = seq.next_element::<u8>()? {
+                bytes.push(value);
+            }
+            Ok(bytes)
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            base64::engine::general_purpose::STANDARD
+                .decode(value)
+                .map_err(|err| E::custom(format!("Invalid keystroke overlay base64: {err}")))
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+    }
+
+    deserializer.deserialize_any(OverlayBytesVisitor)
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1618,7 +1665,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
         // --- RENDER KEYSTROKE OVERLAY (baked bitmaps) ---
         for overlay in &config.baked_keystroke_overlays {
-            if current_time >= overlay.start_time && current_time <= overlay.end_time {
+            if current_time >= overlay.start_time && current_time < overlay.end_time {
                 composite_baked_bitmap(
                     &mut rendered,
                     out_w,

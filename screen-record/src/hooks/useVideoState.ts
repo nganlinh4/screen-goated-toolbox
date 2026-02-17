@@ -19,6 +19,8 @@ import {
   rebuildKeystrokeVisibilitySegmentsForMode
 } from '@/lib/keystrokeVisibility';
 
+const DEFAULT_KEYSTROKE_DELAY_SEC = -0.65;
+
 // ============================================================================
 // useVideoPlayback
 // ============================================================================
@@ -339,11 +341,13 @@ export function useRecording(props: UseRecordingProps) {
         const keystrokeEvents = buildKeystrokeEvents(rawInputEvents || [], timelineDuration);
         const keyboardVisibilitySegments = generateKeystrokeVisibilitySegments(
           filterKeystrokeEventsByMode(keystrokeEvents, 'keyboard'),
-          timelineDuration
+          timelineDuration,
+          { mode: 'keyboard', delaySec: DEFAULT_KEYSTROKE_DELAY_SEC }
         );
         const keyboardMouseVisibilitySegments = generateKeystrokeVisibilitySegments(
           filterKeystrokeEventsByMode(keystrokeEvents, 'keyboardMouse'),
-          timelineDuration
+          timelineDuration,
+          { mode: 'keyboardMouse', delaySec: DEFAULT_KEYSTROKE_DELAY_SEC }
         );
 
         const initialSegment: VideoSegment = {
@@ -356,6 +360,7 @@ export function useRecording(props: UseRecordingProps) {
             ? [{ time: 0, value: 1.0 }, { time: timelineDuration, value: 1.0 }]
             : [],
           keystrokeMode: 'keyboard',
+          keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
           keystrokeEvents,
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,
@@ -479,6 +484,11 @@ export function useProjects(props: UseProjectsProps) {
     }
     if (!Array.isArray(correctedSegment.keystrokeEvents)) {
       correctedSegment.keystrokeEvents = [];
+    }
+    if (typeof correctedSegment.keystrokeDelaySec !== 'number' || Number.isNaN(correctedSegment.keystrokeDelaySec)) {
+      correctedSegment.keystrokeDelaySec = DEFAULT_KEYSTROKE_DELAY_SEC;
+    } else {
+      correctedSegment.keystrokeDelaySec = Math.max(-1, Math.min(1, correctedSegment.keystrokeDelaySec));
     }
     correctedSegment = ensureKeystrokeVisibilitySegments(correctedSegment, videoDuration);
     const loadedMode = correctedSegment.keystrokeMode ?? 'off';
