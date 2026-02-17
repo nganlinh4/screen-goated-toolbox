@@ -79,8 +79,11 @@ interface PlaybackControlsProps {
   duration: number;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
+  canvasModeToggle?: React.ReactNode;
+  keystrokeToggle?: React.ReactNode;
   autoZoomButton?: React.ReactNode;
   smartPointerButton?: React.ReactNode;
+  volumeControl?: React.ReactNode;
 }
 
 export function PlaybackControls({
@@ -92,19 +95,28 @@ export function PlaybackControls({
   duration,
   onTogglePlayPause,
   onToggleCrop,
+  canvasModeToggle,
+  keystrokeToggle,
   autoZoomButton,
   smartPointerButton,
+  volumeControl,
 }: PlaybackControlsProps) {
   const { t } = useSettings();
   return (
     <div
-      className="playback-controls absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-2 backdrop-blur-xl rounded-xl px-3 py-2 border shadow-[0_8px_32px_rgba(0,0,0,0.22)] z-50 whitespace-nowrap"
+      className="playback-controls relative flex items-center gap-2 backdrop-blur-xl rounded-xl px-3 py-2 border shadow-[0_8px_24px_rgba(0,0,0,0.18)] whitespace-nowrap"
       style={{
         backgroundColor: 'var(--overlay-panel-bg)',
         borderColor: 'var(--overlay-panel-border)',
         color: 'var(--overlay-panel-fg)',
       }}
     >
+      {canvasModeToggle && (
+        <>
+          {canvasModeToggle}
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
+        </>
+      )}
       <Button
         onClick={onToggleCrop}
         variant="ghost"
@@ -143,6 +155,14 @@ export function PlaybackControls({
       <div className="time-display text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
+      {keystrokeToggle && (
+        <>
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
+          <div className="playback-keystroke-toggle-slot flex items-center">
+            {keystrokeToggle}
+          </div>
+        </>
+      )}
       {!isCropping && autoZoomButton && (
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
@@ -153,6 +173,12 @@ export function PlaybackControls({
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           {smartPointerButton}
+        </>
+      )}
+      {volumeControl && (
+        <>
+          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
+          {volumeControl}
         </>
       )}
     </div>

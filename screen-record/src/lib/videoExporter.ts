@@ -107,7 +107,12 @@ export class VideoExporter {
 
     // 3. Bake text overlays
     const bakedTextOverlays = normalizedSegment ? videoRenderer.bakeTextOverlays(normalizedSegment, width, height) : [];
-    console.log(`[Exporter] Baked ${bakedPath.length} camera, ${bakedCursorPath.length} cursor, ${bakedTextOverlays.length} text`);
+    const bakedKeystrokeOverlays = normalizedSegment
+      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, width, height)
+      : [];
+    console.log(
+      `[Exporter] Baked ${bakedPath.length} camera, ${bakedCursorPath.length} cursor, ${bakedTextOverlays.length} text, ${bakedKeystrokeOverlays.length} keystroke`
+    );
 
     // Convert media blobs to arrays for Rust only when we do not have a native source path.
     // Large recordings should flow by file path to avoid huge JS allocations.
@@ -168,7 +173,8 @@ export class VideoExporter {
       audioData: audioDataArray,
       bakedPath,
       bakedCursorPath,
-      bakedTextOverlays
+      bakedTextOverlays,
+      bakedKeystrokeOverlays
     };
 
     // @ts-ignore

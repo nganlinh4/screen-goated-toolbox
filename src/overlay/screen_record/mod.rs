@@ -30,7 +30,7 @@ use crate::win_types::SendHwnd;
 pub mod audio_engine;
 pub mod engine;
 pub mod gpu_export;
-pub mod keyviz;
+pub mod keysee_capture;
 pub mod native_export;
 
 // Re-exports

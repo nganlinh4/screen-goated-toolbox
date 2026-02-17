@@ -12,10 +12,8 @@ interface HeaderProps {
   currentVideo: string | null;
   isProcessing: boolean;
   hotkeys: Hotkey[];
-  keyvizStatus: { installed: boolean; enabled: boolean };
   onRemoveHotkey: (index: number) => void;
   onOpenHotkeyDialog: () => void;
-  onToggleKeyviz: () => void;
   onExport: () => void;
   onOpenProjects: () => void;
   onOpenCursorLab: () => void;
@@ -28,10 +26,8 @@ export function Header({
   currentVideo,
   isProcessing,
   hotkeys,
-  keyvizStatus,
   onRemoveHotkey,
   onOpenHotkeyDialog,
-  onToggleKeyviz,
   onExport,
   onOpenProjects,
   onOpenCursorLab,
@@ -113,19 +109,6 @@ export function Header({
           >
             <Keyboard className="w-3 h-3 mr-1" />
             {t.addHotkey}
-          </Button>
-          <Button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={onToggleKeyviz}
-            className={`px-2 h-6 text-[11px] flex-shrink-0 transition-colors whitespace-nowrap ${
-              keyvizStatus.enabled
-                ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
-                : 'bg-[var(--surface-container)] hover:bg-[var(--surface-container-high)] text-[var(--on-surface)]'
-            }`}
-            title={keyvizStatus.installed ? t.toggleKeyviz : t.installKeyviz}
-          >
-            <Keyboard className="w-3 h-3 mr-1" />
-            {keyvizStatus.enabled ? t.keystrokesOn : t.showKeystrokes}
           </Button>
         </div>
 

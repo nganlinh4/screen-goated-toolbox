@@ -10,6 +10,10 @@ const vi: Translations = {
   installKeyviz: 'Cài & Bật Keyviz',
   keystrokesOn: 'Phím Nhấn: BẬT',
   showKeystrokes: 'Hiện Phím Nhấn',
+  toggleKeystrokeMode: 'Chuyển Chế Độ Phím',
+  keystrokeModeOff: 'Phím: Tắt',
+  keystrokeModeKeyboard: 'Phím: Bàn Phím',
+  keystrokeModeKeyboardMouse: 'Phím: Bàn Phím + Chuột',
   export: 'Xuất',
   projects: 'Dự Án',
   minimize: 'Thu nhỏ',
@@ -34,8 +38,8 @@ const vi: Translations = {
   // BackgroundPanel
   backgroundAndLayout: 'Nền & Bố Cục',
   canvasSize: 'Kích Thước Canvas',
-  canvasAuto: 'Tự Động',
-  canvasCustom: 'Tùy Chỉnh',
+  canvasAuto: 'Canvas Tự Động',
+  canvasCustom: 'Canvas Tùy Chỉnh',
   videoSize: 'Kích Thước Video',
   roundness: 'Độ Bo Tròn',
   shadow: 'Đổ Bóng',
@@ -142,6 +146,10 @@ const vi: Translations = {
   // Timeline
   trackZoom: 'Phóng To',
   trackText: 'Chữ',
+  trackKeystrokes: 'Phím',
+  trackKeystrokesOff: 'Tắt',
+  trackKeyboard: 'Bàn Phím',
+  trackKeyboardMouse: 'Bàn Phím+Chuột',
   trackPointer: 'Con Trỏ',
   trackVideo: 'Video',
 

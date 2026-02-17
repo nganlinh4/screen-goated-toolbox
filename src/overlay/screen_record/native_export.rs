@@ -126,6 +126,8 @@ pub struct ExportConfig {
     pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
     #[serde(default)]
     pub baked_text_overlays: Vec<BakedTextOverlay>,
+    #[serde(default)]
+    pub baked_keystroke_overlays: Vec<BakedKeystrokeOverlay>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -268,6 +270,18 @@ pub struct BakedTextOverlay {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BakedKeystrokeOverlay {
+    pub start_time: f64,
+    pub end_time: f64,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct CropRect {
     pub x: f64,
     pub y: f64,
@@ -363,46 +377,50 @@ fn load_custom_background_rgba(
 // Text overlays are pre-rendered on the JS canvas (identical to preview).
 // Rust only alpha-composites the baked bitmaps with per-frame fade applied.
 
-fn composite_baked_text(
+fn composite_baked_bitmap(
     buffer: &mut [u8],
     buf_w: u32,
     buf_h: u32,
-    overlay: &BakedTextOverlay,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    data: &[u8],
     fade_alpha: f64,
 ) {
-    if fade_alpha <= 0.001 || overlay.data.is_empty() {
+    if fade_alpha <= 0.001 || data.is_empty() {
         return;
     }
 
-    let ow = overlay.width as usize;
-    let oh = overlay.height as usize;
+    let ow = width as usize;
+    let oh = height as usize;
     let expected = ow * oh * 4;
-    if overlay.data.len() < expected {
+    if data.len() < expected {
         return;
     }
 
     for row in 0..oh {
-        let dst_y = overlay.y + row as i32;
+        let dst_y = y + row as i32;
         if dst_y < 0 || dst_y >= buf_h as i32 {
             continue;
         }
 
         for col in 0..ow {
-            let dst_x = overlay.x + col as i32;
+            let dst_x = x + col as i32;
             if dst_x < 0 || dst_x >= buf_w as i32 {
                 continue;
             }
 
             let src_off = (row * ow + col) * 4;
-            let src_a_raw = overlay.data[src_off + 3] as f64 / 255.0;
+            let src_a_raw = data[src_off + 3] as f64 / 255.0;
             let src_a = src_a_raw * fade_alpha;
             if src_a < 0.004 {
                 continue;
             } // ~1/255
 
-            let src_r = overlay.data[src_off] as f64;
-            let src_g = overlay.data[src_off + 1] as f64;
-            let src_b = overlay.data[src_off + 2] as f64;
+            let src_r = data[src_off] as f64;
+            let src_g = data[src_off + 1] as f64;
+            let src_b = data[src_off + 2] as f64;
 
             let dst_off = (dst_y as usize * buf_w as usize + dst_x as usize) * 4;
             let dst_r = buffer[dst_off] as f64;
@@ -415,6 +433,26 @@ fn composite_baked_text(
             buffer[dst_off + 2] = (src_b * src_a + dst_b * inv) as u8;
         }
     }
+}
+
+fn composite_baked_text(
+    buffer: &mut [u8],
+    buf_w: u32,
+    buf_h: u32,
+    overlay: &BakedTextOverlay,
+    fade_alpha: f64,
+) {
+    composite_baked_bitmap(
+        buffer,
+        buf_w,
+        buf_h,
+        overlay.x,
+        overlay.y,
+        overlay.width,
+        overlay.height,
+        &overlay.data,
+        fade_alpha,
+    );
 }
 
 // --- GRADIENT COLORS ---
@@ -1575,6 +1613,23 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     fade = fade.min(remaining / fade_dur);
                 }
                 composite_baked_text(&mut rendered, out_w, out_h, overlay, fade);
+            }
+        }
+
+        // --- RENDER KEYSTROKE OVERLAY (baked bitmaps) ---
+        for overlay in &config.baked_keystroke_overlays {
+            if current_time >= overlay.start_time && current_time <= overlay.end_time {
+                composite_baked_bitmap(
+                    &mut rendered,
+                    out_w,
+                    out_h,
+                    overlay.x,
+                    overlay.y,
+                    overlay.width,
+                    overlay.height,
+                    &overlay.data,
+                    1.0,
+                );
             }
         }
 
