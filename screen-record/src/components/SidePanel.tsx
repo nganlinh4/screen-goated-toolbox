@@ -265,70 +265,58 @@ function ZoomPanel({
             <Trash2 className="w-4 h-4" />
           </Button>
         </div>
-        <div className="zoom-controls space-y-3">
-          <div className="zoom-factor-field">
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2">{t.zoomFactor}</label>
-            <div className="space-y-2">
-              <input
-                type="range"
-                min="1"
-                max="3"
-                step="0.1"
-                value={zoomFactor}
-                style={sv(zoomFactor, 1, 3)}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
-                onChange={(e) => {
-                  const newValue = Number(e.target.value);
-                  setZoomFactor(newValue);
-                  onUpdateZoom({ zoomFactor: newValue });
-                }}
-                className="w-full"
-              />
-              <div className="zoom-range-labels flex justify-between text-[10px] text-[var(--on-surface-variant)]">
-                <span>1x</span>
-                <span className="text-[var(--on-surface)]">{zoomFactor.toFixed(1)}x</span>
-                <span>3x</span>
-              </div>
-            </div>
+        <div className="zoom-controls space-y-2">
+          <div className="zoom-factor-field flex items-center gap-2">
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.zoomFactor}</span>
+            <input
+              type="range"
+              min="1"
+              max="3"
+              step="0.1"
+              value={zoomFactor}
+              style={sv(zoomFactor, 1, 3)}
+              onPointerDown={beginBatch}
+              onPointerUp={commitBatch}
+              onChange={(e) => {
+                const newValue = Number(e.target.value);
+                setZoomFactor(newValue);
+                onUpdateZoom({ zoomFactor: newValue });
+              }}
+              className="flex-1 min-w-0"
+            />
+            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{zoomFactor.toFixed(1)}x</span>
           </div>
-          <div className="position-controls space-y-3">
-            <div className="position-x-field">
-              <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-                <span>{t.horizontalPosition}</span>
-                <span>{Math.round((keyframe?.positionX ?? 0.5) * 100)}%</span>
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={keyframe?.positionX ?? 0.5}
-                style={sv(keyframe?.positionX ?? 0.5, 0, 1)}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
-                onChange={(e) => onUpdateZoom({ positionX: Number(e.target.value) })}
-                className="w-full"
-              />
-            </div>
-            <div className="position-y-field">
-              <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-                <span>{t.verticalPosition}</span>
-                <span>{Math.round((keyframe?.positionY ?? 0.5) * 100)}%</span>
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={keyframe?.positionY ?? 0.5}
-                style={sv(keyframe?.positionY ?? 0.5, 0, 1)}
-                onPointerDown={beginBatch}
-                onPointerUp={commitBatch}
-                onChange={(e) => onUpdateZoom({ positionY: Number(e.target.value) })}
-                className="w-full"
-              />
-            </div>
+          <div className="position-x-field flex items-center gap-2">
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.horizontalPosition}</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={keyframe?.positionX ?? 0.5}
+              style={sv(keyframe?.positionX ?? 0.5, 0, 1)}
+              onPointerDown={beginBatch}
+              onPointerUp={commitBatch}
+              onChange={(e) => onUpdateZoom({ positionX: Number(e.target.value) })}
+              className="flex-1 min-w-0"
+            />
+            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((keyframe?.positionX ?? 0.5) * 100)}%</span>
+          </div>
+          <div className="position-y-field flex items-center gap-2">
+            <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.verticalPosition}</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={keyframe?.positionY ?? 0.5}
+              style={sv(keyframe?.positionY ?? 0.5, 0, 1)}
+              onPointerDown={beginBatch}
+              onPointerUp={commitBatch}
+              onChange={(e) => onUpdateZoom({ positionY: Number(e.target.value) })}
+              className="flex-1 min-w-0"
+            />
+            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((keyframe?.positionY ?? 0.5) * 100)}%</span>
           </div>
         </div>
       </div>
@@ -460,39 +448,33 @@ function BackgroundPanel({
   const { t } = useSettings();
   return (
     <div className="background-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <div className="background-controls space-y-3">
-        <div className="video-size-field">
-          <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>{t.videoSize}</span>
-            <span>{backgroundConfig.scale}%</span>
-          </label>
+      <div className="background-controls space-y-2">
+        <div className="video-size-field flex items-center gap-2">
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.videoSize}</span>
           <input type="range" min="50" max="100" value={backgroundConfig.scale}
             style={sv(backgroundConfig.scale, 50, 100)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, scale: Number(e.target.value) }))}
-            className="w-full"
+            className="flex-1 min-w-0"
           />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.scale}%</span>
         </div>
-        <div className="roundness-field">
-          <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>{t.roundness}</span>
-            <span>{backgroundConfig.borderRadius}px</span>
-          </label>
+        <div className="roundness-field flex items-center gap-2">
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.roundness}</span>
           <input type="range" min="0" max="64" value={backgroundConfig.borderRadius}
             style={sv(backgroundConfig.borderRadius, 0, 64)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, borderRadius: Number(e.target.value) }))}
-            className="w-full"
+            className="flex-1 min-w-0"
           />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.borderRadius}px</span>
         </div>
-        <div className="shadow-field">
-          <label className="text-xs text-[var(--on-surface-variant)] mb-2 flex justify-between">
-            <span>{t.shadow}</span>
-            <span>{backgroundConfig.shadow || 0}px</span>
-          </label>
+        <div className="shadow-field flex items-center gap-2">
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.shadow}</span>
           <input type="range" min="0" max="100" value={backgroundConfig.shadow || 0}
             style={sv(backgroundConfig.shadow || 0, 0, 100)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, shadow: Number(e.target.value) }))}
-            className="w-full"
+            className="flex-1 min-w-0"
           />
+          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.shadow || 0}px</span>
         </div>
         <div className="background-style-field">
           <label className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-2 block">{t.backgroundStyle}</label>
@@ -668,7 +650,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="cursor-controls space-y-2">
         <div className="cursor-size-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.cursorSize}</span>
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.cursorSize}</span>
           <input type="range" min="1" max="8" step="0.1" value={backgroundConfig.cursorScale ?? 2}
             style={sv(backgroundConfig.cursorScale ?? 2, 1, 8)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorScale: Number(e.target.value) }))}
@@ -677,7 +659,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorScale ?? 2).toFixed(1)}x</span>
         </div>
         <div className="cursor-shadow-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">Shadow</span>
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">Shadow</span>
           <input type="range" min="0" max="200" step="1" value={backgroundConfig.cursorShadow ?? 35}
             style={sv(backgroundConfig.cursorShadow ?? 35, 0, 200)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: Number(e.target.value) }))}
@@ -686,7 +668,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round(backgroundConfig.cursorShadow ?? 35)}%</span>
         </div>
         <div className="cursor-smoothness-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.movementSmoothing}</span>
+          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.movementSmoothing}</span>
           <input type="range" min="0" max="10" step="1" value={backgroundConfig.cursorSmoothness ?? 5}
             style={sv(backgroundConfig.cursorSmoothness ?? 5, 0, 10)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: Number(e.target.value) }))}
@@ -695,7 +677,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.cursorSmoothness ?? 5}</span>
         </div>
         <div className="cursor-movement-delay-field flex items-center gap-2">
-          <span className="cursor-movement-delay-label text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.pointerMovementDelay}</span>
+          <span className="cursor-movement-delay-label text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.pointerMovementDelay}</span>
           <input
             type="range"
             min="-0.5"
@@ -709,7 +691,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
         </div>
         <div className="cursor-wiggle-strength-field flex items-center gap-2">
-          <span className="cursor-wiggle-strength-label text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.pointerWiggleStrength}</span>
+          <span className="cursor-wiggle-strength-label text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.pointerWiggleStrength}</span>
           <input
             type="range"
             min="0"
@@ -723,7 +705,7 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%</span>
         </div>
         <div className="cursor-tilt-angle-field flex items-center gap-2">
-          <span className="cursor-tilt-angle-label text-[10px] text-[var(--on-surface-variant)] w-26 flex-shrink-0">{t.cursorTilt}</span>
+          <span className="cursor-tilt-angle-label text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.cursorTilt}</span>
           <input
             type="range"
             min="-30"

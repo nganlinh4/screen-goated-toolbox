@@ -3,7 +3,7 @@ use super::utils::{download_file, extract_ffmpeg, log};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -16,6 +16,12 @@ const FFMPEG_DOWNLOAD_URL: &str =
 const FFMPEG_RELEASE_API_URL: &str =
     "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 const FFMPEG_RELEASE_MARKER_FILE: &str = "ffmpeg_release_source.txt";
+const YTDLP_RELEASE_PAGE_URL: &str =
+    "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest";
+const YTDLP_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest";
+const YTDLP_DOWNLOAD_URL: &str =
+    "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe";
 
 fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
     let needle = format!("\"{}\"", field);
@@ -61,6 +67,341 @@ fn parse_ffmpeg_version(output: &str) -> Option<String> {
         Some(parts[2].to_string())
     } else {
         None
+    }
+}
+
+fn fetch_latest_ytdlp_version() -> Result<String, String> {
+    let _ = ureq::get(YTDLP_RELEASE_PAGE_URL)
+        .header("User-Agent", "Mozilla/5.0")
+        .call();
+
+    let response = ureq::get(YTDLP_RELEASE_API_URL)
+        .header("User-Agent", "ScreenGoatedToolbox")
+        .call()
+        .map_err(|e| e.to_string())?;
+    let json_str = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| e.to_string())?;
+
+    extract_json_string_field(&json_str, "tag_name")
+        .filter(|v| !v.trim().is_empty())
+        .ok_or_else(|| "Could not parse latest yt-dlp tag_name".to_string())
+}
+
+fn read_local_ytdlp_version(ytdlp_path: &PathBuf) -> Result<String, String> {
+    let mut cmd = std::process::Command::new(ytdlp_path);
+    cmd.arg("--version");
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000);
+
+    let output = cmd.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(format!("yt-dlp --version failed: {}", output.status));
+    }
+
+    let local_ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if local_ver.is_empty() {
+        return Err("yt-dlp --version returned empty output".to_string());
+    }
+    Ok(local_ver)
+}
+
+fn set_download_stage(state: &Arc<Mutex<DownloadState>>, msg: impl Into<String>) {
+    *state.lock().unwrap() = DownloadState::Downloading(0.0, msg.into());
+}
+
+fn set_download_finished(state: &Arc<Mutex<DownloadState>>, final_path: Option<PathBuf>) {
+    let path = final_path.unwrap_or_default();
+    *state.lock().unwrap() = DownloadState::Finished(path, "Download Completed!".to_string());
+}
+
+fn run_ytdlp_download_attempt(
+    ytdlp_exe: &PathBuf,
+    args: &[String],
+    progress_fmt: &str,
+    state: &Arc<Mutex<DownloadState>>,
+    logs: &Arc<Mutex<Vec<String>>>,
+    attempt_label: &str,
+) -> Result<Option<PathBuf>, String> {
+    use std::process::Stdio;
+
+    let mut cmd = std::process::Command::new(ytdlp_exe);
+    cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    log(&logs, format!("Running yt-dlp ({})...", attempt_label));
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Failed to open yt-dlp stdout".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Failed to open yt-dlp stderr".to_string())?;
+
+    let logs_clone = logs.clone();
+    let state_clone = state.clone();
+    let final_filename = Arc::new(Mutex::new(None));
+    let final_filename_clone = final_filename.clone();
+    let fmt_str = progress_fmt.to_string();
+
+    let stdout_thread = thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            if let Ok(l) = line {
+                if l.contains("[download]") && l.contains("%") {
+                    if let Some(start) = l.find("%") {
+                        let substr = &l[..start];
+                        if let Some(space) = substr.rfind(' ') {
+                            if let Ok(p) = substr[space + 1..].parse::<f32>() {
+                                let parts: Vec<&str> = l.split_whitespace().collect();
+
+                                let mut p_val = None;
+                                let mut t_val = None;
+                                let mut s_val = None;
+                                let mut e_val = None;
+
+                                for (i, part) in parts.iter().enumerate() {
+                                    if part.contains("%") {
+                                        p_val = Some(part.trim_end_matches('%'));
+                                    } else if *part == "of" && i + 1 < parts.len() {
+                                        let val = parts[i + 1];
+                                        if val != "Unknown" && val != "N/A" {
+                                            t_val = Some(val);
+                                        }
+                                    } else if *part == "at" && i + 1 < parts.len() {
+                                        let val = parts[i + 1];
+                                        if val != "Unknown" && val != "N/A" {
+                                            s_val = Some(val);
+                                        }
+                                    } else if *part == "ETA" && i + 1 < parts.len() {
+                                        let val = parts[i + 1];
+                                        if val != "Unknown" && val != "N/A" {
+                                            e_val = Some(val);
+                                        }
+                                    }
+                                }
+
+                                let fmt_segments: Vec<&str> = fmt_str.split("{}").collect();
+                                let mut status_msg = String::new();
+
+                                if let Some(p_str) = p_val {
+                                    if fmt_segments.len() >= 5 {
+                                        status_msg.push_str(fmt_segments[0]);
+                                        status_msg.push_str(p_str);
+
+                                        if let Some(t) = t_val {
+                                            status_msg.push_str(fmt_segments[1]);
+                                            status_msg.push_str(t);
+                                        } else {
+                                            status_msg.push_str("%");
+                                        }
+
+                                        if let Some(s) = s_val {
+                                            status_msg.push_str(fmt_segments[2]);
+                                            status_msg.push_str(s);
+                                        }
+
+                                        if let Some(e) = e_val {
+                                            status_msg.push_str(fmt_segments[3]);
+                                            status_msg.push_str(e);
+                                            status_msg.push_str(fmt_segments[4]);
+                                        }
+                                    } else {
+                                        status_msg = format!("{}%", p_str);
+                                    }
+                                } else {
+                                    status_msg = l.clone();
+                                }
+
+                                if let Ok(mut s) = state_clone.lock() {
+                                    *s = DownloadState::Downloading(p / 100.0, status_msg);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if l.contains("Merging formats into \"") {
+                    if let Some(start) = l.find("Merging formats into \"") {
+                        let raw_path = &l[start + "Merging formats into \"".len()..];
+                        let clean_path = raw_path.trim().trim_end_matches('"');
+                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
+                    }
+                } else if l.contains("Destination: ") {
+                    if final_filename_clone.lock().unwrap().is_none() {
+                        if let Some(start) = l.find("Destination: ") {
+                            let raw_path = &l[start + "Destination: ".len()..];
+                            let clean_path = raw_path.trim();
+                            if !clean_path.ends_with(".vtt")
+                                && !clean_path.ends_with(".srt")
+                                && !clean_path.ends_with(".ass")
+                                && !clean_path.ends_with(".lrc")
+                            {
+                                *final_filename_clone.lock().unwrap() =
+                                    Some(PathBuf::from(clean_path));
+                            }
+                        }
+                    }
+                } else if l.contains(" has already been downloaded") {
+                    if final_filename_clone.lock().unwrap().is_none() {
+                        if let Some(end) = l.find(" has already been downloaded") {
+                            let start = if let Some(p) = l.find("[download] ") {
+                                p + "[download] ".len()
+                            } else {
+                                0
+                            };
+                            if start < end {
+                                let filename = &l[start..end];
+                                let clean_filename = filename.trim();
+                                if !clean_filename.ends_with(".vtt")
+                                    && !clean_filename.ends_with(".srt")
+                                    && !clean_filename.ends_with(".ass")
+                                    && !clean_filename.ends_with(".lrc")
+                                {
+                                    *final_filename_clone.lock().unwrap() =
+                                        Some(PathBuf::from(clean_filename));
+                                }
+                            }
+                        }
+                    }
+                }
+                if l.contains("[ExtractAudio] Destination: ") {
+                    if let Some(start) = l.find("[ExtractAudio] Destination: ") {
+                        let raw_path = &l[start + "[ExtractAudio] Destination: ".len()..];
+                        let clean_path = raw_path.trim();
+                        *final_filename_clone.lock().unwrap() = Some(PathBuf::from(clean_path));
+                    }
+                }
+                log(&logs_clone, l);
+            }
+        }
+    });
+
+    let logs_clone_err = logs.clone();
+    let stderr_thread = thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(l) = line {
+                log(&logs_clone_err, format!("ERR: {}", l));
+            }
+        }
+    });
+
+    let status = child.wait();
+    let _ = stdout_thread.join();
+    let _ = stderr_thread.join();
+
+    match status {
+        Ok(exit_status) => {
+            if exit_status.success() {
+                Ok(final_filename.lock().unwrap().clone())
+            } else {
+                Err(format!("Exit Code: {}", exit_status))
+            }
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn check_update_ytdlp_and_prepare_retry(
+    bin_dir: &PathBuf,
+    state: &Arc<Mutex<DownloadState>>,
+    logs: &Arc<Mutex<Vec<String>>>,
+    ytdlp_status: &Arc<Mutex<InstallStatus>>,
+    ytdlp_update_status: &Arc<Mutex<UpdateStatus>>,
+    ytdlp_version: &Arc<Mutex<Option<String>>>,
+    cancel_flag: &Arc<AtomicBool>,
+) -> Result<String, String> {
+    set_download_stage(state, "Download failed. Checking yt-dlp update...");
+    *ytdlp_update_status.lock().unwrap() = UpdateStatus::Checking;
+
+    let ytdlp_path = bin_dir.join("yt-dlp.exe");
+    let local_ver = read_local_ytdlp_version(&ytdlp_path).ok();
+    if let Some(ver) = &local_ver {
+        *ytdlp_version.lock().unwrap() = Some(ver.clone());
+    }
+
+    let remote_ver = match fetch_latest_ytdlp_version() {
+        Ok(ver) => Some(ver),
+        Err(e) => {
+            log(
+                logs,
+                format!(
+                    "Could not confirm latest yt-dlp version, forcing refresh: {}",
+                    e
+                ),
+            );
+            None
+        }
+    };
+
+    if let (Some(local), Some(remote)) = (&local_ver, &remote_ver) {
+        log(
+            logs,
+            format!("yt-dlp auto-fix check: local={}, remote={}", local, remote),
+        );
+        if local == remote {
+            *ytdlp_status.lock().unwrap() = InstallStatus::Installed;
+            *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpToDate;
+            return Ok(format!("yt-dlp is already up to date ({})", local));
+        }
+        *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpdateAvailable(remote.clone());
+    } else if let Some(remote) = &remote_ver {
+        *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpdateAvailable(remote.clone());
+    }
+
+    let stage_msg = if let Some(remote) = &remote_ver {
+        format!("Updating yt-dlp to {}...", remote)
+    } else {
+        "Updating yt-dlp to latest...".to_string()
+    };
+    set_download_stage(state, stage_msg.clone());
+
+    {
+        let mut status = ytdlp_status.lock().unwrap();
+        *status = InstallStatus::Downloading(0.0);
+    }
+    cancel_flag.store(false, Ordering::Relaxed);
+
+    match download_file(YTDLP_DOWNLOAD_URL, &ytdlp_path, ytdlp_status, cancel_flag) {
+        Ok(_) => {
+            *ytdlp_status.lock().unwrap() = InstallStatus::Installed;
+
+            let installed_ver = read_local_ytdlp_version(&ytdlp_path)
+                .ok()
+                .or(remote_ver.clone())
+                .unwrap_or_else(|| "latest".to_string());
+            *ytdlp_version.lock().unwrap() = Some(installed_ver.clone());
+
+            if let Some(remote) = remote_ver {
+                if installed_ver == remote {
+                    *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpToDate;
+                } else {
+                    *ytdlp_update_status.lock().unwrap() = UpdateStatus::UpdateAvailable(remote);
+                }
+            } else {
+                *ytdlp_update_status.lock().unwrap() = UpdateStatus::Idle;
+            }
+
+            log(
+                logs,
+                format!("yt-dlp auto-refresh complete: {}", installed_ver),
+            );
+            Ok(format!("yt-dlp updated ({})", installed_ver))
+        }
+        Err(e) => {
+            *ytdlp_status.lock().unwrap() = InstallStatus::Error(e.clone());
+            *ytdlp_update_status.lock().unwrap() = UpdateStatus::Error(e.clone());
+            log(logs, format!("yt-dlp auto-refresh failed: {}", e));
+            Err(e)
+        }
     }
 }
 
@@ -142,58 +483,30 @@ impl DownloadManager {
             }
             if check_ytdlp {
                 let ytdlp_path = bin.join("yt-dlp.exe");
-                let output = std::process::Command::new(&ytdlp_path)
-                    .arg("--version")
-                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                    .output();
+                match read_local_ytdlp_version(&ytdlp_path) {
+                    Ok(local_ver) => {
+                        *ytdlp_ver.lock().unwrap() = Some(local_ver.clone());
 
-                if let Ok(out) = output {
-                    let local_ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    *ytdlp_ver.lock().unwrap() = Some(local_ver.clone());
-
-                    // Fetch latest
-                    let _resp = ureq::get(
-                        "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest",
-                    )
-                    .header("User-Agent", "Mozilla/5.0")
-                    .call();
-
-                    if let Ok(r) = ureq::get(
-                        "https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest",
-                    )
-                    .header("User-Agent", "ScreenGoatedToolbox")
-                    .call()
-                    {
-                        if let Ok(json_str) = r.into_body().read_to_string() {
-                            // Manual JSON parse for "tag_name"
-                            if let Some(pos) = json_str.find("\"tag_name\"") {
-                                let sub = &json_str[pos..];
-                                if let Some(colon) = sub.find(':') {
-                                    if let Some(quote1) = sub[colon..].find('"') {
-                                        let start = colon + quote1 + 1;
-                                        if let Some(quote2) = sub[start..].find('"') {
-                                            let remote_ver = &sub[start..start + quote2];
-                                            log(
-                                                &logs,
-                                                format!(
-                                                    "yt-dlp: local={}, remote={}",
-                                                    local_ver, remote_ver
-                                                ),
-                                            );
-                                            if remote_ver != local_ver && !remote_ver.is_empty() {
-                                                *ytdlp_status_store.lock().unwrap() =
-                                                    UpdateStatus::UpdateAvailable(
-                                                        remote_ver.to_string(),
-                                                    );
-                                            } else {
-                                                *ytdlp_status_store.lock().unwrap() =
-                                                    UpdateStatus::UpToDate;
-                                            }
-                                        }
-                                    }
+                        match fetch_latest_ytdlp_version() {
+                            Ok(remote_ver) => {
+                                log(
+                                    &logs,
+                                    format!("yt-dlp: local={}, remote={}", local_ver, remote_ver),
+                                );
+                                if remote_ver != local_ver {
+                                    *ytdlp_status_store.lock().unwrap() =
+                                        UpdateStatus::UpdateAvailable(remote_ver);
+                                } else {
+                                    *ytdlp_status_store.lock().unwrap() = UpdateStatus::UpToDate;
                                 }
                             }
+                            Err(e) => {
+                                *ytdlp_status_store.lock().unwrap() = UpdateStatus::Error(e);
+                            }
                         }
+                    }
+                    Err(e) => {
+                        *ytdlp_status_store.lock().unwrap() = UpdateStatus::Error(e);
                     }
                 }
             }
@@ -346,24 +659,17 @@ impl DownloadManager {
         }
 
         thread::spawn(move || {
-            let url = "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe";
-            log(&logs, format!("Starting download: {}", url));
+            log(&logs, format!("Starting download: {}", YTDLP_DOWNLOAD_URL));
 
-            match download_file(url, &bin.join("yt-dlp.exe"), &status, &cancel) {
+            let ytdlp_path = bin.join("yt-dlp.exe");
+            match download_file(YTDLP_DOWNLOAD_URL, &ytdlp_path, &status, &cancel) {
                 Ok(_) => {
                     *status.lock().unwrap() = InstallStatus::Installed;
                     log(&logs, "yt-dlp installed successfully");
                     *update_status.lock().unwrap() = UpdateStatus::Idle;
 
                     // Update version string locally
-                    #[cfg(target_os = "windows")]
-                    use std::os::windows::process::CommandExt;
-                    let output = std::process::Command::new(bin_clone.join("yt-dlp.exe"))
-                        .arg("--version")
-                        .creation_flags(0x08000000)
-                        .output();
-                    if let Ok(out) = output {
-                        let local_ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if let Ok(local_ver) = read_local_ytdlp_version(&bin_clone.join("yt-dlp.exe")) {
                         *ytdlp_ver_store.lock().unwrap() = Some(local_ver);
                     }
                 }
@@ -505,6 +811,10 @@ impl DownloadManager {
         let download_type = self.download_type.clone();
         let state = self.download_state.clone();
         let logs = self.logs.clone();
+        let ytdlp_status = self.ytdlp_status.clone();
+        let ytdlp_update_status = self.ytdlp_update_status.clone();
+        let ytdlp_version = self.ytdlp_version.clone();
+        let cancel_flag = self.cancel_flag.clone();
 
         // Capture advanced flags
         let use_metadata = self.use_metadata;
@@ -640,220 +950,75 @@ impl DownloadManager {
 
             args.push(url);
 
-            use std::process::{Command, Stdio};
+            match run_ytdlp_download_attempt(
+                &ytdlp_exe,
+                &args,
+                &progress_fmt,
+                &state,
+                &logs,
+                "initial",
+            ) {
+                Ok(final_path) => {
+                    set_download_finished(&state, final_path);
+                    log(&logs, "Download Finished Successfully.");
+                }
+                Err(first_err) => {
+                    log(
+                        &logs,
+                        format!("Download failed on first attempt: {}", first_err),
+                    );
 
-            let mut cmd = Command::new(ytdlp_exe);
-            cmd.args(&args);
+                    match check_update_ytdlp_and_prepare_retry(
+                        &bin_dir,
+                        &state,
+                        &logs,
+                        &ytdlp_status,
+                        &ytdlp_update_status,
+                        &ytdlp_version,
+                        &cancel_flag,
+                    ) {
+                        Ok(update_msg) => {
+                            set_download_stage(
+                                &state,
+                                format!("{} - retrying download...", update_msg),
+                            );
+                            log(&logs, "Retrying download after yt-dlp refresh...");
 
-            cmd.stdout(Stdio::piped());
-            cmd.stderr(Stdio::piped());
-            #[cfg(target_os = "windows")]
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-
-            log(&logs, format!("Running: yt-dlp ..."));
-
-            match cmd.spawn() {
-                Ok(mut child) => {
-                    let stdout = child.stdout.take().expect("Failed to open stdout");
-                    let stderr = child.stderr.take().expect("Failed to open stderr");
-
-                    let logs_clone = logs.clone();
-                    let state_clone = state.clone();
-                    let final_filename = Arc::new(Mutex::new(None));
-                    let final_filename_clone = final_filename.clone();
-                    let fmt_str = progress_fmt.clone();
-
-                    let stdout_thread = thread::spawn(move || {
-                        let reader = BufReader::new(stdout);
-                        for line in reader.lines() {
-                            if let Ok(l) = line {
-                                if l.contains("[download]") && l.contains("%") {
-                                    if let Some(start) = l.find("%") {
-                                        let substr = &l[..start];
-                                        if let Some(space) = substr.rfind(' ') {
-                                            if let Ok(p) = substr[space + 1..].parse::<f32>() {
-                                                let parts: Vec<&str> =
-                                                    l.split_whitespace().collect();
-
-                                                let mut p_val = None;
-                                                let mut t_val = None;
-                                                let mut s_val = None;
-                                                let mut e_val = None;
-
-                                                for (i, part) in parts.iter().enumerate() {
-                                                    if part.contains("%") {
-                                                        p_val = Some(part.trim_end_matches('%'));
-                                                    } else if *part == "of" && i + 1 < parts.len() {
-                                                        let val = parts[i + 1];
-                                                        if val != "Unknown" && val != "N/A" {
-                                                            t_val = Some(val);
-                                                        }
-                                                    } else if *part == "at" && i + 1 < parts.len() {
-                                                        let val = parts[i + 1];
-                                                        if val != "Unknown" && val != "N/A" {
-                                                            s_val = Some(val);
-                                                        }
-                                                    } else if *part == "ETA" && i + 1 < parts.len()
-                                                    {
-                                                        let val = parts[i + 1];
-                                                        if val != "Unknown" && val != "N/A" {
-                                                            e_val = Some(val);
-                                                        }
-                                                    }
-                                                }
-
-                                                let fmt_segments: Vec<&str> =
-                                                    fmt_str.split("{}").collect();
-                                                let mut status_msg = String::new();
-
-                                                if let Some(p_str) = p_val {
-                                                    if fmt_segments.len() >= 5 {
-                                                        status_msg.push_str(fmt_segments[0]);
-                                                        status_msg.push_str(p_str);
-
-                                                        if let Some(t) = t_val {
-                                                            status_msg.push_str(fmt_segments[1]);
-                                                            status_msg.push_str(t);
-                                                        } else {
-                                                            status_msg.push_str("%");
-                                                        }
-
-                                                        if let Some(s) = s_val {
-                                                            status_msg.push_str(fmt_segments[2]);
-                                                            status_msg.push_str(s);
-                                                        }
-
-                                                        if let Some(e) = e_val {
-                                                            status_msg.push_str(fmt_segments[3]);
-                                                            status_msg.push_str(e);
-                                                            status_msg.push_str(fmt_segments[4]);
-                                                        }
-                                                    } else {
-                                                        status_msg = format!("{}%", p_str);
-                                                    }
-                                                } else {
-                                                    status_msg = l.clone();
-                                                }
-
-                                                if let Ok(mut s) = state_clone.lock() {
-                                                    *s = DownloadState::Downloading(
-                                                        p / 100.0,
-                                                        status_msg,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
+                            match run_ytdlp_download_attempt(
+                                &ytdlp_exe,
+                                &args,
+                                &progress_fmt,
+                                &state,
+                                &logs,
+                                "retry",
+                            ) {
+                                Ok(final_path) => {
+                                    set_download_finished(&state, final_path);
+                                    log(&logs, "Download recovered after yt-dlp refresh.");
                                 }
-
-                                if l.contains("Merging formats into \"") {
-                                    if let Some(start) = l.find("Merging formats into \"") {
-                                        let raw_path =
-                                            &l[start + "Merging formats into \"".len()..];
-                                        let clean_path = raw_path.trim().trim_end_matches('"');
-                                        *final_filename_clone.lock().unwrap() =
-                                            Some(PathBuf::from(clean_path));
-                                    }
-                                } else if l.contains("Destination: ") {
-                                    if final_filename_clone.lock().unwrap().is_none() {
-                                        if let Some(start) = l.find("Destination: ") {
-                                            let raw_path = &l[start + "Destination: ".len()..];
-                                            let clean_path = raw_path.trim();
-                                            // Ignore subtitle files
-                                            if !clean_path.ends_with(".vtt")
-                                                && !clean_path.ends_with(".srt")
-                                                && !clean_path.ends_with(".ass")
-                                                && !clean_path.ends_with(".lrc")
-                                            {
-                                                *final_filename_clone.lock().unwrap() =
-                                                    Some(PathBuf::from(clean_path));
-                                            }
-                                        }
-                                    }
-                                } else if l.contains(" has already been downloaded") {
-                                    // Handle case where video is already there
-                                    if final_filename_clone.lock().unwrap().is_none() {
-                                        if let Some(end) = l.find(" has already been downloaded") {
-                                            // Try to find start after "[download] " or just take from beginning
-                                            let start = if let Some(p) = l.find("[download] ") {
-                                                p + "[download] ".len()
-                                            } else {
-                                                0
-                                            };
-                                            if start < end {
-                                                let filename = &l[start..end];
-                                                let clean_filename = filename.trim();
-                                                if !clean_filename.ends_with(".vtt")
-                                                    && !clean_filename.ends_with(".srt")
-                                                    && !clean_filename.ends_with(".ass")
-                                                    && !clean_filename.ends_with(".lrc")
-                                                {
-                                                    *final_filename_clone.lock().unwrap() =
-                                                        Some(PathBuf::from(clean_filename));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                if l.contains("[ExtractAudio] Destination: ") {
-                                    if let Some(start) = l.find("[ExtractAudio] Destination: ") {
-                                        let raw_path =
-                                            &l[start + "[ExtractAudio] Destination: ".len()..];
-                                        let clean_path = raw_path.trim();
-                                        *final_filename_clone.lock().unwrap() =
-                                            Some(PathBuf::from(clean_path));
-                                    }
-                                }
-                                log(&logs_clone, l);
-                            }
-                        }
-                    });
-
-                    let logs_clone_err = logs.clone();
-                    let stderr_thread = thread::spawn(move || {
-                        let reader = BufReader::new(stderr);
-                        for line in reader.lines() {
-                            if let Ok(l) = line {
-                                log(&logs_clone_err, format!("ERR: {}", l));
-                            }
-                        }
-                    });
-
-                    let status = child.wait();
-                    let _ = stdout_thread.join();
-                    let _ = stderr_thread.join();
-
-                    match status {
-                        Ok(exit_status) => {
-                            if exit_status.success() {
-                                let final_path = final_filename.lock().unwrap().clone();
-                                if let Some(path) = final_path {
-                                    *state.lock().unwrap() = DownloadState::Finished(
-                                        path,
-                                        "Download Completed!".to_string(),
+                                Err(retry_err) => {
+                                    let combined_error = format!(
+                                        "{} | Retry after yt-dlp refresh failed: {}",
+                                        first_err, retry_err
                                     );
-                                } else {
-                                    *state.lock().unwrap() = DownloadState::Finished(
-                                        PathBuf::new(),
-                                        "Download Completed!".to_string(),
+                                    *state.lock().unwrap() =
+                                        DownloadState::Error(combined_error.clone());
+                                    log(
+                                        &logs,
+                                        format!("Download failed after retry: {}", retry_err),
                                     );
                                 }
-                                log(&logs, "Download Finished Successfully.");
-                            } else {
-                                *state.lock().unwrap() =
-                                    DownloadState::Error(format!("Exit Code: {}", exit_status));
-                                log(&logs, "Download Failed.");
                             }
                         }
-                        Err(e) => {
-                            *state.lock().unwrap() = DownloadState::Error(e.to_string());
-                            log(&logs, format!("Wait Error: {}", e));
+                        Err(update_err) => {
+                            let combined_error = format!(
+                                "{} | yt-dlp auto-refresh failed: {}",
+                                first_err, update_err
+                            );
+                            *state.lock().unwrap() = DownloadState::Error(combined_error.clone());
+                            log(&logs, format!("Auto-refresh failed: {}", update_err));
                         }
                     }
-                }
-                Err(e) => {
-                    *state.lock().unwrap() = DownloadState::Error(e.to_string());
-                    log(&logs, format!("Execution Error: {}", e));
                 }
             }
         });

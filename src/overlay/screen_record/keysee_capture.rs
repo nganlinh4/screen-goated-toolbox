@@ -15,10 +15,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
-    UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, MSG, WH_KEYBOARD_LL,
-    WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MBUTTONUP, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WM_QUIT,
+    UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL,
+    WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_MOUSEWHEEL, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -87,7 +86,8 @@ pub fn start_capture() -> anyhow::Result<()> {
         }
 
         let h_instance = GetModuleHandleW(None).ok().map(Into::into);
-        let keyboard_hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook_proc), h_instance, 0);
+        let keyboard_hook =
+            SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook_proc), h_instance, 0);
         let mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), h_instance, 0);
 
         let (kb_hook, mouse_hook) = match (keyboard_hook.ok(), mouse_hook.ok()) {
@@ -150,7 +150,9 @@ pub fn start_capture() -> anyhow::Result<()> {
             let mut state = CAPTURE_STATE.lock();
             state.hook_thread_id = 0;
             state.hook_thread = None;
-            Err(anyhow::anyhow!("Timed out while starting key/mouse capture"))
+            Err(anyhow::anyhow!(
+                "Timed out while starting key/mouse capture"
+            ))
         }
     }
 }
