@@ -112,3 +112,6 @@ panic = "unwind"
 
 [patch.crates-io]
 windows-capture = { path = "third_party/windows-capture" }
+
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))'.dependencies]
+unrar = "0.5.8"

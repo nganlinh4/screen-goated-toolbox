@@ -877,8 +877,7 @@ unsafe fn internal_create_sr_loop() {
             }}
         }})();
         {}
-    "#
-    ,
+    "#,
         font_retry_bootstrap
     );
 

@@ -4,6 +4,7 @@ mod global;
 pub mod help_assistant;
 mod history;
 pub mod node_graph;
+pub mod pointer_gallery;
 mod preset;
 mod sidebar;
 

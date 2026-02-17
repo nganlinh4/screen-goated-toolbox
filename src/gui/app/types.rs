@@ -103,6 +103,7 @@ pub struct SettingsApp {
 
     // --- DOWNLOAD MANAGER ---
     pub(crate) download_manager: crate::gui::settings_ui::download_manager::DownloadManager,
+    pub(crate) pointer_gallery: crate::gui::settings_ui::pointer_gallery::PointerGallery,
 
     // --- ARGUMENT HANDLING ---
     pub(crate) pending_file_path: Option<std::path::PathBuf>,

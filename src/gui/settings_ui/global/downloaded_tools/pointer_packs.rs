@@ -1,13 +1,14 @@
 use crate::gui::locale::LocaleText;
-use crate::overlay::screen_record::bg_download;
+use crate::gui::settings_ui::pointer_gallery;
 use eframe::egui;
 
-pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
-    let summary = bg_download::downloadable_background_summary();
+pub(super) fn render_pointer_pack_downloads_section(ui: &mut egui::Ui, text: &LocaleText) {
+    let summary = pointer_gallery::downloadable_collection_summary();
+    let status_id = egui::Id::new("pointer_pack_tools_status");
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(text.tool_downloadable_backgrounds).strong());
+            ui.label(egui::RichText::new(text.tool_downloadable_pointer_collections).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if summary.total_count == 0 {
                     ui.label(
@@ -25,13 +26,21 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     return;
                 }
 
+                let has_backup = pointer_gallery::has_original_cursor_backup_file();
+                if has_backup && ui.button(text.pointer_restore_original_btn).clicked() {
+                    let result = pointer_gallery::restore_original_cursor_from_backup();
+                    ui.ctx().memory_mut(|mem| {
+                        mem.data.insert_temp(status_id, result);
+                    });
+                }
+
                 if summary.downloaded_count == 0 {
                     if ui.button(text.tool_bg_action_download_all).clicked() {
-                        let _ = bg_download::start_download_all_missing();
+                        let _ = pointer_gallery::start_download_all_collections();
                     }
                 } else if summary.downloaded_count < summary.total_count {
                     if ui.button(text.tool_bg_action_download_rest).clicked() {
-                        let _ = bg_download::start_download_all_missing();
+                        let _ = pointer_gallery::start_download_all_collections();
                     }
                     if ui
                         .button(
@@ -40,7 +49,7 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                         )
                         .clicked()
                     {
-                        let _ = bg_download::delete_all_downloaded();
+                        let _ = pointer_gallery::delete_downloaded_collections();
                     }
                 } else if ui
                     .button(
@@ -49,16 +58,16 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                     )
                     .clicked()
                 {
-                    let _ = bg_download::delete_all_downloaded();
+                    let _ = pointer_gallery::delete_downloaded_collections();
                 }
             });
         });
 
         ui.horizontal(|ui| {
-            ui.label(text.tool_desc_downloadable_backgrounds);
+            ui.label(text.tool_desc_downloadable_pointer_collections);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let count_text = text
-                    .tool_bg_downloaded_count_fmt
+                    .tool_pointer_downloaded_count_fmt
                     .replacen("{}", &summary.downloaded_count.to_string(), 1)
                     .replacen("{}", &summary.total_count.to_string(), 1);
                 let count_text =
@@ -74,6 +83,23 @@ pub(super) fn render_background_downloads_section(ui: &mut egui::Ui, text: &Loca
                 ui.label(egui::RichText::new(count_text).color(color));
             });
         });
+
+        if let Some(result) = ui
+            .ctx()
+            .memory(|mem| mem.data.get_temp::<Result<(), String>>(status_id))
+        {
+            match result {
+                Ok(()) => {
+                    ui.label(
+                        egui::RichText::new(text.pointer_restore_success)
+                            .color(egui::Color32::from_rgb(34, 139, 34)),
+                    );
+                }
+                Err(message) => {
+                    ui.label(egui::RichText::new(message).color(egui::Color32::RED));
+                }
+            }
+        }
     });
 }
 

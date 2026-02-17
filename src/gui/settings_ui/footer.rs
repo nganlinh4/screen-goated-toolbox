@@ -9,6 +9,7 @@ pub fn render_footer(
     current_tip: String,
     tip_alpha: f32,
     show_modal: &mut bool,
+    show_pointer_gallery: &mut bool,
 ) {
     ui.horizontal(|ui| {
         // 1. Left Side: Pointer Gallery Button (icon inside, matches header button style)
@@ -36,7 +37,8 @@ pub fn render_footer(
         let btn_w = h_pad + icon_sz + icon_gap + btn_galley.rect.width() + h_pad;
         let btn_h = btn_galley.rect.height() + v_pad * 2.0;
 
-        let (btn_rect, _) = ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::hover());
+        let (btn_rect, btn_response) =
+            ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::click());
         let p = ui.painter();
         p.rect_filled(btn_rect, 6.0, btn_bg);
         let icon_rect = egui::Rect::from_min_size(
@@ -52,6 +54,12 @@ pub fn render_footer(
             btn_galley,
             btn_color,
         );
+        if btn_response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if btn_response.clicked() {
+            *show_pointer_gallery = true;
+        }
 
         ui.add_space(8.0);
 
