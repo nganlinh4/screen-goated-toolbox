@@ -895,9 +895,9 @@ function App() {
       <main className="app-main flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
         {error && <p className="error-message text-[var(--tertiary-color)] mb-2 flex-shrink-0">{error}</p>}
 
-        <div className="content-layout flex gap-3 flex-1 min-h-0">
+        <div className="content-layout flex gap-3 flex-1 min-h-0 pb-1">
           {/* Video Preview */}
-          <div className="video-preview-container flex-1 min-w-0 rounded-xl overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
+          <div className="video-preview-container flex-1 min-w-0 rounded-xl overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_4px_18px_rgba(0,0,0,0.2)]">
             <div className="preview-inner relative w-full h-full flex justify-center items-center">
               <div
                 ref={previewContainerRef}
@@ -987,10 +987,14 @@ function App() {
 
         {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
           <div className="playback-controls-row mt-2 flex-shrink-0 flex justify-center">
-            <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
-              isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
-              duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
-              canvasModeToggle={
+            <div
+              className="playback-controls-anchor flex justify-center"
+              style={isCropping ? { width: 'calc(100% - 23.75rem)', marginRight: '23.75rem' } : undefined}
+            >
+              <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
+                isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
+                duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
+                canvasModeToggle={
                 <div className="playback-canvas-mode-toggle flex rounded-lg border border-[var(--overlay-divider)] overflow-hidden">
                   {(['auto', 'custom'] as const).map((mode) => {
                     const isActive = (backgroundConfig.canvasMode ?? 'auto') === mode;
@@ -1023,7 +1027,7 @@ function App() {
                   })}
                 </div>
               }
-              keystrokeToggle={
+                keystrokeToggle={
                 <div className="playback-keystroke-control relative">
                   <div className="playback-keystroke-delay-hover-bridge absolute left-0 right-0 bottom-full h-3" />
                   <Button
@@ -1069,8 +1073,8 @@ function App() {
                     </div>
                   </div>
                 </div>
-              }
-              autoZoomButton={
+                }
+                autoZoomButton={
                 <Button onClick={handleAutoZoom}
                   disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
                   className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
@@ -1082,8 +1086,8 @@ function App() {
                   }`}>
                   <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
                 </Button>
-              }
-              smartPointerButton={
+                }
+                smartPointerButton={
                 <Button onClick={handleSmartPointerHiding}
                   disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
                   className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
@@ -1103,8 +1107,8 @@ function App() {
                   }`}>
                   <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
                 </Button>
-              }
-              volumeControl={
+                }
+                volumeControl={
                 <div className="playback-volume-control flex items-center gap-1.5">
                   <Volume2 className="w-3.5 h-3.5 text-[var(--overlay-panel-fg)]/80 flex-shrink-0" />
                   <input
@@ -1119,6 +1123,7 @@ function App() {
                   />
                 </div>
               } />
+            </div>
           </div>
         )}
 
