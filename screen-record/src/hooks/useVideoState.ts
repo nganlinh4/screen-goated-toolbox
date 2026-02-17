@@ -601,6 +601,7 @@ export function useExport(props: UseExportProps) {
     try {
       setShowExportDialog(false);
       setIsProcessing(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
       await videoExporter.exportAndDownload({
         width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, speed: exportOptions.speed,
