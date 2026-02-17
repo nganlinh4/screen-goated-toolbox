@@ -344,6 +344,7 @@ pub fn get() -> LocaleText {
         pointer_action_start_download: "다운로드 시작",
         pointer_action_apply: "적용",
         pointer_action_retry: "재시도",
+        pointer_size_label: "포인터 크기",
         pointer_status_queued: "대기 중",
         pointer_status_downloading_fmt: "다운로드 중 {}/{}",
         pointer_status_paused_fmt: "일시중지 {}/{}",

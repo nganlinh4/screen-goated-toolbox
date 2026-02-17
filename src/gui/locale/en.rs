@@ -379,6 +379,7 @@ pub fn get() -> LocaleText {
         pointer_action_start_download: "Start Download",
         pointer_action_apply: "Apply",
         pointer_action_retry: "Retry",
+        pointer_size_label: "Pointer Size",
         pointer_status_queued: "Queued",
         pointer_status_downloading_fmt: "Downloading {}/{}",
         pointer_status_paused_fmt: "Paused {}/{}",

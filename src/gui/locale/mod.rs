@@ -333,6 +333,7 @@ pub struct LocaleText {
     pub pointer_action_start_download: &'static str,
     pub pointer_action_apply: &'static str,
     pub pointer_action_retry: &'static str,
+    pub pointer_size_label: &'static str,
     pub pointer_status_queued: &'static str,
     pub pointer_status_downloading_fmt: &'static str,
     pub pointer_status_paused_fmt: &'static str,

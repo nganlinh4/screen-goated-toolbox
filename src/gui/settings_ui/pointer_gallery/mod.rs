@@ -1,13 +1,15 @@
 mod backend;
+mod pointer_size;
 mod preview;
+mod worker;
 
 use crate::gui::locale::LocaleText;
 use backend::{
-    apply_downloaded_collection, collection_specs, delete_all_downloaded_collections,
-    expected_file_count, has_original_cursor_backup, is_collection_downloading, is_complete_files,
-    new_stop_signal, pointer_collection_summary, preload_collection, required_file_names,
-    restore_original_cursor_backup, start_download_all_missing, CursorCollectionSpec,
-    PointerCollectionSummary,
+    apply_downloaded_collection, collection_specs, cursor_base_size_bounds,
+    delete_all_downloaded_collections, expected_file_count, has_original_cursor_backup,
+    is_collection_downloading, is_complete_files, new_stop_signal, pointer_collection_summary,
+    required_file_names, restore_original_cursor_backup, start_download_all_missing,
+    CursorCollectionSpec, PointerCollectionSummary,
 };
 use eframe::egui;
 use preview::{
@@ -16,14 +18,19 @@ use preview::{
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
+use std::time::Duration;
+use worker::run_preload_worker;
 
 const TITLE_COLUMN_WIDTH: f32 = 280.0;
 const PREVIEW_ICON_SIZE: f32 = 24.0;
 const ACTION_COLUMN_WIDTH: f32 = 104.0;
 const STATUS_COLUMN_WIDTH: f32 = 120.0;
 const DISK_SYNC_INTERVAL_SECS: f64 = 1.2;
+const POINTER_SIZE_SLIDER_WIDTH: f32 = 180.0;
+const DEFAULT_POINTER_SIZE: u32 = 32;
+const LIVE_PREVIEW_APPLY_INTERVAL_SECS: f64 = 0.09;
 
 #[derive(Clone)]
 pub(super) enum CollectionStatus {
@@ -76,6 +83,10 @@ pub struct PointerGallery {
     status_message: Option<(bool, String)>,
     preview_textures: HashMap<String, PreviewTexture>,
     stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pointer_size: u32,
+    pointer_size_loaded: bool,
+    last_live_apply_size: Option<u32>,
+    last_live_apply_secs: f64,
 }
 
 pub(crate) fn downloadable_collection_summary() -> PointerCollectionSummary {
@@ -127,6 +138,10 @@ impl PointerGallery {
             status_message: None,
             preview_textures: HashMap::new(),
             stop_signal: new_stop_signal(),
+            pointer_size: DEFAULT_POINTER_SIZE,
+            pointer_size_loaded: false,
+            last_live_apply_size: None,
+            last_live_apply_secs: 0.0,
         }
     }
 
@@ -135,6 +150,7 @@ impl PointerGallery {
             return;
         }
 
+        self.ensure_pointer_size_loaded();
         self.ensure_preload_started();
         self.poll_worker_events();
         self.sync_collections_from_disk(ctx);
@@ -150,7 +166,7 @@ impl PointerGallery {
             .default_size(egui::vec2(1180.0, 560.0))
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let summary = pointer_collection_summary();
                     let can_restore = has_original_cursor_backup();
                     if ui
@@ -162,6 +178,8 @@ impl PointerGallery {
                     {
                         match restore_original_cursor_backup() {
                             Ok(()) => {
+                                self.pointer_size_loaded = false;
+                                self.ensure_pointer_size_loaded();
                                 self.status_message =
                                     Some((true, text.pointer_restore_success.to_string()));
                             }
@@ -191,6 +209,28 @@ impl PointerGallery {
                         && ui.button(text.pointer_action_start_download).clicked()
                     {
                         self.restart_preload();
+                    }
+
+                    let (min_size, max_size) = cursor_base_size_bounds();
+                    ui.separator();
+                    ui.label(text.pointer_size_label);
+                    let mut size_value = self.pointer_size.clamp(min_size, max_size);
+                    let slider_response = ui.add_sized(
+                        [POINTER_SIZE_SLIDER_WIDTH, PREVIEW_ICON_SIZE - 2.0],
+                        egui::Slider::new(&mut size_value, min_size..=max_size).show_value(true),
+                    );
+                    if slider_response.changed() {
+                        self.pointer_size = size_value;
+                        let now = ctx.input(|i| i.time);
+                        let live_preview_only = slider_response.dragged();
+                        self.apply_pointer_size_live(now, live_preview_only, false);
+                        if live_preview_only {
+                            ctx.request_repaint_after(Duration::from_millis(80));
+                        }
+                    }
+                    if slider_response.drag_stopped() {
+                        let now = ctx.input(|i| i.time);
+                        self.apply_pointer_size_live(now, false, true);
                     }
                 });
 
@@ -504,7 +544,7 @@ impl PointerGallery {
         let spec = self.collections[collection_idx].spec;
         let files = self.collections[collection_idx].files.clone();
 
-        match apply_downloaded_collection(spec, &files) {
+        match apply_downloaded_collection(spec, &files, self.pointer_size, false) {
             Ok(()) => {
                 for entry in &mut self.collections {
                     if entry.spec.id == id {
@@ -522,39 +562,6 @@ impl PointerGallery {
                 self.collections[collection_idx].status = CollectionStatus::Error(err.clone());
                 self.status_message = Some((false, err));
             }
-        }
-    }
-}
-
-fn run_preload_worker(
-    cache_root: &std::path::Path,
-    tx: Sender<GalleryEvent>,
-    stop_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
-) {
-    for spec in collection_specs().iter().copied() {
-        if stop_signal.load(Ordering::Relaxed) {
-            let _ = tx.send(GalleryEvent::Paused);
-            break;
-        }
-
-        match preload_collection(spec, cache_root, &tx, stop_signal.as_ref()) {
-            Ok(files) => {
-                let _ = tx.send(GalleryEvent::Ready {
-                    id: spec.id.to_string(),
-                    files,
-                });
-            }
-            Err(message) => {
-                let _ = tx.send(GalleryEvent::Error {
-                    id: spec.id.to_string(),
-                    message,
-                });
-            }
-        }
-
-        if stop_signal.load(Ordering::Relaxed) {
-            let _ = tx.send(GalleryEvent::Paused);
-            break;
         }
     }
 }
