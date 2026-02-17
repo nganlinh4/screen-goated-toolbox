@@ -9,11 +9,16 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 mod catalog;
+mod scaled;
 mod sources;
+mod system;
 use catalog::collections as catalog_collections;
 pub(super) use catalog::CursorCollectionSpec;
 use catalog::{CollectionSource, REGISTRY_FILE_MAP, REQUIRED_FILES, SCHEME_FILE_ORDER};
+use scaled::scaled_cursor_file_map_for_size;
 use sources::{preload_missing_from_github, preload_missing_from_rar, preload_missing_from_zip};
+#[cfg(target_os = "windows")]
+use system::{refresh_cursor_settings, write_accessibility_cursor_size};
 
 #[derive(Clone, Copy)]
 pub(crate) struct PointerCollectionSummary {
@@ -26,6 +31,8 @@ pub(crate) struct PointerCollectionSummary {
 #[derive(Serialize, Deserialize)]
 struct CursorBackup {
     values: HashMap<String, String>,
+    #[serde(default)]
+    cursor_base_size: Option<u32>,
 }
 
 #[derive(Clone, Copy)]
@@ -41,6 +48,11 @@ struct PointerSummaryCache {
 }
 
 const SUMMARY_CACHE_TTL: Duration = Duration::from_millis(1500);
+const CURSOR_BASE_SIZE_MIN: u32 = 16;
+const CURSOR_BASE_SIZE_MAX: u32 = 128;
+const CURSOR_BASE_SIZE_DEFAULT: u32 = 32;
+const ACCESSIBILITY_CURSOR_SIZE_MIN: u32 = 1;
+const ACCESSIBILITY_CURSOR_SIZE_MAX: u32 = 15;
 
 fn cache_root() -> PathBuf {
     dirs::data_local_dir()
@@ -144,6 +156,25 @@ fn compute_pointer_summary_disk(root: &Path) -> PointerSummaryDiskSnapshot {
     }
 }
 
+fn clamp_cursor_base_size(size: u32) -> u32 {
+    size.clamp(CURSOR_BASE_SIZE_MIN, CURSOR_BASE_SIZE_MAX)
+}
+
+pub(super) fn cursor_base_size_bounds() -> (u32, u32) {
+    (CURSOR_BASE_SIZE_MIN, CURSOR_BASE_SIZE_MAX)
+}
+
+fn accessibility_cursor_size_from_base(base_size: u32) -> u32 {
+    let clamped = clamp_cursor_base_size(base_size);
+    let from_span = CURSOR_BASE_SIZE_MAX.saturating_sub(CURSOR_BASE_SIZE_MIN);
+    let to_span = ACCESSIBILITY_CURSOR_SIZE_MAX.saturating_sub(ACCESSIBILITY_CURSOR_SIZE_MIN);
+    if from_span == 0 || to_span == 0 {
+        return ACCESSIBILITY_CURSOR_SIZE_MIN;
+    }
+    ACCESSIBILITY_CURSOR_SIZE_MIN
+        + (clamped.saturating_sub(CURSOR_BASE_SIZE_MIN) * to_span + (from_span / 2)) / from_span
+}
+
 pub(crate) fn pointer_collection_summary() -> PointerCollectionSummary {
     let downloading_count = downloading_ids().lock().unwrap().len();
     let now = Instant::now();
@@ -217,11 +248,50 @@ pub(crate) fn has_original_cursor_backup() -> bool {
 }
 
 #[cfg(target_os = "windows")]
+pub(super) fn current_cursor_base_size() -> Result<u32, String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (cursors_key, _) = hkcu
+        .create_subkey("Control Panel\\Cursors")
+        .map_err(|e| format!("Failed to open HKCU cursor key: {}", e))?;
+    Ok(read_cursor_base_size_from_registry(&cursors_key))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(super) fn current_cursor_base_size() -> Result<u32, String> {
+    Err("Pointer size changes are only supported on Windows.".to_string())
+}
+
+#[cfg(target_os = "windows")]
+pub(super) fn apply_cursor_base_size(size: u32) -> Result<u32, String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    backup_current_cursor_settings_if_needed()?;
+
+    let applied_size = clamp_cursor_base_size(size);
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (cursors_key, _) = hkcu
+        .create_subkey("Control Panel\\Cursors")
+        .map_err(|e| format!("Failed to open HKCU cursor key: {}", e))?;
+    cursors_key
+        .set_value("CursorBaseSize", &applied_size)
+        .map_err(|e| format!("Failed writing cursor size: {}", e))?;
+    write_accessibility_cursor_size(&hkcu, accessibility_cursor_size_from_base(applied_size))?;
+    refresh_cursor_settings();
+
+    Ok(applied_size)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(super) fn apply_cursor_base_size(_size: u32) -> Result<u32, String> {
+    Err("Pointer size changes are only supported on Windows.".to_string())
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) fn restore_original_cursor_backup() -> Result<(), String> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETCURSORS,
-        SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    };
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
@@ -240,12 +310,14 @@ pub(crate) fn restore_original_cursor_backup() -> Result<(), String> {
             .set_value(name.as_str(), &value)
             .map_err(|e| format!("Failed restoring '{}': {}", name, e))?;
     }
-
-    unsafe {
-        let flags = SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(SPIF_SENDCHANGE.0 | SPIF_UPDATEINIFILE.0);
-        let _ = SystemParametersInfoW(SPI_SETCURSORS, 0, None, flags);
+    if let Some(size) = backup.cursor_base_size {
+        let clamped = clamp_cursor_base_size(size);
+        cursors_key
+            .set_value("CursorBaseSize", &clamped)
+            .map_err(|e| format!("Failed restoring cursor size: {}", e))?;
+        write_accessibility_cursor_size(&hkcu, accessibility_cursor_size_from_base(clamped))?;
     }
-
+    refresh_cursor_settings();
     Ok(())
 }
 
@@ -369,6 +441,17 @@ pub(super) fn is_collection_downloading(id: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
+fn read_cursor_base_size_from_registry(cursors_key: &winreg::RegKey) -> u32 {
+    let dword = cursors_key.get_value::<u32, _>("CursorBaseSize").ok();
+    let parsed_string = cursors_key
+        .get_value::<String, _>("CursorBaseSize")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u32>().ok());
+    let raw = dword.or(parsed_string).unwrap_or(CURSOR_BASE_SIZE_DEFAULT);
+    clamp_cursor_base_size(raw)
+}
+
+#[cfg(target_os = "windows")]
 fn backup_current_cursor_settings_if_needed() -> Result<(), String> {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
@@ -398,7 +481,10 @@ fn backup_current_cursor_settings_if_needed() -> Result<(), String> {
             .or_insert_with(|| cursors_key.get_value::<String, _>(name).unwrap_or_default());
     }
 
-    let payload = CursorBackup { values };
+    let payload = CursorBackup {
+        values,
+        cursor_base_size: Some(read_cursor_base_size_from_registry(&cursors_key)),
+    };
     let bytes = serde_json::to_vec_pretty(&payload)
         .map_err(|e| format!("Failed encoding backup: {}", e))?;
     fs::write(&backup, bytes).map_err(|e| format!("Failed writing backup file: {}", e))?;
@@ -414,11 +500,10 @@ fn backup_current_cursor_settings_if_needed() -> Result<(), String> {
 pub(super) fn apply_downloaded_collection(
     spec: CursorCollectionSpec,
     files: &HashMap<String, PathBuf>,
+    desired_cursor_base_size: u32,
+    live_preview_only: bool,
 ) -> Result<(), String> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_SETCURSORS,
-        SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::OCR_NORMAL;
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
@@ -434,14 +519,37 @@ pub(super) fn apply_downloaded_collection(
     let (cursors_key, _) = hkcu
         .create_subkey("Control Panel\\Cursors")
         .map_err(|e| format!("Failed to open HKCU cursor key: {}", e))?;
+    let clamped_size = clamp_cursor_base_size(desired_cursor_base_size);
+    let effective_files = scaled_cursor_file_map_for_size(files, clamped_size, live_preview_only);
 
     for (value_name, file_name) in REGISTRY_FILE_MAP {
-        let Some(path) = files.get(file_name) else {
+        if live_preview_only && value_name != "Arrow" {
+            continue;
+        }
+        let Some(path) = effective_files
+            .get(file_name)
+            .or_else(|| files.get(file_name))
+        else {
             return Err(format!("Cannot apply pack, missing file '{}'", file_name));
         };
         cursors_key
             .set_value(value_name, &to_registry_path(path))
             .map_err(|e| format!("Failed writing '{}': {}", value_name, e))?;
+    }
+
+    cursors_key
+        .set_value("CursorBaseSize", &clamped_size)
+        .map_err(|e| format!("Failed writing cursor size: {}", e))?;
+    write_accessibility_cursor_size(&hkcu, accessibility_cursor_size_from_base(clamped_size))?;
+
+    if live_preview_only {
+        if let Some(arrow_path) = effective_files
+            .get("pointer.cur")
+            .or_else(|| files.get("pointer.cur"))
+        {
+            let _ = system::set_system_cursor_from_file(arrow_path, OCR_NORMAL, Some(clamped_size));
+        }
+        return Ok(());
     }
 
     cursors_key
@@ -455,7 +563,7 @@ pub(super) fn apply_downloaded_collection(
     let scheme_value = SCHEME_FILE_ORDER
         .iter()
         .map(|name| {
-            files
+            effective_files
                 .get(*name)
                 .map(|path| to_registry_path(path))
                 .ok_or_else(|| format!("Missing file '{}'", name))
@@ -466,10 +574,8 @@ pub(super) fn apply_downloaded_collection(
         .set_value(spec.scheme_name, &scheme_value)
         .map_err(|e| format!("Failed writing scheme list: {}", e))?;
 
-    unsafe {
-        let flags = SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(SPIF_SENDCHANGE.0 | SPIF_UPDATEINIFILE.0);
-        let _ = SystemParametersInfoW(SPI_SETCURSORS, 0, None, flags);
-    }
+    refresh_cursor_settings();
+    system::apply_standard_system_cursors(&effective_files, files, clamped_size);
 
     Ok(())
 }
@@ -482,6 +588,8 @@ pub(super) fn new_stop_signal() -> Arc<AtomicBool> {
 pub(super) fn apply_downloaded_collection(
     _spec: CursorCollectionSpec,
     _files: &HashMap<String, PathBuf>,
+    _desired_cursor_base_size: u32,
+    _live_preview_only: bool,
 ) -> Result<(), String> {
     Err("Applying cursor packs is only supported on Windows.".to_string())
 }

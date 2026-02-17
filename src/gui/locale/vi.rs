@@ -380,6 +380,7 @@ pub fn get() -> LocaleText {
         pointer_action_start_download: "Bắt đầu tải",
         pointer_action_apply: "Áp dụng",
         pointer_action_retry: "Thử lại",
+        pointer_size_label: "Kích thước con trỏ",
         pointer_status_queued: "Đang chờ",
         pointer_status_downloading_fmt: "Đang tải {}/{}",
         pointer_status_paused_fmt: "Đã tạm dừng {}/{}",
