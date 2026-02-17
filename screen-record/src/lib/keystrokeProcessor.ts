@@ -2,6 +2,7 @@ import { KeystrokeEvent, RawInputEvent, InputModifiers } from '@/types/video';
 
 const DEFAULT_DISPLAY_DURATION_SEC = 1.2;
 const HOLD_MIN_DURATION_SEC = 0.2;
+const MIN_RELEASE_DISPLAY_SEC = 0.34;
 
 function createEventId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -55,6 +56,13 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
+function computePercentile(values: number[], percentile: number): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * percentile)));
+  return sorted[idx];
+}
+
 function keyboardToken(event: RawInputEvent): string {
   if (typeof event.vk === 'number') return `vk:${event.vk}`;
   return `key:${event.key ?? ''}`;
@@ -93,8 +101,9 @@ export function buildKeystrokeEvents(
         const activeIndex = activeKeyboardEvents.get(token);
         if (activeIndex !== undefined && out[activeIndex]) {
           const active = out[activeIndex];
-          active.endTime = clamp(Math.max(active.startTime + 0.02, timestamp), 0, maxTime);
-          active.isHold = active.endTime - active.startTime >= HOLD_MIN_DURATION_SEC;
+          const physicalDuration = Math.max(0, timestamp - active.startTime);
+          active.endTime = clamp(Math.max(active.startTime + MIN_RELEASE_DISPLAY_SEC, timestamp), 0, maxTime);
+          active.isHold = physicalDuration >= HOLD_MIN_DURATION_SEC;
           activeKeyboardEvents.delete(token);
         }
         continue;
@@ -130,8 +139,9 @@ export function buildKeystrokeEvents(
         const activeIndex = activeMouseEvents.get(token);
         if (activeIndex !== undefined && out[activeIndex]) {
           const active = out[activeIndex];
-          active.endTime = clamp(Math.max(active.startTime + 0.02, timestamp), 0, maxTime);
-          active.isHold = active.endTime - active.startTime >= HOLD_MIN_DURATION_SEC;
+          const physicalDuration = Math.max(0, timestamp - active.startTime);
+          active.endTime = clamp(Math.max(active.startTime + MIN_RELEASE_DISPLAY_SEC, timestamp), 0, maxTime);
+          active.isHold = physicalDuration >= HOLD_MIN_DURATION_SEC;
           activeMouseEvents.delete(token);
         }
         continue;
@@ -179,6 +189,33 @@ export function buildKeystrokeEvents(
 
     out.push(candidate);
   }
+
+  const durations = out.map((event) => Math.max(0, event.endTime - event.startTime));
+  const min = durations.length ? Math.min(...durations) : 0;
+  const max = durations.length ? Math.max(...durations) : 0;
+  const p50 = computePercentile(durations, 0.5);
+  const p90 = computePercentile(durations, 0.9);
+  const short = out
+    .filter((event) => event.endTime - event.startTime <= 0.12)
+    .slice(0, 12)
+    .map((event) => ({
+      type: event.type,
+      label: event.label,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      duration: event.endTime - event.startTime,
+      hold: Boolean(event.isHold),
+    }));
+  console.info('[KeystrokeDebug][Processor]', {
+    rawEvents: sorted.length,
+    builtEvents: out.length,
+    min,
+    p50,
+    p90,
+    max,
+    shortLE120ms: short.length,
+    sampleShort: short,
+  });
 
   return out;
 }

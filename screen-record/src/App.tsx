@@ -33,7 +33,7 @@ const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
 const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
 const RECENT_UPLOADS_KEY = 'screen-record-recent-uploads-v1';
 const PROJECT_SAVE_DEBUG = true;
-const DEFAULT_KEYSTROKE_DELAY_SEC = -0.65;
+const DEFAULT_KEYSTROKE_DELAY_SEC = -0.33;
 const sv = (v: number, min: number, max: number): CSSProperties =>
   ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
 
@@ -348,11 +348,34 @@ function App() {
   const handleKeystrokeDelayChange = useCallback((value: number) => {
     if (!segment) return;
     const clamped = Math.max(-1, Math.min(1, value));
-    setSegment({
+    const prevDelay = Math.max(-1, Math.min(1, segment.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC));
+    const delta = clamped - prevDelay;
+    const mode = segment.keystrokeMode ?? 'off';
+
+    let nextSegment: VideoSegment = {
       ...segment,
       keystrokeDelaySec: clamped,
-    });
-  }, [segment, setSegment]);
+    };
+
+    if ((mode === 'keyboard' || mode === 'keyboardMouse') && Math.abs(delta) > 0.0005) {
+      const duration = getKeystrokeTimelineDuration(segment);
+      const shifted = getKeystrokeVisibilitySegmentsForMode(segment)
+        .map((range) => {
+          const startTime = Math.max(0, Math.min(duration, range.startTime + delta));
+          const endTime = Math.max(0, Math.min(duration, range.endTime + delta));
+          if (endTime - startTime <= 0.001) return null;
+          return {
+            ...range,
+            startTime,
+            endTime,
+          };
+        })
+        .filter((range): range is NonNullable<typeof range> => Boolean(range));
+      nextSegment = withKeystrokeVisibilitySegmentsForMode(nextSegment, shifted);
+    }
+
+    setSegment(nextSegment);
+  }, [segment, setSegment, getKeystrokeTimelineDuration]);
 
   const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;

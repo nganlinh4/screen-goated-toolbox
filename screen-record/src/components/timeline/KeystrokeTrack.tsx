@@ -3,6 +3,7 @@ import { Keyboard, MousePointer2 } from 'lucide-react';
 import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/video';
 import {
   filterKeystrokeEventsByMode,
+  KEYSTROKE_SAME_LANE_OVERLAP_SEC,
   KEYSTROKE_VISIBILITY_MARGIN_AFTER,
   KEYSTROKE_VISIBILITY_MARGIN_BEFORE
 } from '@/lib/keystrokeVisibility';
@@ -58,7 +59,10 @@ function getRawEventRanges(segment: VideoSegment, duration: number): TypedTimeRa
     const nextStart = mode === 'keyboardMouse'
       ? (event.type === 'keyboard' ? nextKeyboardStart : nextMouseStart)
       : nextAnyStart;
-    effectiveEnds[i] = Math.min(event.endTime, nextStart, safeDuration);
+    const overlapLimitedEnd = Number.isFinite(nextStart)
+      ? nextStart + KEYSTROKE_SAME_LANE_OVERLAP_SEC
+      : Number.POSITIVE_INFINITY;
+    effectiveEnds[i] = Math.min(event.endTime, overlapLimitedEnd, safeDuration);
     nextAnyStart = event.startTime;
     if (event.type === 'keyboard') {
       nextKeyboardStart = event.startTime;
