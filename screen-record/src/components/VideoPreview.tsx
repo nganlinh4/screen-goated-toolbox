@@ -102,9 +102,29 @@ export function PlaybackControls({
   volumeControl,
 }: PlaybackControlsProps) {
   const { t } = useSettings();
+
+  if (isCropping) {
+    return (
+      <div className="playback-crop-apply-only flex items-center justify-center">
+        <Button
+          onClick={onToggleCrop}
+          variant="ghost"
+          size="icon"
+          className="playback-crop-apply-btn w-8 h-8 rounded-lg transition-colors bg-green-500/80 text-white hover:bg-green-600"
+          title={t.applyCrop}
+          aria-label={t.applyCrop}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="playback-controls relative flex items-center gap-2 backdrop-blur-xl rounded-xl px-3 py-2 border shadow-[0_8px_24px_rgba(0,0,0,0.18)] whitespace-nowrap"
+      className="playback-controls relative flex items-center gap-2 backdrop-blur-xl rounded-xl px-3 py-2 border shadow-[0_4px_14px_rgba(0,0,0,0.12)] whitespace-nowrap"
       style={{
         backgroundColor: 'var(--overlay-panel-bg)',
         borderColor: 'var(--overlay-panel-border)',
@@ -121,37 +141,23 @@ export function PlaybackControls({
         onClick={onToggleCrop}
         variant="ghost"
         size="icon"
-        className={`w-8 h-8 rounded-lg transition-colors ${
-          isCropping
-            ? 'bg-green-500/80 text-white hover:bg-green-600'
-            : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)]'
-        }`}
-        title={isCropping ? t.applyCrop : t.cropVideo}
+        className="w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)]"
+        title={t.cropVideo}
       >
-        {isCropping ? (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        ) : (
-          <Crop className="w-3.5 h-3.5" />
-        )}
+        <Crop className="w-3.5 h-3.5" />
       </Button>
-      {!isCropping && (
-        <>
-          <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
-          <Button
-            onClick={onTogglePlayPause}
-            disabled={isProcessing || !isVideoReady}
-            variant="ghost"
-            size="icon"
-            className={`w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)] bg-transparent hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)] ${
-              isProcessing || !isVideoReady ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-          >
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-          </Button>
-        </>
-      )}
+      <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
+      <Button
+        onClick={onTogglePlayPause}
+        disabled={isProcessing || !isVideoReady}
+        variant="ghost"
+        size="icon"
+        className={`w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)] bg-transparent hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)] ${
+          isProcessing || !isVideoReady ? 'opacity-50 cursor-not-allowed' : ''
+        }`}
+      >
+        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+      </Button>
       <div className="time-display text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
@@ -163,13 +169,13 @@ export function PlaybackControls({
           </div>
         </>
       )}
-      {!isCropping && autoZoomButton && (
+      {autoZoomButton && (
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           {autoZoomButton}
         </>
       )}
-      {!isCropping && smartPointerButton && (
+      {smartPointerButton && (
         <>
           <div className="control-divider w-px h-5" style={{ backgroundColor: 'var(--overlay-divider)' }} />
           {smartPointerButton}

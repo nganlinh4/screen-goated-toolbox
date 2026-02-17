@@ -276,7 +276,7 @@ pub fn get() -> LocaleText {
         help_assistant_answer_label: "Answer:",
         help_assistant_hint: "Enter a question about using SGT and press Enter or click Ask",
         prompt_dj_btn: "Be a DJ",
-        prompt_dj_title: "PromptDJ - Be a DJ",
+        prompt_dj_title: "SGT DJ - Be a DJ",
         screen_record_btn: "Record Screen (beta)",
         screen_record_title: "Screen Record (beta)",
         pointer_gallery_btn: "Pointer gallery (Upcoming)",

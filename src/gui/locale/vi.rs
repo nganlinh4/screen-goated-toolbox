@@ -277,7 +277,7 @@ pub fn get() -> LocaleText {
         help_assistant_answer_label: "Trả lời:",
         help_assistant_hint: "Nhập câu hỏi về cách sử dụng SGT và nhấn Enter hoặc nút Hỏi",
         prompt_dj_btn: "Làm DJ",
-        prompt_dj_title: "PromptDJ - Làm DJ",
+        prompt_dj_title: "SGT DJ - Làm DJ",
         screen_record_btn: "Quay MH (beta)",
         screen_record_title: "Screen Record - Quay MH (beta)",
         pointer_gallery_btn: "Kho trỏ chuột (Sắp có)",

@@ -414,8 +414,7 @@ unsafe fn internal_create_pdj_loop() {
         )
     };
 
-    let title_str = crate::gui::locale::LocaleText::get(&lang).prompt_dj_title;
-    let title_wide = windows::core::HSTRING::from(title_str);
+    let title_wide = windows::core::HSTRING::from("SGT DJ");
 
     let hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,

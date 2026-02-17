@@ -1,6 +1,6 @@
 const en = {
   // Header
-  appTitle: 'Screen Record',
+  appTitle: 'SGT Record',
   rec: 'REC',
   clickToRemove: 'Click to remove',
   addHotkey: 'Add Hotkey',

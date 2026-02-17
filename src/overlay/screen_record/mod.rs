@@ -654,7 +654,7 @@ unsafe fn internal_create_sr_loop() {
     let hwnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         class_name,
-        windows::core::w!("Screen Record"),
+        windows::core::w!("SGT Record"),
         WS_POPUP
             | WS_THICKFRAME
             | WS_CAPTION
@@ -696,7 +696,7 @@ unsafe fn internal_create_sr_loop() {
 
     // Font CSS from local HTTP server — CSS @font-face url() only works over http/https, not custom protocols
     let font_css = crate::overlay::html_components::font_manager::get_font_css();
-    let font_style_tag = format!("<style>{}</style>", font_css);
+    let font_style_tag = format!(r#"<style id="sgt-font-face">{}</style>"#, font_css);
 
     // Read initial theme/lang from config
     let (init_lang, init_theme_mode) = {
@@ -720,6 +720,124 @@ unsafe fn internal_create_sr_loop() {
 
     // Set window icon based on initial theme
     crate::gui::utils::set_window_icon(hwnd, init_theme == "dark");
+
+    let font_retry_bootstrap = r#"
+        (function() {
+            if (window.__SGT_FONT_RETRY_STATE__ && window.__SGT_FONT_RETRY_STATE__.started) {
+                return;
+            }
+
+            const retryDelaysMs = [0, 100, 250, 500, 900, 1400, 2000, 2800, 3800, 5000, 6500, 8200, 10000];
+            const styleId = 'sgt-font-face';
+            const fontCheckExpr = "16px 'Google Sans Flex'";
+            const state = {
+                started: true,
+                loaded: false,
+                attempts: 0,
+                startedAtMs: Date.now(),
+            };
+            window.__SGT_FONT_RETRY_STATE__ = state;
+
+            const hasDesiredFont = function() {
+                try {
+                    return !!(document.fonts && document.fonts.check && document.fonts.check(fontCheckExpr));
+                } catch (_err) {
+                    return false;
+                }
+            };
+
+            const upsertFontStyle = function(css, attemptIndex) {
+                if (typeof css !== 'string' || css.trim().length === 0) {
+                    return false;
+                }
+                if (css.indexOf('127.0.0.1:0') !== -1) {
+                    return false;
+                }
+
+                const retryToken = 'sr_try=' + Date.now() + '_' + attemptIndex;
+                const rewrittenCss = css.replace(
+                    /(GoogleSansFlex\.ttf\?v=[^'")\s]+)/g,
+                    function(_match, base) {
+                        return base + '&' + retryToken;
+                    }
+                );
+                let styleNode = document.getElementById(styleId);
+                if (!styleNode) {
+                    styleNode = document.createElement('style');
+                    styleNode.id = styleId;
+                    if (document.head) {
+                        document.head.appendChild(styleNode);
+                    } else {
+                        return false;
+                    }
+                }
+                styleNode.textContent = rewrittenCss;
+                return true;
+            };
+
+            const attemptLoad = async function(attemptIndex) {
+                const retryState = window.__SGT_FONT_RETRY_STATE__;
+                if (!retryState || retryState.loaded) {
+                    return true;
+                }
+                retryState.attempts = attemptIndex + 1;
+
+                if (hasDesiredFont()) {
+                    retryState.loaded = true;
+                    return true;
+                }
+
+                const invoker = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
+                if (typeof invoker !== 'function') {
+                    return false;
+                }
+
+                try {
+                    const css = await invoker('get_font_css');
+                    if (!upsertFontStyle(css, attemptIndex)) {
+                        return false;
+                    }
+
+                    if (document.fonts && document.fonts.load) {
+                        try {
+                            await Promise.race([
+                                document.fonts.load("400 16px 'Google Sans Flex'"),
+                                new Promise(function(resolve) { window.setTimeout(resolve, 1200); }),
+                            ]);
+                        } catch (_loadErr) {}
+                    }
+                } catch (_err) {
+                    return false;
+                }
+
+                if (hasDesiredFont()) {
+                    retryState.loaded = true;
+                    return true;
+                }
+                return false;
+            };
+
+            if (hasDesiredFont()) {
+                state.loaded = true;
+                return;
+            }
+
+            retryDelaysMs.forEach(function(delayMs, attemptIndex) {
+                window.setTimeout(function() {
+                    const retryState = window.__SGT_FONT_RETRY_STATE__;
+                    if (!retryState || retryState.loaded) {
+                        return;
+                    }
+
+                    attemptLoad(attemptIndex).then(function(loaded) {
+                        if (!loaded && attemptIndex === retryDelaysMs.length - 1) {
+                            console.warn('[SR] Google Sans Flex did not become ready after retry window');
+                        }
+                    });
+                }, delayMs);
+            });
+        })();
+    "#;
 
     let init_script = format!(
         r#"
@@ -749,6 +867,7 @@ unsafe fn internal_create_sr_loop() {
             // Set initial settings synchronously so React can read on mount
             window.__SR_INITIAL_THEME__ = '{init_theme}';
             window.__SR_INITIAL_LANG__ = '{init_lang}';
+            document.title = 'SGT Record';
             if (document.documentElement) {{
                 if ('{init_theme}' === 'dark') {{
                     document.documentElement.classList.add('dark');
@@ -757,7 +876,10 @@ unsafe fn internal_create_sr_loop() {
                 }}
             }}
         }})();
+        {}
     "#
+    ,
+        font_retry_bootstrap
     );
 
     let webview_result = {
