@@ -10,6 +10,10 @@ const ko: Translations = {
   installKeyviz: 'Keyviz 설치 및 활성화',
   keystrokesOn: '키 표시: 켜짐',
   showKeystrokes: '키 표시',
+  toggleKeystrokeMode: '키 표시 모드 전환',
+  keystrokeModeOff: '키: 끔',
+  keystrokeModeKeyboard: '키: 키보드',
+  keystrokeModeKeyboardMouse: '키: 키보드+마우스',
   export: '내보내기',
   projects: '프로젝트',
   minimize: '최소화',
@@ -142,6 +146,10 @@ const ko: Translations = {
   // Timeline
   trackZoom: '확대',
   trackText: '텍스트',
+  trackKeystrokes: '키',
+  trackKeystrokesOff: '끔',
+  trackKeyboard: '키보드',
+  trackKeyboardMouse: '키보드+마우스',
   trackPointer: '포인터',
   trackVideo: '비디오',
 

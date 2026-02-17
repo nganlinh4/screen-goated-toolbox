@@ -6,11 +6,18 @@ import { projectManager } from '@/lib/projectManager';
 import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
 import { videoExporter } from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
-import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment } from '@/types/video';
+import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment, RawInputEvent } from '@/types/video';
 import { generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
 import { normalizeSegmentTrimData } from '@/lib/trimSegments';
 import { getKeyframeRange } from '@/utils/helpers';
 import { useThrottle } from './useAppHooks';
+import { buildKeystrokeEvents } from '@/lib/keystrokeProcessor';
+import {
+  ensureKeystrokeVisibilitySegments,
+  filterKeystrokeEventsByMode,
+  generateKeystrokeVisibilitySegments,
+  rebuildKeystrokeVisibilitySegmentsForMode
+} from '@/lib/keystrokeVisibility';
 
 // ============================================================================
 // useVideoPlayback
@@ -272,7 +279,8 @@ export function useRecording(props: UseRecordingProps) {
       setLoadingProgress(0);
       props.setThumbnails([]);
 
-      const [videoUrl, audioUrl, rawMouseData, audioPath, videoPath] = await invoke<[string, string, any[], string, string]>("stop_recording");
+      const [videoUrl, audioUrl, rawMouseData, audioPath, videoPath, rawInputEvents] =
+        await invoke<[string, string, any[], string, string, RawInputEvent[]]>("stop_recording");
       setAudioFilePath(audioPath);
       setVideoFilePath(videoPath || "");
 
@@ -300,24 +308,43 @@ export function useRecording(props: UseRecordingProps) {
         props.generateThumbnails();
 
         const videoDuration = props.videoRef.current?.duration || 0;
+        const maxMouseTimestamp = rawMouseData.reduce((max, entry) => {
+          const ts = typeof entry?.timestamp === 'number' ? entry.timestamp : 0;
+          return Math.max(max, ts);
+        }, 0);
+        const maxInputTimestamp = (rawInputEvents || []).reduce((max: number, entry: any) => {
+          const ts = typeof entry?.timestamp === 'number' ? entry.timestamp : 0;
+          return Math.max(max, ts);
+        }, 0);
+        const timelineDuration = Math.max(videoDuration, maxMouseTimestamp, maxInputTimestamp);
         const baseSegment: VideoSegment = {
           trimStart: 0,
-          trimEnd: videoDuration,
+          trimEnd: timelineDuration,
           trimSegments: [{
             id: crypto.randomUUID(),
             startTime: 0,
-            endTime: videoDuration,
+            endTime: timelineDuration,
           }],
           zoomKeyframes: [],
           textSegments: [],
         };
 
-        const initialPointerSegments = generateCursorVisibility(baseSegment, mouseData, videoDuration);
+        const initialPointerSegments = generateCursorVisibility(baseSegment, mouseData, timelineDuration);
         const vidW = props.videoRef.current?.videoWidth || 0;
         const vidH = props.videoRef.current?.videoHeight || 0;
         const initialAutoPath = (vidW > 0 && vidH > 0 && mouseData.length > 0)
           ? autoZoomGenerator.generateMotionPath(baseSegment, mouseData, vidW, vidH)
           : [];
+
+        const keystrokeEvents = buildKeystrokeEvents(rawInputEvents || [], timelineDuration);
+        const keyboardVisibilitySegments = generateKeystrokeVisibilitySegments(
+          filterKeystrokeEventsByMode(keystrokeEvents, 'keyboard'),
+          timelineDuration
+        );
+        const keyboardMouseVisibilitySegments = generateKeystrokeVisibilitySegments(
+          filterKeystrokeEventsByMode(keystrokeEvents, 'keyboardMouse'),
+          timelineDuration
+        );
 
         const initialSegment: VideoSegment = {
           ...baseSegment,
@@ -326,8 +353,12 @@ export function useRecording(props: UseRecordingProps) {
           // Auto Zoom ON by default for new recordings.
           smoothMotionPath: initialAutoPath,
           zoomInfluencePoints: initialAutoPath.length > 0
-            ? [{ time: 0, value: 1.0 }, { time: videoDuration, value: 1.0 }]
+            ? [{ time: 0, value: 1.0 }, { time: timelineDuration, value: 1.0 }]
             : [],
+          keystrokeMode: 'keyboard',
+          keystrokeEvents,
+          keyboardVisibilitySegments,
+          keyboardMouseVisibilitySegments,
         };
         props.setSegment(initialSegment);
 
@@ -442,6 +473,27 @@ export function useProjects(props: UseProjectsProps) {
         startTime: 0,
         endTime: videoDuration,
       }];
+    }
+    if (!correctedSegment.keystrokeMode) {
+      correctedSegment.keystrokeMode = 'off';
+    }
+    if (!Array.isArray(correctedSegment.keystrokeEvents)) {
+      correctedSegment.keystrokeEvents = [];
+    }
+    correctedSegment = ensureKeystrokeVisibilitySegments(correctedSegment, videoDuration);
+    const loadedMode = correctedSegment.keystrokeMode ?? 'off';
+    if (loadedMode === 'keyboard' || loadedMode === 'keyboardMouse') {
+      const modeEvents = filterKeystrokeEventsByMode(correctedSegment.keystrokeEvents ?? [], loadedMode);
+      const modeSegments = loadedMode === 'keyboard'
+        ? (correctedSegment.keyboardVisibilitySegments ?? [])
+        : (correctedSegment.keyboardMouseVisibilitySegments ?? []);
+      if (modeSegments.length === 0 && modeEvents.length > 0) {
+        correctedSegment = rebuildKeystrokeVisibilitySegmentsForMode(
+          correctedSegment,
+          loadedMode,
+          videoDuration
+        );
+      }
     }
 
     // Draw the first frame on the canvas immediately (before React state updates)

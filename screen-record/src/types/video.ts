@@ -48,6 +48,38 @@ export interface CursorVisibilitySegment {
   endTime: number;
 }
 
+export type KeystrokeMode = 'off' | 'keyboard' | 'keyboardMouse';
+
+export interface InputModifiers {
+  ctrl?: boolean;
+  alt?: boolean;
+  shift?: boolean;
+  win?: boolean;
+}
+
+export interface RawInputEvent {
+  type: 'keyboard' | 'mousedown' | 'wheel';
+  timestamp: number;
+  vk?: number;
+  key?: string;
+  btn?: 'left' | 'right' | 'middle';
+  direction?: 'up' | 'down' | 'none';
+  modifiers?: InputModifiers;
+}
+
+export interface KeystrokeEvent {
+  id: string;
+  type: 'keyboard' | 'mousedown' | 'wheel';
+  startTime: number;
+  endTime: number;
+  label: string;
+  count: number;
+  modifiers: InputModifiers;
+  key?: string;
+  btn?: 'left' | 'right' | 'middle';
+  direction?: 'up' | 'down' | 'none';
+}
+
 export interface CropRect {
   x: number; // 0-1
   y: number; // 0-1
@@ -70,6 +102,10 @@ export interface VideoSegment {
   zoomInfluencePoints?: { time: number; value: number }[];
   textSegments: TextSegment[];
   cursorVisibilitySegments?: CursorVisibilitySegment[];
+  keystrokeMode?: KeystrokeMode;
+  keystrokeEvents?: KeystrokeEvent[];
+  keyboardVisibilitySegments?: CursorVisibilitySegment[];
+  keyboardMouseVisibilitySegments?: CursorVisibilitySegment[];
   crop?: CropRect;
 }
 
@@ -148,6 +184,16 @@ export interface BakedTextOverlay {
   data: number[]; // raw RGBA bytes (opacity already baked in)
 }
 
+export interface BakedKeystrokeOverlay {
+  startTime: number;
+  endTime: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  data: number[];
+}
+
 export interface ExportOptions {
   width: number;   // 0 = use original canvas dimensions
   height: number;  // 0 = use original canvas dimensions
@@ -164,6 +210,7 @@ export interface ExportOptions {
   audio?: HTMLAudioElement;
   bakedPath?: BakedCameraFrame[];
   bakedCursorPath?: BakedCursorFrame[];
+  bakedKeystrokeOverlays?: BakedKeystrokeOverlay[];
 }
 
 export interface Project {

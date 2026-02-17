@@ -10,7 +10,7 @@ use super::ffmpeg::{
     get_ffmpeg_path, get_ffprobe_path, start_ffmpeg_installation, FfmpegInstallStatus,
     FFMPEG_INSTALL_STATUS,
 };
-use super::keyviz;
+use super::keysee_capture;
 use super::native_export;
 use super::{SERVER_PORT, SR_HWND};
 use crate::config::Hotkey;
@@ -130,23 +130,6 @@ pub fn handle_ipc_command(
             let monitors = get_monitors();
             Ok(serde_json::to_value(monitors).unwrap())
         }
-        "install_keyviz" => {
-            std::thread::spawn(|| {
-                if let Err(e) = keyviz::install_keyviz() {
-                    crate::log_info!("Keyviz install failed: {}", e);
-                }
-            });
-            Ok(serde_json::Value::Null)
-        }
-        "set_keyviz_enabled" => {
-            let enabled = args["enabled"].as_bool().unwrap_or(false);
-            keyviz::set_enabled(enabled);
-            Ok(serde_json::Value::Null)
-        }
-        "get_keyviz_status" => Ok(serde_json::json!({
-            "installed": keyviz::is_installed(),
-            "enabled": keyviz::is_enabled()
-        })),
         "start_recording" => {
             let monitor_id = args["monitorId"].as_str().unwrap_or("0");
             let monitor_index = monitor_id.parse::<usize>().unwrap_or(0);
@@ -196,7 +179,9 @@ pub fn handle_ipc_command(
                 monitor_id.to_string(),
             );
 
-            let _ = keyviz::start();
+            if let Err(err) = keysee_capture::start_capture() {
+                crate::log_info!("Input capture start failed: {}", err);
+            }
 
             println!("[CaptureBackend] selected=wgc reason=single_active_backend");
 
@@ -208,7 +193,7 @@ pub fn handle_ipc_command(
         }
         "stop_recording" => {
             SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
-            let _ = keyviz::stop();
+            let raw_input_events = keysee_capture::stop_capture_and_drain();
 
             let start = std::time::Instant::now();
             while (!ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
@@ -236,7 +221,8 @@ pub fn handle_ipc_command(
                 audio_url,
                 mouse_positions,
                 audio_file_path,
-                video_file_path
+                video_file_path,
+                raw_input_events
             ]))
         }
         "get_hotkeys" => {

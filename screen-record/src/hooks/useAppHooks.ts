@@ -176,35 +176,6 @@ export function useHotkeys() {
 }
 
 // ============================================================================
-// useKeyviz
-// ============================================================================
-export function useKeyviz() {
-  const [keyvizStatus, setKeyvizStatus] = useState({ installed: false, enabled: false });
-
-  useEffect(() => {
-    invoke<{ installed: boolean; enabled: boolean }>('get_keyviz_status').then(setKeyvizStatus).catch(console.error);
-  }, []);
-
-  const toggleKeyviz = async () => {
-    try {
-      if (!keyvizStatus.installed && !keyvizStatus.enabled) {
-        await invoke('install_keyviz');
-        await invoke('set_keyviz_enabled', { enabled: true });
-        setKeyvizStatus({ installed: true, enabled: true });
-      } else {
-        const newEnabled = !keyvizStatus.enabled;
-        await invoke('set_keyviz_enabled', { enabled: newEnabled });
-        setKeyvizStatus(prev => ({ ...prev, enabled: newEnabled }));
-      }
-    } catch (err) {
-      console.error("Failed to toggle keyviz:", err);
-    }
-  };
-
-  return { keyvizStatus, toggleKeyviz };
-}
-
-// ============================================================================
 // useMonitors
 // ============================================================================
 const sortMonitorsByPosition = (monitors: MonitorInfo[]) => {

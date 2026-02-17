@@ -8,6 +8,10 @@ const en = {
   installKeyviz: 'Install & Enable Keyviz',
   keystrokesOn: 'Keystrokes: ON',
   showKeystrokes: 'Show Keystrokes',
+  toggleKeystrokeMode: 'Toggle Keystroke Mode',
+  keystrokeModeOff: 'Keys: Off',
+  keystrokeModeKeyboard: 'Keys: Keyboard',
+  keystrokeModeKeyboardMouse: 'Keys: Keyboard + Mouse',
   export: 'Export',
   projects: 'Projects',
   minimize: 'Minimize',
@@ -140,6 +144,10 @@ const en = {
   // Timeline
   trackZoom: 'Zoom',
   trackText: 'Text',
+  trackKeystrokes: 'Keys',
+  trackKeystrokesOff: 'Off',
+  trackKeyboard: 'Keyboard',
+  trackKeyboardMouse: 'Keyboard+Mouse',
   trackPointer: 'Pointer',
   trackVideo: 'Video',
 

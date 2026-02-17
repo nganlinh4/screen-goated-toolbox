@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { VideoSegment } from '@/types/video';
 import { ZoomTrack } from './ZoomTrack';
 import { TextTrack } from './TextTrack';
+import { KeystrokeTrack } from './KeystrokeTrack';
 import { PointerTrack } from './PointerTrack';
 import { TrimTrack } from './TrimTrack';
 import { Playhead } from './Playhead';
@@ -24,15 +25,18 @@ interface TimelineAreaProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   editingKeyframeId: number | null;
   editingTextId: string | null;
+  editingKeystrokeSegmentId: string | null;
   setCurrentTime: (time: number) => void;
   setEditingKeyframeId: (id: number | null) => void;
   setEditingTextId: (id: string | null) => void;
+  setEditingKeystrokeSegmentId: (id: string | null) => void;
   setEditingPointerId: (id: string | null) => void;
   setActivePanel: (panel: 'zoom' | 'background' | 'cursor' | 'text') => void;
   setSegment: (segment: VideoSegment | null) => void;
   onSeek?: (time: number) => void;
   onSeekEnd?: () => void;
   onAddText?: (atTime?: number) => void;
+  onAddKeystrokeSegment?: (atTime?: number) => void;
   onAddPointerSegment?: (atTime?: number) => void;
   isPlaying?: boolean;
   beginBatch: () => void;
@@ -48,15 +52,18 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
   videoRef,
   editingKeyframeId,
   editingTextId,
+  editingKeystrokeSegmentId,
   setCurrentTime,
   setEditingKeyframeId,
   setEditingTextId,
+  setEditingKeystrokeSegmentId,
   setEditingPointerId,
   setActivePanel,
   setSegment,
   onSeek,
   onSeekEnd,
   onAddText,
+  onAddKeystrokeSegment,
   onAddPointerSegment,
   isPlaying,
   beginBatch,
@@ -64,6 +71,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 }) => {
   const { t } = useSettings();
   const [showDebug, setShowDebug] = useState(false);
+  const keystrokeTrackLabel = segment?.keystrokeMode === 'keyboard'
+    ? t.trackKeyboard
+    : segment?.keystrokeMode === 'keyboardMouse'
+      ? t.trackKeyboardMouse
+      : t.trackKeystrokesOff;
   const {
     dragState,
     handleTrimDragStart,
@@ -72,6 +84,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     handleZoomDragStart,
     handleTextDragStart,
     handleTextClick,
+    handleKeystrokeDragStart,
+    handleKeystrokeClick,
     handlePointerDragStart,
     handlePointerClick,
     handleKeyframeClick,
@@ -87,6 +101,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
     setSegment,
     setEditingKeyframeId,
     setEditingTextId,
+    setEditingKeystrokeId: setEditingKeystrokeSegmentId,
     setEditingPointerId,
     setActivePanel,
     onSeek,
@@ -100,7 +115,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
       {/* Track container with label gutter + content area */}
       <div className="timeline-tracks-row flex gap-3">
         {/* Label gutter */}
-        <div className="timeline-label-gutter w-10 flex-shrink-0 flex flex-col gap-[2px]">
+        <div className="timeline-label-gutter w-[3.5rem] flex-shrink-0 flex flex-col gap-[2px]">
           <div className="timeline-label-zoom h-10 flex items-center gap-0.5">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackZoom}</span>
             <button
@@ -120,6 +135,9 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
           )}
           <div className="timeline-label-text h-7 flex items-center">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackText}</span>
+          </div>
+          <div className="timeline-label-keystrokes h-7 flex items-center">
+            <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{keystrokeTrackLabel}</span>
           </div>
           <div className="timeline-label-pointer h-7 flex items-center">
             <span className="text-[10px] font-medium text-[var(--outline)] leading-none">{t.trackPointer}</span>
@@ -180,8 +198,23 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               <div className="text-track-empty h-7 rounded bg-[var(--surface)]/80" />
             )}
 
+            {/* Keystroke Track */}
+            {segment ? (
+              <KeystrokeTrack
+                segment={segment}
+                duration={duration}
+                editingKeystrokeSegmentId={editingKeystrokeSegmentId}
+                onKeystrokeClick={handleKeystrokeClick}
+                onHandleDragStart={handleKeystrokeDragStart}
+                onAddKeystrokeSegment={onAddKeystrokeSegment}
+                onKeystrokeHover={setEditingKeystrokeSegmentId}
+              />
+            ) : (
+              <div className="keystroke-track-empty h-7 rounded bg-[var(--surface)]/80" />
+            )}
+
             {/* Pointer Track */}
-            {segment && (
+            {segment ? (
               <PointerTrack
                 segment={segment}
                 duration={duration}
@@ -190,6 +223,8 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                 onAddPointerSegment={onAddPointerSegment}
                 onPointerHover={setEditingPointerId}
               />
+            ) : (
+              <div className="pointer-track-empty h-7 rounded bg-[var(--surface)]/80" />
             )}
 
             {/* Video/Trim Track */}
@@ -217,7 +252,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
 
       {/* Time ruler */}
       <div className="timeline-ruler-row flex gap-3 mt-0.5">
-        <div className="timeline-ruler-gutter w-10 flex-shrink-0" />
+        <div className="timeline-ruler-gutter w-[3.5rem] flex-shrink-0" />
         <div className="timeline-ruler flex-1 relative h-4 select-none">
           {duration > 0 && (() => {
             const tickCount = duration <= 5 ? 5 : duration <= 15 ? 8 : duration <= 30 ? 10 : 12;

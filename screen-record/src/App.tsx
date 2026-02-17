@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Wand2, MousePointer2 } from "lucide-react";
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
+import { Wand2, MousePointer2, Volume2, Keyboard } from "lucide-react";
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { videoRenderer } from '@/lib/videoRenderer';
-import { BackgroundConfig, MousePosition, VideoSegment } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment, KeystrokeMode } from '@/types/video';
 import { projectManager } from '@/lib/projectManager';
 import { TimelineArea } from '@/components/timeline';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
-import { useFfmpegSetup, useHotkeys, useKeyviz, useMonitors } from '@/hooks/useAppHooks';
+import { useFfmpegSetup, useHotkeys, useMonitors } from '@/hooks/useAppHooks';
 import {
   useVideoPlayback, useRecording, useProjects, useExport,
   useZoomKeyframes, useTextOverlays, useAutoZoom, useCursorHiding
@@ -22,11 +22,20 @@ import {
 } from '@/components/Dialogs';
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
+import {
+  ensureKeystrokeVisibilitySegments,
+  filterKeystrokeEventsByMode,
+  getKeystrokeVisibilitySegmentsForMode,
+  rebuildKeystrokeVisibilitySegmentsForMode,
+  withKeystrokeVisibilitySegmentsForMode
+} from '@/lib/keystrokeVisibility';
 
 const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
 const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
 const RECENT_UPLOADS_KEY = 'screen-record-recent-uploads-v1';
 const PROJECT_SAVE_DEBUG = true;
+const sv = (v: number, min: number, max: number): CSSProperties =>
+  ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
 
 const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   scale: 90,
@@ -118,7 +127,6 @@ function App() {
   // Utility hooks
   const { needsSetup, ffmpegInstallStatus, handleCancelInstall } = useFfmpegSetup();
   const { hotkeys, showHotkeyDialog, handleRemoveHotkey, openHotkeyDialog, closeHotkeyDialog } = useHotkeys();
-  const { keyvizStatus, toggleKeyviz } = useKeyviz();
   const { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors } = useMonitors();
 
   // Video playback — mousePositionsRef is shared so useVideoPlayback always reads latest
@@ -171,6 +179,7 @@ function App() {
   // Text overlays
   const textOverlays = useTextOverlays({ segment, setSegment, currentTime, duration, setActivePanel });
   const { editingTextId, setEditingTextId, handleAddText, handleDeleteText, handleTextDragMove } = textOverlays;
+  const [editingKeystrokeSegmentId, setEditingKeystrokeSegmentId] = useState<string | null>(null);
 
   // Auto zoom
   const { handleAutoZoom } = useAutoZoom({
@@ -277,6 +286,69 @@ function App() {
   const handleOpenCursorLab = useCallback(() => {
     window.location.hash = '#cursor-lab';
   }, []);
+
+  const getKeystrokeTimelineDuration = useCallback((s: VideoSegment) => {
+    return Math.max(
+      s.trimEnd,
+      ...(s.trimSegments || []).map((trimSegment) => trimSegment.endTime),
+      duration
+    );
+  }, [duration]);
+
+  const handleAddKeystrokeSegment = useCallback((atTime?: number) => {
+    if (!segment || (segment.keystrokeMode ?? 'off') === 'off') return;
+    const prepared = ensureKeystrokeVisibilitySegments(segment, getKeystrokeTimelineDuration(segment));
+    const currentSegments = getKeystrokeVisibilitySegmentsForMode(prepared);
+    const t0 = atTime ?? currentTime;
+    const segmentDuration = getKeystrokeTimelineDuration(prepared);
+    const segDur = 2;
+    const startTime = Math.max(0, t0 - segDur / 2);
+
+    const newSeg = {
+      id: crypto.randomUUID(),
+      startTime,
+      endTime: Math.min(startTime + segDur, segmentDuration),
+    };
+
+    setSegment(withKeystrokeVisibilitySegmentsForMode(prepared, [...currentSegments, newSeg]));
+    setEditingKeystrokeSegmentId(null);
+  }, [segment, currentTime, getKeystrokeTimelineDuration, setSegment]);
+
+  const handleDeleteKeystrokeSegment = useCallback(() => {
+    if (!segment || !editingKeystrokeSegmentId || (segment.keystrokeMode ?? 'off') === 'off') return;
+    const prepared = ensureKeystrokeVisibilitySegments(segment, getKeystrokeTimelineDuration(segment));
+    const currentSegments = getKeystrokeVisibilitySegmentsForMode(prepared);
+    const remaining = currentSegments.filter((s) => s.id !== editingKeystrokeSegmentId);
+    setSegment(withKeystrokeVisibilitySegmentsForMode(prepared, remaining));
+    setEditingKeystrokeSegmentId(null);
+  }, [segment, editingKeystrokeSegmentId, getKeystrokeTimelineDuration, setSegment]);
+
+  const handleToggleKeystrokeMode = useCallback(() => {
+    if (!segment) return;
+    const timelineDuration = getKeystrokeTimelineDuration(segment);
+    let prepared = ensureKeystrokeVisibilitySegments(segment, timelineDuration);
+    const current = segment.keystrokeMode ?? 'off';
+    const next: KeystrokeMode =
+      current === 'off' ? 'keyboard' : current === 'keyboard' ? 'keyboardMouse' : 'off';
+
+    if (next === 'keyboard' || next === 'keyboardMouse') {
+      const modeEvents = filterKeystrokeEventsByMode(prepared.keystrokeEvents ?? [], next);
+      const modeSegments = next === 'keyboard'
+        ? (prepared.keyboardVisibilitySegments ?? [])
+        : (prepared.keyboardMouseVisibilitySegments ?? []);
+
+      if (modeSegments.length === 0 && modeEvents.length > 0) {
+        prepared = rebuildKeystrokeVisibilitySegmentsForMode(prepared, next, timelineDuration);
+      }
+    }
+
+    setSegment({
+      ...prepared,
+      keystrokeMode: next,
+      keystrokeEvents: prepared.keystrokeEvents ?? [],
+    });
+    setEditingKeystrokeSegmentId(null);
+  }, [segment, setSegment, getKeystrokeTimelineDuration]);
 
   const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
@@ -454,7 +526,9 @@ function App() {
         togglePlayPause();
       }
       if ((e.code === 'Delete' || e.code === 'Backspace') && !isInput) {
-        if (editingPointerId) {
+        if (editingKeystrokeSegmentId) {
+          handleDeleteKeystrokeSegment();
+        } else if (editingPointerId) {
           handleDeletePointerSegment();
         } else if (editingTextId && !editingKeyframeId) {
           handleDeleteText();
@@ -471,7 +545,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, editingTextId, editingPointerId, handleDeleteText, handleDeletePointerSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping]);
+  }, [editingKeyframeId, editingTextId, editingPointerId, editingKeystrokeSegmentId, handleDeleteText, handleDeletePointerSegment, handleDeleteKeystrokeSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping]);
 
   // Wheel zoom
   useEffect(() => {
@@ -517,6 +591,10 @@ function App() {
           }],
           zoomKeyframes: [],
           textSegments: [],
+          keystrokeMode: 'off',
+          keystrokeEvents: [],
+          keyboardVisibilitySegments: [],
+          keyboardMouseVisibilitySegments: [],
         };
         setSegment(initialSegment);
       setTimeout(() => {
@@ -577,9 +655,9 @@ function App() {
       <ResizeBorders />
       <Header
         isRecording={isRecording} recordingDuration={recordingDuration} currentVideo={currentVideo}
-        isProcessing={exportHook.isProcessing} hotkeys={hotkeys} keyvizStatus={keyvizStatus}
+        isProcessing={exportHook.isProcessing} hotkeys={hotkeys}
         onRemoveHotkey={handleRemoveHotkey} onOpenHotkeyDialog={openHotkeyDialog}
-        onToggleKeyviz={toggleKeyviz} onExport={exportHook.handleExport}
+        onExport={exportHook.handleExport}
         onOpenCursorLab={handleOpenCursorLab}
         onOpenProjects={handleToggleProjects}
         hideExport={isOverlayMode}
@@ -626,46 +704,6 @@ function App() {
                 )}
               </div>
 
-              {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
-                <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
-                  isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
-                  duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
-                  autoZoomButton={
-                    <Button onClick={handleAutoZoom}
-                      disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
-                      className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
-                        !currentVideo || exportHook.isProcessing || !mousePositions.length
-                          ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
-                          : segment?.smoothMotionPath?.length
-                            ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
-                            : 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
-                      }`}>
-                      <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
-                    </Button>
-                  }
-                  smartPointerButton={
-                    <Button onClick={handleSmartPointerHiding}
-                      disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
-                      className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
-                        !currentVideo || exportHook.isProcessing || !mousePositions.length
-                          ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
-                          : (() => {
-                              const segs = segment?.cursorVisibilitySegments;
-                              const isDefault = !segs || segs.length === 0 || (
-                                segs.length === 1 &&
-                                Math.abs(segs[0].startTime - 0) < 0.01 &&
-                                Math.abs(segs[0].endTime - duration) < 0.01
-                              );
-                              return isDefault
-                                ? 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
-                                : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white';
-                            })()
-                      }`}>
-                      <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
-                    </Button>
-                  } />
-              )}
-
               {/* Projects view — lives inside the preview area for native FLIP animation */}
               {projects.showProjectsDialog && (
                 <ProjectsView
@@ -691,22 +729,131 @@ function App() {
               onBackgroundUpload={handleBackgroundUpload}
               editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
-              canvasRef={canvasRef}
             />
             {isOverlayMode && <div className="panel-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
           </div>
         </div>
+
+        {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
+          <div className="playback-controls-row mt-2 flex-shrink-0 flex justify-center">
+            <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
+              isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
+              duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
+              canvasModeToggle={
+                <div className="playback-canvas-mode-toggle flex rounded-lg border border-[var(--overlay-divider)] overflow-hidden">
+                  {(['auto', 'custom'] as const).map((mode) => {
+                    const isActive = (backgroundConfig.canvasMode ?? 'auto') === mode;
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => {
+                          if (mode === 'custom') {
+                            setBackgroundConfig((prev) => {
+                              const w = prev.canvasWidth ?? canvasRef.current?.width ?? 1920;
+                              const h = prev.canvasHeight ?? canvasRef.current?.height ?? 1080;
+                              return { ...prev, canvasMode: 'custom', canvasWidth: w, canvasHeight: h };
+                            });
+                          } else {
+                            setBackgroundConfig((prev) => ({ ...prev, canvasMode: 'auto' }));
+                          }
+                        }}
+                        className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} px-2 py-1 text-[10px] font-medium transition-colors ${
+                          isActive
+                            ? 'bg-[var(--primary-color)] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.24)]'
+                            : 'bg-transparent text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]/70 hover:text-[var(--overlay-panel-fg)]'
+                        }`}
+                      >
+                        {mode === 'auto' ? t.canvasAuto : t.canvasCustom}
+                      </button>
+                    );
+                  })}
+                </div>
+              }
+              keystrokeToggle={
+                <Button
+                  onClick={handleToggleKeystrokeMode}
+                  disabled={!segment}
+                  className={`playback-keystroke-toggle-btn h-7 text-[11px] transition-colors ${
+                    !segment
+                      ? 'text-[var(--overlay-panel-fg)]/40 cursor-not-allowed'
+                      : (segment.keystrokeMode ?? 'off') === 'off'
+                        ? 'text-[var(--overlay-panel-fg)]/85 bg-transparent hover:bg-[var(--glass-bg)]'
+                        : 'text-white bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85'
+                  }`}
+                >
+                  <Keyboard className="playback-keystroke-toggle-icon w-3.5 h-3.5 mr-1.5" />
+                  <span className="playback-keystroke-toggle-label">
+                    {(segment?.keystrokeMode ?? 'off') === 'keyboard'
+                      ? t.keystrokeModeKeyboard
+                      : (segment?.keystrokeMode ?? 'off') === 'keyboardMouse'
+                        ? t.keystrokeModeKeyboardMouse
+                        : t.keystrokeModeOff}
+                  </span>
+                </Button>
+              }
+              autoZoomButton={
+                <Button onClick={handleAutoZoom}
+                  disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                  className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
+                    !currentVideo || exportHook.isProcessing || !mousePositions.length
+                      ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
+                      : segment?.smoothMotionPath?.length
+                        ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
+                        : 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
+                  }`}>
+                  <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
+                </Button>
+              }
+              smartPointerButton={
+                <Button onClick={handleSmartPointerHiding}
+                  disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                  className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
+                    !currentVideo || exportHook.isProcessing || !mousePositions.length
+                      ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
+                      : (() => {
+                          const segs = segment?.cursorVisibilitySegments;
+                          const isDefault = !segs || segs.length === 0 || (
+                            segs.length === 1 &&
+                            Math.abs(segs[0].startTime - 0) < 0.01 &&
+                            Math.abs(segs[0].endTime - duration) < 0.01
+                          );
+                          return isDefault
+                            ? 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
+                            : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white';
+                        })()
+                  }`}>
+                  <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
+                </Button>
+              }
+              volumeControl={
+                <div className="playback-volume-control flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5 text-[var(--overlay-panel-fg)]/80 flex-shrink-0" />
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={backgroundConfig.volume ?? 1}
+                    style={sv(backgroundConfig.volume ?? 1, 0, 1)}
+                    onChange={(e) => setBackgroundConfig((prev) => ({ ...prev, volume: Number(e.target.value) }))}
+                    className="playback-volume-slider w-20"
+                  />
+                </div>
+              } />
+          </div>
+        )}
 
         {/* Timeline */}
         <div className={`timeline-container mt-3 flex-shrink-0 relative ${isOverlayMode ? 'overflow-hidden' : ''}`}>
           <TimelineArea
             duration={duration} currentTime={currentTime} segment={segment} thumbnails={thumbnails}
             timelineRef={timelineRef} videoRef={videoRef} editingKeyframeId={editingKeyframeId}
-            editingTextId={editingTextId} setCurrentTime={setCurrentTime}
+            editingTextId={editingTextId} editingKeystrokeSegmentId={editingKeystrokeSegmentId} setCurrentTime={setCurrentTime}
             setEditingKeyframeId={setEditingKeyframeId} setEditingTextId={setEditingTextId}
+            setEditingKeystrokeSegmentId={setEditingKeystrokeSegmentId}
             setEditingPointerId={setEditingPointerId}
             setActivePanel={setActivePanel} setSegment={setSegment} onSeek={seek} onSeekEnd={flushSeek}
-            onAddText={handleAddText} onAddPointerSegment={handleAddPointerSegment}
+            onAddText={handleAddText} onAddKeystrokeSegment={handleAddKeystrokeSegment} onAddPointerSegment={handleAddPointerSegment}
             isPlaying={isPlaying} beginBatch={beginBatch} commitBatch={commitBatch}
           />
           {isOverlayMode && <div className="timeline-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}

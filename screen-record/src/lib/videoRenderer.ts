@@ -1,6 +1,7 @@
-import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay, KeystrokeEvent, BakedKeystrokeOverlay, CursorVisibilitySegment } from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
 import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/lib/trimSegments';
+import { filterKeystrokeEventsByMode, getKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
 
 // --- CONFIGURATION ---
 // Default pointer movement delay (seconds)
@@ -13,6 +14,9 @@ const GRADIENT4_STYLE_TOKEN = '__gradient4__';
 const GRADIENT5_STYLE_TOKEN = '__gradient5__';
 const GRADIENT6_STYLE_TOKEN = '__gradient6__';
 const GRADIENT7_STYLE_TOKEN = '__gradient7__';
+const KEYSTROKE_ANIM_ENTER_SEC = 0.18;
+const KEYSTROKE_ANIM_EXIT_SEC = 0.2;
+const KEYSTROKE_ANIM_BAKE_STEP_SEC = 1 / 24;
 
 type CursorRenderType =
   | 'default-screenstudio'
@@ -113,6 +117,16 @@ export interface RenderContext {
 export interface RenderOptions {
   exportMode?: boolean;
   highQuality?: boolean;
+}
+
+interface KeystrokeVisualState {
+  alpha: number;
+  scale: number;
+  translateY: number;
+  wdth: number;
+  wght: number;
+  slnt: number;
+  rond: number;
 }
 
 export class VideoRenderer {
@@ -1507,6 +1521,20 @@ export class VideoRenderer {
         // Reset font-variation-settings so it doesn't leak into non-text rendering
         canvas.style.fontVariationSettings = 'normal';
       }
+
+      const segmentDuration = Math.max(
+        segment.trimEnd,
+        ...(segment.trimSegments || []).map((trimSegment) => trimSegment.endTime),
+        video.duration || segment.trimEnd || 0
+      );
+      this.drawActiveKeystrokeOverlay(
+        ctx,
+        segment,
+        video.currentTime,
+        canvas.width,
+        canvas.height,
+        segmentDuration
+      );
 
     } finally {
       this.isDrawing = false;
@@ -3307,6 +3335,326 @@ export class VideoRenderer {
     ctx.restore();
   }
 
+  private getDisplayKeystrokeEvents(segment: VideoSegment): KeystrokeEvent[] {
+    const mode = segment.keystrokeMode ?? 'off';
+    if (mode === 'off') return [];
+    const events = segment.keystrokeEvents ?? [];
+    return [...filterKeystrokeEventsByMode(events, mode)].sort((a, b) => a.startTime - b.startTime);
+  }
+
+  private isTimeInsideSegments(time: number, segments: CursorVisibilitySegment[]): boolean {
+    for (const segment of segments) {
+      if (time >= segment.startTime && time <= segment.endTime) return true;
+    }
+    return false;
+  }
+
+  private intersectIntervalWithSegments(
+    startTime: number,
+    endTime: number,
+    segments: CursorVisibilitySegment[]
+  ): Array<{ start: number; end: number }> {
+    const intersections: Array<{ start: number; end: number }> = [];
+    for (const segment of segments) {
+      const start = Math.max(startTime, segment.startTime);
+      const end = Math.min(endTime, segment.endTime);
+      if (end - start > 0.001) {
+        intersections.push({ start, end });
+      }
+    }
+    return intersections;
+  }
+
+  private getEffectiveKeystrokeEnd(
+    events: KeystrokeEvent[],
+    index: number,
+    duration: number
+  ): number {
+    const nextStart = index < events.length - 1 ? events[index + 1].startTime : Number.POSITIVE_INFINITY;
+    return Math.min(events[index].endTime, nextStart, duration);
+  }
+
+  private lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * this.clamp01(t);
+  }
+
+  private easeOutCubic(t: number): number {
+    const p = 1 - this.clamp01(t);
+    return 1 - (p * p * p);
+  }
+
+  private easeInCubic(t: number): number {
+    const p = this.clamp01(t);
+    return p * p * p;
+  }
+
+  private getKeystrokeVisualState(
+    currentTime: number,
+    eventStart: number,
+    eventEnd: number,
+    eventType: KeystrokeEvent['type']
+  ): KeystrokeVisualState {
+    const isMouse = eventType === 'mousedown' || eventType === 'wheel';
+    const duration = Math.max(0.001, eventEnd - eventStart);
+    const enterSpan = Math.min(KEYSTROKE_ANIM_ENTER_SEC, duration * 0.75);
+    const exitSpan = Math.min(KEYSTROKE_ANIM_EXIT_SEC, duration * 0.75);
+    const exitStart = Math.max(eventStart, eventEnd - exitSpan);
+
+    const baseSlnt = isMouse ? -6 : 0;
+    const baseRond = isMouse ? 96 : 88;
+    const state: KeystrokeVisualState = {
+      alpha: 1,
+      scale: 1,
+      translateY: 0,
+      wdth: 100,
+      wght: 600,
+      slnt: baseSlnt,
+      rond: baseRond,
+    };
+
+    if (currentTime < eventStart + enterSpan) {
+      const t = this.clamp01((currentTime - eventStart) / Math.max(0.001, enterSpan));
+      const eased = this.easeOutCubic(t);
+      state.alpha = this.lerp(0, 1, eased);
+      state.scale = this.lerp(0.86, 1.03, eased);
+      state.translateY = this.lerp(16, 0, eased);
+      state.wdth = this.lerp(isMouse ? 124 : 132, 100, eased);
+      state.wght = this.lerp(isMouse ? 340 : 360, 600, eased);
+      state.slnt = this.lerp(isMouse ? -14 : -6, baseSlnt, eased);
+      state.rond = this.lerp(100, baseRond, eased);
+      if (t > 0.8) {
+        const settleT = (t - 0.8) / 0.2;
+        state.scale = this.lerp(state.scale, 1, this.easeOutCubic(settleT));
+      }
+    }
+
+    if (currentTime > exitStart) {
+      const t = this.clamp01((currentTime - exitStart) / Math.max(0.001, eventEnd - exitStart));
+      const eased = this.easeInCubic(t);
+      state.alpha *= this.lerp(1, 0, eased);
+      state.scale *= this.lerp(1, 0.92, eased);
+      state.translateY += this.lerp(0, -10, eased);
+      state.wdth = this.lerp(state.wdth, 86, eased);
+      state.wght = this.lerp(state.wght, 520, eased);
+      state.slnt = this.lerp(state.slnt, isMouse ? -14 : -10, eased);
+      state.rond = this.lerp(state.rond, isMouse ? 86 : 78, eased);
+    }
+
+    return state;
+  }
+
+  private applyKeystrokeFontVariations(
+    ctx: CanvasRenderingContext2D,
+    visual: KeystrokeVisualState
+  ) {
+    ctx.canvas.style.fontVariationSettings = `'wdth' ${visual.wdth.toFixed(2)}, 'wght' ${visual.wght.toFixed(2)}, 'slnt' ${visual.slnt.toFixed(2)}, 'ROND' ${visual.rond.toFixed(2)}`;
+  }
+
+  private findActiveKeystrokeEvent(
+    segment: VideoSegment,
+    currentTime: number,
+    duration: number
+  ): { event: KeystrokeEvent; startTime: number; endTime: number } | null {
+    const events = this.getDisplayKeystrokeEvents(segment);
+    const visibilitySegments = getKeystrokeVisibilitySegmentsForMode(segment);
+    if (!visibilitySegments.length) return null;
+    if (!this.isTimeInsideSegments(currentTime, visibilitySegments)) return null;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const endTime = this.getEffectiveKeystrokeEnd(events, i, duration);
+      const event = events[i];
+      if (currentTime >= event.startTime && currentTime <= endTime) {
+        return {
+          event,
+          startTime: event.startTime,
+          endTime,
+        };
+      }
+    }
+    return null;
+  }
+
+  private getKeystrokeLabel(event: KeystrokeEvent): string {
+    return event.count > 1 ? `${event.label} x${event.count}` : event.label;
+  }
+
+  private getKeystrokeBorderColor(event: KeystrokeEvent): string {
+    if (event.type === 'wheel') return 'rgba(56, 189, 248, 0.5)';
+    if (event.type === 'mousedown') return 'rgba(251, 191, 36, 0.5)';
+    return 'rgba(74, 222, 128, 0.5)';
+  }
+
+  private measureKeystrokeBubble(
+    ctx: CanvasRenderingContext2D,
+    event: KeystrokeEvent,
+    canvasHeight: number
+  ): {
+    label: string;
+    showMouseIcon: boolean;
+    iconBoxWidth: number;
+    iconGap: number;
+    fontSize: number;
+    paddingX: number;
+    paddingY: number;
+    radius: number;
+    marginBottom: number;
+    width: number;
+    height: number;
+  } {
+    const isMouse = event.type === 'mousedown' || event.type === 'wheel';
+    const label = this.getKeystrokeLabel(event);
+    const fontSize = Math.round(Math.max(16, Math.min(38, canvasHeight * 0.036)));
+    const paddingX = Math.round(fontSize * (isMouse ? 0.34 : 0.52));
+    const paddingY = Math.round(fontSize * 0.38);
+    const radius = Math.round(fontSize * 0.64);
+    const marginBottom = Math.round(Math.max(14, canvasHeight * 0.06));
+    const showMouseIcon = isMouse;
+    const iconBoxWidth = showMouseIcon ? Math.round(fontSize * 0.9) : 0;
+    const iconGap = showMouseIcon ? Math.round(fontSize * 0.24) : 0;
+
+    ctx.save();
+    const originalVariations = ctx.canvas.style.fontVariationSettings;
+    this.applyKeystrokeFontVariations(ctx, {
+      alpha: 1,
+      scale: 1,
+      translateY: 0,
+      wdth: isMouse ? 124 : 132,
+      wght: 600,
+      slnt: 0,
+      rond: isMouse ? 96 : 88,
+    });
+    ctx.font = `600 ${fontSize}px 'Google Sans Flex', sans-serif`;
+    const textWidth = ctx.measureText(label).width;
+    ctx.canvas.style.fontVariationSettings = originalVariations || 'normal';
+    ctx.restore();
+
+    return {
+      label,
+      showMouseIcon,
+      iconBoxWidth,
+      iconGap,
+      fontSize,
+      paddingX,
+      paddingY,
+      radius,
+      marginBottom,
+      width: Math.ceil(textWidth + iconBoxWidth + iconGap + paddingX * 2),
+      height: Math.ceil(fontSize + paddingY * 2),
+    };
+  }
+
+  private drawKeystrokeBubble(
+    ctx: CanvasRenderingContext2D,
+    event: KeystrokeEvent,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    label: string,
+    fontSize: number,
+    radius: number,
+    paddingX: number,
+    showMouseIcon: boolean,
+    iconBoxWidth: number,
+    iconGap: number,
+    alpha: number = 1,
+    visual: KeystrokeVisualState = {
+      alpha: 1,
+      scale: 1,
+      translateY: 0,
+      wdth: 100,
+      wght: 600,
+      slnt: 0,
+      rond: 88,
+    }
+  ) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const originalVariations = ctx.canvas.style.fontVariationSettings;
+    const finalAlpha = alpha * visual.alpha;
+    ctx.globalAlpha = finalAlpha;
+    ctx.translate(x + width / 2, y + height / 2 + visual.translateY);
+    ctx.scale(visual.scale, visual.scale);
+    ctx.translate(-width / 2, -height / 2);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    ctx.shadowBlur = Math.max(8, fontSize * 0.45);
+    ctx.shadowOffsetY = Math.max(2, fontSize * 0.16);
+    ctx.fillStyle = 'rgba(18, 18, 20, 0.88)';
+    ctx.beginPath();
+    ctx.roundRect(0, 0, width, height, radius);
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = this.getKeystrokeBorderColor(event);
+    ctx.lineWidth = Math.max(1, Math.round(fontSize * 0.07));
+    ctx.stroke();
+
+    this.applyKeystrokeFontVariations(ctx, visual);
+    ctx.font = `${Math.round(visual.wght)} ${fontSize}px 'Google Sans Flex', sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.98)';
+    ctx.textBaseline = 'middle';
+    if (showMouseIcon) {
+      const iconFontSize = Math.round(fontSize * 0.86);
+      const iconY = height / 2;
+      const iconX = paddingX;
+      ctx.save();
+      ctx.font = `${Math.max(400, Math.round(visual.wght * 0.9))} ${iconFontSize}px 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText('🖱', iconX, iconY);
+      ctx.restore();
+
+      ctx.font = `${Math.round(visual.wght)} ${fontSize}px 'Google Sans Flex', sans-serif`;
+      ctx.textAlign = 'left';
+      const textX = paddingX + iconBoxWidth + iconGap;
+      ctx.fillText(label, textX, height / 2);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.fillText(label, width / 2, height / 2);
+    }
+    ctx.canvas.style.fontVariationSettings = originalVariations || 'normal';
+    ctx.restore();
+  }
+
+  private drawActiveKeystrokeOverlay(
+    ctx: CanvasRenderingContext2D,
+    segment: VideoSegment,
+    currentTime: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    duration: number
+  ) {
+    const activeState = this.findActiveKeystrokeEvent(segment, currentTime, duration);
+    if (!activeState) return;
+
+    const layout = this.measureKeystrokeBubble(ctx, activeState.event, canvasHeight);
+    const x = Math.round((canvasWidth - layout.width) / 2);
+    const y = Math.round(canvasHeight - layout.height - layout.marginBottom);
+    const visual = this.getKeystrokeVisualState(
+      currentTime,
+      activeState.startTime,
+      activeState.endTime,
+      activeState.event.type
+    );
+    this.drawKeystrokeBubble(
+      ctx,
+      activeState.event,
+      x,
+      y,
+      layout.width,
+      layout.height,
+      layout.label,
+      layout.fontSize,
+      layout.radius,
+      layout.paddingX,
+      layout.showMouseIcon,
+      layout.iconBoxWidth,
+      layout.iconGap,
+      1,
+      visual
+    );
+  }
+
   private drawTextOverlay(
     ctx: CanvasRenderingContext2D,
     textSegment: TextSegment,
@@ -3615,6 +3963,151 @@ export class VideoRenderer {
           height: cropH,
           data: Array.from(imageData.data)
         });
+      }
+    }
+
+    return result;
+  }
+
+  private buildKeystrokeAnimationSlices(
+    intervalStart: number,
+    intervalEnd: number,
+    eventStart: number,
+    eventEnd: number
+  ): Array<{ start: number; end: number; sampleTime: number }> {
+    if (intervalEnd - intervalStart <= 0.001) return [];
+
+    const enterEnd = Math.min(eventEnd, eventStart + KEYSTROKE_ANIM_ENTER_SEC);
+    const exitStart = Math.max(eventStart, eventEnd - KEYSTROKE_ANIM_EXIT_SEC);
+    const boundaries = [intervalStart, intervalEnd];
+    if (enterEnd > intervalStart + 0.001 && enterEnd < intervalEnd - 0.001) {
+      boundaries.push(enterEnd);
+    }
+    if (exitStart > intervalStart + 0.001 && exitStart < intervalEnd - 0.001) {
+      boundaries.push(exitStart);
+    }
+
+    const sorted = Array.from(new Set(boundaries.map((t) => Number(t.toFixed(6))))).sort((a, b) => a - b);
+    const slices: Array<{ start: number; end: number; sampleTime: number }> = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const start = sorted[i];
+      const end = sorted[i + 1];
+      if (end - start <= 0.001) continue;
+
+      const isAnimationPhase = start < enterEnd - 0.0001 || end > exitStart + 0.0001;
+      if (!isAnimationPhase || end - start <= KEYSTROKE_ANIM_BAKE_STEP_SEC) {
+        slices.push({ start, end, sampleTime: (start + end) / 2 });
+        continue;
+      }
+
+      const stepCount = Math.ceil((end - start) / KEYSTROKE_ANIM_BAKE_STEP_SEC);
+      for (let step = 0; step < stepCount; step++) {
+        const stepStart = start + ((end - start) * step) / stepCount;
+        const stepEnd = start + ((end - start) * (step + 1)) / stepCount;
+        if (stepEnd - stepStart <= 0.001) continue;
+        slices.push({
+          start: stepStart,
+          end: stepEnd,
+          sampleTime: (stepStart + stepEnd) / 2,
+        });
+      }
+    }
+
+    return slices;
+  }
+
+  public bakeKeystrokeOverlays(
+    segment: VideoSegment,
+    outputWidth: number,
+    outputHeight: number
+  ): BakedKeystrokeOverlay[] {
+    const result: BakedKeystrokeOverlay[] = [];
+    const events = this.getDisplayKeystrokeEvents(segment);
+    const visibilitySegments = getKeystrokeVisibilitySegmentsForMode(segment);
+    if (!events.length || !visibilitySegments.length) return result;
+
+    const duration = Math.max(
+      segment.trimEnd,
+      ...(segment.trimSegments || []).map((trimSegment) => trimSegment.endTime),
+      0
+    );
+
+    const measureCanvas = document.createElement('canvas');
+    measureCanvas.width = 1;
+    measureCanvas.height = 1;
+    const measureCtx = measureCanvas.getContext('2d');
+    if (!measureCtx) return result;
+
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
+      const effectiveEnd = this.getEffectiveKeystrokeEnd(events, i, duration);
+      if (effectiveEnd - event.startTime <= 0.001) continue;
+
+      const layout = this.measureKeystrokeBubble(measureCtx, event, outputHeight);
+      const x = Math.round((outputWidth - layout.width) / 2);
+      const y = Math.round(outputHeight - layout.height - layout.marginBottom);
+      if (layout.width <= 0 || layout.height <= 0) continue;
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = layout.width;
+      offscreen.height = layout.height;
+      const offCtx = offscreen.getContext('2d');
+      if (!offCtx) continue;
+      const visibleIntervals = this.intersectIntervalWithSegments(
+        event.startTime,
+        effectiveEnd,
+        visibilitySegments
+      );
+
+      for (const interval of visibleIntervals) {
+        const slices = this.buildKeystrokeAnimationSlices(
+          interval.start,
+          interval.end,
+          event.startTime,
+          effectiveEnd
+        );
+        for (const slice of slices) {
+          const visual = this.getKeystrokeVisualState(
+            slice.sampleTime,
+            event.startTime,
+            effectiveEnd,
+            event.type
+          );
+          if (visual.alpha <= 0.001) continue;
+
+          offCtx.clearRect(0, 0, layout.width, layout.height);
+          this.drawKeystrokeBubble(
+            offCtx,
+            event,
+            0,
+            0,
+            layout.width,
+            layout.height,
+            layout.label,
+            layout.fontSize,
+            layout.radius,
+            layout.paddingX,
+            layout.showMouseIcon,
+            layout.iconBoxWidth,
+            layout.iconGap,
+            1,
+            visual
+          );
+
+          const imageData = offCtx.getImageData(0, 0, layout.width, layout.height);
+          const compactRanges = sourceRangeToCompactRanges(slice.start, slice.end, segment, duration);
+          for (const range of compactRanges) {
+            result.push({
+              startTime: range.start,
+              endTime: range.end,
+              x,
+              y,
+              width: layout.width,
+              height: layout.height,
+              data: Array.from(imageData.data)
+            });
+          }
+        }
       }
     }
 
