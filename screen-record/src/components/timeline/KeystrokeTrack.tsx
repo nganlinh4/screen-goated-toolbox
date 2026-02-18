@@ -4,7 +4,6 @@ import { CursorVisibilitySegment, KeystrokeEvent, VideoSegment } from '@/types/v
 import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
 import {
   filterKeystrokeEventsByMode,
-  KEYSTROKE_SAME_LANE_OVERLAP_SEC,
   KEYSTROKE_VISIBILITY_MARGIN_AFTER,
   KEYSTROKE_VISIBILITY_MARGIN_BEFORE
 } from '@/lib/keystrokeVisibility';
@@ -50,27 +49,7 @@ function getRawEventRanges(segment: VideoSegment, duration: number): TypedTimeRa
     ? Math.max(-1, Math.min(1, delaySecRaw))
     : 0;
   const ranges: TypedTimeRange[] = [];
-  const effectiveEnds = new Array<number>(events.length);
-  let nextAnyStart = Number.POSITIVE_INFINITY;
-  let nextKeyboardStart = Number.POSITIVE_INFINITY;
-  let nextMouseStart = Number.POSITIVE_INFINITY;
-
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    const nextStart = mode === 'keyboardMouse'
-      ? (event.type === 'keyboard' ? nextKeyboardStart : nextMouseStart)
-      : nextAnyStart;
-    const overlapLimitedEnd = Number.isFinite(nextStart)
-      ? nextStart + KEYSTROKE_SAME_LANE_OVERLAP_SEC
-      : Number.POSITIVE_INFINITY;
-    effectiveEnds[i] = Math.min(event.endTime, overlapLimitedEnd, safeDuration);
-    nextAnyStart = event.startTime;
-    if (event.type === 'keyboard') {
-      nextKeyboardStart = event.startTime;
-    } else {
-      nextMouseStart = event.startTime;
-    }
-  }
+  const effectiveEnds = events.map((event) => Math.min(event.endTime, safeDuration));
 
   for (let i = 0; i < events.length; i++) {
     const event: KeystrokeEvent = events[i];
