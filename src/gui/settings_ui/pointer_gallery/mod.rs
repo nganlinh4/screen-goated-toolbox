@@ -316,8 +316,15 @@ impl PointerGallery {
                                         }
                                     }
 
+                                    let status_height = PREVIEW_ICON_SIZE + 8.0;
+                                    let spacer_width =
+                                        (ui.available_width() - STATUS_COLUMN_WIDTH).max(0.0);
+                                    if spacer_width > 0.0 {
+                                        ui.add_space(spacer_width);
+                                    }
+
                                     ui.allocate_ui_with_layout(
-                                        egui::vec2(STATUS_COLUMN_WIDTH, PREVIEW_ICON_SIZE + 8.0),
+                                        egui::vec2(STATUS_COLUMN_WIDTH, status_height),
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| render_status_label(ui, &status, text),
                                     );

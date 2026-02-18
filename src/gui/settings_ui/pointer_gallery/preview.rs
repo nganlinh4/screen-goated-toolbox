@@ -11,6 +11,7 @@ const ANI_FRAME_INTERVAL_SECS: f64 = 0.10;
 const ANI_REPAINT_MS: u64 = 100;
 const MAX_ANI_PREVIEW_FRAMES: u32 = 8;
 const PREVIEW_RENDER_SIZE: i32 = 72;
+const PREVIEW_CACHE_VERSION: &str = "v1";
 
 pub(super) struct PreviewTexture {
     pub(super) frames: Vec<egui::TextureHandle>,
@@ -151,7 +152,7 @@ fn load_cursor_preview_texture(
 
     if let Some(total_steps) = ani_frame_count(path).filter(|steps| *steps > 1) {
         for (idx, ani_step) in sample_ani_steps(total_steps).iter().copied().enumerate() {
-            let Some(image) = cursor_file_to_color_image(path, ani_step, PREVIEW_RENDER_SIZE)
+            let Some(image) = load_or_render_cached_preview_image(path, ani_step, PREVIEW_RENDER_SIZE)
             else {
                 continue;
             };
@@ -164,7 +165,7 @@ fn load_cursor_preview_texture(
     }
 
     if frames.is_empty() {
-        let image = cursor_file_to_color_image(path, 0, PREVIEW_RENDER_SIZE)?;
+        let image = load_or_render_cached_preview_image(path, 0, PREVIEW_RENDER_SIZE)?;
         frames.push(ctx.load_texture(
             format!("pointer_preview_{}", cache_key),
             image,
@@ -178,6 +179,104 @@ fn load_cursor_preview_texture(
         ani_step: 0,
         last_update_secs: now,
     })
+}
+
+#[cfg(target_os = "windows")]
+fn load_or_render_cached_preview_image(path: &Path, ani_step: u32, size: i32) -> Option<egui::ColorImage> {
+    if let Some(cache_path) = preview_cache_file(path, ani_step, size) {
+        if let Some(image) = read_cached_preview_png(&cache_path, size) {
+            return Some(image);
+        }
+    }
+
+    let image = cursor_file_to_color_image(path, ani_step, size)?;
+    if let Some(cache_path) = preview_cache_file(path, ani_step, size) {
+        let _ = write_cached_preview_png(&cache_path, &image);
+    }
+    Some(image)
+}
+
+#[cfg(target_os = "windows")]
+fn preview_cache_file(path: &Path, ani_step: u32, size: i32) -> Option<std::path::PathBuf> {
+    let collection_dir = path.parent()?;
+    let gallery_root = collection_dir.parent().unwrap_or(collection_dir);
+    let collection_id = sanitize_cache_component(collection_dir.file_name()?.to_string_lossy().as_ref());
+    let stem = sanitize_cache_component(path.file_stem()?.to_string_lossy().as_ref());
+    let ext = sanitize_cache_component(path.extension()?.to_string_lossy().as_ref());
+    let (file_len, modified_ns) = source_file_fingerprint(path)?;
+
+    let file_name = format!(
+        "{}_{}_{}_{}_{}_{}.png",
+        stem, ext, file_len, modified_ns, size, ani_step
+    );
+
+    Some(
+        gallery_root
+            .join(".preview-cache")
+            .join(PREVIEW_CACHE_VERSION)
+            .join(collection_id)
+            .join(file_name),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn source_file_fingerprint(path: &Path) -> Option<(u64, u128)> {
+    let metadata = fs::metadata(path).ok()?;
+    let len = metadata.len();
+    let modified_ns = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    Some((len, modified_ns))
+}
+
+#[cfg(target_os = "windows")]
+fn sanitize_cache_component(raw: &str) -> String {
+    let mut sanitized = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    if sanitized.is_empty() {
+        "cursor".to_string()
+    } else {
+        sanitized
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn read_cached_preview_png(path: &Path, expected_size: i32) -> Option<egui::ColorImage> {
+    let image = image::open(path).ok()?.to_rgba8();
+    if image.width() as i32 != expected_size || image.height() as i32 != expected_size {
+        return None;
+    }
+    Some(egui::ColorImage::from_rgba_unmultiplied(
+        [image.width() as usize, image.height() as usize],
+        image.as_raw(),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn write_cached_preview_png(path: &Path, image: &egui::ColorImage) -> Option<()> {
+    let parent = path.parent()?;
+    if fs::create_dir_all(parent).is_err() {
+        return None;
+    }
+
+    let width = image.size[0] as u32;
+    let height = image.size[1] as u32;
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for pixel in &image.pixels {
+        rgba.extend_from_slice(&pixel.to_array());
+    }
+
+    image::save_buffer(path, &rgba, width, height, image::ColorType::Rgba8).ok()?;
+    Some(())
 }
 
 #[cfg(not(target_os = "windows"))]
