@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
-import { Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen } from 'lucide-react';
+import { Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen, ChevronDown, Check } from 'lucide-react';
 import { Hotkey } from '@/hooks/useAppHooks';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
+import { RecordingMode } from '@/types/video';
 
 interface HeaderProps {
   isRecording: boolean;
@@ -15,8 +16,13 @@ interface HeaderProps {
   onRemoveHotkey: (index: number) => void;
   onOpenHotkeyDialog: () => void;
   onExport: () => void;
+  recordingMode: RecordingMode;
+  onRecordingModeChange: (mode: RecordingMode) => void;
+  rawButtonLabel: string;
+  rawButtonPulse: boolean;
+  rawButtonDisabled: boolean;
+  onOpenRawVideoDialog: () => void;
   onOpenProjects: () => void;
-  onOpenCursorLab: () => void;
   hideExport?: boolean;
 }
 
@@ -29,15 +35,36 @@ export function Header({
   onRemoveHotkey,
   onOpenHotkeyDialog,
   onExport,
+  recordingMode,
+  onRecordingModeChange,
+  rawButtonLabel,
+  rawButtonPulse,
+  rawButtonDisabled,
+  onOpenRawVideoDialog,
   onOpenProjects,
-  onOpenCursorLab,
   hideExport = false
 }: HeaderProps) {
   const { t } = useSettings();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
+  const [isRecordingModeMenuOpen, setIsRecordingModeMenuOpen] = useState(false);
+  const recordingModeMenuRef = useRef<HTMLDivElement | null>(null);
+  const selectedRecordingModeLabel = useMemo(
+    () => recordingMode === 'withCursor' ? t.recordingModeWithCursor : t.recordingModeNoCursor,
+    [recordingMode, t.recordingModeWithCursor, t.recordingModeNoCursor]
+  );
 
   useEffect(() => {
     invoke<boolean>('is_maximized').then(setIsWindowMaximized).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      if (!recordingModeMenuRef.current?.contains(event.target as Node)) {
+        setIsRecordingModeMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    return () => window.removeEventListener('mousedown', onMouseDown);
   }, []);
 
   return (
@@ -110,9 +137,74 @@ export function Header({
             <Keyboard className="w-3 h-3 mr-1" />
             {t.addHotkey}
           </Button>
+          <div
+            ref={recordingModeMenuRef}
+            className="recording-mode-dropdown relative flex-shrink-0"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <Button
+              onClick={() => setIsRecordingModeMenuOpen((open) => !open)}
+              className="recording-mode-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center"
+              title={selectedRecordingModeLabel}
+            >
+              <span className="recording-mode-toggle-label">{selectedRecordingModeLabel}</span>
+              <ChevronDown className="w-3 h-3 ml-1.5" />
+            </Button>
+            {isRecordingModeMenuOpen && (
+              <div className="recording-mode-menu absolute top-[calc(100%+4px)] left-0 min-w-[360px] z-50 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.32)] p-1.5">
+                {([
+                  {
+                    mode: 'withoutCursor' as const,
+                    label: t.recordingModeNoCursorDetail,
+                  },
+                  {
+                    mode: 'withCursor' as const,
+                    label: t.recordingModeWithCursorDetail,
+                  },
+                ]).map((option) => {
+                  const selected = recordingMode === option.mode;
+                  return (
+                    <button
+                      key={option.mode}
+                      type="button"
+                      onClick={() => {
+                        onRecordingModeChange(option.mode);
+                        setIsRecordingModeMenuOpen(false);
+                      }}
+                      className={`recording-mode-option w-full text-left rounded-md px-2 py-1.5 text-[11px] leading-tight transition-colors flex items-start gap-2 ${
+                        selected
+                          ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
+                          : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
+                      }`}
+                    >
+                      <span className="recording-mode-option-check w-3.5 h-3.5 mt-0.5 flex items-center justify-center">
+                        {selected ? <Check className="w-3.5 h-3.5 text-[var(--primary-color)]" /> : null}
+                      </span>
+                      <span className="recording-mode-option-label">{option.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="header-actions flex items-center gap-2">
+          {currentVideo && (
+            <Button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={onOpenRawVideoDialog}
+              disabled={rawButtonDisabled}
+              className={`raw-video-button h-7 text-[11px] font-medium transition-colors ${
+                rawButtonDisabled
+                  ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
+                  : 'bg-emerald-500 hover:bg-emerald-500/85 text-white'
+              } ${rawButtonPulse && !rawButtonDisabled ? 'animate-pulse' : ''}`}
+            >
+              {rawButtonLabel}
+            </Button>
+          )}
+          {/* Cursor Lab hidden for now.
           <Button
             variant="ghost"
             size="sm"
@@ -122,6 +214,7 @@ export function Header({
           >
             Cursor Lab
           </Button>
+          */}
           {currentVideo && !hideExport && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}

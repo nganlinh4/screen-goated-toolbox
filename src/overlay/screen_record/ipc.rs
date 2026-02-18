@@ -12,6 +12,7 @@ use super::ffmpeg::{
 };
 use super::keysee_capture;
 use super::native_export;
+use super::raw_video;
 use super::{SERVER_PORT, SR_HWND};
 use crate::config::Hotkey;
 use crate::APP;
@@ -114,6 +115,23 @@ pub fn handle_ipc_command(
                 None => serde_json::Value::Null,
             })
         }
+        "save_raw_video_copy" => {
+            let source_path = args["sourcePath"].as_str().ok_or("Missing sourcePath")?;
+            let target_dir = args["targetDir"].as_str().ok_or("Missing targetDir")?;
+            let saved_path = raw_video::save_raw_video_copy(source_path, target_dir)?;
+            Ok(serde_json::json!({ "savedPath": saved_path }))
+        }
+        "move_saved_raw_video" => {
+            let current_path = args["currentPath"].as_str().ok_or("Missing currentPath")?;
+            let target_dir = args["targetDir"].as_str().ok_or("Missing targetDir")?;
+            let saved_path = raw_video::move_saved_raw_video(current_path, target_dir)?;
+            Ok(serde_json::json!({ "savedPath": saved_path }))
+        }
+        "copy_video_file_to_clipboard" => {
+            let file_path = args["filePath"].as_str().ok_or("Missing filePath")?;
+            raw_video::copy_video_file_to_clipboard(file_path)?;
+            Ok(serde_json::Value::Null)
+        }
         "apply_cursor_svg_adjustment" => {
             let src = args["src"].as_str().ok_or("Missing src")?;
             let scale = args["scale"].as_f64().ok_or("Missing scale")? as f32;
@@ -133,6 +151,12 @@ pub fn handle_ipc_command(
         "start_recording" => {
             let monitor_id = args["monitorId"].as_str().unwrap_or("0");
             let monitor_index = monitor_id.parse::<usize>().unwrap_or(0);
+            let include_cursor = args["includeCursor"].as_bool().unwrap_or(false);
+            let cursor_setting = if include_cursor {
+                CursorCaptureSettings::WithCursor
+            } else {
+                CursorCaptureSettings::WithoutCursor
+            };
 
             SHOULD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
             super::engine::IS_MOUSE_CLICKED.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -168,7 +192,7 @@ pub fn handle_ipc_command(
 
             let settings = Settings::new(
                 monitor,
-                CursorCaptureSettings::WithoutCursor,
+                cursor_setting,
                 DrawBorderSettings::Default,
                 SecondaryWindowSettings::Include,
                 // Keep capture callbacks near output cadence to avoid callback storms
@@ -184,6 +208,14 @@ pub fn handle_ipc_command(
             }
 
             println!("[CaptureBackend] selected=wgc reason=single_active_backend");
+            println!(
+                "[CaptureBackend] cursor_capture_mode={}",
+                if include_cursor {
+                    "with_cursor"
+                } else {
+                    "without_cursor"
+                }
+            );
 
             std::thread::spawn(move || {
                 let _ = CaptureHandler::start_free_threaded(settings);

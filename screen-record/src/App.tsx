@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import { Wand2, MousePointer2, Volume2, Keyboard } from "lucide-react";
+import { invoke } from '@tauri-apps/api/core';
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { videoRenderer, type KeystrokeOverlayEditBounds } from '@/lib/videoRenderer';
-import { BackgroundConfig, MousePosition, VideoSegment, KeystrokeMode } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment, KeystrokeMode, RecordingMode } from '@/types/video';
 import { projectManager } from '@/lib/projectManager';
 import { TimelineArea } from '@/components/timeline';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
@@ -18,7 +19,7 @@ import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay } from 
 import { SidePanel, ActivePanel } from '@/components/SidePanel';
 import {
   ProcessingOverlay, ExportDialog,
-  MonitorSelectDialog, HotkeyDialog, FfmpegSetupDialog
+  MonitorSelectDialog, HotkeyDialog, FfmpegSetupDialog, RawVideoDialog
 } from '@/components/Dialogs';
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
@@ -33,6 +34,9 @@ import {
 const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
 const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
 const RECENT_UPLOADS_KEY = 'screen-record-recent-uploads-v1';
+const RECORDING_MODE_KEY = 'screen-record-recording-mode-v1';
+const RAW_AUTO_COPY_KEY = 'screen-record-raw-auto-copy-v1';
+const RAW_SAVE_DIR_KEY = 'screen-record-raw-save-dir-v1';
 const PROJECT_SAVE_DEBUG = true;
 const DEFAULT_KEYSTROKE_DELAY_SEC = -0.33;
 const sv = (v: number, min: number, max: number): CSSProperties =>
@@ -85,6 +89,32 @@ function getInitialRecentUploads(): string[] {
   }
 }
 
+function getInitialRecordingMode(): RecordingMode {
+  try {
+    const raw = localStorage.getItem(RECORDING_MODE_KEY);
+    if (raw === 'withCursor' || raw === 'withoutCursor') return raw;
+  } catch {
+    // ignore
+  }
+  return 'withoutCursor';
+}
+
+function getInitialRawAutoCopy(): boolean {
+  try {
+    return localStorage.getItem(RAW_AUTO_COPY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function getInitialRawSaveDir(): string {
+  try {
+    return localStorage.getItem(RAW_SAVE_DIR_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
 function ResizeBorders() {
   const resize = (dir: string) => (e: React.MouseEvent) => { e.preventDefault(); ipc(`resize_${dir}`); };
   return (
@@ -109,6 +139,15 @@ function App() {
   const [isCropping, setIsCropping] = useState(false);
   const [recentUploads, setRecentUploads] = useState<string[]>(getInitialRecentUploads);
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>(getInitialBackgroundConfig);
+  const [selectedRecordingMode, setSelectedRecordingMode] = useState<RecordingMode>(getInitialRecordingMode);
+  const [currentRecordingMode, setCurrentRecordingMode] = useState<RecordingMode>('withoutCursor');
+  const [currentRawVideoPath, setCurrentRawVideoPath] = useState('');
+  const [lastRawSavedPath, setLastRawSavedPath] = useState('');
+  const [showRawVideoDialog, setShowRawVideoDialog] = useState(false);
+  const [rawAutoCopyEnabled, setRawAutoCopyEnabled] = useState(getInitialRawAutoCopy);
+  const [rawSaveDir, setRawSaveDir] = useState(getInitialRawSaveDir);
+  const [isRawActionBusy, setIsRawActionBusy] = useState(false);
+  const [rawButtonSavedFlash, setRawButtonSavedFlash] = useState(false);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -134,6 +173,7 @@ function App() {
   const [isPreviewDragging, setIsPreviewDragging] = useState(false);
   const [isKeystrokeResizeHandleHover, setIsKeystrokeResizeHandleHover] = useState(false);
   const [isKeystrokeResizeDragging, setIsKeystrokeResizeDragging] = useState(false);
+  const rawButtonFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback((event: string, data?: Record<string, unknown>) => {
@@ -176,9 +216,15 @@ function App() {
   mousePositionsRef.current = mousePositions;
 
   // Projects
+  const handleProjectRawVideoPathChange = useCallback((path: string) => {
+    setCurrentRawVideoPath(path);
+    setLastRawSavedPath('');
+  }, []);
   const projects = useProjects({
     videoControllerRef, setCurrentVideo, setCurrentAudio, setSegment,
-    setBackgroundConfig, setMousePositions, setThumbnails, currentVideo, currentAudio
+    setBackgroundConfig, setMousePositions, setThumbnails,
+    setCurrentRecordingMode, setCurrentRawVideoPath: handleProjectRawVideoPathChange,
+    currentVideo, currentAudio
   });
 
   // Export
@@ -234,6 +280,48 @@ function App() {
       // ignore persistence failures
     }
   }, [recentUploads]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECORDING_MODE_KEY, selectedRecordingMode);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [selectedRecordingMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RAW_AUTO_COPY_KEY, rawAutoCopyEnabled ? '1' : '0');
+    } catch {
+      // ignore persistence failures
+    }
+  }, [rawAutoCopyEnabled]);
+
+  useEffect(() => {
+    if (!rawSaveDir) return;
+    try {
+      localStorage.setItem(RAW_SAVE_DIR_KEY, rawSaveDir);
+    } catch {
+      // ignore persistence failures
+    }
+  }, [rawSaveDir]);
+
+  useEffect(() => {
+    if (rawSaveDir) return;
+    invoke<string>('get_default_export_dir')
+      .then((dir) => {
+        if (dir) setRawSaveDir(dir);
+      })
+      .catch((e) => console.error('[RawVideo] Failed to get default dir:', e));
+  }, [rawSaveDir]);
+
+  useEffect(() => {
+    return () => {
+      if (rawButtonFlashTimerRef.current) {
+        clearTimeout(rawButtonFlashTimerRef.current);
+      }
+    };
+  }, []);
 
   // Handlers
   const handleToggleCrop = useCallback(() => {
@@ -314,9 +402,99 @@ function App() {
     });
   }, []);
 
-  const handleOpenCursorLab = useCallback(() => {
-    window.location.hash = '#cursor-lab';
+  const flashRawSavedButton = useCallback(() => {
+    setRawButtonSavedFlash(true);
+    if (rawButtonFlashTimerRef.current) clearTimeout(rawButtonFlashTimerRef.current);
+    rawButtonFlashTimerRef.current = setTimeout(() => {
+      setRawButtonSavedFlash(false);
+      rawButtonFlashTimerRef.current = null;
+    }, 4000);
   }, []);
+
+  const ensureRawVideoSaved = useCallback(async (): Promise<string> => {
+    if (lastRawSavedPath) return lastRawSavedPath;
+    if (!currentRawVideoPath) return '';
+    if (!rawSaveDir) return '';
+
+    const result = await invoke<{ savedPath: string }>('save_raw_video_copy', {
+      sourcePath: currentRawVideoPath,
+      targetDir: rawSaveDir,
+    });
+    const savedPath = result?.savedPath || '';
+    if (savedPath) {
+      setLastRawSavedPath(savedPath);
+    }
+    return savedPath;
+  }, [lastRawSavedPath, currentRawVideoPath, rawSaveDir]);
+
+  const handleOpenRawVideoDialog = useCallback(async () => {
+    setShowRawVideoDialog(true);
+    if (lastRawSavedPath || !currentRawVideoPath) return;
+    try {
+      setIsRawActionBusy(true);
+      await ensureRawVideoSaved();
+    } catch (e) {
+      console.error('[RawVideo] Failed to save raw video on dialog open:', e);
+    } finally {
+      setIsRawActionBusy(false);
+    }
+  }, [lastRawSavedPath, currentRawVideoPath, ensureRawVideoSaved]);
+
+  const handleChangeRawSavePath = useCallback(async () => {
+    try {
+      setIsRawActionBusy(true);
+      const selected = await invoke<string | null>('pick_export_folder', {
+        initialDir: rawSaveDir || null,
+      });
+      if (!selected) return;
+
+      setRawSaveDir(selected);
+
+      if (lastRawSavedPath) {
+        const moved = await invoke<{ savedPath: string }>('move_saved_raw_video', {
+          currentPath: lastRawSavedPath,
+          targetDir: selected,
+        });
+        if (moved?.savedPath) {
+          setLastRawSavedPath(moved.savedPath);
+        }
+      }
+    } catch (e) {
+      console.error('[RawVideo] Failed to change raw save path:', e);
+    } finally {
+      setIsRawActionBusy(false);
+    }
+  }, [rawSaveDir, lastRawSavedPath]);
+
+  const handleCopyRawVideo = useCallback(async () => {
+    try {
+      setIsRawActionBusy(true);
+      const savedPath = await ensureRawVideoSaved();
+      if (!savedPath) return;
+      await invoke('copy_video_file_to_clipboard', { filePath: savedPath });
+      flashRawSavedButton();
+    } catch (e) {
+      console.error('[RawVideo] Failed to copy raw video to clipboard:', e);
+    } finally {
+      setIsRawActionBusy(false);
+    }
+  }, [ensureRawVideoSaved, flashRawSavedButton]);
+
+  const handleToggleRawAutoCopy = useCallback(async (enabled: boolean) => {
+    setRawAutoCopyEnabled(enabled);
+    if (!enabled) return;
+    try {
+      setIsRawActionBusy(true);
+      const savedPath = await ensureRawVideoSaved();
+      if (!savedPath) return;
+      await invoke('copy_video_file_to_clipboard', { filePath: savedPath });
+      flashRawSavedButton();
+    } catch (e) {
+      console.error('[RawVideo] Failed to enable auto-copy for raw video:', e);
+    } finally {
+      setIsRawActionBusy(false);
+    }
+  }, [ensureRawVideoSaved, flashRawSavedButton]);
 
   const getKeystrokeTimelineDuration = useCallback((s: VideoSegment) => {
     const segmentDuration = Math.max(
@@ -491,7 +669,9 @@ function App() {
       await projectManager.updateProject(projectId, {
         name: projects.projects.find(p => p.id === projectId)?.name || "Auto Saved",
         videoBlob, segment, backgroundConfig, mousePositions, thumbnail,
-        duration: videoControllerRef.current?.duration || duration
+        duration: videoControllerRef.current?.duration || duration,
+        recordingMode: currentRecordingMode,
+        rawVideoPath: currentRawVideoPath || undefined
       });
       if (saveSeq !== projectSaveSeqRef.current) {
         debugProject('persist:stale-after-write', { saveSeq, latestSeq: projectSaveSeqRef.current, projectId });
@@ -514,7 +694,7 @@ function App() {
   }, [
     projects.currentProjectId, projects.projects, projects.loadProjects,
     currentVideo, segment, backgroundConfig, mousePositions,
-    generateThumbnail, duration, debugProject
+    generateThumbnail, duration, debugProject, currentRecordingMode, currentRawVideoPath
   ]);
   persistRef.current = persistCurrentProjectNow;
 
@@ -577,16 +757,50 @@ function App() {
   const handleStartRecording = useCallback(async () => {
     if (isRecording) return;
     try {
+      setCurrentRecordingMode(selectedRecordingMode);
+      setCurrentRawVideoPath('');
+      setLastRawSavedPath('');
+      setRawButtonSavedFlash(false);
       const monitorList = await getMonitors();
       if (monitorList.length > 1) setShowMonitorSelect(true);
-      else await startNewRecording('0');
+      else await startNewRecording('0', selectedRecordingMode);
     } catch (err) { setError(err as string); }
-  }, [isRecording, getMonitors, setShowMonitorSelect, startNewRecording, setError]);
+  }, [isRecording, selectedRecordingMode, getMonitors, setShowMonitorSelect, startNewRecording, setError]);
+
+  const handleSelectMonitorForRecording = useCallback(async (monitorId: string) => {
+    setShowMonitorSelect(false);
+    await startNewRecording(monitorId, selectedRecordingMode);
+  }, [startNewRecording, selectedRecordingMode, setShowMonitorSelect]);
 
   const onStopRecording = useCallback(async () => {
     const result = await handleStopRecording();
     if (result) {
-      const { mouseData, initialSegment, videoUrl } = result;
+      const { mouseData, initialSegment, videoUrl, recordingMode, rawVideoPath } = result;
+      setCurrentRecordingMode(recordingMode);
+      setCurrentRawVideoPath(rawVideoPath || '');
+      setLastRawSavedPath('');
+
+      let autoSavedPath = '';
+      if (rawAutoCopyEnabled && rawVideoPath && rawSaveDir) {
+        try {
+          setIsRawActionBusy(true);
+          const saved = await invoke<{ savedPath: string }>('save_raw_video_copy', {
+            sourcePath: rawVideoPath,
+            targetDir: rawSaveDir,
+          });
+          autoSavedPath = saved?.savedPath || '';
+          if (autoSavedPath) {
+            setLastRawSavedPath(autoSavedPath);
+            await invoke('copy_video_file_to_clipboard', { filePath: autoSavedPath });
+            flashRawSavedButton();
+          }
+        } catch (e) {
+          console.error('[RawVideo] Auto-copy after recording failed:', e);
+        } finally {
+          setIsRawActionBusy(false);
+        }
+      }
+
       const response = await fetch(videoUrl);
       const videoBlob = await response.blob();
       const thumbnail = await videoControllerRef.current?.generateThumbnail({
@@ -595,12 +809,14 @@ function App() {
       const project = await projectManager.saveProject({
         name: `Recording ${new Date().toLocaleString()}`,
         videoBlob, segment: initialSegment, backgroundConfig, mousePositions: mouseData, thumbnail,
-        duration: initialSegment.trimEnd
+        duration: initialSegment.trimEnd,
+        recordingMode,
+        rawVideoPath: rawVideoPath || undefined
       });
       projects.setCurrentProjectId(project.id);
       await projects.loadProjects();
     }
-  }, [handleStopRecording, backgroundConfig, generateThumbnail, projects]);
+  }, [handleStopRecording, backgroundConfig, generateThumbnail, projects, rawAutoCopyEnabled, rawSaveDir, flashRawSavedButton]);
 
   // Effects
   useEffect(() => {
@@ -698,6 +914,7 @@ function App() {
           keyboardVisibilitySegments: [],
           keyboardMouseVisibilitySegments: [],
           keystrokeOverlay: { x: 50, y: 100, scale: 1 },
+          useCustomCursor: true,
         };
         setSegment(initialSegment);
       setTimeout(() => {
@@ -886,8 +1103,13 @@ function App() {
         isRecording={isRecording} recordingDuration={recordingDuration} currentVideo={currentVideo}
         isProcessing={exportHook.isProcessing} hotkeys={hotkeys}
         onRemoveHotkey={handleRemoveHotkey} onOpenHotkeyDialog={openHotkeyDialog}
+        recordingMode={selectedRecordingMode}
+        onRecordingModeChange={setSelectedRecordingMode}
+        rawButtonLabel={rawButtonSavedFlash ? t.rawVideoSavedButton : t.saveRawVideo}
+        rawButtonPulse={currentRecordingMode === 'withCursor'}
+        rawButtonDisabled={!currentRawVideoPath && !lastRawSavedPath}
+        onOpenRawVideoDialog={handleOpenRawVideoDialog}
         onExport={exportHook.handleExport}
-        onOpenCursorLab={handleOpenCursorLab}
         onOpenProjects={handleToggleProjects}
         hideExport={isOverlayMode}
       />
@@ -1147,7 +1369,7 @@ function App() {
       {/* Dialogs */}
       <ProcessingOverlay show={exportHook.isProcessing} exportProgress={0} onCancel={exportHook.cancelExport} />
       <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
-        monitors={monitors} onSelectMonitor={startNewRecording} />
+        monitors={monitors} onSelectMonitor={handleSelectMonitorForRecording} />
       {currentVideo && !isVideoReady && !projects.showProjectsDialog && (
         <div className="video-loading-overlay absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="loading-message text-[var(--on-surface)]">{t.preparingVideoOverlay}</div>
@@ -1157,6 +1379,16 @@ function App() {
         onExport={exportHook.startExport} exportOptions={exportHook.exportOptions}
         setExportOptions={exportHook.setExportOptions} segment={segment}
         videoRef={videoRef} backgroundConfig={backgroundConfig} />
+      <RawVideoDialog
+        show={showRawVideoDialog}
+        onClose={() => setShowRawVideoDialog(false)}
+        savedPath={lastRawSavedPath}
+        autoCopyEnabled={rawAutoCopyEnabled}
+        isBusy={isRawActionBusy}
+        onChangePath={handleChangeRawSavePath}
+        onCopyVideo={handleCopyRawVideo}
+        onToggleAutoCopy={handleToggleRawAutoCopy}
+      />
       <HotkeyDialog show={showHotkeyDialog} onClose={closeHotkeyDialog} />
       <FfmpegSetupDialog show={needsSetup} ffmpegInstallStatus={ffmpegInstallStatus}
         onCancelInstall={handleCancelInstall} />

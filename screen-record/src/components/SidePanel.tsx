@@ -605,6 +605,8 @@ function BackgroundPanel({
 // CursorPanel
 // ============================================================================
 interface CursorPanelProps {
+  segment: VideoSegment | null;
+  onUpdateSegment: (segment: VideoSegment) => void;
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
 }
@@ -646,9 +648,16 @@ function CursorVariantButton({ isSelected, onClick, label, children }: CursorVar
   );
 }
 
-function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps) {
+function CursorPanel({
+  segment,
+  onUpdateSegment,
+  backgroundConfig,
+  setBackgroundConfig
+}: CursorPanelProps) {
   const { t } = useSettings();
   const [variantScrollTop, setVariantScrollTop] = useState(0);
+  const useCustomCursor = segment?.useCustomCursor !== false;
+  const canToggleCustomCursor = Boolean(segment);
   const inferredPack: CursorVariant =
     backgroundConfig.cursorPack
     ?? backgroundConfig.cursorDefaultVariant
@@ -688,6 +697,32 @@ function CursorPanel({ backgroundConfig, setBackgroundConfig }: CursorPanelProps
   return (
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       <div className="cursor-controls space-y-2">
+        <div className="cursor-custom-toggle-field flex items-center justify-between gap-2">
+          <span className="text-[10px] text-[var(--on-surface-variant)]">{t.useCustomCursor}</span>
+          <button
+            type="button"
+            disabled={!canToggleCustomCursor}
+            onClick={() => {
+              if (!segment) return;
+              onUpdateSegment({ ...segment, useCustomCursor: !useCustomCursor });
+            }}
+            className={`cursor-custom-toggle-btn relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              !canToggleCustomCursor
+                ? 'opacity-40 cursor-not-allowed bg-[var(--outline-variant)]'
+                : useCustomCursor
+                  ? 'bg-[var(--primary-color)]'
+                  : 'bg-[var(--outline-variant)]'
+            }`}
+            aria-pressed={useCustomCursor}
+            title={t.useCustomCursor}
+          >
+            <span
+              className={`cursor-custom-toggle-thumb inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                useCustomCursor ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
         <div className="cursor-size-field flex items-center gap-2">
           <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.cursorSize}</span>
           <input type="range" min="1" max="8" step="0.1" value={backgroundConfig.cursorScale ?? 2}
@@ -1231,7 +1266,12 @@ export function SidePanel({
         )}
 
         {activePanel === 'cursor' && (
-          <CursorPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
+          <CursorPanel
+            segment={segment}
+            onUpdateSegment={onUpdateSegment}
+            backgroundConfig={backgroundConfig}
+            setBackgroundConfig={setBackgroundConfig}
+          />
         )}
 
         {activePanel === 'blur' && (

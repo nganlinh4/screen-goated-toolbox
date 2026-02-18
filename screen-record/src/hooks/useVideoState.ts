@@ -6,7 +6,7 @@ import { projectManager } from '@/lib/projectManager';
 import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
 import { videoExporter } from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
-import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment, RawInputEvent } from '@/types/video';
+import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment, RawInputEvent, RecordingMode } from '@/types/video';
 import { clampVisibilitySegmentsToDuration, generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
 import { normalizeSegmentTrimData } from '@/lib/trimSegments';
 import { getKeyframeRange } from '@/utils/helpers';
@@ -226,6 +226,7 @@ interface UseRecordingProps {
 
 export function useRecording(props: UseRecordingProps) {
   const [isRecording, setIsRecording] = useState(false);
+  const [activeRecordingMode, setActiveRecordingMode] = useState<RecordingMode>('withoutCursor');
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -235,7 +236,7 @@ export function useRecording(props: UseRecordingProps) {
   const [videoFilePathOwnerUrl, setVideoFilePathOwnerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const startNewRecording = async (monitorId: string) => {
+  const startNewRecording = async (monitorId: string, recordingMode: RecordingMode) => {
     try {
       setMousePositions([]);
       props.setIsVideoReady(false);
@@ -263,7 +264,11 @@ export function useRecording(props: UseRecordingProps) {
         if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
 
-      await invoke("start_recording", { monitorId });
+      await invoke("start_recording", {
+        monitorId,
+        includeCursor: recordingMode === 'withCursor'
+      });
+      setActiveRecordingMode(recordingMode);
       setIsRecording(true);
       setError(null);
     } catch (err) {
@@ -271,7 +276,7 @@ export function useRecording(props: UseRecordingProps) {
     }
   };
 
-  const handleStopRecording = async (): Promise<{ mouseData: MousePosition[], initialSegment: VideoSegment, videoUrl: string } | null> => {
+  const handleStopRecording = async (): Promise<{ mouseData: MousePosition[], initialSegment: VideoSegment, videoUrl: string, recordingMode: RecordingMode, rawVideoPath: string } | null> => {
     if (!isRecording) return null;
 
     try {
@@ -367,6 +372,7 @@ export function useRecording(props: UseRecordingProps) {
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,
           keystrokeOverlay: { x: 50, y: 100, scale: 1 },
+          useCustomCursor: activeRecordingMode !== 'withCursor',
         };
         props.setSegment(initialSegment);
 
@@ -378,7 +384,13 @@ export function useRecording(props: UseRecordingProps) {
           });
         }
 
-        return { mouseData, initialSegment, videoUrl: objectUrl };
+        return {
+          mouseData,
+          initialSegment,
+          videoUrl: objectUrl,
+          recordingMode: activeRecordingMode,
+          rawVideoPath: videoPath || ""
+        };
       }
       return null;
     } catch (err) {
@@ -422,6 +434,8 @@ interface UseProjectsProps {
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
   setMousePositions: (positions: MousePosition[]) => void;
   setThumbnails: (thumbnails: string[]) => void;
+  setCurrentRecordingMode?: (mode: RecordingMode) => void;
+  setCurrentRawVideoPath?: (path: string) => void;
   currentVideo: string | null;
   currentAudio: string | null;
 }
@@ -475,6 +489,9 @@ export function useProjects(props: UseProjectsProps) {
       correctedSegment.trimEnd = videoDuration;
     }
     correctedSegment = normalizeSegmentTrimData(correctedSegment, videoDuration);
+    if (typeof correctedSegment.useCustomCursor !== 'boolean') {
+      correctedSegment.useCustomCursor = project.recordingMode === 'withCursor' ? false : true;
+    }
     correctedSegment.cursorVisibilitySegments = clampVisibilitySegmentsToDuration(
       correctedSegment.cursorVisibilitySegments,
       videoDuration
@@ -541,6 +558,8 @@ export function useProjects(props: UseProjectsProps) {
     props.setSegment(correctedSegment);
     props.setBackgroundConfig(project.backgroundConfig);
     props.setMousePositions(project.mousePositions);
+    props.setCurrentRecordingMode?.(project.recordingMode ?? 'withoutCursor');
+    props.setCurrentRawVideoPath?.(project.rawVideoPath ?? '');
     logProjectLoad('load:applied', {
       projectId,
       canvasMode: project.backgroundConfig?.canvasMode,

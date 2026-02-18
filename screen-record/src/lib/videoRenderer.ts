@@ -1061,6 +1061,10 @@ export class VideoRenderer {
     backgroundConfig?: BackgroundConfig,
     fps: number = 60
   ): BakedCursorFrame[] {
+    if (segment.useCustomCursor === false) {
+      return [];
+    }
+
     const baked: BakedCursorFrame[] = [];
     const step = 1 / fps;
     const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
@@ -1399,7 +1403,8 @@ export class VideoRenderer {
       const cursorTime = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig);
       const interpolatedPosition = this.interpolateCursorPosition(cursorTime, mousePositions, backgroundConfig);
       const cursorVis = getCursorVisibility(video.currentTime, segment.cursorVisibilitySegments);
-      const showCursor = interpolatedPosition && cursorVis.opacity > 0.001;
+      const shouldRenderCustomCursor = segment.useCustomCursor !== false;
+      const showCursor = shouldRenderCustomCursor && interpolatedPosition && cursorVis.opacity > 0.001;
 
       if (showCursor) {
         const isActuallyClicked = interpolatedPosition!.isClicked;
@@ -1516,7 +1521,7 @@ export class VideoRenderer {
             if (blurPanVal > 0 && (Math.abs(z0.positionX - z1.positionX) > 0.001 || Math.abs(z0.positionY - z1.positionY) > 0.001)) cameraMoving = true;
           }
         }
-        if (blurCursorVal > 0 && interpolatedPosition) {
+        if (blurCursorVal > 0 && shouldRenderCustomCursor && interpolatedPosition) {
           const c0 = this.interpolateCursorPosition(t0 + this.getCursorMovementDelaySec(backgroundConfig), mousePositions, backgroundConfig);
           const c1 = this.interpolateCursorPosition(t1 + this.getCursorMovementDelaySec(backgroundConfig), mousePositions, backgroundConfig);
           if (c0 && c1 && Math.hypot(c1.x - c0.x, c1.y - c0.y) > 1.0) cursorMoving = true;
