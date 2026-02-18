@@ -4,6 +4,7 @@
 pub(crate) mod bg_download;
 mod ffmpeg;
 mod ipc;
+mod raw_video;
 
 use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,

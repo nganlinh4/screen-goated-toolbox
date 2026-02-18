@@ -15,11 +15,17 @@ const ko: Translations = {
   keystrokeModeKeyboard: '키: 키보드',
   keystrokeModeKeyboardMouse: '키: 키보드+마우스',
   export: '내보내기',
+  saveRawVideo: '원본 비디오 저장',
+  rawVideoSavedButton: '원본 비디오 저장됨',
   projects: '프로젝트',
   minimize: '최소화',
   maximize: '최대화',
   restore: '복원',
   close: '닫기',
+  recordingModeNoCursor: '커서 없이 녹화',
+  recordingModeWithCursor: '커서 포함 녹화',
+  recordingModeNoCursorDetail: '커서 없이 녹화(기본): 커스텀 커서 편집에 적합',
+  recordingModeWithCursorDetail: '커서 포함 녹화: 바로 원본을 가져가기 적합',
 
   // SidePanel tabs
   tabZoom: '확대',
@@ -61,6 +67,7 @@ const ko: Translations = {
   pointerWiggleDamping: '흔들림 감쇠',
   pointerWiggleResponse: '흔들림 반응 속도',
   cursorVariants: '스타일',
+  useCustomCursor: '커스텀 커서 사용',
   cursorDefault: '기본 화살표',
   cursorText: '텍스트 커서',
   cursorPointer: '포인팅 핸드',
@@ -115,6 +122,12 @@ const ko: Translations = {
   browsing: '찾는 중...',
   cancel: '취소',
   exportVideo: '비디오 내보내기',
+  rawVideoDialogTitle: '원본 비디오',
+  rawVideoSavedTo: '원본 비디오가 저장된 위치',
+  rawVideoPathUnavailable: '이 프로젝트의 원본 비디오 경로를 찾을 수 없습니다',
+  changePath: '경로 변경',
+  copyVideo: '비디오 복사',
+  autoCopyAfterRecording: '다음 녹화부터 자동 복사',
 
   // Dialogs - Projects
   noProjectsYet: '프로젝트가 없습니다',

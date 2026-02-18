@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Video, Keyboard, Loader2, AlertCircle, X, FolderOpen } from 'lucide-react';
+import { Video, Keyboard, Loader2, AlertCircle, X, FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import { computeResolutionOptions, getCanvasBaseDimensions, type ResolutionOption } from '@/lib/videoExporter';
@@ -256,6 +256,99 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
         <div className="dialog-actions flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} className="bg-transparent border-[var(--glass-border)] text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] hover:text-[var(--on-surface)] rounded-lg text-xs h-8">{t.cancel}</Button>
           <Button onClick={onExport} className="bg-[var(--primary-color)] hover:opacity-90 text-white rounded-lg text-xs h-8">{t.exportVideo}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// RawVideoDialog
+// ============================================================================
+interface RawVideoDialogProps {
+  show: boolean;
+  onClose: () => void;
+  savedPath: string;
+  autoCopyEnabled: boolean;
+  isBusy?: boolean;
+  onChangePath: () => void;
+  onCopyVideo: () => void;
+  onToggleAutoCopy: (enabled: boolean) => void;
+}
+
+export function RawVideoDialog({
+  show,
+  onClose,
+  savedPath,
+  autoCopyEnabled,
+  isBusy = false,
+  onChangePath,
+  onCopyVideo,
+  onToggleAutoCopy
+}: RawVideoDialogProps) {
+  const { t } = useSettings();
+  if (!show) return null;
+
+  return (
+    <div className="raw-video-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="raw-video-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
+        <div className="dialog-header flex items-center justify-between mb-4">
+          <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.rawVideoDialogTitle}</h3>
+          <button onClick={onClose} className="dialog-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="raw-video-dialog-content space-y-4">
+          <div
+            className={`raw-video-path-block rounded-lg px-3 py-2.5 ${
+              savedPath
+                ? 'border border-emerald-400/45 bg-emerald-500/10 shadow-[0_0_0_1px_rgba(16,185,129,0.2)_inset,0_8px_20px_rgba(5,150,105,0.12)]'
+                : 'border border-[var(--glass-border)] bg-[var(--glass-bg)]'
+            }`}
+          >
+            {savedPath ? (
+              <>
+                <div className="raw-video-saved-title-row flex items-center gap-1.5 mb-1">
+                  <CheckCircle2 className="raw-video-saved-icon w-3.5 h-3.5 text-emerald-300 flex-shrink-0" />
+                  <div className="raw-video-saved-title text-[11px] font-semibold text-emerald-200">{t.rawVideoSavedTo}</div>
+                </div>
+                <div className="raw-video-saved-path text-xs text-[var(--on-surface)] break-all">{savedPath}</div>
+              </>
+            ) : (
+              <div className="text-xs text-[var(--on-surface-variant)]">{t.rawVideoPathUnavailable}</div>
+            )}
+          </div>
+
+          <div className="raw-video-action-row flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={onChangePath}
+              disabled={isBusy}
+              className="h-8 text-xs bg-transparent border-[var(--glass-border)] text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)]"
+            >
+              <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+              {t.changePath}
+            </Button>
+            <Button
+              onClick={onCopyVideo}
+              disabled={isBusy || !savedPath}
+              className="h-8 text-xs bg-[var(--primary-color)] hover:opacity-90 text-white"
+            >
+              <Copy className="w-3.5 h-3.5 mr-1.5" />
+              {t.copyVideo}
+            </Button>
+          </div>
+
+          <label className="raw-video-auto-copy-toggle flex items-center gap-2 text-xs text-[var(--on-surface)]">
+            <input
+              type="checkbox"
+              checked={autoCopyEnabled}
+              onChange={(e) => onToggleAutoCopy(e.target.checked)}
+              disabled={isBusy}
+            />
+            <span>{t.autoCopyAfterRecording}</span>
+          </label>
         </div>
       </div>
     </div>

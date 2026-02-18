@@ -13,11 +13,17 @@ const en = {
   keystrokeModeKeyboard: 'Keys: Keyboard',
   keystrokeModeKeyboardMouse: 'Keys: Keyboard + Mouse',
   export: 'Export',
+  saveRawVideo: 'Save Raw Video',
+  rawVideoSavedButton: 'Raw Video Saved',
   projects: 'Projects',
   minimize: 'Minimize',
   maximize: 'Maximize',
   restore: 'Restore',
   close: 'Close',
+  recordingModeNoCursor: 'No Cursor',
+  recordingModeWithCursor: 'With Cursor',
+  recordingModeNoCursorDetail: 'No cursor (default): best for editing with custom cursor',
+  recordingModeWithCursorDetail: 'With cursor: best for immediate raw take',
 
   // SidePanel tabs
   tabZoom: 'Zoom',
@@ -59,6 +65,7 @@ const en = {
   pointerWiggleDamping: 'Pointer Wiggle Damping',
   pointerWiggleResponse: 'Pointer Wiggle Response',
   cursorVariants: 'Variants',
+  useCustomCursor: 'Use custom cursor',
   cursorDefault: 'Default Arrow',
   cursorText: 'Text Beam',
   cursorPointer: 'Pointing Hand',
@@ -113,6 +120,12 @@ const en = {
   browsing: 'Browsing...',
   cancel: 'Cancel',
   exportVideo: 'Export Video',
+  rawVideoDialogTitle: 'Raw Video',
+  rawVideoSavedTo: 'Raw video saved to',
+  rawVideoPathUnavailable: 'Raw video path unavailable for this project',
+  changePath: 'Change Path',
+  copyVideo: 'Copy Video',
+  autoCopyAfterRecording: 'Auto copy after recording for future recordings',
 
   // Dialogs - Projects
   noProjectsYet: 'No projects yet',

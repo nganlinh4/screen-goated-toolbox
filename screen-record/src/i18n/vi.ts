@@ -15,11 +15,17 @@ const vi: Translations = {
   keystrokeModeKeyboard: 'Phím: Bàn Phím',
   keystrokeModeKeyboardMouse: 'Phím: Bàn Phím + Chuột',
   export: 'Xuất',
+  saveRawVideo: 'Lưu video gốc',
+  rawVideoSavedButton: 'Đã lưu video gốc',
   projects: 'Dự Án',
   minimize: 'Thu nhỏ',
   maximize: 'Phóng to',
   restore: 'Khôi phục',
   close: 'Đóng',
+  recordingModeNoCursor: 'Quay không chuột',
+  recordingModeWithCursor: 'Quay có chuột',
+  recordingModeNoCursorDetail: 'Quay không chuột (mặc định): phù hợp để edit tiếp bằng chuột tuỳ chỉnh',
+  recordingModeWithCursorDetail: 'Quay có chuột: phù hợp để quay và lấy ngay video vừa quay',
 
   // SidePanel tabs
   tabZoom: 'Phóng To',
@@ -61,6 +67,7 @@ const vi: Translations = {
   pointerWiggleDamping: 'Giảm Chấn Lắc',
   pointerWiggleResponse: 'Độ Nhạy Lắc',
   cursorVariants: 'Kiểu',
+  useCustomCursor: 'Dùng con trỏ tuỳ chỉnh',
   cursorDefault: 'Mũi Tên Mặc Định',
   cursorText: 'Con Trỏ Văn Bản',
   cursorPointer: 'Bàn Tay Chỉ',
@@ -115,6 +122,12 @@ const vi: Translations = {
   browsing: 'Đang duyệt...',
   cancel: 'Hủy',
   exportVideo: 'Xuất Video',
+  rawVideoDialogTitle: 'Video gốc',
+  rawVideoSavedTo: 'Đã lưu video gốc vào',
+  rawVideoPathUnavailable: 'Không tìm thấy đường dẫn video gốc cho dự án này',
+  changePath: 'Đổi đường dẫn',
+  copyVideo: 'Copy video',
+  autoCopyAfterRecording: 'Tự copy sau khi quay cho lần sau',
 
   // Dialogs - Projects
   noProjectsYet: 'Chưa có dự án nào',

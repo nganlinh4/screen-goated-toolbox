@@ -100,6 +100,8 @@ export interface TrimSegment {
   endTime: number;
 }
 
+export type RecordingMode = 'withoutCursor' | 'withCursor';
+
 export interface VideoSegment {
   trimStart: number;
   trimEnd: number;
@@ -115,6 +117,7 @@ export interface VideoSegment {
   keyboardVisibilitySegments?: CursorVisibilitySegment[];
   keyboardMouseVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeOverlay?: KeystrokeOverlayConfig;
+  useCustomCursor?: boolean;
   crop?: CropRect;
 }
 
@@ -234,4 +237,6 @@ export interface Project {
   backgroundConfig: BackgroundConfig;
   mousePositions: MousePosition[];
   thumbnail?: string;
+  recordingMode?: RecordingMode;
+  rawVideoPath?: string;
 }
