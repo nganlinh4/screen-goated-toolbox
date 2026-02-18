@@ -3,8 +3,7 @@ import { getCursorVisibility } from '@/lib/cursorHiding';
 import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/lib/trimSegments';
 import {
   filterKeystrokeEventsByMode,
-  getKeystrokeVisibilitySegmentsForMode,
-  KEYSTROKE_SAME_LANE_OVERLAP_SEC
+  getKeystrokeVisibilitySegmentsForMode
 } from '@/lib/keystrokeVisibility';
 
 // --- CONFIGURATION ---
@@ -3515,24 +3514,9 @@ export class VideoRenderer {
     const mouseSlotLabelLengths: number[] = [];
     let keyboardMaxDuration = 0;
     let mouseMaxDuration = 0;
-    let nextAnyStart = Number.POSITIVE_INFINITY;
-    let nextKeyboardStart = Number.POSITIVE_INFINITY;
-    let nextMouseStart = Number.POSITIVE_INFINITY;
     for (let i = displayEvents.length - 1; i >= 0; i--) {
       const event = displayEvents[i];
-      const nextStart = mode === 'keyboardMouse'
-        ? (event.type === 'keyboard' ? nextKeyboardStart : nextMouseStart)
-        : nextAnyStart;
-      const overlapLimitedEnd = Number.isFinite(nextStart)
-        ? nextStart + KEYSTROKE_SAME_LANE_OVERLAP_SEC
-        : Number.POSITIVE_INFINITY;
-      effectiveEnds[i] = Math.min(event.endTime, overlapLimitedEnd, safeDuration);
-      nextAnyStart = event.startTime;
-      if (event.type === 'keyboard') {
-        nextKeyboardStart = event.startTime;
-      } else {
-        nextMouseStart = event.startTime;
-      }
+      effectiveEnds[i] = Math.min(event.endTime, safeDuration);
     }
     for (let i = 0; i < displayEvents.length; i++) {
       const event = displayEvents[i];

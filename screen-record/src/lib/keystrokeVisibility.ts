@@ -3,7 +3,6 @@ import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/c
 
 export const KEYSTROKE_VISIBILITY_MARGIN_BEFORE = 0.04;
 export const KEYSTROKE_VISIBILITY_MARGIN_AFTER = 0.08;
-export const KEYSTROKE_SAME_LANE_OVERLAP_SEC = 0.18;
 const MIN_GAP_TO_MERGE = 0.2;
 type ActiveKeystrokeMode = Exclude<KeystrokeMode, 'off'>;
 
@@ -62,30 +61,9 @@ export function generateKeystrokeVisibilitySegments(
   const safeDuration = Math.max(duration, 0);
   if (!events.length || safeDuration <= 0) return [];
 
-  const mode = options?.mode ?? 'keyboardMouse';
   const delaySec = clamp(options?.delaySec ?? 0, -1, 1);
   const sorted = [...events].sort((a, b) => a.startTime - b.startTime);
-  const effectiveEnds = new Array<number>(sorted.length);
-  let nextAnyStart = Number.POSITIVE_INFINITY;
-  let nextKeyboardStart = Number.POSITIVE_INFINITY;
-  let nextMouseStart = Number.POSITIVE_INFINITY;
-
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const event = sorted[i];
-    const nextStart = mode === 'keyboardMouse'
-      ? (event.type === 'keyboard' ? nextKeyboardStart : nextMouseStart)
-      : nextAnyStart;
-    const overlapLimitedEnd = Number.isFinite(nextStart)
-      ? nextStart + KEYSTROKE_SAME_LANE_OVERLAP_SEC
-      : Number.POSITIVE_INFINITY;
-    effectiveEnds[i] = Math.min(event.endTime, overlapLimitedEnd, safeDuration);
-    nextAnyStart = event.startTime;
-    if (event.type === 'keyboard') {
-      nextKeyboardStart = event.startTime;
-    } else {
-      nextMouseStart = event.startTime;
-    }
-  }
+  const effectiveEnds = sorted.map((event) => Math.min(event.endTime, safeDuration));
 
   const raw: CursorVisibilitySegment[] = [];
   for (let i = 0; i < sorted.length; i++) {
