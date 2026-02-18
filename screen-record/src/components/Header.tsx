@@ -24,6 +24,7 @@ interface HeaderProps {
   onOpenRawVideoDialog: () => void;
   onOpenProjects: () => void;
   hideExport?: boolean;
+  hideRawVideo?: boolean;
 }
 
 export function Header({
@@ -42,7 +43,8 @@ export function Header({
   rawButtonDisabled,
   onOpenRawVideoDialog,
   onOpenProjects,
-  hideExport = false
+  hideExport = false,
+  hideRawVideo = false
 }: HeaderProps) {
   const { t } = useSettings();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
@@ -190,7 +192,7 @@ export function Header({
         </div>
 
         <div className="header-actions flex items-center gap-2">
-          {currentVideo && (
+          {currentVideo && !hideRawVideo && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}
               onClick={onOpenRawVideoDialog}
