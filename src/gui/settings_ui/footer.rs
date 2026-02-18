@@ -16,14 +16,19 @@ pub fn render_footer(
         let btn_label = text.pointer_gallery_btn;
         let is_dark = ui.visuals().dark_mode;
         let btn_color = if is_dark {
-            egui::Color32::from_rgb(150, 150, 150)
+            egui::Color32::from_rgb(245, 248, 255)
         } else {
-            egui::Color32::from_rgb(120, 120, 120)
+            egui::Color32::from_rgb(250, 252, 255)
         };
         let btn_bg = if is_dark {
-            egui::Color32::from_rgb(80, 80, 80)
+            egui::Color32::from_rgb(72, 118, 210)
         } else {
-            egui::Color32::from_rgb(210, 210, 210)
+            egui::Color32::from_rgb(66, 124, 224)
+        };
+        let btn_bg_hover = if is_dark {
+            egui::Color32::from_rgb(86, 132, 222)
+        } else {
+            egui::Color32::from_rgb(80, 138, 236)
         };
         let btn_galley = ui.painter().layout_no_wrap(
             btn_label.to_string(),
@@ -40,7 +45,15 @@ pub fn render_footer(
         let (btn_rect, btn_response) =
             ui.allocate_exact_size(egui::vec2(btn_w, btn_h), egui::Sense::click());
         let p = ui.painter();
-        p.rect_filled(btn_rect, 6.0, btn_bg);
+        p.rect_filled(
+            btn_rect,
+            6.0,
+            if btn_response.hovered() {
+                btn_bg_hover
+            } else {
+                btn_bg
+            },
+        );
         let icon_rect = egui::Rect::from_min_size(
             egui::pos2(btn_rect.left() + h_pad, btn_rect.center().y - icon_sz / 2.0),
             egui::vec2(icon_sz, icon_sz),
