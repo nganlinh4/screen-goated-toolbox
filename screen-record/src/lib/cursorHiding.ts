@@ -5,6 +5,9 @@ const IDLE_VELOCITY_THRESHOLD = 2;    // px/s — below this is considered idle
 const IDLE_DURATION_THRESHOLD = 1.5;  // seconds of low velocity to trigger idle
 const ANCHORED_RADIUS = 18;           // px — sustained drift within this radius counts as anchored idle
 const ANCHORED_DURATION = 0.9;        // seconds to confirm anchored idle (faster for center-lock gameplay)
+const LOCKED_ANCHORED_RADIUS = 34;    // px — looser radius for center-lock gameplay jitter
+const LOCKED_CLICK_RATIO_MIN = 0.22;  // clicked sample ratio in anchored window to treat as lock-like
+const LOCKED_CLICK_SAMPLES_MIN = 6;   // avoid classifying tiny accidental click bursts as lock-like
 const VELOCITY_WINDOW = 0.1;          // seconds — sliding window for velocity calc
 const ACTIVE_NET_DISTANCE_MIN = 3.5;  // px — min first→last displacement in the velocity window to count as active
 const ACTIVE_PATH_DISTANCE_MIN = 6;   // px — min accumulated path distance in window to count as active
@@ -142,7 +145,7 @@ export function generateCursorVisibility(
   }
 
   // Anchored detection: sustained micro-drift (common in locked-center gameplay) should be treated as idle.
-  const anchoredRanges: { start: number; end: number }[] = [];
+  const anchoredRanges: { start: number; end: number; lockLike: boolean }[] = [];
   for (let i = 0; i < positions.length; i++) {
     const t = positions[i].timestamp;
 
@@ -166,13 +169,25 @@ export function generateCursorVisibility(
       return Math.max(max, Math.sqrt(dx * dx + dy * dy));
     }, 0);
 
-    if (maxDist <= ANCHORED_RADIUS) {
-      anchoredRanges.push({ start: first.timestamp, end: last.timestamp });
+    const clickedSamples = windowPositions.reduce((sum, p) => sum + (p.isClicked ? 1 : 0), 0);
+    const clickRatio = clickedSamples / windowPositions.length;
+    const isAnchored = maxDist <= ANCHORED_RADIUS;
+    const isLockLikeAnchored =
+      maxDist <= LOCKED_ANCHORED_RADIUS &&
+      clickedSamples >= LOCKED_CLICK_SAMPLES_MIN &&
+      clickRatio >= LOCKED_CLICK_RATIO_MIN;
+
+    if (isAnchored || isLockLikeAnchored) {
+      anchoredRanges.push({
+        start: first.timestamp,
+        end: last.timestamp,
+        lockLike: isLockLikeAnchored,
+      });
     }
   }
 
   // Merge anchored ranges to make membership checks stable.
-  const mergedAnchored: { start: number; end: number }[] = [];
+  const mergedAnchored: { start: number; end: number; lockLike: boolean }[] = [];
   for (const range of anchoredRanges) {
     if (
       mergedAnchored.length > 0 &&
@@ -182,19 +197,24 @@ export function generateCursorVisibility(
         mergedAnchored[mergedAnchored.length - 1].end,
         range.end
       );
+      mergedAnchored[mergedAnchored.length - 1].lockLike =
+        mergedAnchored[mergedAnchored.length - 1].lockLike || range.lockLike;
     } else {
       mergedAnchored.push({ ...range });
     }
   }
 
-  // Force anchored ranges to idle unless there is an actual click signal.
+  // Force anchored ranges to idle.
+  // For classic idle, clicks still keep cursor active.
+  // For lock-like anchored windows (e.g., pointer-locked gameplay jitter near center),
+  // ignore click signal and keep it idle so Smart Pointer can hide those sections.
   if (mergedAnchored.length > 0) {
     for (const flag of activeFlags) {
-      if (flag.clicked) continue;
-      const inAnchoredRange = mergedAnchored.some(
+      const anchoredRange = mergedAnchored.find(
         range => flag.time >= range.start && flag.time <= range.end
       );
-      if (inAnchoredRange) {
+      if (!anchoredRange) continue;
+      if (!flag.clicked || anchoredRange.lockLike) {
         flag.active = false;
       }
     }
