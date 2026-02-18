@@ -266,6 +266,19 @@ lazy_static::lazy_static! {
             "250 requests/day"
         ),
         ModelConfig::new(
+            "cerebras_zai_glm_4_7",
+            "cerebras",
+            "C-Thường",
+            "C-보통",
+            "C-Normal",
+            "llama3.1-8b",
+            ModelType::Text,
+            true,
+            "14400 lượt/ngày",
+            "14400 요청/일",
+            "14400 requests/day"
+        ),
+        ModelConfig::new(
             "cerebras_gpt_oss",
             "cerebras",
             "C-Chính xác",
@@ -277,19 +290,6 @@ lazy_static::lazy_static! {
             "14400 lượt/ngày",
             "14400 요청/일",
             "14400 requests/day"
-        ),
-        ModelConfig::new(
-            "cerebras_zai_glm_4_7",
-            "cerebras",
-            "C-Siêu chính xác",
-            "C-초정밀",
-            "C-Super Accurate",
-            "zai-glm-4.7",
-            ModelType::Text,
-            true,
-            "100 lượt/ngày",
-            "100 요청/일",
-            "100 requests/day"
         ),
         ModelConfig::new(
             "gemini-live-text",
