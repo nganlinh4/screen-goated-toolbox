@@ -538,9 +538,9 @@ pub(super) fn apply_downloaded_collection(
     }
 
     cursors_key
-        .set_value("CursorBaseSize", &clamped_size)
+        .set_value("CursorBaseSize", &CURSOR_BASE_SIZE_DEFAULT)
         .map_err(|e| format!("Failed writing cursor size: {}", e))?;
-    write_accessibility_cursor_size(&hkcu, accessibility_cursor_size_from_base(clamped_size))?;
+    write_accessibility_cursor_size(&hkcu, ACCESSIBILITY_CURSOR_SIZE_MIN)?;
 
     if live_preview_only {
         if let Some(arrow_path) = effective_files

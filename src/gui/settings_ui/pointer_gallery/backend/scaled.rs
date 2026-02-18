@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const SCALE_CACHE_VERSION: &str = "v2-hq";
+const SCALE_CACHE_VERSION: &str = "v4-crisp-upscale";
+const CURSOR_RENDER_MIN: u32 = 16;
+const CURSOR_RENDER_MAX: u32 = 256;
+const UPSCALE_OVERSAMPLE_FACTOR: u32 = 3;
 
 #[cfg(target_os = "windows")]
 pub(super) fn scaled_cursor_file_map_for_size(
@@ -92,12 +95,20 @@ fn ensure_scaled_cur(
         hotspot_x: 0,
         hotspot_y: 0,
     });
-    let source_render_size = metadata.width.max(metadata.height).clamp(16, 128);
-    let source_rgba = render_cursor_rgba(source_path, source_render_size)?;
-    let rgba = if source_render_size == target_size {
-        source_rgba
+    let source_render_size = metadata
+        .width
+        .max(metadata.height)
+        .clamp(CURSOR_RENDER_MIN, CURSOR_RENDER_MAX);
+    let oversampled_target = target_size.saturating_mul(UPSCALE_OVERSAMPLE_FACTOR);
+    let render_size = source_render_size
+        .max(target_size)
+        .max(oversampled_target)
+        .clamp(CURSOR_RENDER_MIN, CURSOR_RENDER_MAX);
+    let rendered_rgba = render_cursor_rgba(source_path, render_size)?;
+    let rgba = if render_size == target_size {
+        rendered_rgba
     } else {
-        resize_rgba_square(&source_rgba, source_render_size, target_size)?
+        resize_rgba_square(&rendered_rgba, render_size, target_size)?
     };
 
     let png_bytes = encode_png_rgba(&rgba, target_size)?;
@@ -136,13 +147,45 @@ fn resize_rgba_square(
 
     let source_image = RgbaImage::from_raw(source_size, source_size, source_rgba.to_vec())
         .ok_or_else(|| "Failed creating source RGBA image for resizing.".to_string())?;
-    let resized = image::imageops::resize(
-        &source_image,
-        target_size,
-        target_size,
-        FilterType::Lanczos3,
-    );
+    let resized = if source_size < target_size {
+        // Upscaling line-art cursors is usually crisper with Catmull-Rom + a light unsharp pass.
+        let upscaled = image::imageops::resize(
+            &source_image,
+            target_size,
+            target_size,
+            FilterType::CatmullRom,
+        );
+        let mut sharpened = image::imageops::unsharpen(&upscaled, 1.0, 0);
+        harden_alpha_edges(sharpened.as_mut());
+        sharpened
+    } else {
+        image::imageops::resize(
+            &source_image,
+            target_size,
+            target_size,
+            FilterType::Lanczos3,
+        )
+    };
     Ok(resized.into_raw())
+}
+
+#[cfg(target_os = "windows")]
+fn harden_alpha_edges(rgba: &mut [u8]) {
+    for px in rgba.chunks_exact_mut(4) {
+        let alpha = px[3];
+        if alpha <= 8 {
+            px[0] = 0;
+            px[1] = 0;
+            px[2] = 0;
+            px[3] = 0;
+            continue;
+        }
+
+        let boosted = ((f32::from(alpha) / 255.0).powf(0.82) * 255.0)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        px[3] = if boosted >= 250 { 255 } else { boosted };
+    }
 }
 
 #[cfg(target_os = "windows")]

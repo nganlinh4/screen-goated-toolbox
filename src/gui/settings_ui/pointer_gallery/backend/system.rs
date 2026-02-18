@@ -69,8 +69,7 @@ pub(super) fn set_system_cursor_from_file(
         .collect();
     let size_i32 = target_size
         .map(|value| i32::try_from(value).map_err(|_| format!("Invalid cursor size {}", value)))
-        .transpose()?
-        .unwrap_or(0);
+        .transpose()?;
 
     let is_cur = path
         .extension()
@@ -79,21 +78,30 @@ pub(super) fn set_system_cursor_from_file(
 
     unsafe {
         let cursor = if is_cur {
-            let handle = LoadImageW(
-                None,
-                PCWSTR(wide.as_ptr()),
-                IMAGE_CURSOR,
-                size_i32,
-                size_i32,
-                LR_LOADFROMFILE,
-            )
-            .map_err(|e| {
-                format!(
-                    "Failed loading cursor {:?} with LoadImageW(size={}): {}",
-                    path, size_i32, e
+            if let Some(size) = size_i32 {
+                let handle = LoadImageW(
+                    None,
+                    PCWSTR(wide.as_ptr()),
+                    IMAGE_CURSOR,
+                    size,
+                    size,
+                    LR_LOADFROMFILE,
                 )
-            })?;
-            windows::Win32::UI::WindowsAndMessaging::HCURSOR(handle.0)
+                .map_err(|e| {
+                    format!(
+                        "Failed loading cursor {:?} with LoadImageW(size={}): {}",
+                        path, size, e
+                    )
+                })?;
+                windows::Win32::UI::WindowsAndMessaging::HCURSOR(handle.0)
+            } else {
+                LoadCursorFromFileW(PCWSTR(wide.as_ptr())).map_err(|e| {
+                    format!(
+                        "Failed loading cursor {:?} with LoadCursorFromFileW: {}",
+                        path, e
+                    )
+                })?
+            }
         } else {
             LoadCursorFromFileW(PCWSTR(wide.as_ptr())).map_err(|e| {
                 format!(
@@ -142,10 +150,18 @@ pub(super) fn apply_standard_system_cursors(
         if !applied_ids.insert(cursor_id.0) {
             continue;
         }
-        let Some(path) = effective_files
-            .get(file_name)
-            .or_else(|| original_files.get(file_name))
-        else {
+        let original = original_files.get(file_name);
+        let effective = effective_files.get(file_name);
+        let path = if original
+            .or(effective)
+            .and_then(|p| p.extension().and_then(|ext| ext.to_str()))
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("cur"))
+        {
+            original.or(effective)
+        } else {
+            effective.or(original)
+        };
+        let Some(path) = path else {
             continue;
         };
         let preferred_size = path
