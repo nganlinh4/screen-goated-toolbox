@@ -1112,6 +1112,7 @@ function App() {
         onExport={exportHook.handleExport}
         onOpenProjects={handleToggleProjects}
         hideExport={isOverlayMode}
+        hideRawVideo={projects.showProjectsDialog}
       />
 
       <main className="app-main flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>

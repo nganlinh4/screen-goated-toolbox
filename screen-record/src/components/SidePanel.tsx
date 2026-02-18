@@ -793,7 +793,6 @@ function CursorPanel({
           <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.cursorTiltAngle ?? -10}°</span>
         </div>
         <div className="cursor-variants-section space-y-2">
-          <label className="cursor-variants-label text-xs text-[var(--on-surface-variant)] block">{t.cursorVariants}</label>
           <div
             className="cursor-variant-virtualized-list border border-[var(--glass-border)] rounded-lg overflow-hidden"
             style={{ height: `${viewportHeight}px` }}
