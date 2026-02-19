@@ -3,7 +3,15 @@ import { Button } from '@/components/ui/button';
 import { Video, Keyboard, Loader2, AlertCircle, X, FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
-import { computeResolutionOptions, getCanvasBaseDimensions, type ResolutionOption } from '@/lib/videoExporter';
+import {
+  computeResolutionOptions,
+  computeBitrateSliderBounds,
+  getCanvasBaseDimensions,
+  resolveExportDimensions,
+  estimateExportSize,
+  type ResolutionOption
+} from '@/lib/videoExporter';
+import { getTotalTrimDuration } from '@/lib/trimSegments';
 import { formatTime } from '@/utils/helpers';
 import { MonitorInfo, Hotkey, FfmpegInstallStatus } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
@@ -99,11 +107,36 @@ interface ExportDialogProps {
   segment: VideoSegment | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   backgroundConfig: BackgroundConfig;
+  hasAudio: boolean;
 }
 
 const FPS_OPTIONS = [24, 30, 60] as const;
 
-export function ExportDialog({ show, onClose, onExport, exportOptions, setExportOptions, segment, videoRef, backgroundConfig }: ExportDialogProps) {
+function formatDataSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatVideoBitrateKbps(kbps: number): string {
+  if (kbps >= 1000) {
+    return `${(kbps / 1000).toFixed(1)} Mbps`;
+  }
+  return `${Math.round(kbps)} kbps`;
+}
+
+export function ExportDialog({
+  show,
+  onClose,
+  onExport,
+  exportOptions,
+  setExportOptions,
+  segment,
+  videoRef,
+  backgroundConfig,
+  hasAudio
+}: ExportDialogProps) {
   const { t } = useSettings();
   const [isPickingDir, setIsPickingDir] = useState(false);
 
@@ -135,19 +168,58 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
     }
   };
 
-  if (!show) return null;
-
   const vidW = videoRef.current?.videoWidth || 1920;
   const vidH = videoRef.current?.videoHeight || 1080;
   const { baseW, baseH } = getCanvasBaseDimensions(vidW, vidH, segment, backgroundConfig);
   const resOptions = computeResolutionOptions(baseW, baseH);
+  const { width: outW, height: outH } = resolveExportDimensions(exportOptions.width, exportOptions.height, baseW, baseH);
+  const bitrateBounds = computeBitrateSliderBounds(outW, outH, exportOptions.fps);
+  const targetVideoBitrateKbps = exportOptions.targetVideoBitrateKbps > 0
+    ? Math.max(bitrateBounds.minKbps, Math.min(exportOptions.targetVideoBitrateKbps, bitrateBounds.maxKbps))
+    : bitrateBounds.recommendedKbps;
+  const standardBitratePercent = bitrateBounds.maxKbps > bitrateBounds.minKbps
+    ? ((bitrateBounds.recommendedKbps - bitrateBounds.minKbps) / (bitrateBounds.maxKbps - bitrateBounds.minKbps)) * 100
+    : 0;
+  const sourceDuration = videoRef.current?.duration || segment?.trimEnd || 0;
+  const trimmedDurationSec = segment ? getTotalTrimDuration(segment, sourceDuration) : 0;
+  const sizeEstimate = estimateExportSize({
+    width: outW,
+    height: outH,
+    fps: exportOptions.fps,
+    targetVideoBitrateKbps,
+    trimmedDurationSec,
+    speed: exportOptions.speed,
+    hasAudio,
+    backgroundConfig,
+    segment
+  });
+
+  useEffect(() => {
+    if (!show) return;
+    setExportOptions((prev) => {
+      const current = prev.targetVideoBitrateKbps;
+      const next = current > 0
+        ? Math.max(bitrateBounds.minKbps, Math.min(current, bitrateBounds.maxKbps))
+        : bitrateBounds.recommendedKbps;
+      if (current === next) return prev;
+      return { ...prev, targetVideoBitrateKbps: next };
+    });
+  }, [
+    show,
+    bitrateBounds.minKbps,
+    bitrateBounds.maxKbps,
+    bitrateBounds.recommendedKbps,
+    setExportOptions
+  ]);
+
+  if (!show) return null;
 
   // Find currently selected resolution key, fall back to original (0×0)
   const selectedKey = `${exportOptions.width}x${exportOptions.height}`;
 
   return (
     <div className="export-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
+      <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-[480px] w-full mx-4">
         <div className="dialog-header flex items-center justify-between mb-4">
           <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.exportOptions}</h3>
           <button onClick={onClose} className="dialog-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">
@@ -158,7 +230,7 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
         <div className="export-options-form space-y-4 mb-6">
           <div className="export-resolution-field">
             <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.resolution}</label>
-            <div className="resolution-options flex gap-2 flex-wrap">
+            <div className="resolution-options flex gap-2 flex-nowrap overflow-x-auto pb-1">
               {resOptions.map((opt: ResolutionOption) => {
                 const key = `${opt.width}x${opt.height}`;
                 const isSelected = selectedKey === key || (exportOptions.width === 0 && exportOptions.height === 0 && opt === resOptions[0]);
@@ -166,7 +238,7 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
                   <button
                     key={key}
                     onClick={() => setExportOptions(prev => ({ ...prev, width: opt.width, height: opt.height }))}
-                    className={`resolution-option py-1.5 px-3 rounded-lg text-xs font-medium transition-colors border ${
+                    className={`resolution-option py-1.5 px-3 rounded-lg text-xs font-medium transition-colors border whitespace-nowrap ${
                       isSelected
                         ? 'bg-[var(--primary-color)] text-white border-transparent'
                         : 'bg-[var(--glass-bg)] text-[var(--on-surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)]'
@@ -198,18 +270,55 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
             </div>
           </div>
 
+          <div className="export-bitrate-field">
+            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.videoBitrate}</label>
+            <div className="bitrate-control bg-[var(--glass-bg)] rounded-lg p-3">
+              <div className="bitrate-display flex items-center justify-between mb-3">
+                <span className="text-sm text-[var(--on-surface)] tabular-nums">
+                  {formatVideoBitrateKbps(targetVideoBitrateKbps)}
+                </span>
+                <span className="text-[10px] text-[var(--outline)] tabular-nums">
+                  {formatVideoBitrateKbps(bitrateBounds.minKbps)} - {formatVideoBitrateKbps(bitrateBounds.maxKbps)}
+                </span>
+              </div>
+              <div className="bitrate-slider-row flex items-center gap-3">
+                <input
+                  type="range"
+                  min={bitrateBounds.minKbps}
+                  max={bitrateBounds.maxKbps}
+                  step={bitrateBounds.stepKbps}
+                  value={targetVideoBitrateKbps}
+                  onChange={(e) => setExportOptions(prev => ({ ...prev, targetVideoBitrateKbps: Number(e.target.value) }))}
+                  className="flex-1 h-1 rounded"
+                />
+              </div>
+              <div className="bitrate-standard-marker relative mt-1 h-5">
+                <div
+                  className="bitrate-standard-line absolute top-0 h-2 w-px bg-[var(--outline)]"
+                  style={{ left: `calc(${standardBitratePercent}% - 0.5px)` }}
+                />
+                <div
+                  className="bitrate-standard-label absolute top-[8px] -translate-x-1/2 text-[10px] text-[var(--outline)] whitespace-nowrap"
+                  style={{ left: `${standardBitratePercent}%` }}
+                >
+                  {t.standard}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="export-speed-field">
             <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.speed}</label>
             <div className="speed-control bg-[var(--glass-bg)] rounded-lg p-3">
               <div className="speed-display flex items-center justify-between mb-3">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm text-[var(--on-surface)] tabular-nums">
-                    {formatTime(segment ? (segment.trimEnd - segment.trimStart) / exportOptions.speed : 0)}
+                    {formatTime(sizeEstimate.outputDurationSec)}
                   </span>
-                  {segment && exportOptions.speed !== 1 && (
+                  {trimmedDurationSec > 0 && exportOptions.speed !== 1 && (
                     <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-400/90' : 'text-green-400/90'}`}>
                       {exportOptions.speed > 1 ? '↓' : '↑'}
-                      {formatTime(Math.abs((segment.trimEnd - segment.trimStart) - ((segment.trimEnd - segment.trimStart) / exportOptions.speed)))}
+                      {formatTime(Math.abs(trimmedDurationSec - sizeEstimate.outputDurationSec))}
                     </span>
                   )}
                 </div>
@@ -227,6 +336,15 @@ export function ExportDialog({ show, onClose, onExport, exportOptions, setExport
                   className="flex-1 h-1 rounded"
                 />
                 <span className="text-xs text-[var(--outline)] min-w-[36px]">{t.faster}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="export-size-estimate-field">
+            <div className="size-estimate-header flex items-center justify-between">
+              <label className="text-xs text-[var(--on-surface-variant)]">{t.estimatedSize}</label>
+              <div className="size-estimate-primary text-sm font-medium text-[var(--on-surface)] tabular-nums">
+                ~{formatDataSize(sizeEstimate.estimatedBytes)}
               </div>
             </div>
           </div>

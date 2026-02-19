@@ -230,7 +230,13 @@ function App() {
   // Export
   const exportHook = useExport({
     videoRef, canvasRef, tempCanvasRef, audioRef, segment, backgroundConfig,
-    mousePositions, audioFilePath, videoFilePath, videoFilePathOwnerUrl, currentVideo
+    mousePositions,
+    audioFilePath,
+    videoFilePath,
+    videoFilePathOwnerUrl,
+    rawVideoPath: currentRawVideoPath,
+    savedRawVideoPath: lastRawSavedPath,
+    currentVideo
   });
 
   // Zoom keyframes
@@ -1379,7 +1385,7 @@ function App() {
       <ExportDialog show={exportHook.showExportDialog} onClose={() => exportHook.setShowExportDialog(false)}
         onExport={exportHook.startExport} exportOptions={exportHook.exportOptions}
         setExportOptions={exportHook.setExportOptions} segment={segment}
-        videoRef={videoRef} backgroundConfig={backgroundConfig} />
+        videoRef={videoRef} backgroundConfig={backgroundConfig} hasAudio={exportHook.hasAudio} />
       <RawVideoDialog
         show={showRawVideoDialog}
         onClose={() => setShowRawVideoDialog(false)}
