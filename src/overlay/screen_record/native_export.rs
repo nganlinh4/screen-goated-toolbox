@@ -1,7 +1,7 @@
 use base64::Engine;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fs;
 use std::io::Write;
@@ -9,10 +9,11 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, TryRecvError};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError, TryRecvError};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use super::gpu_export::{create_uniforms, CompositorUniforms, GpuCompositor};
 use super::SR_HWND;
@@ -118,6 +119,8 @@ pub struct ExportConfig {
     pub target_video_bitrate_kbps: u32,
     #[serde(default = "default_audio_bitrate_kbps")]
     pub audio_bitrate_kbps: u32,
+    #[serde(default = "default_export_profile")]
+    pub export_profile: String,
     pub audio_path: String,
     #[serde(default)]
     pub output_dir: String,
@@ -134,6 +137,21 @@ pub struct ExportConfig {
     pub baked_text_overlays: Vec<BakedTextOverlay>,
     #[serde(default)]
     pub baked_keystroke_overlays: Vec<BakedKeystrokeOverlay>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ExportProfile {
+    Balanced,
+    MaxSpeed,
+    QualityStrict,
+}
+
+fn parse_export_profile(raw: &str) -> ExportProfile {
+    match raw {
+        "max_speed" => ExportProfile::MaxSpeed,
+        "quality_strict" => ExportProfile::QualityStrict,
+        _ => ExportProfile::Balanced,
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -191,7 +209,7 @@ pub fn warm_up_export_pipeline() {
     );
 
     match GpuCompositor::new(warm_w, warm_h, warm_w, warm_h, warm_w, warm_h) {
-        Ok(compositor) => {
+        Ok(mut compositor) => {
             // Lightweight warm-up: avoid full 60-slot SVG atlas build here.
             // First export uses fast-partial slots; this keeps startup contention low.
             let _ = compositor.init_cursor_texture_fast(&[0]);
@@ -243,6 +261,10 @@ fn default_audio_bitrate_kbps() -> u32 {
     192
 }
 
+fn default_export_profile() -> String {
+    "balanced".to_string()
+}
+
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoSegment {
@@ -276,6 +298,7 @@ pub struct BakedTextOverlay {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    #[serde(deserialize_with = "deserialize_overlay_rgba_bytes")]
     pub data: Vec<u8>,
 }
 
@@ -1124,7 +1147,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     }
 
     let gpu_init_start = Instant::now();
-    let compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, background_w, background_h)
+    let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, background_w, background_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
 
@@ -1223,7 +1246,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         .map_err(|e| format!("Decoder failed: {}", e))?;
     let decoder_start_secs = decoder_start.elapsed().as_secs_f64();
 
-    let mut decoder_stdout = decoder
+    let decoder_stdout = decoder
         .stdout
         .take()
         .ok_or("Failed to open decoder stdout")?;
@@ -1289,18 +1312,28 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
     }
 
-    let x264_preset = "veryfast";
+    let export_profile = parse_export_profile(config.export_profile.as_str());
+    let x264_preset = match export_profile {
+        ExportProfile::MaxSpeed => "ultrafast",
+        ExportProfile::QualityStrict => "medium",
+        ExportProfile::Balanced => "veryfast",
+    };
     let can_use_nvenc = ffmpeg_has_nvenc(&ffmpeg_path);
     let is_custom_background = config.background_config.background_type == "custom";
 
     let make_encoder_args = |use_nvenc: bool| {
         let mut args = encoder_args_base.clone();
         if use_nvenc {
+            let nvenc_preset = match export_profile {
+                ExportProfile::MaxSpeed => "p1",
+                ExportProfile::QualityStrict => "p5",
+                ExportProfile::Balanced => "p2",
+            };
             args.extend([
                 "-c:v".to_string(),
                 "h264_nvenc".to_string(),
                 "-preset".to_string(),
-                "p1".to_string(), // fastest
+                nvenc_preset.to_string(),
                 "-rc".to_string(),
                 "vbr".to_string(),
                 "-b:v".to_string(),
@@ -1310,28 +1343,60 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 "-bufsize".to_string(),
                 format!("{}k", bufsize_kbps),
             ]);
-            if is_custom_background {
-                // Detailed moving image backgrounds can bottleneck NVENC at high quality.
-                // Use a throughput-oriented profile to keep export latency predictable.
-                args.extend([
-                    "-tune".to_string(),
-                    "ll".to_string(),
-                    "-bf".to_string(),
-                    "0".to_string(),
-                    "-rc-lookahead".to_string(),
-                    "0".to_string(),
-                    "-spatial-aq".to_string(),
-                    "0".to_string(),
-                    "-temporal-aq".to_string(),
-                    "0".to_string(),
-                    "-b_ref_mode".to_string(),
-                    "disabled".to_string(),
-                    "-pix_fmt".to_string(),
-                    "yuv420p".to_string(),
-                ]);
-            } else {
-                args.extend(["-pix_fmt".to_string(), "yuv420p".to_string()]);
+
+            match export_profile {
+                ExportProfile::MaxSpeed => {
+                    args.extend([
+                        "-tune".to_string(),
+                        "ll".to_string(),
+                        "-bf".to_string(),
+                        "0".to_string(),
+                        "-rc-lookahead".to_string(),
+                        "0".to_string(),
+                        "-spatial-aq".to_string(),
+                        "0".to_string(),
+                        "-temporal-aq".to_string(),
+                        "0".to_string(),
+                        "-b_ref_mode".to_string(),
+                        "disabled".to_string(),
+                    ]);
+                }
+                ExportProfile::Balanced => {
+                    if is_custom_background {
+                        // Animated/custom backgrounds tend to pressure NVENC lookahead.
+                        // Keep balanced mode latency stable for UI responsiveness.
+                        args.extend([
+                            "-tune".to_string(),
+                            "ll".to_string(),
+                            "-bf".to_string(),
+                            "0".to_string(),
+                            "-rc-lookahead".to_string(),
+                            "0".to_string(),
+                            "-spatial-aq".to_string(),
+                            "0".to_string(),
+                            "-temporal-aq".to_string(),
+                            "0".to_string(),
+                            "-b_ref_mode".to_string(),
+                            "disabled".to_string(),
+                        ]);
+                    }
+                }
+                ExportProfile::QualityStrict => {
+                    args.extend([
+                        "-tune".to_string(),
+                        "hq".to_string(),
+                        "-bf".to_string(),
+                        "2".to_string(),
+                        "-rc-lookahead".to_string(),
+                        "20".to_string(),
+                        "-spatial-aq".to_string(),
+                        "1".to_string(),
+                        "-temporal-aq".to_string(),
+                        "1".to_string(),
+                    ]);
+                }
             }
+            args.extend(["-pix_fmt".to_string(), "yuv420p".to_string()]);
         } else {
             args.extend([
                 "-c:v".to_string(),
@@ -1347,6 +1412,23 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 "-pix_fmt".to_string(),
                 "yuv420p".to_string(),
             ]);
+            match export_profile {
+                ExportProfile::MaxSpeed => {
+                    args.extend([
+                        "-tune".to_string(),
+                        "zerolatency".to_string(),
+                        "-x264-params".to_string(),
+                        "threads=0".to_string(),
+                    ]);
+                }
+                ExportProfile::QualityStrict => {
+                    args.extend([
+                        "-x264-params".to_string(),
+                        "ref=4:subme=7:me=umh".to_string(),
+                    ]);
+                }
+                ExportProfile::Balanced => {}
+            }
         }
 
         if has_audio {
@@ -1367,9 +1449,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let mut encoder_args = make_encoder_args(can_use_nvenc);
     let mut encoder_name = if can_use_nvenc {
-        format!("h264_nvenc({}k)", target_video_bitrate_kbps)
+        format!(
+            "h264_nvenc({}k,{})",
+            target_video_bitrate_kbps, config.export_profile
+        )
     } else {
-        format!("libx264({},{}k)", x264_preset, target_video_bitrate_kbps)
+        format!(
+            "libx264({},{}k,{})",
+            x264_preset, target_video_bitrate_kbps, config.export_profile
+        )
     };
     let mut encoder = match Command::new(&ffmpeg_path)
         .args(&encoder_args)
@@ -1384,7 +1472,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             if can_use_nvenc {
                 let _ = first_err;
                 encoder_args = make_encoder_args(false);
-                encoder_name = format!("libx264({},{}k)", x264_preset, target_video_bitrate_kbps);
+                encoder_name = format!(
+                    "libx264({},{}k,{})",
+                    x264_preset, target_video_bitrate_kbps, config.export_profile
+                );
                 Command::new(&ffmpeg_path)
                     .args(&encoder_args)
                     .creation_flags(CREATE_NO_WINDOW)
@@ -1433,7 +1524,41 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         0.0
     };
     let frame_size = (crop_w * crop_h * 4) as usize;
-    let mut buffer = vec![0u8; frame_size];
+    let decode_queue_capacity = 12usize;
+    let decode_recycle_capacity = 8usize;
+    let (decode_tx, decode_rx) = sync_channel::<Vec<u8>>(decode_queue_capacity);
+    let (decode_recycle_tx, decode_recycle_rx) = sync_channel::<Vec<u8>>(decode_recycle_capacity);
+    for _ in 0..decode_recycle_capacity {
+        let _ = decode_recycle_tx.send(vec![0u8; frame_size]);
+    }
+    let decode_reader_frame_size = frame_size;
+    let decode_reader_handle = std::thread::spawn(move || -> Result<(), String> {
+        let mut decoder_stdout = decoder_stdout;
+        loop {
+            if EXPORT_CANCELLED.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let mut frame = match decode_recycle_rx.try_recv() {
+                Ok(mut recycled) => {
+                    if recycled.len() != decode_reader_frame_size {
+                        recycled.resize(decode_reader_frame_size, 0);
+                    }
+                    recycled
+                }
+                Err(_) => vec![0u8; decode_reader_frame_size],
+            };
+
+            if std::io::Read::read_exact(&mut decoder_stdout, &mut frame).is_err() {
+                break;
+            }
+
+            if decode_tx.send(frame).is_err() {
+                break;
+            }
+        }
+        Ok(())
+    });
 
     // Use a counted loop that matches the decoder's frame count exactly.
     // The decoder outputs at decoder_fps for config.duration seconds.
@@ -1564,7 +1689,76 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         total_frames, decoder_fps, step, any_blur
     );
 
-    for frame_idx in 0..total_frames {
+    let mut submit_rendered_frame = |frame_time: f64, rendered: &mut Vec<u8>| -> Result<(), String> {
+        // --- RENDER TEXT OVERLAY (baked bitmaps) ---
+        let fade_dur = 0.3_f64;
+        for overlay in &config.baked_text_overlays {
+            if frame_time >= overlay.start_time && frame_time <= overlay.end_time {
+                let elapsed = frame_time - overlay.start_time;
+                let remaining = overlay.end_time - frame_time;
+                let mut fade = 1.0_f64;
+                if elapsed < fade_dur {
+                    fade = elapsed / fade_dur;
+                }
+                if remaining < fade_dur {
+                    fade = fade.min(remaining / fade_dur);
+                }
+                composite_baked_text(rendered, out_w, out_h, overlay, fade);
+            }
+        }
+
+        // --- RENDER KEYSTROKE OVERLAY (baked bitmaps) ---
+        for overlay in &config.baked_keystroke_overlays {
+            if frame_time >= overlay.start_time && frame_time < overlay.end_time {
+                composite_baked_bitmap(
+                    rendered,
+                    out_w,
+                    out_h,
+                    overlay.x,
+                    overlay.y,
+                    overlay.width,
+                    overlay.height,
+                    &overlay.data,
+                    1.0,
+                );
+            }
+        }
+
+        let mut to_send = Vec::new();
+        std::mem::swap(rendered, &mut to_send);
+        frame_tx
+            .send(to_send)
+            .map_err(|_| "Encoder writer thread stopped".to_string())?;
+        match recycle_rx.try_recv() {
+            Ok(mut recycled) => {
+                recycled.clear();
+                *rendered = recycled;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {}
+        }
+
+        frame_count += 1;
+        if first_frame_secs.is_none() {
+            first_frame_secs = Some(frame_stage_start.elapsed().as_secs_f64());
+        }
+        if frame_count.is_multiple_of(15) {
+            let elapsed = export_start.elapsed().as_secs_f64();
+            let pct = (frame_count as f64 / total_frames as f64 * 100.0).min(100.0);
+            let eta = if frame_count > 0 {
+                (elapsed / frame_count as f64) * (total_frames - frame_count) as f64
+            } else {
+                0.0
+            };
+            push_export_progress(pct, eta);
+        }
+
+        Ok(())
+    };
+
+    let mut pending_times: VecDeque<f64> = VecDeque::new();
+    let mut decoder_ended_early = false;
+    'frame_loop: for frame_idx in 0..total_frames {
         if EXPORT_CANCELLED.load(Ordering::SeqCst) {
             println!(
                 "[Cancel] Flag detected at frame {}, breaking loop",
@@ -1573,30 +1767,36 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             cancelled = true;
             break;
         }
-        if std::io::Read::read_exact(&mut decoder_stdout, &mut buffer).is_err() {
-            println!(
-                "[Export] read_exact failed at frame {}/{}",
-                frame_idx, total_frames
-            );
-            break;
-        }
+
+        let decoded_frame = loop {
+            if EXPORT_CANCELLED.load(Ordering::SeqCst) {
+                cancelled = true;
+                break 'frame_loop;
+            }
+            match decode_rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(frame) => break frame,
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => {
+                    decoder_ended_early = true;
+                    break 'frame_loop;
+                }
+            }
+        };
 
         let current_time = frame_idx as f64 * step;
-        // Map compact output time → source time for baked path lookups.
-        // Baked paths use source-time keys so camera/cursor evolve naturally
-        // through hidden trim gaps (no jarring jumps at segment bridges).
         let source_time = output_to_source_time(
             current_time,
             &config.segment.trim_segments,
             config.trim_start,
         );
-        compositor.upload_frame(&buffer);
+        compositor.upload_frame(&decoded_frame);
+        let _ = decode_recycle_tx.try_send(decoded_frame);
 
         // Sample center state (always needed as fallback / single-render)
         let (center_cam_x, center_cam_y, center_zoom) = sample_baked_path(source_time, &baked_path);
         let center_cursor = sample_parsed_baked_cursor(source_time, &parsed_baked_cursor);
 
-        if any_blur {
+        let render_result = if any_blur {
             let half_shutter = step * shutter_fraction / 2.0;
             let t_start = source_time - half_shutter;
             let t_end = source_time + half_shutter;
@@ -1617,8 +1817,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     _ => false,
                 };
 
-            // Keep one consistent accumulation path to avoid pulsing from mode switches.
-            // When there is no motion, use a single sample to preserve shadow contrast.
             let effective_samples = if camera_needs_sample || cursor_moved {
                 blur_samples
             } else {
@@ -1626,8 +1824,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             };
             for si in 0..effective_samples {
                 let f = (si as f64 + 0.5) / effective_samples as f64 - 0.5;
-
-                // Per-channel: use sub-time for enabled channels, center for disabled
                 let cam_sub_t = source_time + f * (step * shutter_fraction);
                 let (sub_raw_x, sub_raw_y, sub_zoom) = if camera_needs_sample {
                     let (rx, ry, rz) = sample_baked_path(cam_sub_t, &baked_path);
@@ -1651,10 +1847,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     build_uniforms(sub_raw_x, sub_raw_y, sub_zoom, sub_cursor, cam_sub_t);
                 compositor.render_accumulate(&sub_uniforms, si == 0, weight);
             }
-            // Single readback after all sub-frames
-            compositor.readback_output(&mut rendered);
+            compositor.enqueue_output_readback()
         } else {
-            // No blur enabled — single render
             let uniforms = build_uniforms(
                 center_cam_x,
                 center_cam_y,
@@ -1662,71 +1856,57 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 center_cursor,
                 source_time,
             );
-            compositor.render_frame_into(&uniforms, &mut rendered);
-        }
+            compositor.render_frame_enqueue_readback(&uniforms)
+        };
 
-        // --- RENDER TEXT OVERLAY (baked bitmaps) ---
-        let fade_dur = 0.3_f64;
-        for overlay in &config.baked_text_overlays {
-            if current_time >= overlay.start_time && current_time <= overlay.end_time {
-                let elapsed = current_time - overlay.start_time;
-                let remaining = overlay.end_time - current_time;
-                let mut fade = 1.0_f64;
-                if elapsed < fade_dur {
-                    fade = elapsed / fade_dur;
-                }
-                if remaining < fade_dur {
-                    fade = fade.min(remaining / fade_dur);
-                }
-                composite_baked_text(&mut rendered, out_w, out_h, overlay, fade);
-            }
-        }
-
-        // --- RENDER KEYSTROKE OVERLAY (baked bitmaps) ---
-        for overlay in &config.baked_keystroke_overlays {
-            if current_time >= overlay.start_time && current_time < overlay.end_time {
-                composite_baked_bitmap(
-                    &mut rendered,
-                    out_w,
-                    out_h,
-                    overlay.x,
-                    overlay.y,
-                    overlay.width,
-                    overlay.height,
-                    &overlay.data,
-                    1.0,
-                );
-            }
-        }
-
-        let mut to_send = Vec::new();
-        std::mem::swap(&mut rendered, &mut to_send);
-        if frame_tx.send(to_send).is_err() {
-            writer_error = Some("Encoder writer thread stopped".to_string());
+        if let Err(err) = render_result {
+            writer_error = Some(format!("GPU render/readback enqueue failed: {}", err));
             break;
         }
-        match recycle_rx.try_recv() {
-            Ok(mut recycled) => {
-                recycled.clear();
-                rendered = recycled;
+        pending_times.push_back(current_time);
+
+        let mut drained_any = false;
+        match compositor.try_readback_output(&mut rendered) {
+            Ok(true) => {
+                drained_any = true;
+                if let Some(frame_time) = pending_times.pop_front() {
+                    if let Err(err) = submit_rendered_frame(frame_time, &mut rendered) {
+                        writer_error = Some(err);
+                        break;
+                    }
+                }
             }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {}
+            Ok(false) => {}
+            Err(err) => {
+                writer_error = Some(format!("GPU readback failed: {}", err));
+                break;
+            }
         }
 
-        frame_count += 1;
-        if first_frame_secs.is_none() {
-            first_frame_secs = Some(frame_stage_start.elapsed().as_secs_f64());
+        if !drained_any && pending_times.len() > 1 {
+            if let Err(err) = compositor.readback_output(&mut rendered) {
+                writer_error = Some(format!("GPU readback blocking failed: {}", err));
+                break;
+            }
+            if let Some(frame_time) = pending_times.pop_front() {
+                if let Err(err) = submit_rendered_frame(frame_time, &mut rendered) {
+                    writer_error = Some(err);
+                    break;
+                }
+            }
         }
-        if frame_count.is_multiple_of(15) {
-            let elapsed = export_start.elapsed().as_secs_f64();
-            let pct = (frame_count as f64 / total_frames as f64 * 100.0).min(100.0);
-            let eta = if frame_count > 0 {
-                (elapsed / frame_count as f64) * (total_frames - frame_count) as f64
-            } else {
-                0.0
-            };
-            push_export_progress(pct, eta);
+    }
+
+    if !cancelled && writer_error.is_none() {
+        while let Some(frame_time) = pending_times.pop_front() {
+            if let Err(err) = compositor.readback_output(&mut rendered) {
+                writer_error = Some(format!("GPU readback flush failed: {}", err));
+                break;
+            }
+            if let Err(err) = submit_rendered_frame(frame_time, &mut rendered) {
+                writer_error = Some(err);
+                break;
+            }
         }
     }
 
@@ -1734,6 +1914,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         "[Export] Loop exited: frame_count={}, cancelled={}",
         frame_count, cancelled
     );
+    if decoder_ended_early {
+        println!(
+            "[Export] decoder stream ended early after {}/{} frames",
+            frame_count, total_frames
+        );
+    }
     let frame_loop_secs = export_start.elapsed().as_secs_f64();
 
     // Stop writer and close encoder stdin.
@@ -1759,10 +1945,24 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     // Clear stored PIDs (processes are about to be cleaned up)
     *EXPORT_PIDS.lock().unwrap() = (0, 0);
 
-    // Close decoder pipe and kill decoder (may have unread frames buffered)
-    drop(decoder_stdout);
+    // Stop decoder reader and decoder process (may have unread frames buffered).
+    drop(decode_rx);
+    drop(decode_recycle_tx);
     let _ = decoder.kill();
     let _ = decoder.wait();
+    match decode_reader_handle.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            if !cancelled && writer_error.is_none() {
+                writer_error = Some(err);
+            }
+        }
+        Err(_) => {
+            if !cancelled && writer_error.is_none() {
+                writer_error = Some("Decoder reader thread panicked".to_string());
+            }
+        }
+    }
 
     if cancelled {
         // On cancel: encoder already killed before joining writer.
