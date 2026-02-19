@@ -4,7 +4,9 @@ import { videoRenderer } from '@/lib/videoRenderer';
 import { createVideoController } from '@/lib/videoController';
 import { projectManager } from '@/lib/projectManager';
 import { thumbnailGenerator } from '@/lib/thumbnailGenerator';
-import { videoExporter } from '@/lib/videoExporter';
+import {
+  videoExporter
+} from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
 import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment, RawInputEvent, RecordingMode } from '@/types/video';
 import { clampVisibilitySegmentsToDuration, generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
@@ -601,6 +603,8 @@ interface UseExportProps {
   audioFilePath: string;
   videoFilePath: string;
   videoFilePathOwnerUrl: string;
+  rawVideoPath: string;
+  savedRawVideoPath: string;
   currentVideo: string | null;
 }
 
@@ -609,13 +613,32 @@ export function useExport(props: UseExportProps) {
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
-    width: 0, height: 0, fps: 60, speed: 1, outputDir: ''
+    width: 0, height: 0, fps: 60, targetVideoBitrateKbps: 0, speed: 1, outputDir: ''
   });
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
 
+  const resolveSourceVideoPath = useCallback((): string => {
+    const directRecordingPath = props.currentVideo === props.videoFilePathOwnerUrl
+      ? props.videoFilePath
+      : '';
+    return (
+      directRecordingPath ||
+      props.rawVideoPath ||
+      props.savedRawVideoPath ||
+      ''
+    ).trim();
+  }, [
+    props.currentVideo,
+    props.videoFilePathOwnerUrl,
+    props.videoFilePath,
+    props.rawVideoPath,
+    props.savedRawVideoPath
+  ]);
+
   const startExport = useCallback(async () => {
     if (!props.currentVideo || !props.segment || !props.videoRef.current || !props.canvasRef.current) return;
+    const sourceVideoPath = resolveSourceVideoPath();
 
     try {
       setShowExportDialog(false);
@@ -623,13 +646,13 @@ export function useExport(props: UseExportProps) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
       await videoExporter.exportAndDownload({
-        width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, speed: exportOptions.speed,
+        width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps, speed: exportOptions.speed,
         outputDir: exportOptions.outputDir || '',
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
         segment: normalizeSegmentTrimData(props.segment, props.videoRef.current.duration || props.segment.trimEnd), backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined,
         audioFilePath: props.audioFilePath,
-        videoFilePath: props.currentVideo === props.videoFilePathOwnerUrl ? props.videoFilePath : '',
+        videoFilePath: sourceVideoPath,
         onProgress: setExportProgress
       });
     } catch (error) {
@@ -638,16 +661,19 @@ export function useExport(props: UseExportProps) {
       setIsProcessing(false);
       setExportProgress(0);
     }
-  }, [props, exportOptions]);
+  }, [props, exportOptions, resolveSourceVideoPath]);
 
   const cancelExport = useCallback(() => {
-    console.log('[Cancel] cancelExport callback fired');
     videoExporter.cancel();
   }, []);
 
+  const hasAudio =
+    Boolean(props.audioFilePath && props.audioFilePath.trim()) ||
+    Boolean(props.audioRef.current && props.audioRef.current.src);
+
   return {
     isProcessing, exportProgress, showExportDialog, setShowExportDialog,
-    exportOptions, setExportOptions, handleExport, startExport, cancelExport
+    exportOptions, setExportOptions, handleExport, startExport, cancelExport, hasAudio
   };
 }
 

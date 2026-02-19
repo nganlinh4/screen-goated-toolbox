@@ -114,6 +114,10 @@ pub struct ExportConfig {
     #[serde(default)]
     pub source_video_path: String,
     pub framerate: u32,
+    #[serde(default)]
+    pub target_video_bitrate_kbps: u32,
+    #[serde(default = "default_audio_bitrate_kbps")]
+    pub audio_bitrate_kbps: u32,
     pub audio_path: String,
     #[serde(default)]
     pub output_dir: String,
@@ -233,6 +237,10 @@ pub fn warm_up_export_pipeline() {
 
 fn default_opacity() -> f64 {
     1.0
+}
+
+fn default_audio_bitrate_kbps() -> u32 {
+    192
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -899,6 +907,12 @@ fn ffmpeg_has_nvenc(ffmpeg_path: &std::path::Path) -> bool {
     })
 }
 
+fn compute_default_video_bitrate_kbps(width: u32, height: u32, fps: u32) -> u32 {
+    let bits_per_pixel = 0.09_f64;
+    let kbps = (width as f64 * height as f64 * fps.max(1) as f64 * bits_per_pixel) / 1000.0;
+    kbps.round().clamp(600.0, 80000.0) as u32
+}
+
 fn source_dim_cache_key(source_video_path: &str) -> String {
     let mut key = source_video_path.to_string();
     if let Ok(meta) = fs::metadata(source_video_path) {
@@ -1023,7 +1037,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs()
+            .as_millis()
     ));
 
     // 1. Setup FFmpeg
@@ -1217,8 +1231,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     // 6. Start FFmpeg encoder
     let encoder_start = Instant::now();
 
-    // CRF 18: high quality, optimal for screen recordings with sharp text
-    let crf = "18";
+    let target_video_bitrate_kbps = if config.target_video_bitrate_kbps > 0 {
+        config.target_video_bitrate_kbps
+    } else {
+        compute_default_video_bitrate_kbps(out_w, out_h, config.framerate)
+    };
+    let maxrate_kbps = target_video_bitrate_kbps.saturating_mul(12) / 10;
+    let bufsize_kbps = maxrate_kbps.saturating_mul(2);
+    let audio_bitrate_kbps = config.audio_bitrate_kbps.max(64);
 
     let has_audio = source_audio_path.is_some();
     let mut encoder_args_base = vec![
@@ -1276,20 +1296,26 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let make_encoder_args = |use_nvenc: bool| {
         let mut args = encoder_args_base.clone();
         if use_nvenc {
+            args.extend([
+                "-c:v".to_string(),
+                "h264_nvenc".to_string(),
+                "-preset".to_string(),
+                "p1".to_string(), // fastest
+                "-rc".to_string(),
+                "vbr".to_string(),
+                "-b:v".to_string(),
+                format!("{}k", target_video_bitrate_kbps),
+                "-maxrate".to_string(),
+                format!("{}k", maxrate_kbps),
+                "-bufsize".to_string(),
+                format!("{}k", bufsize_kbps),
+            ]);
             if is_custom_background {
                 // Detailed moving image backgrounds can bottleneck NVENC at high quality.
                 // Use a throughput-oriented profile to keep export latency predictable.
                 args.extend([
-                    "-c:v".to_string(),
-                    "h264_nvenc".to_string(),
-                    "-preset".to_string(),
-                    "p1".to_string(), // fastest
                     "-tune".to_string(),
                     "ll".to_string(),
-                    "-rc".to_string(),
-                    "constqp".to_string(),
-                    "-qp".to_string(),
-                    "28".to_string(),
                     "-bf".to_string(),
                     "0".to_string(),
                     "-rc-lookahead".to_string(),
@@ -1304,18 +1330,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     "yuv420p".to_string(),
                 ]);
             } else {
-                args.extend([
-                    "-c:v".to_string(),
-                    "h264_nvenc".to_string(),
-                    "-preset".to_string(),
-                    "p1".to_string(), // fastest
-                    "-cq".to_string(),
-                    "19".to_string(),
-                    "-b:v".to_string(),
-                    "0".to_string(),
-                    "-pix_fmt".to_string(),
-                    "yuv420p".to_string(),
-                ]);
+                args.extend(["-pix_fmt".to_string(), "yuv420p".to_string()]);
             }
         } else {
             args.extend([
@@ -1323,8 +1338,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 "libx264".to_string(),
                 "-preset".to_string(),
                 x264_preset.to_string(),
-                "-crf".to_string(),
-                crf.to_string(),
+                "-b:v".to_string(),
+                format!("{}k", target_video_bitrate_kbps),
+                "-maxrate".to_string(),
+                format!("{}k", maxrate_kbps),
+                "-bufsize".to_string(),
+                format!("{}k", bufsize_kbps),
                 "-pix_fmt".to_string(),
                 "yuv420p".to_string(),
             ]);
@@ -1335,7 +1354,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 "-c:a".to_string(),
                 "aac".to_string(),
                 "-b:a".to_string(),
-                "192k".to_string(),
+                format!("{}k", audio_bitrate_kbps),
             ]);
         }
 
@@ -1348,9 +1367,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let mut encoder_args = make_encoder_args(can_use_nvenc);
     let mut encoder_name = if can_use_nvenc {
-        "h264_nvenc".to_string()
+        format!("h264_nvenc({}k)", target_video_bitrate_kbps)
     } else {
-        format!("libx264({})", x264_preset)
+        format!("libx264({},{}k)", x264_preset, target_video_bitrate_kbps)
     };
     let mut encoder = match Command::new(&ffmpeg_path)
         .args(&encoder_args)
@@ -1365,7 +1384,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             if can_use_nvenc {
                 let _ = first_err;
                 encoder_args = make_encoder_args(false);
-                encoder_name = format!("libx264({})", x264_preset);
+                encoder_name = format!("libx264({},{}k)", x264_preset, target_video_bitrate_kbps);
                 Command::new(&ffmpeg_path)
                     .args(&encoder_args)
                     .creation_flags(CREATE_NO_WINDOW)
@@ -1815,6 +1834,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     match encoder_result {
         Ok(status) if status.success() => {
+            let output_bytes = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
             println!(
                 "[Export][Summary] status=success out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={}",
                 out_w,
@@ -1839,7 +1859,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             Ok(serde_json::json!({
                 "status": "success",
                 "path": output_path.to_string_lossy(),
-                "frames": frame_count
+                "frames": frame_count,
+                "bytes": output_bytes
             }))
         }
         _ => {
