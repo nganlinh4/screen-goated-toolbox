@@ -71,6 +71,37 @@ export interface ExportSizeEstimate {
   profileKey: string;
 }
 
+export interface ExportCapabilities {
+  nvencAvailable: boolean;
+  hevcNvencAvailable: boolean;
+  sfeSupported: boolean;
+  maxBFrames: number;
+  nvencSdkEnabled?: boolean;
+  nvencSdkExperimental?: boolean;
+  driverVersion?: string;
+  reasonIfDisabled?: string;
+}
+
+export interface ExportRuntimeDiagnostics {
+  encoder?: string;
+  codec?: string;
+  turbo?: boolean;
+  sfe?: boolean;
+  qualityGatePercent?: number;
+  actualTotalBitrateKbps?: number;
+  expectedTotalBitrateKbps?: number;
+  bitrateDeviationPercent?: number;
+  readbackRingSize?: number;
+  decodeQueueCapacity?: number;
+  decodeRecycleCapacity?: number;
+  writerQueueCapacity?: number;
+  fallbackAttempts?: number;
+  fallbackErrors?: string[];
+  nvencSdkAttempted?: boolean;
+  nvencSdkUsed?: boolean;
+  nvencSdkReason?: string;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -865,6 +896,10 @@ export class VideoExporter {
         targetVideoBitrateKbps: context.targetVideoBitrateKbps,
         audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
         exportProfile: options.exportProfile || 'balanced',
+        preferNvTurbo: options.preferNvTurbo ?? (options.exportProfile === 'turbo_nv'),
+        qualityGatePercent: options.qualityGatePercent ?? 3,
+        turboCodec: options.turboCodec || 'hevc',
+        exportDiagnostics: options.exportDiagnostics ?? false,
         audioPath: audioFilePath,
         outputDir: options.outputDir || '',
         trimStart: prepared.trimBounds.trimStart,
@@ -888,7 +923,14 @@ export class VideoExporter {
           status?: string;
           path?: string;
           bytes?: number;
+          diagnostics?: ExportRuntimeDiagnostics;
         };
+        if (res?.diagnostics) {
+          window.postMessage({
+            type: 'sr-export-diagnostics',
+            diagnostics: res.diagnostics
+          }, '*');
+        }
         if (res?.status === 'success' && typeof res.bytes === 'number' && prepared.activeDuration > 0) {
           const uncalibrated = estimateExportSize({
             width: prepared.width,
@@ -923,6 +965,22 @@ export class VideoExporter {
     } catch (e) {
       console.error('cancel_export invoke failed:', e);
     }
+  }
+
+  async getExportCapabilities(): Promise<ExportCapabilities> {
+    // @ts-ignore
+    const { invoke } = window.__TAURI__.core;
+    const res = await invoke<Partial<ExportCapabilities>>('get_export_capabilities');
+    return {
+      nvencAvailable: Boolean(res?.nvencAvailable),
+      hevcNvencAvailable: Boolean(res?.hevcNvencAvailable),
+      sfeSupported: Boolean(res?.sfeSupported),
+      maxBFrames: typeof res?.maxBFrames === 'number' ? res.maxBFrames : 0,
+      nvencSdkEnabled: Boolean(res?.nvencSdkEnabled ?? res?.nvencSdkExperimental),
+      nvencSdkExperimental: Boolean(res?.nvencSdkExperimental),
+      driverVersion: typeof res?.driverVersion === 'string' ? res.driverVersion : undefined,
+      reasonIfDisabled: typeof res?.reasonIfDisabled === 'string' ? res.reasonIfDisabled : undefined
+    };
   }
 }
 

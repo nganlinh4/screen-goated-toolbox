@@ -212,7 +212,11 @@ export interface ExportOptions {
   fps: number;     // 24, 30, or 60
   targetVideoBitrateKbps: number;
   speed: number;
-  exportProfile?: 'balanced' | 'max_speed' | 'quality_strict';
+  exportProfile?: 'balanced' | 'max_speed' | 'quality_strict' | 'turbo_nv';
+  preferNvTurbo?: boolean;
+  qualityGatePercent?: number;
+  turboCodec?: 'hevc' | 'h264';
+  exportDiagnostics?: boolean;
   outputDir?: string;
   video?: HTMLVideoElement;
   canvas?: HTMLCanvasElement;

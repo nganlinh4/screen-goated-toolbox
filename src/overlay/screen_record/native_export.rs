@@ -1,6 +1,6 @@
 use base64::Engine;
 use serde::de::{self, SeqAccess, Visitor};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fs;
@@ -15,7 +15,8 @@ use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::time::Duration;
 
-use super::gpu_export::{create_uniforms, CompositorUniforms, GpuCompositor};
+use super::gpu_export::{create_uniforms, output_texture_is_bgra, CompositorUniforms, GpuCompositor};
+use super::nvenc_sdk_export;
 use super::SR_HWND;
 use crate::overlay::screen_record::engine::VIDEO_PATH;
 use windows::Win32::Foundation::*;
@@ -34,6 +35,12 @@ static EXPORT_GPU_WARMED: AtomicBool = AtomicBool::new(false);
 static EXPORT_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Cached check for ffmpeg NVENC support.
 static NVENC_AVAILABLE: OnceLock<bool> = OnceLock::new();
+/// Cached check for ffmpeg HEVC NVENC support.
+static HEVC_NVENC_AVAILABLE: OnceLock<bool> = OnceLock::new();
+/// Cached check for ffmpeg split-frame option on HEVC NVENC.
+static HEVC_SFE_AVAILABLE: OnceLock<bool> = OnceLock::new();
+/// Runtime quality guard: disable SFE if turbo runs deviate too far.
+static SFE_QUALITY_GUARD_DISABLED: AtomicBool = AtomicBool::new(false);
 /// Cache source video dimensions by path+mtime+size to avoid repeated ffprobe.
 static SOURCE_DIM_CACHE: OnceLock<Mutex<HashMap<String, (u32, u32)>>> = OnceLock::new();
 
@@ -73,6 +80,31 @@ fn terminate_pid(pid: u32) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
+}
+
+fn wait_child_with_timeout(
+    child: &mut std::process::Child,
+    timeout: Duration,
+    label: &str,
+) -> Result<std::process::ExitStatus, String> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {}
+            Err(e) => return Err(format!("{} wait failed: {}", label, e)),
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "{} timed out after {:.1}s",
+                label,
+                timeout.as_secs_f64()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(60));
+    }
 }
 
 /// Push a progress update directly to the WebView via PostMessageW.
@@ -121,6 +153,14 @@ pub struct ExportConfig {
     pub audio_bitrate_kbps: u32,
     #[serde(default = "default_export_profile")]
     pub export_profile: String,
+    #[serde(default = "default_prefer_nv_turbo")]
+    pub prefer_nv_turbo: bool,
+    #[serde(default = "default_quality_gate_percent")]
+    pub quality_gate_percent: f64,
+    #[serde(default = "default_turbo_codec")]
+    pub turbo_codec: String,
+    #[serde(default)]
+    pub export_diagnostics: bool,
     pub audio_path: String,
     #[serde(default)]
     pub output_dir: String,
@@ -144,12 +184,14 @@ enum ExportProfile {
     Balanced,
     MaxSpeed,
     QualityStrict,
+    TurboNv,
 }
 
 fn parse_export_profile(raw: &str) -> ExportProfile {
     match raw {
         "max_speed" => ExportProfile::MaxSpeed,
         "quality_strict" => ExportProfile::QualityStrict,
+        "turbo_nv" => ExportProfile::TurboNv,
         _ => ExportProfile::Balanced,
     }
 }
@@ -263,6 +305,18 @@ fn default_audio_bitrate_kbps() -> u32 {
 
 fn default_export_profile() -> String {
     "balanced".to_string()
+}
+
+fn default_prefer_nv_turbo() -> bool {
+    false
+}
+
+fn default_quality_gate_percent() -> f64 {
+    3.0
+}
+
+fn default_turbo_codec() -> String {
+    "hevc".to_string()
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -465,6 +519,7 @@ fn composite_baked_bitmap(
     height: u32,
     data: &[u8],
     fade_alpha: f64,
+    target_is_bgra: bool,
 ) {
     if fade_alpha <= 0.001 || data.is_empty() {
         return;
@@ -500,15 +555,23 @@ fn composite_baked_bitmap(
             let src_g = data[src_off + 1] as f64;
             let src_b = data[src_off + 2] as f64;
 
+            let src_bgr = if target_is_bgra {
+                (src_b, src_g, src_r)
+            } else {
+                (src_r, src_g, src_b)
+            };
+
             let dst_off = (dst_y as usize * buf_w as usize + dst_x as usize) * 4;
-            let dst_r = buffer[dst_off] as f64;
-            let dst_g = buffer[dst_off + 1] as f64;
-            let dst_b = buffer[dst_off + 2] as f64;
+            let dst_bgr = (
+                buffer[dst_off] as f64,
+                buffer[dst_off + 1] as f64,
+                buffer[dst_off + 2] as f64,
+            );
             let inv = 1.0 - src_a;
 
-            buffer[dst_off] = (src_r * src_a + dst_r * inv) as u8;
-            buffer[dst_off + 1] = (src_g * src_a + dst_g * inv) as u8;
-            buffer[dst_off + 2] = (src_b * src_a + dst_b * inv) as u8;
+            buffer[dst_off] = (src_bgr.0 * src_a + dst_bgr.0 * inv) as u8;
+            buffer[dst_off + 1] = (src_bgr.1 * src_a + dst_bgr.1 * inv) as u8;
+            buffer[dst_off + 2] = (src_bgr.2 * src_a + dst_bgr.2 * inv) as u8;
         }
     }
 }
@@ -519,6 +582,7 @@ fn composite_baked_text(
     buf_h: u32,
     overlay: &BakedTextOverlay,
     fade_alpha: f64,
+    target_is_bgra: bool,
 ) {
     composite_baked_bitmap(
         buffer,
@@ -530,6 +594,7 @@ fn composite_baked_text(
         overlay.height,
         &overlay.data,
         fade_alpha,
+        target_is_bgra,
     );
 }
 
@@ -915,19 +980,159 @@ fn format_trim_select_expr(trim_segments: &[TrimSegment]) -> String {
         .join("+")
 }
 
+fn ffmpeg_has_encoder(ffmpeg_path: &std::path::Path, encoder: &str) -> bool {
+    match Command::new(ffmpeg_path)
+        .args(["-hide_banner", "-encoders"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+    {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).contains(encoder),
+        Err(_) => false,
+    }
+}
+
+fn ffmpeg_encoder_has_option(ffmpeg_path: &std::path::Path, encoder: &str, option: &str) -> bool {
+    match Command::new(ffmpeg_path)
+        .args(["-hide_banner", "-h", &format!("encoder={}", encoder)])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+    {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).contains(option),
+        Err(_) => false,
+    }
+}
+
 fn ffmpeg_has_nvenc(ffmpeg_path: &std::path::Path) -> bool {
-    *NVENC_AVAILABLE.get_or_init(|| {
-        match Command::new(ffmpeg_path)
-            .args(["-hide_banner", "-encoders"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-        {
-            Ok(out) => String::from_utf8_lossy(&out.stdout).contains("h264_nvenc"),
-            Err(_) => false,
-        }
+    *NVENC_AVAILABLE.get_or_init(|| ffmpeg_has_encoder(ffmpeg_path, "h264_nvenc"))
+}
+
+fn ffmpeg_has_hevc_nvenc(ffmpeg_path: &std::path::Path) -> bool {
+    *HEVC_NVENC_AVAILABLE.get_or_init(|| ffmpeg_has_encoder(ffmpeg_path, "hevc_nvenc"))
+}
+
+fn ffmpeg_has_hevc_sfe(ffmpeg_path: &std::path::Path) -> bool {
+    *HEVC_SFE_AVAILABLE
+        .get_or_init(|| ffmpeg_encoder_has_option(ffmpeg_path, "hevc_nvenc", "split_encode_mode"))
+}
+
+fn query_nvidia_driver_version() -> Option<String> {
+    let out = Command::new("nvidia-smi")
+        .args(["--query-gpu=driver_version", "--format=csv,noheader"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
+    if line.is_empty() {
+        None
+    } else {
+        Some(line)
+    }
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct ExportCapabilities {
+    nvenc_available: bool,
+    hevc_nvenc_available: bool,
+    sfe_supported: bool,
+    max_b_frames: u32,
+    nvenc_sdk_enabled: bool,
+    nvenc_sdk_experimental: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    driver_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason_if_disabled: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ExportRuntimeDiagnostics {
+    encoder: String,
+    codec: String,
+    turbo: bool,
+    sfe: bool,
+    nvenc_sdk_zero_copy: bool,
+    nvenc_sdk_zero_copy_reason: Option<String>,
+    quality_gate_percent: f64,
+    actual_total_bitrate_kbps: f64,
+    expected_total_bitrate_kbps: f64,
+    bitrate_deviation_percent: f64,
+    readback_ring_size: usize,
+    decode_queue_capacity: usize,
+    decode_recycle_capacity: usize,
+    writer_queue_capacity: usize,
+    fallback_attempts: usize,
+    fallback_errors: Vec<String>,
+    nvenc_sdk_attempted: bool,
+    nvenc_sdk_used: bool,
+    nvenc_sdk_reason: Option<String>,
+}
+
+pub fn get_export_capabilities() -> serde_json::Value {
+    let ffmpeg_path = super::get_ffmpeg_path();
+    if !ffmpeg_path.exists() {
+        return serde_json::to_value(ExportCapabilities {
+            nvenc_available: false,
+            hevc_nvenc_available: false,
+            sfe_supported: false,
+            max_b_frames: 0,
+            nvenc_sdk_enabled: nvenc_sdk_export::should_attempt_sdk_lane(),
+            nvenc_sdk_experimental: nvenc_sdk_export::should_attempt_sdk_lane(),
+            driver_version: query_nvidia_driver_version(),
+            reason_if_disabled: Some("ffmpeg_missing".to_string()),
+        })
+        .unwrap_or_else(|_| serde_json::json!({}));
+    }
+
+    let h264_nvenc_available = ffmpeg_has_nvenc(&ffmpeg_path);
+    let hevc_nvenc_available = ffmpeg_has_hevc_nvenc(&ffmpeg_path);
+    let nvenc_available = h264_nvenc_available || hevc_nvenc_available;
+    let sfe_supported = hevc_nvenc_available && ffmpeg_has_hevc_sfe(&ffmpeg_path);
+    let reason_if_disabled = if nvenc_available {
+        None
+    } else {
+        Some("nvenc_unavailable".to_string())
+    };
+
+    serde_json::to_value(ExportCapabilities {
+        nvenc_available,
+        hevc_nvenc_available,
+        sfe_supported,
+        max_b_frames: if hevc_nvenc_available { 4 } else { 2 },
+        nvenc_sdk_enabled: nvenc_sdk_export::should_attempt_sdk_lane(),
+        nvenc_sdk_experimental: nvenc_sdk_export::should_attempt_sdk_lane(),
+        driver_version: query_nvidia_driver_version(),
+        reason_if_disabled,
     })
+    .unwrap_or_else(|_| serde_json::json!({}))
+}
+
+fn queue_capacity_by_budget(
+    frame_size_bytes: usize,
+    budget_mb: usize,
+    min_frames: usize,
+    max_frames: usize,
+) -> usize {
+    if frame_size_bytes == 0 {
+        return min_frames.max(1);
+    }
+    let budget_bytes = budget_mb.saturating_mul(1024 * 1024);
+    let by_budget = budget_bytes / frame_size_bytes;
+    by_budget.clamp(min_frames, max_frames).max(1)
 }
 
 fn compute_default_video_bitrate_kbps(width: u32, height: u32, fps: u32) -> u32 {
@@ -1150,6 +1355,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, background_w, background_h)
         .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
+    let compositor_output_is_bgra = output_texture_is_bgra();
+    let compositor_output_pix_fmt = if compositor_output_is_bgra {
+        "bgra"
+    } else {
+        "rgba"
+    };
 
     let cursor_init_start = Instant::now();
     let used_cached_atlas = compositor.init_cursor_texture_fast(&used_cursor_slots);
@@ -1199,7 +1410,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     let mut decoder_cmd = Command::new(&ffmpeg_path);
-    decoder_cmd.args(["-hide_banner", "-loglevel", "error"]);
+    decoder_cmd.args(["-hide_banner", "-loglevel", "error", "-threads", "0"]);
     if has_trim_segments {
         decoder_cmd.args([
             "-i",
@@ -1272,7 +1483,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         "-f".to_string(),
         "rawvideo".to_string(),
         "-pix_fmt".to_string(),
-        "rgba".to_string(),
+        compositor_output_pix_fmt.to_string(),
         "-s".to_string(),
         format!("{}x{}", out_w, out_h),
         "-r".to_string(),
@@ -1312,124 +1523,117 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
     }
 
+    #[derive(Clone)]
+    struct EncoderCandidate {
+        name: String,
+        args: Vec<String>,
+        is_turbo: bool,
+        uses_sfe: bool,
+        codec: &'static str,
+    }
+
     let export_profile = parse_export_profile(config.export_profile.as_str());
     let x264_preset = match export_profile {
-        ExportProfile::MaxSpeed => "ultrafast",
+        ExportProfile::MaxSpeed | ExportProfile::TurboNv => "ultrafast",
         ExportProfile::QualityStrict => "medium",
         ExportProfile::Balanced => "veryfast",
     };
-    let can_use_nvenc = ffmpeg_has_nvenc(&ffmpeg_path);
     let is_custom_background = config.background_config.background_type == "custom";
+    let can_use_h264_nvenc = ffmpeg_has_nvenc(&ffmpeg_path);
+    let can_use_hevc_nvenc = ffmpeg_has_hevc_nvenc(&ffmpeg_path);
+    let can_use_sfe = can_use_hevc_nvenc && ffmpeg_has_hevc_sfe(&ffmpeg_path);
+    let sfe_guard_blocked = SFE_QUALITY_GUARD_DISABLED.load(Ordering::Relaxed);
+    let quality_gate_percent = config.quality_gate_percent.clamp(0.5, 15.0);
 
-    let make_encoder_args = |use_nvenc: bool| {
-        let mut args = encoder_args_base.clone();
-        if use_nvenc {
-            let nvenc_preset = match export_profile {
-                ExportProfile::MaxSpeed => "p1",
-                ExportProfile::QualityStrict => "p5",
-                ExportProfile::Balanced => "p2",
-            };
-            args.extend([
-                "-c:v".to_string(),
-                "h264_nvenc".to_string(),
-                "-preset".to_string(),
-                nvenc_preset.to_string(),
-                "-rc".to_string(),
-                "vbr".to_string(),
-                "-b:v".to_string(),
-                format!("{}k", target_video_bitrate_kbps),
-                "-maxrate".to_string(),
-                format!("{}k", maxrate_kbps),
-                "-bufsize".to_string(),
-                format!("{}k", bufsize_kbps),
-            ]);
-
-            match export_profile {
-                ExportProfile::MaxSpeed => {
-                    args.extend([
-                        "-tune".to_string(),
-                        "ll".to_string(),
-                        "-bf".to_string(),
-                        "0".to_string(),
-                        "-rc-lookahead".to_string(),
-                        "0".to_string(),
-                        "-spatial-aq".to_string(),
-                        "0".to_string(),
-                        "-temporal-aq".to_string(),
-                        "0".to_string(),
-                        "-b_ref_mode".to_string(),
-                        "disabled".to_string(),
-                    ]);
+    let wants_turbo_nv = matches!(export_profile, ExportProfile::TurboNv) || config.prefer_nv_turbo;
+    let prefer_hevc = config.turbo_codec.eq_ignore_ascii_case("hevc");
+    let sdk_lane_enabled = nvenc_sdk_export::should_attempt_sdk_lane();
+    let mut nvenc_sdk_attempted = false;
+    let mut nvenc_sdk_used = false;
+    let mut nvenc_sdk_reason: Option<String> = None;
+    let mut nvenc_sdk_codec: Option<nvenc_sdk_export::NvencSdkCodec> = None;
+    let use_nvenc_sdk_requested = wants_turbo_nv && sdk_lane_enabled;
+    if wants_turbo_nv {
+        if sdk_lane_enabled {
+            nvenc_sdk_attempted = true;
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                nvenc_sdk_export::preflight(prefer_hevc)
+            })) {
+                Ok(Ok(codec)) => {
+                    nvenc_sdk_used = true;
+                    nvenc_sdk_codec = Some(codec);
                 }
-                ExportProfile::Balanced => {
-                    if is_custom_background {
-                        // Animated/custom backgrounds tend to pressure NVENC lookahead.
-                        // Keep balanced mode latency stable for UI responsiveness.
-                        args.extend([
-                            "-tune".to_string(),
-                            "ll".to_string(),
-                            "-bf".to_string(),
-                            "0".to_string(),
-                            "-rc-lookahead".to_string(),
-                            "0".to_string(),
-                            "-spatial-aq".to_string(),
-                            "0".to_string(),
-                            "-temporal-aq".to_string(),
-                            "0".to_string(),
-                            "-b_ref_mode".to_string(),
-                            "disabled".to_string(),
-                        ]);
-                    }
+                Ok(Err(reason)) => {
+                    nvenc_sdk_reason = Some(reason);
                 }
-                ExportProfile::QualityStrict => {
-                    args.extend([
-                        "-tune".to_string(),
-                        "hq".to_string(),
-                        "-bf".to_string(),
-                        "2".to_string(),
-                        "-rc-lookahead".to_string(),
-                        "20".to_string(),
-                        "-spatial-aq".to_string(),
-                        "1".to_string(),
-                        "-temporal-aq".to_string(),
-                        "1".to_string(),
-                    ]);
+                Err(_) => {
+                    nvenc_sdk_reason = Some("sdk_preflight_panic".to_string());
                 }
             }
-            args.extend(["-pix_fmt".to_string(), "yuv420p".to_string()]);
         } else {
-            args.extend([
-                "-c:v".to_string(),
-                "libx264".to_string(),
-                "-preset".to_string(),
-                x264_preset.to_string(),
-                "-b:v".to_string(),
-                format!("{}k", target_video_bitrate_kbps),
-                "-maxrate".to_string(),
-                format!("{}k", maxrate_kbps),
-                "-bufsize".to_string(),
-                format!("{}k", bufsize_kbps),
-                "-pix_fmt".to_string(),
-                "yuv420p".to_string(),
-            ]);
-            match export_profile {
-                ExportProfile::MaxSpeed => {
-                    args.extend([
-                        "-tune".to_string(),
-                        "zerolatency".to_string(),
-                        "-x264-params".to_string(),
-                        "threads=0".to_string(),
-                    ]);
-                }
-                ExportProfile::QualityStrict => {
-                    args.extend([
-                        "-x264-params".to_string(),
-                        "ref=4:subme=7:me=umh".to_string(),
-                    ]);
-                }
-                ExportProfile::Balanced => {}
-            }
+            nvenc_sdk_reason = Some("disabled_by_env".to_string());
         }
+    }
+
+    let mut encoder_candidates: Vec<EncoderCandidate> = Vec::new();
+    let mut push_candidate = |codec: &'static str,
+                              preset: &str,
+                              tune: &str,
+                              bf: u32,
+                              lookahead: u32,
+                              aq_enabled: bool,
+                              use_sfe: bool,
+                              is_turbo: bool,
+                              label: &str| {
+        let mut args = encoder_args_base.clone();
+        args.extend([
+            "-c:v".to_string(),
+            codec.to_string(),
+            "-preset".to_string(),
+            preset.to_string(),
+            "-rc".to_string(),
+            "vbr".to_string(),
+            "-b:v".to_string(),
+            format!("{}k", target_video_bitrate_kbps),
+            "-maxrate".to_string(),
+            format!("{}k", maxrate_kbps),
+            "-bufsize".to_string(),
+            format!("{}k", bufsize_kbps),
+            "-tune".to_string(),
+            tune.to_string(),
+            "-bf".to_string(),
+            bf.to_string(),
+            "-rc-lookahead".to_string(),
+            lookahead.to_string(),
+            "-spatial-aq".to_string(),
+            if aq_enabled { "1" } else { "0" }.to_string(),
+            "-temporal-aq".to_string(),
+            if aq_enabled { "1" } else { "0" }.to_string(),
+        ]);
+        if !aq_enabled {
+            args.extend([
+                "-b_ref_mode".to_string(),
+                "disabled".to_string(),
+            ]);
+        }
+        if is_turbo {
+            args.extend([
+                "-multipass".to_string(),
+                "disabled".to_string(),
+                "-zerolatency".to_string(),
+                "1".to_string(),
+            ]);
+        }
+        if use_sfe {
+            args.extend([
+                "-split_encode_mode".to_string(),
+                "1".to_string(),
+            ]);
+        }
+        args.extend([
+            "-pix_fmt".to_string(),
+            "yuv420p".to_string(),
+        ]);
 
         if has_audio {
             args.extend([
@@ -1439,75 +1643,260 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 format!("{}k", audio_bitrate_kbps),
             ]);
         }
-
         if !is_custom_background {
             args.extend(["-movflags".to_string(), "+faststart".to_string()]);
         }
         args.push(output_path.to_str().unwrap().to_string());
-        args
+        encoder_candidates.push(EncoderCandidate {
+            name: label.to_string(),
+            args,
+            is_turbo,
+            uses_sfe: use_sfe,
+            codec,
+        });
     };
 
-    let mut encoder_args = make_encoder_args(can_use_nvenc);
-    let mut encoder_name = if can_use_nvenc {
-        format!(
-            "h264_nvenc({}k,{})",
-            target_video_bitrate_kbps, config.export_profile
-        )
-    } else {
-        format!(
-            "libx264({},{}k,{})",
-            x264_preset, target_video_bitrate_kbps, config.export_profile
-        )
-    };
-    let mut encoder = match Command::new(&ffmpeg_path)
-        .args(&encoder_args)
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .spawn()
-    {
-        Ok(enc) => enc,
-        Err(first_err) => {
-            if can_use_nvenc {
-                let _ = first_err;
-                encoder_args = make_encoder_args(false);
-                encoder_name = format!(
-                    "libx264({},{}k,{})",
-                    x264_preset, target_video_bitrate_kbps, config.export_profile
+    if wants_turbo_nv {
+        if prefer_hevc && can_use_hevc_nvenc {
+            if can_use_sfe && !sfe_guard_blocked {
+                push_candidate(
+                    "hevc_nvenc",
+                    "p1",
+                    "ll",
+                    0,
+                    0,
+                    false,
+                    true,
+                    true,
+                    "hevc_nvenc(turbo,sfe)",
                 );
-                Command::new(&ffmpeg_path)
-                    .args(&encoder_args)
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::inherit())
-                    .spawn()
-                    .map_err(|e| format!("Encoder failed (nvenc fallback): {}", e))?
+            }
+            push_candidate(
+                "hevc_nvenc",
+                "p1",
+                "ll",
+                0,
+                0,
+                false,
+                false,
+                true,
+                "hevc_nvenc(turbo)",
+            );
+        }
+        if can_use_h264_nvenc {
+            push_candidate(
+                "h264_nvenc",
+                "p1",
+                "ll",
+                0,
+                0,
+                false,
+                false,
+                true,
+                "h264_nvenc(turbo)",
+            );
+        }
+        if !prefer_hevc && can_use_hevc_nvenc {
+            push_candidate(
+                "hevc_nvenc",
+                "p2",
+                "ll",
+                0,
+                0,
+                false,
+                false,
+                true,
+                "hevc_nvenc(turbo-alt)",
+            );
+        }
+    } else if can_use_h264_nvenc {
+        match export_profile {
+            ExportProfile::MaxSpeed => {
+                push_candidate(
+                    "h264_nvenc",
+                    "p1",
+                    "ll",
+                    0,
+                    0,
+                    false,
+                    false,
+                    false,
+                    "h264_nvenc(max_speed)",
+                );
+            }
+            ExportProfile::QualityStrict => {
+                push_candidate(
+                    "h264_nvenc",
+                    "p5",
+                    "hq",
+                    2,
+                    20,
+                    true,
+                    false,
+                    false,
+                    "h264_nvenc(quality_strict)",
+                );
+            }
+            ExportProfile::Balanced => {
+                let use_low_latency = is_custom_background;
+                push_candidate(
+                    "h264_nvenc",
+                    "p2",
+                    if use_low_latency { "ll" } else { "hq" },
+                    if use_low_latency { 0 } else { 2 },
+                    if use_low_latency { 0 } else { 8 },
+                    !use_low_latency,
+                    false,
+                    false,
+                    "h264_nvenc(balanced)",
+                );
+            }
+            ExportProfile::TurboNv => {}
+        }
+    }
+
+    {
+        let mut args = encoder_args_base.clone();
+        args.extend([
+            "-c:v".to_string(),
+            "libx264".to_string(),
+            "-preset".to_string(),
+            x264_preset.to_string(),
+            "-b:v".to_string(),
+            format!("{}k", target_video_bitrate_kbps),
+            "-maxrate".to_string(),
+            format!("{}k", maxrate_kbps),
+            "-bufsize".to_string(),
+            format!("{}k", bufsize_kbps),
+            "-pix_fmt".to_string(),
+            "yuv420p".to_string(),
+        ]);
+        match export_profile {
+            ExportProfile::MaxSpeed | ExportProfile::TurboNv => {
+                args.extend([
+                    "-tune".to_string(),
+                    "zerolatency".to_string(),
+                    "-x264-params".to_string(),
+                    "threads=0".to_string(),
+                ]);
+            }
+            ExportProfile::QualityStrict => {
+                args.extend([
+                    "-x264-params".to_string(),
+                    "ref=4:subme=7:me=umh".to_string(),
+                ]);
+            }
+            ExportProfile::Balanced => {}
+        }
+        if has_audio {
+            args.extend([
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                format!("{}k", audio_bitrate_kbps),
+            ]);
+        }
+        if !is_custom_background {
+            args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+        }
+        args.push(output_path.to_str().unwrap().to_string());
+        encoder_candidates.push(EncoderCandidate {
+            name: format!("libx264({},{}k,{})", x264_preset, target_video_bitrate_kbps, config.export_profile),
+            args,
+            is_turbo: false,
+            uses_sfe: false,
+            codec: "libx264",
+        });
+    }
+
+    if config.export_diagnostics {
+        println!(
+            "[Export][Diag] profile={} turbo={} prefer_hevc={} gate={:.2}% h264_nvenc={} hevc_nvenc={} sfe={} sfe_guard={} candidates={}",
+            config.export_profile,
+            wants_turbo_nv,
+            prefer_hevc,
+            quality_gate_percent,
+            can_use_h264_nvenc,
+            can_use_hevc_nvenc,
+            can_use_sfe,
+            sfe_guard_blocked,
+            encoder_candidates.len()
+        );
+        println!(
+            "[Export][Diag] sdk_lane_enabled={} sdk_requested={} sdk_attempted={} sdk_used={} sdk_reason={}",
+            sdk_lane_enabled,
+            use_nvenc_sdk_requested,
+            nvenc_sdk_attempted,
+            nvenc_sdk_used,
+            nvenc_sdk_reason.as_deref().unwrap_or("-")
+        );
+    }
+
+    let mut use_nvenc_sdk_lane = use_nvenc_sdk_requested && nvenc_sdk_used && nvenc_sdk_codec.is_some();
+    let mut use_nvenc_sdk_zero_copy = false;
+    let mut nvenc_sdk_zero_copy_reason: Option<String> = None;
+    let mut encoder: Option<std::process::Child> = None;
+    let mut sdk_stream_path: Option<PathBuf> = None;
+    let mut sdk_stream_codec: Option<nvenc_sdk_export::NvencSdkCodec> = None;
+    let mut encoder_name = String::new();
+    let mut encoder_used_sfe = false;
+    let mut encoder_is_turbo = false;
+    let mut encoder_codec = "unknown";
+    let mut spawn_errors: Vec<String> = Vec::new();
+
+    if use_nvenc_sdk_lane {
+        if let Some(codec) = nvenc_sdk_codec {
+            let stream_ext = nvenc_sdk_export::codec_ffmpeg_name(codec);
+            let stream_path = output_base_dir.join(format!(
+                "SGT_Export_Stream_{}.{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis(),
+                stream_ext
+            ));
+            sdk_stream_path = Some(stream_path);
+            sdk_stream_codec = Some(codec);
+            encoder_name = format!("nvenc_sdk({})", nvenc_sdk_export::codec_label(codec));
+            encoder_used_sfe = false;
+            encoder_is_turbo = true;
+            encoder_codec = nvenc_sdk_export::codec_label(codec);
+        }
+    } else {
+        for candidate in &encoder_candidates {
+            match Command::new(&ffmpeg_path)
+                .args(&candidate.args)
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .spawn()
+            {
+                Ok(enc) => {
+                    encoder_name = candidate.name.clone();
+                    encoder_used_sfe = candidate.uses_sfe;
+                    encoder_is_turbo = candidate.is_turbo;
+                    encoder_codec = candidate.codec;
+                    encoder = Some(enc);
+                    break;
+                }
+                Err(err) => {
+                    spawn_errors.push(format!("{}: {}", candidate.name, err));
+                }
+            }
+        }
+    }
+
+    if !use_nvenc_sdk_lane {
+        if encoder.is_none() {
+            return Err(if spawn_errors.is_empty() {
+                "Encoder failed: no candidates".to_string()
             } else {
-                return Err(format!("Encoder failed: {}", first_err));
-            }
+                format!("Encoder failed: {}", spawn_errors.join(" | "))
+            });
         }
-    };
+    }
     let encoder_start_secs = encoder_start.elapsed().as_secs_f64();
-
-    let mut encoder_stdin = encoder.stdin.take().ok_or("Failed to open encoder stdin")?;
-    let (frame_tx, frame_rx) = sync_channel::<Vec<u8>>(8);
-    let (recycle_tx, recycle_rx) = sync_channel::<Vec<u8>>(8);
-    let writer_handle = std::thread::spawn(move || -> Result<(), String> {
-        while let Ok(mut frame) = frame_rx.recv() {
-            if let Err(e) = encoder_stdin.write_all(&frame) {
-                return Err(format!("Encoder stdin write failed: {}", e));
-            }
-            frame.clear();
-            // Never block writer shutdown on recycle path.
-            let _ = recycle_tx.try_send(frame);
-        }
-        Ok(())
-    });
-
-    // Store PIDs so cancel_export() can kill them to unblock pipe IO
-    *EXPORT_PIDS.lock().unwrap() = (decoder.id(), encoder.id());
 
     // 7. Process frames
     let bg_type = &config.background_config.background_type;
@@ -1524,8 +1913,296 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         0.0
     };
     let frame_size = (crop_w * crop_h * 4) as usize;
-    let decode_queue_capacity = 12usize;
-    let decode_recycle_capacity = 8usize;
+    let render_frame_size = (out_w * out_h * 4) as usize;
+    let decode_queue_capacity = queue_capacity_by_budget(
+        frame_size,
+        if encoder_is_turbo { 320 } else { 96 },
+        if encoder_is_turbo { 8 } else { 4 },
+        if encoder_is_turbo { 48 } else { 32 },
+    );
+    let decode_recycle_capacity = queue_capacity_by_budget(
+        frame_size,
+        if encoder_is_turbo { 160 } else { 64 },
+        if encoder_is_turbo { 6 } else { 3 },
+        decode_queue_capacity,
+    );
+    let writer_queue_capacity = queue_capacity_by_budget(
+        render_frame_size,
+        if encoder_is_turbo { 256 } else { 72 },
+        if encoder_is_turbo { 7 } else { 3 },
+        if encoder_is_turbo { 32 } else { 24 },
+    );
+    let writer_recycle_capacity = queue_capacity_by_budget(
+        render_frame_size,
+        if encoder_is_turbo { 128 } else { 48 },
+        if encoder_is_turbo { 4 } else { 2 },
+        writer_queue_capacity,
+    );
+
+    if config.export_diagnostics {
+        println!(
+            "[Export][Diag] queues decode={} recycle={} writer={} writer_recycle={} frame_bytes={} render_bytes={}",
+            decode_queue_capacity,
+            decode_recycle_capacity,
+            writer_queue_capacity,
+            writer_recycle_capacity,
+            frame_size,
+            render_frame_size
+        );
+    }
+
+    let sdk_profile = match export_profile {
+        ExportProfile::TurboNv => nvenc_sdk_export::NvencSdkProfile::Turbo,
+        ExportProfile::MaxSpeed => nvenc_sdk_export::NvencSdkProfile::MaxSpeed,
+        ExportProfile::QualityStrict => nvenc_sdk_export::NvencSdkProfile::QualityStrict,
+        ExportProfile::Balanced => nvenc_sdk_export::NvencSdkProfile::Balanced,
+    };
+
+    let mut sdk_zero_copy_session: Option<nvenc_sdk_export::NvencSdkZeroCopySession> = None;
+    if use_nvenc_sdk_lane {
+        if !nvenc_sdk_export::should_attempt_zero_copy_lane() {
+            nvenc_sdk_zero_copy_reason = Some("disabled_by_env".to_string());
+        } else {
+            match compositor.try_get_dx12_output_handles() {
+                Ok(Some(handles)) => {
+                    let primary_codec = sdk_stream_codec.ok_or("NVENC SDK codec missing")?;
+                    let primary_path = sdk_stream_path
+                        .clone()
+                        .ok_or("NVENC SDK stream path missing")?;
+                    let device_ptr = handles.device;
+                    let queue_ptr = handles.queue;
+                    let texture_ptr = handles.texture;
+
+                    let try_zero_copy = |codec: nvenc_sdk_export::NvencSdkCodec,
+                                         path: PathBuf|
+                     -> Result<nvenc_sdk_export::NvencSdkZeroCopySession, String> {
+                        let settings = nvenc_sdk_export::NvencSdkSettings {
+                            width: out_w,
+                            height: out_h,
+                            fps: config.framerate.max(1),
+                            target_bitrate_kbps: target_video_bitrate_kbps.max(1000),
+                            profile: sdk_profile,
+                            codec,
+                            output_stream_path: path,
+                        };
+                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            nvenc_sdk_export::begin_zero_copy_dx12(
+                                device_ptr,
+                                queue_ptr,
+                                texture_ptr,
+                                settings,
+                            )
+                        })) {
+                            Ok(result) => result,
+                            Err(_) => Err("init_panic".to_string()),
+                        }
+                    };
+
+                    match try_zero_copy(primary_codec, primary_path.clone()) {
+                        Ok(session) => {
+                            use_nvenc_sdk_zero_copy = true;
+                            sdk_zero_copy_session = Some(session);
+                            encoder_name = format!(
+                                "nvenc_sdk({};zero-copy)",
+                                nvenc_sdk_export::codec_label(primary_codec)
+                            );
+                            encoder_codec = nvenc_sdk_export::codec_label(primary_codec);
+                            sdk_stream_codec = Some(primary_codec);
+                            sdk_stream_path = Some(primary_path);
+                        }
+                        Err(primary_err) => {
+                            if matches!(primary_codec, nvenc_sdk_export::NvencSdkCodec::Hevc) {
+                                let alt_codec = nvenc_sdk_export::NvencSdkCodec::H264;
+                                let alt_path = output_base_dir.join(format!(
+                                    "SGT_Export_Stream_{}.{}",
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_millis(),
+                                    nvenc_sdk_export::codec_ffmpeg_name(alt_codec)
+                                ));
+                                match try_zero_copy(alt_codec, alt_path.clone()) {
+                                    Ok(session) => {
+                                        use_nvenc_sdk_zero_copy = true;
+                                        sdk_zero_copy_session = Some(session);
+                                        encoder_name = format!(
+                                            "nvenc_sdk({};zero-copy)",
+                                            nvenc_sdk_export::codec_label(alt_codec)
+                                        );
+                                        encoder_codec = nvenc_sdk_export::codec_label(alt_codec);
+                                        sdk_stream_codec = Some(alt_codec);
+                                        sdk_stream_path = Some(alt_path);
+                                        println!(
+                                            "[Export][SDK] zero-copy HEVC init failed, switched to H264 zero-copy"
+                                        );
+                                    }
+                                    Err(alt_err) => {
+                                        nvenc_sdk_zero_copy_reason = Some(format!(
+                                            "init_failed:{}|h264_alt:{}",
+                                            primary_err.replace(' ', "_"),
+                                            alt_err.replace(' ', "_")
+                                        ));
+                                    }
+                                }
+                            } else {
+                                nvenc_sdk_zero_copy_reason =
+                                    Some(format!("init_failed:{}", primary_err.replace(' ', "_")));
+                            }
+                        }
+                    }
+                }
+                Ok(None) => {
+                    nvenc_sdk_zero_copy_reason = Some("wgpu_backend_not_dx12".to_string());
+                }
+                Err(err) => {
+                    nvenc_sdk_zero_copy_reason =
+                        Some(format!("dx12_handle_error:{}", err.replace(' ', "_")));
+                }
+            }
+        }
+        if config.export_diagnostics {
+            println!(
+                "[Export][Diag] sdk_zero_copy={} reason={}",
+                use_nvenc_sdk_zero_copy,
+                nvenc_sdk_zero_copy_reason.as_deref().unwrap_or("-")
+            );
+        }
+    }
+
+    if use_nvenc_sdk_lane && !use_nvenc_sdk_zero_copy {
+        println!(
+            "[Export][SDK] zero-copy unavailable (reason={}), attempting FFmpeg NVENC fallback",
+            nvenc_sdk_zero_copy_reason.as_deref().unwrap_or("unknown")
+        );
+
+        let mut fallback_encoder: Option<std::process::Child> = None;
+        let mut fallback_name = String::new();
+        let mut fallback_uses_sfe = false;
+        let mut fallback_is_turbo = false;
+        let mut fallback_codec: &'static str = "unknown";
+
+        for candidate in &encoder_candidates {
+            match Command::new(&ffmpeg_path)
+                .args(&candidate.args)
+                .creation_flags(CREATE_NO_WINDOW)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .spawn()
+            {
+                Ok(enc) => {
+                    fallback_name = candidate.name.clone();
+                    fallback_uses_sfe = candidate.uses_sfe;
+                    fallback_is_turbo = candidate.is_turbo;
+                    fallback_codec = candidate.codec;
+                    fallback_encoder = Some(enc);
+                    break;
+                }
+                Err(err) => {
+                    spawn_errors.push(format!("{}: {}", candidate.name, err));
+                }
+            }
+        }
+
+        if let Some(enc) = fallback_encoder {
+            if let Some(stream_path) = &sdk_stream_path {
+                let _ = fs::remove_file(stream_path);
+            }
+            sdk_stream_path = None;
+            sdk_stream_codec = None;
+            use_nvenc_sdk_lane = false;
+            encoder = Some(enc);
+            encoder_name = fallback_name;
+            encoder_used_sfe = fallback_uses_sfe;
+            encoder_is_turbo = fallback_is_turbo;
+            encoder_codec = fallback_codec;
+            println!(
+                "[Export][SDK] fallback selected: {} | codec={} | turbo={} | sfe={}",
+                encoder_name, encoder_codec, encoder_is_turbo, encoder_used_sfe
+            );
+        } else {
+            println!(
+                "[Export][SDK] fallback unavailable, staying on SDK CPU-upload lane (may be slower)"
+            );
+        }
+    }
+
+    if !use_nvenc_sdk_lane && encoder.is_none() {
+        return Err(if spawn_errors.is_empty() {
+            "Encoder failed: no candidates".to_string()
+        } else {
+            format!("Encoder failed: {}", spawn_errors.join(" | "))
+        });
+    }
+
+    let (frame_tx, frame_rx) = sync_channel::<Vec<u8>>(writer_queue_capacity);
+    let (recycle_tx, recycle_rx) = sync_channel::<Vec<u8>>(writer_recycle_capacity);
+    let (writer_done_tx, writer_done_rx) = sync_channel::<Result<(), String>>(1);
+    let writer_handle = if use_nvenc_sdk_zero_copy {
+        let writer_done_tx = writer_done_tx.clone();
+        std::thread::spawn(move || {
+            let _ = writer_done_tx.send(Ok(()));
+        })
+    } else if use_nvenc_sdk_lane {
+        let sdk_codec = sdk_stream_codec.ok_or("NVENC SDK codec missing")?;
+        let sdk_path = sdk_stream_path
+            .clone()
+            .ok_or("NVENC SDK stream path missing")?;
+        let writer_done_tx = writer_done_tx.clone();
+        let sdk_settings = nvenc_sdk_export::NvencSdkSettings {
+            width: out_w,
+            height: out_h,
+            fps: config.framerate.max(1),
+            target_bitrate_kbps: target_video_bitrate_kbps.max(1000),
+            profile: sdk_profile,
+            codec: sdk_codec,
+            output_stream_path: sdk_path,
+        };
+        std::thread::spawn(move || {
+            let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                nvenc_sdk_export::encode_frames_to_file(frame_rx, recycle_tx, sdk_settings)
+            })) {
+                Ok(result) => result,
+                Err(_) => Err("NVENC SDK writer panicked".to_string()),
+            };
+            let _ = writer_done_tx.send(result);
+        })
+    } else {
+        let mut encoder_stdin = encoder
+            .as_mut()
+            .and_then(|enc| enc.stdin.take())
+            .ok_or("Failed to open encoder stdin")?;
+        let writer_done_tx = writer_done_tx.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<(), String> {
+                while let Ok(mut frame) = frame_rx.recv() {
+                    if let Err(e) = encoder_stdin.write_all(&frame) {
+                        return Err(format!("Encoder stdin write failed: {}", e));
+                    }
+                    frame.clear();
+                    // Never block writer shutdown on recycle path.
+                    let _ = recycle_tx.try_send(frame);
+                }
+                Ok(())
+            })();
+            let _ = writer_done_tx.send(result);
+        })
+    };
+    drop(writer_done_tx);
+
+    // Store PIDs so cancel_export() can kill them to unblock IO
+    let encoder_pid = encoder.as_ref().map(|enc| enc.id()).unwrap_or(0);
+    *EXPORT_PIDS.lock().unwrap() = (decoder.id(), encoder_pid);
+    println!(
+        "[Export] Encoder selected: {} | codec={} | turbo={} | sdk={} | zero_copy={} | sfe={}",
+        encoder_name,
+        encoder_codec,
+        encoder_is_turbo,
+        use_nvenc_sdk_lane,
+        use_nvenc_sdk_zero_copy,
+        encoder_used_sfe
+    );
+
     let (decode_tx, decode_rx) = sync_channel::<Vec<u8>>(decode_queue_capacity);
     let (decode_recycle_tx, decode_recycle_rx) = sync_channel::<Vec<u8>>(decode_recycle_capacity);
     for _ in 0..decode_recycle_capacity {
@@ -1689,7 +2366,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         total_frames, decoder_fps, step, any_blur
     );
 
-    let mut submit_rendered_frame = |frame_time: f64, rendered: &mut Vec<u8>| -> Result<(), String> {
+    let render_overlays_into = |frame_time: f64, target: &mut Vec<u8>, target_is_bgra: bool| {
         // --- RENDER TEXT OVERLAY (baked bitmaps) ---
         let fade_dur = 0.3_f64;
         for overlay in &config.baked_text_overlays {
@@ -1703,7 +2380,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 if remaining < fade_dur {
                     fade = fade.min(remaining / fade_dur);
                 }
-                composite_baked_text(rendered, out_w, out_h, overlay, fade);
+                composite_baked_text(target, out_w, out_h, overlay, fade, target_is_bgra);
             }
         }
 
@@ -1711,7 +2388,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         for overlay in &config.baked_keystroke_overlays {
             if frame_time >= overlay.start_time && frame_time < overlay.end_time {
                 composite_baked_bitmap(
-                    rendered,
+                    target,
                     out_w,
                     out_h,
                     overlay.x,
@@ -1720,9 +2397,27 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     overlay.height,
                     &overlay.data,
                     1.0,
+                    target_is_bgra,
                 );
             }
         }
+    };
+
+    let mut zero_copy_overlay = if use_nvenc_sdk_zero_copy
+        && (!config.baked_text_overlays.is_empty() || !config.baked_keystroke_overlays.is_empty())
+    {
+        Some(vec![0u8; render_frame_size])
+    } else {
+        None
+    };
+
+    let submit_rendered_frame = |
+        frame_time: f64,
+        rendered: &mut Vec<u8>,
+        frame_counter: &mut u32,
+        first_frame_time: &mut Option<f64>,
+    | -> Result<(), String> {
+        render_overlays_into(frame_time, rendered, compositor_output_is_bgra);
 
         let mut to_send = Vec::new();
         std::mem::swap(rendered, &mut to_send);
@@ -1738,15 +2433,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             Err(TryRecvError::Disconnected) => {}
         }
 
-        frame_count += 1;
-        if first_frame_secs.is_none() {
-            first_frame_secs = Some(frame_stage_start.elapsed().as_secs_f64());
+        *frame_counter += 1;
+        if first_frame_time.is_none() {
+            *first_frame_time = Some(frame_stage_start.elapsed().as_secs_f64());
         }
-        if frame_count.is_multiple_of(15) {
+        if (*frame_counter).is_multiple_of(15) {
             let elapsed = export_start.elapsed().as_secs_f64();
-            let pct = (frame_count as f64 / total_frames as f64 * 100.0).min(100.0);
-            let eta = if frame_count > 0 {
-                (elapsed / frame_count as f64) * (total_frames - frame_count) as f64
+            let pct = (*frame_counter as f64 / total_frames as f64 * 100.0).min(100.0);
+            let eta = if *frame_counter > 0 {
+                (elapsed / *frame_counter as f64) * (total_frames - *frame_counter) as f64
             } else {
                 0.0
             };
@@ -1792,11 +2487,17 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         compositor.upload_frame(&decoded_frame);
         let _ = decode_recycle_tx.try_send(decoded_frame);
 
+        if let Some(overlay_frame) = zero_copy_overlay.as_mut() {
+            overlay_frame.fill(0);
+            render_overlays_into(current_time, overlay_frame, false);
+            compositor.upload_overlay(overlay_frame);
+        }
+
         // Sample center state (always needed as fallback / single-render)
         let (center_cam_x, center_cam_y, center_zoom) = sample_baked_path(source_time, &baked_path);
         let center_cursor = sample_parsed_baked_cursor(source_time, &parsed_baked_cursor);
 
-        let render_result = if any_blur {
+        let render_result: Result<(), String> = if any_blur {
             let half_shutter = step * shutter_fraction / 2.0;
             let t_start = source_time - half_shutter;
             let t_end = source_time + half_shutter;
@@ -1847,7 +2548,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                     build_uniforms(sub_raw_x, sub_raw_y, sub_zoom, sub_cursor, cam_sub_t);
                 compositor.render_accumulate(&sub_uniforms, si == 0, weight);
             }
-            compositor.enqueue_output_readback()
+            if use_nvenc_sdk_zero_copy {
+                Ok(())
+            } else {
+                compositor.enqueue_output_readback()
+            }
         } else {
             let uniforms = build_uniforms(
                 center_cam_x,
@@ -1856,13 +2561,58 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 center_cursor,
                 source_time,
             );
-            compositor.render_frame_enqueue_readback(&uniforms)
+            if use_nvenc_sdk_zero_copy {
+                compositor.render_frame_to_output_only(&uniforms);
+                Ok(())
+            } else {
+                compositor.render_frame_enqueue_readback(&uniforms)
+            }
         };
 
         if let Err(err) = render_result {
-            writer_error = Some(format!("GPU render/readback enqueue failed: {}", err));
+            writer_error = Some(if use_nvenc_sdk_zero_copy {
+                format!("GPU render failed: {}", err)
+            } else {
+                format!("GPU render/readback enqueue failed: {}", err)
+            });
             break;
         }
+
+        if use_nvenc_sdk_zero_copy {
+            compositor.copy_output_to_nvenc_input();
+            match sdk_zero_copy_session.as_mut() {
+                Some(session) => {
+                    if session.requires_gpu_idle_wait() {
+                        compositor.wait_for_gpu_idle();
+                    }
+                    if let Err(err) = session.encode_frame() {
+                        writer_error = Some(err);
+                        break;
+                    }
+                }
+                None => {
+                    writer_error = Some("Missing NVENC zero-copy session".to_string());
+                    break;
+                }
+            }
+
+            frame_count += 1;
+            if first_frame_secs.is_none() {
+                first_frame_secs = Some(frame_stage_start.elapsed().as_secs_f64());
+            }
+            if frame_count.is_multiple_of(15) {
+                let elapsed = export_start.elapsed().as_secs_f64();
+                let pct = (frame_count as f64 / total_frames as f64 * 100.0).min(100.0);
+                let eta = if frame_count > 0 {
+                    (elapsed / frame_count as f64) * (total_frames - frame_count) as f64
+                } else {
+                    0.0
+                };
+                push_export_progress(pct, eta);
+            }
+            continue;
+        }
+
         pending_times.push_back(current_time);
 
         let mut drained_any = false;
@@ -1870,7 +2620,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             Ok(true) => {
                 drained_any = true;
                 if let Some(frame_time) = pending_times.pop_front() {
-                    if let Err(err) = submit_rendered_frame(frame_time, &mut rendered) {
+                    if let Err(err) = submit_rendered_frame(
+                        frame_time,
+                        &mut rendered,
+                        &mut frame_count,
+                        &mut first_frame_secs,
+                    ) {
                         writer_error = Some(err);
                         break;
                     }
@@ -1883,13 +2638,23 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             }
         }
 
-        if !drained_any && pending_times.len() > 1 {
+        let blocking_drain_threshold = if encoder_is_turbo {
+            compositor.readback_ring_capacity().saturating_sub(1).max(2)
+        } else {
+            1
+        };
+        if !drained_any && pending_times.len() > blocking_drain_threshold {
             if let Err(err) = compositor.readback_output(&mut rendered) {
                 writer_error = Some(format!("GPU readback blocking failed: {}", err));
                 break;
             }
             if let Some(frame_time) = pending_times.pop_front() {
-                if let Err(err) = submit_rendered_frame(frame_time, &mut rendered) {
+                if let Err(err) = submit_rendered_frame(
+                    frame_time,
+                    &mut rendered,
+                    &mut frame_count,
+                    &mut first_frame_secs,
+                ) {
                     writer_error = Some(err);
                     break;
                 }
@@ -1903,10 +2668,25 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 writer_error = Some(format!("GPU readback flush failed: {}", err));
                 break;
             }
-            if let Err(err) = submit_rendered_frame(frame_time, &mut rendered) {
+            if let Err(err) = submit_rendered_frame(
+                frame_time,
+                &mut rendered,
+                &mut frame_count,
+                &mut first_frame_secs,
+            ) {
                 writer_error = Some(err);
                 break;
             }
+        }
+    }
+
+    if use_nvenc_sdk_zero_copy && !cancelled && writer_error.is_none() {
+        if let Some(session) = sdk_zero_copy_session.take() {
+            if let Err(err) = session.finish() {
+                writer_error = Some(err);
+            }
+        } else {
+            writer_error = Some("Missing NVENC zero-copy session at finalize".to_string());
         }
     }
 
@@ -1926,18 +2706,61 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     drop(frame_tx);
     if cancelled {
         // If cancelled, kill encoder first to unblock a possible blocked stdin writer.
-        let _ = encoder.kill();
+        if let Some(enc) = encoder.as_mut() {
+            let _ = enc.kill();
+        }
     }
-    match writer_handle.join() {
-        Ok(Ok(())) => {}
+    let writer_wait_timeout = if cancelled {
+        Duration::from_secs(15)
+    } else if use_nvenc_sdk_lane {
+        let output_duration_sec = (config.duration / config.speed.max(0.1)).max(0.0).ceil() as u64;
+        let sdk_timeout_secs = output_duration_sec
+            .saturating_mul(3)
+            .saturating_add(120)
+            .clamp(180, 1800);
+        Duration::from_secs(sdk_timeout_secs)
+    } else {
+        Duration::from_secs(30)
+    };
+    let mut writer_handle = Some(writer_handle);
+    match writer_done_rx.recv_timeout(writer_wait_timeout) {
+        Ok(Ok(())) => {
+            if let Some(handle) = writer_handle.take() {
+                if handle.join().is_err() && !cancelled {
+                    writer_error = Some("Encoder writer thread panicked".to_string());
+                }
+            }
+        }
         Ok(Err(e)) => {
             if !cancelled {
                 writer_error = Some(e);
             }
+            if let Some(handle) = writer_handle.take() {
+                let _ = handle.join();
+            }
         }
-        Err(_) => {
+        Err(RecvTimeoutError::Timeout) => {
             if !cancelled {
-                writer_error = Some("Encoder writer thread panicked".to_string());
+                writer_error = Some(format!(
+                    "Encoder writer thread timed out after {:.1}s",
+                    writer_wait_timeout.as_secs_f64()
+                ));
+            }
+            if let Some(enc) = encoder.as_mut() {
+                let _ = enc.kill();
+            }
+            if let Some(handle) = writer_handle.take() {
+                drop(handle);
+            }
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            if !cancelled {
+                writer_error = Some("Encoder writer thread disconnected".to_string());
+            }
+            if let Some(handle) = writer_handle.take() {
+                if handle.join().is_err() && !cancelled && writer_error.is_none() {
+                    writer_error = Some("Encoder writer thread panicked".to_string());
+                }
             }
         }
     }
@@ -1966,7 +2789,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     if cancelled {
         // On cancel: encoder already killed before joining writer.
-        let _ = encoder.wait();
+        if let Some(enc) = encoder.as_mut() {
+            let _ = enc.wait();
+        }
     }
 
     // Clean up temp files
@@ -1979,8 +2804,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     if cancelled {
         let _ = fs::remove_file(&output_path);
+        if let Some(stream_path) = &sdk_stream_path {
+            let _ = fs::remove_file(stream_path);
+        }
         println!(
-            "[Export][Summary] status=cancelled out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={}",
+            "[Export][Summary] status=cancelled out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}%",
             out_w,
             out_h,
             config.framerate,
@@ -1998,14 +2826,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
             frame_loop_secs,
             export_total_start.elapsed().as_secs_f64(),
-            encoder_name
+            encoder_name,
+            encoder_codec,
+            encoder_is_turbo,
+            encoder_used_sfe,
+            quality_gate_percent
         );
         return Ok(serde_json::json!({ "status": "cancelled" }));
     }
 
     if let Some(err) = writer_error {
+        println!("[Export][WriterError] {}", err);
+        if let Some(stream_path) = &sdk_stream_path {
+            let _ = fs::remove_file(stream_path);
+        }
         println!(
-            "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} error=writer",
+            "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% error=writer",
             out_w,
             out_h,
             config.framerate,
@@ -2023,20 +2859,155 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
             frame_loop_secs,
             export_total_start.elapsed().as_secs_f64(),
-            encoder_name
+            encoder_name,
+            encoder_codec,
+            encoder_is_turbo,
+            encoder_used_sfe,
+            quality_gate_percent
         );
         return Err(err);
     }
 
-    // Wait for encoder to finish flushing (H.264 B-frames, moov atom, etc.)
-    let encoder_result = encoder.wait();
+    // Finalize backend output (encoder flush or SDK stream mux).
+    let encoder_result: Result<std::process::ExitStatus, String> = if use_nvenc_sdk_lane {
+        let stream_path = sdk_stream_path
+            .as_ref()
+            .ok_or("NVENC SDK stream path missing at finalize")?;
+        let stream_codec = sdk_stream_codec.ok_or("NVENC SDK codec missing at finalize")?;
+        let stream_format = nvenc_sdk_export::codec_ffmpeg_name(stream_codec);
+        let mut mux_args = vec![
+            "-hide_banner".to_string(),
+            "-loglevel".to_string(),
+            "error".to_string(),
+            "-y".to_string(),
+            "-f".to_string(),
+            stream_format.to_string(),
+            "-r".to_string(),
+            config.framerate.to_string(),
+            "-i".to_string(),
+            stream_path.to_string_lossy().to_string(),
+        ];
+
+        if let Some(audio) = &source_audio_path {
+            let mut audio_filter = if has_trim_segments {
+                format!("aselect='{}',asetpts=N/SR/TB", select_expr)
+            } else {
+                "anull".to_string()
+            };
+            if config.speed != 1.0 {
+                audio_filter = format!("{},atempo={}", audio_filter, config.speed.clamp(0.5, 2.0));
+            }
+
+            if has_trim_segments {
+                mux_args.extend([
+                    "-i".to_string(),
+                    audio.clone(),
+                    "-af".to_string(),
+                    audio_filter,
+                ]);
+            } else {
+                mux_args.extend([
+                    "-ss".to_string(),
+                    config.trim_start.to_string(),
+                    "-t".to_string(),
+                    config.duration.to_string(),
+                    "-i".to_string(),
+                    audio.clone(),
+                    "-af".to_string(),
+                    audio_filter,
+                ]);
+            }
+        }
+
+        mux_args.extend(["-c:v".to_string(), "copy".to_string()]);
+        if matches!(stream_codec, nvenc_sdk_export::NvencSdkCodec::Hevc) {
+            mux_args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
+        }
+        if has_audio {
+            mux_args.extend([
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                format!("{}k", audio_bitrate_kbps),
+            ]);
+        } else {
+            mux_args.extend(["-an".to_string()]);
+        }
+        if !is_custom_background {
+            mux_args.extend(["-movflags".to_string(), "+faststart".to_string()]);
+        }
+        mux_args.push(output_path.to_string_lossy().to_string());
+
+        let mut mux = Command::new(&ffmpeg_path)
+            .args(&mux_args)
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|e| format!("SDK mux failed to start: {}", e))?;
+
+        *EXPORT_PIDS.lock().unwrap() = (0, mux.id());
+        let result = wait_child_with_timeout(&mut mux, Duration::from_secs(90), "sdk_mux");
+        *EXPORT_PIDS.lock().unwrap() = (0, 0);
+        let _ = fs::remove_file(stream_path);
+        result
+    } else {
+        match encoder.as_mut() {
+            Some(enc) => wait_child_with_timeout(enc, Duration::from_secs(90), "ffmpeg_encoder"),
+            None => Err("Missing ffmpeg encoder process".to_string()),
+        }
+    };
     let total_wall_secs = export_total_start.elapsed().as_secs_f64();
 
     match encoder_result {
         Ok(status) if status.success() => {
             let output_bytes = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
+            let output_duration_sec = (config.duration / config.speed.max(0.1)).max(0.001);
+            let actual_total_bitrate_kbps =
+                (output_bytes as f64 * 8.0 / output_duration_sec / 1000.0).max(0.0);
+            let expected_total_bitrate_kbps =
+                target_video_bitrate_kbps as f64 + if has_audio { audio_bitrate_kbps as f64 } else { 0.0 };
+            let bitrate_deviation_percent = if expected_total_bitrate_kbps > 0.0 {
+                ((actual_total_bitrate_kbps - expected_total_bitrate_kbps).abs()
+                    / expected_total_bitrate_kbps)
+                    * 100.0
+            } else {
+                0.0
+            };
+            if encoder_is_turbo && encoder_used_sfe && bitrate_deviation_percent > quality_gate_percent {
+                SFE_QUALITY_GUARD_DISABLED.store(true, Ordering::Relaxed);
+                println!(
+                    "[Export][TurboGuard] disabling SFE due to bitrate deviation {:.2}% > gate {:.2}%",
+                    bitrate_deviation_percent, quality_gate_percent
+                );
+            }
+            let runtime_diagnostics = ExportRuntimeDiagnostics {
+                encoder: encoder_name.clone(),
+                codec: encoder_codec.to_string(),
+                turbo: encoder_is_turbo,
+                sfe: encoder_used_sfe,
+                nvenc_sdk_zero_copy: use_nvenc_sdk_zero_copy,
+                nvenc_sdk_zero_copy_reason: nvenc_sdk_zero_copy_reason.clone(),
+                quality_gate_percent,
+                actual_total_bitrate_kbps,
+                expected_total_bitrate_kbps,
+                bitrate_deviation_percent,
+                readback_ring_size: compositor.readback_ring_capacity(),
+                decode_queue_capacity,
+                decode_recycle_capacity,
+                writer_queue_capacity,
+                fallback_attempts: spawn_errors.len(),
+                fallback_errors: spawn_errors.clone(),
+                nvenc_sdk_attempted,
+                nvenc_sdk_used,
+                nvenc_sdk_reason: nvenc_sdk_reason.clone(),
+            };
+            if config.export_diagnostics {
+                println!("[Export][Diag] runtime={:?}", runtime_diagnostics);
+            }
             println!(
-                "[Export][Summary] status=success out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={}",
+                "[Export][Summary] status=success out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% actual_kbps={:.1} expected_kbps={:.1} dev={:.2}%",
                 out_w,
                 out_h,
                 config.framerate,
@@ -2054,18 +3025,29 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
                 frame_loop_secs,
                 total_wall_secs,
-                encoder_name
+                encoder_name,
+                encoder_codec,
+                encoder_is_turbo,
+                encoder_used_sfe,
+                quality_gate_percent,
+                actual_total_bitrate_kbps,
+                expected_total_bitrate_kbps,
+                bitrate_deviation_percent
             );
             Ok(serde_json::json!({
                 "status": "success",
                 "path": output_path.to_string_lossy(),
                 "frames": frame_count,
-                "bytes": output_bytes
+                "bytes": output_bytes,
+                "diagnostics": runtime_diagnostics
             }))
         }
-        _ => {
+        Ok(status) => {
+            if let Some(stream_path) = &sdk_stream_path {
+                let _ = fs::remove_file(stream_path);
+            }
             println!(
-                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} error=encoder",
+                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% error=encoder_exit status={}",
                 out_w,
                 out_h,
                 config.framerate,
@@ -2083,9 +3065,46 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
                 frame_loop_secs,
                 total_wall_secs,
-                encoder_name
+                encoder_name,
+                encoder_codec,
+                encoder_is_turbo,
+                encoder_used_sfe,
+                quality_gate_percent,
+                status
             );
-            Err("Encoder failed".to_string())
+            Err(format!("Encoder exited with status: {}", status))
+        }
+        Err(err) => {
+            if let Some(stream_path) = &sdk_stream_path {
+                let _ = fs::remove_file(stream_path);
+            }
+            println!(
+                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% error=encoder_wait msg={}",
+                out_w,
+                out_h,
+                config.framerate,
+                config.speed,
+                config.duration,
+                frame_count,
+                total_frames,
+                used_cursor_slots.len(),
+                parse_secs,
+                gpu_device_secs,
+                cursor_init_secs,
+                cursor_init_mode,
+                decoder_start_secs,
+                encoder_start_secs,
+                first_frame_secs.map(|v| format!("{:.3}", v)).unwrap_or_else(|| "-".to_string()),
+                frame_loop_secs,
+                total_wall_secs,
+                encoder_name,
+                encoder_codec,
+                encoder_is_turbo,
+                encoder_used_sfe,
+                quality_gate_percent,
+                err
+            );
+            Err(err)
         }
     }
 }

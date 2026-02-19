@@ -100,6 +100,7 @@ pub fn handle_ipc_command(
             }
         }
         "start_export_server" => native_export::start_native_export(args),
+        "get_export_capabilities" => Ok(native_export::get_export_capabilities()),
         "cancel_export" => {
             println!("[Cancel] IPC cancel_export received");
             native_export::cancel_export();

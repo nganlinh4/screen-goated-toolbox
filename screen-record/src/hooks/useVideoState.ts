@@ -613,8 +613,18 @@ export function useExport(props: UseExportProps) {
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
-    width: 0, height: 0, fps: 60, targetVideoBitrateKbps: 0, speed: 1, exportProfile: 'max_speed', outputDir: ''
+    width: 0,
+    height: 0,
+    fps: 60,
+    targetVideoBitrateKbps: 0,
+    speed: 1,
+    exportProfile: 'turbo_nv',
+    preferNvTurbo: true,
+    qualityGatePercent: 3,
+    turboCodec: 'hevc',
+    outputDir: ''
   });
+  const [hasCheckedExportCapabilities, setHasCheckedExportCapabilities] = useState(false);
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
 
@@ -637,7 +647,143 @@ export function useExport(props: UseExportProps) {
   ]);
 
   useEffect(() => {
-    if (isProcessing || !showExportDialog) return;
+    let cancelled = false;
+    void videoExporter.getExportCapabilities()
+      .then((caps) => {
+        if (cancelled) return;
+        setExportOptions((prev) => {
+          if (!caps.nvencAvailable) {
+            if (prev.exportProfile === 'turbo_nv' || prev.preferNvTurbo) {
+              return {
+                ...prev,
+                exportProfile: 'max_speed',
+                preferNvTurbo: false,
+                turboCodec: 'h264'
+              };
+            }
+            return prev;
+          }
+          if (caps.nvencAvailable && prev.exportProfile !== 'turbo_nv') {
+            return {
+              ...prev,
+              exportProfile: 'turbo_nv',
+              preferNvTurbo: true,
+              turboCodec: caps.hevcNvencAvailable ? 'hevc' : 'h264'
+            };
+          }
+          if (!caps.hevcNvencAvailable && prev.turboCodec === 'hevc') {
+            return {
+              ...prev,
+              turboCodec: 'h264'
+            };
+          }
+          return prev;
+        });
+        setHasCheckedExportCapabilities(true);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn('[Export] capability probe failed, using safe defaults:', error);
+        setExportOptions((prev) => {
+          if (prev.exportProfile !== 'turbo_nv') return prev;
+          return {
+            ...prev,
+            exportProfile: 'max_speed',
+            preferNvTurbo: false,
+            turboCodec: 'h264'
+          };
+        });
+        setHasCheckedExportCapabilities(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isProcessing || showExportDialog || !hasCheckedExportCapabilities) return;
+    const videoEl = props.videoRef.current;
+    const canvasEl = props.canvasRef.current;
+    const segment = props.segment;
+    if (!props.currentVideo || !segment || !videoEl || !canvasEl) return;
+
+    const sourceVideoPath = resolveSourceVideoPath();
+    let cancelled = false;
+    const runPrime = () => {
+      if (cancelled) return;
+      void videoExporter.primeExportPreparation({
+        width: exportOptions.width,
+        height: exportOptions.height,
+        fps: exportOptions.fps,
+        targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps,
+        speed: exportOptions.speed,
+        exportProfile: exportOptions.exportProfile || 'turbo_nv',
+        preferNvTurbo: exportOptions.preferNvTurbo ?? true,
+        qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
+        turboCodec: exportOptions.turboCodec || 'hevc',
+        outputDir: exportOptions.outputDir || '',
+        video: videoEl,
+        canvas: canvasEl,
+        tempCanvas: props.tempCanvasRef.current!,
+        segment,
+        backgroundConfig: props.backgroundConfig,
+        mousePositions: props.mousePositions,
+        audio: props.audioRef.current || undefined,
+        audioFilePath: props.audioFilePath,
+        videoFilePath: sourceVideoPath
+      }).catch(() => {
+        // keep background prewarm silent
+      });
+    };
+
+    let idleId = 0;
+    const idleApi = (window as Window & {
+      requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    });
+    if (typeof idleApi.requestIdleCallback === 'function') {
+      idleId = idleApi.requestIdleCallback(runPrime, { timeout: 1500 });
+    } else {
+      idleId = window.setTimeout(runPrime, 700);
+    }
+
+    return () => {
+      cancelled = true;
+      if (typeof idleApi.cancelIdleCallback === 'function') {
+        idleApi.cancelIdleCallback(idleId);
+      } else {
+        window.clearTimeout(idleId);
+      }
+    };
+  }, [
+    isProcessing,
+    showExportDialog,
+    hasCheckedExportCapabilities,
+    props.currentVideo,
+    props.segment,
+    props.videoRef,
+    props.canvasRef,
+    props.tempCanvasRef,
+    props.backgroundConfig,
+    props.mousePositions,
+    props.audioRef,
+    props.audioFilePath,
+    resolveSourceVideoPath,
+    exportOptions.width,
+    exportOptions.height,
+    exportOptions.fps,
+    exportOptions.targetVideoBitrateKbps,
+    exportOptions.speed,
+    exportOptions.exportProfile,
+    exportOptions.preferNvTurbo,
+    exportOptions.qualityGatePercent,
+    exportOptions.turboCodec,
+    exportOptions.outputDir
+  ]);
+
+  useEffect(() => {
+    if (isProcessing || !showExportDialog || !hasCheckedExportCapabilities) return;
     const videoEl = props.videoRef.current;
     const canvasEl = props.canvasRef.current;
     const segment = props.segment;
@@ -651,7 +797,10 @@ export function useExport(props: UseExportProps) {
         fps: exportOptions.fps,
         targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps,
         speed: exportOptions.speed,
-        exportProfile: exportOptions.exportProfile || 'max_speed',
+        exportProfile: exportOptions.exportProfile || 'turbo_nv',
+        preferNvTurbo: exportOptions.preferNvTurbo ?? true,
+        qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
+        turboCodec: exportOptions.turboCodec || 'hevc',
         outputDir: exportOptions.outputDir || '',
         video: videoEl,
         canvas: canvasEl,
@@ -673,6 +822,7 @@ export function useExport(props: UseExportProps) {
   }, [
     isProcessing,
     showExportDialog,
+    hasCheckedExportCapabilities,
     exportOptions.width,
     exportOptions.height,
     exportOptions.fps,
@@ -702,7 +852,10 @@ export function useExport(props: UseExportProps) {
 
       await videoExporter.exportAndDownload({
         width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps, speed: exportOptions.speed,
-        exportProfile: exportOptions.exportProfile || 'max_speed',
+        exportProfile: exportOptions.exportProfile || 'turbo_nv',
+        preferNvTurbo: exportOptions.preferNvTurbo ?? true,
+        qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
+        turboCodec: exportOptions.turboCodec || 'hevc',
         outputDir: exportOptions.outputDir || '',
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
         segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
