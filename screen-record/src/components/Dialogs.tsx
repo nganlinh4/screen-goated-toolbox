@@ -9,6 +9,8 @@ import {
   getCanvasBaseDimensions,
   resolveExportDimensions,
   estimateExportSize,
+  videoExporter,
+  type ExportCapabilities,
   type ResolutionOption
 } from '@/lib/videoExporter';
 import { getTotalTrimDuration } from '@/lib/trimSegments';
@@ -41,12 +43,14 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
   const [percent, setPercent] = useState(0);
   const [eta, setEta] = useState(0);
   const [active, setActive] = useState(false);
+  const [diagnosticsLine, setDiagnosticsLine] = useState('');
 
   useEffect(() => {
     if (!show) {
       setPercent(0);
       setEta(0);
       setActive(false);
+      setDiagnosticsLine('');
       return;
     }
     // Listen for push progress updates from Rust via PostMessageW → evaluate_script
@@ -55,6 +59,15 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
         setActive(true);
         setPercent(e.data.percent);
         setEta(e.data.eta);
+      } else if (e.data?.type === 'sr-export-diagnostics') {
+        const d = e.data.diagnostics || {};
+        const mode = d.turbo ? 'Turbo' : 'Standard';
+        const codec = typeof d.codec === 'string' ? d.codec : '-';
+        const sfe = d.sfe ? ' + SFE' : '';
+        const deviation = typeof d.bitrateDeviationPercent === 'number'
+          ? `${Math.abs(d.bitrateDeviationPercent).toFixed(1)}%`
+          : '-';
+        setDiagnosticsLine(`${mode} · ${codec}${sfe} · dev ${deviation}`);
       }
     };
     window.addEventListener('message', handler);
@@ -82,6 +95,11 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
           <span className="progress-percent text-[var(--on-surface-variant)] tabular-nums">{active ? `${pct}%` : ''}</span>
           <span className="progress-eta text-[var(--outline)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
         </div>
+        {diagnosticsLine && (
+          <div className="processing-diagnostics mt-2 text-[10px] text-[var(--outline)] tabular-nums">
+            {diagnosticsLine}
+          </div>
+        )}
         {onCancel && (
           <button
             onClick={() => { console.log('[Cancel] Button clicked'); onCancel(); }}
@@ -139,6 +157,8 @@ export function ExportDialog({
 }: ExportDialogProps) {
   const { t } = useSettings();
   const [isPickingDir, setIsPickingDir] = useState(false);
+  const [exportCapabilities, setExportCapabilities] = useState<ExportCapabilities | null>(null);
+  const [capabilityProbeFailed, setCapabilityProbeFailed] = useState(false);
 
   useEffect(() => {
     if (!show || exportOptions.outputDir) return;
@@ -151,6 +171,28 @@ export function ExportDialog({
       })
       .catch((e) => console.error('[Export] Failed to get default export dir:', e));
   }, [show, exportOptions.outputDir, setExportOptions]);
+
+  useEffect(() => {
+    if (!show) return;
+
+    let cancelled = false;
+    setCapabilityProbeFailed(false);
+
+    void videoExporter.getExportCapabilities()
+      .then((caps) => {
+        if (cancelled) return;
+        setExportCapabilities(caps);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn('[ExportDialog] capability probe failed:', error);
+        setCapabilityProbeFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [show]);
 
   const handleBrowseOutputDir = async () => {
     try {
@@ -193,6 +235,64 @@ export function ExportDialog({
     backgroundConfig,
     segment
   });
+  const wantsTurbo = exportOptions.exportProfile === 'turbo_nv' || exportOptions.preferNvTurbo;
+  const turboCodecLabel = (exportOptions.turboCodec || 'hevc').toUpperCase();
+  const backendStatus = (() => {
+    if (!exportCapabilities && !capabilityProbeFailed) {
+      return {
+        label: 'Đang nhận diện backend',
+        detail: '',
+        tone: 'text-[var(--outline)]'
+      };
+    }
+    if (capabilityProbeFailed) {
+      return {
+        label: 'CPU x264',
+        detail: 'Probe thất bại, sẽ fallback an toàn',
+        tone: 'text-amber-300'
+      };
+    }
+    if (!exportCapabilities) {
+      return {
+        label: 'CPU x264',
+        detail: 'Không có dữ liệu capability',
+        tone: 'text-amber-300'
+      };
+    }
+    if (wantsTurbo) {
+      if (exportCapabilities.nvencSdkEnabled) {
+        return {
+          label: `SDK NVENC Turbo (${turboCodecLabel})`,
+          detail: 'Auto fallback FFmpeg NVENC/CPU nếu cần',
+          tone: 'text-emerald-300'
+        };
+      }
+      if (exportCapabilities.nvencAvailable) {
+        return {
+          label: `FFmpeg NVENC Turbo (${turboCodecLabel})`,
+          detail: 'Fallback CPU x264 nếu encoder lỗi',
+          tone: 'text-[var(--on-surface)]'
+        };
+      }
+      return {
+        label: 'CPU x264',
+        detail: 'NVENC không khả dụng trên máy này',
+        tone: 'text-amber-300'
+      };
+    }
+    if (exportCapabilities.nvencAvailable) {
+      return {
+        label: 'FFmpeg NVENC',
+        detail: 'VBR hardware encode',
+        tone: 'text-[var(--on-surface)]'
+      };
+    }
+    return {
+      label: 'CPU x264',
+      detail: 'Software encode',
+      tone: 'text-amber-300'
+    };
+  })();
 
   useEffect(() => {
     if (!show) return;
@@ -345,6 +445,19 @@ export function ExportDialog({
               <label className="text-xs text-[var(--on-surface-variant)]">{t.estimatedSize}</label>
               <div className="size-estimate-primary text-sm font-medium text-[var(--on-surface)] tabular-nums">
                 ~{formatDataSize(sizeEstimate.estimatedBytes)}
+              </div>
+            </div>
+            <div className="export-backend-indicator-row mt-1.5 flex items-start justify-between gap-3">
+              <span className="export-backend-label text-[10px] text-[var(--outline)]">Backend Export</span>
+              <div className="export-backend-value text-right">
+                <div className={`text-[10px] font-medium ${backendStatus.tone}`}>
+                  {backendStatus.label}
+                </div>
+                {backendStatus.detail ? (
+                  <div className="text-[10px] text-[var(--outline)]">
+                    {backendStatus.detail}
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

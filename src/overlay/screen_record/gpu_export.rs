@@ -1,5 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{Options, Tree};
+#[cfg(target_os = "windows")]
+use std::ffi::c_void;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::{Arc, OnceLock};
@@ -68,6 +70,19 @@ pub struct CompositorUniforms {
     pub _pad3: [f32; 3],     // 132-144 (Total 144 bytes)
 }
 
+#[cfg(target_os = "windows")]
+pub struct Dx12OutputHandles {
+    pub device: *mut c_void,
+    pub queue: *mut c_void,
+    pub texture: *mut c_void,
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn com_interface_ptr<T>(value: &T) -> *mut c_void {
+    debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<*mut c_void>());
+    unsafe { std::mem::transmute_copy::<T, *mut c_void>(value) }
+}
+
 pub struct GpuCompositor {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -82,7 +97,9 @@ pub struct GpuCompositor {
     cursor_bind_group: wgpu::BindGroup,
     background_texture: wgpu::Texture,
     background_bind_group: wgpu::BindGroup,
+    overlay_texture: wgpu::Texture,
     output_texture: wgpu::Texture,
+    nvenc_input_texture: wgpu::Texture,
     output_buffers: Vec<wgpu::Buffer>,
     readback_receivers: Vec<Option<std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>>,
     pending_readbacks: VecDeque<usize>,
@@ -187,7 +204,12 @@ const CURSOR_ATLAS_COLS: u32 = 9;
 const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
 const CURSOR_ATLAS_ROWS: u32 = (CURSOR_ATLAS_SLOTS + CURSOR_ATLAS_COLS - 1) / CURSOR_ATLAS_COLS;
 const CURSOR_TILE_SIZE: u32 = 512;
-const READBACK_RING_SIZE: usize = 3;
+const READBACK_RING_SIZE: usize = 5;
+const OUTPUT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
+
+pub fn output_texture_is_bgra() -> bool {
+    true
+}
 static SHARED_GPU_CONTEXT: OnceLock<Result<SharedGpuContext, String>> = OnceLock::new();
 static CURSOR_TILE_CACHE: OnceLock<Mutex<Vec<Option<Arc<Vec<u8>>>>>> = OnceLock::new();
 
@@ -199,20 +221,55 @@ struct SharedGpuContext {
     vertex_buffer: wgpu::Buffer,
     uniform_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
+    background_overlay_layout: wgpu::BindGroupLayout,
 }
 
 fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
+    let request_adapter = |instance: &wgpu::Instance| {
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+    };
+
+    #[cfg(target_os = "windows")]
+    let preferred_backends = wgpu::Backends::DX12;
+    #[cfg(not(target_os = "windows"))]
+    let preferred_backends = wgpu::Backends::all();
+
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
+        backends: preferred_backends,
         ..Default::default()
     });
+    #[cfg(target_os = "windows")]
+    let mut adapter = instance
+        .enumerate_adapters(wgpu::Backends::DX12)
+        .into_iter()
+        .find(|candidate| candidate.get_info().vendor == 0x10DE);
+    #[cfg(not(target_os = "windows"))]
+    let mut adapter = None;
 
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    }))
-    .ok_or("Failed to find GPU adapter")?;
+    if adapter.is_none() {
+        adapter = request_adapter(&instance);
+    }
+    if adapter.is_none() {
+        let fallback_instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        adapter = request_adapter(&fallback_instance);
+    }
+    let adapter = adapter.ok_or("Failed to find GPU adapter")?;
+    let adapter_info = adapter.get_info();
+    println!(
+        "[Export][GPU] Selected backend={:?} vendor=0x{:04x} device=0x{:04x} name={} driver={}",
+        adapter_info.backend,
+        adapter_info.vendor,
+        adapter_info.device,
+        adapter_info.name,
+        adapter_info.driver
+    );
 
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
@@ -275,14 +332,48 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         ],
     });
 
+    let background_overlay_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Background Overlay Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Pipeline Layout"),
-        bind_group_layouts: &[
-            &uniform_layout,
-            &texture_layout,
-            &texture_layout,
-            &texture_layout,
-        ],
+        bind_group_layouts: &[&uniform_layout, &texture_layout, &texture_layout, &background_overlay_layout],
         push_constant_ranges: &[],
     });
 
@@ -314,7 +405,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
             module: &shader,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: OUTPUT_TEXTURE_FORMAT,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -358,7 +449,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
             module: &shader,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: OUTPUT_TEXTURE_FORMAT,
                 blend: Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::Constant,
@@ -390,6 +481,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         vertex_buffer,
         uniform_layout,
         texture_layout,
+        background_overlay_layout,
     })
 }
 
@@ -671,6 +763,22 @@ impl GpuCompositor {
         let background_view =
             background_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let overlay_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Overlay Texture"),
+            size: wgpu::Extent3d {
+                width: output_width.max(1),
+                height: output_height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let overlay_view = overlay_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         let video_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -703,6 +811,15 @@ impl GpuCompositor {
             ..Default::default()
         });
 
+        let overlay_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Output Texture"),
             size: wgpu::Extent3d {
@@ -713,8 +830,22 @@ impl GpuCompositor {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: OUTPUT_TEXTURE_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let nvenc_input_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("NVENC Input Texture"),
+            size: wgpu::Extent3d {
+                width: output_width,
+                height: output_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: OUTPUT_TEXTURE_FORMAT,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
@@ -735,6 +866,7 @@ impl GpuCompositor {
 
         let uniform_layout = shared.uniform_layout.clone();
         let texture_layout = shared.texture_layout.clone();
+        let background_overlay_layout = shared.background_overlay_layout.clone();
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Uniform BG"),
@@ -777,7 +909,7 @@ impl GpuCompositor {
 
         let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Background BG"),
-            layout: &texture_layout,
+            layout: &background_overlay_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -787,8 +919,37 @@ impl GpuCompositor {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&background_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&overlay_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&overlay_sampler),
+                },
             ],
         });
+
+        let overlay_clear = vec![0u8; (output_width.max(1) * output_height.max(1) * 4) as usize];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &overlay_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &overlay_clear,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(output_width.max(1) * 4),
+                rows_per_image: Some(output_height.max(1)),
+            },
+            wgpu::Extent3d {
+                width: output_width.max(1),
+                height: output_height.max(1),
+                depth_or_array_layers: 1,
+            },
+        );
 
         Ok(Self {
             device,
@@ -804,7 +965,9 @@ impl GpuCompositor {
             cursor_bind_group,
             background_texture,
             background_bind_group,
+            overlay_texture,
             output_texture,
+            nvenc_input_texture,
             output_buffers,
             readback_receivers,
             pending_readbacks: VecDeque::with_capacity(READBACK_RING_SIZE),
@@ -867,6 +1030,28 @@ impl GpuCompositor {
             wgpu::Extent3d {
                 width: self.background_width,
                 height: self.background_height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    pub fn upload_overlay(&self, rgba_data: &[u8]) {
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.overlay_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(self.width * 4),
+                rows_per_image: Some(self.height),
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
                 depth_or_array_layers: 1,
             },
         );
@@ -938,6 +1123,32 @@ impl GpuCompositor {
             },
         );
 
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    pub fn copy_output_to_nvenc_input(&self) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.output_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.nvenc_input_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
@@ -1040,6 +1251,10 @@ impl GpuCompositor {
         self.enqueue_output_readback()
     }
 
+    pub fn render_frame_to_output_only(&self, uniforms: &CompositorUniforms) {
+        self.render_to_output(uniforms);
+    }
+
     pub fn render_frame_into(
         &mut self,
         uniforms: &CompositorUniforms,
@@ -1053,6 +1268,44 @@ impl GpuCompositor {
         let mut out = Vec::with_capacity((self.width * self.height * 4) as usize);
         let _ = self.render_frame_into(uniforms, &mut out);
         out
+    }
+
+    pub fn readback_ring_capacity(&self) -> usize {
+        self.output_buffers.len()
+    }
+
+    pub fn wait_for_gpu_idle(&self) {
+        self.device.poll(wgpu::Maintain::Wait);
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn try_get_dx12_output_handles(&self) -> Result<Option<Dx12OutputHandles>, String> {
+        let texture = unsafe {
+            self.nvenc_input_texture
+                .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_texture| {
+                    hal_texture.map(|texture| com_interface_ptr(texture.raw_resource()))
+                })
+        };
+        let device = unsafe {
+            self.device
+                .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_device| {
+                    hal_device.map(|device| com_interface_ptr(device.raw_device()))
+                })
+        };
+        let queue = unsafe {
+            self.device
+                .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_device| {
+                    hal_device.map(|device| com_interface_ptr(device.raw_queue()))
+                })
+        };
+
+        match (device, queue, texture) {
+            (Some(device), Some(queue), Some(texture)) => {
+                Ok(Some(Dx12OutputHandles { device, queue, texture }))
+            }
+            (None, None, None) => Ok(None),
+            _ => Err("Failed to acquire matched DX12 device/texture handles".to_string()),
+        }
     }
 
     /// Render one sub-frame with additive blending (weight via blend constant).
@@ -1201,6 +1454,8 @@ struct Uniforms {
 
 @group(3) @binding(0) var bg_tex: texture_2d<f32>;
 @group(3) @binding(1) var bg_samp: sampler;
+@group(3) @binding(2) var overlay_tex: texture_2d<f32>;
+@group(3) @binding(3) var overlay_samp: sampler;
 
 struct VertexOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -1477,6 +1732,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }
     }
     
+    let overlay_col = textureSample(overlay_tex, overlay_samp, in.tex_coord);
+    col = mix(col, overlay_col, overlay_col.a);
     return col;
 }
 "#;
