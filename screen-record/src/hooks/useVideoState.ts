@@ -613,7 +613,7 @@ export function useExport(props: UseExportProps) {
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
-    width: 0, height: 0, fps: 60, targetVideoBitrateKbps: 0, speed: 1, outputDir: ''
+    width: 0, height: 0, fps: 60, targetVideoBitrateKbps: 0, speed: 1, exportProfile: 'max_speed', outputDir: ''
   });
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
@@ -636,6 +636,61 @@ export function useExport(props: UseExportProps) {
     props.savedRawVideoPath
   ]);
 
+  useEffect(() => {
+    if (isProcessing || !showExportDialog) return;
+    const videoEl = props.videoRef.current;
+    const canvasEl = props.canvasRef.current;
+    const segment = props.segment;
+    if (!props.currentVideo || !segment || !videoEl || !canvasEl) return;
+
+    const sourceVideoPath = resolveSourceVideoPath();
+    const timer = window.setTimeout(() => {
+      void videoExporter.primeExportPreparation({
+        width: exportOptions.width,
+        height: exportOptions.height,
+        fps: exportOptions.fps,
+        targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps,
+        speed: exportOptions.speed,
+        exportProfile: exportOptions.exportProfile || 'max_speed',
+        outputDir: exportOptions.outputDir || '',
+        video: videoEl,
+        canvas: canvasEl,
+        tempCanvas: props.tempCanvasRef.current!,
+        segment,
+        backgroundConfig: props.backgroundConfig,
+        mousePositions: props.mousePositions,
+        audio: props.audioRef.current || undefined,
+        audioFilePath: props.audioFilePath,
+        videoFilePath: sourceVideoPath
+      }).catch((error) => {
+        console.error('[ExportPrep] Warm preparation failed:', error);
+      });
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    isProcessing,
+    showExportDialog,
+    exportOptions.width,
+    exportOptions.height,
+    exportOptions.fps,
+    exportOptions.targetVideoBitrateKbps,
+    exportOptions.speed,
+    exportOptions.exportProfile,
+    props.currentVideo,
+    props.segment,
+    props.videoRef,
+    props.canvasRef,
+    props.tempCanvasRef,
+    props.backgroundConfig,
+    props.mousePositions,
+    props.audioRef,
+    props.audioFilePath,
+    resolveSourceVideoPath
+  ]);
+
   const startExport = useCallback(async () => {
     if (!props.currentVideo || !props.segment || !props.videoRef.current || !props.canvasRef.current) return;
     const sourceVideoPath = resolveSourceVideoPath();
@@ -647,9 +702,10 @@ export function useExport(props: UseExportProps) {
 
       await videoExporter.exportAndDownload({
         width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps, speed: exportOptions.speed,
+        exportProfile: exportOptions.exportProfile || 'max_speed',
         outputDir: exportOptions.outputDir || '',
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
-        segment: normalizeSegmentTrimData(props.segment, props.videoRef.current.duration || props.segment.trimEnd), backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
+        segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined,
         audioFilePath: props.audioFilePath,
         videoFilePath: sourceVideoPath,

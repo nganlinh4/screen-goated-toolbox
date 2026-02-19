@@ -1,6 +1,11 @@
 import type {
   ExportOptions,
   BackgroundConfig,
+  BakedCameraFrame,
+  BakedCursorFrame,
+  BakedKeystrokeOverlay,
+  BakedTextOverlay,
+  MousePosition,
   VideoSegment,
 } from '@/types/video';
 
@@ -482,9 +487,55 @@ export function getCanvasBaseDimensions(
   };
 }
 
+interface ExportPreparationContext {
+  segment: VideoSegment | null;
+  normalizedSegment: VideoSegment | null;
+  backgroundConfig?: BackgroundConfig;
+  mousePositions?: MousePosition[];
+  video: HTMLVideoElement | undefined;
+  videoDuration: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  width: number;
+  height: number;
+  fps: number;
+  targetVideoBitrateKbps: number;
+  trimBounds: { trimStart: number; trimEnd: number };
+  activeDuration: number;
+}
+
+interface PreparedBakePayload {
+  normalizedSegment: VideoSegment | null;
+  sourceWidth: number;
+  sourceHeight: number;
+  width: number;
+  height: number;
+  fps: number;
+  trimBounds: { trimStart: number; trimEnd: number };
+  activeDuration: number;
+  bakedPath: BakedCameraFrame[];
+  bakedCursorPath: BakedCursorFrame[];
+  bakedTextOverlays: BakedTextOverlay[];
+  bakedKeystrokeOverlays: BakedKeystrokeOverlay[];
+}
+
+interface PreparedBakeCacheEntry {
+  payload: PreparedBakePayload;
+  estimatedBytes: number;
+}
+
 export class VideoExporter {
   private isExporting = false;
+  private readonly prepCache = new Map<string, PreparedBakeCacheEntry>();
+  private readonly prepInFlight = new Map<string, Promise<PreparedBakePayload>>();
+  private readonly objectIds = new WeakMap<object, number>();
+  private nextObjectId = 1;
+  private prepCacheBytes = 0;
+
   private static readonly MAX_INLINE_MEDIA_BYTES = 128 * 1024 * 1024;
+  private static readonly MAX_PREP_CACHE_BYTES = 512 * 1024 * 1024;
+  private static readonly MAX_PREP_CACHE_ENTRIES = 10;
+
   private async yieldToUiFrame() {
     await new Promise<void>((resolve) => {
       if (typeof requestAnimationFrame === 'function') {
@@ -493,6 +544,245 @@ export class VideoExporter {
         setTimeout(() => resolve(), 0);
       }
     });
+  }
+
+  private getObjectId(value: object | null | undefined): number {
+    if (!value) return 0;
+    const existing = this.objectIds.get(value);
+    if (existing) return existing;
+    const id = this.nextObjectId++;
+    this.objectIds.set(value, id);
+    return id;
+  }
+
+  private estimateOverlayDataBytes(data: number[] | string): number {
+    return typeof data === 'string'
+      ? Math.floor((data.length * 3) / 4)
+      : data.length;
+  }
+
+  private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
+    const cameraBytes = payload.bakedPath.length * 32;
+    const cursorBytes = payload.bakedCursorPath.length * 48;
+    const textBytes = payload.bakedTextOverlays.reduce(
+      (sum, overlay) => sum + this.estimateOverlayDataBytes(overlay.data) + 64,
+      0
+    );
+    const keystrokeBytes = payload.bakedKeystrokeOverlays.reduce(
+      (sum, overlay) => sum + this.estimateOverlayDataBytes(overlay.data) + 64,
+      0
+    );
+    return cameraBytes + cursorBytes + textBytes + keystrokeBytes;
+  }
+
+  private prunePreparationCache(requiredBytes = 0) {
+    while (
+      this.prepCache.size > 0 &&
+      (
+        this.prepCacheBytes + requiredBytes > VideoExporter.MAX_PREP_CACHE_BYTES ||
+        this.prepCache.size >= VideoExporter.MAX_PREP_CACHE_ENTRIES
+      )
+    ) {
+      const oldestKey = this.prepCache.keys().next().value;
+      if (!oldestKey) break;
+      const oldest = this.prepCache.get(oldestKey);
+      if (oldest) {
+        this.prepCacheBytes = Math.max(0, this.prepCacheBytes - oldest.estimatedBytes);
+      }
+      this.prepCache.delete(oldestKey);
+    }
+  }
+
+  private rememberPreparedPayload(cacheKey: string, payload: PreparedBakePayload) {
+    const estimatedBytes = this.estimatePreparedPayloadBytes(payload);
+    if (estimatedBytes >= VideoExporter.MAX_PREP_CACHE_BYTES) {
+      return;
+    }
+
+    const existing = this.prepCache.get(cacheKey);
+    if (existing) {
+      this.prepCacheBytes = Math.max(0, this.prepCacheBytes - existing.estimatedBytes);
+      this.prepCache.delete(cacheKey);
+    }
+
+    this.prunePreparationCache(estimatedBytes);
+    this.prepCache.set(cacheKey, { payload, estimatedBytes });
+    this.prepCacheBytes += estimatedBytes;
+  }
+
+  private getCachedPreparedPayload(cacheKey: string): PreparedBakePayload | null {
+    const cached = this.prepCache.get(cacheKey);
+    if (!cached) return null;
+    this.prepCache.delete(cacheKey);
+    this.prepCache.set(cacheKey, cached);
+    return cached.payload;
+  }
+
+  private buildPreparationContext(options: ExportOptions & {
+    audioFilePath: string;
+    videoFilePath?: string;
+    audio?: HTMLAudioElement | null;
+  }): ExportPreparationContext {
+    const {
+      video,
+      segment,
+      backgroundConfig,
+      targetVideoBitrateKbps: requestedTargetVideoBitrateKbps = 0,
+    } = options;
+
+    const normalizedSegment = segment && video
+      ? normalizeSegmentTrimData(segment, video.duration || segment.trimEnd)
+      : segment ?? null;
+
+    const sourceWidth = video?.videoWidth || 1920;
+    const sourceHeight = video?.videoHeight || 1080;
+    const { baseW, baseH } = getCanvasBaseDimensions(sourceWidth, sourceHeight, normalizedSegment, backgroundConfig);
+    const { width, height } = resolveExportDimensions(options.width, options.height, baseW, baseH);
+    const fps = options.fps || 60;
+    const suggestedVideoBitrateKbps = computeSuggestedVideoBitrateKbps(width, height, fps);
+    const targetVideoBitrateKbps = clamp(
+      requestedTargetVideoBitrateKbps > 0 ? requestedTargetVideoBitrateKbps : suggestedVideoBitrateKbps,
+      MIN_VIDEO_BITRATE_KBPS,
+      MAX_VIDEO_BITRATE_KBPS
+    );
+
+    const videoDurationRaw = video?.duration;
+    const videoDuration = Number.isFinite(videoDurationRaw)
+      ? Number(videoDurationRaw)
+      : (normalizedSegment?.trimEnd || 0);
+    const trimBounds = normalizedSegment
+      ? getTrimBounds(normalizedSegment, videoDuration || normalizedSegment.trimEnd)
+      : { trimStart: 0, trimEnd: 0 };
+    const activeDuration = normalizedSegment
+      ? getTotalTrimDuration(normalizedSegment, videoDuration || normalizedSegment.trimEnd)
+      : 0;
+
+    return {
+      segment: segment ?? null,
+      normalizedSegment,
+      backgroundConfig,
+      mousePositions: options.mousePositions,
+      video,
+      videoDuration,
+      sourceWidth,
+      sourceHeight,
+      width,
+      height,
+      fps,
+      targetVideoBitrateKbps,
+      trimBounds,
+      activeDuration
+    };
+  }
+
+  private buildPreparationCacheKey(context: ExportPreparationContext): string {
+    const segmentId = this.getObjectId(context.segment as object | null);
+    const mouseId = this.getObjectId((context.mousePositions ?? null) as object | null);
+    const backgroundId = this.getObjectId((context.backgroundConfig ?? null) as object | null);
+    const segment = context.segment;
+    const segmentStamp = segment
+      ? [
+        segment.trimStart.toFixed(4),
+        segment.trimEnd.toFixed(4),
+        segment.zoomKeyframes?.length || 0,
+        segment.textSegments?.length || 0,
+        segment.trimSegments?.length || 0,
+        segment.keystrokeEvents?.length || 0,
+        segment.cursorVisibilitySegments?.length || 0
+      ].join(':')
+      : 'none';
+    const mousePositions = context.mousePositions ?? [];
+    const mouseLastTs = mousePositions.length > 0 ? mousePositions[mousePositions.length - 1].timestamp : 0;
+    const bg = context.backgroundConfig;
+    const backgroundStamp = bg
+      ? `${bg.backgroundType}:${bg.scale}:${bg.borderRadius}:${bg.cursorScale ?? 0}:${bg.motionBlurCursor ?? 0}:${bg.motionBlurZoom ?? 0}:${bg.motionBlurPan ?? 0}`
+      : 'none';
+    return [
+      segmentId,
+      segmentStamp,
+      mouseId,
+      `${mousePositions.length}:${mouseLastTs.toFixed(3)}`,
+      backgroundId,
+      backgroundStamp,
+      `${context.sourceWidth}x${context.sourceHeight}`,
+      `${context.width}x${context.height}`,
+      `fps:${context.fps}`,
+      `dur:${context.videoDuration.toFixed(4)}`,
+      `trim:${context.trimBounds.trimStart.toFixed(4)}-${context.trimBounds.trimEnd.toFixed(4)}`
+    ].join('|');
+  }
+
+  private async computePreparedPayload(context: ExportPreparationContext): Promise<PreparedBakePayload> {
+    const { normalizedSegment } = context;
+
+    await this.yieldToUiFrame();
+    const bakedPath = normalizedSegment
+      ? videoRenderer.generateBakedPath(normalizedSegment, context.sourceWidth, context.sourceHeight, context.fps)
+      : [];
+
+    await this.yieldToUiFrame();
+    const bakedCursorPath = normalizedSegment && context.mousePositions
+      ? videoRenderer.generateBakedCursorPath(normalizedSegment, context.mousePositions, context.backgroundConfig, context.fps)
+      : [];
+
+    await this.yieldToUiFrame();
+    const bakedTextOverlays = normalizedSegment
+      ? videoRenderer.bakeTextOverlays(normalizedSegment, context.width, context.height)
+      : [];
+
+    await this.yieldToUiFrame();
+    const bakedKeystrokeOverlays = normalizedSegment
+      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, context.width, context.height, context.fps)
+      : [];
+
+    return {
+      normalizedSegment,
+      sourceWidth: context.sourceWidth,
+      sourceHeight: context.sourceHeight,
+      width: context.width,
+      height: context.height,
+      fps: context.fps,
+      trimBounds: context.trimBounds,
+      activeDuration: context.activeDuration,
+      bakedPath,
+      bakedCursorPath,
+      bakedTextOverlays,
+      bakedKeystrokeOverlays
+    };
+  }
+
+  private async getPreparedPayload(context: ExportPreparationContext): Promise<PreparedBakePayload> {
+    const cacheKey = this.buildPreparationCacheKey(context);
+    const cached = this.getCachedPreparedPayload(cacheKey);
+    if (cached) return cached;
+
+    const inFlight = this.prepInFlight.get(cacheKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const promise = this.computePreparedPayload(context)
+      .then((payload) => {
+        this.rememberPreparedPayload(cacheKey, payload);
+        return payload;
+      })
+      .finally(() => {
+        this.prepInFlight.delete(cacheKey);
+      });
+
+    this.prepInFlight.set(cacheKey, promise);
+    return promise;
+  }
+
+  async primeExportPreparation(options: ExportOptions & {
+    audioFilePath: string;
+    videoFilePath?: string;
+    audio?: HTMLAudioElement | null;
+  }) {
+    if (this.isExporting) return;
+    if (!options.video || !options.segment) return;
+    const context = this.buildPreparationContext(options);
+    await this.getPreparedPayload(context);
   }
 
   async exportAndDownload(options: ExportOptions & {
@@ -506,161 +796,120 @@ export class VideoExporter {
     this.isExporting = true;
     await this.yieldToUiFrame();
 
-    const {
-      video,
-      segment,
-      backgroundConfig,
-      mousePositions,
-      speed = 1,
-      targetVideoBitrateKbps: requestedTargetVideoBitrateKbps = 0,
-      audioFilePath,
-      videoFilePath,
-      audio
-    } = options;
-    const normalizedSegment = segment && video
-      ? normalizeSegmentTrimData(segment, video.duration || segment.trimEnd)
-      : segment ?? null;
-
-    const vidW = video?.videoWidth || 1920;
-    const vidH = video?.videoHeight || 1080;
-    const { baseW, baseH } = getCanvasBaseDimensions(vidW, vidH, normalizedSegment, backgroundConfig);
-
-    const { width, height } = resolveExportDimensions(options.width, options.height, baseW, baseH);
-
-    const fps = options.fps || 60;
-    const suggestedVideoBitrateKbps = computeSuggestedVideoBitrateKbps(width, height, fps);
-    const targetVideoBitrateKbps = clamp(
-      requestedTargetVideoBitrateKbps > 0 ? requestedTargetVideoBitrateKbps : suggestedVideoBitrateKbps,
-      MIN_VIDEO_BITRATE_KBPS,
-      MAX_VIDEO_BITRATE_KBPS
-    );
-
-    // 1. Bake camera path
-    await this.yieldToUiFrame();
-    const bakedPath = normalizedSegment ? videoRenderer.generateBakedPath(normalizedSegment, vidW, vidH, fps) : [];
-
-    // 2. Bake cursor path
-    await this.yieldToUiFrame();
-    const bakedCursorPath = normalizedSegment && mousePositions
-      ? videoRenderer.generateBakedCursorPath(normalizedSegment, mousePositions, backgroundConfig, fps)
-      : [];
-
-    // 3. Bake text overlays
-    await this.yieldToUiFrame();
-    const bakedTextOverlays = normalizedSegment ? videoRenderer.bakeTextOverlays(normalizedSegment, width, height) : [];
-    await this.yieldToUiFrame();
-    const bakedKeystrokeOverlays = normalizedSegment
-      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, width, height, fps)
-      : [];
-
-    // Convert media blobs to arrays for Rust only when we do not have a native source path.
-    // Large recordings should flow by file path to avoid huge JS allocations.
-    let videoDataArray: number[] | null = null;
-    let audioDataArray: number[] | null = null;
-    const sourceVideoPath = (videoFilePath || '').trim();
-
-    if (!sourceVideoPath && video && video.src && video.src.startsWith('blob:')) {
-      try {
-        const resp = await fetch(video.src);
-        const blob = await resp.blob();
-        if (blob.size > VideoExporter.MAX_INLINE_MEDIA_BYTES) {
-          throw new Error(
-            `Video blob too large for inline transfer (${Math.round(blob.size / (1024 * 1024))} MB). ` +
-            'A native source file path is required for large projects.'
-          );
-        }
-        const buffer = await blob.arrayBuffer();
-        videoDataArray = Array.from(new Uint8Array(buffer));
-      } catch (e) {
-        console.error('Failed to extract video data', e);
-        const message = e instanceof Error ? e.message : String(e);
-        throw new Error(`Failed to prepare video for export: ${message}`);
-      }
-    }
-
-    if (audio && audio.src && audio.src.startsWith('blob:') && !audioFilePath) {
-      try {
-        const resp = await fetch(audio.src);
-        const blob = await resp.blob();
-        const buffer = await blob.arrayBuffer();
-        audioDataArray = Array.from(new Uint8Array(buffer));
-      } catch (e) {
-        console.error('Failed to extract audio data', e);
-      }
-    }
-
-    const trimBounds = normalizedSegment
-      ? getTrimBounds(normalizedSegment, video?.duration || normalizedSegment.trimEnd)
-      : { trimStart: 0, trimEnd: 0 };
-    const activeDuration = normalizedSegment
-      ? getTotalTrimDuration(normalizedSegment, video?.duration || normalizedSegment.trimEnd)
-      : 0;
-    const hasAudio = Boolean((audioFilePath || '').trim() || audioDataArray || (audio && audio.src));
-    const estimateProfileKey = getExportEstimateProfileKey({
-      width,
-      height,
-      fps,
-      targetVideoBitrateKbps,
-      outputDurationSec: activeDuration / Math.max(0.1, speed),
-      speed,
-      hasAudio,
-      backgroundConfig,
-      segment: normalizedSegment
-    });
-
-    const exportConfig = {
-      width,
-      height,
-      sourceWidth: vidW,
-      sourceHeight: vidH,
-      sourceVideoPath,
-      framerate: fps,
-      targetVideoBitrateKbps,
-      audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
-      audioPath: audioFilePath,
-      outputDir: options.outputDir || '',
-      trimStart: trimBounds.trimStart,
-      duration: activeDuration,
-      speed,
-      segment: normalizedSegment,
-      backgroundConfig,
-      videoData: videoDataArray,
-      audioData: audioDataArray,
-      bakedPath,
-      bakedCursorPath,
-      bakedTextOverlays,
-      bakedKeystrokeOverlays
-    };
-
-    // @ts-ignore
-    const { invoke } = window.__TAURI__.core;
-
     try {
-      const res = await invoke('start_export_server', exportConfig) as {
-        status?: string;
-        path?: string;
-        bytes?: number;
-      };
-      if (res?.status === 'success' && typeof res.bytes === 'number' && activeDuration > 0) {
-        const uncalibrated = estimateExportSize({
-          width,
-          height,
-          fps,
-          targetVideoBitrateKbps,
-          trimmedDurationSec: activeDuration,
-          speed,
-          hasAudio,
-          audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
-          backgroundConfig,
-          segment: normalizedSegment,
-          calibrationProfileKey: estimateProfileKey,
-          calibration: { ratio: 1, samples: 0 }
-        });
-        recordExportEstimateResult(uncalibrated.estimatedBytes, res.bytes, estimateProfileKey);
+      const {
+        speed = 1,
+        audioFilePath,
+        videoFilePath,
+        audio
+      } = options;
+      const context = this.buildPreparationContext(options);
+      const prepared = await this.getPreparedPayload(context);
+
+      // Convert media blobs to arrays for Rust only when we do not have a native source path.
+      // Large recordings should flow by file path to avoid huge JS allocations.
+      let videoDataArray: number[] | null = null;
+      let audioDataArray: number[] | null = null;
+      const sourceVideoPath = (videoFilePath || '').trim();
+
+      if (!sourceVideoPath && context.video && context.video.src && context.video.src.startsWith('blob:')) {
+        try {
+          const resp = await fetch(context.video.src);
+          const blob = await resp.blob();
+          if (blob.size > VideoExporter.MAX_INLINE_MEDIA_BYTES) {
+            throw new Error(
+              `Video blob too large for inline transfer (${Math.round(blob.size / (1024 * 1024))} MB). ` +
+              'A native source file path is required for large projects.'
+            );
+          }
+          const buffer = await blob.arrayBuffer();
+          videoDataArray = Array.from(new Uint8Array(buffer));
+        } catch (e) {
+          console.error('Failed to extract video data', e);
+          const message = e instanceof Error ? e.message : String(e);
+          throw new Error(`Failed to prepare video for export: ${message}`);
+        }
       }
-    } catch (e) {
-      console.error('Native Export Failed:', e);
-      throw e;
+
+      if (audio && audio.src && audio.src.startsWith('blob:') && !audioFilePath) {
+        try {
+          const resp = await fetch(audio.src);
+          const blob = await resp.blob();
+          const buffer = await blob.arrayBuffer();
+          audioDataArray = Array.from(new Uint8Array(buffer));
+        } catch (e) {
+          console.error('Failed to extract audio data', e);
+        }
+      }
+
+      const hasAudio = Boolean((audioFilePath || '').trim() || audioDataArray || (audio && audio.src));
+      const estimateProfileKey = getExportEstimateProfileKey({
+        width: prepared.width,
+        height: prepared.height,
+        fps: prepared.fps,
+        targetVideoBitrateKbps: context.targetVideoBitrateKbps,
+        outputDurationSec: prepared.activeDuration / Math.max(0.1, speed),
+        speed,
+        hasAudio,
+        backgroundConfig: context.backgroundConfig,
+        segment: prepared.normalizedSegment
+      });
+
+      const exportConfig = {
+        width: prepared.width,
+        height: prepared.height,
+        sourceWidth: prepared.sourceWidth,
+        sourceHeight: prepared.sourceHeight,
+        sourceVideoPath,
+        framerate: prepared.fps,
+        targetVideoBitrateKbps: context.targetVideoBitrateKbps,
+        audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
+        exportProfile: options.exportProfile || 'balanced',
+        audioPath: audioFilePath,
+        outputDir: options.outputDir || '',
+        trimStart: prepared.trimBounds.trimStart,
+        duration: prepared.activeDuration,
+        speed,
+        segment: prepared.normalizedSegment,
+        backgroundConfig: context.backgroundConfig,
+        videoData: videoDataArray,
+        audioData: audioDataArray,
+        bakedPath: prepared.bakedPath,
+        bakedCursorPath: prepared.bakedCursorPath,
+        bakedTextOverlays: prepared.bakedTextOverlays,
+        bakedKeystrokeOverlays: prepared.bakedKeystrokeOverlays
+      };
+
+      // @ts-ignore
+      const { invoke } = window.__TAURI__.core;
+
+      try {
+        const res = await invoke('start_export_server', exportConfig) as {
+          status?: string;
+          path?: string;
+          bytes?: number;
+        };
+        if (res?.status === 'success' && typeof res.bytes === 'number' && prepared.activeDuration > 0) {
+          const uncalibrated = estimateExportSize({
+            width: prepared.width,
+            height: prepared.height,
+            fps: prepared.fps,
+            targetVideoBitrateKbps: context.targetVideoBitrateKbps,
+            trimmedDurationSec: prepared.activeDuration,
+            speed,
+            hasAudio,
+            audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
+            backgroundConfig: context.backgroundConfig,
+            segment: prepared.normalizedSegment,
+            calibrationProfileKey: estimateProfileKey,
+            calibration: { ratio: 1, samples: 0 }
+          });
+          recordExportEstimateResult(uncalibrated.estimatedBytes, res.bytes, estimateProfileKey);
+        }
+      } catch (e) {
+        console.error('Native Export Failed:', e);
+        throw e;
+      }
     } finally {
       this.isExporting = false;
     }

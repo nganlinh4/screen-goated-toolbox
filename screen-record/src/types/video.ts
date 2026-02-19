@@ -193,7 +193,7 @@ export interface BakedTextOverlay {
   y: number;      // pixel y of bitmap top-left in output canvas
   width: number;  // bitmap width
   height: number; // bitmap height
-  data: number[]; // raw RGBA bytes (opacity already baked in)
+  data: number[] | string; // raw RGBA bytes or base64-encoded RGBA
 }
 
 export interface BakedKeystrokeOverlay {
@@ -212,6 +212,7 @@ export interface ExportOptions {
   fps: number;     // 24, 30, or 60
   targetVideoBitrateKbps: number;
   speed: number;
+  exportProfile?: 'balanced' | 'max_speed' | 'quality_strict';
   outputDir?: string;
   video?: HTMLVideoElement;
   canvas?: HTMLCanvasElement;

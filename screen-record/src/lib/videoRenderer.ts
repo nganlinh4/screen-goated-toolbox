@@ -5055,6 +5055,7 @@ export class VideoRenderer {
       }
 
       const imageData = ctx.getImageData(cropX, cropY, cropW, cropH);
+      const encodedData = this.encodeBytesToBase64(imageData.data);
       offscreen.remove();
       const compactRanges = sourceRangeToCompactRanges(textSeg.startTime, textSeg.endTime, segment, duration);
       for (const range of compactRanges) {
@@ -5065,7 +5066,7 @@ export class VideoRenderer {
           y: cropY,
           width: cropW,
           height: cropH,
-          data: Array.from(imageData.data)
+          data: encodedData
         });
       }
     }

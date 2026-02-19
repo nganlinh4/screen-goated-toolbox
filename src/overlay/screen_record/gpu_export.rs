@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{Options, Tree};
+use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::{Arc, OnceLock};
 use tiny_skia::{Pixmap, Transform};
@@ -82,7 +83,10 @@ pub struct GpuCompositor {
     background_texture: wgpu::Texture,
     background_bind_group: wgpu::BindGroup,
     output_texture: wgpu::Texture,
-    output_buffer: wgpu::Buffer,
+    output_buffers: Vec<wgpu::Buffer>,
+    readback_receivers: Vec<Option<std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>>,
+    pending_readbacks: VecDeque<usize>,
+    next_readback_slot: usize,
     width: u32,
     height: u32,
     background_width: u32,
@@ -183,6 +187,7 @@ const CURSOR_ATLAS_COLS: u32 = 9;
 const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
 const CURSOR_ATLAS_ROWS: u32 = (CURSOR_ATLAS_SLOTS + CURSOR_ATLAS_COLS - 1) / CURSOR_ATLAS_COLS;
 const CURSOR_TILE_SIZE: u32 = 512;
+const READBACK_RING_SIZE: usize = 3;
 static SHARED_GPU_CONTEXT: OnceLock<Result<SharedGpuContext, String>> = OnceLock::new();
 static CURSOR_TILE_CACHE: OnceLock<Mutex<Vec<Option<Arc<Vec<u8>>>>>> = OnceLock::new();
 
@@ -717,12 +722,16 @@ impl GpuCompositor {
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
         let output_buffer_size = (padded_bytes_per_row * output_height) as u64;
-        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Output Buffer"),
-            size: output_buffer_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        let mut output_buffers = Vec::with_capacity(READBACK_RING_SIZE);
+        for idx in 0..READBACK_RING_SIZE {
+            output_buffers.push(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("Output Buffer {}", idx)),
+                size: output_buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }));
+        }
+        let readback_receivers = (0..READBACK_RING_SIZE).map(|_| None).collect();
 
         let uniform_layout = shared.uniform_layout.clone();
         let texture_layout = shared.texture_layout.clone();
@@ -796,7 +805,10 @@ impl GpuCompositor {
             background_texture,
             background_bind_group,
             output_texture,
-            output_buffer,
+            output_buffers,
+            readback_receivers,
+            pending_readbacks: VecDeque::with_capacity(READBACK_RING_SIZE),
+            next_readback_slot: 0,
             width: output_width,
             height: output_height,
             background_width: background_width.max(1),
@@ -860,7 +872,7 @@ impl GpuCompositor {
         );
     }
 
-    pub fn render_frame_into(&self, uniforms: &CompositorUniforms, out: &mut Vec<u8>) {
+    fn render_to_output(&self, uniforms: &CompositorUniforms) {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
 
@@ -896,6 +908,14 @@ impl GpuCompositor {
             pass.draw(0..6, 0..1);
         }
 
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    fn copy_output_to_readback_slot(&self, slot: usize) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.output_texture,
@@ -904,7 +924,7 @@ impl GpuCompositor {
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: &self.output_buffer,
+                buffer: &self.output_buffers[slot],
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(self.padded_bytes_per_row),
@@ -919,15 +939,32 @@ impl GpuCompositor {
         );
 
         self.queue.submit(std::iter::once(encoder.finish()));
+    }
 
-        let buffer_slice = self.output_buffer.slice(..);
+    pub fn enqueue_output_readback(&mut self) -> Result<(), String> {
+        if self.pending_readbacks.len() >= self.output_buffers.len() {
+            return Err("Readback ring overflow: pending frames were not drained".to_string());
+        }
+
+        let slot = self.next_readback_slot;
+        self.next_readback_slot = (self.next_readback_slot + 1) % self.output_buffers.len();
+        if self.pending_readbacks.iter().any(|pending| *pending == slot) {
+            return Err("Readback slot reuse before previous map completed".to_string());
+        }
+
+        self.copy_output_to_readback_slot(slot);
+        let buffer_slice = self.output_buffers[slot].slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            let _ = tx.send(result);
         });
-        self.device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().unwrap();
+        self.readback_receivers[slot] = Some(rx);
+        self.pending_readbacks.push_back(slot);
+        Ok(())
+    }
 
+    fn copy_slot_into_vec(&self, slot: usize, out: &mut Vec<u8>) {
+        let buffer_slice = self.output_buffers[slot].slice(..);
         let data = buffer_slice.get_mapped_range();
         let unpadded = self.width * 4;
         if self.padded_bytes_per_row == unpadded {
@@ -941,18 +978,86 @@ impl GpuCompositor {
             }
         }
         drop(data);
-        self.output_buffer.unmap();
+        self.output_buffers[slot].unmap();
     }
 
-    pub fn render_frame(&self, uniforms: &CompositorUniforms) -> Vec<u8> {
+    fn drain_next_readback(&mut self, out: &mut Vec<u8>, blocking: bool) -> Result<bool, String> {
+        self.device.poll(if blocking {
+            wgpu::Maintain::Wait
+        } else {
+            wgpu::Maintain::Poll
+        });
+
+        let Some(&slot) = self.pending_readbacks.front() else {
+            return Ok(false);
+        };
+
+        let map_status = {
+            let rx = self.readback_receivers[slot]
+                .as_ref()
+                .ok_or_else(|| "Missing readback receiver".to_string())?;
+            if blocking {
+                match rx.recv() {
+                    Ok(result) => Some(result),
+                    Err(err) => return Err(format!("GPU readback channel failed: {}", err)),
+                }
+            } else {
+                match rx.try_recv() {
+                    Ok(result) => Some(result),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        return Err("GPU readback channel disconnected".to_string())
+                    }
+                }
+            }
+        };
+
+        let Some(status) = map_status else {
+            return Ok(false);
+        };
+        status.map_err(|e| format!("GPU buffer map failed: {}", e))?;
+
+        self.readback_receivers[slot] = None;
+        let _ = self.pending_readbacks.pop_front();
+        self.copy_slot_into_vec(slot, out);
+        Ok(true)
+    }
+
+    pub fn try_readback_output(&mut self, out: &mut Vec<u8>) -> Result<bool, String> {
+        self.drain_next_readback(out, false)
+    }
+
+    pub fn readback_output(&mut self, out: &mut Vec<u8>) -> Result<(), String> {
+        let _ = self.drain_next_readback(out, true)?;
+        Ok(())
+    }
+
+    pub fn render_frame_enqueue_readback(
+        &mut self,
+        uniforms: &CompositorUniforms,
+    ) -> Result<(), String> {
+        self.render_to_output(uniforms);
+        self.enqueue_output_readback()
+    }
+
+    pub fn render_frame_into(
+        &mut self,
+        uniforms: &CompositorUniforms,
+        out: &mut Vec<u8>,
+    ) -> Result<(), String> {
+        self.render_frame_enqueue_readback(uniforms)?;
+        self.readback_output(out)
+    }
+
+    pub fn render_frame(&mut self, uniforms: &CompositorUniforms) -> Vec<u8> {
         let mut out = Vec::with_capacity((self.width * self.height * 4) as usize);
-        self.render_frame_into(uniforms, &mut out);
+        let _ = self.render_frame_into(uniforms, &mut out);
         out
     }
 
     /// Render one sub-frame with additive blending (weight via blend constant).
-    /// GPU-only — no CPU readback. Call `readback_output` once after all sub-frames.
-    pub fn render_accumulate(&self, uniforms: &CompositorUniforms, clear: bool, weight: f64) {
+    /// GPU-only — no CPU readback. Call `enqueue_output_readback` once after all sub-frames.
+    pub fn render_accumulate(&mut self, uniforms: &CompositorUniforms, clear: bool, weight: f64) {
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
 
@@ -1000,60 +1105,6 @@ impl GpuCompositor {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-    }
-
-    /// Read back the current output texture to CPU. Call after render_accumulate loop.
-    pub fn readback_output(&self, out: &mut Vec<u8>) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.output_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &self.output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.padded_bytes_per_row),
-                    rows_per_image: Some(self.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        self.queue.submit(std::iter::once(encoder.finish()));
-
-        let buffer_slice = self.output_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
-        });
-        self.device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().unwrap();
-
-        let data = buffer_slice.get_mapped_range();
-        let unpadded = self.width * 4;
-        if self.padded_bytes_per_row == unpadded {
-            out.clear();
-            out.extend_from_slice(&data);
-        } else {
-            out.clear();
-            out.reserve((unpadded * self.height) as usize);
-            for row in data.chunks(self.padded_bytes_per_row as usize) {
-                out.extend_from_slice(&row[..unpadded as usize]);
-            }
-        }
-        drop(data);
-        self.output_buffer.unmap();
     }
 }
 
