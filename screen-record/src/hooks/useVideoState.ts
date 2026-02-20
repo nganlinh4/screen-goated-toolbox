@@ -622,6 +622,7 @@ export function useExport(props: UseExportProps) {
     preferNvTurbo: true,
     qualityGatePercent: 3,
     turboCodec: 'hevc',
+    preRenderPolicy: 'aggressive',
     outputDir: ''
   });
   const [hasCheckedExportCapabilities, setHasCheckedExportCapabilities] = useState(false);
@@ -722,6 +723,7 @@ export function useExport(props: UseExportProps) {
         preferNvTurbo: exportOptions.preferNvTurbo ?? true,
         qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
         turboCodec: exportOptions.turboCodec || 'hevc',
+        preRenderPolicy: exportOptions.preRenderPolicy || 'idle_only',
         outputDir: exportOptions.outputDir || '',
         video: videoEl,
         canvas: canvasEl,
@@ -737,12 +739,21 @@ export function useExport(props: UseExportProps) {
       });
     };
 
+    const preRenderPolicy = exportOptions.preRenderPolicy || 'idle_only';
+    if (preRenderPolicy === 'off') {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     let idleId = 0;
     const idleApi = (window as Window & {
       requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
       cancelIdleCallback?: (id: number) => void;
     });
-    if (typeof idleApi.requestIdleCallback === 'function') {
+    if (preRenderPolicy === 'aggressive') {
+      idleId = window.setTimeout(runPrime, 80);
+    } else if (typeof idleApi.requestIdleCallback === 'function') {
       idleId = idleApi.requestIdleCallback(runPrime, { timeout: 1500 });
     } else {
       idleId = window.setTimeout(runPrime, 700);
@@ -779,17 +790,21 @@ export function useExport(props: UseExportProps) {
     exportOptions.preferNvTurbo,
     exportOptions.qualityGatePercent,
     exportOptions.turboCodec,
+    exportOptions.preRenderPolicy,
     exportOptions.outputDir
   ]);
 
   useEffect(() => {
     if (isProcessing || !showExportDialog || !hasCheckedExportCapabilities) return;
+    const preRenderPolicy = exportOptions.preRenderPolicy || 'idle_only';
+    if (preRenderPolicy === 'off') return;
     const videoEl = props.videoRef.current;
     const canvasEl = props.canvasRef.current;
     const segment = props.segment;
     if (!props.currentVideo || !segment || !videoEl || !canvasEl) return;
 
     const sourceVideoPath = resolveSourceVideoPath();
+    const primeDelayMs = preRenderPolicy === 'aggressive' ? 32 : 220;
     const timer = window.setTimeout(() => {
       void videoExporter.primeExportPreparation({
         width: exportOptions.width,
@@ -801,6 +816,7 @@ export function useExport(props: UseExportProps) {
         preferNvTurbo: exportOptions.preferNvTurbo ?? true,
         qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
         turboCodec: exportOptions.turboCodec || 'hevc',
+        preRenderPolicy: exportOptions.preRenderPolicy || 'idle_only',
         outputDir: exportOptions.outputDir || '',
         video: videoEl,
         canvas: canvasEl,
@@ -814,7 +830,7 @@ export function useExport(props: UseExportProps) {
       }).catch((error) => {
         console.error('[ExportPrep] Warm preparation failed:', error);
       });
-    }, 220);
+    }, primeDelayMs);
 
     return () => {
       window.clearTimeout(timer);
@@ -829,6 +845,11 @@ export function useExport(props: UseExportProps) {
     exportOptions.targetVideoBitrateKbps,
     exportOptions.speed,
     exportOptions.exportProfile,
+    exportOptions.preferNvTurbo,
+    exportOptions.qualityGatePercent,
+    exportOptions.turboCodec,
+    exportOptions.preRenderPolicy,
+    exportOptions.outputDir,
     props.currentVideo,
     props.segment,
     props.videoRef,
@@ -856,6 +877,7 @@ export function useExport(props: UseExportProps) {
         preferNvTurbo: exportOptions.preferNvTurbo ?? true,
         qualityGatePercent: exportOptions.qualityGatePercent ?? 3,
         turboCodec: exportOptions.turboCodec || 'hevc',
+        preRenderPolicy: exportOptions.preRenderPolicy || 'idle_only',
         outputDir: exportOptions.outputDir || '',
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
         segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,

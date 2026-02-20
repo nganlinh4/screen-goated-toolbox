@@ -28,3 +28,4 @@ dist/
 
 # Screen Record artifacts
 src/overlay/screen_record/dist/
+target_replay

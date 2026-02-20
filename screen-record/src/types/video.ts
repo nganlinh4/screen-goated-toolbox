@@ -216,6 +216,7 @@ export interface ExportOptions {
   preferNvTurbo?: boolean;
   qualityGatePercent?: number;
   turboCodec?: 'hevc' | 'h264';
+  preRenderPolicy?: 'off' | 'idle_only' | 'aggressive';
   exportDiagnostics?: boolean;
   outputDir?: string;
   video?: HTMLVideoElement;

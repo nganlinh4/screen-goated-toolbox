@@ -33,7 +33,6 @@ pub mod engine;
 pub mod gpu_export;
 pub mod keysee_capture;
 pub mod native_export;
-pub mod nvenc_sdk_export;
 
 // Re-exports
 pub use ffmpeg::{get_ffmpeg_path, get_ffprobe_path};

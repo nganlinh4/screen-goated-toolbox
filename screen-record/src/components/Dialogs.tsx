@@ -260,13 +260,6 @@ export function ExportDialog({
       };
     }
     if (wantsTurbo) {
-      if (exportCapabilities.nvencSdkEnabled) {
-        return {
-          label: `SDK NVENC Turbo (${turboCodecLabel})`,
-          detail: 'Auto fallback FFmpeg NVENC/CPU nếu cần',
-          tone: 'text-emerald-300'
-        };
-      }
       if (exportCapabilities.nvencAvailable) {
         return {
           label: `FFmpeg NVENC Turbo (${turboCodecLabel})`,

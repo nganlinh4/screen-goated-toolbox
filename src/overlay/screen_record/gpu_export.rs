@@ -1,7 +1,5 @@
 use bytemuck::{Pod, Zeroable};
 use resvg::usvg::{Options, Tree};
-#[cfg(target_os = "windows")]
-use std::ffi::c_void;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::{Arc, OnceLock};
@@ -70,19 +68,6 @@ pub struct CompositorUniforms {
     pub _pad3: [f32; 3],     // 132-144 (Total 144 bytes)
 }
 
-#[cfg(target_os = "windows")]
-pub struct Dx12OutputHandles {
-    pub device: *mut c_void,
-    pub queue: *mut c_void,
-    pub texture: *mut c_void,
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn com_interface_ptr<T>(value: &T) -> *mut c_void {
-    debug_assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<*mut c_void>());
-    unsafe { std::mem::transmute_copy::<T, *mut c_void>(value) }
-}
-
 pub struct GpuCompositor {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -97,9 +82,7 @@ pub struct GpuCompositor {
     cursor_bind_group: wgpu::BindGroup,
     background_texture: wgpu::Texture,
     background_bind_group: wgpu::BindGroup,
-    overlay_texture: wgpu::Texture,
     output_texture: wgpu::Texture,
-    nvenc_input_texture: wgpu::Texture,
     output_buffers: Vec<wgpu::Buffer>,
     readback_receivers: Vec<Option<std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>>,
     pending_readbacks: VecDeque<usize>,
@@ -834,20 +817,6 @@ impl GpuCompositor {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let nvenc_input_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("NVENC Input Texture"),
-            size: wgpu::Extent3d {
-                width: output_width,
-                height: output_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: OUTPUT_TEXTURE_FORMAT,
-            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
 
         let unpadded_bytes_per_row = output_width * 4;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -965,9 +934,7 @@ impl GpuCompositor {
             cursor_bind_group,
             background_texture,
             background_bind_group,
-            overlay_texture,
             output_texture,
-            nvenc_input_texture,
             output_buffers,
             readback_receivers,
             pending_readbacks: VecDeque::with_capacity(READBACK_RING_SIZE),
@@ -1030,28 +997,6 @@ impl GpuCompositor {
             wgpu::Extent3d {
                 width: self.background_width,
                 height: self.background_height,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
-
-    pub fn upload_overlay(&self, rgba_data: &[u8]) {
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.overlay_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            rgba_data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(self.width * 4),
-                rows_per_image: Some(self.height),
-            },
-            wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
                 depth_or_array_layers: 1,
             },
         );
@@ -1123,32 +1068,6 @@ impl GpuCompositor {
             },
         );
 
-        self.queue.submit(std::iter::once(encoder.finish()));
-    }
-
-    pub fn copy_output_to_nvenc_input(&self) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        encoder.copy_texture_to_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.output_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.nvenc_input_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-        );
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
@@ -1251,10 +1170,6 @@ impl GpuCompositor {
         self.enqueue_output_readback()
     }
 
-    pub fn render_frame_to_output_only(&self, uniforms: &CompositorUniforms) {
-        self.render_to_output(uniforms);
-    }
-
     pub fn render_frame_into(
         &mut self,
         uniforms: &CompositorUniforms,
@@ -1272,40 +1187,6 @@ impl GpuCompositor {
 
     pub fn readback_ring_capacity(&self) -> usize {
         self.output_buffers.len()
-    }
-
-    pub fn wait_for_gpu_idle(&self) {
-        self.device.poll(wgpu::Maintain::Wait);
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn try_get_dx12_output_handles(&self) -> Result<Option<Dx12OutputHandles>, String> {
-        let texture = unsafe {
-            self.nvenc_input_texture
-                .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_texture| {
-                    hal_texture.map(|texture| com_interface_ptr(texture.raw_resource()))
-                })
-        };
-        let device = unsafe {
-            self.device
-                .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_device| {
-                    hal_device.map(|device| com_interface_ptr(device.raw_device()))
-                })
-        };
-        let queue = unsafe {
-            self.device
-                .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_device| {
-                    hal_device.map(|device| com_interface_ptr(device.raw_queue()))
-                })
-        };
-
-        match (device, queue, texture) {
-            (Some(device), Some(queue), Some(texture)) => {
-                Ok(Some(Dx12OutputHandles { device, queue, texture }))
-            }
-            (None, None, None) => Ok(None),
-            _ => Err("Failed to acquire matched DX12 device/texture handles".to_string()),
-        }
     }
 
     /// Render one sub-frame with additive blending (weight via blend constant).

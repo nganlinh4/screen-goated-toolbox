@@ -113,10 +113,8 @@ panic = "unwind"
 
 [patch.crates-io]
 windows-capture = { path = "third_party/windows-capture" }
-nvenc = { path = "third_party/nvenc-local" }
 
 [target.'cfg(all(target_os = "windows", target_env = "msvc"))'.dependencies]
 unrar = "0.5.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nvenc = "0.1.0"

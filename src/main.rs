@@ -64,6 +64,65 @@ lazy_static! {
     }));
 }
 
+fn parse_arg_value(args: &[String], key: &str) -> Option<String> {
+    let mut idx = 0usize;
+    while idx < args.len() {
+        if args[idx] == key {
+            return args.get(idx + 1).cloned();
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn maybe_run_headless_export_replay(args: &[String]) -> Option<i32> {
+    let replay_path = parse_arg_value(args, "--sr-export-replay").or_else(|| {
+        if args.iter().any(|arg| arg == "--sr-export-replay-last") {
+            crate::overlay::screen_record::native_export::export_replay_args_path()
+                .map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    })?;
+
+    let raw = match std::fs::read_to_string(&replay_path) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!(
+                "[Replay] Failed to read export replay payload '{}': {}",
+                replay_path, e
+            );
+            return Some(2);
+        }
+    };
+    let payload: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!(
+                "[Replay] Invalid JSON in export replay payload '{}': {}",
+                replay_path, e
+            );
+            return Some(2);
+        }
+    };
+
+    initialization::init_com_and_dpi();
+    println!("[Replay] Running native export replay from {}", replay_path);
+    match crate::overlay::screen_record::native_export::start_native_export(payload) {
+        Ok(result) => {
+            println!(
+                "[Replay] Export replay succeeded: {}",
+                serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
+            );
+            Some(0)
+        }
+        Err(err) => {
+            eprintln!("[Replay] Export replay failed: {}", err);
+            Some(1)
+        }
+    }
+}
+
 fn main() -> eframe::Result<()> {
     crate::log_info!("========================================");
     crate::log_info!(
@@ -74,6 +133,11 @@ fn main() -> eframe::Result<()> {
 
     // Unpack embedded DLLs
     unpack_dlls::unpack_dlls();
+
+    let startup_args: Vec<String> = std::env::args().collect();
+    if let Some(exit_code) = maybe_run_headless_export_replay(&startup_args) {
+        std::process::exit(exit_code);
+    }
 
     // Cleanup temp files
     initialization::cleanup_temporary_files();

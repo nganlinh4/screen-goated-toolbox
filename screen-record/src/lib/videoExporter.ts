@@ -76,8 +76,6 @@ export interface ExportCapabilities {
   hevcNvencAvailable: boolean;
   sfeSupported: boolean;
   maxBFrames: number;
-  nvencSdkEnabled?: boolean;
-  nvencSdkExperimental?: boolean;
   driverVersion?: string;
   reasonIfDisabled?: string;
 }
@@ -87,6 +85,7 @@ export interface ExportRuntimeDiagnostics {
   codec?: string;
   turbo?: boolean;
   sfe?: boolean;
+  preRenderPolicy?: string;
   qualityGatePercent?: number;
   actualTotalBitrateKbps?: number;
   expectedTotalBitrateKbps?: number;
@@ -95,11 +94,16 @@ export interface ExportRuntimeDiagnostics {
   decodeQueueCapacity?: number;
   decodeRecycleCapacity?: number;
   writerQueueCapacity?: number;
+  writerRecycleCapacity?: number;
+  decodeWaitSecs?: number;
+  composeRenderSecs?: number;
+  readbackWaitSecs?: number;
+  writerBlockSecs?: number;
+  maxDecodeInflight?: number;
+  maxWriterInflight?: number;
+  maxPendingReadbacks?: number;
   fallbackAttempts?: number;
   fallbackErrors?: string[];
-  nvencSdkAttempted?: boolean;
-  nvencSdkUsed?: boolean;
-  nvencSdkReason?: string;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -810,6 +814,7 @@ export class VideoExporter {
     videoFilePath?: string;
     audio?: HTMLAudioElement | null;
   }) {
+    if ((options.preRenderPolicy || 'aggressive') === 'off') return;
     if (this.isExporting) return;
     if (!options.video || !options.segment) return;
     const context = this.buildPreparationContext(options);
@@ -899,6 +904,7 @@ export class VideoExporter {
         preferNvTurbo: options.preferNvTurbo ?? (options.exportProfile === 'turbo_nv'),
         qualityGatePercent: options.qualityGatePercent ?? 3,
         turboCodec: options.turboCodec || 'hevc',
+        preRenderPolicy: options.preRenderPolicy || 'aggressive',
         exportDiagnostics: options.exportDiagnostics ?? false,
         audioPath: audioFilePath,
         outputDir: options.outputDir || '',
@@ -976,8 +982,6 @@ export class VideoExporter {
       hevcNvencAvailable: Boolean(res?.hevcNvencAvailable),
       sfeSupported: Boolean(res?.sfeSupported),
       maxBFrames: typeof res?.maxBFrames === 'number' ? res.maxBFrames : 0,
-      nvencSdkEnabled: Boolean(res?.nvencSdkEnabled ?? res?.nvencSdkExperimental),
-      nvencSdkExperimental: Boolean(res?.nvencSdkExperimental),
       driverVersion: typeof res?.driverVersion === 'string' ? res.driverVersion : undefined,
       reasonIfDisabled: typeof res?.reasonIfDisabled === 'string' ? res.reasonIfDisabled : undefined
     };
