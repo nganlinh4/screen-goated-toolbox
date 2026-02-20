@@ -63,11 +63,13 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
         const d = e.data.diagnostics || {};
         const mode = d.turbo ? 'Turbo' : 'Standard';
         const codec = typeof d.codec === 'string' ? d.codec : '-';
+        const backend = typeof d.backend === 'string' ? d.backend : '-';
         const sfe = d.sfe ? ' + SFE' : '';
         const deviation = typeof d.bitrateDeviationPercent === 'number'
           ? `${Math.abs(d.bitrateDeviationPercent).toFixed(1)}%`
           : '-';
-        setDiagnosticsLine(`${mode} · ${codec}${sfe} · dev ${deviation}`);
+        const fallback = d.fallbackUsed ? ' · fallback' : '';
+        setDiagnosticsLine(`${mode} · ${codec}${sfe} · ${backend} · dev ${deviation}${fallback}`);
       }
     };
     window.addEventListener('message', handler);

@@ -186,10 +186,9 @@ fn set_clipboard_file_drop(path: &str) -> Result<(), String> {
         let preferred_format_name = to_wide_z("Preferred DropEffect");
         let preferred_format = RegisterClipboardFormatW(PCWSTR(preferred_format_name.as_ptr()));
         if preferred_format != 0 {
-            if let Ok(h_effect) = GlobalAlloc(
-                GMEM_MOVEABLE | GMEM_ZEROINIT,
-                std::mem::size_of::<u32>(),
-            ) {
+            if let Ok(h_effect) =
+                GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
+            {
                 let effect_ptr = GlobalLock(h_effect) as *mut u32;
                 if !effect_ptr.is_null() {
                     *effect_ptr = DROPEFFECT_COPY;

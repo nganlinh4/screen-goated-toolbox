@@ -23,6 +23,7 @@ use history::HistoryManager;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
 use windows::core::*;
 use windows::Win32::Foundation::*;
@@ -75,52 +76,145 @@ fn parse_arg_value(args: &[String], key: &str) -> Option<String> {
     None
 }
 
-fn maybe_run_headless_export_replay(args: &[String]) -> Option<i32> {
-    let replay_path = parse_arg_value(args, "--sr-export-replay").or_else(|| {
+fn resolve_replay_path(args: &[String]) -> Option<String> {
+    parse_arg_value(args, "--sr-export-replay").or_else(|| {
         if args.iter().any(|arg| arg == "--sr-export-replay-last") {
             crate::overlay::screen_record::native_export::export_replay_args_path()
                 .map(|p| p.to_string_lossy().to_string())
         } else {
             None
         }
-    })?;
+    })
+}
 
-    let raw = match std::fs::read_to_string(&replay_path) {
+fn load_replay_payload(replay_path: &str) -> std::result::Result<serde_json::Value, String> {
+    let raw = std::fs::read_to_string(replay_path).map_err(|e| {
+        format!(
+            "Failed to read export replay payload '{}': {}",
+            replay_path, e
+        )
+    })?;
+    serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| {
+        format!(
+            "Invalid JSON in export replay payload '{}': {}",
+            replay_path, e
+        )
+    })
+}
+
+fn percentile(sorted: &[f64], ratio: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let clamped = ratio.clamp(0.0, 1.0);
+    let idx = ((sorted.len() - 1) as f64 * clamped).round() as usize;
+    sorted[idx]
+}
+
+fn maybe_run_headless_export_replay(args: &[String]) -> Option<i32> {
+    let replay_path = resolve_replay_path(args)?;
+    let payload = match load_replay_payload(&replay_path) {
         Ok(v) => v,
-        Err(e) => {
-            eprintln!(
-                "[Replay] Failed to read export replay payload '{}': {}",
-                replay_path, e
-            );
-            return Some(2);
-        }
-    };
-    let payload: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!(
-                "[Replay] Invalid JSON in export replay payload '{}': {}",
-                replay_path, e
-            );
+        Err(err) => {
+            eprintln!("[Replay] {}", err);
             return Some(2);
         }
     };
 
     initialization::init_com_and_dpi();
-    println!("[Replay] Running native export replay from {}", replay_path);
-    match crate::overlay::screen_record::native_export::start_native_export(payload) {
-        Ok(result) => {
-            println!(
-                "[Replay] Export replay succeeded: {}",
-                serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
-            );
-            Some(0)
-        }
-        Err(err) => {
-            eprintln!("[Replay] Export replay failed: {}", err);
-            Some(1)
+    let bench_runs = parse_arg_value(args, "--sr-export-replay-bench")
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|runs| *runs > 0);
+    let keep_outputs = args
+        .iter()
+        .any(|arg| arg == "--sr-export-replay-keep-output");
+
+    if bench_runs.is_none() {
+        println!("[Replay] Running native export replay from {}", replay_path);
+        return match crate::overlay::screen_record::native_export::start_native_export(payload) {
+            Ok(result) => {
+                println!(
+                    "[Replay] Export replay succeeded: {}",
+                    serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
+                );
+                Some(0)
+            }
+            Err(err) => {
+                eprintln!("[Replay] Export replay failed: {}", err);
+                Some(1)
+            }
+        };
+    }
+
+    let runs = bench_runs.unwrap_or(1);
+    println!(
+        "[ReplayBench] Running {} native export replay run(s) from {}",
+        runs, replay_path
+    );
+    let mut successful_wall_secs: Vec<f64> = Vec::with_capacity(runs);
+    let mut failed_runs = 0usize;
+    for run_idx in 0..runs {
+        let run_start = Instant::now();
+        match crate::overlay::screen_record::native_export::start_native_export(payload.clone()) {
+            Ok(result) => {
+                let wall_secs = run_start.elapsed().as_secs_f64();
+                successful_wall_secs.push(wall_secs);
+                let status = result
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let bytes = result.get("bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+                let output_path = result.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                println!(
+                    "[ReplayBench] run={}/{} status={} wall={:.3}s bytes={} path={}",
+                    run_idx + 1,
+                    runs,
+                    status,
+                    wall_secs,
+                    bytes,
+                    if output_path.is_empty() {
+                        "-"
+                    } else {
+                        output_path
+                    }
+                );
+                if !keep_outputs && !output_path.is_empty() {
+                    let _ = std::fs::remove_file(output_path);
+                }
+            }
+            Err(err) => {
+                failed_runs += 1;
+                eprintln!("[ReplayBench] run={}/{} failed: {}", run_idx + 1, runs, err);
+            }
         }
     }
+
+    if successful_wall_secs.is_empty() {
+        eprintln!("[ReplayBench] all runs failed");
+        return Some(1);
+    }
+
+    let mut sorted = successful_wall_secs.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let sum: f64 = sorted.iter().copied().sum();
+    let avg = sum / sorted.len() as f64;
+    let min = *sorted.first().unwrap_or(&0.0);
+    let max = *sorted.last().unwrap_or(&0.0);
+    let p50 = percentile(&sorted, 0.50);
+    let p90 = percentile(&sorted, 0.90);
+    println!(
+        "[ReplayBench] summary runs={} ok={} failed={} min={:.3}s p50={:.3}s p90={:.3}s avg={:.3}s max={:.3}s keep_outputs={}",
+        runs,
+        sorted.len(),
+        failed_runs,
+        min,
+        p50,
+        p90,
+        avg,
+        max,
+        keep_outputs
+    );
+    Some(if failed_runs > 0 { 1 } else { 0 })
 }
 
 fn main() -> eframe::Result<()> {

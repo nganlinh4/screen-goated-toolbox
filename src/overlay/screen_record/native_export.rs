@@ -8,14 +8,16 @@ use std::io::Write;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, TryRecvError};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::time::Duration;
 
-use super::gpu_export::{create_uniforms, output_texture_is_bgra, CompositorUniforms, GpuCompositor};
+use super::gpu_export::{
+    create_uniforms, output_texture_is_bgra, CompositorUniforms, GpuCompositor,
+};
 use super::SR_HWND;
 use crate::overlay::screen_record::engine::VIDEO_PATH;
 use windows::Win32::Foundation::*;
@@ -23,6 +25,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 const WM_APP_RUN_SCRIPT: u32 = WM_USER + 112;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const REPLAY_INLINE_MEDIA_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// Flag to signal export cancellation from the frontend.
 static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
@@ -64,6 +67,62 @@ pub fn export_replay_args_path() -> Option<PathBuf> {
             .join("export-debug")
             .join("last_export_args.json")
     })
+}
+
+fn persist_replay_args(args: &serde_json::Value) {
+    let Some(path) = export_replay_args_path() else {
+        return;
+    };
+    let Some(obj) = args.as_object() else {
+        return;
+    };
+
+    let source_video_path = obj
+        .get("sourceVideoPath")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let inline_video_len = obj
+        .get("videoData")
+        .and_then(|v| v.as_array())
+        .map(|v| v.len())
+        .unwrap_or(0);
+    let inline_audio_len = obj
+        .get("audioData")
+        .and_then(|v| v.as_array())
+        .map(|v| v.len())
+        .unwrap_or(0);
+
+    let has_source_path = !source_video_path.is_empty();
+    let should_strip_inline_media = has_source_path
+        || inline_video_len > REPLAY_INLINE_MEDIA_MAX_BYTES
+        || inline_audio_len > REPLAY_INLINE_MEDIA_MAX_BYTES;
+
+    let mut replay_obj = serde_json::Map::with_capacity(obj.len() + 1);
+    for (key, value) in obj {
+        if should_strip_inline_media && (key == "videoData" || key == "audioData") {
+            replay_obj.insert(key.clone(), serde_json::Value::Null);
+        } else {
+            replay_obj.insert(key.clone(), value.clone());
+        }
+    }
+    replay_obj.insert(
+        "_replayMeta".to_string(),
+        serde_json::json!({
+            "savedAtMs": SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            "inlineMediaStripped": should_strip_inline_media
+        }),
+    );
+
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(bytes) = serde_json::to_vec_pretty(&serde_json::Value::Object(replay_obj)) {
+        let _ = fs::write(path, bytes);
+    }
 }
 
 pub fn cancel_export() {
@@ -111,6 +170,16 @@ fn wait_child_with_timeout(
             ));
         }
         std::thread::sleep(Duration::from_millis(60));
+    }
+}
+
+fn update_atomic_max(target: &AtomicUsize, value: usize) {
+    let mut current = target.load(Ordering::Relaxed);
+    while value > current {
+        match target.compare_exchange_weak(current, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(observed) => current = observed,
+        }
     }
 }
 
@@ -166,6 +235,8 @@ pub struct ExportConfig {
     pub quality_gate_percent: f64,
     #[serde(default = "default_turbo_codec")]
     pub turbo_codec: String,
+    #[serde(default = "default_pre_render_policy")]
+    pub pre_render_policy: String,
     #[serde(default)]
     pub export_diagnostics: bool,
     pub audio_path: String,
@@ -324,6 +395,10 @@ fn default_quality_gate_percent() -> f64 {
 
 fn default_turbo_codec() -> String {
     "hevc".to_string()
+}
+
+fn default_pre_render_policy() -> String {
+    "idle_only".to_string()
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -1066,10 +1141,12 @@ struct ExportCapabilities {
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ExportRuntimeDiagnostics {
+    backend: String,
     encoder: String,
     codec: String,
     turbo: bool,
     sfe: bool,
+    pre_render_policy: String,
     quality_gate_percent: f64,
     actual_total_bitrate_kbps: f64,
     expected_total_bitrate_kbps: f64,
@@ -1078,8 +1155,26 @@ struct ExportRuntimeDiagnostics {
     decode_queue_capacity: usize,
     decode_recycle_capacity: usize,
     writer_queue_capacity: usize,
+    writer_recycle_capacity: usize,
+    decode_wait_secs: f64,
+    compose_render_secs: f64,
+    readback_wait_secs: f64,
+    writer_block_secs: f64,
+    max_decode_inflight: usize,
+    max_writer_inflight: usize,
+    max_pending_readbacks: usize,
+    fallback_used: bool,
     fallback_attempts: usize,
     fallback_errors: Vec<String>,
+}
+
+#[derive(Default, Debug, Clone)]
+struct ExportLoopPerfStats {
+    decode_wait_secs: f64,
+    compose_render_secs: f64,
+    readback_wait_secs: f64,
+    writer_block_secs: f64,
+    max_pending_readbacks: usize,
 }
 
 pub fn get_export_capabilities() -> serde_json::Value {
@@ -1201,6 +1296,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let export_total_start = Instant::now();
     let _active_export_guard = ExportActiveGuard::activate();
     EXPORT_CANCELLED.store(false, Ordering::SeqCst);
+
+    persist_replay_args(&args);
 
     let parse_start = Instant::now();
     let mut config: ExportConfig = serde_json::from_value(args).map_err(|e| e.to_string())?;
@@ -1348,8 +1445,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     }
 
     let gpu_init_start = Instant::now();
-    let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, background_w, background_h)
-        .map_err(|e| format!("GPU init failed: {}", e))?;
+    let mut compositor =
+        GpuCompositor::new(out_w, out_h, crop_w, crop_h, background_w, background_h)
+            .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
     let compositor_output_is_bgra = output_texture_is_bgra();
     let compositor_output_pix_fmt = if compositor_output_is_bgra {
@@ -1580,10 +1678,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             if aq_enabled { "1" } else { "0" }.to_string(),
         ]);
         if !aq_enabled {
-            args.extend([
-                "-b_ref_mode".to_string(),
-                "disabled".to_string(),
-            ]);
+            args.extend(["-b_ref_mode".to_string(), "disabled".to_string()]);
         }
         if is_turbo {
             args.extend([
@@ -1594,15 +1689,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             ]);
         }
         if use_sfe {
-            args.extend([
-                "-split_encode_mode".to_string(),
-                "1".to_string(),
-            ]);
+            args.extend(["-split_encode_mode".to_string(), "1".to_string()]);
         }
-        args.extend([
-            "-pix_fmt".to_string(),
-            "yuv420p".to_string(),
-        ]);
+        args.extend(["-pix_fmt".to_string(), "yuv420p".to_string()]);
 
         if has_audio {
             args.extend([
@@ -1770,7 +1859,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
         args.push(output_path.to_str().unwrap().to_string());
         encoder_candidates.push(EncoderCandidate {
-            name: format!("libx264({},{}k,{})", x264_preset, target_video_bitrate_kbps, config.export_profile),
+            name: format!(
+                "libx264({},{}k,{})",
+                x264_preset, target_video_bitrate_kbps, config.export_profile
+            ),
             args,
             is_turbo: false,
             uses_sfe: false,
@@ -1885,6 +1977,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         );
     }
 
+    let decode_inflight = Arc::new(AtomicUsize::new(0));
+    let decode_inflight_max = Arc::new(AtomicUsize::new(0));
+    let writer_inflight = Arc::new(AtomicUsize::new(0));
+    let writer_inflight_max = Arc::new(AtomicUsize::new(0));
+
     let (frame_tx, frame_rx) = sync_channel::<Vec<u8>>(writer_queue_capacity);
     let (recycle_tx, recycle_rx) = sync_channel::<Vec<u8>>(writer_recycle_capacity);
     let (writer_done_tx, writer_done_rx) = sync_channel::<Result<(), String>>(1);
@@ -1893,9 +1990,14 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         .and_then(|enc| enc.stdin.take())
         .ok_or("Failed to open encoder stdin")?;
     let writer_done_tx_clone = writer_done_tx.clone();
+    let writer_inflight_writer = writer_inflight.clone();
     let writer_handle = std::thread::spawn(move || {
         let result = (|| -> Result<(), String> {
             while let Ok(mut frame) = frame_rx.recv() {
+                let queued = writer_inflight_writer.load(Ordering::Relaxed);
+                if queued > 0 {
+                    writer_inflight_writer.fetch_sub(1, Ordering::Relaxed);
+                }
                 if let Err(e) = encoder_stdin.write_all(&frame) {
                     return Err(format!("Encoder stdin write failed: {}", e));
                 }
@@ -1912,12 +2014,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     // Store PIDs so cancel_export() can kill them to unblock IO
     let encoder_pid = encoder.as_ref().map(|enc| enc.id()).unwrap_or(0);
     *EXPORT_PIDS.lock().unwrap() = (decoder.id(), encoder_pid);
+    let selected_backend = "ffmpeg_pipe";
     println!(
-        "[Export] Encoder selected: {} | codec={} | turbo={} | sfe={}",
-        encoder_name,
-        encoder_codec,
-        encoder_is_turbo,
-        encoder_used_sfe
+        "[Export] Encoder selected: {} | codec={} | turbo={} | sfe={} | backend={}",
+        encoder_name, encoder_codec, encoder_is_turbo, encoder_used_sfe, selected_backend
     );
 
     let (decode_tx, decode_rx) = sync_channel::<Vec<u8>>(decode_queue_capacity);
@@ -1926,6 +2026,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let _ = decode_recycle_tx.send(vec![0u8; frame_size]);
     }
     let decode_reader_frame_size = frame_size;
+    let decode_inflight_reader = decode_inflight.clone();
+    let decode_inflight_max_reader = decode_inflight_max.clone();
     let decode_reader_handle = std::thread::spawn(move || -> Result<(), String> {
         let mut decoder_stdout = decoder_stdout;
         loop {
@@ -1950,6 +2052,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             if decode_tx.send(frame).is_err() {
                 break;
             }
+            let queued = decode_inflight_reader.fetch_add(1, Ordering::Relaxed) + 1;
+            update_atomic_max(&decode_inflight_max_reader, queued);
         }
         Ok(())
     });
@@ -2120,19 +2224,25 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
     };
 
-    let submit_rendered_frame = |
-        frame_time: f64,
-        rendered: &mut Vec<u8>,
-        frame_counter: &mut u32,
-        first_frame_time: &mut Option<f64>,
-    | -> Result<(), String> {
+    let submit_rendered_frame = |frame_time: f64,
+                                 rendered: &mut Vec<u8>,
+                                 frame_counter: &mut u32,
+                                 first_frame_time: &mut Option<f64>,
+                                 loop_perf: &mut ExportLoopPerfStats|
+     -> Result<(), String> {
         render_overlays_into(frame_time, rendered, compositor_output_is_bgra);
 
         let mut to_send = Vec::new();
         std::mem::swap(rendered, &mut to_send);
-        frame_tx
-            .send(to_send)
-            .map_err(|_| "Encoder writer thread stopped".to_string())?;
+        let writer_queued = writer_inflight.fetch_add(1, Ordering::Relaxed) + 1;
+        update_atomic_max(&writer_inflight_max, writer_queued);
+        let writer_block_start = Instant::now();
+        if frame_tx.send(to_send).is_err() {
+            writer_inflight.fetch_sub(1, Ordering::Relaxed);
+            return Err("Encoder writer thread stopped".to_string());
+        }
+        loop_perf.writer_block_secs += writer_block_start.elapsed().as_secs_f64();
+
         match recycle_rx.try_recv() {
             Ok(mut recycled) => {
                 recycled.clear();
@@ -2161,6 +2271,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     let mut pending_times: VecDeque<f64> = VecDeque::new();
+    let mut loop_perf = ExportLoopPerfStats::default();
     let mut decoder_ended_early = false;
     'frame_loop: for frame_idx in 0..total_frames {
         if EXPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -2172,13 +2283,20 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             break;
         }
 
+        let decode_wait_start = Instant::now();
         let decoded_frame = loop {
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {
                 cancelled = true;
                 break 'frame_loop;
             }
             match decode_rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(frame) => break frame,
+                Ok(frame) => {
+                    let queued = decode_inflight.load(Ordering::Relaxed);
+                    if queued > 0 {
+                        decode_inflight.fetch_sub(1, Ordering::Relaxed);
+                    }
+                    break frame;
+                }
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => {
                     decoder_ended_early = true;
@@ -2186,6 +2304,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 }
             }
         };
+        loop_perf.decode_wait_secs += decode_wait_start.elapsed().as_secs_f64();
 
         let current_time = frame_idx as f64 * step;
         let source_time = output_to_source_time(
@@ -2193,6 +2312,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             &config.segment.trim_segments,
             config.trim_start,
         );
+        let compose_start = Instant::now();
         compositor.upload_frame(&decoded_frame);
         let _ = decode_recycle_tx.try_send(decoded_frame);
 
@@ -2267,31 +2387,38 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             writer_error = Some(format!("GPU render/readback enqueue failed: {}", err));
             break;
         }
+        loop_perf.compose_render_secs += compose_start.elapsed().as_secs_f64();
 
         pending_times.push_back(current_time);
+        loop_perf.max_pending_readbacks = loop_perf.max_pending_readbacks.max(pending_times.len());
 
         let mut drained_any = false;
-        match compositor.try_readback_output(&mut rendered) {
-            Ok(true) => {
-                drained_any = true;
-                if let Some(frame_time) = pending_times.pop_front() {
-                    if let Err(err) = submit_rendered_frame(
-                        frame_time,
-                        &mut rendered,
-                        &mut frame_count,
-                        &mut first_frame_secs,
-                    ) {
-                        writer_error = Some(err);
-                        break;
+        let readback_try_start = Instant::now();
+        loop {
+            match compositor.try_readback_output(&mut rendered) {
+                Ok(true) => {
+                    drained_any = true;
+                    if let Some(frame_time) = pending_times.pop_front() {
+                        if let Err(err) = submit_rendered_frame(
+                            frame_time,
+                            &mut rendered,
+                            &mut frame_count,
+                            &mut first_frame_secs,
+                            &mut loop_perf,
+                        ) {
+                            writer_error = Some(err);
+                            break 'frame_loop;
+                        }
                     }
                 }
-            }
-            Ok(false) => {}
-            Err(err) => {
-                writer_error = Some(format!("GPU readback failed: {}", err));
-                break;
+                Ok(false) => break,
+                Err(err) => {
+                    writer_error = Some(format!("GPU readback failed: {}", err));
+                    break 'frame_loop;
+                }
             }
         }
+        loop_perf.readback_wait_secs += readback_try_start.elapsed().as_secs_f64();
 
         let blocking_drain_threshold = if encoder_is_turbo {
             compositor.readback_ring_capacity().saturating_sub(1).max(2)
@@ -2299,16 +2426,19 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             1
         };
         if !drained_any && pending_times.len() > blocking_drain_threshold {
+            let readback_block_start = Instant::now();
             if let Err(err) = compositor.readback_output(&mut rendered) {
                 writer_error = Some(format!("GPU readback blocking failed: {}", err));
                 break;
             }
+            loop_perf.readback_wait_secs += readback_block_start.elapsed().as_secs_f64();
             if let Some(frame_time) = pending_times.pop_front() {
                 if let Err(err) = submit_rendered_frame(
                     frame_time,
                     &mut rendered,
                     &mut frame_count,
                     &mut first_frame_secs,
+                    &mut loop_perf,
                 ) {
                     writer_error = Some(err);
                     break;
@@ -2319,15 +2449,18 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     if !cancelled && writer_error.is_none() {
         while let Some(frame_time) = pending_times.pop_front() {
+            let readback_flush_start = Instant::now();
             if let Err(err) = compositor.readback_output(&mut rendered) {
                 writer_error = Some(format!("GPU readback flush failed: {}", err));
                 break;
             }
+            loop_perf.readback_wait_secs += readback_flush_start.elapsed().as_secs_f64();
             if let Err(err) = submit_rendered_frame(
                 frame_time,
                 &mut rendered,
                 &mut frame_count,
                 &mut first_frame_secs,
+                &mut loop_perf,
             ) {
                 writer_error = Some(err);
                 break;
@@ -2346,6 +2479,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         );
     }
     let frame_loop_secs = export_start.elapsed().as_secs_f64();
+    let max_decode_inflight = decode_inflight_max.load(Ordering::Relaxed);
+    let max_writer_inflight = writer_inflight_max.load(Ordering::Relaxed);
 
     // Stop writer and close encoder stdin.
     drop(frame_tx);
@@ -2355,7 +2490,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             let _ = enc.kill();
         }
     }
-    let writer_wait_timeout = if cancelled { Duration::from_secs(15) } else { Duration::from_secs(30) };
+    let writer_wait_timeout = if cancelled {
+        Duration::from_secs(15)
+    } else {
+        Duration::from_secs(30)
+    };
     let mut writer_handle = Some(writer_handle);
     match writer_done_rx.recv_timeout(writer_wait_timeout) {
         Ok(Ok(())) => {
@@ -2439,7 +2578,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     if cancelled {
         let _ = fs::remove_file(&output_path);
         println!(
-            "[Export][Summary] status=cancelled out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}%",
+            "[Export][Summary] status=cancelled out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} backend={} gate={:.2}% t_decode={:.3}s t_comp={:.3}s t_readback={:.3}s t_writer_block={:.3}s inflight_dec={} inflight_writer={} pending_readback={}",
             out_w,
             out_h,
             config.framerate,
@@ -2461,7 +2600,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             encoder_codec,
             encoder_is_turbo,
             encoder_used_sfe,
-            quality_gate_percent
+            selected_backend,
+            quality_gate_percent,
+            loop_perf.decode_wait_secs,
+            loop_perf.compose_render_secs,
+            loop_perf.readback_wait_secs,
+            loop_perf.writer_block_secs,
+            max_decode_inflight,
+            max_writer_inflight,
+            loop_perf.max_pending_readbacks
         );
         return Ok(serde_json::json!({ "status": "cancelled" }));
     }
@@ -2469,7 +2616,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     if let Some(err) = writer_error {
         println!("[Export][WriterError] {}", err);
         println!(
-            "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% error=writer",
+            "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} backend={} gate={:.2}% t_decode={:.3}s t_comp={:.3}s t_readback={:.3}s t_writer_block={:.3}s inflight_dec={} inflight_writer={} pending_readback={} error=writer",
             out_w,
             out_h,
             config.framerate,
@@ -2491,7 +2638,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             encoder_codec,
             encoder_is_turbo,
             encoder_used_sfe,
-            quality_gate_percent
+            selected_backend,
+            quality_gate_percent,
+            loop_perf.decode_wait_secs,
+            loop_perf.compose_render_secs,
+            loop_perf.readback_wait_secs,
+            loop_perf.writer_block_secs,
+            max_decode_inflight,
+            max_writer_inflight,
+            loop_perf.max_pending_readbacks
         );
         return Err(err);
     }
@@ -2508,8 +2663,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             let output_duration_sec = (config.duration / config.speed.max(0.1)).max(0.001);
             let actual_total_bitrate_kbps =
                 (output_bytes as f64 * 8.0 / output_duration_sec / 1000.0).max(0.0);
-            let expected_total_bitrate_kbps =
-                target_video_bitrate_kbps as f64 + if has_audio { audio_bitrate_kbps as f64 } else { 0.0 };
+            let expected_total_bitrate_kbps = target_video_bitrate_kbps as f64
+                + if has_audio {
+                    audio_bitrate_kbps as f64
+                } else {
+                    0.0
+                };
             let bitrate_deviation_percent = if expected_total_bitrate_kbps > 0.0 {
                 ((actual_total_bitrate_kbps - expected_total_bitrate_kbps).abs()
                     / expected_total_bitrate_kbps)
@@ -2517,7 +2676,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             } else {
                 0.0
             };
-            if encoder_is_turbo && encoder_used_sfe && bitrate_deviation_percent > quality_gate_percent {
+            if encoder_is_turbo
+                && encoder_used_sfe
+                && bitrate_deviation_percent > quality_gate_percent
+            {
                 SFE_QUALITY_GUARD_DISABLED.store(true, Ordering::Relaxed);
                 println!(
                     "[Export][TurboGuard] disabling SFE due to bitrate deviation {:.2}% > gate {:.2}%",
@@ -2525,10 +2687,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 );
             }
             let runtime_diagnostics = ExportRuntimeDiagnostics {
+                backend: selected_backend.to_string(),
                 encoder: encoder_name.clone(),
                 codec: encoder_codec.to_string(),
                 turbo: encoder_is_turbo,
                 sfe: encoder_used_sfe,
+                pre_render_policy: config.pre_render_policy.clone(),
                 quality_gate_percent,
                 actual_total_bitrate_kbps,
                 expected_total_bitrate_kbps,
@@ -2537,6 +2701,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 decode_queue_capacity,
                 decode_recycle_capacity,
                 writer_queue_capacity,
+                writer_recycle_capacity,
+                decode_wait_secs: loop_perf.decode_wait_secs,
+                compose_render_secs: loop_perf.compose_render_secs,
+                readback_wait_secs: loop_perf.readback_wait_secs,
+                writer_block_secs: loop_perf.writer_block_secs,
+                max_decode_inflight,
+                max_writer_inflight,
+                max_pending_readbacks: loop_perf.max_pending_readbacks,
+                fallback_used: !spawn_errors.is_empty(),
                 fallback_attempts: spawn_errors.len(),
                 fallback_errors: spawn_errors.clone(),
             };
@@ -2544,7 +2717,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 println!("[Export][Diag] runtime={:?}", runtime_diagnostics);
             }
             println!(
-                "[Export][Summary] status=success out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% actual_kbps={:.1} expected_kbps={:.1} dev={:.2}%",
+                "[Export][Summary] status=success out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} backend={} gate={:.2}% actual_kbps={:.1} expected_kbps={:.1} dev={:.2}% t_decode={:.3}s t_comp={:.3}s t_readback={:.3}s t_writer_block={:.3}s inflight_dec={} inflight_writer={} pending_readback={}",
                 out_w,
                 out_h,
                 config.framerate,
@@ -2566,10 +2739,18 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 encoder_codec,
                 encoder_is_turbo,
                 encoder_used_sfe,
+                selected_backend,
                 quality_gate_percent,
                 actual_total_bitrate_kbps,
                 expected_total_bitrate_kbps,
-                bitrate_deviation_percent
+                bitrate_deviation_percent,
+                loop_perf.decode_wait_secs,
+                loop_perf.compose_render_secs,
+                loop_perf.readback_wait_secs,
+                loop_perf.writer_block_secs,
+                max_decode_inflight,
+                max_writer_inflight,
+                loop_perf.max_pending_readbacks
             );
             Ok(serde_json::json!({
                 "status": "success",
@@ -2581,7 +2762,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         }
         Ok(status) => {
             println!(
-                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% error=encoder_exit status={}",
+                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} backend={} gate={:.2}% t_decode={:.3}s t_comp={:.3}s t_readback={:.3}s t_writer_block={:.3}s inflight_dec={} inflight_writer={} pending_readback={} error=encoder_exit status={}",
                 out_w,
                 out_h,
                 config.framerate,
@@ -2603,14 +2784,22 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 encoder_codec,
                 encoder_is_turbo,
                 encoder_used_sfe,
+                selected_backend,
                 quality_gate_percent,
+                loop_perf.decode_wait_secs,
+                loop_perf.compose_render_secs,
+                loop_perf.readback_wait_secs,
+                loop_perf.writer_block_secs,
+                max_decode_inflight,
+                max_writer_inflight,
+                loop_perf.max_pending_readbacks,
                 status
             );
             Err(format!("Encoder exited with status: {}", status))
         }
         Err(err) => {
             println!(
-                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} gate={:.2}% error=encoder_wait msg={}",
+                "[Export][Summary] status=error out={}x{} fps={} speed={:.2} dur={:.3}s frames={}/{} slots={} parse={:.3}s gpu={:.3}s cursor={:.3}s({}) dec_spawn={:.3}s enc_spawn={:.3}s first_frame={}s loop={:.3}s total={:.3}s encoder={} codec={} turbo={} sfe={} backend={} gate={:.2}% t_decode={:.3}s t_comp={:.3}s t_readback={:.3}s t_writer_block={:.3}s inflight_dec={} inflight_writer={} pending_readback={} error=encoder_wait msg={}",
                 out_w,
                 out_h,
                 config.framerate,
@@ -2632,7 +2821,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 encoder_codec,
                 encoder_is_turbo,
                 encoder_used_sfe,
+                selected_backend,
                 quality_gate_percent,
+                loop_perf.decode_wait_secs,
+                loop_perf.compose_render_secs,
+                loop_perf.readback_wait_secs,
+                loop_perf.writer_block_secs,
+                max_decode_inflight,
+                max_writer_inflight,
+                loop_perf.max_pending_readbacks,
                 err
             );
             Err(err)
