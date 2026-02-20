@@ -81,6 +81,7 @@ export interface ExportCapabilities {
 }
 
 export interface ExportRuntimeDiagnostics {
+  backend?: string;
   encoder?: string;
   codec?: string;
   turbo?: boolean;
@@ -102,6 +103,7 @@ export interface ExportRuntimeDiagnostics {
   maxDecodeInflight?: number;
   maxWriterInflight?: number;
   maxPendingReadbacks?: number;
+  fallbackUsed?: boolean;
   fallbackAttempts?: number;
   fallbackErrors?: string[];
 }
