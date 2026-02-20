@@ -152,7 +152,8 @@ fn load_cursor_preview_texture(
 
     if let Some(total_steps) = ani_frame_count(path).filter(|steps| *steps > 1) {
         for (idx, ani_step) in sample_ani_steps(total_steps).iter().copied().enumerate() {
-            let Some(image) = load_or_render_cached_preview_image(path, ani_step, PREVIEW_RENDER_SIZE)
+            let Some(image) =
+                load_or_render_cached_preview_image(path, ani_step, PREVIEW_RENDER_SIZE)
             else {
                 continue;
             };
@@ -182,7 +183,11 @@ fn load_cursor_preview_texture(
 }
 
 #[cfg(target_os = "windows")]
-fn load_or_render_cached_preview_image(path: &Path, ani_step: u32, size: i32) -> Option<egui::ColorImage> {
+fn load_or_render_cached_preview_image(
+    path: &Path,
+    ani_step: u32,
+    size: i32,
+) -> Option<egui::ColorImage> {
     if let Some(cache_path) = preview_cache_file(path, ani_step, size) {
         if let Some(image) = read_cached_preview_png(&cache_path, size) {
             return Some(image);
@@ -200,7 +205,8 @@ fn load_or_render_cached_preview_image(path: &Path, ani_step: u32, size: i32) ->
 fn preview_cache_file(path: &Path, ani_step: u32, size: i32) -> Option<std::path::PathBuf> {
     let collection_dir = path.parent()?;
     let gallery_root = collection_dir.parent().unwrap_or(collection_dir);
-    let collection_id = sanitize_cache_component(collection_dir.file_name()?.to_string_lossy().as_ref());
+    let collection_id =
+        sanitize_cache_component(collection_dir.file_name()?.to_string_lossy().as_ref());
     let stem = sanitize_cache_component(path.file_stem()?.to_string_lossy().as_ref());
     let ext = sanitize_cache_component(path.extension()?.to_string_lossy().as_ref());
     let (file_len, modified_ns) = source_file_fingerprint(path)?;
