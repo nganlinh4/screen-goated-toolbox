@@ -1485,26 +1485,23 @@ export class VideoRenderer {
         }
       };
 
-      // --- Motion blur detection (slider-based: 0=off, 50=standard, 100=heavy) ---
+      // --- Motion blur detection ---
+      // Match GPU export pipeline logic exactly for perfect WYSIWYG
       const blurZoomVal = backgroundConfig.motionBlurZoom ?? 10;
       const blurPanVal = backgroundConfig.motionBlurPan ?? 10;
       const blurCursorVal = backgroundConfig.motionBlurCursor ?? 25;
-      const maxBlurVal = Math.max(blurZoomVal, blurPanVal, blurCursorVal);
-      const anyBlurEnabled = maxBlurVal > 0;
-      // Shutter angle: val=50 → 270° (cinematic+), val=100 → 540° (extreme)
-      const shutterAngle = maxBlurVal * 5.4;
-      // Use 30fps as reference frame interval (matches typical recording/export FPS)
-      // so preview blur width matches what export produces
-      const refFps = 30;
-      const shutterSec = anyBlurEnabled ? (shutterAngle / 360) / refFps : 0;
-      // Per-channel shutter (proportional to their slider)
-      const cursorShutterSec = blurCursorVal > 0 ? (blurCursorVal * 5.4 / 360) / refFps : 0;
-      // Preview is real-time: cap samples to avoid starving the video decoder
-      // High zoom = heavier per-draw, so reduce samples further
-      // Export uses 12-32 samples offline for perfect quality
-      const blurZf = zoomState?.zoomFactor ?? 1;
-      const maxN = video.paused ? 2 : blurZf > 5 ? 1 : blurZf > 3 ? 2 : 3;
-      const N = Math.min(maxN, shutterAngle <= 0 ? 1 : shutterAngle <= 180 ? 2 : 3);
+      const maxBlurVal = Math.max(blurZoomVal, blurPanVal, blurCursorVal) / 100.0;
+      const anyBlurEnabled = maxBlurVal > 0.0001;
+      const mbSamples = anyBlurEnabled ? Math.max(2, Math.min(8, Math.ceil(maxBlurVal * 8.0))) : 1;
+      const mbShutter = anyBlurEnabled ? Math.max(0, Math.min(1.0, maxBlurVal)) : 0;
+
+      // Use 60fps as the target output fps to simulate motion blur identical to export
+      const exportStep = 1 / 60;
+      const shutterSec = mbShutter * exportStep;
+      const cursorShutterSec = (blurCursorVal / 100.0) * exportStep;
+
+      // Use the same sample count as export to guarantee WYSIWYG
+      const N = mbSamples;
 
       // Check if camera/cursor is actually moving
       let cameraMoving = false;
@@ -1548,9 +1545,9 @@ export class VideoRenderer {
 
         const centerZoom = zoomState;
         for (let i = 0; i < N; i++) {
-          const f = (i + 0.5) / N - 0.5; // [-0.5, +0.5]
-          const cameraSubT = video.currentTime + f * shutterSec;
-          const cursorSubT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) + f * cursorShutterSec;
+          const f = N > 1 ? i / (N - 1) : 0.5; // 0.0 to 1.0
+          const cameraSubT = video.currentTime - (shutterSec / 2) + f * shutterSec;
+          const cursorSubT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
 
           // Sample camera — cherry-pick per channel
           const subCamState = this.calculateCurrentZoomState(cameraSubT, segment, canvasW, canvasH, srcW, srcH);
@@ -1594,8 +1591,8 @@ export class VideoRenderer {
         aCtx.clearRect(0, 0, canvasW, canvasH);
 
         for (let i = 0; i < N; i++) {
-          const f = (i + 0.5) / N - 0.5;
-          const subCursorT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) + f * cursorShutterSec;
+          const f = N > 1 ? i / (N - 1) : 0.5;
+          const subCursorT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
           const subCur = this.interpolateCursorPosition(subCursorT, mousePositions, backgroundConfig);
           if (!subCur) continue;
 
@@ -2645,36 +2642,41 @@ export class VideoRenderer {
     const passes = 3; // 3-pass box blur approximates a Gaussian kernel in O(N) total
     let currentSmoothed = smoothed;
 
-    // O(N) sliding-window box blur: one pass sweeps left→right accumulating the
-    // running sum, then right→left normalises — O(N) per pass regardless of window.
+    // O(N) sliding-window box blur: proper symmetric window accumulation
     for (let pass = 0; pass < passes; pass++) {
       const n = currentSmoothed.length;
-      const sumX = new Float64Array(n);
-      const sumY = new Float64Array(n);
-      let runX = 0, runY = 0, count = 0;
-      // Forward pass: accumulate [0..i+half] into prefix sums.
+      const passSmoothed: MousePosition[] = new Array(n);
       const half = Math.floor(windowSize / 2);
-      for (let i = 0; i < n; i++) {
+
+      let runX = 0, runY = 0;
+      let winStart = 0;
+      let winEnd = Math.min(half, n - 1);
+
+      // Initialize the running sum for the first window centered at i=0
+      for (let i = 0; i <= winEnd; i++) {
         runX += currentSmoothed[i].x;
         runY += currentSmoothed[i].y;
-        count++;
-        const lo = i - half;
-        if (lo > 0) {
-          runX -= currentSmoothed[lo - 1].x;
-          runY -= currentSmoothed[lo - 1].y;
-          count--;
-        }
-        const hi = Math.min(i + half, n - 1);
-        const winLen = hi - Math.max(0, lo) + 1;
-        sumX[i] = runX / winLen;
-        sumY[i] = runY / winLen;
       }
-      // Build output array reusing sumX/sumY averages.
-      const passSmoothed: MousePosition[] = new Array(n);
+
       for (let i = 0; i < n; i++) {
+        const targetStart = Math.max(0, i - half);
+        const targetEnd = Math.min(n - 1, i + half);
+
+        while (winEnd < targetEnd) {
+          winEnd++;
+          runX += currentSmoothed[winEnd].x;
+          runY += currentSmoothed[winEnd].y;
+        }
+        while (winStart < targetStart) {
+          runX -= currentSmoothed[winStart].x;
+          runY -= currentSmoothed[winStart].y;
+          winStart++;
+        }
+
+        const winLen = winEnd - winStart + 1;
         passSmoothed[i] = {
-          x: sumX[i],
-          y: sumY[i],
+          x: runX / winLen,
+          y: runY / winLen,
           timestamp: currentSmoothed[i].timestamp,
           isClicked: currentSmoothed[i].isClicked,
           cursor_type: currentSmoothed[i].cursor_type,

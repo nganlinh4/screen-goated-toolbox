@@ -484,8 +484,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         .background_config
         .motion_blur_cursor
         .max(config.background_config.motion_blur_zoom)
-        .max(config.background_config.motion_blur_pan);
-    let (mb_samples, mb_shutter) = if mb_max > 0.01 {
+        .max(config.background_config.motion_blur_pan)
+        / 100.0;
+    let (mb_samples, mb_shutter) = if mb_max > 0.0001 {
         let samples = (mb_max * 8.0).ceil().clamp(2.0, 8.0) as u32;
         (samples, mb_max.clamp(0.0, 1.0))
     } else {

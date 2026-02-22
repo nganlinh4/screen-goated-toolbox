@@ -314,7 +314,7 @@ export function ExportDialog({
 
   return (
     <div className="export-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-[480px] w-full mx-4">
+      <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-[500px] w-full mx-4">
         <div className="dialog-header flex items-center justify-between mb-4">
           <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.exportOptions}</h3>
           <button onClick={onClose} className="dialog-close-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] transition-colors">

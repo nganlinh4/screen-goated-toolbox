@@ -388,13 +388,31 @@ function App() {
   const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const imageUrl = event.target?.result as string;
-        setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: imageUrl }));
-        setRecentUploads(prev => [imageUrl, ...prev.filter(v => v !== imageUrl)].slice(0, 12));
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        // Max dimension 3840 (4K) to keep base64 string size reasonable and fast for IPC/Export
+        const MAX_DIM = 3840;
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        const cvs = document.createElement('canvas');
+        cvs.width = w;
+        cvs.height = h;
+        const ctx = cvs.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const imageUrl = cvs.toDataURL('image/webp', 0.9);
+          setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: imageUrl }));
+          setRecentUploads(prev => [imageUrl, ...prev.filter(v => v !== imageUrl)].slice(0, 12));
+        }
       };
-      reader.readAsDataURL(file);
+      img.src = url;
     }
   }, []);
 
@@ -1199,8 +1217,8 @@ function App() {
               </div>
             </div>
 
-            {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
-              <div className="playback-controls-row flex-shrink-0 flex justify-center pb-1">
+            <div className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[56px] transition-opacity duration-200 ${currentVideo && !isLoadingVideo && !projects.showProjectsDialog ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+              {currentVideo && !isLoadingVideo && (
                 <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
                   isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
                   duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
@@ -1333,8 +1351,8 @@ function App() {
                     />
                   </div>
                 } />
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Side Panel */}
