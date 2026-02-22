@@ -100,6 +100,16 @@ pub fn handle_ipc_command(
                 Err(e) => Err(e),
             }
         }
+        "save_uploaded_bg_data_url" => {
+            let data_url = args["dataUrl"].as_str().ok_or("Missing dataUrl")?;
+            let url = bg_download::save_uploaded_data_url(data_url)?;
+            Ok(serde_json::json!(url))
+        }
+        "prewarm_custom_background" => {
+            let url = args["url"].as_str().ok_or("Missing url")?;
+            native_export::prewarm_custom_background(url)?;
+            Ok(serde_json::Value::Null)
+        }
         "log_message" => {
             let msg = args["message"].as_str().unwrap_or("");
             eprintln!("{msg}");

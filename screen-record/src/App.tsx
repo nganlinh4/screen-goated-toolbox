@@ -148,6 +148,7 @@ function App() {
   const [rawSaveDir, setRawSaveDir] = useState(getInitialRawSaveDir);
   const [isRawActionBusy, setIsRawActionBusy] = useState(false);
   const [rawButtonSavedFlash, setRawButtonSavedFlash] = useState(false);
+  const [isBackgroundUploadProcessing, setIsBackgroundUploadProcessing] = useState(false);
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -386,35 +387,58 @@ function App() {
   }, [isKeystrokeResizeDragging, isKeystrokeResizeHandleHover, isPreviewDragging, currentVideo, isCropping]);
 
   const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputEl = e.currentTarget;
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
+      setIsBackgroundUploadProcessing(true);
       const img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        // Max dimension 3840 (4K) to keep base64 string size reasonable and fast for IPC/Export
-        const MAX_DIM = 3840;
-        let w = img.naturalWidth;
-        let h = img.naturalHeight;
-        if (w > MAX_DIM || h > MAX_DIM) {
-          const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
-          w = Math.round(w * ratio);
-          h = Math.round(h * ratio);
-        }
-        const cvs = document.createElement('canvas');
-        cvs.width = w;
-        cvs.height = h;
-        const ctx = cvs.getContext('2d');
-        if (ctx) {
+
+      img.onload = async () => {
+        try {
+          // Cap backgrounds at 2.5K to ensure instant decode and zero lag.
+          // The GPU shader scales it up using object-fit: cover.
+          const MAX_DIM = 2560;
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          if (w > MAX_DIM || h > MAX_DIM) {
+            const ratio = Math.min(MAX_DIM / w, MAX_DIM / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Failed to get 2D canvas context');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, w, h);
-          const imageUrl = cvs.toDataURL('image/webp', 0.9);
+
+          // Convert to JPEG to reduce IPC payload size (backgrounds do not need alpha).
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+          const imageUrl = await invoke<string>('save_uploaded_bg_data_url', { dataUrl });
+          await invoke('prewarm_custom_background', { url: imageUrl });
           setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: imageUrl }));
           setRecentUploads(prev => [imageUrl, ...prev.filter(v => v !== imageUrl)].slice(0, 12));
+        } catch (err) {
+          console.error('[Background] Failed to persist uploaded image:', err);
+        } finally {
+          URL.revokeObjectURL(img.src);
+          setIsBackgroundUploadProcessing(false);
+          inputEl.value = '';
         }
       };
-      img.src = url;
+
+      img.onerror = () => {
+        URL.revokeObjectURL(img.src);
+        setIsBackgroundUploadProcessing(false);
+        inputEl.value = '';
+      };
+
+      img.src = URL.createObjectURL(file);
     }
-  }, []);
+  }, [setBackgroundConfig, setRecentUploads]);
 
   const handleRemoveRecentUpload = useCallback((imageUrl: string) => {
     setRecentUploads(prev => prev.filter(v => v !== imageUrl));
@@ -1364,6 +1388,7 @@ function App() {
               backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig}
               recentUploads={recentUploads} onRemoveRecentUpload={handleRemoveRecentUpload}
               onBackgroundUpload={handleBackgroundUpload}
+              isBackgroundUploadProcessing={isBackgroundUploadProcessing}
               editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
             />

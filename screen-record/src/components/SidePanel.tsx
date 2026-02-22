@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
 import { ColorPicker } from '@/components/ui/ColorPicker';
-import { Trash2, AlignLeft, AlignCenter, AlignRight, Download } from 'lucide-react';
+import { Trash2, AlignLeft, AlignCenter, AlignRight, Download, Loader2 } from 'lucide-react';
 import { VideoSegment, BackgroundConfig, TextSegment } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
 import downloadableBackgrounds from '@/config/downloadable-backgrounds.json';
@@ -81,6 +81,7 @@ type BgDlState =
   | { status: 'idle' }
   | { status: 'checking' }
   | { status: 'downloading'; progress: number }
+  | { status: 'prewarming' }
   | { status: 'done'; ext: string; version: number }
   | { status: 'error'; message: string };
 
@@ -90,6 +91,21 @@ const buildDownloadedBgUrl = (id: string, ext: string, version: number): string 
 function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>) {
   const [state, setState] = useState<BgDlState>({ status: 'checking' });
   const syncInFlightRef = useRef(false);
+  const prewarmedUrlSetRef = useRef<Set<string>>(new Set());
+  const prewarmInFlightUrlSetRef = useRef<Set<string>>(new Set());
+  const pendingPostDownloadPrewarmRef = useRef(false);
+
+  const ensurePrewarmed = useCallback(async (url: string) => {
+    if (prewarmedUrlSetRef.current.has(url)) return;
+    if (prewarmInFlightUrlSetRef.current.has(url)) return;
+    prewarmInFlightUrlSetRef.current.add(url);
+    try {
+      await invoke('prewarm_custom_background', { url });
+      prewarmedUrlSetRef.current.add(url);
+    } finally {
+      prewarmInFlightUrlSetRef.current.delete(url);
+    }
+  }, []);
 
   const syncState = useCallback(async () => {
     if (syncInFlightRef.current) return;
@@ -152,7 +168,27 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
           }
         } else if (progress === 'Done') {
           if (isDownloaded && ext) {
-            next = { status: 'done', ext, version };
+            const syncedUrl = buildDownloadedBgUrl(bg.id, ext, version);
+            if (
+              pendingPostDownloadPrewarmRef.current &&
+              !prewarmedUrlSetRef.current.has(syncedUrl) &&
+              !prewarmInFlightUrlSetRef.current.has(syncedUrl)
+            ) {
+              void ensurePrewarmed(syncedUrl)
+                .then(() => {
+                  pendingPostDownloadPrewarmRef.current = false;
+                })
+                .catch((e) => {
+                  pendingPostDownloadPrewarmRef.current = false;
+                  console.warn('Failed to prewarm downloaded background after download:', e);
+                });
+            }
+            const needsPrewarm =
+              pendingPostDownloadPrewarmRef.current &&
+              (!prewarmedUrlSetRef.current.has(syncedUrl) || prewarmInFlightUrlSetRef.current.has(syncedUrl));
+            next = needsPrewarm
+              ? { status: 'prewarming' }
+              : { status: 'done', ext, version };
           } else {
             next = { status: 'idle' };
           }
@@ -169,20 +205,31 @@ function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React.Dispat
     } finally {
       syncInFlightRef.current = false;
     }
-  }, [bg.id, setBackgroundConfig]);
+  }, [bg.id, ensurePrewarmed, setBackgroundConfig]);
 
   const startDownload = useCallback(() => {
     if (state.status === 'downloading') return;
+    pendingPostDownloadPrewarmRef.current = true;
     setState({ status: 'downloading', progress: 0 });
     invoke('start_bg_download', { id: bg.id, url: bg.downloadUrl });
   }, [bg.id, bg.downloadUrl, state.status]);
 
-  const selectBg = useCallback(() => {
+  const selectBg = useCallback(async () => {
     if (state.status !== 'done') return;
     // Use protocol URL — served by the custom protocol handler from local app data
     const url = buildDownloadedBgUrl(bg.id, state.ext, state.version);
+    if (!prewarmedUrlSetRef.current.has(url)) {
+      setState({ status: 'prewarming' });
+      try {
+        await ensurePrewarmed(url);
+      } catch (e) {
+        console.warn('Failed to prewarm selected downloaded background:', e);
+      } finally {
+        setState({ status: 'done', ext: state.ext, version: state.version });
+      }
+    }
     setBackgroundConfig(prev => ({ ...prev, backgroundType: 'custom', customBackground: url }));
-  }, [bg.id, state, setBackgroundConfig]);
+  }, [bg.id, ensurePrewarmed, state, setBackgroundConfig]);
 
   const deleteBg = useCallback(async () => {
     try {
@@ -381,10 +428,12 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
 
   const isDownloaded = state.status === 'done';
   const isDownloading = state.status === 'downloading';
+  const isPrewarming = state.status === 'prewarming';
   const progress = isDownloading ? (state as { status: 'downloading'; progress: number }).progress : 0;
 
-  // Overlay opacity: 1 when not downloaded, wipes to 0 as download progresses
-  const overlayOpacity = isDownloaded ? 0 : isDownloading ? 1 - (progress / 100) : 1;
+  // Overlay opacity: keep some visible cover while download reaches 100% so the
+  // spinner/progress remains visible until post-download prewarm finishes.
+  const overlayOpacity = isDownloaded ? 0 : isDownloading ? Math.max(0.4, 1 - (progress / 100)) : 1;
 
   const handleClick = () => {
     if (isDownloaded) {
@@ -408,6 +457,7 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
       onClick={handleClick}
       title={
         isDownloading ? `Downloading... ${Math.round(progress)}%`
+        : isPrewarming ? 'Preparing image for export...'
         : isDownloaded ? bg.id
         : state.status === 'error' ? `Error: ${(state as { status: 'error'; message: string }).message}. Click to retry.`
         : 'Click to download'
@@ -457,6 +507,8 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
                 />
               </svg>
             </div>
+          ) : isPrewarming ? (
+            <Loader2 className="w-3.5 h-3.5 text-white/85 animate-spin drop-shadow-sm" />
           ) : (
             <Download className="w-3.5 h-3.5 text-white/80 drop-shadow-sm" />
           )}
@@ -475,6 +527,7 @@ interface BackgroundPanelProps {
   recentUploads: string[];
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  isBackgroundUploadProcessing: boolean;
 }
 
 function BackgroundPanel({
@@ -482,7 +535,8 @@ function BackgroundPanel({
   setBackgroundConfig,
   recentUploads,
   onRemoveRecentUpload,
-  onBackgroundUpload
+  onBackgroundUpload,
+  isBackgroundUploadProcessing
 }: BackgroundPanelProps) {
   const { t } = useSettings();
   return (
@@ -519,10 +573,18 @@ function BackgroundPanel({
           <label className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-2 block">{t.backgroundStyle}</label>
           <div className="background-presets-grid grid grid-cols-6 gap-2">
             {/* Upload button */}
-            <label className="background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105 relative overflow-hidden group bg-[var(--glass-bg)]">
-              <input type="file" accept="image/*" onChange={onBackgroundUpload} className="hidden" />
+            <label className={`background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] relative overflow-hidden group bg-[var(--glass-bg)] ${
+              isBackgroundUploadProcessing
+                ? 'opacity-80 cursor-wait'
+                : 'hover:ring-[var(--primary-color)]/40 hover:scale-105'
+            }`}>
+              <input type="file" accept="image/*" onChange={onBackgroundUpload} className="hidden" disabled={isBackgroundUploadProcessing} />
               <div className="upload-icon absolute inset-0 flex items-center justify-center">
-                <svg className="w-4 h-4 text-[var(--on-surface-variant)] group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                {isBackgroundUploadProcessing ? (
+                  <Loader2 className="w-4 h-4 text-[var(--primary-color)] animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4 text-[var(--on-surface-variant)] group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                )}
               </div>
             </label>
 
@@ -1216,6 +1278,7 @@ interface SidePanelProps {
   recentUploads: string[];
   onRemoveRecentUpload: (imageUrl: string) => void;
   onBackgroundUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  isBackgroundUploadProcessing: boolean;
   editingTextId: string | null;
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
@@ -1236,6 +1299,7 @@ export function SidePanel({
   recentUploads,
   onRemoveRecentUpload,
   onBackgroundUpload,
+  isBackgroundUploadProcessing,
   editingTextId,
   onUpdateSegment,
   beginBatch,
@@ -1259,13 +1323,14 @@ export function SidePanel({
         )}
 
         {activePanel === 'background' && (
-          <BackgroundPanel
-            backgroundConfig={backgroundConfig}
-            setBackgroundConfig={setBackgroundConfig}
-            recentUploads={recentUploads}
-            onRemoveRecentUpload={onRemoveRecentUpload}
-            onBackgroundUpload={onBackgroundUpload}
-          />
+        <BackgroundPanel
+          backgroundConfig={backgroundConfig}
+          setBackgroundConfig={setBackgroundConfig}
+          recentUploads={recentUploads}
+          onRemoveRecentUpload={onRemoveRecentUpload}
+          onBackgroundUpload={onBackgroundUpload}
+          isBackgroundUploadProcessing={isBackgroundUploadProcessing}
+        />
         )}
 
         {activePanel === 'cursor' && (
