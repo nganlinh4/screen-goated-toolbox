@@ -1,7 +1,4 @@
-use base64::Engine;
-use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -33,10 +30,6 @@ pub struct ExportConfig {
     pub audio_data: Option<Vec<u8>>,
     pub baked_path: Option<Vec<BakedCameraFrame>>,
     pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
-    #[serde(default)]
-    pub baked_text_overlays: Vec<BakedTextOverlay>,
-    #[serde(default)]
-    pub baked_keystroke_overlays: Vec<BakedKeystrokeOverlay>,
     /// Raw mouse positions sent from frontend; Rust generates baked cursor path from these.
     #[serde(default)]
     pub mouse_positions: Vec<MousePosition>,
@@ -159,7 +152,7 @@ pub struct TrimSegment {
     pub end_time: f64,
 }
 
-// TextSegment: only needed for serde compat -- rendering uses BakedTextOverlay
+// TextSegment: only needed for serde compat (flatten receives unknown fields).
 #[derive(Deserialize, Debug, Clone)]
 pub struct TextSegment {
     #[serde(flatten)]
@@ -167,74 +160,23 @@ pub struct TextSegment {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BakedTextOverlay {
-    pub start_time: f64,
-    pub end_time: f64,
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    #[serde(deserialize_with = "deserialize_overlay_rgba_bytes")]
-    pub data: Vec<u8>,
+pub struct OverlayQuad {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub u: f32,
+    pub v: f32,
+    pub uw: f32,
+    pub vh: f32,
+    pub alpha: f32,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BakedKeystrokeOverlay {
-    pub start_time: f64,
-    pub end_time: f64,
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-    #[serde(deserialize_with = "deserialize_overlay_rgba_bytes")]
-    pub data: Vec<u8>,
+pub struct OverlayFrame {
+    pub quads: Vec<OverlayQuad>,
 }
 
-fn deserialize_overlay_rgba_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct OverlayBytesVisitor;
-
-    impl<'de> Visitor<'de> for OverlayBytesVisitor {
-        type Value = Vec<u8>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("RGBA byte array or base64-encoded RGBA string")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>,
-        {
-            let mut bytes = Vec::new();
-            while let Some(value) = seq.next_element::<u8>()? {
-                bytes.push(value);
-            }
-            Ok(bytes)
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            base64::engine::general_purpose::STANDARD
-                .decode(value)
-                .map_err(|err| E::custom(format!("Invalid keystroke overlay base64: {err}")))
-        }
-
-        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            self.visit_str(&value)
-        }
-    }
-
-    deserializer.deserialize_any(OverlayBytesVisitor)
-}
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct CropRect {

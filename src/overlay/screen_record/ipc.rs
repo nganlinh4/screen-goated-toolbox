@@ -1,6 +1,7 @@
 // --- SCREEN RECORD IPC ---
 // IPC command handling for screen recording WebView.
 
+use base64::Engine as _;
 use super::bg_download;
 use super::engine::{
     get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODING_FINISHED,
@@ -125,29 +126,23 @@ pub fn handle_ipc_command(
                             .map_err(|e| format!("bad cursor chunk: {e}"))?;
                     native_export::staging::append_cursor_frames(frames);
                 }
-                "text" => {
-                    let overlay: native_export::config::BakedTextOverlay =
-                        serde_json::from_value(args["data"].clone())
-                            .map_err(|e| format!("bad text overlay: {e}"))?;
-                    native_export::staging::append_text_overlay(overlay);
+                "atlas" => {
+                    let b64 = args["base64"].as_str().ok_or("missing base64")?;
+                    let w = args["width"].as_u64().unwrap_or(1) as u32;
+                    let h = args["height"].as_u64().unwrap_or(1) as u32;
+                    let raw = base64::engine::general_purpose::STANDARD
+                        .decode(b64.trim_start_matches("data:image/png;base64,"))
+                        .map_err(|e| e.to_string())?;
+                    let img = image::load_from_memory(&raw)
+                        .map_err(|e| e.to_string())?
+                        .to_rgba8();
+                    native_export::staging::set_atlas(img.into_raw(), w, h);
                 }
-                "text_chunk" => {
-                    let overlays: Vec<native_export::config::BakedTextOverlay> =
+                "overlay_frames_chunk" => {
+                    let frames: Vec<native_export::config::OverlayFrame> =
                         serde_json::from_value(args["data"].clone())
-                            .map_err(|e| format!("bad text chunk: {e}"))?;
-                    native_export::staging::append_text_overlays(overlays);
-                }
-                "keystroke" => {
-                    let overlay: native_export::config::BakedKeystrokeOverlay =
-                        serde_json::from_value(args["data"].clone())
-                            .map_err(|e| format!("bad keystroke overlay: {e}"))?;
-                    native_export::staging::append_keystroke_overlay(overlay);
-                }
-                "keystroke_chunk" => {
-                    let overlays: Vec<native_export::config::BakedKeystrokeOverlay> =
-                        serde_json::from_value(args["data"].clone())
-                            .map_err(|e| format!("bad keystroke chunk: {e}"))?;
-                    native_export::staging::append_keystroke_overlays(overlays);
+                            .map_err(|e| format!("bad overlay chunk: {e}"))?;
+                    native_export::staging::append_overlay_frames(frames);
                 }
                 _ => return Err(format!("unknown stage dataType: {data_type}")),
             }
