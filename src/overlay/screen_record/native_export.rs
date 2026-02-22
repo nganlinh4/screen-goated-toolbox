@@ -1088,12 +1088,36 @@ fn ffmpeg_encoder_has_option(ffmpeg_path: &std::path::Path, encoder: &str, optio
     }
 }
 
+/// Verify an NVENC encoder actually works at runtime, not just that FFmpeg was
+/// compiled with it. `ffmpeg -encoders` lists `hevc_nvenc` even on machines with
+/// no NVIDIA GPU — this probe catches that before we commit to the encoder.
+fn nvenc_runtime_probe(ffmpeg_path: &std::path::Path, encoder: &str) -> bool {
+    if !ffmpeg_has_encoder(ffmpeg_path, encoder) {
+        return false;
+    }
+    match Command::new(ffmpeg_path)
+        .args([
+            "-f", "lavfi", "-i", "color=c=black:s=16x16:r=1",
+            "-t", "0.05",
+            "-c:v", encoder,
+            "-f", "null", "-",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    }
+}
+
 fn ffmpeg_has_nvenc(ffmpeg_path: &std::path::Path) -> bool {
-    *NVENC_AVAILABLE.get_or_init(|| ffmpeg_has_encoder(ffmpeg_path, "h264_nvenc"))
+    *NVENC_AVAILABLE.get_or_init(|| nvenc_runtime_probe(ffmpeg_path, "h264_nvenc"))
 }
 
 fn ffmpeg_has_hevc_nvenc(ffmpeg_path: &std::path::Path) -> bool {
-    *HEVC_NVENC_AVAILABLE.get_or_init(|| ffmpeg_has_encoder(ffmpeg_path, "hevc_nvenc"))
+    *HEVC_NVENC_AVAILABLE.get_or_init(|| nvenc_runtime_probe(ffmpeg_path, "hevc_nvenc"))
 }
 
 fn ffmpeg_has_hevc_sfe(ffmpeg_path: &std::path::Path) -> bool {
