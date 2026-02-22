@@ -757,14 +757,18 @@ export class VideoExporter {
     const bakedCursorPath: BakedCursorFrame[] = [];
 
     await this.yieldToUiFrame();
+    let t0 = Date.now();
     const bakedTextOverlays = normalizedSegment
       ? videoRenderer.bakeTextOverlays(normalizedSegment, context.width, context.height)
       : [];
+    await (window as any).__TAURI__.core.invoke('log_message', { message: `[Prep] Bake Text Overlays: ${Date.now() - t0}ms` });
 
     await this.yieldToUiFrame();
+    t0 = Date.now();
     const bakedKeystrokeOverlays = normalizedSegment
       ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, context.width, context.height, 30)
       : [];
+    await (window as any).__TAURI__.core.invoke('log_message', { message: `[Prep] Bake Keystroke Overlays: ${Date.now() - t0}ms` });
 
     return {
       normalizedSegment,
@@ -895,8 +899,8 @@ export class VideoExporter {
 
       // Camera and cursor baking now done in Rust — only stage text/keystroke overlays.
       // Chunked at 50 per call: avoids per-overlay IPC overhead on long recordings.
-      console.time('[Prep] IPC Overlays');
       const OVERLAY_CHUNK = 50;
+      const t0Overlays = Date.now();
       for (let i = 0; i < prepared.bakedTextOverlays.length; i += OVERLAY_CHUNK) {
         await invoke('stage_export_data', {
           dataType: 'text_chunk',
@@ -909,7 +913,7 @@ export class VideoExporter {
           data: prepared.bakedKeystrokeOverlays.slice(i, i + OVERLAY_CHUNK),
         });
       }
-      console.timeEnd('[Prep] IPC Overlays');
+      await invoke('log_message', { message: `[Prep] IPC Overlays: ${Date.now() - t0Overlays}ms` });
 
       // Send lightweight config (no baked arrays — they're already staged)
       const exportConfig = {
