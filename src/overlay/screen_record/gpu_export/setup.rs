@@ -102,6 +102,17 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
             ..Default::default()
         });
         adapter = request_adapter(&fallback_instance);
+        // Last resort: software (WARP) adapter — always available on Windows.
+        if adapter.is_none() {
+            adapter = pollster::block_on(fallback_instance.request_adapter(
+                &wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::None,
+                    compatible_surface: None,
+                    force_fallback_adapter: true,
+                },
+            ))
+            .ok();
+        }
     }
     let adapter = adapter.ok_or("Failed to find GPU adapter")?;
     let adapter_info = adapter.get_info();
@@ -428,6 +439,7 @@ pub fn create_uniforms(
     gradient_color1: [f32; 4],
     gradient_color2: [f32; 4],
     time: f32,
+    render_mode: f32,
     cursor_pos: (f32, f32),
     cursor_scale: f32,
     cursor_opacity: f32,
@@ -438,6 +450,8 @@ pub fn create_uniforms(
     bg_zoom: f32,
     bg_anchor: (f32, f32),
     background_style: f32,
+    bg_tex_w: f32,
+    bg_tex_h: f32,
 ) -> CompositorUniforms {
     CompositorUniforms {
         video_offset: [video_offset.0, video_offset.1],
@@ -451,7 +465,7 @@ pub fn create_uniforms(
         gradient_color1,
         gradient_color2,
         time,
-        _pad1: 0.0,
+        render_mode,
         cursor_pos: [cursor_pos.0, cursor_pos.1],
         cursor_scale,
         cursor_opacity,
@@ -462,6 +476,8 @@ pub fn create_uniforms(
         bg_zoom,
         bg_anchor_x: bg_anchor.0,
         bg_anchor_y: bg_anchor.1,
-        _pad3: [background_style, 0.0, 0.0],
+        bg_style: background_style,
+        bg_tex_w,
+        bg_tex_h,
     }
 }

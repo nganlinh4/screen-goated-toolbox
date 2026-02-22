@@ -93,6 +93,7 @@ pub fn warm_up_export_pipeline() {
                 [0.0, 0.0, 0.0, 1.0],
                 [0.0, 0.0, 0.0, 1.0],
                 0.0,
+                0.0, // render_mode
                 (-1.0, -1.0),
                 0.0,
                 0.0,
@@ -102,6 +103,8 @@ pub fn warm_up_export_pipeline() {
                 false,
                 1.0,
                 (0.5, 0.5),
+                0.0,
+                0.0,
                 0.0,
             );
 
@@ -335,23 +338,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         (w & !1, h & !1)
     };
 
-    // Initialize GPU compositor with cursor
-    let mut background_w = out_w;
-    let mut background_h = out_h;
-    if config.background_config.background_type == "custom" {
-        let max_zoom = baked_path
-            .iter()
-            .fold(1.0_f64, |acc, p| acc.max(p.zoom.max(1.0)));
-        let desired_scale = max_zoom.ceil().clamp(1.0, 2.0);
-        let cap_scale = (8192.0 / out_w as f64).min(8192.0 / out_h as f64).max(1.0);
-        let bg_scale = desired_scale.min(cap_scale);
-        background_w = ((out_w as f64 * bg_scale).round() as u32).max(out_w);
-        background_h = ((out_h as f64 * bg_scale).round() as u32).max(out_h);
-    }
-
+    // Initialize GPU compositor — background uploaded at native image size later;
+    // object-fit: cover is handled in the shader (no CPU pre-scaling needed).
     let gpu_init_start = Instant::now();
     let mut compositor =
-        GpuCompositor::new(out_w, out_h, crop_w, crop_h, background_w, background_h)
+        GpuCompositor::new(out_w, out_h, crop_w, crop_h, out_w, out_h)
             .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
 
@@ -365,12 +356,16 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     }
 
     let mut use_custom_background = false;
+    let mut actual_bg_w = out_w as f32;
+    let mut actual_bg_h = out_h as f32;
     if config.background_config.background_type == "custom" {
         if let Some(custom_background) = &config.background_config.custom_background {
-            match load_custom_background_rgba(custom_background, background_w, background_h) {
-                Ok(rgba) => {
-                    compositor.upload_background(&rgba);
+            match load_custom_background_rgba(custom_background) {
+                Ok((rgba, tw, th)) => {
+                    compositor.upload_background(&rgba, tw, th);
                     use_custom_background = true;
+                    actual_bg_w = tw as f32;
+                    actual_bg_h = th as f32;
                 }
                 Err(e) => return Err(format!("Custom background load failed: {}", e)),
             }
@@ -411,9 +406,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let ow32 = out_w as f32;
     let oh32 = out_h as f32;
 
-    let build_uniforms = |frame_time: f64, _frame_idx: u32| -> CompositorUniforms {
-        let (cam_x_raw, cam_y_raw, zoom) = sample_baked_path(frame_time, &baked_path);
-        let cursor_sample = sample_parsed_baked_cursor(frame_time, &parsed_baked_cursor);
+    let build_uniforms = |base_time: f64, cam_pan_time: f64, cam_zoom_time: f64, cursor_time: f64| -> CompositorUniforms {
+        let (cam_x_raw, cam_y_raw, _) = sample_baked_path(cam_pan_time, &baked_path);
+        let (_, _, zoom) = sample_baked_path(cam_zoom_time, &baked_path);
+        let cursor_sample = sample_parsed_baked_cursor(cursor_time, &parsed_baked_cursor);
 
         let cam_x = cam_x_raw - crop_x_offset;
         let cam_y = cam_y_raw - crop_y_offset;
@@ -460,7 +456,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             shadow_opacity,
             grad1,
             grad2,
-            frame_time as f32,
+            base_time as f32,
+            0.0, // render_mode (0 = all channels)
             (cp_x, cp_y),
             cs,
             co,
@@ -471,6 +468,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             zoom as f32,
             (rx as f32, ry as f32),
             bg_style,
+            actual_bg_w,
+            actual_bg_h,
         )
     };
 
@@ -507,6 +506,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         trim_segments: config.segment.trim_segments.clone(),
         motion_blur_samples: mb_samples,
         motion_blur_shutter: mb_shutter,
+        blur_zoom:   config.background_config.motion_blur_zoom   > 0.01,
+        blur_pan:    config.background_config.motion_blur_pan    > 0.01,
+        blur_cursor: config.background_config.motion_blur_cursor > 0.01,
         video_width: crop_w,
         video_height: crop_h,
         crop_x: crop_x_offset as u32,

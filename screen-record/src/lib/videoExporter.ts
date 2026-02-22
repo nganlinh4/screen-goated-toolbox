@@ -749,7 +749,7 @@ export class VideoExporter {
     await this.yieldToUiFrame();
     const t0 = Date.now();
     const overlayPayload = normalizedSegment
-      ? videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
+      ? await videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
       : undefined;
     await (window as any).__TAURI__.core.invoke('log_message', { message: `[Prep] Build Overlay Atlas: ${Date.now() - t0}ms` });
 
