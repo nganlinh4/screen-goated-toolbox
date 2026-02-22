@@ -652,7 +652,7 @@ unsafe fn internal_create_sr_loop() {
     let (width, height) = {
         let app = crate::APP.lock().unwrap();
         let (w, h) = app.config.screen_record_window_size;
-        (w.max(800), h.max(500))
+        (w.max(1000), h.max(500))
     };
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
