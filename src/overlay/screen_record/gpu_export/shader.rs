@@ -39,8 +39,6 @@ struct Uniforms {
 
 @group(3) @binding(0) var bg_tex: texture_2d<f32>;
 @group(3) @binding(1) var bg_samp: sampler;
-@group(3) @binding(2) var overlay_tex: texture_2d<f32>;
-@group(3) @binding(3) var overlay_samp: sampler;
 
 struct VertexOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -317,8 +315,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }
     }
 
-    let overlay_col = textureSample(overlay_tex, overlay_samp, in.tex_coord);
-    col = mix(col, overlay_col, overlay_col.a);
     return col;
 }
 "#;
@@ -328,4 +324,39 @@ pub(super) fn compositor_shader() -> String {
         "const ATLAS_COLS: f32 = {}.0;\nconst ATLAS_ROWS: f32 = {}.0;\n{}",
         CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS, COMPOSITOR_SHADER_BODY
     )
+}
+
+pub(super) const OVERLAY_SHADER_BODY: &str = r#"
+struct OverlayVertexOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) alpha: f32,
+}
+
+@group(0) @binding(0) var atlas_tex: texture_2d<f32>;
+@group(0) @binding(1) var atlas_samp: sampler;
+
+@vertex
+fn vs_main(
+    @location(0) pos: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) alpha: f32,
+) -> OverlayVertexOut {
+    var out: OverlayVertexOut;
+    out.clip_pos = vec4<f32>(pos, 0.0, 1.0);
+    out.uv = uv;
+    out.alpha = alpha;
+    return out;
+}
+
+@fragment
+fn fs_main(in: OverlayVertexOut) -> @location(0) vec4<f32> {
+    let col = textureSample(atlas_tex, atlas_samp, in.uv);
+    // Canvas2D toDataURL produces straight-alpha pixels; premultiply before blending.
+    return vec4<f32>(col.rgb * in.alpha, col.a * in.alpha);
+}
+"#;
+
+pub(super) fn overlay_shader() -> &'static str {
+    OVERLAY_SHADER_BODY
 }

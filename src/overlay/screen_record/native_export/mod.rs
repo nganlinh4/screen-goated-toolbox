@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use config::{ExportConfig, ExportRuntimeDiagnostics};
 use cursor::{collect_used_cursor_slots, parse_baked_cursor_frames};
-use overlay::{composite_overlay_straight_alpha, load_custom_background_rgba};
+use overlay::load_custom_background_rgba;
 use sampling::{sample_baked_path, sample_parsed_baked_cursor};
 
 use super::gpu_export::{create_uniforms, CompositorUniforms, GpuCompositor};
@@ -178,12 +178,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         "[Export] Baked paths: camera={} frames, cursor={} frames",
         baked_path.len(), baked_cursor.len()
     );
-    if config.baked_text_overlays.is_empty() && !staged.text_overlays.is_empty() {
-        config.baked_text_overlays = staged.text_overlays;
-    }
-    if config.baked_keystroke_overlays.is_empty() && !staged.keystroke_overlays.is_empty() {
-        config.baked_keystroke_overlays = staged.keystroke_overlays;
-    }
+    let overlay_frames = staged.overlay_frames;
+    let atlas_rgba = staged.atlas_rgba;
+    let atlas_w = staged.atlas_w;
+    let atlas_h = staged.atlas_h;
 
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
@@ -361,6 +359,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     compositor.init_cursor_texture_fast(&used_cursor_slots);
     let cursor_init_secs = cursor_init_start.elapsed().as_secs_f64();
 
+    // Upload sprite atlas (text + keystroke overlays pre-rendered by frontend).
+    if let Some(rgba) = atlas_rgba {
+        compositor.upload_atlas(&rgba, atlas_w, atlas_h);
+    }
+
     let mut use_custom_background = false;
     if config.background_config.background_type == "custom" {
         if let Some(custom_background) = &config.background_config.custom_background {
@@ -471,39 +474,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         )
     };
 
-    let text_overlays = &config.baked_text_overlays;
-    let ks_overlays = &config.baked_keystroke_overlays;
-    let compose_overlay = |frame_time: f64, target: &mut Vec<u8>| -> bool {
-        let mut drawn = false;
-        let fade_dur = 0.3_f64;
-        for ov in text_overlays {
-            if frame_time >= ov.start_time && frame_time <= ov.end_time {
-                let elapsed = frame_time - ov.start_time;
-                let remaining = ov.end_time - frame_time;
-                let mut fade = 1.0_f64;
-                if elapsed < fade_dur {
-                    fade = elapsed / fade_dur;
-                }
-                if remaining < fade_dur {
-                    fade = fade.min(remaining / fade_dur);
-                }
-                composite_overlay_straight_alpha(
-                    target, out_w, out_h, ov.x, ov.y, ov.width, ov.height, &ov.data, fade,
-                );
-                drawn = true;
-            }
-        }
-        for ov in ks_overlays {
-            if frame_time >= ov.start_time && frame_time < ov.end_time {
-                composite_overlay_straight_alpha(
-                    target, out_w, out_h, ov.x, ov.y, ov.width, ov.height, &ov.data, 1.0,
-                );
-                drawn = true;
-            }
-        }
-        drawn
-    };
-
     let bitrate = if config.target_video_bitrate_kbps > 0 {
         config.target_video_bitrate_kbps
     } else {
@@ -541,6 +511,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         video_height: crop_h,
         crop_x: crop_x_offset as u32,
         crop_y: crop_y_offset as u32,
+        overlay_frames,
     };
 
     let progress_cb: gpu_pipeline::ProgressCallback = Box::new(|pct, eta| {
@@ -556,7 +527,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         &pipeline_config,
         &mut compositor,
         &build_uniforms,
-        &compose_overlay,
         Some(progress_cb),
         &EXPORT_CANCELLED,
     );

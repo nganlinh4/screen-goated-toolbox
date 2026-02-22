@@ -27,7 +27,7 @@ use super::d3d_interop::{create_d3d11_device, D3D11Readback, VideoProcessor};
 use super::gpu_export::{CompositorUniforms, GpuCompositor};
 use super::mf_decode::{DxgiDeviceManager, MfDecoder};
 use super::mf_encode::{EncoderConfig, MfEncoder, VideoCodec};
-use super::native_export::config::TrimSegment;
+use super::native_export::config::{OverlayFrame, TrimSegment};
 use super::native_export::sampling::output_to_source_time;
 
 /// Result of a GPU export run.
@@ -61,6 +61,9 @@ pub struct PipelineConfig {
     /// Crop offset in source pixels (0 if no crop).
     pub crop_x: u32,
     pub crop_y: u32,
+    /// Pre-computed overlay quads per output frame (indexed by frame_idx).
+    /// Empty when there are no text/keystroke overlays.
+    pub overlay_frames: Vec<OverlayFrame>,
 }
 
 /// Message sent from decode thread to render thread.
@@ -82,7 +85,6 @@ pub fn run_zero_copy_export(
     config: &PipelineConfig,
     compositor: &mut GpuCompositor,
     build_uniforms: &(dyn Fn(f64, u32) -> CompositorUniforms + Sync),
-    compose_overlay: &(dyn Fn(f64, &mut Vec<u8>) -> bool + Sync),
     progress: Option<ProgressCallback>,
     cancel_flag: &std::sync::atomic::AtomicBool,
 ) -> Result<ZeroCopyExportResult, String> {
@@ -144,7 +146,6 @@ pub fn run_zero_copy_export(
                 config,
                 compositor,
                 build_uniforms,
-                compose_overlay,
                 cancel_flag,
                 render_rx,
                 step,
@@ -384,7 +385,6 @@ fn run_render_thread(
     config: &PipelineConfig,
     compositor: &mut GpuCompositor,
     build_uniforms: &(dyn Fn(f64, u32) -> CompositorUniforms + Sync),
-    compose_overlay: &(dyn Fn(f64, &mut Vec<u8>) -> bool + Sync),
     cancel_flag: &std::sync::atomic::AtomicBool,
     rx: mpsc::Receiver<DecodeOutput>,
     step: f64,
@@ -394,7 +394,6 @@ fn run_render_thread(
     recycle_decode_tx: mpsc::Sender<Vec<u8>>,
     recycle_render_rx: mpsc::Receiver<Vec<u8>>,
 ) -> Result<(), String> {
-    let mut overlay_buf = vec![0u8; (config.output_width * config.output_height * 4) as usize];
     let mut frames_rendered: u32 = 0;
     let mut t_upload = 0.0_f64;
     let mut t_render = 0.0_f64;
@@ -410,9 +409,6 @@ fn run_render_thread(
     // Pipelined readback: GPU renders frame N while CPU sets up frame N+1.
     // We queue a readback, move on, then drain it one frame later.
     let mut queued_readbacks: u32 = 0;
-    // Tracks whether the GPU overlay texture is non-transparent from the previous frame.
-    // Invariant: when false, overlay_buf is guaranteed all-zeros (safe to skip fill+upload).
-    let mut gpu_overlay_active = false;
 
     loop {
         let tw0 = Instant::now();
@@ -435,27 +431,15 @@ fn run_render_thread(
             continue;
         }
 
-        // 1. Upload video frame and overlay to GPU (synchronous — GPU copies immediately).
+        // 1. Upload video frame to GPU (synchronous — GPU copies immediately).
         let tu0 = Instant::now();
         compositor.upload_frame(&msg.bgra_video);
-
-        // Only zero the overlay buffer if the previous frame drew something.
-        // Invariant: overlay_buf is all-zeros whenever gpu_overlay_active is false.
-        if gpu_overlay_active {
-            overlay_buf.fill(0);
-        }
-        let has_overlay = compose_overlay(msg.source_time, &mut overlay_buf);
-        // Upload only when content changed: new overlay drawn, or clearing a previous one.
-        if has_overlay || gpu_overlay_active {
-            compositor.upload_overlay(&overlay_buf);
-            gpu_overlay_active = has_overlay;
-        }
         t_upload += tu0.elapsed().as_secs_f64();
 
         // 2. Return the decoded video buffer to the decode thread — GPU has consumed it.
         let _ = recycle_decode_tx.send(msg.bgra_video);
 
-        // 3. Submit render commands to GPU (returns immediately; GPU works asynchronously).
+        // 3. Submit render commands to GPU then composite atlas overlay quads if any.
         let tr0 = Instant::now();
         if mb_enabled {
             let half_shutter = step * config.motion_blur_shutter * 0.5;
@@ -472,16 +456,18 @@ fn run_render_thread(
             }
         } else {
             let uniforms = build_uniforms(msg.source_time, msg.frame_idx);
-            // render_frame_enqueue_readback does render + enqueue but does NOT block for readback.
-            compositor.render_frame_enqueue_readback(&uniforms)?;
-            queued_readbacks += 1;
+            compositor.render_to_output(&uniforms);
         }
 
-        // For motion blur: enqueue readback after accumulation.
-        if mb_enabled {
-            compositor.enqueue_output_readback()?;
-            queued_readbacks += 1;
+        // Atlas overlay pass: draw GPU-accelerated quads on top of the rendered output.
+        if let Some(frame) = config.overlay_frames.get(msg.frame_idx as usize) {
+            compositor.render_overlays(&frame.quads);
         }
+
+        // Enqueue GPU→CPU readback (async; drained below with pipeline depth 2).
+        compositor.enqueue_output_readback()?;
+        queued_readbacks += 1;
+
         t_render += tr0.elapsed().as_secs_f64();
 
         // 4. Pipelined readback: drain only if >= 2 frames are queued so the GPU

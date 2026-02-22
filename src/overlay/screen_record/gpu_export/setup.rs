@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use wgpu::util::DeviceExt;
 
 use super::compositor::CompositorUniforms;
-use super::shader::compositor_shader;
+use super::shader::{compositor_shader, overlay_shader};
 
 pub(super) const OUTPUT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
 
@@ -12,6 +12,16 @@ pub(super) const OUTPUT_TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureForma
 pub(super) struct Vertex {
     position: [f32; 2],
     tex_coords: [f32; 2],
+}
+
+/// Per-vertex data for the overlay atlas pipeline.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(super) struct OverlayVertex {
+    pub pos: [f32; 2],
+    pub uv: [f32; 2],
+    pub alpha: f32,
+    pub _pad: f32, // align to 4 floats
 }
 
 pub(super) const QUAD_VERTICES: &[Vertex] = &[
@@ -46,10 +56,12 @@ pub(super) struct SharedGpuContext {
     pub queue: Arc<wgpu::Queue>,
     pub pipeline: wgpu::RenderPipeline,
     pub accumulate_pipeline: wgpu::RenderPipeline,
+    pub overlay_pipeline: wgpu::RenderPipeline,
     pub vertex_buffer: wgpu::Buffer,
     pub uniform_layout: wgpu::BindGroupLayout,
     pub texture_layout: wgpu::BindGroupLayout,
     pub background_overlay_layout: wgpu::BindGroupLayout,
+    pub atlas_texture_layout: wgpu::BindGroupLayout,
 }
 
 static SHARED_GPU_CONTEXT: OnceLock<Result<SharedGpuContext, String>> = OnceLock::new();
@@ -183,22 +195,6 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
             ],
         });
 
@@ -306,15 +302,110 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         cache: None,
     });
 
+    // Atlas texture bind group layout (tex + sampler) for the overlay pipeline.
+    let atlas_texture_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Atlas Texture Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+    let overlay_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Overlay Shader"),
+        source: wgpu::ShaderSource::Wgsl(overlay_shader().into()),
+    });
+
+    let overlay_pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Overlay Pipeline Layout"),
+            bind_group_layouts: &[&atlas_texture_layout],
+            push_constant_ranges: &[],
+        });
+
+    let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Overlay Pipeline"),
+        layout: Some(&overlay_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &overlay_shader_module,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<OverlayVertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 8,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x2,
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 16,
+                        shader_location: 2,
+                        format: wgpu::VertexFormat::Float32,
+                    },
+                ],
+            }],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &overlay_shader_module,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: OUTPUT_TEXTURE_FORMAT,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
     Ok(SharedGpuContext {
         device,
         queue,
         pipeline,
         accumulate_pipeline,
+        overlay_pipeline,
         vertex_buffer,
         uniform_layout,
         texture_layout,
         background_overlay_layout,
+        atlas_texture_layout,
     })
 }
 

@@ -3,8 +3,7 @@ import type {
   BackgroundConfig,
   BakedCameraFrame,
   BakedCursorFrame,
-  BakedKeystrokeOverlay,
-  BakedTextOverlay,
+  BakedOverlayPayload,
   MousePosition,
   VideoSegment,
 } from '@/types/video';
@@ -552,8 +551,7 @@ interface PreparedBakePayload {
   activeDuration: number;
   bakedPath: BakedCameraFrame[];
   bakedCursorPath: BakedCursorFrame[];
-  bakedTextOverlays: BakedTextOverlay[];
-  bakedKeystrokeOverlays: BakedKeystrokeOverlay[];
+  overlayPayload?: BakedOverlayPayload;
 }
 
 interface PreparedBakeCacheEntry {
@@ -592,24 +590,16 @@ export class VideoExporter {
     return id;
   }
 
-  private estimateOverlayDataBytes(data: number[] | string): number {
-    return typeof data === 'string'
-      ? Math.floor((data.length * 3) / 4)
-      : data.length;
-  }
-
   private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
     const cameraBytes = payload.bakedPath.length * 32;
     const cursorBytes = payload.bakedCursorPath.length * 48;
-    const textBytes = payload.bakedTextOverlays.reduce(
-      (sum, overlay) => sum + this.estimateOverlayDataBytes(overlay.data) + 64,
-      0
-    );
-    const keystrokeBytes = payload.bakedKeystrokeOverlays.reduce(
-      (sum, overlay) => sum + this.estimateOverlayDataBytes(overlay.data) + 64,
-      0
-    );
-    return cameraBytes + cursorBytes + textBytes + keystrokeBytes;
+    const atlasBytes = payload.overlayPayload
+      ? Math.floor((payload.overlayPayload.atlasBase64.length * 3) / 4)
+      : 0;
+    const framesBytes = payload.overlayPayload
+      ? payload.overlayPayload.frames.reduce((sum, f) => sum + f.quads.length * 40, 0)
+      : 0;
+    return cameraBytes + cursorBytes + atlasBytes + framesBytes;
   }
 
   private prunePreparationCache(requiredBytes = 0) {
@@ -757,18 +747,11 @@ export class VideoExporter {
     const bakedCursorPath: BakedCursorFrame[] = [];
 
     await this.yieldToUiFrame();
-    let t0 = Date.now();
-    const bakedTextOverlays = normalizedSegment
-      ? videoRenderer.bakeTextOverlays(normalizedSegment, context.width, context.height)
-      : [];
-    await (window as any).__TAURI__.core.invoke('log_message', { message: `[Prep] Bake Text Overlays: ${Date.now() - t0}ms` });
-
-    await this.yieldToUiFrame();
-    t0 = Date.now();
-    const bakedKeystrokeOverlays = normalizedSegment
-      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, context.width, context.height, 30)
-      : [];
-    await (window as any).__TAURI__.core.invoke('log_message', { message: `[Prep] Bake Keystroke Overlays: ${Date.now() - t0}ms` });
+    const t0 = Date.now();
+    const overlayPayload = normalizedSegment
+      ? videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
+      : undefined;
+    await (window as any).__TAURI__.core.invoke('log_message', { message: `[Prep] Build Overlay Atlas: ${Date.now() - t0}ms` });
 
     return {
       normalizedSegment,
@@ -781,8 +764,7 @@ export class VideoExporter {
       activeDuration: context.activeDuration,
       bakedPath,
       bakedCursorPath,
-      bakedTextOverlays,
-      bakedKeystrokeOverlays
+      overlayPayload,
     };
   }
 
@@ -899,21 +881,24 @@ export class VideoExporter {
 
       // Camera and cursor baking now done in Rust — only stage text/keystroke overlays.
       // Chunked at 50 per call: avoids per-overlay IPC overhead on long recordings.
-      const OVERLAY_CHUNK = 50;
       const t0Overlays = Date.now();
-      for (let i = 0; i < prepared.bakedTextOverlays.length; i += OVERLAY_CHUNK) {
+      if (prepared.overlayPayload) {
         await invoke('stage_export_data', {
-          dataType: 'text_chunk',
-          data: prepared.bakedTextOverlays.slice(i, i + OVERLAY_CHUNK),
+          dataType: 'atlas',
+          base64: prepared.overlayPayload.atlasBase64,
+          width: prepared.overlayPayload.atlasWidth,
+          height: prepared.overlayPayload.atlasHeight,
         });
+        const FRAME_CHUNK = 1500;
+        const frames = prepared.overlayPayload.frames;
+        for (let i = 0; i < frames.length; i += FRAME_CHUNK) {
+          await invoke('stage_export_data', {
+            dataType: 'overlay_frames_chunk',
+            data: frames.slice(i, i + FRAME_CHUNK),
+          });
+        }
       }
-      for (let i = 0; i < prepared.bakedKeystrokeOverlays.length; i += OVERLAY_CHUNK) {
-        await invoke('stage_export_data', {
-          dataType: 'keystroke_chunk',
-          data: prepared.bakedKeystrokeOverlays.slice(i, i + OVERLAY_CHUNK),
-        });
-      }
-      await invoke('log_message', { message: `[Prep] IPC Overlays: ${Date.now() - t0Overlays}ms` });
+      await invoke('log_message', { message: `[Prep] IPC Atlas+Overlays: ${Date.now() - t0Overlays}ms` });
 
       // Send lightweight config (no baked arrays — they're already staged)
       const exportConfig = {

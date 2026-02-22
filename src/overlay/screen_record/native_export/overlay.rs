@@ -1,62 +1,6 @@
 use base64::Engine;
 use std::fs;
 
-/// Composite a baked bitmap overlay into a buffer using straight alpha.
-/// Writes proper RGBA with alpha for use as a GPU overlay texture layer.
-/// The shader blends via `mix(scene, overlay, overlay.a)` in linear space.
-pub fn composite_overlay_straight_alpha(
-    buffer: &mut [u8],
-    buf_w: u32,
-    buf_h: u32,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    data: &[u8],
-    fade_alpha: f64,
-) {
-    if fade_alpha <= 0.001 || data.is_empty() {
-        return;
-    }
-    let ow = width as usize;
-    let oh = height as usize;
-    if data.len() < ow * oh * 4 {
-        return;
-    }
-    for row in 0..oh {
-        let dst_y = y + row as i32;
-        if dst_y < 0 || dst_y >= buf_h as i32 {
-            continue;
-        }
-        for col in 0..ow {
-            let dst_x = x + col as i32;
-            if dst_x < 0 || dst_x >= buf_w as i32 {
-                continue;
-            }
-            let src_off = (row * ow + col) * 4;
-            let src_a = data[src_off + 3] as f64 / 255.0 * fade_alpha;
-            if src_a < 0.004 {
-                continue;
-            }
-            let dst_off = (dst_y as usize * buf_w as usize + dst_x as usize) * 4;
-            let dst_a = buffer[dst_off + 3] as f64 / 255.0;
-            let inv = 1.0 - src_a;
-            let out_a = src_a + dst_a * inv;
-            if out_a > 0.001 {
-                let w_src = src_a / out_a;
-                let w_dst = dst_a * inv / out_a;
-                buffer[dst_off] =
-                    (data[src_off] as f64 * w_src + buffer[dst_off] as f64 * w_dst) as u8;
-                buffer[dst_off + 1] =
-                    (data[src_off + 1] as f64 * w_src + buffer[dst_off + 1] as f64 * w_dst) as u8;
-                buffer[dst_off + 2] =
-                    (data[src_off + 2] as f64 * w_src + buffer[dst_off + 2] as f64 * w_dst) as u8;
-                buffer[dst_off + 3] = (out_a * 255.0) as u8;
-            }
-        }
-    }
-}
-
 pub fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>, String> {
     if let Some(rest) = custom_background.strip_prefix("data:") {
         let (meta, data) = rest

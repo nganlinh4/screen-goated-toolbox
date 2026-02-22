@@ -6,7 +6,8 @@ use super::cursors::{
     dedupe_valid_slots, get_or_render_cursor_tile, CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS,
     CURSOR_TILE_SIZE,
 };
-use super::setup::{shared_gpu_context, OUTPUT_TEXTURE_FORMAT};
+use super::setup::{shared_gpu_context, OverlayVertex, OUTPUT_TEXTURE_FORMAT};
+use crate::overlay::screen_record::native_export::config::OverlayQuad;
 
 const READBACK_RING_SIZE: usize = 5;
 
@@ -52,7 +53,6 @@ pub struct GpuCompositor {
     cursor_bind_group: wgpu::BindGroup,
     background_texture: wgpu::Texture,
     background_bind_group: wgpu::BindGroup,
-    overlay_texture: wgpu::Texture,
     output_texture: wgpu::Texture,
     output_buffers: Vec<wgpu::Buffer>,
     readback_receivers:
@@ -66,6 +66,11 @@ pub struct GpuCompositor {
     padded_bytes_per_row: u32,
     video_width: u32,
     video_height: u32,
+    // Sprite atlas overlay pipeline
+    atlas_texture: wgpu::Texture,
+    atlas_bind_group: wgpu::BindGroup,
+    atlas_sampler: wgpu::Sampler,
+    overlay_vertex_buffer: wgpu::Buffer,
 }
 
 impl GpuCompositor {
@@ -150,22 +155,6 @@ impl GpuCompositor {
         let background_view =
             background_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let overlay_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Overlay Texture"),
-            size: wgpu::Extent3d {
-                width: output_width.max(1),
-                height: output_height.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let overlay_view = overlay_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
         let video_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -190,15 +179,6 @@ impl GpuCompositor {
 
         // Background sampler uses linear filtering for smooth scaling.
         let background_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
-        let overlay_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
@@ -296,37 +276,51 @@ impl GpuCompositor {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&background_sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&overlay_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&overlay_sampler),
-                },
             ],
         });
 
-        let overlay_clear = vec![0u8; (output_width.max(1) * output_height.max(1) * 4) as usize];
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &overlay_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &overlay_clear,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(output_width.max(1) * 4),
-                rows_per_image: Some(output_height.max(1)),
-            },
-            wgpu::Extent3d {
-                width: output_width.max(1),
-                height: output_height.max(1),
-                depth_or_array_layers: 1,
-            },
-        );
+        // Sprite atlas: starts as a 1×1 transparent placeholder; replaced by upload_atlas().
+        let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Atlas Texture"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let atlas_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Atlas BG"),
+            layout: &shared.atlas_texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &atlas_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&atlas_sampler),
+                },
+            ],
+        });
+        // 1MB vertex buffer — enough for ~8000 quads (6 verts × 24 bytes each).
+        let overlay_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Overlay VB"),
+            size: 1024 * 1024,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         Ok(Self {
             device,
@@ -342,7 +336,6 @@ impl GpuCompositor {
             cursor_bind_group,
             background_texture,
             background_bind_group,
-            overlay_texture,
             output_texture,
             output_buffers,
             readback_receivers,
@@ -355,6 +348,10 @@ impl GpuCompositor {
             padded_bytes_per_row,
             video_width,
             video_height,
+            atlas_texture,
+            atlas_bind_group,
+            atlas_sampler,
+            overlay_vertex_buffer,
         })
     }
 
@@ -440,7 +437,7 @@ impl GpuCompositor {
         );
     }
 
-    fn render_to_output(&self, uniforms: &CompositorUniforms) {
+    pub fn render_to_output(&self, uniforms: &CompositorUniforms) {
         let uniform_data = bytemuck::bytes_of(uniforms);
         self.queue
             .write_buffer(&self.uniform_buffer, 0, uniform_data);
@@ -668,11 +665,29 @@ impl GpuCompositor {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
-    /// Upload overlay RGBA data (output_width × output_height).
-    pub fn upload_overlay(&self, rgba_data: &[u8]) {
+    /// Upload the sprite atlas RGBA pixels and rebuild the bind group.
+    /// Call once before the pipeline starts.
+    pub fn upload_atlas(&mut self, rgba_data: &[u8], width: u32, height: u32) {
+        if width == 0 || height == 0 || rgba_data.is_empty() {
+            return;
+        }
+        let shared = match shared_gpu_context() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        self.atlas_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Atlas Texture Loaded"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.overlay_texture,
+                texture: &self.atlas_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -680,15 +695,97 @@ impl GpuCompositor {
             rgba_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(self.width * 4),
-                rows_per_image: Some(self.height),
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
             },
-            wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
         );
+        self.atlas_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Atlas BG"),
+            layout: &shared.atlas_texture_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.atlas_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.atlas_sampler),
+                },
+            ],
+        });
+    }
+
+    /// Draw atlas quads directly onto the output texture (called after the main render pass).
+    /// Uses premultiplied-alpha blending so transparent quads compose correctly.
+    pub fn render_overlays(&self, quads: &[OverlayQuad]) {
+        if quads.is_empty() {
+            return;
+        }
+        let shared = match shared_gpu_context() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        let out_w = self.width as f32;
+        let out_h = self.height as f32;
+        let mut vertices: Vec<OverlayVertex> = Vec::with_capacity(quads.len() * 6);
+
+        for q in quads {
+            let x1 = (q.x / out_w) * 2.0 - 1.0;
+            let y1 = 1.0 - (q.y / out_h) * 2.0;
+            let x2 = ((q.x + q.w) / out_w) * 2.0 - 1.0;
+            let y2 = 1.0 - ((q.y + q.h) / out_h) * 2.0;
+            let u1 = q.u;
+            let v1 = q.v;
+            let u2 = q.u + q.uw;
+            let v2 = q.v + q.vh;
+            let a = q.alpha;
+            // Two triangles (CCW)
+            vertices.push(OverlayVertex { pos: [x1, y1], uv: [u1, v1], alpha: a, _pad: 0.0 });
+            vertices.push(OverlayVertex { pos: [x2, y1], uv: [u2, v1], alpha: a, _pad: 0.0 });
+            vertices.push(OverlayVertex { pos: [x1, y2], uv: [u1, v2], alpha: a, _pad: 0.0 });
+            vertices.push(OverlayVertex { pos: [x2, y1], uv: [u2, v1], alpha: a, _pad: 0.0 });
+            vertices.push(OverlayVertex { pos: [x2, y2], uv: [u2, v2], alpha: a, _pad: 0.0 });
+            vertices.push(OverlayVertex { pos: [x1, y2], uv: [u1, v2], alpha: a, _pad: 0.0 });
+        }
+
+        let byte_len = (vertices.len() * std::mem::size_of::<OverlayVertex>()) as u64;
+        if byte_len > self.overlay_vertex_buffer.size() {
+            return; // Buffer too small — skip rather than panic
+        }
+        self.queue
+            .write_buffer(&self.overlay_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let view = self
+                .output_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // composite onto existing output
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&shared.overlay_pipeline);
+            pass.set_bind_group(0, &self.atlas_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.overlay_vertex_buffer.slice(..));
+            pass.draw(0..vertices.len() as u32, 0..1);
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
 }
