@@ -151,14 +151,31 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     // Staged data takes priority when config arrays are empty.
     let staged = staging::take_staged();
 
-    let baked_path = match config.baked_path.take() {
+    let mut baked_path = match config.baked_path.take() {
         Some(v) if !v.is_empty() => v,
         _ => staged.camera_frames,
     };
-    let baked_cursor = match config.baked_cursor_path.take() {
+    let mut baked_cursor = match config.baked_cursor_path.take() {
         Some(v) if !v.is_empty() => v,
         _ => staged.cursor_frames,
     };
+
+    // Ensure baked paths are sorted by time (partition_point requires sorted input).
+    // Chunked IPC staging may deliver frames out of order.
+    let cam_unsorted = baked_path.windows(2).filter(|w| w[1].time < w[0].time).count();
+    if cam_unsorted > 0 {
+        println!("[Export][WARN] Baked camera path has {} non-monotonic entries — sorting", cam_unsorted);
+        baked_path.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    let cur_unsorted = baked_cursor.windows(2).filter(|w| w[1].time < w[0].time).count();
+    if cur_unsorted > 0 {
+        println!("[Export][WARN] Baked cursor path has {} non-monotonic entries — sorting", cur_unsorted);
+        baked_cursor.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    println!(
+        "[Export] Baked paths: camera={} frames, cursor={} frames",
+        baked_path.len(), baked_cursor.len()
+    );
     if config.baked_text_overlays.is_empty() && !staged.text_overlays.is_empty() {
         config.baked_text_overlays = staged.text_overlays;
     }

@@ -88,7 +88,7 @@ pub fn run_zero_copy_export(
         std::sync::Arc::new(Mutex::new(None));
 
     println!(
-        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, blur={}, segs={}",
+        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, blur={}(shutter={:.2}, mb={}), segs={}",
         total_frames,
         config.video_width,
         config.video_height,
@@ -96,6 +96,8 @@ pub fn run_zero_copy_export(
         config.output_height,
         config.framerate,
         config.motion_blur_samples,
+        config.motion_blur_shutter,
+        mb_enabled,
         config.trim_segments.len()
     );
 
@@ -425,6 +427,13 @@ fn run_render_encode(
     let mut t_encode = 0.0_f64;
     let mut t_wait = 0.0_f64;
 
+    // Diagnostic: bypass wgpu compositor — feed decoded BGRA directly to encoder.
+    // Set SGT_BYPASS_COMPOSITOR=1 env var to test if blinking comes from wgpu or D3D11/MF.
+    let bypass_compositor = std::env::var("SGT_BYPASS_COMPOSITOR").is_ok();
+    if bypass_compositor {
+        println!("[Pipeline] BYPASS_COMPOSITOR mode — skipping wgpu, raw decode→encode");
+    }
+
     loop {
         let tw0 = Instant::now();
         let msg = match rx.recv() {
@@ -437,44 +446,51 @@ fn run_render_encode(
             break;
         }
 
-        // Upload video + compose overlay
-        let tc0 = Instant::now();
-        compositor.upload_frame(&msg.bgra_video);
-        overlay_buf.fill(0);
-        compose_overlay(msg.source_time, &mut overlay_buf);
-        compositor.upload_overlay(&overlay_buf);
-        t_compose += tc0.elapsed().as_secs_f64();
-
-        // Render (with optional motion blur) + readback from wgpu
-        let tr0 = Instant::now();
-        if mb_enabled {
-            let half_shutter = step * config.motion_blur_shutter * 0.5;
-            for i in 0..mb_samples {
-                let t = if mb_samples > 1 {
-                    i as f64 / (mb_samples - 1) as f64
-                } else {
-                    0.5
-                };
-                let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
-                let uniforms = build_uniforms(sub_time, msg.frame_idx);
-                let weight = 1.0 / (i as f64 + 1.0);
-                compositor.render_accumulate(&uniforms, i == 0, weight);
-            }
-            compositor.enqueue_output_readback()?;
-            compositor.readback_output(&mut output_buf)?;
+        if bypass_compositor {
+            let te0 = Instant::now();
+            let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
+            encoder.write_frame_cpu(&msg.bgra_video, timestamp_100ns, frame_duration_100ns)?;
+            t_encode += te0.elapsed().as_secs_f64();
+            frames_encoded += 1;
         } else {
-            let uniforms = build_uniforms(msg.source_time, msg.frame_idx);
-            compositor.render_frame_into(&uniforms, &mut output_buf)?;
+            // Upload video + compose overlay
+            let tc0 = Instant::now();
+            compositor.upload_frame(&msg.bgra_video);
+            overlay_buf.fill(0);
+            compose_overlay(msg.source_time, &mut overlay_buf);
+            compositor.upload_overlay(&overlay_buf);
+            t_compose += tc0.elapsed().as_secs_f64();
+
+            // Render (with optional motion blur) + readback from wgpu
+            let tr0 = Instant::now();
+            if mb_enabled {
+                let half_shutter = step * config.motion_blur_shutter * 0.5;
+                for i in 0..mb_samples {
+                    let t = if mb_samples > 1 {
+                        i as f64 / (mb_samples - 1) as f64
+                    } else {
+                        0.5
+                    };
+                    let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
+                    let uniforms = build_uniforms(sub_time, msg.frame_idx);
+                    let weight = 1.0 / (i as f64 + 1.0);
+                    compositor.render_accumulate(&uniforms, i == 0, weight);
+                }
+                compositor.enqueue_output_readback()?;
+                compositor.readback_output(&mut output_buf)?;
+            } else {
+                let uniforms = build_uniforms(msg.source_time, msg.frame_idx);
+                compositor.render_frame_into(&uniforms, &mut output_buf)?;
+            }
+            t_render += tr0.elapsed().as_secs_f64();
+
+            // Encode BGRA from CPU buffer
+            let te0 = Instant::now();
+            let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
+            encoder.write_frame_cpu(&output_buf, timestamp_100ns, frame_duration_100ns)?;
+            t_encode += te0.elapsed().as_secs_f64();
+            frames_encoded += 1;
         }
-        t_render += tr0.elapsed().as_secs_f64();
-
-        // Encode BGRA from CPU buffer
-        let te0 = Instant::now();
-        let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
-        encoder.write_frame_cpu(&output_buf, timestamp_100ns, frame_duration_100ns)?;
-        t_encode += te0.elapsed().as_secs_f64();
-
-        frames_encoded += 1;
 
         // Frontend progress callback
         if let Some(ref cb) = progress {

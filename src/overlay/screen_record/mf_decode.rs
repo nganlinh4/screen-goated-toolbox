@@ -18,11 +18,19 @@ pub struct DxgiDeviceManager {
 }
 
 /// A decoded video frame: D3D11 texture + subresource index + timestamp.
+///
+/// The `sample` field keeps the `IMFSample` alive until this struct drops.
+/// Without it, the DXGI surface allocator reclaims the texture subresource
+/// as soon as the sample refcount hits zero — even while the VP Blt is
+/// still reading from it on the GPU.
 pub struct DecodedFrame {
     pub texture: ID3D11Texture2D,
     pub subresource_index: u32,
     /// Presentation timestamp in 100ns units.
     pub pts_100ns: i64,
+    /// Keeps the MF sample alive so the DXGI allocator cannot reuse the
+    /// texture subresource until after VP Blt + readback complete.
+    pub _sample: IMFSample,
 }
 
 /// Media Foundation SourceReader for hardware-accelerated video decode.
@@ -171,6 +179,7 @@ impl MfDecoder {
             texture,
             subresource_index,
             pts_100ns: timestamp,
+            _sample: sample,
         }))
     }
 
