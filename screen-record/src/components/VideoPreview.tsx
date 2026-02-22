@@ -124,11 +124,12 @@ export function PlaybackControls({
 
   return (
     <div
-      className="playback-controls relative flex items-center gap-2 backdrop-blur-xl rounded-xl px-3 py-2 border shadow-[0_4px_14px_rgba(0,0,0,0.12)] whitespace-nowrap"
+      className="playback-controls relative flex items-center gap-1.5 backdrop-blur-2xl rounded-2xl px-3.5 py-2.5 border whitespace-nowrap"
       style={{
         backgroundColor: 'var(--overlay-panel-bg)',
         borderColor: 'var(--overlay-panel-border)',
         color: 'var(--overlay-panel-fg)',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)',
       }}
     >
       {canvasModeToggle && (

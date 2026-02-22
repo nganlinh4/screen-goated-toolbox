@@ -10,7 +10,9 @@ use std::mem::ManuallyDrop;
 
 use windows::core::Interface;
 use windows::Win32::Foundation::{HMODULE, RECT};
-use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
+use windows::Win32::Graphics::Direct3D::{
+    D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0,
+};
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 
@@ -19,30 +21,36 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 /// Returns (device, immediate_context). The device supports D3D11 VideoProcessor
 /// and can be used with MF DXGI Device Manager for hardware decode/encode.
 pub fn create_d3d11_device() -> Result<(ID3D11Device, ID3D11DeviceContext), String> {
-    let mut device: Option<ID3D11Device> = None;
-    let mut context: Option<ID3D11DeviceContext> = None;
     let feature_levels = [D3D_FEATURE_LEVEL_11_0];
+    let flags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
-    unsafe {
-        D3D11CreateDevice(
-            None,
-            D3D_DRIVER_TYPE_HARDWARE,
-            HMODULE::default(),
-            D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            Some(&feature_levels),
-            7, // D3D11_SDK_VERSION
-            Some(&mut device),
-            None,
-            Some(&mut context),
-        )
-        .map_err(|e| format!("D3D11CreateDevice: {e}"))?;
-    }
+    let try_create = |driver_type| {
+        let mut device: Option<ID3D11Device> = None;
+        let mut context: Option<ID3D11DeviceContext> = None;
+        let result = unsafe {
+            D3D11CreateDevice(
+                None,
+                driver_type,
+                HMODULE::default(),
+                flags,
+                Some(&feature_levels),
+                7, // D3D11_SDK_VERSION
+                Some(&mut device),
+                None,
+                Some(&mut context),
+            )
+        };
+        result.map(|_| (device.unwrap(), context.unwrap()))
+    };
 
-    let device = device.ok_or("D3D11CreateDevice returned null device")?;
-    let context = context.ok_or("D3D11CreateDevice returned null context")?;
+    let (device, context) = try_create(D3D_DRIVER_TYPE_HARDWARE)
+        .or_else(|hw_err| {
+            eprintln!("[D3D11] Hardware device failed ({hw_err}), retrying with WARP");
+            try_create(D3D_DRIVER_TYPE_WARP)
+        })
+        .map_err(|e| format!("D3D11CreateDevice (hw+warp): {e}"))?;
 
     println!("[D3D11] Standalone device created with VIDEO_SUPPORT + BGRA_SUPPORT");
-
     Ok((device, context))
 }
 

@@ -25,7 +25,7 @@ pub struct CompositorUniforms {
     pub gradient_color1: [f32; 4],   // 48-64
     pub gradient_color2: [f32; 4],   // 64-80
     pub time: f32,                   // 80-84
-    pub _pad1: f32,                  // 84-88
+    pub render_mode: f32,            // 84-88: 0=all, 1=scene-only, 2=cursor-only
     pub cursor_pos: [f32; 2],        // 88-96
     pub cursor_scale: f32,           // 96-100
     pub cursor_opacity: f32, // 100-104 - cursor visibility (0.0 = hidden, 1.0 = fully visible)
@@ -36,7 +36,9 @@ pub struct CompositorUniforms {
     pub bg_zoom: f32,        // 120-124
     pub bg_anchor_x: f32,    // 124-128
     pub bg_anchor_y: f32,    // 128-132
-    pub _pad3: [f32; 3],     // 132-144 (Total 144 bytes)
+    pub bg_style: f32,       // 132-136 (gradient variant: 0=none,1=g4,2=g5,3=g6,4=g7)
+    pub bg_tex_w: f32,       // 136-140 (native texture width for cover UV)
+    pub bg_tex_h: f32,       // 140-144 (native texture height for cover UV)
 }
 
 pub struct GpuCompositor {
@@ -53,6 +55,7 @@ pub struct GpuCompositor {
     cursor_bind_group: wgpu::BindGroup,
     background_texture: wgpu::Texture,
     background_bind_group: wgpu::BindGroup,
+    background_sampler: wgpu::Sampler,
     output_texture: wgpu::Texture,
     output_buffers: Vec<wgpu::Buffer>,
     readback_receivers:
@@ -336,6 +339,7 @@ impl GpuCompositor {
             cursor_bind_group,
             background_texture,
             background_bind_group,
+            background_sampler,
             output_texture,
             output_buffers,
             readback_receivers,
@@ -415,7 +419,26 @@ impl GpuCompositor {
         );
     }
 
-    pub fn upload_background(&self, rgba_data: &[u8]) {
+    pub fn upload_background(&mut self, rgba_data: &[u8], width: u32, height: u32) {
+        if width == 0 || height == 0 || rgba_data.is_empty() {
+            return;
+        }
+        let shared = match shared_gpu_context() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        // Recreate texture at native image dimensions (no CPU pre-scaling needed).
+        self.background_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Background Texture Loaded"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.background_texture,
@@ -426,18 +449,32 @@ impl GpuCompositor {
             rgba_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(self.background_width * 4),
-                rows_per_image: Some(self.background_height),
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
             },
-            wgpu::Extent3d {
-                width: self.background_width,
-                height: self.background_height,
-                depth_or_array_layers: 1,
-            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
         );
+        self.background_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Background BG"),
+            layout: &shared.background_overlay_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.background_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.background_sampler),
+                },
+            ],
+        });
+        self.background_width = width;
+        self.background_height = height;
     }
 
-    pub fn render_to_output(&self, uniforms: &CompositorUniforms) {
+    pub fn render_to_output(&self, uniforms: &CompositorUniforms, clear: bool) {
         let uniform_data = bytemuck::bytes_of(uniforms);
         self.queue
             .write_buffer(&self.uniform_buffer, 0, uniform_data);
@@ -447,14 +484,18 @@ impl GpuCompositor {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         {
+            let load_op = if clear {
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+            } else {
+                wgpu::LoadOp::Load
+            };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.output_texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: load_op,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -596,7 +637,7 @@ impl GpuCompositor {
         &mut self,
         uniforms: &CompositorUniforms,
     ) -> Result<(), String> {
-        self.render_to_output(uniforms);
+        self.render_to_output(uniforms, true);
         self.enqueue_output_readback()
     }
 

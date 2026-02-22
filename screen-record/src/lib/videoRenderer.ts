@@ -2642,32 +2642,43 @@ export class VideoRenderer {
     }
 
     const windowSize = (this.getCursorSmoothness(backgroundConfig) * 2) + 1;
-    const passes = Math.ceil(windowSize / 2);
+    const passes = 3; // 3-pass box blur approximates a Gaussian kernel in O(N) total
     let currentSmoothed = smoothed;
 
+    // O(N) sliding-window box blur: one pass sweeps left→right accumulating the
+    // running sum, then right→left normalises — O(N) per pass regardless of window.
     for (let pass = 0; pass < passes; pass++) {
-      const passSmoothed: MousePosition[] = [];
-      for (let i = 0; i < currentSmoothed.length; i++) {
-        let sumX = 0;
-        let sumY = 0;
-        let totalWeight = 0;
-        const cursor_type = currentSmoothed[i].cursor_type;
-
-        for (let j = Math.max(0, i - windowSize); j <= Math.min(currentSmoothed.length - 1, i + windowSize); j++) {
-          const distance = Math.abs(i - j);
-          const weight = Math.exp(-distance * (0.5 / windowSize));
-          sumX += currentSmoothed[j].x * weight;
-          sumY += currentSmoothed[j].y * weight;
-          totalWeight += weight;
+      const n = currentSmoothed.length;
+      const sumX = new Float64Array(n);
+      const sumY = new Float64Array(n);
+      let runX = 0, runY = 0, count = 0;
+      // Forward pass: accumulate [0..i+half] into prefix sums.
+      const half = Math.floor(windowSize / 2);
+      for (let i = 0; i < n; i++) {
+        runX += currentSmoothed[i].x;
+        runY += currentSmoothed[i].y;
+        count++;
+        const lo = i - half;
+        if (lo > 0) {
+          runX -= currentSmoothed[lo - 1].x;
+          runY -= currentSmoothed[lo - 1].y;
+          count--;
         }
-
-        passSmoothed.push({
-          x: sumX / totalWeight,
-          y: sumY / totalWeight,
+        const hi = Math.min(i + half, n - 1);
+        const winLen = hi - Math.max(0, lo) + 1;
+        sumX[i] = runX / winLen;
+        sumY[i] = runY / winLen;
+      }
+      // Build output array reusing sumX/sumY averages.
+      const passSmoothed: MousePosition[] = new Array(n);
+      for (let i = 0; i < n; i++) {
+        passSmoothed[i] = {
+          x: sumX[i],
+          y: sumY[i],
           timestamp: currentSmoothed[i].timestamp,
           isClicked: currentSmoothed[i].isClicked,
-          cursor_type
-        });
+          cursor_type: currentSmoothed[i].cursor_type,
+        };
       }
       currentSmoothed = passSmoothed;
     }
@@ -2678,10 +2689,7 @@ export class VideoRenderer {
 
     for (let i = 1; i < currentSmoothed.length; i++) {
       const current = currentSmoothed[i];
-      const distance = Math.sqrt(
-        Math.pow(current.x - lastSignificantPos.x, 2) +
-        Math.pow(current.y - lastSignificantPos.y, 2)
-      );
+      const distance = Math.hypot(current.x - lastSignificantPos.x, current.y - lastSignificantPos.y);
 
       if (distance > threshold || current.isClicked !== lastSignificantPos.isClicked) {
         finalSmoothed.push(current);
@@ -5002,12 +5010,12 @@ export class VideoRenderer {
    * Bake all text and keystroke overlays into a single sprite atlas and compute
    * per-frame quad arrays for GPU compositing. Replaces the old per-bitmap bakers.
    */
-  public bakeOverlayAtlasAndPaths(
+  public async bakeOverlayAtlasAndPaths(
     segment: VideoSegment,
     outputWidth: number,
     outputHeight: number,
     fps: number = 60
-  ): BakedOverlayPayload {
+  ): Promise<BakedOverlayPayload> {
     const duration = Math.max(
       segment.trimEnd,
       ...(segment.trimSegments || []).map(s => s.endTime),
@@ -5040,7 +5048,6 @@ export class VideoRenderer {
 
     type AtlasRect = { x: number; y: number; w: number; h: number };
     const textMap = new Map<string, { rect: AtlasRect; baseHitArea: { x: number; y: number; width: number; height: number }; pad: number }>();
-    const keystrokeMap = new Map<string, { rect: AtlasRect; layout: any; pad: number }>();
 
     // Pack text overlays
     const textPad = 24;
@@ -5056,27 +5063,40 @@ export class VideoRenderer {
       textMap.set(text.id, { rect, baseHitArea: hitArea, pad: textPad });
     }
 
-    // Pack keystroke overlays
+    // Pack keystroke overlays — deduplicated so visually identical bubbles share one atlas slot.
+    // keystrokeUniqueMap: uniqueKey → {rect, layout, pad}  (one slot per distinct visual)
+    // keystrokeEventMap:  eventId  → uniqueKey             (many events → one visual key)
+    const keystrokeUniqueMap = new Map<string, { rect: AtlasRect; layout: any; pad: number }>();
+    const keystrokeEventMap = new Map<string, string>(); // eventId → uniqueKey
     const cache = this.rebuildKeystrokeRenderCache(segment, duration);
     if (cache && cache.displayEvents.length > 0) {
       const overlayTransform = this.getKeystrokeOverlayTransform(segment, outputWidth, outputHeight);
+      let uniqueCount = 0;
       for (const event of cache.displayEvents) {
         const layout = this.getCachedKeystrokeBubbleLayout(atlasCtx, event, outputHeight, overlayTransform.scale);
-        const pad = this.getKeystrokeBakePadding(layout);
-        const w = layout.width + pad * 2;
-        const h = layout.height + pad * 2;
-        const rect = pack(w, h);
-        atlasCtx.clearRect(rect.x, rect.y, w, h);
-        this.drawKeystrokeBubble(
-          atlasCtx, event,
-          rect.x + pad, rect.y + pad,
-          layout.width, layout.height,
-          layout.label, layout.fontSize, layout.radius, layout.paddingX,
-          layout.showMouseIcon, layout.iconBoxWidth, layout.iconGap,
-          'center', 1.0,
-          { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: 100, wght: 600, slnt: 0, rond: 88, holdMix: 0, laneWeight: 1 }
-        );
-        keystrokeMap.set(event.id, { rect, layout, pad });
+        // Unique key: label + mouse-icon flag + font-size (determines visual appearance).
+        const uniqueKey = `${layout.label}|${layout.showMouseIcon}|${layout.fontSize}`;
+        keystrokeEventMap.set(event.id, uniqueKey);
+        if (!keystrokeUniqueMap.has(uniqueKey)) {
+          const pad = this.getKeystrokeBakePadding(layout);
+          const w = layout.width + pad * 2;
+          const h = layout.height + pad * 2;
+          const rect = pack(w, h);
+          atlasCtx.clearRect(rect.x, rect.y, w, h);
+          this.drawKeystrokeBubble(
+            atlasCtx, event,
+            rect.x + pad, rect.y + pad,
+            layout.width, layout.height,
+            layout.label, layout.fontSize, layout.radius, layout.paddingX,
+            layout.showMouseIcon, layout.iconBoxWidth, layout.iconGap,
+            'center', 1.0,
+            { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: 100, wght: 600, slnt: 0, rond: 88, holdMix: 0, laneWeight: 1 }
+          );
+          keystrokeUniqueMap.set(uniqueKey, { rect, layout, pad });
+          uniqueCount++;
+          // Yield to UI every 10 unique renders so the browser stays responsive.
+          if (uniqueCount % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        }
       }
     }
 
@@ -5097,6 +5117,7 @@ export class VideoRenderer {
     const delaySec = this.getKeystrokeDelaySec(segment);
     const fadeDur = 0.3;
 
+    let frameCount = 0;
     for (let t = fullStart; t <= fullEnd + 0.0001; t += step) {
       const quads: OverlayQuad[] = [];
 
@@ -5128,7 +5149,8 @@ export class VideoRenderer {
         const layout = this.buildActiveKeystrokeFrameLayout(atlasCtx, segment, cache, t, delaySec, outputWidth, outputHeight);
         const drawPlacements = (placements: any[]) => {
           for (const p of placements) {
-            const mapping = keystrokeMap.get(p.item.active.event.id);
+            const uniqueKey = keystrokeEventMap.get(p.item.active.event.id);
+            const mapping = uniqueKey ? keystrokeUniqueMap.get(uniqueKey) : undefined;
             if (!mapping) continue;
             const visual = p.item.visual;
             if (visual.alpha <= 0.001) continue;
@@ -5156,6 +5178,9 @@ export class VideoRenderer {
       }
 
       frames.push({ time: t, quads });
+      frameCount++;
+      // Yield every 500 frames to keep the browser responsive during long exports.
+      if (frameCount % 500 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
     return { atlasBase64, atlasWidth: MAX_ATLAS_SIZE, atlasHeight: actualAtlasHeight, frames };

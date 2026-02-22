@@ -39,28 +39,15 @@ pub fn decode_custom_background_bytes(custom_background: &str) -> Result<Vec<u8>
 
 pub fn load_custom_background_rgba(
     custom_background: &str,
-    target_w: u32,
-    target_h: u32,
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, u32, u32), String> {
     let raw = decode_custom_background_bytes(custom_background)?;
     let decoded = image::load_from_memory(&raw)
         .map_err(|e| format!("Failed to decode custom background image: {}", e))?
         .to_rgba8();
 
-    let src_w = decoded.width().max(1);
-    let src_h = decoded.height().max(1);
-    let scale = (target_w as f64 / src_w as f64).max(target_h as f64 / src_h as f64);
-    let scaled_w = ((src_w as f64 * scale).ceil() as u32).max(target_w);
-    let scaled_h = ((src_h as f64 * scale).ceil() as u32).max(target_h);
-    let resized = image::imageops::resize(
-        &decoded,
-        scaled_w,
-        scaled_h,
-        image::imageops::FilterType::Triangle,
-    );
-    let crop_x = (scaled_w.saturating_sub(target_w)) / 2;
-    let crop_y = (scaled_h.saturating_sub(target_h)) / 2;
-    let cropped =
-        image::imageops::crop_imm(&resized, crop_x, crop_y, target_w, target_h).to_image();
-    Ok(cropped.into_raw())
+    let width = decoded.width().max(1);
+    let height = decoded.height().max(1);
+
+    // Skip CPU resize/crop — GPU handles object-fit: cover in the shader.
+    Ok((decoded.into_raw(), width, height))
 }

@@ -55,6 +55,10 @@ pub struct PipelineConfig {
     pub trim_segments: Vec<TrimSegment>,
     pub motion_blur_samples: u32,
     pub motion_blur_shutter: f64,
+    /// Per-channel blur isolation: when false, that channel samples base_time (no blur).
+    pub blur_zoom: bool,
+    pub blur_pan: bool,
+    pub blur_cursor: bool,
     /// Video texture dimensions (crop_w × crop_h from compositor).
     pub video_width: u32,
     pub video_height: u32,
@@ -84,7 +88,7 @@ struct RenderOutput {
 pub fn run_zero_copy_export(
     config: &PipelineConfig,
     compositor: &mut GpuCompositor,
-    build_uniforms: &(dyn Fn(f64, u32) -> CompositorUniforms + Sync),
+    build_uniforms: &(dyn Fn(f64, f64, f64, f64) -> CompositorUniforms + Sync),
     progress: Option<ProgressCallback>,
     cancel_flag: &std::sync::atomic::AtomicBool,
 ) -> Result<ZeroCopyExportResult, String> {
@@ -333,6 +337,25 @@ fn run_decode_thread(
         }
 
         // Advance: find the best source frame for this output time.
+        // Fast-forward: if source_time is >1.5s ahead of the next frame (high-speed timelapse),
+        // seek directly instead of decoding every intermediate frame sequentially.
+        if have_next && source_time - next_pts > 1.5 {
+            decoder.seek_seconds(source_time)?;
+            cur_pts = match decode_one(&mut cur_bgra)? {
+                Some(pts) => pts,
+                None => break,
+            };
+            src_decoded += 1;
+            if let Some(pts) = decode_one(&mut next_bgra)? {
+                next_pts = pts;
+                have_next = true;
+                src_decoded += 1;
+            } else {
+                have_next = false;
+                next_pts = f64::MAX;
+            }
+        }
+
         let mut advanced = false;
         while have_next && next_pts <= source_time {
             std::mem::swap(&mut cur_bgra, &mut next_bgra);
@@ -384,7 +407,7 @@ fn run_decode_thread(
 fn run_render_thread(
     config: &PipelineConfig,
     compositor: &mut GpuCompositor,
-    build_uniforms: &(dyn Fn(f64, u32) -> CompositorUniforms + Sync),
+    build_uniforms: &(dyn Fn(f64, f64, f64, f64) -> CompositorUniforms + Sync),
     cancel_flag: &std::sync::atomic::AtomicBool,
     rx: mpsc::Receiver<DecodeOutput>,
     step: f64,
@@ -441,7 +464,31 @@ fn run_render_thread(
 
         // 3. Submit render commands to GPU then composite atlas overlay quads if any.
         let tr0 = Instant::now();
-        if mb_enabled {
+        // Cursor-only fast path: when only the cursor is blurred (scene is sharp),
+        // render the scene once and composite the cursor N times at 1/N opacity each.
+        // This avoids N full scene re-renders while still blurring the cursor.
+        let only_cursor_blur = mb_enabled && config.blur_cursor && !config.blur_zoom && !config.blur_pan;
+        if only_cursor_blur {
+            // Scene pass: render background + video with cursor at base_time, clear=true.
+            let mut scene_u = build_uniforms(msg.source_time, msg.source_time, msg.source_time, msg.source_time);
+            scene_u.render_mode = 1.0; // scene only, cursor skipped
+            compositor.render_to_output(&scene_u, true);
+            // Cursor blur passes: N renders at different sub-times, each at 1/N opacity.
+            let half_shutter = step * config.motion_blur_shutter * 0.5;
+            let opacity_scale = 1.0 / mb_samples as f32;
+            for i in 0..mb_samples {
+                let t = if mb_samples > 1 {
+                    i as f64 / (mb_samples - 1) as f64
+                } else {
+                    0.5
+                };
+                let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
+                let mut cursor_u = build_uniforms(msg.source_time, msg.source_time, msg.source_time, sub_time);
+                cursor_u.render_mode = 2.0; // cursor only; ALPHA_BLENDING composites over scene
+                cursor_u.cursor_opacity *= opacity_scale;
+                compositor.render_to_output(&cursor_u, false); // load existing scene
+            }
+        } else if mb_enabled {
             let half_shutter = step * config.motion_blur_shutter * 0.5;
             for i in 0..mb_samples {
                 let t = if mb_samples > 1 {
@@ -450,13 +497,17 @@ fn run_render_thread(
                     0.5
                 };
                 let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
-                let uniforms = build_uniforms(sub_time, msg.frame_idx);
+                // Isolate blur per channel: disabled channels sample base_time (sharp).
+                let pan_time  = if config.blur_pan    { sub_time } else { msg.source_time };
+                let zoom_time = if config.blur_zoom   { sub_time } else { msg.source_time };
+                let cur_time  = if config.blur_cursor { sub_time } else { msg.source_time };
+                let uniforms = build_uniforms(msg.source_time, pan_time, zoom_time, cur_time);
                 let weight = 1.0 / (i as f64 + 1.0);
                 compositor.render_accumulate(&uniforms, i == 0, weight);
             }
         } else {
-            let uniforms = build_uniforms(msg.source_time, msg.frame_idx);
-            compositor.render_to_output(&uniforms);
+            let uniforms = build_uniforms(msg.source_time, msg.source_time, msg.source_time, msg.source_time);
+            compositor.render_to_output(&uniforms, true);
         }
 
         // Atlas overlay pass: draw GPU-accelerated quads on top of the rendered output.
@@ -563,7 +614,7 @@ fn run_encode_thread(
         frames_encoded += 1;
 
         if let Some(ref cb) = progress {
-            if frames_encoded % 15 == 0 || frames_encoded == total_frames {
+            if frames_encoded.is_multiple_of(15) || frames_encoded == total_frames {
                 let elapsed = start.elapsed().as_secs_f64();
                 let pct = (frames_encoded as f64 / total_frames as f64 * 100.0).min(100.0);
                 let eta = if frames_encoded > 0 {

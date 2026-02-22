@@ -324,8 +324,8 @@ export function ExportDialog({
 
         <div className="export-options-form space-y-4 mb-6">
           <div className="export-resolution-field">
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.resolution}</label>
-            <div className="resolution-options flex gap-2 flex-nowrap overflow-x-auto pb-1">
+            <label className="text-xs font-medium text-[var(--on-surface-variant)] mb-2 block">{t.resolution}</label>
+            <div className="resolution-options flex gap-2 flex-nowrap overflow-x-auto pb-2 thin-scrollbar">
               {resOptions.map((opt: ResolutionOption) => {
                 const key = `${opt.width}x${opt.height}`;
                 const isSelected = selectedKey === key || (exportOptions.width === 0 && exportOptions.height === 0 && opt === resOptions[0]);
@@ -333,10 +333,10 @@ export function ExportDialog({
                   <button
                     key={key}
                     onClick={() => setExportOptions(prev => ({ ...prev, width: opt.width, height: opt.height }))}
-                    className={`resolution-option py-1.5 px-3 rounded-lg text-xs font-medium transition-colors border whitespace-nowrap ${
+                    className={`resolution-option py-2 px-3.5 rounded-xl text-xs font-semibold transition-all border whitespace-nowrap shadow-sm ${
                       isSelected
-                        ? 'bg-[var(--primary-color)] text-white border-transparent'
-                        : 'bg-[var(--glass-bg)] text-[var(--on-surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)]'
+                        ? 'bg-[var(--primary-color)] text-white border-[var(--primary-color)] ring-2 ring-[var(--primary-color)]/20'
+                        : 'bg-[var(--surface)] text-[var(--on-surface)] border-[var(--glass-border)] hover:border-[var(--outline)] hover:bg-[var(--surface-container)]'
                     }`}
                   >
                     {opt.label}

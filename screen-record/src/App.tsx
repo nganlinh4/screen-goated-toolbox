@@ -1124,82 +1124,221 @@ function App() {
       <main className="app-main flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
         {error && <p className="error-message text-[var(--tertiary-color)] mb-2 flex-shrink-0">{error}</p>}
 
-        <div className="content-layout flex gap-3 flex-1 min-h-0 pb-1">
-          {/* Video Preview */}
-          <div className="video-preview-container flex-1 min-w-0 rounded-xl overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_4px_18px_rgba(0,0,0,0.2)]">
-            <div className="preview-inner relative w-full h-full flex justify-center items-center">
-              <div
-                ref={previewContainerRef}
-                className={`preview-canvas relative flex items-center justify-center ${previewCursorClass} group w-full h-full`}
-                onMouseDown={handlePreviewMouseDown}
-              >
-                <canvas ref={canvasRef} className="preview-canvas-element absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full" />
-                <canvas ref={tempCanvasRef} className="hidden" />
-                <video ref={videoRef} className="hidden" playsInline preload="auto" />
-                <audio ref={audioRef} className="hidden" />
-                {keystrokeOverlayEditFrame && (isKeystrokeOverlaySelected || isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current) && (
-                  <div
-                    className="keystroke-overlay-edit-frame absolute z-30 pointer-events-none"
-                    style={{
-                      left: `${keystrokeOverlayEditFrame.left}px`,
-                      top: `${keystrokeOverlayEditFrame.top}px`,
-                      width: `${keystrokeOverlayEditFrame.width}px`,
-                      height: `${keystrokeOverlayEditFrame.height}px`,
-                    }}
-                  >
-                    <div className="keystroke-overlay-edit-outline absolute inset-0 rounded-lg border border-emerald-300/85 bg-emerald-400/8 shadow-[0_0_0_1px_rgba(0,0,0,0.28)]" />
+        <div className="content-layout flex gap-4 flex-1 min-h-0 pb-1">
+          <div className="preview-and-controls flex-1 flex flex-col min-w-0 gap-3 relative">
+            {/* Video Preview */}
+            <div className="video-preview-container flex-1 min-h-0 rounded-2xl overflow-hidden bg-[var(--surface-dim)]/80 backdrop-blur-2xl flex items-center justify-center shadow-[0_2px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_4px_18px_rgba(0,0,0,0.3)] border border-[var(--glass-border)]">
+              <div className="preview-inner relative w-full h-full flex justify-center items-center">
+                <div
+                  ref={previewContainerRef}
+                  className={`preview-canvas relative flex items-center justify-center ${previewCursorClass} group w-full h-full`}
+                  onMouseDown={handlePreviewMouseDown}
+                >
+                  <canvas ref={canvasRef} className="preview-canvas-element absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full" />
+                  <canvas ref={tempCanvasRef} className="hidden" />
+                  <video ref={videoRef} className="hidden" playsInline preload="auto" />
+                  <audio ref={audioRef} className="hidden" />
+                  {keystrokeOverlayEditFrame && (isKeystrokeOverlaySelected || isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current) && (
                     <div
-                      className="keystroke-overlay-edit-handle absolute rounded-sm border border-emerald-100/90 bg-emerald-300/95 shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+                      className="keystroke-overlay-edit-frame absolute z-30 pointer-events-none"
                       style={{
-                        width: `${keystrokeOverlayEditFrame.handleSize}px`,
-                        height: `${keystrokeOverlayEditFrame.handleSize}px`,
-                        right: `${Math.max(-keystrokeOverlayEditFrame.handleSize * 0.35, -6)}px`,
-                        bottom: `${Math.max(-keystrokeOverlayEditFrame.handleSize * 0.35, -6)}px`,
+                        left: `${keystrokeOverlayEditFrame.left}px`,
+                        top: `${keystrokeOverlayEditFrame.top}px`,
+                        width: `${keystrokeOverlayEditFrame.width}px`,
+                        height: `${keystrokeOverlayEditFrame.height}px`,
                       }}
+                    >
+                      <div className="keystroke-overlay-edit-outline absolute inset-0 rounded-lg border border-emerald-300/85 bg-emerald-400/8 shadow-[0_0_0_1px_rgba(0,0,0,0.28)]" />
+                      <div
+                        className="keystroke-overlay-edit-handle absolute rounded-sm border border-emerald-100/90 bg-emerald-300/95 shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+                        style={{
+                          width: `${keystrokeOverlayEditFrame.handleSize}px`,
+                          height: `${keystrokeOverlayEditFrame.handleSize}px`,
+                          right: `${Math.max(-keystrokeOverlayEditFrame.handleSize * 0.35, -6)}px`,
+                          bottom: `${Math.max(-keystrokeOverlayEditFrame.handleSize * 0.35, -6)}px`,
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {(!currentVideo || isLoadingVideo) && (
+                    <Placeholder isLoadingVideo={isLoadingVideo} loadingProgress={loadingProgress}
+                      isRecording={isRecording} recordingDuration={recordingDuration} />
+                  )}
+
+                  {isCropping && currentVideo && segment && (
+                    <CropOverlay segment={segment}
+                      previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
+                      videoRef={videoRef as React.RefObject<HTMLVideoElement>}
+                      onUpdateSegment={setSegment}
+                      beginBatch={beginBatch} commitBatch={commitBatch} />
+                  )}
+
+                  {!isCropping && currentVideo && backgroundConfig.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight && (
+                    <CanvasResizeOverlay
+                      previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
+                      backgroundConfig={backgroundConfig}
+                      setBackgroundConfig={setBackgroundConfig}
+                      beginBatch={beginBatch}
+                      commitBatch={commitBatch}
                     />
-                  </div>
-                )}
+                  )}
+                </div>
 
-                {(!currentVideo || isLoadingVideo) && (
-                  <Placeholder isLoadingVideo={isLoadingVideo} loadingProgress={loadingProgress}
-                    isRecording={isRecording} recordingDuration={recordingDuration} />
-                )}
-
-                {isCropping && currentVideo && segment && (
-                  <CropOverlay segment={segment}
-                    previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
-                    videoRef={videoRef as React.RefObject<HTMLVideoElement>}
-                    onUpdateSegment={setSegment}
-                    beginBatch={beginBatch} commitBatch={commitBatch} />
-                )}
-
-                {!isCropping && currentVideo && backgroundConfig.canvasMode === 'custom' && backgroundConfig.canvasWidth && backgroundConfig.canvasHeight && (
-                  <CanvasResizeOverlay
-                    previewContainerRef={previewContainerRef as React.RefObject<HTMLDivElement>}
-                    backgroundConfig={backgroundConfig}
-                    setBackgroundConfig={setBackgroundConfig}
-                    beginBatch={beginBatch}
-                    commitBatch={commitBatch}
+                {/* Projects view — lives inside the preview area for native FLIP animation */}
+                {projects.showProjectsDialog && (
+                  <ProjectsView
+                    projects={projects.projects}
+                    onLoadProject={handleLoadProjectFromGrid}
+                    onProjectsChange={projects.loadProjects}
+                    onClose={() => projects.setShowProjectsDialog(false)}
+                    currentProjectId={projects.currentProjectId}
+                    restoreImage={restoreImageRef.current}
                   />
                 )}
               </div>
-
-              {/* Projects view — lives inside the preview area for native FLIP animation */}
-              {projects.showProjectsDialog && (
-                <ProjectsView
-                  projects={projects.projects}
-                  onLoadProject={handleLoadProjectFromGrid}
-                  onProjectsChange={projects.loadProjects}
-                  onClose={() => projects.setShowProjectsDialog(false)}
-                  currentProjectId={projects.currentProjectId}
-                  restoreImage={restoreImageRef.current}
-                />
-              )}
             </div>
+
+            {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
+              <div className="playback-controls-row flex-shrink-0 flex justify-center pb-1">
+                <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
+                  isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
+                  duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
+                  canvasModeToggle={
+                  <div className="playback-canvas-mode-toggle flex rounded-lg border border-[var(--overlay-divider)] overflow-hidden">
+                    {(['auto', 'custom'] as const).map((mode) => {
+                      const isActive = (backgroundConfig.canvasMode ?? 'auto') === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          aria-pressed={isActive}
+                          data-active={isActive ? 'true' : 'false'}
+                          onClick={() => {
+                            if (mode === 'custom') {
+                              setBackgroundConfig((prev) => {
+                                const w = prev.canvasWidth ?? canvasRef.current?.width ?? 1920;
+                                const h = prev.canvasHeight ?? canvasRef.current?.height ?? 1080;
+                                return { ...prev, canvasMode: 'custom', canvasWidth: w, canvasHeight: h };
+                              });
+                            } else {
+                              setBackgroundConfig((prev) => ({ ...prev, canvasMode: 'auto' }));
+                            }
+                          }}
+                          className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} ${isActive ? 'playback-canvas-mode-btn-active' : 'playback-canvas-mode-btn-inactive'} px-2 py-1 text-[10px] font-semibold transition-colors ${
+                            isActive
+                              ? 'bg-[var(--primary-color)] text-white ring-1 ring-white/45 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.26),0_0_0_1px_rgba(0,0,0,0.28)]'
+                              : 'bg-transparent text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]/70 hover:text-[var(--overlay-panel-fg)]'
+                          }`}
+                        >
+                          {mode === 'auto' ? t.canvasAuto : t.canvasCustom}
+                        </button>
+                      );
+                    })}
+                  </div>
+                }
+                  keystrokeToggle={
+                  <div className="playback-keystroke-control relative">
+                    <div className="playback-keystroke-delay-hover-bridge absolute left-0 right-0 bottom-full h-3" />
+                    <Button
+                      onClick={handleToggleKeystrokeMode}
+                      disabled={!segment}
+                      className={`playback-keystroke-toggle-btn h-7 text-[11px] transition-colors ${
+                        !segment
+                          ? 'text-[var(--overlay-panel-fg)]/40 cursor-not-allowed'
+                          : (segment.keystrokeMode ?? 'off') === 'off'
+                            ? 'text-[var(--overlay-panel-fg)]/85 bg-transparent hover:bg-[var(--glass-bg)]'
+                            : 'text-white bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85'
+                      }`}
+                    >
+                      <Keyboard className="playback-keystroke-toggle-icon w-3.5 h-3.5 mr-1.5" />
+                      <span className="playback-keystroke-toggle-label">
+                        {(segment?.keystrokeMode ?? 'off') === 'keyboard'
+                          ? t.keystrokeModeKeyboard
+                          : (segment?.keystrokeMode ?? 'off') === 'keyboardMouse'
+                            ? t.keystrokeModeKeyboardMouse
+                            : t.keystrokeModeOff}
+                      </span>
+                    </Button>
+                    <div
+                      className="playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+4px)] min-w-[172px] px-2 py-1.5 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto"
+                    >
+                      <div className="playback-keystroke-delay-row flex items-center gap-2">
+                        <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full px-1 py-[3px]">
+                          <input
+                            type="range"
+                            min="-1"
+                            max="1"
+                            step="0.01"
+                            disabled={!segment}
+                            value={segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC}
+                            style={sv(segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC, -1, 1)}
+                            onChange={(e) => handleKeystrokeDelayChange(Number(e.target.value))}
+                            className="playback-keystroke-delay-slider block w-full"
+                          />
+                        </div>
+                        <span className="playback-keystroke-delay-value text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-11 text-right">
+                          {(segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC).toFixed(2)}s
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  }
+                  autoZoomButton={
+                  <Button onClick={handleAutoZoom}
+                    disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                    className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
+                      !currentVideo || exportHook.isProcessing || !mousePositions.length
+                        ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
+                        : segment?.smoothMotionPath?.length
+                          ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
+                          : 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
+                    }`}>
+                    <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
+                  </Button>
+                  }
+                  smartPointerButton={
+                  <Button onClick={handleSmartPointerHiding}
+                    disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                    className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
+                      !currentVideo || exportHook.isProcessing || !mousePositions.length
+                        ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
+                        : (() => {
+                            const segs = segment?.cursorVisibilitySegments;
+                            const isDefault = !segs || segs.length === 0 || (
+                              segs.length === 1 &&
+                              Math.abs(segs[0].startTime - 0) < 0.01 &&
+                              Math.abs(segs[0].endTime - duration) < 0.01
+                            );
+                            return isDefault
+                              ? 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
+                              : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white';
+                          })()
+                    }`}>
+                    <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
+                  </Button>
+                  }
+                  volumeControl={
+                  <div className="playback-volume-control flex items-center gap-1.5">
+                    <Volume2 className="w-3.5 h-3.5 text-[var(--overlay-panel-fg)]/80 flex-shrink-0" />
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={backgroundConfig.volume ?? 1}
+                      style={sv(backgroundConfig.volume ?? 1, 0, 1)}
+                      onChange={(e) => setBackgroundConfig((prev) => ({ ...prev, volume: Number(e.target.value) }))}
+                      className="playback-volume-slider w-20"
+                    />
+                  </div>
+                } />
+              </div>
+            )}
           </div>
 
           {/* Side Panel */}
-          <div className="side-panel-container w-[23rem] flex-shrink-0 min-h-0 relative overflow-visible">
+          <div className="side-panel-container w-[24rem] flex-shrink-0 min-h-0 relative overflow-visible">
             <SidePanel
               activePanel={activePanel} setActivePanel={setActivePanel} segment={segment}
               editingKeyframeId={editingKeyframeId} zoomFactor={zoomFactor} setZoomFactor={setZoomFactor}
@@ -1210,151 +1349,9 @@ function App() {
               editingTextId={editingTextId} onUpdateSegment={setSegment}
               beginBatch={beginBatch} commitBatch={commitBatch}
             />
-            {isOverlayMode && <div className="panel-block-overlay absolute inset-0 bg-[var(--surface)] z-50" />}
+            {isOverlayMode && <div className="panel-block-overlay absolute inset-0 bg-[var(--surface)] z-50 rounded-xl" />}
           </div>
         </div>
-
-        {currentVideo && !isLoadingVideo && !projects.showProjectsDialog && (
-          <div className="playback-controls-row mt-2 flex-shrink-0 flex justify-center">
-            <div
-              className="playback-controls-anchor flex justify-center"
-              style={isCropping ? { width: 'calc(100% - 23.75rem)', marginRight: '23.75rem' } : undefined}
-            >
-              <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
-                isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
-                duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
-                canvasModeToggle={
-                <div className="playback-canvas-mode-toggle flex rounded-lg border border-[var(--overlay-divider)] overflow-hidden">
-                  {(['auto', 'custom'] as const).map((mode) => {
-                    const isActive = (backgroundConfig.canvasMode ?? 'auto') === mode;
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        aria-pressed={isActive}
-                        data-active={isActive ? 'true' : 'false'}
-                        onClick={() => {
-                          if (mode === 'custom') {
-                            setBackgroundConfig((prev) => {
-                              const w = prev.canvasWidth ?? canvasRef.current?.width ?? 1920;
-                              const h = prev.canvasHeight ?? canvasRef.current?.height ?? 1080;
-                              return { ...prev, canvasMode: 'custom', canvasWidth: w, canvasHeight: h };
-                            });
-                          } else {
-                            setBackgroundConfig((prev) => ({ ...prev, canvasMode: 'auto' }));
-                          }
-                        }}
-                        className={`playback-canvas-mode-btn playback-canvas-mode-btn-${mode} ${isActive ? 'playback-canvas-mode-btn-active' : 'playback-canvas-mode-btn-inactive'} px-2 py-1 text-[10px] font-semibold transition-colors ${
-                          isActive
-                            ? 'bg-[var(--primary-color)] text-white ring-1 ring-white/45 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.26),0_0_0_1px_rgba(0,0,0,0.28)]'
-                            : 'bg-transparent text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]/70 hover:text-[var(--overlay-panel-fg)]'
-                        }`}
-                      >
-                        {mode === 'auto' ? t.canvasAuto : t.canvasCustom}
-                      </button>
-                    );
-                  })}
-                </div>
-              }
-                keystrokeToggle={
-                <div className="playback-keystroke-control relative">
-                  <div className="playback-keystroke-delay-hover-bridge absolute left-0 right-0 bottom-full h-3" />
-                  <Button
-                    onClick={handleToggleKeystrokeMode}
-                    disabled={!segment}
-                    className={`playback-keystroke-toggle-btn h-7 text-[11px] transition-colors ${
-                      !segment
-                        ? 'text-[var(--overlay-panel-fg)]/40 cursor-not-allowed'
-                        : (segment.keystrokeMode ?? 'off') === 'off'
-                          ? 'text-[var(--overlay-panel-fg)]/85 bg-transparent hover:bg-[var(--glass-bg)]'
-                          : 'text-white bg-[var(--primary-color)] hover:bg-[var(--primary-color)]/85'
-                    }`}
-                  >
-                    <Keyboard className="playback-keystroke-toggle-icon w-3.5 h-3.5 mr-1.5" />
-                    <span className="playback-keystroke-toggle-label">
-                      {(segment?.keystrokeMode ?? 'off') === 'keyboard'
-                        ? t.keystrokeModeKeyboard
-                        : (segment?.keystrokeMode ?? 'off') === 'keyboardMouse'
-                          ? t.keystrokeModeKeyboardMouse
-                          : t.keystrokeModeOff}
-                    </span>
-                  </Button>
-                  <div
-                    className="playback-keystroke-delay-popover absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+4px)] min-w-[172px] px-2 py-1.5 rounded-lg border pointer-events-none opacity-0 translate-y-1 transition-all duration-150 group-hover/playback-keystroke:opacity-100 group-hover/playback-keystroke:translate-y-0 group-hover/playback-keystroke:pointer-events-auto group-focus-within/playback-keystroke:opacity-100 group-focus-within/playback-keystroke:translate-y-0 group-focus-within/playback-keystroke:pointer-events-auto"
-                  >
-                    <div className="playback-keystroke-delay-row flex items-center gap-2">
-                      <div className="playback-keystroke-delay-slider-shell flex-1 rounded-full px-1 py-[3px]">
-                        <input
-                          type="range"
-                          min="-1"
-                          max="1"
-                          step="0.01"
-                          disabled={!segment}
-                          value={segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC}
-                          style={sv(segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC, -1, 1)}
-                          onChange={(e) => handleKeystrokeDelayChange(Number(e.target.value))}
-                          className="playback-keystroke-delay-slider block w-full"
-                        />
-                      </div>
-                      <span className="playback-keystroke-delay-value text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-11 text-right">
-                        {(segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC).toFixed(2)}s
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                }
-                autoZoomButton={
-                <Button onClick={handleAutoZoom}
-                  disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
-                  className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
-                    !currentVideo || exportHook.isProcessing || !mousePositions.length
-                      ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
-                      : segment?.smoothMotionPath?.length
-                        ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
-                        : 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
-                  }`}>
-                  <Wand2 className="w-3 h-3 mr-1" />{t.autoZoom}
-                </Button>
-                }
-                smartPointerButton={
-                <Button onClick={handleSmartPointerHiding}
-                  disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
-                  className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
-                    !currentVideo || exportHook.isProcessing || !mousePositions.length
-                      ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
-                      : (() => {
-                          const segs = segment?.cursorVisibilitySegments;
-                          const isDefault = !segs || segs.length === 0 || (
-                            segs.length === 1 &&
-                            Math.abs(segs[0].startTime - 0) < 0.01 &&
-                            Math.abs(segs[0].endTime - duration) < 0.01
-                          );
-                          return isDefault
-                            ? 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
-                            : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white';
-                        })()
-                  }`}>
-                  <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
-                </Button>
-                }
-                volumeControl={
-                <div className="playback-volume-control flex items-center gap-1.5">
-                  <Volume2 className="w-3.5 h-3.5 text-[var(--overlay-panel-fg)]/80 flex-shrink-0" />
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={backgroundConfig.volume ?? 1}
-                    style={sv(backgroundConfig.volume ?? 1, 0, 1)}
-                    onChange={(e) => setBackgroundConfig((prev) => ({ ...prev, volume: Number(e.target.value) }))}
-                    className="playback-volume-slider w-20"
-                  />
-                </div>
-              } />
-            </div>
-          </div>
-        )}
 
         {/* Timeline */}
         <div className={`timeline-container mt-3 flex-shrink-0 relative ${isOverlayMode ? 'overflow-hidden' : ''}`}>

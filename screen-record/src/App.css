@@ -14,13 +14,13 @@
     }
 
     :root {
-        /* Neutral Light Theme */
-        --background: 0 0% 99%;
-        --foreground: 0 0% 7%;
-        --card: 0 0% 99%;
-        --card-foreground: 0 0% 7%;
-        --popover: 0 0% 99%;
-        --popover-foreground: 0 0% 7%;
+        /* Crisp Light Theme */
+        --background: 0 0% 98%;
+        --foreground: 0 0% 9%;
+        --card: 0 0% 100%;
+        --card-foreground: 0 0% 9%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 0 0% 9%;
         --primary: 217 91% 60%;         /* #3b82f6 - Blue */
         --primary-foreground: 0 0% 100%;
         --secondary: 217 91% 60%;       /* same as primary */
@@ -31,7 +31,7 @@
         --accent-foreground: 0 0% 100%;
         --destructive: 0 84% 60%;
         --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 85%;
+        --border: 0 0% 90%;
         --input: 0 0% 85%;
         --ring: 217 91% 60%;
         --chart-1: 217 91% 60%;
@@ -42,15 +42,15 @@
         --radius: 0.75rem;
 
         /* Custom semantic colors — light theme */
-        --surface: #fafafa;
-        --surface-dim: #f0f0f0;
-        --surface-container: #f5f5f5;
-        --surface-container-high: #ebebeb;
-        --surface-container-highest: #e0e0e0;
-        --on-surface: #1a1a1a;
-        --on-surface-variant: #555555;
-        --outline: #888888;
-        --outline-variant: #e0e0e0;
+        --surface: #ffffff;
+        --surface-dim: #f8fafc;
+        --surface-container: #f1f5f9;
+        --surface-container-high: #e2e8f0;
+        --surface-container-highest: #cbd5e1;
+        --on-surface: #0f172a;
+        --on-surface-variant: #475569;
+        --outline: #94a3b8;
+        --outline-variant: #e2e8f0;
         --primary-color: #3b82f6;
         --primary-light: #2563eb;
         --secondary-color: #3b82f6;
@@ -61,16 +61,16 @@
         --success-light: #22c55e;
 
         /* Glass-morphism layers */
-        --glass-bg: rgba(0, 0, 0, 0.04);
-        --glass-border: rgba(0, 0, 0, 0.08);
-        --glass-bg-hover: rgba(0, 0, 0, 0.06);
+        --glass-bg: rgba(15, 23, 42, 0.03);
+        --glass-border: rgba(15, 23, 42, 0.08);
+        --glass-bg-hover: rgba(15, 23, 42, 0.06);
 
         /* Timeline / overlay control tokens (light) */
-        --overlay-panel-bg: rgba(255, 255, 255, 0.9);
-        --overlay-panel-border: rgba(17, 24, 39, 0.14);
+        --overlay-panel-bg: rgba(255, 255, 255, 0.85);
+        --overlay-panel-border: rgba(0, 0, 0, 0.08);
         --overlay-panel-fg: #0f172a;
         --overlay-divider: rgba(15, 23, 42, 0.18);
-        --timeline-track-bg: rgba(15, 23, 42, 0.04);
+        --timeline-track-bg: #f1f5f9;
         --timeline-gap-overlay: rgba(255, 255, 255, 0.62);
         --timeline-active-border: rgba(15, 23, 42, 0.22);
         --timeline-handle: rgba(15, 23, 42, 0.75);
@@ -108,15 +108,15 @@
         --chart-5: 25 100% 65%;
 
         /* Custom semantic colors — dark theme */
-        --surface: #111111;
-        --surface-dim: #0a0a0a;
-        --surface-container: #1a1a1a;
-        --surface-container-high: #222222;
-        --surface-container-highest: #2a2a2a;
-        --on-surface: #e0e0e0;
-        --on-surface-variant: #a0a0a0;
-        --outline: #666666;
-        --outline-variant: #2a2a2a;
+        --surface: #0f0f11;
+        --surface-dim: #09090b;
+        --surface-container: #18181b;
+        --surface-container-high: #27272a;
+        --surface-container-highest: #3f3f46;
+        --on-surface: #f4f4f5;
+        --on-surface-variant: #a1a1aa;
+        --outline: #52525b;
+        --outline-variant: #27272a;
         --primary-color: #3b82f6;
         --primary-light: #60a5fa;
         --secondary-color: #3b82f6;
@@ -127,16 +127,16 @@
         --success-light: #4ade80;
 
         /* Glass-morphism layers */
-        --glass-bg: rgba(255, 255, 255, 0.04);
-        --glass-border: rgba(255, 255, 255, 0.06);
-        --glass-bg-hover: rgba(255, 255, 255, 0.06);
+        --glass-bg: rgba(255, 255, 255, 0.03);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --glass-bg-hover: rgba(255, 255, 255, 0.07);
 
         /* Timeline / overlay control tokens (dark) */
-        --overlay-panel-bg: rgba(0, 0, 0, 0.62);
-        --overlay-panel-border: rgba(255, 255, 255, 0.08);
-        --overlay-panel-fg: rgba(255, 255, 255, 0.92);
+        --overlay-panel-bg: rgba(24, 24, 27, 0.75);
+        --overlay-panel-border: rgba(255, 255, 255, 0.1);
+        --overlay-panel-fg: #f4f4f5;
         --overlay-divider: rgba(255, 255, 255, 0.12);
-        --timeline-track-bg: rgba(255, 255, 255, 0.05);
+        --timeline-track-bg: rgba(255, 255, 255, 0.04);
         --timeline-gap-overlay: rgba(255, 255, 255, 0.2);
         --timeline-active-border: rgba(255, 255, 255, 0.2);
         --timeline-handle: rgba(255, 255, 255, 0.85);
@@ -158,39 +158,43 @@
     }
 }
 
-/* Custom range slider - professional look */
+/* Polished range slider */
 input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
-    height: 3px;
+    height: 4px;
     background: linear-gradient(to right,
         var(--primary-color) var(--value-pct, 0%),
         var(--glass-bg-hover) var(--value-pct, 0%));
-    border-radius: 2px;
+    border-radius: 99px;
     outline: none;
     cursor: pointer;
+    transition: background 0.15s ease;
 }
 
 input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    background: var(--primary-color);
+    background: var(--surface);
+    border: 2px solid var(--primary-color);
     cursor: pointer;
-    border: none;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-    transition: box-shadow 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15), 0 1px 4px rgba(0, 0, 0, 0.3);
+    transform: scale(1.15);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15), 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 input[type="range"]::-webkit-slider-thumb:active {
-    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.2), 0 1px 4px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+    background: var(--primary-color);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.25);
 }
 
 /* Thin custom scrollbar for scroll containers */

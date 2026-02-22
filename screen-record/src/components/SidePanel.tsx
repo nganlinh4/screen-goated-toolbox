@@ -304,9 +304,9 @@ function ZoomPanel({
             <Trash2 className="w-4 h-4" />
           </Button>
         </div>
-        <div className="zoom-controls space-y-2">
-          <div className="zoom-factor-field flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.zoomFactor}</span>
+        <div className="zoom-controls space-y-3.5">
+          <div className="zoom-factor-field flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.zoomFactor}</span>
             <input
               type="range"
               min="1"
@@ -323,10 +323,10 @@ function ZoomPanel({
               }}
               className="flex-1 min-w-0"
             />
-            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{zoomFactor.toFixed(1)}x</span>
+            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{zoomFactor.toFixed(1)}x</span>
           </div>
-          <div className="position-x-field flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.horizontalPosition}</span>
+          <div className="position-x-field flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.horizontalPosition}</span>
             <input
               type="range"
               min="0"
@@ -339,10 +339,10 @@ function ZoomPanel({
               onChange={(e) => onUpdateZoom({ positionX: Number(e.target.value) })}
               className="flex-1 min-w-0"
             />
-            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((keyframe?.positionX ?? 0.5) * 100)}%</span>
+            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((keyframe?.positionX ?? 0.5) * 100)}%</span>
           </div>
-          <div className="position-y-field flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.verticalPosition}</span>
+          <div className="position-y-field flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.verticalPosition}</span>
             <input
               type="range"
               min="0"
@@ -355,7 +355,7 @@ function ZoomPanel({
               onChange={(e) => onUpdateZoom({ positionY: Number(e.target.value) })}
               className="flex-1 min-w-0"
             />
-            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((keyframe?.positionY ?? 0.5) * 100)}%</span>
+            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((keyframe?.positionY ?? 0.5) * 100)}%</span>
           </div>
         </div>
       </div>
@@ -487,33 +487,33 @@ function BackgroundPanel({
   const { t } = useSettings();
   return (
     <div className="background-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <div className="background-controls space-y-2">
-        <div className="video-size-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.videoSize}</span>
+      <div className="background-controls space-y-3.5">
+        <div className="video-size-field flex items-center gap-3">
+          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.videoSize}</span>
           <input type="range" min="50" max="100" value={backgroundConfig.scale}
             style={sv(backgroundConfig.scale, 50, 100)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, scale: Number(e.target.value) }))}
             className="flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.scale}%</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.scale}%</span>
         </div>
-        <div className="roundness-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.roundness}</span>
+        <div className="roundness-field flex items-center gap-3">
+          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.roundness}</span>
           <input type="range" min="0" max="64" value={backgroundConfig.borderRadius}
             style={sv(backgroundConfig.borderRadius, 0, 64)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, borderRadius: Number(e.target.value) }))}
             className="flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.borderRadius}px</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.borderRadius}px</span>
         </div>
-        <div className="shadow-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.shadow}</span>
+        <div className="shadow-field flex items-center gap-3">
+          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.shadow}</span>
           <input type="range" min="0" max="100" value={backgroundConfig.shadow || 0}
             style={sv(backgroundConfig.shadow || 0, 0, 100)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, shadow: Number(e.target.value) }))}
             className="flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.shadow || 0}px</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.shadow || 0}px</span>
         </div>
         <div className="background-style-field">
           <label className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-2 block">{t.backgroundStyle}</label>
@@ -696,7 +696,7 @@ function CursorPanel({
   const visibleRows = rows.slice(startIndex, endIndex);
   return (
     <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <div className="cursor-controls space-y-2">
+      <div className="cursor-controls space-y-3.5">
         <div className="cursor-custom-toggle-field flex items-center justify-between gap-2">
           <span className="text-[10px] text-[var(--on-surface-variant)]">{t.useCustomCursor}</span>
           <button
@@ -723,35 +723,35 @@ function CursorPanel({
             />
           </button>
         </div>
-        <div className="cursor-size-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.cursorSize}</span>
+        <div className="cursor-size-field flex items-center gap-3">
+          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.cursorSize}</span>
           <input type="range" min="1" max="8" step="0.1" value={backgroundConfig.cursorScale ?? 2}
             style={sv(backgroundConfig.cursorScale ?? 2, 1, 8)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorScale: Number(e.target.value) }))}
             className="flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorScale ?? 2).toFixed(1)}x</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{(backgroundConfig.cursorScale ?? 2).toFixed(1)}x</span>
         </div>
-        <div className="cursor-shadow-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">Shadow</span>
+        <div className="cursor-shadow-field flex items-center gap-3">
+          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">Shadow</span>
           <input type="range" min="0" max="200" step="1" value={backgroundConfig.cursorShadow ?? 35}
             style={sv(backgroundConfig.cursorShadow ?? 35, 0, 200)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: Number(e.target.value) }))}
             className="flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round(backgroundConfig.cursorShadow ?? 35)}%</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round(backgroundConfig.cursorShadow ?? 35)}%</span>
         </div>
-        <div className="cursor-smoothness-field flex items-center gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.movementSmoothing}</span>
+        <div className="cursor-smoothness-field flex items-center gap-3">
+          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.movementSmoothing}</span>
           <input type="range" min="0" max="10" step="1" value={backgroundConfig.cursorSmoothness ?? 5}
             style={sv(backgroundConfig.cursorSmoothness ?? 5, 0, 10)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: Number(e.target.value) }))}
             className="flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.cursorSmoothness ?? 5}</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.cursorSmoothness ?? 5}</span>
         </div>
-        <div className="cursor-movement-delay-field flex items-center gap-2">
-          <span className="cursor-movement-delay-label text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.pointerMovementDelay}</span>
+        <div className="cursor-movement-delay-field flex items-center gap-3">
+          <span className="cursor-movement-delay-label text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pointerMovementDelay}</span>
           <input
             type="range"
             min="-0.5"
@@ -762,10 +762,10 @@ function CursorPanel({
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: Number(e.target.value) }))}
             className="cursor-movement-delay-slider flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
         </div>
-        <div className="cursor-wiggle-strength-field flex items-center gap-2">
-          <span className="cursor-wiggle-strength-label text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.pointerWiggleStrength}</span>
+        <div className="cursor-wiggle-strength-field flex items-center gap-3">
+          <span className="cursor-wiggle-strength-label text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pointerWiggleStrength}</span>
           <input
             type="range"
             min="0"
@@ -776,10 +776,10 @@ function CursorPanel({
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: Number(e.target.value) }))}
             className="cursor-wiggle-strength-slider flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%</span>
         </div>
-        <div className="cursor-tilt-angle-field flex items-center gap-2">
-          <span className="cursor-tilt-angle-label text-[10px] text-[var(--on-surface-variant)] w-16 flex-shrink-0">{t.cursorTilt}</span>
+        <div className="cursor-tilt-angle-field flex items-center gap-3">
+          <span className="cursor-tilt-angle-label text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.cursorTilt}</span>
           <input
             type="range"
             min="-30"
@@ -790,9 +790,9 @@ function CursorPanel({
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorTiltAngle: Number(e.target.value) }))}
             className="cursor-tilt-angle-slider flex-1 min-w-0"
           />
-          <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-10 text-right flex-shrink-0">{backgroundConfig.cursorTiltAngle ?? -10}°</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.cursorTiltAngle ?? -10}°</span>
         </div>
-        <div className="cursor-variants-section space-y-2">
+        <div className="cursor-variants-section space-y-3.5">
           <div
             className="cursor-variant-virtualized-list border border-[var(--glass-border)] rounded-lg overflow-hidden"
             style={{ height: `${viewportHeight}px` }}
@@ -935,29 +935,33 @@ interface TextPanelProps {
 interface BlurPanelProps {
   backgroundConfig: BackgroundConfig;
   setBackgroundConfig: React.Dispatch<React.SetStateAction<BackgroundConfig>>;
+  beginBatch: () => void;
+  commitBatch: () => void;
 }
 
-function BlurPanel({ backgroundConfig, setBackgroundConfig }: BlurPanelProps) {
+function BlurPanel({ backgroundConfig, setBackgroundConfig, beginBatch, commitBatch }: BlurPanelProps) {
   const { t } = useSettings();
   return (
     <div className="blur-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <div className="blur-controls space-y-3">
+      <div className="blur-controls space-y-3.5">
         <div className="blur-sliders space-y-1.5">
           {([
             ['motionBlurCursor', t.motionBlurCursor, 25] as const,
             ['motionBlurZoom', t.motionBlurZoom, 10] as const,
             ['motionBlurPan', t.motionBlurPan, 10] as const,
           ]).map(([key, label, def]) => (
-            <div key={key} className={`motion-blur-slider-${key} flex items-center gap-2`}>
-              <span className="text-[10px] text-[var(--on-surface-variant)] w-24 flex-shrink-0">{label}</span>
+            <div key={key} className={`motion-blur-slider-${key} flex items-center gap-3`}>
+              <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{label}</span>
               <input
                 type="range" min="0" max="100" step="1"
                 value={backgroundConfig[key] ?? def}
                 style={sv(backgroundConfig[key] ?? def, 0, 100)}
+                onPointerDown={beginBatch}
+                onPointerUp={commitBatch}
                 onChange={(e) => setBackgroundConfig(prev => ({ ...prev, [key]: Number(e.target.value) }))}
                 className="motion-blur-range flex-1 min-w-0"
               />
-              <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-8 text-right flex-shrink-0">{backgroundConfig[key] ?? def}%</span>
+              <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig[key] ?? def}%</span>
             </div>
           ))}
         </div>
@@ -989,7 +993,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
   return (
     <div className="text-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       {editingText && segment ? (
-        <div className="text-controls space-y-2">
+        <div className="text-controls space-y-3.5">
           <textarea
             value={editingText.text}
             onFocus={beginBatch}
@@ -1014,8 +1018,8 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
           <p className="text-[10px] text-[var(--on-surface-variant)]">{t.dragTextHint}</p>
 
           {/* Font Size */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.fontSize}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.fontSize}</span>
             <input
               type="range" min={12} max={200} step={1}
               value={editingText.style.fontSize}
@@ -1025,12 +1029,12 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
               onChange={(e) => updateStyle({ fontSize: Number(e.target.value) })}
               className="flex-1 min-w-0"
             />
-            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-7 text-right flex-shrink-0">{editingText.style.fontSize}</span>
+            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{editingText.style.fontSize}</span>
           </div>
 
           {/* Color */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.color}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.color}</span>
             <ColorPicker
               value={editingText.style.color}
               onChange={(color) => updateStyle({ color })}
@@ -1048,8 +1052,8 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
           ] as const).map(({ axis, label, min, max, defaultVal, step }) => {
             const value = (editingText.style.fontVariations as any)?.[axis] ?? defaultVal;
             return (
-              <div key={axis} className="flex items-center gap-2">
-                <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{label}</span>
+              <div key={axis} className="flex items-center gap-3">
+                <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{label}</span>
                 <input
                   type="range" min={min} max={max} step={step}
                   value={value}
@@ -1061,14 +1065,14 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
                   })}
                   className="flex-1 min-w-0"
                 />
-                <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-7 text-right flex-shrink-0">{value}</span>
+                <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{value}</span>
               </div>
             );
           })}
 
           {/* Alignment */}
-          <div className="text-align-field flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.textAlignment}</span>
+          <div className="text-align-field flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.textAlignment}</span>
             <div className="alignment-button-group flex rounded-lg border border-[var(--glass-border)] overflow-hidden">
               {(['left', 'center', 'right'] as const).map(align => {
                 const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
@@ -1092,8 +1096,8 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
           </div>
 
           {/* Opacity */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.opacity}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.opacity}</span>
             <input
               type="range" min="0" max="1" step="0.01"
               value={editingText.style.opacity ?? 1}
@@ -1103,12 +1107,12 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
               onChange={(e) => updateStyle({ opacity: Number(e.target.value) })}
               className="flex-1 min-w-0"
             />
-            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-7 text-right flex-shrink-0">{Math.round((editingText.style.opacity ?? 1) * 100)}%</span>
+            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((editingText.style.opacity ?? 1) * 100)}%</span>
           </div>
 
           {/* Letter Spacing */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.letterSpacing}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.letterSpacing}</span>
             <input
               type="range" min="-5" max="20" step="1"
               value={editingText.style.letterSpacing ?? 0}
@@ -1118,12 +1122,12 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
               onChange={(e) => updateStyle({ letterSpacing: Number(e.target.value) })}
               className="flex-1 min-w-0"
             />
-            <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-7 text-right flex-shrink-0">{editingText.style.letterSpacing ?? 0}</span>
+            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{editingText.style.letterSpacing ?? 0}</span>
           </div>
 
           {/* Background Pill */}
           <div>
-            <label className="flex items-center gap-2 text-[10px] text-[var(--on-surface-variant)] cursor-pointer">
+            <label className="flex items-center gap-3 text-[10px] text-[var(--on-surface-variant)] cursor-pointer">
               <input
                 type="checkbox"
                 checked={editingText.style.background?.enabled ?? false}
@@ -1142,9 +1146,9 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
               {t.backgroundPill}
             </label>
             {editingText.style.background?.enabled && (
-              <div className="background-pill-controls space-y-2 mt-1 pl-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pillColor}</span>
+              <div className="background-pill-controls space-y-3.5 mt-1 pl-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pillColor}</span>
                   <ColorPicker
                     value={editingText.style.background.color.startsWith('rgba') ? '#000000' : editingText.style.background.color}
                     onChange={(color) => updateStyle({
@@ -1154,8 +1158,8 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
                     onClose={commitBatch}
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pillOpacity}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pillOpacity}</span>
                   <input
                     type="range" min="0" max="1" step="0.01"
                     value={editingText.style.background.opacity ?? 0.6}
@@ -1167,10 +1171,10 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
                     })}
                     className="flex-1 min-w-0"
                   />
-                  <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-7 text-right flex-shrink-0">{Math.round((editingText.style.background.opacity ?? 0.6) * 100)}%</span>
+                  <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((editingText.style.background.opacity ?? 0.6) * 100)}%</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[var(--on-surface-variant)] w-14 flex-shrink-0">{t.pillRadius}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pillRadius}</span>
                   <input
                     type="range" min="0" max="32" step="1"
                     value={editingText.style.background.borderRadius}
@@ -1182,7 +1186,7 @@ function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch, commit
                     })}
                     className="flex-1 min-w-0"
                   />
-                  <span className="text-[10px] text-[var(--on-surface)] tabular-nums w-7 text-right flex-shrink-0">{editingText.style.background.borderRadius}</span>
+                  <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{editingText.style.background.borderRadius}</span>
                 </div>
               </div>
             )}
@@ -1274,7 +1278,12 @@ export function SidePanel({
         )}
 
         {activePanel === 'blur' && (
-          <BlurPanel backgroundConfig={backgroundConfig} setBackgroundConfig={setBackgroundConfig} />
+          <BlurPanel
+            backgroundConfig={backgroundConfig}
+            setBackgroundConfig={setBackgroundConfig}
+            beginBatch={beginBatch}
+            commitBatch={commitBatch}
+          />
         )}
 
         {activePanel === 'text' && (
