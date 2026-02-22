@@ -10,6 +10,7 @@ import type {
 
 import { videoRenderer } from './videoRenderer';
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from './trimSegments';
+import { invoke } from '@/lib/ipc';
 
 // Standard video heights (descending) for resolution options
 const STANDARD_HEIGHTS = [2160, 1440, 1080, 720, 480] as const;
@@ -751,7 +752,7 @@ export class VideoExporter {
     const overlayPayload = normalizedSegment
       ? await videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
       : undefined;
-    await (window as any).__TAURI__.core.invoke('log_message', { message: `[Prep] Build Overlay Atlas: ${Date.now() - t0}ms` });
+    await invoke('log_message', { message: `[Prep] Build Overlay Atlas: ${Date.now() - t0}ms` });
 
     return {
       normalizedSegment,
@@ -873,9 +874,6 @@ export class VideoExporter {
         segment: prepared.normalizedSegment
       });
 
-      // @ts-ignore
-      const { invoke } = window.__TAURI__.core;
-
       // Stage baked data via chunked IPC to avoid V8 JSON.stringify limits.
       await invoke('clear_export_staging', {});
 
@@ -963,8 +961,6 @@ export class VideoExporter {
   }
 
   async cancel() {
-    // @ts-ignore
-    const { invoke } = window.__TAURI__.core;
     try {
       await invoke('cancel_export');
     } catch (e) {
@@ -973,8 +969,6 @@ export class VideoExporter {
   }
 
   async getExportCapabilities(): Promise<ExportCapabilities> {
-    // @ts-ignore
-    const { invoke } = window.__TAURI__.core;
     const res = await invoke<Partial<ExportCapabilities>>('get_export_capabilities');
     return {
       nvencAvailable: Boolean(res?.nvencAvailable),

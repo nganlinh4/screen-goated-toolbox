@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
 import { Wand2, MousePointer2, Volume2, Keyboard } from "lucide-react";
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@/lib/ipc';
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { videoRenderer, type KeystrokeOverlayEditBounds } from '@/lib/videoRenderer';
