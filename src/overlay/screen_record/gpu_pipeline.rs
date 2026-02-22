@@ -1,11 +1,18 @@
 // Threaded GPU export pipeline with CPU bridge.
 //
-// Two threads running in parallel:
+// Three threads running in parallel:
 //   Decode thread:  MF decode → D3D11 VP (NV12→BGRA) → CPU readback → channel
-//   Main thread:    channel → wgpu upload → compositor render → wgpu readback → MF encode
+//   Render thread:  channel → wgpu upload → compositor render → pipelined readback → channel
+//   Main thread:    channel → MF encode → MP4
 //
 // Frame selection: sample-and-hold using source PTS to handle VFR sources.
 // wgpu and D3D11 use completely independent devices — no D3D11On12.
+//
+// Buffer recycling:
+//   send_buf  (video_w×h×4):  decode → render → (recycle) → decode
+//   out_buf   (out_w×h×4):    render → encode → (recycle) → render
+// Pipelined readbacks: render enqueues readback N then immediately processes
+// frame N+1; readback N is drained before N+1's readback — GPU and CPU overlap.
 
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
@@ -56,23 +63,26 @@ pub struct PipelineConfig {
     pub crop_y: u32,
 }
 
-/// Message sent from decode thread to render/encode thread.
+/// Message sent from decode thread to render thread.
 struct DecodeOutput {
+    /// Recycled send buffer (video_w×h×4 BGRA). Returned to decode via recycle after GPU upload.
     bgra_video: Vec<u8>,
     source_time: f64,
     frame_idx: u32,
 }
 
+/// Message sent from render thread to encode thread.
+struct RenderOutput {
+    /// Recycled output buffer (out_w×h×4 BGRA). Returned to render via recycle after encode.
+    rendered_bgra: Vec<u8>,
+}
+
 /// Run the threaded GPU export pipeline.
-///
-/// Spawns a decode thread that produces BGRA frames via a bounded channel.
-/// The main thread consumes frames: compositor render → wgpu readback → MF encode.
-/// Frame selection uses sample-and-hold with source PTS to handle VFR sources.
 pub fn run_zero_copy_export(
     config: &PipelineConfig,
     compositor: &mut GpuCompositor,
-    build_uniforms: &dyn Fn(f64, u32) -> CompositorUniforms,
-    compose_overlay: &dyn Fn(f64, &mut Vec<u8>),
+    build_uniforms: &(dyn Fn(f64, u32) -> CompositorUniforms + Sync),
+    compose_overlay: &(dyn Fn(f64, &mut Vec<u8>) -> bool + Sync),
     progress: Option<ProgressCallback>,
     cancel_flag: &std::sync::atomic::AtomicBool,
 ) -> Result<ZeroCopyExportResult, String> {
@@ -82,13 +92,24 @@ pub fn run_zero_copy_export(
     let mb_samples = config.motion_blur_samples.max(1);
     let mb_enabled = mb_samples > 1 && config.motion_blur_shutter > 0.0;
 
-    // Bounded channel: decode can run 2 frames ahead of render/encode.
-    let (tx, rx) = mpsc::sync_channel::<DecodeOutput>(2);
+    // Forward channels (decode → render → encode).
+    let (decode_tx, render_rx) = mpsc::sync_channel::<DecodeOutput>(3);
+    let (render_tx, encode_rx) = mpsc::sync_channel::<RenderOutput>(3);
+    // Recycle channels (backwards): buffers return to their producer thread for reuse.
+    let (render_to_decode_tx, render_to_decode_rx) = mpsc::channel::<Vec<u8>>();
+    let (encode_to_render_tx, encode_to_render_rx) = mpsc::channel::<Vec<u8>>();
+
     let decode_error: std::sync::Arc<Mutex<Option<String>>> =
         std::sync::Arc::new(Mutex::new(None));
+    let render_error: std::sync::Arc<Mutex<Option<String>>> =
+        std::sync::Arc::new(Mutex::new(None));
+
+    let mut result: Result<ZeroCopyExportResult, String> = Err("pipeline did not run".into());
+    let decode_err_clone = decode_error.clone();
+    let render_err_clone = render_error.clone();
 
     println!(
-        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, blur={}(shutter={:.2}, mb={}), segs={}",
+        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, blur={} (shutter={:.2}, mb={}), segs={}",
         total_frames,
         config.video_width,
         config.video_height,
@@ -101,30 +122,52 @@ pub fn run_zero_copy_export(
         config.trim_segments.len()
     );
 
-    let mut result: Result<ZeroCopyExportResult, String> = Err("pipeline did not run".into());
-    let decode_err_clone = decode_error.clone();
-
     std::thread::scope(|s| {
+        // Thread 1: Decode
         s.spawn(move || {
-            if let Err(e) = run_decode_thread(config, cancel_flag, total_frames, step, tx) {
+            if let Err(e) = run_decode_thread(
+                config,
+                cancel_flag,
+                total_frames,
+                step,
+                decode_tx,
+                render_to_decode_rx,
+            ) {
                 cancel_flag.store(true, Ordering::Relaxed);
                 *decode_err_clone.lock().unwrap() = Some(e);
             }
         });
 
-        result = run_render_encode(
+        // Thread 2: Render (compositor)
+        s.spawn(move || {
+            if let Err(e) = run_render_thread(
+                config,
+                compositor,
+                build_uniforms,
+                compose_overlay,
+                cancel_flag,
+                render_rx,
+                step,
+                mb_samples,
+                mb_enabled,
+                render_tx,
+                render_to_decode_tx,
+                encode_to_render_rx,
+            ) {
+                cancel_flag.store(true, Ordering::Relaxed);
+                *render_err_clone.lock().unwrap() = Some(e);
+            }
+        });
+
+        // Main thread: Encode
+        result = run_encode_thread(
             config,
-            compositor,
-            build_uniforms,
-            compose_overlay,
             progress,
             cancel_flag,
-            &rx,
+            &encode_rx,
             total_frames,
-            step,
-            mb_samples,
-            mb_enabled,
             &start,
+            encode_to_render_tx,
         );
 
         if result.is_err() {
@@ -132,33 +175,38 @@ pub fn run_zero_copy_export(
         }
     });
 
-    // Check for decode thread error (may have caused early exit)
-    if let Some(decode_err) = decode_error.lock().unwrap().take() {
+    if let Some(e) = decode_error.lock().unwrap().take() {
         if result.is_ok() {
-            return Err(format!("Decode thread: {decode_err}"));
+            return Err(format!("Decode thread: {e}"));
+        }
+    }
+    if let Some(e) = render_error.lock().unwrap().take() {
+        if result.is_ok() {
+            return Err(format!("Render thread: {e}"));
         }
     }
 
     result
 }
 
-/// Decode thread: creates its own D3D11 device, decodes with sample-and-hold frame selection.
+/// Decode thread: creates its own D3D11 device; decodes with sample-and-hold frame selection.
 ///
-/// Uses source PTS to handle VFR: holds each decoded frame until the next one's
-/// timestamp is needed, duplicating frames when output fps > source fps.
+/// `cur_bgra` and `next_bgra` are PERMANENT buffers owned by this thread (never sent across
+/// threads). Per output frame we copy `cur_bgra` into a recycled `send_buf` and send that.
+/// This correctly handles the "hold" case (same source frame reused for multiple output frames)
+/// which occurs whenever output fps > source fps.
 fn run_decode_thread(
     config: &PipelineConfig,
     cancel_flag: &std::sync::atomic::AtomicBool,
     total_frames: u32,
     step: f64,
     tx: mpsc::SyncSender<DecodeOutput>,
+    recycle_rx: mpsc::Receiver<Vec<u8>>,
 ) -> Result<(), String> {
     let t_thread = Instant::now();
 
-    // --- D3D11 device #1 (decode thread owns this) ---
+    // D3D11 device #1 (decode thread owns this)
     let (d3d11_device, d3d11_context) = create_d3d11_device()?;
-
-    // Enable multithread protection (MF decoder may use internal threads)
     {
         let mt: ID3D11Multithread = d3d11_device
             .cast()
@@ -173,7 +221,6 @@ fn run_decode_thread(
     let source_w = decoder.width();
     let source_h = decoder.height();
 
-    // Seek to start
     let initial_seek = if !config.trim_segments.is_empty() {
         config.trim_segments[0].start_time
     } else {
@@ -183,7 +230,6 @@ fn run_decode_thread(
         decoder.seek_seconds(initial_seek)?;
     }
 
-    // VideoProcessor (NV12→BGRA, with optional crop)
     let vp_out_w = config.video_width;
     let vp_out_h = config.video_height;
     let decode_vp = VideoProcessor::new(
@@ -194,8 +240,6 @@ fn run_decode_thread(
         vp_out_w,
         vp_out_h,
     )?;
-
-    // Always set source rect (NV12 textures are 16-pixel height-aligned)
     decode_vp.set_source_rect(config.crop_x, config.crop_y, vp_out_w, vp_out_h);
 
     let vp_output = VideoProcessor::create_texture(
@@ -205,7 +249,6 @@ fn run_decode_thread(
         DXGI_FORMAT_B8G8R8A8_UNORM,
         D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE,
     )?;
-
     let readback = D3D11Readback::new(
         &d3d11_device,
         &d3d11_context,
@@ -214,10 +257,9 @@ fn run_decode_thread(
         DXGI_FORMAT_B8G8R8A8_UNORM,
     )?;
 
-    let has_trim = !config.trim_segments.is_empty();
-    let mut current_segment_idx: usize = 0;
+    let frame_size = (vp_out_w * vp_out_h * 4) as usize;
 
-    // Decode one source frame: MF decode → VP convert → CPU readback → return PTS
+    // Decode one source frame into a buffer; returns PTS in seconds.
     let decode_one = |buf: &mut Vec<u8>| -> Result<Option<f64>, String> {
         let decoded = match decoder.read_frame()? {
             Some(f) => f,
@@ -228,56 +270,31 @@ fn run_decode_thread(
         Ok(Some(decoded.pts_100ns as f64 / 10_000_000.0))
     };
 
-    // ─── Sample-and-hold frame selection ───
-    // Decode source frames and hold each until the next one's PTS is needed.
-    // This handles VFR sources by duplicating frames when output fps > source fps.
-
-    let mut cur_bgra: Vec<u8> = Vec::new();
+    // Permanent hold buffers — never leave this thread.
+    let mut cur_bgra: Vec<u8> = Vec::with_capacity(frame_size);
     let mut cur_pts: f64 = match decode_one(&mut cur_bgra)? {
         Some(pts) => pts,
         None => return Ok(()),
     };
 
-    let mut next_bgra: Vec<u8> = Vec::new();
-    let mut next_pts: f64 = f64::MAX;
+    let mut next_bgra: Vec<u8> = Vec::with_capacity(frame_size);
+    let mut next_pts = f64::MAX;
     let mut have_next = false;
-    let mut src_decoded: u32 = 1;
-
     if let Some(pts) = decode_one(&mut next_bgra)? {
         next_pts = pts;
         have_next = true;
-        src_decoded += 1;
     }
 
+    let has_trim = !config.trim_segments.is_empty();
+    let mut current_segment_idx: usize = 0;
     let mut frames_held: u32 = 0;
-
-    // PTS diagnostics
-    let mut last_decoded_pts: f64 = cur_pts;
-    let mut non_mono: u32 = 0; // PTS went backwards
-    let mut max_gap_ms: f64 = 0.0;
-    let mut max_hold_streak: u32 = 0;
-    let mut hold_streak: u32 = 0;
-    let mut max_skip: u32 = 0; // max source frames skipped in one advance loop
-    let mut max_drift_ms: f64 = 0.0; // max |source_time - cur_pts|
-
-    // Track PTS after each decode
-    let track_pts = |pts: f64, last: &mut f64, non_mono: &mut u32, max_gap: &mut f64| {
-        if pts < *last - 0.001 {
-            *non_mono += 1;
-        }
-        let gap = (pts - *last).abs() * 1000.0;
-        if gap > *max_gap {
-            *max_gap = gap;
-        }
-        *last = pts;
-    };
+    let mut src_decoded: u32 = if have_next { 2 } else { 1 };
 
     for frame_idx in 0..total_frames {
         if cancel_flag.load(Ordering::Relaxed) {
             break;
         }
 
-        // Map output time → source time
         let output_time = frame_idx as f64 * step;
         let source_time = if has_trim {
             output_to_source_time(output_time, &config.trim_segments, config.trim_start)
@@ -285,7 +302,7 @@ fn run_decode_thread(
             config.trim_start + output_time
         };
 
-        // Seek on trim segment boundary change
+        // Seek on trim segment boundary change.
         if has_trim {
             let target_seg = config
                 .trim_segments
@@ -298,18 +315,15 @@ fn run_decode_thread(
             if target_seg != current_segment_idx {
                 decoder.seek_seconds(config.trim_segments[target_seg].start_time)?;
                 current_segment_idx = target_seg;
-                // Re-decode current + next after seek
                 cur_pts = match decode_one(&mut cur_bgra)? {
                     Some(pts) => pts,
                     None => break,
                 };
                 src_decoded += 1;
-                track_pts(cur_pts, &mut last_decoded_pts, &mut non_mono, &mut max_gap_ms);
                 if let Some(pts) = decode_one(&mut next_bgra)? {
                     next_pts = pts;
                     have_next = true;
                     src_decoded += 1;
-                    track_pts(pts, &mut last_decoded_pts, &mut non_mono, &mut max_gap_ms);
                 } else {
                     have_next = false;
                     next_pts = f64::MAX;
@@ -317,20 +331,16 @@ fn run_decode_thread(
             }
         }
 
-        // Advance decoder until we find the best frame for source_time.
-        // "Best frame" = latest decoded frame whose PTS ≤ source_time.
-        // We advance as long as next_pts ≤ source_time (the next frame is
-        // already valid or earlier), then cur becomes the best match.
-        let mut skip_count: u32 = 0;
+        // Advance: find the best source frame for this output time.
+        let mut advanced = false;
         while have_next && next_pts <= source_time {
             std::mem::swap(&mut cur_bgra, &mut next_bgra);
             cur_pts = next_pts;
-            skip_count += 1;
+            advanced = true;
             match decode_one(&mut next_bgra)? {
                 Some(pts) => {
                     next_pts = pts;
                     src_decoded += 1;
-                    track_pts(pts, &mut last_decoded_pts, &mut non_mono, &mut max_gap_ms);
                 }
                 None => {
                     have_next = false;
@@ -339,70 +349,193 @@ fn run_decode_thread(
             }
         }
 
-        if skip_count > max_skip {
-            max_skip = skip_count;
-        }
-
-        if skip_count == 0 && frame_idx > 0 {
+        if !advanced && frame_idx > 0 {
             frames_held += 1;
-            hold_streak += 1;
-            if hold_streak > max_hold_streak {
-                max_hold_streak = hold_streak;
-            }
-        } else {
-            hold_streak = 0;
         }
+        let _ = cur_pts; // suppress unused warning
 
-        // Track drift between desired source_time and actual frame PTS
-        let drift = (source_time - cur_pts).abs() * 1000.0;
-        if drift > max_drift_ms {
-            max_drift_ms = drift;
-        }
+        // Copy cur_bgra into a recycled send buffer (avoids per-frame allocation).
+        // cur_bgra STAYS in this thread so holds (same frame reused for multiple outputs) work.
+        let mut send_buf = recycle_rx
+            .try_recv()
+            .unwrap_or_else(|_| Vec::with_capacity(frame_size));
+        send_buf.resize(frame_size, 0);
+        send_buf.copy_from_slice(&cur_bgra);
 
-        let msg = DecodeOutput {
-            bgra_video: cur_bgra.clone(),
-            source_time,
-            frame_idx,
-        };
-        if tx.send(msg).is_err() {
+        if tx.send(DecodeOutput { bgra_video: send_buf, source_time, frame_idx }).is_err() {
             break;
         }
     }
 
     let elapsed = t_thread.elapsed().as_secs_f64();
     println!(
-        "[Decode] {} src → {} out ({} held, max_streak {}) in {:.1}s | max_gap {:.0}ms, non_mono {}, max_skip {}, max_drift {:.0}ms",
-        src_decoded,
-        total_frames,
-        frames_held,
-        max_hold_streak,
-        elapsed,
-        max_gap_ms,
-        non_mono,
-        max_skip,
-        max_drift_ms,
+        "[Decode] {} src → {} out ({} held) in {:.1}s",
+        src_decoded, total_frames, frames_held, elapsed
+    );
+    Ok(())
+}
+
+/// Render thread: receives BGRA frames, runs compositor, sends rendered BGRA to encoder.
+///
+/// Pipelined readback depth 2: after enqueueing readback for frame N, we process frame N+1
+/// before draining readback N. The GPU renders N while the CPU uploads and renders N+1.
+#[allow(clippy::too_many_arguments)]
+fn run_render_thread(
+    config: &PipelineConfig,
+    compositor: &mut GpuCompositor,
+    build_uniforms: &(dyn Fn(f64, u32) -> CompositorUniforms + Sync),
+    compose_overlay: &(dyn Fn(f64, &mut Vec<u8>) -> bool + Sync),
+    cancel_flag: &std::sync::atomic::AtomicBool,
+    rx: mpsc::Receiver<DecodeOutput>,
+    step: f64,
+    mb_samples: u32,
+    mb_enabled: bool,
+    tx: mpsc::SyncSender<RenderOutput>,
+    recycle_decode_tx: mpsc::Sender<Vec<u8>>,
+    recycle_render_rx: mpsc::Receiver<Vec<u8>>,
+) -> Result<(), String> {
+    let mut overlay_buf = vec![0u8; (config.output_width * config.output_height * 4) as usize];
+    let mut frames_rendered: u32 = 0;
+    let mut t_upload = 0.0_f64;
+    let mut t_render = 0.0_f64;
+    let mut t_readback = 0.0_f64;
+    let mut t_wait = 0.0_f64;
+
+    // Diagnostic: bypass wgpu compositor — pass decoded BGRA directly to encoder.
+    let bypass_compositor = std::env::var("SGT_BYPASS_COMPOSITOR").is_ok();
+    if bypass_compositor {
+        println!("[Pipeline] BYPASS_COMPOSITOR mode — skipping wgpu, raw decode→encode");
+    }
+
+    // Pipelined readback: GPU renders frame N while CPU sets up frame N+1.
+    // We queue a readback, move on, then drain it one frame later.
+    let mut queued_readbacks: u32 = 0;
+    // Tracks whether the GPU overlay texture is non-transparent from the previous frame.
+    // Invariant: when false, overlay_buf is guaranteed all-zeros (safe to skip fill+upload).
+    let mut gpu_overlay_active = false;
+
+    loop {
+        let tw0 = Instant::now();
+        let msg = match rx.recv() {
+            Ok(m) => m,
+            Err(_) => break,
+        };
+        t_wait += tw0.elapsed().as_secs_f64();
+
+        if cancel_flag.load(Ordering::Relaxed) {
+            // Return the receive buffer before exiting so decode thread doesn't stall.
+            let _ = recycle_decode_tx.send(msg.bgra_video);
+            break;
+        }
+
+        if bypass_compositor {
+            if tx.send(RenderOutput { rendered_bgra: msg.bgra_video }).is_err() {
+                break;
+            }
+            continue;
+        }
+
+        // 1. Upload video frame and overlay to GPU (synchronous — GPU copies immediately).
+        let tu0 = Instant::now();
+        compositor.upload_frame(&msg.bgra_video);
+
+        // Only zero the overlay buffer if the previous frame drew something.
+        // Invariant: overlay_buf is all-zeros whenever gpu_overlay_active is false.
+        if gpu_overlay_active {
+            overlay_buf.fill(0);
+        }
+        let has_overlay = compose_overlay(msg.source_time, &mut overlay_buf);
+        // Upload only when content changed: new overlay drawn, or clearing a previous one.
+        if has_overlay || gpu_overlay_active {
+            compositor.upload_overlay(&overlay_buf);
+            gpu_overlay_active = has_overlay;
+        }
+        t_upload += tu0.elapsed().as_secs_f64();
+
+        // 2. Return the decoded video buffer to the decode thread — GPU has consumed it.
+        let _ = recycle_decode_tx.send(msg.bgra_video);
+
+        // 3. Submit render commands to GPU (returns immediately; GPU works asynchronously).
+        let tr0 = Instant::now();
+        if mb_enabled {
+            let half_shutter = step * config.motion_blur_shutter * 0.5;
+            for i in 0..mb_samples {
+                let t = if mb_samples > 1 {
+                    i as f64 / (mb_samples - 1) as f64
+                } else {
+                    0.5
+                };
+                let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
+                let uniforms = build_uniforms(sub_time, msg.frame_idx);
+                let weight = 1.0 / (i as f64 + 1.0);
+                compositor.render_accumulate(&uniforms, i == 0, weight);
+            }
+        } else {
+            let uniforms = build_uniforms(msg.source_time, msg.frame_idx);
+            // render_frame_enqueue_readback does render + enqueue but does NOT block for readback.
+            compositor.render_frame_enqueue_readback(&uniforms)?;
+            queued_readbacks += 1;
+        }
+
+        // For motion blur: enqueue readback after accumulation.
+        if mb_enabled {
+            compositor.enqueue_output_readback()?;
+            queued_readbacks += 1;
+        }
+        t_render += tr0.elapsed().as_secs_f64();
+
+        // 4. Pipelined readback: drain only if >= 2 frames are queued so the GPU
+        //    has time to finish frame N while we set up frame N+1.
+        if queued_readbacks >= 2 {
+            let trb0 = Instant::now();
+            let mut out_buf = recycle_render_rx
+                .try_recv()
+                .unwrap_or_default();
+            compositor.readback_output(&mut out_buf)?;
+            t_readback += trb0.elapsed().as_secs_f64();
+            queued_readbacks -= 1;
+            if tx.send(RenderOutput { rendered_bgra: out_buf }).is_err() {
+                break;
+            }
+            frames_rendered += 1;
+        }
+    }
+
+    // Drain all remaining GPU frames at end of video.
+    while queued_readbacks > 0 {
+        let trb0 = Instant::now();
+        let mut out_buf = recycle_render_rx.try_recv().unwrap_or_default();
+        compositor.readback_output(&mut out_buf)?;
+        t_readback += trb0.elapsed().as_secs_f64();
+        queued_readbacks -= 1;
+        let _ = tx.send(RenderOutput { rendered_bgra: out_buf });
+        frames_rendered += 1;
+    }
+
+    let n = frames_rendered.max(1) as f64;
+    println!(
+        "[Render] {} frames: upload {:.1} + render {:.1} + readback {:.1} + wait {:.1}ms avg",
+        frames_rendered,
+        t_upload / n * 1000.0,
+        t_render / n * 1000.0,
+        t_readback / n * 1000.0,
+        t_wait / n * 1000.0,
     );
 
     Ok(())
 }
 
-/// Main thread: receives decoded BGRA frames, renders via compositor, encodes.
-#[allow(clippy::too_many_arguments)]
-fn run_render_encode(
+/// Main thread: receives rendered BGRA frames and encodes to MP4.
+fn run_encode_thread(
     config: &PipelineConfig,
-    compositor: &mut GpuCompositor,
-    build_uniforms: &dyn Fn(f64, u32) -> CompositorUniforms,
-    compose_overlay: &dyn Fn(f64, &mut Vec<u8>),
     progress: Option<ProgressCallback>,
     cancel_flag: &std::sync::atomic::AtomicBool,
-    rx: &mpsc::Receiver<DecodeOutput>,
+    rx: &mpsc::Receiver<RenderOutput>,
     total_frames: u32,
-    step: f64,
-    mb_samples: u32,
-    mb_enabled: bool,
     start: &Instant,
+    recycle_tx: mpsc::Sender<Vec<u8>>,
 ) -> Result<ZeroCopyExportResult, String> {
-    // --- D3D11 device #2 (main thread, for encoder HW acceleration) ---
+    // D3D11 device for encoder HW acceleration (main thread)
     let (enc_device, _enc_context) = create_d3d11_device()?;
     let enc_device_manager = DxgiDeviceManager::new(&enc_device)?;
 
@@ -417,22 +550,9 @@ fn run_render_encode(
     let encoder = MfEncoder::new(&config.output_path, encoder_config, &enc_device_manager)?;
     let frame_duration_100ns = encoder.frame_duration_100ns();
 
-    let mut overlay_buf = vec![0u8; (config.output_width * config.output_height * 4) as usize];
-    let mut output_buf: Vec<u8> = Vec::new();
     let mut frames_encoded: u32 = 0;
-
-    // Bottleneck timing accumulators
-    let mut t_compose = 0.0_f64;
-    let mut t_render = 0.0_f64;
     let mut t_encode = 0.0_f64;
     let mut t_wait = 0.0_f64;
-
-    // Diagnostic: bypass wgpu compositor — feed decoded BGRA directly to encoder.
-    // Set SGT_BYPASS_COMPOSITOR=1 env var to test if blinking comes from wgpu or D3D11/MF.
-    let bypass_compositor = std::env::var("SGT_BYPASS_COMPOSITOR").is_ok();
-    if bypass_compositor {
-        println!("[Pipeline] BYPASS_COMPOSITOR mode — skipping wgpu, raw decode→encode");
-    }
 
     loop {
         let tw0 = Instant::now();
@@ -446,55 +566,18 @@ fn run_render_encode(
             break;
         }
 
-        if bypass_compositor {
-            let te0 = Instant::now();
-            let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
-            encoder.write_frame_cpu(&msg.bgra_video, timestamp_100ns, frame_duration_100ns)?;
-            t_encode += te0.elapsed().as_secs_f64();
-            frames_encoded += 1;
-        } else {
-            // Upload video + compose overlay
-            let tc0 = Instant::now();
-            compositor.upload_frame(&msg.bgra_video);
-            overlay_buf.fill(0);
-            compose_overlay(msg.source_time, &mut overlay_buf);
-            compositor.upload_overlay(&overlay_buf);
-            t_compose += tc0.elapsed().as_secs_f64();
+        let te0 = Instant::now();
+        let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
+        encoder.write_frame_cpu(&msg.rendered_bgra, timestamp_100ns, frame_duration_100ns)?;
+        t_encode += te0.elapsed().as_secs_f64();
 
-            // Render (with optional motion blur) + readback from wgpu
-            let tr0 = Instant::now();
-            if mb_enabled {
-                let half_shutter = step * config.motion_blur_shutter * 0.5;
-                for i in 0..mb_samples {
-                    let t = if mb_samples > 1 {
-                        i as f64 / (mb_samples - 1) as f64
-                    } else {
-                        0.5
-                    };
-                    let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
-                    let uniforms = build_uniforms(sub_time, msg.frame_idx);
-                    let weight = 1.0 / (i as f64 + 1.0);
-                    compositor.render_accumulate(&uniforms, i == 0, weight);
-                }
-                compositor.enqueue_output_readback()?;
-                compositor.readback_output(&mut output_buf)?;
-            } else {
-                let uniforms = build_uniforms(msg.source_time, msg.frame_idx);
-                compositor.render_frame_into(&uniforms, &mut output_buf)?;
-            }
-            t_render += tr0.elapsed().as_secs_f64();
+        // Return the output buffer to the render thread for reuse.
+        let _ = recycle_tx.send(msg.rendered_bgra);
 
-            // Encode BGRA from CPU buffer
-            let te0 = Instant::now();
-            let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
-            encoder.write_frame_cpu(&output_buf, timestamp_100ns, frame_duration_100ns)?;
-            t_encode += te0.elapsed().as_secs_f64();
-            frames_encoded += 1;
-        }
+        frames_encoded += 1;
 
-        // Frontend progress callback
         if let Some(ref cb) = progress {
-            if frames_encoded.is_multiple_of(15) || frames_encoded == total_frames {
+            if frames_encoded % 15 == 0 || frames_encoded == total_frames {
                 let elapsed = start.elapsed().as_secs_f64();
                 let pct = (frames_encoded as f64 / total_frames as f64 * 100.0).min(100.0);
                 let eta = if frames_encoded > 0 {
@@ -507,7 +590,6 @@ fn run_render_encode(
         }
     }
 
-    // Finalize MP4
     encoder.finalize()?;
 
     let elapsed = start.elapsed().as_secs_f64();
@@ -515,10 +597,8 @@ fn run_render_encode(
     let n = frames_encoded.max(1) as f64;
 
     println!(
-        "[Render] avg {:.1}ms/frame (compose {:.1} + render {:.1} + encode {:.1}) wait {:.1}ms",
-        (t_compose + t_render + t_encode) / n * 1000.0,
-        t_compose / n * 1000.0,
-        t_render / n * 1000.0,
+        "[Encode] {} frames: encode {:.1} + wait {:.1}ms avg",
+        frames_encoded,
         t_encode / n * 1000.0,
         t_wait / n * 1000.0,
     );

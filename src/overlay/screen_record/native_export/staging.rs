@@ -53,10 +53,22 @@ pub fn append_text_overlay(overlay: BakedTextOverlay) {
     staged.text_overlays.push(overlay);
 }
 
+pub fn append_text_overlays(overlays: Vec<BakedTextOverlay>) {
+    let mut guard = STAGED.lock().unwrap();
+    let staged = guard.get_or_insert_with(StagedExportData::new);
+    staged.text_overlays.extend(overlays);
+}
+
 pub fn append_keystroke_overlay(overlay: BakedKeystrokeOverlay) {
     let mut guard = STAGED.lock().unwrap();
     let staged = guard.get_or_insert_with(StagedExportData::new);
     staged.keystroke_overlays.push(overlay);
+}
+
+pub fn append_keystroke_overlays(overlays: Vec<BakedKeystrokeOverlay>) {
+    let mut guard = STAGED.lock().unwrap();
+    let staged = guard.get_or_insert_with(StagedExportData::new);
+    staged.keystroke_overlays.extend(overlays);
 }
 
 /// Take all staged data, leaving None behind. Returns the accumulated data

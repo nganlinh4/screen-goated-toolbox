@@ -1,6 +1,8 @@
+mod camera_path;
 mod color;
 pub mod config;
 mod cursor;
+mod cursor_path;
 mod overlay;
 mod progress;
 pub mod sampling;
@@ -183,9 +185,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         config.baked_keystroke_overlays = staged.keystroke_overlays;
     }
 
-    let parsed_baked_cursor = parse_baked_cursor_frames(&baked_cursor);
-    let used_cursor_slots = collect_used_cursor_slots(&baked_cursor);
-
     // 0. Handle Source Video/Audio
     let mut temp_video_path: Option<PathBuf> = None;
     let mut temp_audio_path: Option<PathBuf> = None;
@@ -246,6 +245,46 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         mf_decode::probe_video_dimensions(&source_video_path)?
     };
     println!("[Export] Source dimensions: {}x{}", src_w, src_h);
+
+    // Generate camera path in Rust if not provided by frontend.
+    let baked_path = if baked_path.is_empty()
+        && (!config.segment.smooth_motion_path.is_empty()
+            || !config.segment.zoom_keyframes.is_empty())
+    {
+        let t0 = Instant::now();
+        let generated =
+            camera_path::generate_camera_path(&config.segment, src_w, src_h, config.framerate);
+        println!(
+            "[Export] Camera path: {} frames in {:.3}s",
+            generated.len(),
+            t0.elapsed().as_secs_f64()
+        );
+        generated
+    } else {
+        baked_path
+    };
+
+    // Generate cursor path in Rust if not provided by frontend.
+    let baked_cursor = if baked_cursor.is_empty() && !config.mouse_positions.is_empty() {
+        let t0 = Instant::now();
+        let generated = cursor_path::generate_cursor_path(
+            &config.segment,
+            &config.mouse_positions,
+            Some(&config.background_config),
+            config.framerate,
+        );
+        println!(
+            "[Export] Cursor path: {} frames in {:.3}s",
+            generated.len(),
+            t0.elapsed().as_secs_f64()
+        );
+        generated
+    } else {
+        baked_cursor
+    };
+
+    let parsed_baked_cursor = parse_baked_cursor_frames(&baked_cursor);
+    let used_cursor_slots = collect_used_cursor_slots(&baked_cursor);
 
     // Calculate dimensions
     let crop = &config.segment.crop;
@@ -434,7 +473,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let text_overlays = &config.baked_text_overlays;
     let ks_overlays = &config.baked_keystroke_overlays;
-    let compose_overlay = |frame_time: f64, target: &mut Vec<u8>| {
+    let compose_overlay = |frame_time: f64, target: &mut Vec<u8>| -> bool {
+        let mut drawn = false;
         let fade_dur = 0.3_f64;
         for ov in text_overlays {
             if frame_time >= ov.start_time && frame_time <= ov.end_time {
@@ -450,6 +490,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 composite_overlay_straight_alpha(
                     target, out_w, out_h, ov.x, ov.y, ov.width, ov.height, &ov.data, fade,
                 );
+                drawn = true;
             }
         }
         for ov in ks_overlays {
@@ -457,8 +498,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
                 composite_overlay_straight_alpha(
                     target, out_w, out_h, ov.x, ov.y, ov.width, ov.height, &ov.data, 1.0,
                 );
+                drawn = true;
             }
         }
+        drawn
     };
 
     let bitrate = if config.target_video_bitrate_kbps > 0 {
