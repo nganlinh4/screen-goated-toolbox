@@ -80,6 +80,14 @@ To rebuild and run during development (builds Screen Record frontend, then runs 
 cd screen-record; npm install; npm run build; cd ..; New-Item -ItemType Directory -Path src\overlay\screen_record\dist -Force | Out-Null; Copy-Item screen-record\dist\* -Destination src\overlay\screen_record\dist -Recurse -Force; cargo run
 ```
 
+### Repomix (for "Ask anything about SGT")
+
+Use this command when generating `repomix-output.xml` so the "Ask anything about SGT" feature stays responsive/normal (it excludes token-heavy cursor SVG assets and raw cursor source files):
+
+```powershell
+repomix --compress --remove-comments --remove-empty-lines --no-file-summary --no-directory-structure --truncate-base64 --top-files-len 20 --ignore 'repomix-output.xml,screen-record/public/cursor-*.svg,screen-record/public/cursors/**,docs/images/**'
+```
+
 ## Getting Started
 
 1. **Launch SGT:** Run the executable.

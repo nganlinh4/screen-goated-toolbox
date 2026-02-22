@@ -95,10 +95,10 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
         </div>
         <div className="progress-details flex justify-between text-[10px]">
           <span className="progress-percent text-[var(--on-surface-variant)] tabular-nums">{active ? `${pct}%` : ''}</span>
-          <span className="progress-eta text-[var(--outline)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
+          <span className="progress-eta text-[var(--on-surface-variant)] tabular-nums">{etaStr ? `${etaStr} ${t.timeRemaining}` : ''}</span>
         </div>
         {diagnosticsLine && (
-          <div className="processing-diagnostics mt-2 text-[10px] text-[var(--outline)] tabular-nums">
+          <div className="processing-diagnostics mt-2 text-[10px] text-[var(--on-surface-variant)] tabular-nums">
             {diagnosticsLine}
           </div>
         )}
@@ -242,50 +242,50 @@ export function ExportDialog({
   const backendStatus = (() => {
     if (!exportCapabilities && !capabilityProbeFailed) {
       return {
-        label: 'Đang nhận diện backend',
+        label: t.exportBackendDetecting,
         detail: '',
         tone: 'text-[var(--outline)]'
       };
     }
     if (capabilityProbeFailed) {
       return {
-        label: 'CPU x264',
-        detail: 'Probe thất bại, sẽ fallback an toàn',
-        tone: 'text-amber-300'
+        label: t.exportBackendCpuX264,
+        detail: t.exportBackendProbeFailedFallback,
+        tone: 'text-amber-700 dark:text-amber-400'
       };
     }
     if (!exportCapabilities) {
       return {
-        label: 'CPU x264',
-        detail: 'Không có dữ liệu capability',
-        tone: 'text-amber-300'
+        label: t.exportBackendCpuX264,
+        detail: t.exportBackendNoCapabilityData,
+        tone: 'text-amber-700 dark:text-amber-400'
+      };
+    }
+    if (exportCapabilities.pipeline === 'zero_copy_gpu') {
+      return {
+        label: t.exportBackendZeroCopyGpu,
+        detail: exportCapabilities.mfH264Available ? t.exportBackendMfH264Encode : t.hardwareEncode,
+        tone: 'text-emerald-700 dark:text-emerald-400'
       };
     }
     if (wantsTurbo) {
       if (exportCapabilities.nvencAvailable) {
         return {
-          label: `FFmpeg NVENC Turbo (${turboCodecLabel})`,
-          detail: 'Fallback CPU x264 nếu encoder lỗi',
-          tone: 'text-[var(--on-surface)]'
+          label: `${t.exportBackendNvencTurbo} (${turboCodecLabel})`,
+          detail: t.exportBackendNvencFallbackIfError,
+          tone: 'text-emerald-700 dark:text-emerald-400'
         };
       }
       return {
-        label: 'CPU x264',
-        detail: 'NVENC không khả dụng trên máy này',
-        tone: 'text-amber-300'
-      };
-    }
-    if (exportCapabilities.nvencAvailable) {
-      return {
-        label: 'FFmpeg NVENC',
-        detail: 'VBR hardware encode',
-        tone: 'text-[var(--on-surface)]'
+        label: t.exportBackendCpuX264,
+        detail: t.exportBackendNvencUnavailable,
+        tone: 'text-amber-700 dark:text-amber-400'
       };
     }
     return {
-      label: 'CPU x264',
-      detail: 'Software encode',
-      tone: 'text-amber-300'
+      label: t.exportBackendCpuX264,
+      detail: t.softwareEncode,
+      tone: 'text-amber-700 dark:text-amber-400'
     };
   })();
 
@@ -372,7 +372,7 @@ export function ExportDialog({
                 <span className="text-sm text-[var(--on-surface)] tabular-nums">
                   {formatVideoBitrateKbps(targetVideoBitrateKbps)}
                 </span>
-                <span className="text-[10px] text-[var(--outline)] tabular-nums">
+                <span className="bitrate-range text-[10px] text-[var(--on-surface-variant)] tabular-nums">
                   {formatVideoBitrateKbps(bitrateBounds.minKbps)} - {formatVideoBitrateKbps(bitrateBounds.maxKbps)}
                 </span>
               </div>
@@ -389,11 +389,11 @@ export function ExportDialog({
               </div>
               <div className="bitrate-standard-marker relative mt-1 h-5">
                 <div
-                  className="bitrate-standard-line absolute top-0 h-2 w-px bg-[var(--outline)]"
+                  className="bitrate-standard-line absolute top-0 h-2 w-px bg-[var(--on-surface-variant)]/70"
                   style={{ left: `calc(${standardBitratePercent}% - 0.5px)` }}
                 />
                 <div
-                  className="bitrate-standard-label absolute top-[8px] -translate-x-1/2 text-[10px] text-[var(--outline)] whitespace-nowrap"
+                  className="bitrate-standard-label absolute top-[8px] -translate-x-1/2 text-[10px] text-[var(--on-surface-variant)] whitespace-nowrap"
                   style={{ left: `${standardBitratePercent}%` }}
                 >
                   {t.standard}
@@ -411,7 +411,7 @@ export function ExportDialog({
                     {formatTime(sizeEstimate.outputDurationSec)}
                   </span>
                   {trimmedDurationSec > 0 && exportOptions.speed !== 1 && (
-                    <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-400/90' : 'text-green-400/90'}`}>
+                    <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-600 dark:text-red-400/90' : 'text-emerald-700 dark:text-green-400/90'}`}>
                       {exportOptions.speed > 1 ? '↓' : '↑'}
                       {formatTime(Math.abs(trimmedDurationSec - sizeEstimate.outputDurationSec))}
                     </span>
@@ -420,7 +420,7 @@ export function ExportDialog({
                 <span className="text-sm font-medium text-[var(--on-surface)] tabular-nums">{Math.round(exportOptions.speed * 100)}%</span>
               </div>
               <div className="speed-slider-row flex items-center gap-3">
-                <span className="text-xs text-[var(--outline)] min-w-[36px]">{t.slower}</span>
+                <span className="speed-slider-label speed-slider-label-slower text-xs text-[var(--on-surface-variant)] min-w-[36px]">{t.slower}</span>
                 <input
                   type="range"
                   min="50"
@@ -430,7 +430,7 @@ export function ExportDialog({
                   onChange={(e) => setExportOptions(prev => ({ ...prev, speed: Number(e.target.value) / 100 }))}
                   className="flex-1 h-1 rounded"
                 />
-                <span className="text-xs text-[var(--outline)] min-w-[36px]">{t.faster}</span>
+                <span className="speed-slider-label speed-slider-label-faster text-xs text-[var(--on-surface-variant)] min-w-[36px]">{t.faster}</span>
               </div>
             </div>
           </div>
@@ -443,13 +443,13 @@ export function ExportDialog({
               </div>
             </div>
             <div className="export-backend-indicator-row mt-1.5 flex items-start justify-between gap-3">
-              <span className="export-backend-label text-[10px] text-[var(--outline)]">Backend Export</span>
+              <span className="export-backend-label text-[10px] text-[var(--on-surface-variant)]">{t.backendExport}</span>
               <div className="export-backend-value text-right">
                 <div className={`text-[10px] font-medium ${backendStatus.tone}`}>
                   {backendStatus.label}
                 </div>
                 {backendStatus.detail ? (
-                  <div className="text-[10px] text-[var(--outline)]">
+                  <div className="export-backend-detail text-[10px] text-[var(--on-surface-variant)]">
                     {backendStatus.detail}
                   </div>
                 ) : null}

@@ -72,6 +72,8 @@ export interface ExportSizeEstimate {
 }
 
 export interface ExportCapabilities {
+  pipeline?: string;
+  mfH264Available?: boolean;
   nvencAvailable: boolean;
   hevcNvencAvailable: boolean;
   sfeSupported: boolean;
@@ -969,8 +971,10 @@ export class VideoExporter {
   }
 
   async getExportCapabilities(): Promise<ExportCapabilities> {
-    const res = await invoke<Partial<ExportCapabilities>>('get_export_capabilities');
+    const res = await invoke<Record<string, unknown>>('get_export_capabilities');
     return {
+      pipeline: typeof res?.pipeline === 'string' ? res.pipeline : undefined,
+      mfH264Available: Boolean(res?.mf_h264 ?? res?.mfH264Available),
       nvencAvailable: Boolean(res?.nvencAvailable),
       hevcNvencAvailable: Boolean(res?.hevcNvencAvailable),
       sfeSupported: Boolean(res?.sfeSupported),
