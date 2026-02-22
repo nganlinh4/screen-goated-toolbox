@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import { Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen, ChevronDown, Check } from 'lucide-react';
 import { Hotkey } from '@/hooks/useAppHooks';

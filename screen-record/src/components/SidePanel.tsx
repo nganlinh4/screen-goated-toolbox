@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import { ColorPicker } from '@/components/ui/ColorPicker';
 import { Trash2, AlignLeft, AlignCenter, AlignRight, Download, Loader2 } from 'lucide-react';

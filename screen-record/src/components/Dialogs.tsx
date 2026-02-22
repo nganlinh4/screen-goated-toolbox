@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Keyboard, Loader2, AlertCircle, X, FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@/lib/ipc';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import {
   computeResolutionOptions,
