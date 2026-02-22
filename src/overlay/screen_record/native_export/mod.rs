@@ -28,6 +28,10 @@ use crate::overlay::screen_record::engine::VIDEO_PATH;
 
 pub use progress::{export_replay_args_path, persist_export_result, push_export_progress};
 
+pub fn prewarm_custom_background(url: &str) -> Result<(), String> {
+    overlay::prewarm_custom_background(url)
+}
+
 /// Flag to signal export cancellation from the frontend.
 static EXPORT_CANCELLED: AtomicBool = AtomicBool::new(false);
 /// Ensures GPU export warm-up runs once per app session.
@@ -360,9 +364,21 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let mut actual_bg_h = out_h as f32;
     if config.background_config.background_type == "custom" {
         if let Some(custom_background) = &config.background_config.custom_background {
+            let bg_load_start = Instant::now();
             match load_custom_background_rgba(custom_background) {
-                Ok((rgba, tw, th)) => {
-                    compositor.upload_background(&rgba, tw, th);
+                Ok((rgba_arc, tw, th)) => {
+                    let bg_load_secs = bg_load_start.elapsed().as_secs_f64();
+                    let bg_upload_start = Instant::now();
+                    compositor.upload_background(rgba_arc.as_slice(), tw, th);
+                    let bg_upload_secs = bg_upload_start.elapsed().as_secs_f64();
+                    eprintln!(
+                        "[CustomBg] export load {:.3}s + gpu upload {:.3}s ({}x{}, rgba={}B)",
+                        bg_load_secs,
+                        bg_upload_secs,
+                        tw,
+                        th,
+                        rgba_arc.len()
+                    );
                     use_custom_background = true;
                     actual_bg_w = tw as f32;
                     actual_bg_h = th as f32;
