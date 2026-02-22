@@ -99,6 +99,11 @@ pub fn handle_ipc_command(
                 Err(e) => Err(e),
             }
         }
+        "log_message" => {
+            let msg = args["message"].as_str().unwrap_or("");
+            eprintln!("{msg}");
+            Ok(serde_json::Value::Null)
+        }
         "clear_export_staging" => {
             native_export::staging::clear_staged();
             Ok(serde_json::Value::Null)
