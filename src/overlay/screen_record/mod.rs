@@ -29,13 +29,18 @@ use wry::{Rect, WebContext, WebViewBuilder};
 use crate::win_types::SendHwnd;
 
 pub mod audio_engine;
+mod d3d_interop;
 pub mod engine;
 pub mod gpu_export;
 pub mod keysee_capture;
+// mod mf_audio; // TODO: wire audio muxing once MfEncoder supports deferred BeginWriting
+mod mf_decode;
+mod mf_encode;
 pub mod native_export;
+mod gpu_pipeline;
 
 // Re-exports
-pub use ffmpeg::{get_ffmpeg_path, get_ffprobe_path};
+pub use ffmpeg::get_ffmpeg_path;
 use ipc::handle_ipc_command;
 
 // --- CONSTANTS ---

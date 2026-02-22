@@ -73,7 +73,7 @@ resvg = "0.45"
 tiny-skia = "0.11"
 
 # GPU Rendering
-wgpu = "24"
+wgpu = "25.0.2"
 pollster = "0.4"
 bytemuck = { version = "1.21", features = ["derive"] }
 
@@ -98,9 +98,15 @@ features = [
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_Accessibility",
+    "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D11on12",
     "Win32_Graphics_Direct3D12",
     "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
 ]
 
 [profile.release]
