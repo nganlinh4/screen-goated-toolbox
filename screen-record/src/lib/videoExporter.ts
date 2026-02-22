@@ -893,6 +893,34 @@ export class VideoExporter {
         segment: prepared.normalizedSegment
       });
 
+      // @ts-ignore
+      const { invoke } = window.__TAURI__.core;
+
+      // Stage baked data via chunked IPC to avoid V8 JSON.stringify limits.
+      // Each chunk is small enough to serialize safely.
+      await invoke('clear_export_staging', {});
+
+      const FRAME_CHUNK = 2000;
+      for (let i = 0; i < prepared.bakedPath.length; i += FRAME_CHUNK) {
+        await invoke('stage_export_data', {
+          dataType: 'camera',
+          data: prepared.bakedPath.slice(i, i + FRAME_CHUNK)
+        });
+      }
+      for (let i = 0; i < prepared.bakedCursorPath.length; i += FRAME_CHUNK) {
+        await invoke('stage_export_data', {
+          dataType: 'cursor',
+          data: prepared.bakedCursorPath.slice(i, i + FRAME_CHUNK)
+        });
+      }
+      for (const overlay of prepared.bakedTextOverlays) {
+        await invoke('stage_export_data', { dataType: 'text', data: overlay });
+      }
+      for (const overlay of prepared.bakedKeystrokeOverlays) {
+        await invoke('stage_export_data', { dataType: 'keystroke', data: overlay });
+      }
+
+      // Send lightweight config (no baked arrays — they're already staged)
       const exportConfig = {
         width: prepared.width,
         height: prepared.height,
@@ -901,13 +929,8 @@ export class VideoExporter {
         sourceVideoPath,
         framerate: prepared.fps,
         targetVideoBitrateKbps: context.targetVideoBitrateKbps,
-        audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
-        exportProfile: options.exportProfile || 'balanced',
-        preferNvTurbo: options.preferNvTurbo ?? (options.exportProfile === 'turbo_nv'),
         qualityGatePercent: options.qualityGatePercent ?? 3,
-        turboCodec: options.turboCodec || 'hevc',
         preRenderPolicy: options.preRenderPolicy || 'aggressive',
-        exportDiagnostics: options.exportDiagnostics ?? false,
         audioPath: audioFilePath,
         outputDir: options.outputDir || '',
         trimStart: prepared.trimBounds.trimStart,
@@ -917,14 +940,7 @@ export class VideoExporter {
         backgroundConfig: context.backgroundConfig,
         videoData: videoDataArray,
         audioData: audioDataArray,
-        bakedPath: prepared.bakedPath,
-        bakedCursorPath: prepared.bakedCursorPath,
-        bakedTextOverlays: prepared.bakedTextOverlays,
-        bakedKeystrokeOverlays: prepared.bakedKeystrokeOverlays
       };
-
-      // @ts-ignore
-      const { invoke } = window.__TAURI__.core;
 
       try {
         const res = await invoke('start_export_server', exportConfig) as {

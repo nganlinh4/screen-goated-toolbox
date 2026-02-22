@@ -99,7 +99,48 @@ pub fn handle_ipc_command(
                 Err(e) => Err(e),
             }
         }
-        "start_export_server" => native_export::start_native_export(args),
+        "clear_export_staging" => {
+            native_export::staging::clear_staged();
+            Ok(serde_json::Value::Null)
+        }
+        "stage_export_data" => {
+            let data_type = args["dataType"]
+                .as_str()
+                .ok_or("missing dataType")?;
+            match data_type {
+                "camera" => {
+                    let frames: Vec<native_export::config::BakedCameraFrame> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad camera chunk: {e}"))?;
+                    native_export::staging::append_camera_frames(frames);
+                }
+                "cursor" => {
+                    let frames: Vec<native_export::config::BakedCursorFrame> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad cursor chunk: {e}"))?;
+                    native_export::staging::append_cursor_frames(frames);
+                }
+                "text" => {
+                    let overlay: native_export::config::BakedTextOverlay =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad text overlay: {e}"))?;
+                    native_export::staging::append_text_overlay(overlay);
+                }
+                "keystroke" => {
+                    let overlay: native_export::config::BakedKeystrokeOverlay =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad keystroke overlay: {e}"))?;
+                    native_export::staging::append_keystroke_overlay(overlay);
+                }
+                _ => return Err(format!("unknown stage dataType: {data_type}")),
+            }
+            Ok(serde_json::Value::Null)
+        }
+        "start_export_server" => {
+            let result = native_export::start_native_export(args);
+            native_export::persist_export_result(&result);
+            result
+        }
         "get_export_capabilities" => Ok(native_export::get_export_capabilities()),
         "cancel_export" => {
             println!("[Cancel] IPC cancel_export received");
