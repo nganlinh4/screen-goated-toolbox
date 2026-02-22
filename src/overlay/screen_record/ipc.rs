@@ -126,11 +126,23 @@ pub fn handle_ipc_command(
                             .map_err(|e| format!("bad text overlay: {e}"))?;
                     native_export::staging::append_text_overlay(overlay);
                 }
+                "text_chunk" => {
+                    let overlays: Vec<native_export::config::BakedTextOverlay> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad text chunk: {e}"))?;
+                    native_export::staging::append_text_overlays(overlays);
+                }
                 "keystroke" => {
                     let overlay: native_export::config::BakedKeystrokeOverlay =
                         serde_json::from_value(args["data"].clone())
                             .map_err(|e| format!("bad keystroke overlay: {e}"))?;
                     native_export::staging::append_keystroke_overlay(overlay);
+                }
+                "keystroke_chunk" => {
+                    let overlays: Vec<native_export::config::BakedKeystrokeOverlay> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad keystroke chunk: {e}"))?;
+                    native_export::staging::append_keystroke_overlays(overlays);
                 }
                 _ => return Err(format!("unknown stage dataType: {data_type}")),
             }

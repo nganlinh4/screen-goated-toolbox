@@ -37,6 +37,62 @@ pub struct ExportConfig {
     pub baked_text_overlays: Vec<BakedTextOverlay>,
     #[serde(default)]
     pub baked_keystroke_overlays: Vec<BakedKeystrokeOverlay>,
+    /// Raw mouse positions sent from frontend; Rust generates baked cursor path from these.
+    #[serde(default)]
+    pub mouse_positions: Vec<MousePosition>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoomKeyframe {
+    pub time: f64,
+    #[serde(default)]
+    pub duration: f64,
+    pub zoom_factor: f64,
+    #[serde(default = "default_half")]
+    pub position_x: f64,
+    #[serde(default = "default_half")]
+    pub position_y: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoomInfluencePoint {
+    pub time: f64,
+    pub value: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SmoothCameraPoint {
+    pub time: f64,
+    pub x: f64,
+    pub y: f64,
+    pub zoom: f64,
+}
+
+/// Raw mouse position from the recorder.
+/// Note: cursor_type and cursor_rotation use snake_case in the JS wire format.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MousePosition {
+    pub x: f64,
+    pub y: f64,
+    pub timestamp: f64,
+    #[serde(rename = "isClicked", default)]
+    pub is_clicked: bool,
+    #[serde(rename = "cursor_type", default)]
+    pub cursor_type: Option<String>,
+    #[serde(rename = "cursor_rotation", default)]
+    pub cursor_rotation: Option<f64>,
+}
+
+/// A cursor visibility segment — time range where the cursor is visible.
+/// None means feature off (always visible). Some([]) means always hidden.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CursorVisibilitySegment {
+    pub start_time: f64,
+    pub end_time: f64,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -83,6 +139,17 @@ pub struct VideoSegment {
     pub trim_segments: Vec<TrimSegment>,
     #[serde(default, rename = "textSegments")]
     pub _text_segments: Vec<TextSegment>,
+    #[serde(default)]
+    pub zoom_keyframes: Vec<ZoomKeyframe>,
+    #[serde(default)]
+    pub zoom_influence_points: Vec<ZoomInfluencePoint>,
+    #[serde(default)]
+    pub smooth_motion_path: Vec<SmoothCameraPoint>,
+    /// None = cursor-hiding feature off (always visible).
+    /// Some([]) = feature on, no segments (always hidden).
+    pub cursor_visibility_segments: Option<Vec<CursorVisibilitySegment>>,
+    #[serde(default = "default_true")]
+    pub use_custom_cursor: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -195,6 +262,29 @@ pub struct BackgroundConfig {
     pub motion_blur_zoom: f64,
     #[serde(default)]
     pub motion_blur_pan: f64,
+    // Cursor physics / appearance fields used by the Rust path generator
+    #[serde(default)]
+    pub cursor_pack: Option<String>,
+    #[serde(default)]
+    pub cursor_default_variant: Option<String>,
+    #[serde(default)]
+    pub cursor_text_variant: Option<String>,
+    #[serde(default)]
+    pub cursor_pointer_variant: Option<String>,
+    #[serde(default)]
+    pub cursor_open_hand_variant: Option<String>,
+    #[serde(default)]
+    pub cursor_movement_delay: Option<f64>,
+    #[serde(default)]
+    pub cursor_smoothness: Option<f64>,
+    #[serde(default)]
+    pub cursor_wiggle_strength: Option<f64>,
+    #[serde(default)]
+    pub cursor_wiggle_damping: Option<f64>,
+    #[serde(default)]
+    pub cursor_wiggle_response: Option<f64>,
+    #[serde(default)]
+    pub cursor_tilt_angle: Option<f64>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -214,6 +304,14 @@ pub struct ExportRuntimeDiagnostics {
 
 fn default_opacity() -> f64 {
     1.0
+}
+
+fn default_half() -> f64 {
+    0.5
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_quality_gate_percent() -> f64 {

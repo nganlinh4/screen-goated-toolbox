@@ -752,15 +752,9 @@ export class VideoExporter {
   private async computePreparedPayload(context: ExportPreparationContext): Promise<PreparedBakePayload> {
     const { normalizedSegment } = context;
 
-    await this.yieldToUiFrame();
-    const bakedPath = normalizedSegment
-      ? videoRenderer.generateBakedPath(normalizedSegment, context.sourceWidth, context.sourceHeight, context.fps)
-      : [];
-
-    await this.yieldToUiFrame();
-    const bakedCursorPath = normalizedSegment && context.mousePositions
-      ? videoRenderer.generateBakedCursorPath(normalizedSegment, context.mousePositions, context.backgroundConfig, context.fps)
-      : [];
+    // Camera and cursor paths are now generated in Rust from raw keyframes/mouse positions.
+    const bakedPath: BakedCameraFrame[] = [];
+    const bakedCursorPath: BakedCursorFrame[] = [];
 
     await this.yieldToUiFrame();
     const bakedTextOverlays = normalizedSegment
@@ -769,7 +763,7 @@ export class VideoExporter {
 
     await this.yieldToUiFrame();
     const bakedKeystrokeOverlays = normalizedSegment
-      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, context.width, context.height, context.fps)
+      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, context.width, context.height, 30)
       : [];
 
     return {
@@ -897,28 +891,25 @@ export class VideoExporter {
       const { invoke } = window.__TAURI__.core;
 
       // Stage baked data via chunked IPC to avoid V8 JSON.stringify limits.
-      // Each chunk is small enough to serialize safely.
       await invoke('clear_export_staging', {});
 
-      const FRAME_CHUNK = 2000;
-      for (let i = 0; i < prepared.bakedPath.length; i += FRAME_CHUNK) {
+      // Camera and cursor baking now done in Rust — only stage text/keystroke overlays.
+      // Chunked at 50 per call: avoids per-overlay IPC overhead on long recordings.
+      console.time('[Prep] IPC Overlays');
+      const OVERLAY_CHUNK = 50;
+      for (let i = 0; i < prepared.bakedTextOverlays.length; i += OVERLAY_CHUNK) {
         await invoke('stage_export_data', {
-          dataType: 'camera',
-          data: prepared.bakedPath.slice(i, i + FRAME_CHUNK)
+          dataType: 'text_chunk',
+          data: prepared.bakedTextOverlays.slice(i, i + OVERLAY_CHUNK),
         });
       }
-      for (let i = 0; i < prepared.bakedCursorPath.length; i += FRAME_CHUNK) {
+      for (let i = 0; i < prepared.bakedKeystrokeOverlays.length; i += OVERLAY_CHUNK) {
         await invoke('stage_export_data', {
-          dataType: 'cursor',
-          data: prepared.bakedCursorPath.slice(i, i + FRAME_CHUNK)
+          dataType: 'keystroke_chunk',
+          data: prepared.bakedKeystrokeOverlays.slice(i, i + OVERLAY_CHUNK),
         });
       }
-      for (const overlay of prepared.bakedTextOverlays) {
-        await invoke('stage_export_data', { dataType: 'text', data: overlay });
-      }
-      for (const overlay of prepared.bakedKeystrokeOverlays) {
-        await invoke('stage_export_data', { dataType: 'keystroke', data: overlay });
-      }
+      console.timeEnd('[Prep] IPC Overlays');
 
       // Send lightweight config (no baked arrays — they're already staged)
       const exportConfig = {
@@ -938,6 +929,7 @@ export class VideoExporter {
         speed,
         segment: prepared.normalizedSegment,
         backgroundConfig: context.backgroundConfig,
+        mousePositions: context.mousePositions ?? [],
         videoData: videoDataArray,
         audioData: audioDataArray,
       };
