@@ -67,6 +67,7 @@ rdev = "0.5.3"
 tiny_http = "0.12"
 memmap2 = "0.5.10"
 parking_lot = "0.12"
+crossbeam-queue = "0.3"
 
 # Vector Graphics Rendering
 resvg = "0.45"
