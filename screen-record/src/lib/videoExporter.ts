@@ -3,14 +3,14 @@ import type {
   BackgroundConfig,
   BakedCameraFrame,
   BakedCursorFrame,
-  BakedKeystrokeOverlay,
-  BakedTextOverlay,
+  BakedOverlayPayload,
   MousePosition,
   VideoSegment,
 } from '@/types/video';
 
 import { videoRenderer } from './videoRenderer';
 import { getTotalTrimDuration, getTrimBounds, normalizeSegmentTrimData } from './trimSegments';
+import { invoke } from '@/lib/ipc';
 
 // Standard video heights (descending) for resolution options
 const STANDARD_HEIGHTS = [2160, 1440, 1080, 720, 480] as const;
@@ -72,6 +72,8 @@ export interface ExportSizeEstimate {
 }
 
 export interface ExportCapabilities {
+  pipeline?: string;
+  mfH264Available?: boolean;
   nvencAvailable: boolean;
   hevcNvencAvailable: boolean;
   sfeSupported: boolean;
@@ -552,8 +554,7 @@ interface PreparedBakePayload {
   activeDuration: number;
   bakedPath: BakedCameraFrame[];
   bakedCursorPath: BakedCursorFrame[];
-  bakedTextOverlays: BakedTextOverlay[];
-  bakedKeystrokeOverlays: BakedKeystrokeOverlay[];
+  overlayPayload?: BakedOverlayPayload;
 }
 
 interface PreparedBakeCacheEntry {
@@ -592,24 +593,16 @@ export class VideoExporter {
     return id;
   }
 
-  private estimateOverlayDataBytes(data: number[] | string): number {
-    return typeof data === 'string'
-      ? Math.floor((data.length * 3) / 4)
-      : data.length;
-  }
-
   private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
     const cameraBytes = payload.bakedPath.length * 32;
     const cursorBytes = payload.bakedCursorPath.length * 48;
-    const textBytes = payload.bakedTextOverlays.reduce(
-      (sum, overlay) => sum + this.estimateOverlayDataBytes(overlay.data) + 64,
-      0
-    );
-    const keystrokeBytes = payload.bakedKeystrokeOverlays.reduce(
-      (sum, overlay) => sum + this.estimateOverlayDataBytes(overlay.data) + 64,
-      0
-    );
-    return cameraBytes + cursorBytes + textBytes + keystrokeBytes;
+    const atlasBytes = payload.overlayPayload
+      ? Math.floor((payload.overlayPayload.atlasBase64.length * 3) / 4)
+      : 0;
+    const framesBytes = payload.overlayPayload
+      ? payload.overlayPayload.frames.reduce((sum, f) => sum + f.quads.length * 40, 0)
+      : 0;
+    return cameraBytes + cursorBytes + atlasBytes + framesBytes;
   }
 
   private prunePreparationCache(requiredBytes = 0) {
@@ -752,25 +745,16 @@ export class VideoExporter {
   private async computePreparedPayload(context: ExportPreparationContext): Promise<PreparedBakePayload> {
     const { normalizedSegment } = context;
 
-    await this.yieldToUiFrame();
-    const bakedPath = normalizedSegment
-      ? videoRenderer.generateBakedPath(normalizedSegment, context.sourceWidth, context.sourceHeight, context.fps)
-      : [];
+    // Camera and cursor paths are now generated in Rust from raw keyframes/mouse positions.
+    const bakedPath: BakedCameraFrame[] = [];
+    const bakedCursorPath: BakedCursorFrame[] = [];
 
     await this.yieldToUiFrame();
-    const bakedCursorPath = normalizedSegment && context.mousePositions
-      ? videoRenderer.generateBakedCursorPath(normalizedSegment, context.mousePositions, context.backgroundConfig, context.fps)
-      : [];
-
-    await this.yieldToUiFrame();
-    const bakedTextOverlays = normalizedSegment
-      ? videoRenderer.bakeTextOverlays(normalizedSegment, context.width, context.height)
-      : [];
-
-    await this.yieldToUiFrame();
-    const bakedKeystrokeOverlays = normalizedSegment
-      ? videoRenderer.bakeKeystrokeOverlays(normalizedSegment, context.width, context.height, context.fps)
-      : [];
+    const t0 = Date.now();
+    const overlayPayload = normalizedSegment
+      ? await videoRenderer.bakeOverlayAtlasAndPaths(normalizedSegment, context.width, context.height, context.fps)
+      : undefined;
+    await invoke('log_message', { message: `[Prep] Build Overlay Atlas: ${Date.now() - t0}ms` });
 
     return {
       normalizedSegment,
@@ -783,8 +767,7 @@ export class VideoExporter {
       activeDuration: context.activeDuration,
       bakedPath,
       bakedCursorPath,
-      bakedTextOverlays,
-      bakedKeystrokeOverlays
+      overlayPayload,
     };
   }
 
@@ -893,6 +876,31 @@ export class VideoExporter {
         segment: prepared.normalizedSegment
       });
 
+      // Stage baked data via chunked IPC to avoid V8 JSON.stringify limits.
+      await invoke('clear_export_staging', {});
+
+      // Camera and cursor baking now done in Rust — only stage text/keystroke overlays.
+      // Chunked at 50 per call: avoids per-overlay IPC overhead on long recordings.
+      const t0Overlays = Date.now();
+      if (prepared.overlayPayload) {
+        await invoke('stage_export_data', {
+          dataType: 'atlas',
+          base64: prepared.overlayPayload.atlasBase64,
+          width: prepared.overlayPayload.atlasWidth,
+          height: prepared.overlayPayload.atlasHeight,
+        });
+        const FRAME_CHUNK = 1500;
+        const frames = prepared.overlayPayload.frames;
+        for (let i = 0; i < frames.length; i += FRAME_CHUNK) {
+          await invoke('stage_export_data', {
+            dataType: 'overlay_frames_chunk',
+            data: frames.slice(i, i + FRAME_CHUNK),
+          });
+        }
+      }
+      await invoke('log_message', { message: `[Prep] IPC Atlas+Overlays: ${Date.now() - t0Overlays}ms` });
+
+      // Send lightweight config (no baked arrays — they're already staged)
       const exportConfig = {
         width: prepared.width,
         height: prepared.height,
@@ -901,13 +909,8 @@ export class VideoExporter {
         sourceVideoPath,
         framerate: prepared.fps,
         targetVideoBitrateKbps: context.targetVideoBitrateKbps,
-        audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
-        exportProfile: options.exportProfile || 'balanced',
-        preferNvTurbo: options.preferNvTurbo ?? (options.exportProfile === 'turbo_nv'),
         qualityGatePercent: options.qualityGatePercent ?? 3,
-        turboCodec: options.turboCodec || 'hevc',
         preRenderPolicy: options.preRenderPolicy || 'aggressive',
-        exportDiagnostics: options.exportDiagnostics ?? false,
         audioPath: audioFilePath,
         outputDir: options.outputDir || '',
         trimStart: prepared.trimBounds.trimStart,
@@ -915,16 +918,10 @@ export class VideoExporter {
         speed,
         segment: prepared.normalizedSegment,
         backgroundConfig: context.backgroundConfig,
+        mousePositions: context.mousePositions ?? [],
         videoData: videoDataArray,
         audioData: audioDataArray,
-        bakedPath: prepared.bakedPath,
-        bakedCursorPath: prepared.bakedCursorPath,
-        bakedTextOverlays: prepared.bakedTextOverlays,
-        bakedKeystrokeOverlays: prepared.bakedKeystrokeOverlays
       };
-
-      // @ts-ignore
-      const { invoke } = window.__TAURI__.core;
 
       try {
         const res = await invoke('start_export_server', exportConfig) as {
@@ -966,8 +963,6 @@ export class VideoExporter {
   }
 
   async cancel() {
-    // @ts-ignore
-    const { invoke } = window.__TAURI__.core;
     try {
       await invoke('cancel_export');
     } catch (e) {
@@ -976,10 +971,10 @@ export class VideoExporter {
   }
 
   async getExportCapabilities(): Promise<ExportCapabilities> {
-    // @ts-ignore
-    const { invoke } = window.__TAURI__.core;
-    const res = await invoke<Partial<ExportCapabilities>>('get_export_capabilities');
+    const res = await invoke<Record<string, unknown>>('get_export_capabilities');
     return {
+      pipeline: typeof res?.pipeline === 'string' ? res.pipeline : undefined,
+      mfH264Available: Boolean(res?.mf_h264 ?? res?.mfH264Available),
       nvencAvailable: Boolean(res?.nvencAvailable),
       hevcNvencAvailable: Boolean(res?.hevcNvencAvailable),
       sfeSupported: Boolean(res?.sfeSupported),

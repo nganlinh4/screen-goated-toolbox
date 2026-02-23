@@ -1,6 +1,6 @@
-import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, BakedTextOverlay, KeystrokeEvent, BakedKeystrokeOverlay, CursorVisibilitySegment } from '@/types/video';
+import { BackgroundConfig, MousePosition, VideoSegment, ZoomKeyframe, TextSegment, BakedCameraFrame, BakedCursorFrame, KeystrokeEvent, CursorVisibilitySegment, BakedOverlayPayload, OverlayQuad, OverlayFrame } from '@/types/video';
 import { getCursorVisibility } from '@/lib/cursorHiding';
-import { getTrimSegments, sourceRangeToCompactRanges, toCompactTime } from '@/lib/trimSegments';
+import { getTrimSegments, toCompactTime } from '@/lib/trimSegments';
 import {
   filterKeystrokeEventsByMode,
   getKeystrokeVisibilitySegmentsForMode
@@ -1485,26 +1485,23 @@ export class VideoRenderer {
         }
       };
 
-      // --- Motion blur detection (slider-based: 0=off, 50=standard, 100=heavy) ---
+      // --- Motion blur detection ---
+      // Match GPU export pipeline logic exactly for perfect WYSIWYG
       const blurZoomVal = backgroundConfig.motionBlurZoom ?? 10;
       const blurPanVal = backgroundConfig.motionBlurPan ?? 10;
       const blurCursorVal = backgroundConfig.motionBlurCursor ?? 25;
-      const maxBlurVal = Math.max(blurZoomVal, blurPanVal, blurCursorVal);
-      const anyBlurEnabled = maxBlurVal > 0;
-      // Shutter angle: val=50 → 270° (cinematic+), val=100 → 540° (extreme)
-      const shutterAngle = maxBlurVal * 5.4;
-      // Use 30fps as reference frame interval (matches typical recording/export FPS)
-      // so preview blur width matches what export produces
-      const refFps = 30;
-      const shutterSec = anyBlurEnabled ? (shutterAngle / 360) / refFps : 0;
-      // Per-channel shutter (proportional to their slider)
-      const cursorShutterSec = blurCursorVal > 0 ? (blurCursorVal * 5.4 / 360) / refFps : 0;
-      // Preview is real-time: cap samples to avoid starving the video decoder
-      // High zoom = heavier per-draw, so reduce samples further
-      // Export uses 12-32 samples offline for perfect quality
-      const blurZf = zoomState?.zoomFactor ?? 1;
-      const maxN = video.paused ? 2 : blurZf > 5 ? 1 : blurZf > 3 ? 2 : 3;
-      const N = Math.min(maxN, shutterAngle <= 0 ? 1 : shutterAngle <= 180 ? 2 : 3);
+      const maxBlurVal = Math.max(blurZoomVal, blurPanVal, blurCursorVal) / 100.0;
+      const anyBlurEnabled = maxBlurVal > 0.0001;
+      const mbSamples = anyBlurEnabled ? Math.max(2, Math.min(8, Math.ceil(maxBlurVal * 8.0))) : 1;
+      const mbShutter = anyBlurEnabled ? Math.max(0, Math.min(1.0, maxBlurVal)) : 0;
+
+      // Use 60fps as the target output fps to simulate motion blur identical to export
+      const exportStep = 1 / 60;
+      const shutterSec = mbShutter * exportStep;
+      const cursorShutterSec = (blurCursorVal / 100.0) * exportStep;
+
+      // Use the same sample count as export to guarantee WYSIWYG
+      const N = mbSamples;
 
       // Check if camera/cursor is actually moving
       let cameraMoving = false;
@@ -1548,9 +1545,9 @@ export class VideoRenderer {
 
         const centerZoom = zoomState;
         for (let i = 0; i < N; i++) {
-          const f = (i + 0.5) / N - 0.5; // [-0.5, +0.5]
-          const cameraSubT = video.currentTime + f * shutterSec;
-          const cursorSubT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) + f * cursorShutterSec;
+          const f = N > 1 ? i / (N - 1) : 0.5; // 0.0 to 1.0
+          const cameraSubT = video.currentTime - (shutterSec / 2) + f * shutterSec;
+          const cursorSubT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
 
           // Sample camera — cherry-pick per channel
           const subCamState = this.calculateCurrentZoomState(cameraSubT, segment, canvasW, canvasH, srcW, srcH);
@@ -1594,8 +1591,8 @@ export class VideoRenderer {
         aCtx.clearRect(0, 0, canvasW, canvasH);
 
         for (let i = 0; i < N; i++) {
-          const f = (i + 0.5) / N - 0.5;
-          const subCursorT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) + f * cursorShutterSec;
+          const f = N > 1 ? i / (N - 1) : 0.5;
+          const subCursorT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
           const subCur = this.interpolateCursorPosition(subCursorT, mousePositions, backgroundConfig);
           if (!subCur) continue;
 
@@ -2642,32 +2639,48 @@ export class VideoRenderer {
     }
 
     const windowSize = (this.getCursorSmoothness(backgroundConfig) * 2) + 1;
-    const passes = Math.ceil(windowSize / 2);
+    const passes = 3; // 3-pass box blur approximates a Gaussian kernel in O(N) total
     let currentSmoothed = smoothed;
 
+    // O(N) sliding-window box blur: proper symmetric window accumulation
     for (let pass = 0; pass < passes; pass++) {
-      const passSmoothed: MousePosition[] = [];
-      for (let i = 0; i < currentSmoothed.length; i++) {
-        let sumX = 0;
-        let sumY = 0;
-        let totalWeight = 0;
-        const cursor_type = currentSmoothed[i].cursor_type;
+      const n = currentSmoothed.length;
+      const passSmoothed: MousePosition[] = new Array(n);
+      const half = Math.floor(windowSize / 2);
 
-        for (let j = Math.max(0, i - windowSize); j <= Math.min(currentSmoothed.length - 1, i + windowSize); j++) {
-          const distance = Math.abs(i - j);
-          const weight = Math.exp(-distance * (0.5 / windowSize));
-          sumX += currentSmoothed[j].x * weight;
-          sumY += currentSmoothed[j].y * weight;
-          totalWeight += weight;
+      let runX = 0, runY = 0;
+      let winStart = 0;
+      let winEnd = Math.min(half, n - 1);
+
+      // Initialize the running sum for the first window centered at i=0
+      for (let i = 0; i <= winEnd; i++) {
+        runX += currentSmoothed[i].x;
+        runY += currentSmoothed[i].y;
+      }
+
+      for (let i = 0; i < n; i++) {
+        const targetStart = Math.max(0, i - half);
+        const targetEnd = Math.min(n - 1, i + half);
+
+        while (winEnd < targetEnd) {
+          winEnd++;
+          runX += currentSmoothed[winEnd].x;
+          runY += currentSmoothed[winEnd].y;
+        }
+        while (winStart < targetStart) {
+          runX -= currentSmoothed[winStart].x;
+          runY -= currentSmoothed[winStart].y;
+          winStart++;
         }
 
-        passSmoothed.push({
-          x: sumX / totalWeight,
-          y: sumY / totalWeight,
+        const winLen = winEnd - winStart + 1;
+        passSmoothed[i] = {
+          x: runX / winLen,
+          y: runY / winLen,
           timestamp: currentSmoothed[i].timestamp,
           isClicked: currentSmoothed[i].isClicked,
-          cursor_type
-        });
+          cursor_type: currentSmoothed[i].cursor_type,
+        };
       }
       currentSmoothed = passSmoothed;
     }
@@ -2678,10 +2691,7 @@ export class VideoRenderer {
 
     for (let i = 1; i < currentSmoothed.length; i++) {
       const current = currentSmoothed[i];
-      const distance = Math.sqrt(
-        Math.pow(current.x - lastSignificantPos.x, 2) +
-        Math.pow(current.y - lastSignificantPos.y, 2)
-      );
+      const distance = Math.hypot(current.x - lastSignificantPos.x, current.y - lastSignificantPos.y);
 
       if (distance > threshold || current.isClicked !== lastSignificantPos.isClicked) {
         finalSmoothed.push(current);
@@ -3630,22 +3640,6 @@ export class VideoRenderer {
     if (idx < 0) return false;
     const segment = segments[idx];
     return time >= segment.startTime && time <= segment.endTime;
-  }
-
-  private intersectIntervalWithSegments(
-    startTime: number,
-    endTime: number,
-    segments: CursorVisibilitySegment[]
-  ): Array<{ start: number; end: number }> {
-    const intersections: Array<{ start: number; end: number }> = [];
-    for (const segment of segments) {
-      const start = Math.max(startTime, segment.startTime);
-      const end = Math.min(endTime, segment.endTime);
-      if (end - start > 0.001) {
-        intersections.push({ start, end });
-      }
-    }
-    return intersections;
   }
 
   private getKeystrokeIdentity(event: KeystrokeEvent): string {
@@ -5014,289 +5008,190 @@ export class VideoRenderer {
    * Pre-render each text overlay to an RGBA bitmap at the given output resolution.
    * Rust just alpha-composites these per frame with fade applied — no dual pipeline.
    */
-  public bakeTextOverlays(
+  /**
+   * Bake all text and keystroke overlays into a single sprite atlas and compute
+   * per-frame quad arrays for GPU compositing. Replaces the old per-bitmap bakers.
+   */
+  public async bakeOverlayAtlasAndPaths(
     segment: VideoSegment,
     outputWidth: number,
-    outputHeight: number
-  ): BakedTextOverlay[] {
-    const result: BakedTextOverlay[] = [];
-    if (!segment.textSegments?.length) return result;
-    const duration = Math.max(segment.trimEnd, ...(segment.trimSegments || []).map(s => s.endTime));
+    outputHeight: number,
+    fps: number = 60
+  ): Promise<BakedOverlayPayload> {
+    const duration = Math.max(
+      segment.trimEnd,
+      ...(segment.trimSegments || []).map(s => s.endTime),
+      0
+    );
 
-    const shadowPad = 24; // extra padding for drop shadow
+    const MAX_ATLAS_SIZE = 4096;
+    const atlasCanvas = document.createElement('canvas');
+    atlasCanvas.width = MAX_ATLAS_SIZE;
+    atlasCanvas.height = MAX_ATLAS_SIZE;
+    atlasCanvas.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;';
+    document.body.appendChild(atlasCanvas);
 
-    for (const textSeg of segment.textSegments) {
-      // Render to full-size offscreen canvas (drawTextOverlay needs full dims for % positioning)
-      // Must be in DOM so CSS font-variation-settings on the element takes effect.
-      const offscreen = document.createElement('canvas');
-      offscreen.width = outputWidth;
-      offscreen.height = outputHeight;
-      offscreen.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;';
-      document.body.appendChild(offscreen);
-      const ctx = offscreen.getContext('2d')!;
+    const atlasCtx = atlasCanvas.getContext('2d', { willReadFrequently: true });
+    if (!atlasCtx) {
+      atlasCanvas.remove();
+      return { atlasBase64: '', atlasWidth: 1, atlasHeight: 1, frames: [] };
+    }
 
-      // Draw at full opacity (fadeAlpha=1); opacity is baked into pixel alpha
-      this.drawTextOverlay(ctx, textSeg, outputWidth, outputHeight, 1.0);
+    let packX = 0;
+    let packY = 0;
+    let rowH = 0;
+    const pack = (w: number, h: number) => {
+      if (packX + w > MAX_ATLAS_SIZE) { packX = 0; packY += rowH + 2; rowH = 0; }
+      const rect = { x: packX, y: packY, w, h };
+      packX += w + 2;
+      rowH = Math.max(rowH, h);
+      return rect;
+    };
 
-      // Compute tight bounds via getTextHitArea
-      const hitArea = this.getTextHitArea(ctx, textSeg, outputWidth, outputHeight);
+    type AtlasRect = { x: number; y: number; w: number; h: number };
+    const textMap = new Map<string, { rect: AtlasRect; baseHitArea: { x: number; y: number; width: number; height: number }; pad: number }>();
 
-      // Crop region (hit area + shadow padding, clamped to canvas)
-      const cropX = Math.max(0, Math.floor(hitArea.x - shadowPad));
-      const cropY = Math.max(0, Math.floor(hitArea.y - shadowPad));
-      const cropRight = Math.min(outputWidth, Math.ceil(hitArea.x + hitArea.width + shadowPad));
-      const cropBottom = Math.min(outputHeight, Math.ceil(hitArea.y + hitArea.height + shadowPad));
-      const cropW = cropRight - cropX;
-      const cropH = cropBottom - cropY;
+    // Pack text overlays
+    const textPad = 24;
+    for (const text of segment.textSegments || []) {
+      const hitArea = this.getTextHitArea(atlasCtx, text, outputWidth, outputHeight);
+      const w = Math.ceil(hitArea.width + textPad * 2);
+      const h = Math.ceil(hitArea.height + textPad * 2);
+      const rect = pack(w, h);
+      atlasCtx.save();
+      atlasCtx.translate(rect.x + textPad - hitArea.x, rect.y + textPad - hitArea.y);
+      this.drawTextOverlay(atlasCtx, text, outputWidth, outputHeight, 1.0);
+      atlasCtx.restore();
+      textMap.set(text.id, { rect, baseHitArea: hitArea, pad: textPad });
+    }
 
-      if (cropW <= 0 || cropH <= 0) {
-        offscreen.remove();
-        continue;
+    // Pack keystroke overlays — deduplicated so visually identical bubbles share one atlas slot.
+    // keystrokeUniqueMap: uniqueKey → {rect, layout, pad}  (one slot per distinct visual)
+    // keystrokeEventMap:  eventId  → uniqueKey             (many events → one visual key)
+    const keystrokeUniqueMap = new Map<string, { rect: AtlasRect; layout: any; pad: number }>();
+    const keystrokeEventMap = new Map<string, string>(); // eventId → uniqueKey
+    const cache = this.rebuildKeystrokeRenderCache(segment, duration);
+    if (cache && cache.displayEvents.length > 0) {
+      const overlayTransform = this.getKeystrokeOverlayTransform(segment, outputWidth, outputHeight);
+      let uniqueCount = 0;
+      for (const event of cache.displayEvents) {
+        const layout = this.getCachedKeystrokeBubbleLayout(atlasCtx, event, outputHeight, overlayTransform.scale);
+        // Unique key: label + mouse-icon flag + font-size (determines visual appearance).
+        const uniqueKey = `${layout.label}|${layout.showMouseIcon}|${layout.fontSize}`;
+        keystrokeEventMap.set(event.id, uniqueKey);
+        if (!keystrokeUniqueMap.has(uniqueKey)) {
+          const pad = this.getKeystrokeBakePadding(layout);
+          const w = layout.width + pad * 2;
+          const h = layout.height + pad * 2;
+          const rect = pack(w, h);
+          atlasCtx.clearRect(rect.x, rect.y, w, h);
+          this.drawKeystrokeBubble(
+            atlasCtx, event,
+            rect.x + pad, rect.y + pad,
+            layout.width, layout.height,
+            layout.label, layout.fontSize, layout.radius, layout.paddingX,
+            layout.showMouseIcon, layout.iconBoxWidth, layout.iconGap,
+            'center', 1.0,
+            { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: 100, wght: 600, slnt: 0, rond: 88, holdMix: 0, laneWeight: 1 }
+          );
+          keystrokeUniqueMap.set(uniqueKey, { rect, layout, pad });
+          uniqueCount++;
+          // Yield to UI every 10 unique renders so the browser stays responsive.
+          if (uniqueCount % 10 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+      }
+    }
+
+    const actualAtlasHeight = Math.max(1, packY + rowH + 2);
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = MAX_ATLAS_SIZE;
+    finalCanvas.height = actualAtlasHeight;
+    finalCanvas.getContext('2d')!.drawImage(atlasCanvas, 0, 0);
+    const atlasBase64 = finalCanvas.toDataURL('image/png');
+    atlasCanvas.remove();
+
+    // Generate per-frame quad arrays
+    const frames: OverlayFrame[] = [];
+    const step = 1 / fps;
+    const trimSegments = getTrimSegments(segment, duration);
+    const fullStart = trimSegments[0].startTime;
+    const fullEnd = trimSegments[trimSegments.length - 1].endTime;
+    const delaySec = this.getKeystrokeDelaySec(segment);
+    const fadeDur = 0.3;
+
+    let frameCount = 0;
+    for (let t = fullStart; t <= fullEnd + 0.0001; t += step) {
+      const quads: OverlayQuad[] = [];
+
+      for (const text of segment.textSegments || []) {
+        if (t >= text.startTime && t <= text.endTime) {
+          const elapsed = t - text.startTime;
+          const remaining = text.endTime - t;
+          let alpha = 1.0;
+          if (elapsed < fadeDur) alpha = elapsed / fadeDur;
+          if (remaining < fadeDur) alpha = Math.min(alpha, remaining / fadeDur);
+          const mapping = textMap.get(text.id);
+          if (mapping && alpha > 0.001) {
+            quads.push({
+              x: mapping.baseHitArea.x - mapping.pad,
+              y: mapping.baseHitArea.y - mapping.pad,
+              w: mapping.rect.w,
+              h: mapping.rect.h,
+              u: mapping.rect.x / MAX_ATLAS_SIZE,
+              v: mapping.rect.y / actualAtlasHeight,
+              uw: mapping.rect.w / MAX_ATLAS_SIZE,
+              vh: mapping.rect.h / actualAtlasHeight,
+              alpha,
+            });
+          }
+        }
       }
 
-      const imageData = ctx.getImageData(cropX, cropY, cropW, cropH);
-      const encodedData = this.encodeBytesToBase64(imageData.data);
-      offscreen.remove();
-      const compactRanges = sourceRangeToCompactRanges(textSeg.startTime, textSeg.endTime, segment, duration);
-      for (const range of compactRanges) {
-        result.push({
-          startTime: range.start,
-          endTime: range.end,
-          x: cropX,
-          y: cropY,
-          width: cropW,
-          height: cropH,
-          data: encodedData
-        });
+      if (cache) {
+        const layout = this.buildActiveKeystrokeFrameLayout(atlasCtx, segment, cache, t, delaySec, outputWidth, outputHeight);
+        const drawPlacements = (placements: any[]) => {
+          for (const p of placements) {
+            const uniqueKey = keystrokeEventMap.get(p.item.active.event.id);
+            const mapping = uniqueKey ? keystrokeUniqueMap.get(uniqueKey) : undefined;
+            if (!mapping) continue;
+            const visual = p.item.visual;
+            if (visual.alpha <= 0.001) continue;
+            const baseW = p.item.layout.width + mapping.pad * 2;
+            const baseH = p.item.layout.height + mapping.pad * 2;
+            const drawW = baseW * visual.scale * visual.scaleX;
+            const drawH = baseH * visual.scale * visual.scaleY;
+            const cx = p.x + p.item.bubbleWidth / 2;
+            const cy = p.y + p.item.layout.height / 2 + visual.translateY;
+            quads.push({
+              x: cx - drawW / 2,
+              y: cy - drawH / 2,
+              w: drawW,
+              h: drawH,
+              u: mapping.rect.x / MAX_ATLAS_SIZE,
+              v: mapping.rect.y / actualAtlasHeight,
+              uw: mapping.rect.w / MAX_ATLAS_SIZE,
+              vh: mapping.rect.h / actualAtlasHeight,
+              alpha: visual.alpha,
+            });
+          }
+        };
+        drawPlacements(layout.keyboard);
+        drawPlacements(layout.mouse);
       }
+
+      frames.push({ time: t, quads });
+      frameCount++;
+      // Yield every 500 frames to keep the browser responsive during long exports.
+      if (frameCount % 500 === 0) await new Promise(r => setTimeout(r, 0));
     }
 
-    return result;
-  }
-
-  private encodeBytesToBase64(bytes: Uint8ClampedArray): string {
-    let binary = '';
-    const chunkSize = 0x8000;
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      const chunk = bytes.subarray(offset, Math.min(bytes.length, offset + chunkSize));
-      binary += String.fromCharCode(...chunk);
-    }
-    return btoa(binary);
-  }
-
-  private buildKeystrokeAnimationSlices(
-    intervalStart: number,
-    intervalEnd: number,
-    fps: number
-  ): Array<{ start: number; end: number; sampleTime: number }> {
-    if (intervalEnd - intervalStart <= 0.001) return [];
-    const slices: Array<{ start: number; end: number; sampleTime: number }> = [];
-    const safeFps = Math.max(1, Math.round(fps));
-    const frameDuration = 1 / safeFps;
-    const startFrame = Math.floor(intervalStart / frameDuration);
-    const endFrameExclusive = Math.ceil(intervalEnd / frameDuration);
-    for (let frame = startFrame; frame < endFrameExclusive; frame++) {
-      const frameStart = frame * frameDuration;
-      const frameEnd = frameStart + frameDuration;
-      const start = Math.max(intervalStart, frameStart);
-      const end = Math.min(intervalEnd, frameEnd);
-      if (end - start <= 0.001) continue;
-      slices.push({
-        start,
-        end,
-        sampleTime: start,
-      });
-    }
-    return slices;
+    return { atlasBase64, atlasWidth: MAX_ATLAS_SIZE, atlasHeight: actualAtlasHeight, frames };
   }
 
   private getKeystrokeBakePadding(layout: KeystrokeBubbleLayout): number {
     return Math.max(28, Math.round(layout.fontSize * 1.35));
   }
 
-  private getKeystrokeBakeVisualKey(
-    event: KeystrokeEvent,
-    visual: KeystrokeVisualState,
-    drawWidth: number,
-    drawHeight: number
-  ): string {
-    return [
-      event.id,
-      drawWidth,
-      drawHeight,
-      visual.alpha.toFixed(6),
-      visual.scale.toFixed(6),
-      visual.scaleX.toFixed(6),
-      visual.scaleY.toFixed(6),
-      visual.translateY.toFixed(6),
-      visual.wdth.toFixed(6),
-      visual.wght.toFixed(6),
-      visual.slnt.toFixed(6),
-      visual.rond.toFixed(6),
-      visual.holdMix.toFixed(6),
-    ].join('|');
-  }
-
-  private pushMergedKeystrokeOverlay(
-    result: BakedKeystrokeOverlay[],
-    overlay: BakedKeystrokeOverlay
-  ) {
-    const last = result[result.length - 1];
-    if (
-      last
-      && Math.abs(last.endTime - overlay.startTime) <= 0.000001
-      && last.x === overlay.x
-      && last.y === overlay.y
-      && last.width === overlay.width
-      && last.height === overlay.height
-      && last.data === overlay.data
-    ) {
-      last.endTime = overlay.endTime;
-      return;
-    }
-    result.push(overlay);
-  }
-
-  public bakeKeystrokeOverlays(
-    segment: VideoSegment,
-    outputWidth: number,
-    outputHeight: number,
-    fps: number = 60
-  ): BakedKeystrokeOverlay[] {
-    const result: BakedKeystrokeOverlay[] = [];
-    const duration = Math.max(
-      segment.trimEnd,
-      ...(segment.trimSegments || []).map((trimSegment) => trimSegment.endTime),
-      0
-    );
-    const cache = this.rebuildKeystrokeRenderCache(segment, duration);
-    if (!cache) return result;
-    const events = cache.displayEvents;
-    const visibilitySegments = cache.visibilityRef ?? [];
-    if (!events.length || !visibilitySegments.length) return result;
-    const delaySec = this.getKeystrokeDelaySec(segment);
-
-    // Keep bake canvas in DOM so Canvas2D picks up font-variation-settings exactly
-    // like preview; this preserves WYSIWYG for keystroke typography animations.
-    const bakeCanvas = document.createElement('canvas');
-    bakeCanvas.width = Math.max(1, outputWidth);
-    bakeCanvas.height = Math.max(1, outputHeight);
-    bakeCanvas.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;';
-    document.body.appendChild(bakeCanvas);
-
-    const initialBakeCtx = bakeCanvas.getContext('2d', { willReadFrequently: true });
-    if (!initialBakeCtx) {
-      bakeCanvas.remove();
-      return result;
-    }
-    let bakeCtx: CanvasRenderingContext2D = initialBakeCtx;
-    const bitmapCache = new Map<string, string>();
-    const activeLaneCache = new Map<number, ActiveKeystrokeFrameLayout>();
-    const safeFps = Math.max(1, Math.round(fps));
-
-    try {
-      for (let i = 0; i < events.length; i++) {
-        const event = events[i];
-        const effectiveEndRaw = cache.effectiveEnds[i];
-        const delayedRange = this.getDelayedKeystrokeRange(event.startTime, effectiveEndRaw, delaySec);
-        if (delayedRange.endTime - delayedRange.startTime <= 0.001) continue;
-
-        const visibleIntervals = this.intersectIntervalWithSegments(
-          delayedRange.startTime,
-          delayedRange.endTime,
-          visibilitySegments
-        );
-
-        for (const interval of visibleIntervals) {
-          const slices = this.buildKeystrokeAnimationSlices(
-            interval.start,
-            interval.end,
-            fps
-          );
-          for (const slice of slices) {
-            const frameKey = Math.floor(slice.sampleTime * safeFps + 0.000001);
-            let frameLayout = activeLaneCache.get(frameKey);
-            if (!frameLayout) {
-              frameLayout = this.buildActiveKeystrokeFrameLayout(
-                bakeCtx,
-                segment,
-                cache,
-                slice.sampleTime,
-                delaySec,
-                outputWidth,
-                outputHeight
-              );
-              activeLaneCache.set(frameKey, frameLayout);
-            }
-
-            const lanePlacements = event.type === 'keyboard'
-              ? frameLayout.keyboard
-              : frameLayout.mouse;
-            const placement = lanePlacements.find(
-              (candidate) => candidate.item.active.event.id === event.id
-            );
-            if (!placement) continue;
-            const laneEvent = placement.item.active.event;
-            const layout = placement.item.layout;
-            const visual = placement.item.visual;
-            const bubbleWidth = placement.item.bubbleWidth;
-            const bakePadding = this.getKeystrokeBakePadding(layout);
-            const drawWidth = bubbleWidth + bakePadding * 2;
-            const drawHeight = layout.height + bakePadding * 2;
-            if (bakeCanvas.width !== drawWidth || bakeCanvas.height !== drawHeight) {
-              bakeCanvas.width = drawWidth;
-              bakeCanvas.height = drawHeight;
-              const resizedBakeCtx = bakeCanvas.getContext('2d', { willReadFrequently: true });
-              if (!resizedBakeCtx) continue;
-              bakeCtx = resizedBakeCtx;
-            }
-            const bitmapKey = this.getKeystrokeBakeVisualKey(laneEvent, visual, drawWidth, drawHeight);
-            let data = bitmapCache.get(bitmapKey);
-            if (!data) {
-              bakeCtx.clearRect(0, 0, drawWidth, drawHeight);
-              this.drawKeystrokeBubble(
-                bakeCtx,
-                laneEvent,
-                bakePadding,
-                bakePadding,
-                bubbleWidth,
-                layout.height,
-                layout.label,
-                layout.fontSize,
-                layout.radius,
-                layout.paddingX,
-                layout.showMouseIcon,
-                layout.iconBoxWidth,
-                layout.iconGap,
-                placement.align,
-                1,
-                visual
-              );
-              const imageData = bakeCtx.getImageData(0, 0, drawWidth, drawHeight);
-              data = this.encodeBytesToBase64(imageData.data);
-              bitmapCache.set(bitmapKey, data);
-            }
-            const compactRanges = sourceRangeToCompactRanges(slice.start, slice.end, segment, duration);
-            for (const range of compactRanges) {
-              this.pushMergedKeystrokeOverlay(result, {
-                startTime: range.start,
-                endTime: range.end,
-                x: placement.x - bakePadding,
-                y: placement.y - bakePadding,
-                width: drawWidth,
-                height: drawHeight,
-                data
-              });
-            }
-          }
-        }
-      }
-    } finally {
-      bakeCanvas.remove();
-    }
-
-    return result;
-  }
 }
 
 export const videoRenderer = new VideoRenderer();

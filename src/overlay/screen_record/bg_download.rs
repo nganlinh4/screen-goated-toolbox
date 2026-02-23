@@ -2,7 +2,10 @@
 // Downloadable background image support with per-item progress tracking.
 
 use base64::Engine;
+use image::codecs::jpeg::JpegEncoder;
+use image::imageops::FilterType;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::io::{Read as IoRead, Write};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -227,6 +230,115 @@ pub fn read_as_data_url(id: &str) -> Result<String, String> {
     Err(format!("Background '{id}' not found"))
 }
 
+fn normalize_downloaded_image_for_export(id: &str, file_path: &std::path::Path, ext: &str) -> Result<(), String> {
+    let t0 = std::time::Instant::now();
+    let bytes = std::fs::read(file_path).map_err(|e| format!("Read downloaded image failed: {e}"))?;
+    let decoded = image::load_from_memory(&bytes)
+        .map_err(|e| format!("Decode downloaded image failed: {e}"))?;
+    let (w, h) = (decoded.width().max(1), decoded.height().max(1));
+    const MAX_DIM: u32 = 2560;
+    if w <= MAX_DIM && h <= MAX_DIM {
+        return Ok(());
+    }
+
+    let ratio = (MAX_DIM as f32 / w as f32).min(MAX_DIM as f32 / h as f32);
+    let out_w = ((w as f32) * ratio).round().max(1.0) as u32;
+    let out_h = ((h as f32) * ratio).round().max(1.0) as u32;
+    // Triangle is much faster than Lanczos and visually sufficient for abstract backgrounds.
+    let resized = decoded.resize(out_w, out_h, FilterType::Triangle).to_rgb8();
+
+    // Re-encode as JPEG for much faster subsequent decode and smaller disk footprint.
+    let mut out = Vec::new();
+    {
+        let mut enc = JpegEncoder::new_with_quality(&mut out, 92);
+        enc.encode_image(&image::DynamicImage::ImageRgb8(resized))
+            .map_err(|e| format!("JPEG encode normalized background failed: {e}"))?;
+    }
+
+    let final_path = if ext == "jpg" || ext == "jpeg" {
+        file_path.to_path_buf()
+    } else {
+        let dir = file_path.parent().ok_or_else(|| "Missing parent dir".to_string())?;
+        dir.join(format!("{id}.jpg"))
+    };
+
+    if final_path != file_path {
+        let _ = std::fs::remove_file(&final_path);
+    }
+    std::fs::write(&final_path, &out)
+        .map_err(|e| format!("Write normalized background failed: {e}"))?;
+    if final_path != file_path {
+        let _ = std::fs::remove_file(file_path);
+    }
+    println!(
+        "[BgDownload] Normalized {} from {}x{} to {}x{} in {:.2}ms",
+        id,
+        w,
+        h,
+        out_w,
+        out_h,
+        t0.elapsed().as_secs_f64() * 1000.0
+    );
+    Ok(())
+}
+
+/// Persist an uploaded custom background data URL to local app data and return
+/// a lightweight protocol URL the frontend can store in project state.
+pub fn save_uploaded_data_url(data_url: &str) -> Result<String, String> {
+    let rest = data_url
+        .strip_prefix("data:")
+        .ok_or_else(|| "Uploaded background must be a data URL".to_string())?;
+    let (meta, data) = rest
+        .split_once(',')
+        .ok_or_else(|| "Invalid uploaded background data URL".to_string())?;
+    if !meta.contains(";base64") {
+        return Err("Uploaded background data URL must be base64".to_string());
+    }
+
+    let mime = meta.split(';').next().unwrap_or("image/png");
+    let ext = match mime {
+        "image/jpeg" => "jpg",
+        "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/png" => "png",
+        _ => "png",
+    };
+
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| format!("Failed to decode uploaded background base64: {e}"))?;
+
+    // Do not decode here. We prewarm immediately after save, and decoding twice makes
+    // uploads feel much slower for large images (e.g. 6k+ PNG/JPEG/WebP).
+
+    let dir = backgrounds_dir();
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create backgrounds dir: {e}"))?;
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    mime.hash(&mut hasher);
+    raw.hash(&mut hasher);
+    let hash = hasher.finish();
+    let file_name = format!("upload-{hash:016x}.{ext}");
+    let file_path = dir.join(&file_name);
+
+    if !file_path.exists() {
+        std::fs::write(&file_path, &raw)
+            .map_err(|e| format!("Failed to write uploaded background: {e}"))?;
+    }
+
+    let version = std::fs::metadata(&file_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    Ok(format!("/bg-downloaded/{file_name}?v={version}"))
+}
+
 /// Start downloading a background image in a background thread.
 pub fn start_download(id: String, url: String) {
     if matches!(
@@ -338,6 +450,10 @@ pub fn start_download(id: String, url: String) {
                 }
 
                 let _ = file.sync_all();
+                if let Err(e) = normalize_downloaded_image_for_export(&id, &file_path, ext) {
+                    set_download_status(&id, BgDownloadStatus::Error(format!("Normalize error: {e}")));
+                    return;
+                }
                 set_download_status(&id, BgDownloadStatus::Done);
             }
             Err(e) => {
@@ -438,7 +554,7 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
                         let raw_url = &after[url_start..url_start + url_end];
                         let decoded = raw_url.replace("&amp;", "&");
                         let base = decoded.split('=').next().unwrap_or(&decoded);
-                        return Ok(format!("{base}=w4096-h4096"));
+                        return Ok(format!("{base}=w2560-h2560"));
                     }
                 }
             }
@@ -448,7 +564,7 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
                     let raw = &body[pos..pos + end];
                     let decoded = raw.replace("\\u003d", "=").replace("&amp;", "&");
                     let base = decoded.split('=').next().unwrap_or(&decoded);
-                    return Ok(format!("{base}=w4096-h4096"));
+                    return Ok(format!("{base}=w2560-h2560"));
                 }
             }
         }
@@ -460,7 +576,7 @@ fn resolve_image_url(url: &str) -> Result<String, String> {
         let after = &url[photo_pos + 7..];
         let photo_id = after.split('?').next().unwrap_or(after);
         if !photo_id.is_empty() {
-            let direct = format!("https://lh3.googleusercontent.com/pw/{photo_id}=w4096-h4096");
+            let direct = format!("https://lh3.googleusercontent.com/pw/{photo_id}=w2560-h2560");
             // Verify it returns an image (HEAD request)
             if let Ok(resp) = ureq::head(&direct).header("User-Agent", ua).call() {
                 let ct = resp

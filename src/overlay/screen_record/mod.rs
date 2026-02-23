@@ -2,7 +2,6 @@
 // Screen recording overlay with WebView interface.
 
 pub(crate) mod bg_download;
-mod ffmpeg;
 mod ipc;
 mod raw_video;
 
@@ -13,7 +12,7 @@ use serde::Deserialize;
 use std::borrow::Cow;
 use std::num::NonZeroIsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, Once, OnceLock};
 use std::thread;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
@@ -29,13 +28,17 @@ use wry::{Rect, WebContext, WebViewBuilder};
 use crate::win_types::SendHwnd;
 
 pub mod audio_engine;
+mod d3d_interop;
 pub mod engine;
 pub mod gpu_export;
 pub mod keysee_capture;
+pub mod mf_audio;
+mod mf_decode;
+mod mf_encode;
 pub mod native_export;
+mod gpu_pipeline;
 
 // Re-exports
-pub use ffmpeg::{get_ffmpeg_path, get_ffprobe_path};
 use ipc::handle_ipc_command;
 
 // --- CONSTANTS ---
@@ -57,7 +60,6 @@ thread_local! {
 
 lazy_static::lazy_static! {
     pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-    static ref FFMPEG_PROCESS: Mutex<Option<std::process::Child>> = Mutex::new(None);
 }
 
 static REPO_ROOT_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
@@ -157,6 +159,8 @@ struct IpcRequest {
 }
 
 // --- ASSETS ---
+const ASSET_FONT_TTF: &[u8] =
+    include_bytes!("../../../assets/GoogleSansFlex-VariableFont_GRAD,ROND,opsz,slnt,wdth,wght.ttf");
 const INDEX_HTML: &[u8] = include_bytes!("dist/index.html");
 const ASSET_INDEX_JS: &[u8] = include_bytes!("dist/assets/index.js");
 const ASSET_INDEX_CSS: &[u8] = include_bytes!("dist/assets/index.css");
@@ -647,7 +651,7 @@ unsafe fn internal_create_sr_loop() {
     let (width, height) = {
         let app = crate::APP.lock().unwrap();
         let (w, h) = app.config.screen_record_window_size;
-        (w.max(800), h.max(500))
+        (w.max(1000), h.max(500))
     };
     let x = (screen_w - width) / 2;
     let y = (screen_h - height) / 2;
@@ -695,9 +699,16 @@ unsafe fn internal_create_sr_loop() {
 
     std::thread::sleep(std::time::Duration::from_millis(100));
 
-    // Font CSS from local HTTP server — CSS @font-face url() only works over http/https, not custom protocols
-    let font_css = crate::overlay::html_components::font_manager::get_font_css();
-    let font_style_tag = format!(r#"<style id="sgt-font-face">{}</style>"#, font_css);
+    let font_style_tag = r#"<style id="sgt-font-face">
+        @font-face {
+            font-family: 'Google Sans Flex';
+            src: url('/font.ttf') format('truetype');
+            font-weight: 100 1000;
+            font-style: normal;
+            font-display: swap;
+        }
+    </style>"#
+        .to_string();
 
     // Read initial theme/lang from config
     let (init_lang, init_theme_mode) = {
@@ -722,148 +733,24 @@ unsafe fn internal_create_sr_loop() {
     // Set window icon based on initial theme
     crate::gui::utils::set_window_icon(hwnd, init_theme == "dark");
 
-    let font_retry_bootstrap = r#"
-        (function() {
-            if (window.__SGT_FONT_RETRY_STATE__ && window.__SGT_FONT_RETRY_STATE__.started) {
-                return;
-            }
-
-            const retryDelaysMs = [0, 100, 250, 500, 900, 1400, 2000, 2800, 3800, 5000, 6500, 8200, 10000];
-            const styleId = 'sgt-font-face';
-            const fontCheckExpr = "16px 'Google Sans Flex'";
-            const state = {
-                started: true,
-                loaded: false,
-                attempts: 0,
-                startedAtMs: Date.now(),
-            };
-            window.__SGT_FONT_RETRY_STATE__ = state;
-
-            const hasDesiredFont = function() {
-                try {
-                    return !!(document.fonts && document.fonts.check && document.fonts.check(fontCheckExpr));
-                } catch (_err) {
-                    return false;
-                }
-            };
-
-            const upsertFontStyle = function(css, attemptIndex) {
-                if (typeof css !== 'string' || css.trim().length === 0) {
-                    return false;
-                }
-                if (css.indexOf('127.0.0.1:0') !== -1) {
-                    return false;
-                }
-
-                const retryToken = 'sr_try=' + Date.now() + '_' + attemptIndex;
-                const rewrittenCss = css.replace(
-                    /(GoogleSansFlex\.ttf\?v=[^'")\s]+)/g,
-                    function(_match, base) {
-                        return base + '&' + retryToken;
-                    }
-                );
-                let styleNode = document.getElementById(styleId);
-                if (!styleNode) {
-                    styleNode = document.createElement('style');
-                    styleNode.id = styleId;
-                    if (document.head) {
-                        document.head.appendChild(styleNode);
-                    } else {
-                        return false;
-                    }
-                }
-                styleNode.textContent = rewrittenCss;
-                return true;
-            };
-
-            const attemptLoad = async function(attemptIndex) {
-                const retryState = window.__SGT_FONT_RETRY_STATE__;
-                if (!retryState || retryState.loaded) {
-                    return true;
-                }
-                retryState.attempts = attemptIndex + 1;
-
-                if (hasDesiredFont()) {
-                    retryState.loaded = true;
-                    return true;
-                }
-
-                const invoker = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
-                if (typeof invoker !== 'function') {
-                    return false;
-                }
-
-                try {
-                    const css = await invoker('get_font_css');
-                    if (!upsertFontStyle(css, attemptIndex)) {
-                        return false;
-                    }
-
-                    if (document.fonts && document.fonts.load) {
-                        try {
-                            await Promise.race([
-                                document.fonts.load("400 16px 'Google Sans Flex'"),
-                                new Promise(function(resolve) { window.setTimeout(resolve, 1200); }),
-                            ]);
-                        } catch (_loadErr) {}
-                    }
-                } catch (_err) {
-                    return false;
-                }
-
-                if (hasDesiredFont()) {
-                    retryState.loaded = true;
-                    return true;
-                }
-                return false;
-            };
-
-            if (hasDesiredFont()) {
-                state.loaded = true;
-                return;
-            }
-
-            retryDelaysMs.forEach(function(delayMs, attemptIndex) {
-                window.setTimeout(function() {
-                    const retryState = window.__SGT_FONT_RETRY_STATE__;
-                    if (!retryState || retryState.loaded) {
-                        return;
-                    }
-
-                    attemptLoad(attemptIndex).then(function(loaded) {
-                        if (!loaded && attemptIndex === retryDelaysMs.length - 1) {
-                            console.warn('[SR] Google Sans Flex did not become ready after retry window');
-                        }
-                    });
-                }, delayMs);
-            });
-        })();
-    "#;
-
     let init_script = format!(
         r#"
         (function() {{
             const originalPostMessage = window.ipc.postMessage;
-            window.__TAURI_INTERNALS__ = {{
-                invoke: async (cmd, args) => {{
-                    return new Promise((resolve, reject) => {{
-                        const id = Math.random().toString(36).substring(7);
-                        const handler = (e) => {{
-                            if (e.detail && e.detail.id === id) {{
-                                window.removeEventListener('ipc-reply', handler);
-                                if (e.detail.error) reject(e.detail.error);
-                                else resolve(e.detail.result);
-                            }}
-                        }};
-                        window.addEventListener('ipc-reply', handler);
-                        originalPostMessage(JSON.stringify({{ id, cmd, args }}));
-                    }});
-                }}
-            }};
-            window.__TAURI__ = {{
-                core: {{
-                    invoke: window.__TAURI_INTERNALS__.invoke
-                }}
+            window.isWry = true;
+            window.invoke = async (cmd, args = {{}}) => {{
+                return new Promise((resolve, reject) => {{
+                    const id = Math.random().toString(36).substring(7);
+                    const handler = (e) => {{
+                        if (e.detail && e.detail.id === id) {{
+                            window.removeEventListener('ipc-reply', handler);
+                            if (e.detail.error) reject(e.detail.error);
+                            else resolve(e.detail.result);
+                        }}
+                    }};
+                    window.addEventListener('ipc-reply', handler);
+                    originalPostMessage(JSON.stringify({{ id, cmd, args }}));
+                }});
             }};
             // Set initial settings synchronously so React can read on mount
             window.__SR_INITIAL_THEME__ = '{init_theme}';
@@ -877,9 +764,7 @@ unsafe fn internal_create_sr_loop() {
                 }}
             }}
         }})();
-        {}
-    "#,
-        font_retry_bootstrap
+    "#
     );
 
     let webview_result = {
@@ -892,6 +777,9 @@ unsafe fn internal_create_sr_loop() {
                     let font_style_tag = font_style_tag.clone();
                     move |_id, request| {
                     let path = request.uri().path();
+                    if path.ends_with("font.ttf") {
+                        return wnd_http_response(200, "font/ttf", Cow::Borrowed(ASSET_FONT_TTF));
+                    }
                     if let Some(bytes) = try_read_runtime_cursor_svg(path) {
                         return wnd_http_response(200, "image/svg+xml", Cow::Owned(bytes));
                     }

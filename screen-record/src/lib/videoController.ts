@@ -44,6 +44,7 @@ export class VideoController {
   private pendingSeekTime: number | null = null;
   private readonly SEGMENT_EPS = 0.03;
   private playbackMonitorRaf: number | null = null;
+  private renderTimeout: number | null = null;
 
   constructor(options: VideoControllerOptions) {
     this.video = options.videoRef;
@@ -440,7 +441,13 @@ export class VideoController {
   // Public API
   public updateRenderOptions(options: RenderOptions) {
     this.renderOptions = options;
-    this.renderFrame();
+    // Throttle heavy re-renders during rapid slider dragging (e.g. motion blur).
+    if (this.renderTimeout === null) {
+      this.renderTimeout = requestAnimationFrame(() => {
+        this.renderFrame();
+        this.renderTimeout = null;
+      });
+    }
   }
 
   public play() {
@@ -528,6 +535,10 @@ export class VideoController {
   }
 
   public destroy() {
+    if (this.renderTimeout !== null) {
+      cancelAnimationFrame(this.renderTimeout);
+      this.renderTimeout = null;
+    }
     this.stopPlaybackMonitor();
     videoRenderer.stopAnimation();
     this.video.removeEventListener('loadeddata', this.handleLoadedData);
