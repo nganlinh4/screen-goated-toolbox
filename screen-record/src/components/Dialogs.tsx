@@ -221,15 +221,19 @@ export function ExportDialog({
   const vidW = videoRef.current?.videoWidth || 1920;
   const vidH = videoRef.current?.videoHeight || 1080;
   const { baseW, baseH } = getCanvasBaseDimensions(vidW, vidH, segment, backgroundConfig);
+  const sourceResOptionW = baseW % 2 === 0 ? baseW : Math.max(2, baseW - 1);
+  const sourceResOptionH = baseH % 2 === 0 ? baseH : Math.max(2, baseH - 1);
   const nativeSourceFps = typeof sourceVideoFps === 'number' && Number.isFinite(sourceVideoFps) && sourceVideoFps > 0
     ? sourceVideoFps
     : null;
   const sourceFpsValue = nativeSourceFps !== null
     ? Math.round(nativeSourceFps)
     : 60;
-  const sourceResLabel = `${baseW}×${baseH}`;
+  const sourceResLabel = `${sourceResOptionW}×${sourceResOptionH}`;
   const fpsChoiceValues = Array.from(new Set([sourceFpsValue, 24, 30, 60])).sort((a, b) => a - b);
-  const resOptions = computeResolutionOptions(baseW, baseH);
+  const resOptions = computeResolutionOptions(baseW, baseH, vidH)
+    .slice()
+    .sort((a, b) => b.height - a.height || b.width - a.width);
   const { width: outW, height: outH } = resolveExportDimensions(exportOptions.width, exportOptions.height, baseW, baseH);
   const bitrateBounds = computeBitrateSliderBounds(outW, outH, exportOptions.fps);
   const targetVideoBitrateKbps = exportOptions.targetVideoBitrateKbps > 0
@@ -367,21 +371,21 @@ export function ExportDialog({
               <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.resolution}</label>
             </div>
             <div className="resolution-options grid grid-cols-3 gap-2">
-              {resOptions.map((opt: ResolutionOption, i: number) => {
+              {resOptions.map((opt: ResolutionOption) => {
                 const key = `${opt.width}x${opt.height}`;
-                const isSelected = selectedKey === key || (exportOptions.width === 0 && exportOptions.height === 0 && i === 0);
-                const isSourceOption = i === 0;
+                const isSourceOption = opt.width === sourceResOptionW && opt.height === sourceResOptionH;
+                const isSelected = selectedKey === key || (exportOptions.width === 0 && exportOptions.height === 0 && isSourceOption);
                 return (
                   <button
                     key={key}
-                    onClick={() => setExportOptions(prev => ({ ...prev, width: i === 0 ? 0 : opt.width, height: i === 0 ? 0 : opt.height }))}
+                    onClick={() => setExportOptions(prev => ({ ...prev, width: isSourceOption ? 0 : opt.width, height: isSourceOption ? 0 : opt.height }))}
                     className={`resolution-option py-2 px-3 rounded-xl text-xs font-semibold transition-all border shadow-sm flex flex-col items-center justify-center gap-0.5 relative ${
                       isSelected
                         ? 'bg-[var(--primary-color)] text-white border-[var(--primary-color)]'
                         : 'bg-[var(--surface)] text-[var(--on-surface)] border-[var(--glass-border)] hover:border-[var(--outline)] hover:bg-[var(--surface-container)]'
                     }`}
                   >
-                    <span>{formatResolutionPLabel(isSourceOption ? baseH : opt.height)}</span>
+                    <span>{formatResolutionPLabel(isSourceOption ? sourceResOptionH : opt.height)}</span>
                     <span className="text-[9px] opacity-70 font-mono">
                       {isSourceOption ? sourceResLabel : `${opt.width}×${opt.height}`}
                     </span>

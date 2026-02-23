@@ -490,7 +490,7 @@ export function estimateExportSize(params: {
 }
 
 /** Compute resolution options based on the actual canvas base dimensions. */
-export function computeResolutionOptions(baseW: number, baseH: number): ResolutionOption[] {
+export function computeResolutionOptions(baseW: number, baseH: number, sourceH?: number): ResolutionOption[] {
   const aspect = baseW / baseH;
   const options: ResolutionOption[] = [];
 
@@ -499,16 +499,26 @@ export function computeResolutionOptions(baseW: number, baseH: number): Resoluti
   const origH = baseH % 2 === 0 ? baseH : baseH - 1;
   options.push({ width: origW, height: origH, label: `Original (${origW} × ${origH})` });
 
-  // Add standard heights that are strictly smaller than original
+  const maxAllowedH = Math.max(baseH, sourceH || 0, 2160); // Allow up to 4K if aspect accommodates
+
+  // Add standard heights
   for (const h of STANDARD_HEIGHTS) {
-    if (h >= baseH) continue;
+    if (h === origH) continue;
+    if (h > maxAllowedH) continue;
     let w = Math.round(h * aspect);
     if (w % 2 !== 0) w--;
+    if (w < 2) continue;
+
+    // Avoid duplicates if the rounded width/height match original
+    if (w === origW && h === origH) continue;
+
     const tag = h === 2160 ? '4K' : h === 1440 ? '2K' : h === 1080 ? '1080p' : h === 720 ? '720p' : '480p';
     options.push({ width: w, height: h, label: `${tag} (${w} × ${h})` });
   }
 
-  return options;
+  // Sort by height descending, but keep Original first
+  const stdOptions = options.slice(1).sort((a, b) => b.height - a.height);
+  return [options[0], ...stdOptions];
 }
 
 /** Compute the canvas base dimensions from video + crop + custom canvas config. */

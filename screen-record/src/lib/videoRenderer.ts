@@ -1325,13 +1325,29 @@ export class VideoRenderer {
       // correctly when canvas aspect ratio differs from video aspect ratio
       const zoomState = this.calculateCurrentZoomState(video.currentTime, segment, canvas.width, canvas.height, srcW, srcH);
 
-      // Supersample only during export to keep preview responsive
+      // Supersample to keep zoom crisp
       const zf = zoomState?.zoomFactor ?? 1;
-      const ss = isExportMode && zf > 1 ? Math.min(Math.ceil(zf), 3) : 1;
+      const bgScale = Math.max(0.01, backgroundConfig.scale / 100);
+      let ss = 1;
+
+      if (isExportMode) {
+        ss = zf > 1 ? Math.min(Math.ceil(zf / bgScale), 4) : 1;
+      } else {
+        // In preview, cap ss at 2.5 to avoid lag, but enable it if we are losing resolution
+        const requiredSs = zf / bgScale;
+        if (requiredSs > 1.05) {
+          ss = Math.min(requiredSs, 2.5);
+          // Protect against massive canvas allocation in preview
+          const maxTempWidth = 3840;
+          if (canvasW * ss > maxTempWidth) {
+            ss = Math.max(1, maxTempWidth / canvasW);
+          }
+        }
+      }
 
       // --- Prepare tempCanvas (video + shadow + border radius) - same for all sub-frames ---
-      const tempW = canvasW * ss;
-      const tempH = canvasH * ss;
+      const tempW = Math.round(canvasW * ss);
+      const tempH = Math.round(canvasH * ss);
       if (tempCanvas.width !== tempW || tempCanvas.height !== tempH) {
         tempCanvas.width = tempW;
         tempCanvas.height = tempH;
@@ -1351,8 +1367,8 @@ export class VideoRenderer {
       if (backgroundConfig.shadow) {
         tempCtx.save();
         tempCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        tempCtx.shadowBlur = backgroundConfig.shadow;
-        tempCtx.shadowOffsetY = backgroundConfig.shadow * 0.5;
+        tempCtx.shadowBlur = backgroundConfig.shadow * ss;
+        tempCtx.shadowOffsetY = backgroundConfig.shadow * 0.5 * ss;
 
         tempCtx.beginPath();
         tempCtx.moveTo(x + radius + offset, y + offset);
