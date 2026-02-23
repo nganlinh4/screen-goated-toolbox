@@ -2,7 +2,6 @@
 // Screen recording overlay with WebView interface.
 
 pub(crate) mod bg_download;
-mod ffmpeg;
 mod ipc;
 mod raw_video;
 
@@ -13,7 +12,7 @@ use serde::Deserialize;
 use std::borrow::Cow;
 use std::num::NonZeroIsize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, Once, OnceLock};
 use std::thread;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
@@ -33,14 +32,13 @@ mod d3d_interop;
 pub mod engine;
 pub mod gpu_export;
 pub mod keysee_capture;
-// mod mf_audio; // TODO: wire audio muxing once MfEncoder supports deferred BeginWriting
+pub mod mf_audio;
 mod mf_decode;
 mod mf_encode;
 pub mod native_export;
 mod gpu_pipeline;
 
 // Re-exports
-pub use ffmpeg::get_ffmpeg_path;
 use ipc::handle_ipc_command;
 
 // --- CONSTANTS ---
@@ -62,7 +60,6 @@ thread_local! {
 
 lazy_static::lazy_static! {
     pub static ref SERVER_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-    static ref FFMPEG_PROCESS: Mutex<Option<std::process::Child>> = Mutex::new(None);
 }
 
 static REPO_ROOT_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();

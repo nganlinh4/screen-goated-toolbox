@@ -8,7 +8,7 @@ import { BackgroundConfig, MousePosition, VideoSegment, KeystrokeMode, Recording
 import { projectManager } from '@/lib/projectManager';
 import { TimelineArea } from '@/components/timeline';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
-import { useFfmpegSetup, useHotkeys, useMonitors } from '@/hooks/useAppHooks';
+import { useHotkeys, useMonitors } from '@/hooks/useAppHooks';
 import {
   useVideoPlayback, useRecording, useProjects, useExport,
   useZoomKeyframes, useTextOverlays, useAutoZoom, useCursorHiding
@@ -19,7 +19,7 @@ import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay } from 
 import { SidePanel, ActivePanel } from '@/components/SidePanel';
 import {
   ProcessingOverlay, ExportDialog,
-  MonitorSelectDialog, HotkeyDialog, FfmpegSetupDialog, RawVideoDialog
+  MonitorSelectDialog, HotkeyDialog, RawVideoDialog
 } from '@/components/Dialogs';
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
@@ -184,7 +184,6 @@ function App() {
   }, []);
 
   // Utility hooks
-  const { needsSetup, ffmpegInstallStatus, handleCancelInstall } = useFfmpegSetup();
   const { hotkeys, showHotkeyDialog, handleRemoveHotkey, openHotkeyDialog, closeHotkeyDialog } = useHotkeys();
   const { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors } = useMonitors();
 
@@ -1437,8 +1436,6 @@ function App() {
         onToggleAutoCopy={handleToggleRawAutoCopy}
       />
       <HotkeyDialog show={showHotkeyDialog} onClose={closeHotkeyDialog} />
-      <FfmpegSetupDialog show={needsSetup} ffmpegInstallStatus={ffmpegInstallStatus}
-        onCancelInstall={handleCancelInstall} />
     </div>
     </SettingsContext.Provider>
   );
