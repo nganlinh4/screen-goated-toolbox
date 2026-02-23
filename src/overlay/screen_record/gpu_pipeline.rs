@@ -25,6 +25,7 @@ use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 
 use super::d3d_interop::{create_d3d11_device, D3D11Readback, VideoProcessor};
 use super::gpu_export::{CompositorUniforms, GpuCompositor};
+use super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::mf_decode::{DxgiDeviceManager, MfDecoder};
 use super::mf_encode::{EncoderConfig, MfEncoder, VideoCodec};
 use super::native_export::config::{OverlayFrame, TrimSegment};
@@ -44,6 +45,7 @@ pub type ProgressCallback = Box<dyn Fn(f64, f64) + Send>;
 pub struct PipelineConfig {
     pub source_video_path: String,
     pub output_path: String,
+    pub audio_path: Option<String>,
     pub output_width: u32,
     pub output_height: u32,
     pub framerate: u32,
@@ -562,7 +564,61 @@ fn run_render_thread(
     Ok(())
 }
 
-/// Main thread: receives rendered BGRA frames and encodes to MP4.
+/// Fast linear interpolation for native audio speed alteration (pitch-shifts).
+fn resample_pcm_bytes(input: &[u8], speed: f64, channels: usize) -> Vec<u8> {
+    if (speed - 1.0).abs() < 0.001 || input.is_empty() || channels == 0 {
+        return input.to_vec();
+    }
+    if !input.len().is_multiple_of(4) {
+        return input.to_vec();
+    }
+
+    let samples = input.len() / 4;
+    if samples < channels * 2 {
+        return input.to_vec();
+    }
+
+    let mut input_f32 = vec![0.0f32; samples];
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            input.as_ptr(),
+            input_f32.as_mut_ptr() as *mut u8,
+            input.len(),
+        );
+    }
+
+    let in_frames = input_f32.len() / channels;
+    if in_frames < 2 {
+        return input.to_vec();
+    }
+    let out_frames = ((in_frames as f64) / speed).max(1.0) as usize;
+    let mut output_f32 = Vec::with_capacity(out_frames * channels);
+
+    for i in 0..out_frames {
+        let src_idx = i as f64 * speed;
+        let idx0 = src_idx.floor() as usize;
+        let idx1 = (idx0 + 1).min(in_frames - 1);
+        let frac = (src_idx - idx0 as f64) as f32;
+        for c in 0..channels {
+            let v0 = input_f32[idx0 * channels + c];
+            let v1 = input_f32[idx1 * channels + c];
+            output_f32.push(v0 + (v1 - v0) * frac);
+        }
+    }
+
+    let out_bytes = output_f32.len() * 4;
+    let mut output_u8 = vec![0u8; out_bytes];
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            output_f32.as_ptr() as *const u8,
+            output_u8.as_mut_ptr(),
+            out_bytes,
+        );
+    }
+    output_u8
+}
+
+/// Main thread: receives rendered BGRA frames, interleaves audio, and encodes to MP4 natively.
 fn run_encode_thread(
     config: &PipelineConfig,
     progress: Option<ProgressCallback>,
@@ -584,8 +640,43 @@ fn run_encode_thread(
         fps_den: 1,
         bitrate_kbps: config.bitrate_kbps,
     };
-    let encoder = MfEncoder::new(&config.output_path, encoder_config, &enc_device_manager)?;
+    let mut audio_decoder = None;
+    let mut audio_config = None;
+
+    if let Some(path) = &config.audio_path {
+        if !path.is_empty() {
+            match MfAudioDecoder::new(path) {
+                Ok(dec) => {
+                    audio_config = Some(AudioConfig {
+                        sample_rate: dec.sample_rate(),
+                        channels: dec.channels(),
+                        bitrate_kbps: 192,
+                    });
+                    audio_decoder = Some(dec);
+                }
+                Err(e) => eprintln!("[Audio] Failed to open native audio decoder: {}", e),
+            }
+        }
+    }
+
+    let (encoder, opt_audio_stream) =
+        MfEncoder::new(&config.output_path, encoder_config, &enc_device_manager, audio_config.as_ref())?;
     let frame_duration_100ns = encoder.frame_duration_100ns();
+
+    let mut audio_output_100ns = 0i64;
+    let mut audio_segment_idx = 0usize;
+    let mut audio_eof = false;
+
+    if let Some(dec) = &audio_decoder {
+        let start_time = if config.trim_segments.is_empty() {
+            config.trim_start
+        } else {
+            config.trim_segments[0].start_time
+        };
+        if start_time > 0.0 {
+            let _ = dec.seek((start_time * 10_000_000.0) as i64);
+        }
+    }
 
     let mut frames_encoded: u32 = 0;
     let mut t_encode = 0.0_f64;
@@ -603,8 +694,78 @@ fn run_encode_thread(
             break;
         }
 
-        let te0 = Instant::now();
         let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
+
+        if let (Some(dec), Some(stream)) = (&audio_decoder, &opt_audio_stream) {
+            while !audio_eof && audio_output_100ns <= timestamp_100ns {
+                let current_seg = if config.trim_segments.is_empty() {
+                    Some((config.trim_start, config.trim_start + config.duration))
+                } else {
+                    config.trim_segments
+                        .get(audio_segment_idx)
+                        .map(|s| (s.start_time, s.end_time))
+                };
+                let Some((seg_start, seg_end)) = current_seg else {
+                    audio_eof = true;
+                    break;
+                };
+
+                match dec.read_samples() {
+                    Ok(Some((pcm, ts_100ns))) => {
+                        let chunk_time = ts_100ns as f64 / 10_000_000.0;
+                        if chunk_time > seg_end {
+                            audio_segment_idx += 1;
+                            if config.trim_segments.is_empty() {
+                                audio_eof = true;
+                            } else if let Some(next_seg) = config.trim_segments.get(audio_segment_idx) {
+                                let _ = dec.seek((next_seg.start_time * 10_000_000.0) as i64);
+                            }
+                            continue;
+                        }
+
+                        // SourceReader seek lands on/near a keyframe; skip pre-trim audio chunks
+                        // so the muxed audio starts in sync with video time zero.
+                        if chunk_time < seg_start {
+                            continue;
+                        }
+                        if chunk_time <= seg_end {
+                            let channels = dec.channels() as usize;
+                            let resampled = resample_pcm_bytes(&pcm, config.speed, channels);
+                            if channels == 0 || resampled.is_empty() {
+                                continue;
+                            }
+                            let samples_per_channel = resampled.len() / (channels * 4);
+                            let dur_100ns = ((samples_per_channel as f64)
+                                / dec.sample_rate() as f64
+                                * 10_000_000.0) as i64;
+
+                            if dur_100ns <= 0 {
+                                continue;
+                            }
+
+                            if let Err(e) = stream.write_samples_direct(
+                                encoder.writer(),
+                                &resampled,
+                                audio_output_100ns,
+                                dur_100ns,
+                            ) {
+                                eprintln!("[Audio] Native audio write error: {}", e);
+                                audio_eof = true;
+                            } else {
+                                audio_output_100ns += dur_100ns;
+                            }
+                        }
+                    }
+                    Ok(None) => audio_eof = true,
+                    Err(e) => {
+                        eprintln!("[Audio] Native audio decode error: {}", e);
+                        audio_eof = true;
+                    }
+                }
+            }
+        }
+
+        let te0 = Instant::now();
         encoder.write_frame_cpu(&msg.rendered_bgra, timestamp_100ns, frame_duration_100ns)?;
         t_encode += te0.elapsed().as_secs_f64();
 

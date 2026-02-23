@@ -233,8 +233,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     fs::create_dir_all(&output_base_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
-    // For zero-copy: video-only first, audio post-muxed if present
-    let video_only_path = output_base_dir.join(format!(
+    // Native zero-copy export writes final MP4 directly (video + optional audio).
+    let final_output_path = output_base_dir.join(format!(
         "SGT_Export_{}.mp4",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -511,7 +511,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let pipeline_config = gpu_pipeline::PipelineConfig {
         source_video_path: source_video_path.clone(),
-        output_path: video_only_path.to_str().unwrap().to_string(),
+        output_path: final_output_path.to_str().unwrap().to_string(),
+        audio_path: source_audio_path.clone(),
         output_width: out_w,
         output_height: out_h,
         framerate: config.framerate,
@@ -560,43 +561,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     match result {
         Ok(r) => {
             let total_secs = export_total_start.elapsed().as_secs_f64();
-
-            // Post-mux audio if present
-            let final_output_path = if let Some(audio) = &source_audio_path {
-                let final_path = output_base_dir.join(format!(
-                    "SGT_Export_{}_final.mp4",
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis()
-                ));
-                let trim_segs: Vec<(f64, f64)> = config
-                    .segment
-                    .trim_segments
-                    .iter()
-                    .map(|s| (s.start_time, s.end_time))
-                    .collect();
-                match post_mux_audio(
-                    &video_only_path,
-                    audio,
-                    &final_path,
-                    config.speed,
-                    config.trim_start,
-                    config.duration,
-                    &trim_segs,
-                ) {
-                    Ok(()) => {
-                        let _ = fs::remove_file(&video_only_path);
-                        final_path
-                    }
-                    Err(e) => {
-                        println!("[Export] Audio post-mux failed: {}, returning video-only", e);
-                        video_only_path.clone()
-                    }
-                }
-            } else {
-                video_only_path.clone()
-            };
 
             if let Some(p) = &temp_audio_path {
                 let _ = fs::remove_file(p);
@@ -648,7 +612,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             if let Some(p) = &temp_audio_path {
                 let _ = fs::remove_file(p);
             }
-            let _ = fs::remove_file(&video_only_path);
+            let _ = fs::remove_file(&final_output_path);
 
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {
                 println!("[Export][Summary] status=cancelled");
@@ -659,16 +623,4 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             Err(e)
         }
     }
-}
-
-fn post_mux_audio(
-    video_path: &Path,
-    audio_path: &str,
-    output_path: &Path,
-    speed: f64,
-    trim_start: f64,
-    duration: f64,
-    trim_segments: &[(f64, f64)],
-) -> Result<(), String> {
-    util::post_mux_audio(video_path, audio_path, output_path, speed, trim_start, duration, trim_segments)
 }

@@ -9,7 +9,6 @@ pub struct AudioConfig {
     pub sample_rate: u32,
     pub channels: u32,
     pub bitrate_kbps: u32,
-    pub speed: f64,
 }
 
 impl Default for AudioConfig {
@@ -18,7 +17,6 @@ impl Default for AudioConfig {
             sample_rate: 48000,
             channels: 2,
             bitrate_kbps: 192,
-            speed: 1.0,
         }
     }
 }
@@ -34,9 +32,6 @@ pub struct MfAudioDecoder {
 /// Audio stream handle for the SinkWriter (shares the writer with video).
 pub struct AudioStream {
     stream_index: u32,
-    sample_rate: u32,
-    channels: u32,
-    speed: f64,
 }
 
 impl MfAudioDecoder {
@@ -291,19 +286,17 @@ impl AudioStream {
 
         Ok(Self {
             stream_index,
-            sample_rate: config.sample_rate,
-            channels: config.channels,
-            speed: config.speed,
         })
     }
 
-    /// Write PCM float audio data to the SinkWriter.
-    /// Adjusts timestamps based on speed factor.
-    pub fn write_samples(
+    /// Write raw PCM float audio data with explicit continuous timestamps.
+    /// Used when interleaving audio/video samples in the native export pipeline.
+    pub fn write_samples_direct(
         &self,
         writer: &IMFSinkWriter,
         pcm_data: &[u8],
-        source_timestamp_100ns: i64,
+        pts_100ns: i64,
+        duration_100ns: i64,
     ) -> Result<(), String> {
         let sample = unsafe {
             MFCreateSample().map_err(|e| format!("MFCreateSample: {e}"))?
@@ -314,9 +307,8 @@ impl AudioStream {
                 .map_err(|e| format!("MFCreateMemoryBuffer: {e}"))?
         };
 
-        // Copy PCM data into the buffer
-        let mut data_ptr: *mut u8 = std::ptr::null_mut();
         unsafe {
+            let mut data_ptr: *mut u8 = std::ptr::null_mut();
             buffer
                 .Lock(&mut data_ptr, None, None)
                 .map_err(|e| format!("Lock: {e}"))?;
@@ -325,23 +317,12 @@ impl AudioStream {
                 .SetCurrentLength(pcm_data.len() as u32)
                 .map_err(|e| format!("SetCurrentLength: {e}"))?;
             buffer.Unlock().map_err(|e| format!("Unlock: {e}"))?;
-        }
 
-        // Adjust timestamp for speed
-        let adjusted_ts = (source_timestamp_100ns as f64 / self.speed) as i64;
-
-        // Calculate duration based on sample count
-        let bytes_per_sample = self.channels * 4; // float32
-        let sample_count = pcm_data.len() as u64 / bytes_per_sample as u64;
-        let duration_100ns =
-            (sample_count as f64 / self.sample_rate as f64 / self.speed * 10_000_000.0) as i64;
-
-        unsafe {
             sample
                 .AddBuffer(&buffer)
                 .map_err(|e| format!("AddBuffer: {e}"))?;
             sample
-                .SetSampleTime(adjusted_ts)
+                .SetSampleTime(pts_100ns)
                 .map_err(|e| format!("SetSampleTime: {e}"))?;
             sample
                 .SetSampleDuration(duration_100ns)
@@ -353,9 +334,5 @@ impl AudioStream {
         }
 
         Ok(())
-    }
-
-    pub fn stream_index(&self) -> u32 {
-        self.stream_index
     }
 }

@@ -4,6 +4,7 @@
 use windows::Win32::Media::MediaFoundation::*;
 
 use super::mf_decode::DxgiDeviceManager;
+use super::mf_audio::{AudioConfig, AudioStream};
 
 /// Encoder codec selection.
 #[derive(Debug, Clone, Copy)]
@@ -38,7 +39,8 @@ impl MfEncoder {
         output_path: &str,
         config: EncoderConfig,
         device_manager: &DxgiDeviceManager,
-    ) -> Result<Self, String> {
+        audio_config: Option<&AudioConfig>,
+    ) -> Result<(Self, Option<AudioStream>), String> {
         let attrs = create_writer_attributes(&device_manager.manager)?;
 
         let wide_path: Vec<u16> =
@@ -72,29 +74,38 @@ impl MfEncoder {
                 .map_err(|e| format!("SetInputMediaType: {e}"))?;
         }
 
-        // Start accepting samples
-        unsafe {
-            writer
-                .BeginWriting()
-                .map_err(|e| format!("BeginWriting: {e}"))?;
-        }
+        let audio_stream = if let Some(ac) = audio_config {
+            Some(AudioStream::add_to_writer(&writer, ac)?)
+        } else {
+            None
+        };
+
+        unsafe { writer.BeginWriting().map_err(|e| format!("BeginWriting: {e}"))?; }
 
         println!(
-            "[MfEncoder] Created {:?} encoder {}x{} @ {}kbps, {}/{} fps → {}",
+            "[MfEncoder] Created {:?} encoder {}x{} @ {}kbps, {}/{} fps (Has Audio: {}) → {}",
             config.codec,
             config.width,
             config.height,
             config.bitrate_kbps,
             config.fps_num,
             config.fps_den,
+            audio_stream.is_some(),
             output_path
         );
 
-        Ok(Self {
-            writer,
-            video_stream_index,
-            config,
-        })
+        Ok((
+            Self {
+                writer,
+                video_stream_index,
+                config,
+            },
+            audio_stream,
+        ))
+    }
+
+    pub fn writer(&self) -> &IMFSinkWriter {
+        &self.writer
     }
 
     /// Write a CPU-resident BGRA frame as one encoded frame.

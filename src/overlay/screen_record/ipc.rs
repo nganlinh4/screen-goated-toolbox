@@ -7,10 +7,6 @@ use super::engine::{
     get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODING_FINISHED,
     MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
-use super::ffmpeg::{
-    get_ffmpeg_path, get_ffprobe_path, start_ffmpeg_installation, FfmpegInstallStatus,
-    FFMPEG_INSTALL_STATUS,
-};
 use super::keysee_capture;
 use super::native_export;
 use super::raw_video;
@@ -46,28 +42,6 @@ pub fn handle_ipc_command(
     args: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     match cmd.as_str() {
-        "check_ffmpeg_status" => {
-            let ffmpeg_path = get_ffmpeg_path();
-            let ffprobe_path = get_ffprobe_path();
-            let ffmpeg_missing = !ffmpeg_path.exists();
-            let ffprobe_missing = !ffprobe_path.exists();
-            Ok(serde_json::json!({
-                "ffmpegMissing": ffmpeg_missing,
-                "ffprobeMissing": ffprobe_missing
-            }))
-        }
-        "start_ffmpeg_install" => {
-            start_ffmpeg_installation();
-            Ok(serde_json::Value::Null)
-        }
-        "get_ffmpeg_install_progress" => {
-            let status = FFMPEG_INSTALL_STATUS.lock().unwrap().clone();
-            Ok(serde_json::to_value(&status).unwrap())
-        }
-        "cancel_ffmpeg_install" => {
-            *FFMPEG_INSTALL_STATUS.lock().unwrap() = FfmpegInstallStatus::Cancelled;
-            Ok(serde_json::Value::Null)
-        }
         "check_bg_downloaded" => {
             let id = args["id"].as_str().unwrap_or("");
             let info = bg_download::download_info(id);
