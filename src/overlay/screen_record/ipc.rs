@@ -4,7 +4,7 @@
 use base64::Engine as _;
 use super::bg_download;
 use super::engine::{
-    get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODING_FINISHED,
+    get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, ENCODING_FINISHED,
     MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
 use super::keysee_capture;
@@ -20,6 +20,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use tiny_http::{Response, Server, StatusCode};
 use windows::Win32::Foundation::*;
+use windows::Win32::System::Threading::{
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows_capture::capture::GraphicsCaptureApiHandler;
 use windows_capture::monitor::Monitor;
@@ -256,6 +259,9 @@ pub fn handle_ipc_command(
             );
 
             std::thread::spawn(move || {
+                unsafe {
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                }
                 let _ = CaptureHandler::start_free_threaded(settings);
             });
 
@@ -274,23 +280,20 @@ pub fn handle_ipc_command(
             }
 
             let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
-            let audio_path = AUDIO_PATH.lock().unwrap().clone().ok_or("No audio path")?;
             let video_file_path = video_path.clone();
 
-            let port = start_media_server(video_path, audio_path.clone())?;
+            let port = start_media_server(video_path.clone())?;
 
             let mouse_positions = MOUSE_POSITIONS.lock().drain(..).collect::<Vec<_>>();
 
             let video_url = format!("http://localhost:{}/video", port);
             let audio_url = format!("http://localhost:{}/audio", port);
 
-            let audio_file_path = audio_path;
-
             Ok(serde_json::json!([
                 video_url,
                 audio_url,
                 mouse_positions,
-                audio_file_path,
+                video_file_path,
                 video_file_path,
                 raw_input_events
             ]))
@@ -749,7 +752,7 @@ pub fn js_code_to_vk(code: &str) -> Option<u32> {
     }
 }
 
-pub fn start_media_server(video_path: String, audio_path: String) -> Result<u16, String> {
+pub fn start_media_server(video_path: String) -> Result<u16, String> {
     let mut port = 8000;
     let server = loop {
         match Server::http(format!("127.0.0.1:{}", port)) {
@@ -793,9 +796,9 @@ pub fn start_media_server(video_path: String, audio_path: String) -> Result<u16,
             }
 
             let url = request.url();
-            let is_audio = url.contains("audio");
-            let media_path = if is_audio { &audio_path } else { &video_path };
-            let content_type = if is_audio { "audio/wav" } else { "video/mp4" };
+            let _is_audio = url.contains("audio");
+            let media_path = &video_path;
+            let content_type = "video/mp4";
 
             if let Ok(file) = File::open(media_path) {
                 let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
