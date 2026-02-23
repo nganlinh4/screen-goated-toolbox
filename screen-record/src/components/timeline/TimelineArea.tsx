@@ -4,6 +4,7 @@ import { ZoomTrack } from './ZoomTrack';
 import { TextTrack } from './TextTrack';
 import { KeystrokeTrack } from './KeystrokeTrack';
 import { PointerTrack } from './PointerTrack';
+import { SpeedTrack } from './SpeedTrack';
 import { TrimTrack } from './TrimTrack';
 import { Playhead } from './Playhead';
 import { useTimelineDrag } from './useTimelineDrag';
@@ -133,6 +134,22 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
               <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none opacity-50">dbg</span>
             </div>
           )}
+          <div className="timeline-label-speed h-10 flex items-center justify-between">
+            <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackSpeed || 'Speed'}</span>
+            <button
+              onClick={() => {
+                if (!segment) return;
+                beginBatch();
+                setSegment({ ...segment, speedPoints: [{ time: 0, speed: 1 }, { time: duration, speed: 1 }] });
+                commitBatch();
+              }}
+              disabled={!segment}
+              className="timeline-speed-reset-btn p-1 rounded text-[var(--outline)] hover:text-[var(--on-surface)] hover:bg-[var(--glass-bg-hover)] disabled:opacity-40 disabled:hover:text-[var(--outline)] disabled:hover:bg-transparent transition-colors text-[9px] font-mono leading-none"
+              title={t.resetSpeed || 'Reset'}
+            >
+              R
+            </button>
+          </div>
           <div className="timeline-label-text h-7 flex items-center">
             <span className="text-[10px] font-semibold text-[var(--on-surface-variant)] leading-none">{t.trackText}</span>
           </div>
@@ -183,6 +200,19 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
             {/* Debug Overlay */}
             {showDebug && segment && (
               <ZoomDebugOverlay segment={segment} duration={duration} />
+            )}
+
+            {/* Speed Track */}
+            {segment ? (
+              <SpeedTrack
+                segment={segment}
+                duration={duration}
+                onUpdateSpeedPoints={(points) => { setSegment({ ...segment, speedPoints: points }); }}
+                beginBatch={beginBatch}
+                commitBatch={commitBatch}
+              />
+            ) : (
+              <div className="speed-track-empty h-10 rounded bg-[var(--surface-container)]/60" />
             )}
 
             {/* Text Track */}

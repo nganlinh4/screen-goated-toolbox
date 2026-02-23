@@ -100,6 +100,11 @@ export interface TrimSegment {
   endTime: number;
 }
 
+export interface SpeedPoint {
+  time: number;
+  speed: number;
+}
+
 export type RecordingMode = 'withoutCursor' | 'withCursor';
 
 export interface VideoSegment {
@@ -117,6 +122,7 @@ export interface VideoSegment {
   keyboardVisibilitySegments?: CursorVisibilitySegment[];
   keyboardMouseVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeOverlay?: KeystrokeOverlayConfig;
+  speedPoints?: SpeedPoint[];
   useCustomCursor?: boolean;
   crop?: CropRect;
 }
@@ -229,7 +235,7 @@ export interface ExportOptions {
   height: number;  // 0 = use original canvas dimensions
   fps: number;     // export framerate (common presets + source framerate)
   targetVideoBitrateKbps: number;
-  speed: number;
+  speed?: number; // Deprecated, kept for backward compatibility if needed
   exportProfile?: 'balanced' | 'max_speed' | 'quality_strict' | 'turbo_nv';
   preferNvTurbo?: boolean;
   qualityGatePercent?: number;

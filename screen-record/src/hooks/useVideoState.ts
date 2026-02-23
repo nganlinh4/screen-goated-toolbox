@@ -340,6 +340,7 @@ export function useRecording(props: UseRecordingProps) {
           }],
           zoomKeyframes: [],
           textSegments: [],
+          speedPoints: [{ time: 0, speed: 1 }, { time: timelineDuration, speed: 1 }],
         };
 
         const initialPointerSegments = generateCursorVisibility(baseSegment, mouseData, timelineDuration);
@@ -524,6 +525,9 @@ export function useProjects(props: UseProjectsProps) {
         startTime: 0,
         endTime: videoDuration,
       }];
+    }
+    if (!correctedSegment.speedPoints || correctedSegment.speedPoints.length === 0) {
+      correctedSegment.speedPoints = [{ time: 0, speed: 1 }, { time: videoDuration, speed: 1 }];
     }
     if (!correctedSegment.keystrokeMode) {
       correctedSegment.keystrokeMode = 'off';

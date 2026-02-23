@@ -23,7 +23,6 @@ pub struct ExportConfig {
     pub output_dir: String,
     pub trim_start: f64,
     pub duration: f64,
-    pub speed: f64,
     pub segment: VideoSegment,
     pub background_config: BackgroundConfig,
     pub video_data: Option<Vec<u8>>,
@@ -53,6 +52,13 @@ pub struct ZoomKeyframe {
 pub struct ZoomInfluencePoint {
     pub time: f64,
     pub value: f64,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeedPoint {
+    pub time: f64,
+    pub speed: f64,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -136,6 +142,8 @@ pub struct VideoSegment {
     pub zoom_keyframes: Vec<ZoomKeyframe>,
     #[serde(default)]
     pub zoom_influence_points: Vec<ZoomInfluencePoint>,
+    #[serde(default)]
+    pub speed_points: Vec<SpeedPoint>,
     #[serde(default)]
     pub smooth_motion_path: Vec<SmoothCameraPoint>,
     /// None = cursor-hiding feature off (always visible).

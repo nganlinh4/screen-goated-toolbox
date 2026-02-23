@@ -196,6 +196,8 @@ const vi: Translations = {
   trackKeyboardMouse: 'Bàn Phím+Chuột',
   trackPointer: 'Con Trỏ',
   trackVideo: 'Video',
+  trackSpeed: 'Tốc Độ',
+  resetSpeed: 'Đặt lại tốc độ',
 
   // App
   preparingVideoOverlay: 'Đang chuẩn bị video...',

@@ -24,7 +24,7 @@ export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration, isPla
 
     const tick = () => {
       const clamped = clampToTrimSegments(video.currentTime, segment, duration);
-      const pct = (clamped / duration) * 100;
+      const pct = Math.max(0, Math.min(100, (clamped / duration) * 100));
       el.style.left = `${pct}%`;
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -35,7 +35,9 @@ export const Playhead: React.FC<PlayheadProps> = ({ currentTime, duration, isPla
 
   // When not playing, sync from React state
   const safeTime = clampToTrimSegments(currentTime, segment, duration);
-  const left = duration > 0 ? `${(safeTime / duration) * 100}%` : '0%';
+  const left = duration > 0
+    ? `${Math.max(0, Math.min(100, (safeTime / duration) * 100))}%`
+    : '0%';
 
   return (
     <div

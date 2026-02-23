@@ -6,6 +6,7 @@ import type {
   BakedOverlayPayload,
   MousePosition,
   VideoSegment,
+  SpeedPoint,
 } from '@/types/video';
 
 import { videoRenderer } from './videoRenderer';
@@ -396,6 +397,44 @@ export function getExportEstimateProfileKey(params: {
   ].join('|');
 }
 
+export function getSpeedAtTime(time: number, points: SpeedPoint[]): number {
+  if (!points || points.length === 0) return 1.0;
+  const sorted = [...points].sort((a, b) => a.time - b.time);
+  const idx = sorted.findIndex((p) => p.time >= time);
+  if (idx === -1) return sorted[sorted.length - 1].speed;
+  if (idx === 0) return sorted[0].speed;
+  const p1 = sorted[idx - 1];
+  const p2 = sorted[idx];
+  const ratio = (time - p1.time) / Math.max(0.0001, p2.time - p1.time);
+  const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
+  return p1.speed + (p2.speed - p1.speed) * cosT;
+}
+
+export function calculateOutputDuration(segment: VideoSegment | null, fallbackDuration: number): number {
+  if (!segment) return Math.max(0, fallbackDuration);
+  const trimSegments = (
+    segment.trimSegments && segment.trimSegments.length > 0
+      ? segment.trimSegments
+      : [{ id: 'default', startTime: segment.trimStart, endTime: segment.trimEnd }]
+  )
+    .map((s) => ({ startTime: Number(s.startTime) || 0, endTime: Number(s.endTime) || 0 }))
+    .filter((s) => s.endTime > s.startTime)
+    .sort((a, b) => a.startTime - b.startTime);
+  if (trimSegments.length === 0) return Math.max(0, fallbackDuration);
+  const points = segment.speedPoints || [];
+  let duration = 0;
+  for (const seg of trimSegments) {
+    let t = seg.startTime;
+    while (t < seg.endTime) {
+      const dt = Math.min(0.01666, seg.endTime - t); // ~60fps integration step
+      const s = getSpeedAtTime(t + dt / 2, points);
+      duration += dt / Math.max(0.1, s);
+      t += dt;
+    }
+  }
+  return duration;
+}
+
 /** Estimate encoded file size for VBR output (with calibration feedback from previous exports). */
 export function estimateExportSize(params: {
   width: number;
@@ -403,7 +442,6 @@ export function estimateExportSize(params: {
   fps: number;
   targetVideoBitrateKbps: number;
   trimmedDurationSec: number;
-  speed?: number;
   hasAudio?: boolean;
   audioBitrateKbps?: number;
   backgroundConfig?: BackgroundConfig;
@@ -411,8 +449,7 @@ export function estimateExportSize(params: {
   calibrationProfileKey?: string;
   calibration?: ExportEstimateCalibrationSnapshot;
 }): ExportSizeEstimate {
-  const safeSpeed = clamp(params.speed ?? 1, 0.1, 10);
-  const outputDurationSec = Math.max(0, params.trimmedDurationSec) / safeSpeed;
+  const outputDurationSec = calculateOutputDuration(params.segment ?? null, params.trimmedDurationSec);
   const suggestedBitrateKbps = computeSuggestedVideoBitrateKbps(params.width, params.height, params.fps);
   const targetVideoBitrateKbps = clamp(
     params.targetVideoBitrateKbps > 0 ? params.targetVideoBitrateKbps : suggestedBitrateKbps,
@@ -431,7 +468,7 @@ export function estimateExportSize(params: {
     fps: params.fps,
     targetVideoBitrateKbps,
     outputDurationSec,
-    speed: safeSpeed,
+    speed: 1, // variable speed curve uses integrated output duration
     hasAudio: params.hasAudio,
     backgroundConfig: params.backgroundConfig,
     segment: params.segment
@@ -829,7 +866,6 @@ export class VideoExporter {
 
     try {
       const {
-        speed = 1,
         audioFilePath,
         videoFilePath,
         audio
@@ -879,8 +915,8 @@ export class VideoExporter {
         height: prepared.height,
         fps: prepared.fps,
         targetVideoBitrateKbps: context.targetVideoBitrateKbps,
-        outputDurationSec: prepared.activeDuration / Math.max(0.1, speed),
-        speed,
+        outputDurationSec: calculateOutputDuration(prepared.normalizedSegment, prepared.activeDuration),
+        speed: 1,
         hasAudio,
         backgroundConfig: context.backgroundConfig,
         segment: prepared.normalizedSegment
@@ -925,7 +961,6 @@ export class VideoExporter {
         outputDir: options.outputDir || '',
         trimStart: prepared.trimBounds.trimStart,
         duration: prepared.activeDuration,
-        speed,
         segment: prepared.normalizedSegment,
         backgroundConfig: context.backgroundConfig,
         mousePositions: context.mousePositions ?? [],
@@ -953,7 +988,6 @@ export class VideoExporter {
             fps: prepared.fps,
             targetVideoBitrateKbps: context.targetVideoBitrateKbps,
             trimmedDurationSec: prepared.activeDuration,
-            speed,
             hasAudio,
             audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
             backgroundConfig: context.backgroundConfig,

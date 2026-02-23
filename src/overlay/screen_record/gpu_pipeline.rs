@@ -28,8 +28,7 @@ use super::gpu_export::{CompositorUniforms, GpuCompositor};
 use super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::mf_decode::{DxgiDeviceManager, MfDecoder};
 use super::mf_encode::{EncoderConfig, MfEncoder, VideoCodec};
-use super::native_export::config::{OverlayFrame, TrimSegment};
-use super::native_export::sampling::output_to_source_time;
+use super::native_export::config::{OverlayFrame, SpeedPoint, TrimSegment};
 
 /// Result of a GPU export run.
 pub struct ZeroCopyExportResult {
@@ -50,7 +49,7 @@ pub struct PipelineConfig {
     pub output_height: u32,
     pub framerate: u32,
     pub bitrate_kbps: u32,
-    pub speed: f64,
+    pub speed_points: Vec<SpeedPoint>,
     pub trim_start: f64,
     pub duration: f64,
     pub codec: VideoCodec,
@@ -75,6 +74,7 @@ struct DecodeOutput {
     /// Recycled send buffer (video_w×h×4 BGRA). Returned to decode via recycle after GPU upload.
     bgra_video: Vec<u8>,
     source_time: f64,
+    source_step: f64,
     frame_idx: u32,
 }
 
@@ -84,6 +84,66 @@ struct RenderOutput {
     rendered_bgra: Vec<u8>,
 }
 
+fn get_speed(time: f64, points: &[SpeedPoint]) -> f64 {
+    if points.is_empty() {
+        return 1.0;
+    }
+
+    let idx = points.partition_point(|p| p.time < time);
+    if idx == 0 {
+        return points[0].speed;
+    }
+    if idx >= points.len() {
+        return points.last().unwrap().speed;
+    }
+
+    let p1 = &points[idx - 1];
+    let p2 = &points[idx];
+    let t = (time - p1.time) / (p2.time - p1.time).max(1e-9);
+    let cos_t = (1.0 - (t * std::f64::consts::PI).cos()) / 2.0;
+    p1.speed + (p2.speed - p1.speed) * cos_t
+}
+
+pub fn build_frame_times(config: &PipelineConfig) -> Vec<f64> {
+    let mut times = Vec::new();
+    let out_dt = 1.0 / config.framerate as f64;
+
+    let trim_segments = if config.trim_segments.is_empty() {
+        vec![TrimSegment {
+            start_time: config.trim_start,
+            end_time: config.trim_start + config.duration,
+        }]
+    } else {
+        config.trim_segments.clone()
+    };
+
+    if trim_segments.is_empty() {
+        return times;
+    }
+
+    let mut seg_idx = 0usize;
+    let mut current_source_time = trim_segments[0].start_time;
+    let end_time = trim_segments.last().unwrap().end_time;
+
+    while current_source_time < end_time - 1e-9 {
+        while seg_idx < trim_segments.len() && current_source_time >= trim_segments[seg_idx].end_time {
+            seg_idx += 1;
+            if seg_idx < trim_segments.len() {
+                current_source_time = trim_segments[seg_idx].start_time;
+            }
+        }
+        if seg_idx >= trim_segments.len() {
+            break;
+        }
+
+        times.push(current_source_time);
+        let speed = get_speed(current_source_time, &config.speed_points).clamp(0.1, 16.0);
+        current_source_time += speed * out_dt;
+    }
+
+    times
+}
+
 /// Run the threaded GPU export pipeline.
 pub fn run_zero_copy_export(
     config: &PipelineConfig,
@@ -91,10 +151,10 @@ pub fn run_zero_copy_export(
     build_uniforms: &(dyn Fn(f64, f64, f64, f64) -> CompositorUniforms + Sync),
     progress: Option<ProgressCallback>,
     cancel_flag: &std::sync::atomic::AtomicBool,
+    source_times: &[f64],
 ) -> Result<ZeroCopyExportResult, String> {
     let start = Instant::now();
-    let total_frames = (config.duration * config.framerate as f64 / config.speed).ceil() as u32;
-    let step = config.speed / config.framerate as f64;
+    let total_frames = source_times.len() as u32;
     let mb_samples = config.motion_blur_samples.max(1);
     let mb_enabled = mb_samples > 1
         && (config.blur_zoom_shutter > 0.0
@@ -139,8 +199,7 @@ pub fn run_zero_copy_export(
             if let Err(e) = run_decode_thread(
                 config,
                 cancel_flag,
-                total_frames,
-                step,
+                source_times,
                 decode_tx,
                 render_to_decode_rx,
             ) {
@@ -157,7 +216,6 @@ pub fn run_zero_copy_export(
                 build_uniforms,
                 cancel_flag,
                 render_rx,
-                step,
                 mb_samples,
                 render_tx,
                 render_to_decode_tx,
@@ -207,8 +265,7 @@ pub fn run_zero_copy_export(
 fn run_decode_thread(
     config: &PipelineConfig,
     cancel_flag: &std::sync::atomic::AtomicBool,
-    total_frames: u32,
-    step: f64,
+    source_times: &[f64],
     tx: mpsc::SyncSender<DecodeOutput>,
     recycle_rx: mpsc::Receiver<Vec<u8>>,
 ) -> Result<(), String> {
@@ -294,25 +351,24 @@ fn run_decode_thread(
         have_next = true;
     }
 
-    let has_trim = !config.trim_segments.is_empty();
     let mut current_segment_idx: usize = 0;
     let mut frames_held: u32 = 0;
     let mut src_decoded: u32 = if have_next { 2 } else { 1 };
 
-    for frame_idx in 0..total_frames {
+    for (frame_idx, &source_time) in source_times.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             break;
         }
 
-        let output_time = frame_idx as f64 * step;
-        let source_time = if has_trim {
-            output_to_source_time(output_time, &config.trim_segments, config.trim_start)
-        } else {
-            config.trim_start + output_time
-        };
+        let next_source_time = source_times.get(frame_idx + 1).copied().unwrap_or(source_time);
+        let mut source_step = next_source_time - source_time;
+        if source_step <= 0.0 {
+            let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
+            source_step = speed / config.framerate as f64;
+        }
 
         // Seek on trim segment boundary change.
-        if has_trim {
+        if !config.trim_segments.is_empty() {
             let target_seg = config
                 .trim_segments
                 .iter()
@@ -390,7 +446,15 @@ fn run_decode_thread(
         send_buf.resize(frame_size, 0);
         send_buf.copy_from_slice(&cur_bgra);
 
-        if tx.send(DecodeOutput { bgra_video: send_buf, source_time, frame_idx }).is_err() {
+        if tx
+            .send(DecodeOutput {
+                bgra_video: send_buf,
+                source_time,
+                source_step,
+                frame_idx: frame_idx as u32,
+            })
+            .is_err()
+        {
             break;
         }
     }
@@ -398,7 +462,10 @@ fn run_decode_thread(
     let elapsed = t_thread.elapsed().as_secs_f64();
     println!(
         "[Decode] {} src → {} out ({} held) in {:.1}s",
-        src_decoded, total_frames, frames_held, elapsed
+        src_decoded,
+        source_times.len(),
+        frames_held,
+        elapsed
     );
     Ok(())
 }
@@ -414,7 +481,6 @@ fn run_render_thread(
     build_uniforms: &(dyn Fn(f64, f64, f64, f64) -> CompositorUniforms + Sync),
     cancel_flag: &std::sync::atomic::AtomicBool,
     rx: mpsc::Receiver<DecodeOutput>,
-    step: f64,
     mb_samples: u32,
     tx: mpsc::SyncSender<RenderOutput>,
     recycle_decode_tx: mpsc::Sender<Vec<u8>>,
@@ -481,7 +547,7 @@ fn run_render_thread(
             compositor.render_to_output(&scene_u, true);
             // Cursor blur passes: N renders at different sub-times, each at 1/N opacity.
             let opacity_scale = 1.0 / mb_samples as f32;
-            let cursor_shutter = step * config.blur_cursor_shutter;
+            let cursor_shutter = msg.source_step * config.blur_cursor_shutter;
             for i in 0..mb_samples {
                 let t = if mb_samples > 1 {
                     i as f64 / (mb_samples - 1) as f64
@@ -495,9 +561,9 @@ fn run_render_thread(
                 compositor.render_to_output(&cursor_u, false); // load existing scene
             }
         } else if mb_samples > 1 {
-            let zoom_shutter = step * config.blur_zoom_shutter;
-            let pan_shutter = step * config.blur_pan_shutter;
-            let cursor_shutter = step * config.blur_cursor_shutter;
+            let zoom_shutter = msg.source_step * config.blur_zoom_shutter;
+            let pan_shutter = msg.source_step * config.blur_pan_shutter;
+            let cursor_shutter = msg.source_step * config.blur_cursor_shutter;
             for i in 0..mb_samples {
                 let t = if mb_samples > 1 {
                     i as f64 / (mb_samples - 1) as f64
@@ -734,7 +800,8 @@ fn run_encode_thread(
                         }
                         if chunk_time <= seg_end {
                             let channels = dec.channels() as usize;
-                            let resampled = resample_pcm_bytes(&pcm, config.speed, channels);
+                            let speed = get_speed(chunk_time, &config.speed_points).clamp(0.1, 16.0);
+                            let resampled = resample_pcm_bytes(&pcm, speed, channels);
                             if channels == 0 || resampled.is_empty() {
                                 continue;
                             }

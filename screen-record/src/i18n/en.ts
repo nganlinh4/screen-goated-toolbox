@@ -194,6 +194,8 @@ const en = {
   trackKeyboardMouse: 'Keyboard+Mouse',
   trackPointer: 'Pointer',
   trackVideo: 'Video',
+  trackSpeed: 'Speed',
+  resetSpeed: 'Reset Speed',
 
   // App
   preparingVideoOverlay: 'Preparing video...',

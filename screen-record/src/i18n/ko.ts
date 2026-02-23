@@ -196,6 +196,8 @@ const ko: Translations = {
   trackKeyboardMouse: '키보드+마우스',
   trackPointer: '포인터',
   trackVideo: '비디오',
+  trackSpeed: '속도',
+  resetSpeed: '속도 초기화',
 
   // App
   preparingVideoOverlay: '비디오 준비 중...',
