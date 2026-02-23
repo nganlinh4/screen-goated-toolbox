@@ -94,9 +94,8 @@ fn migrate_config(config: &mut Config) {
             // Sync prompt_mode (critical: determines whether text input appears for dynamic presets)
             preset.prompt_mode = default_preset.prompt_mode.clone();
 
-            // Sync blocks (prompts, models, render modes) from defaults
-            // This ensures built-in preset prompts stay up-to-date
-            preset.blocks = default_preset.blocks.clone();
+            // Do not sync blocks from defaults here: built-in presets are user-editable,
+            // and overwriting blocks would reset custom models/prompts/render modes.
 
             // Sync audio-specific settings
             if preset.preset_type == "audio" {
@@ -106,7 +105,21 @@ fn migrate_config(config: &mut Config) {
     }
 
     // -------------------------------------------------------------------------
-    // 3. ENSURE EVERY PRESET HAS AT LEAST ONE BLOCK
+    // 3. MIGRATE RETIRED MODEL IDS IN SAVED PRESETS
+    // -------------------------------------------------------------------------
+    // `cerebras_zai_glm_4_7` historically mapped to `llama3.1-8b`.
+    // Migrate any saved blocks (including user-custom presets) to the supported
+    // Cerebras model without overwriting prompts or other block settings.
+    for preset in &mut config.presets {
+        for block in &mut preset.blocks {
+            if block.model == "cerebras_zai_glm_4_7" {
+                block.model = "cerebras_gpt_oss".to_string();
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. ENSURE EVERY PRESET HAS AT LEAST ONE BLOCK
     // -------------------------------------------------------------------------
     for preset in &mut config.presets {
         if preset.blocks.is_empty() && !preset.is_master {

@@ -67,7 +67,7 @@ pub fn create_text_presets() -> Vec<Preset> {
         PresetBuilder::new("preset_trans_retrans_select", "Trans+Retrans (Select)")
             .text_select()
             .blocks(vec![
-                BlockBuilder::text("cerebras_zai_glm_4_7")
+                BlockBuilder::text("cerebras_gpt_oss")
                     .prompt("Translate the following text to {language1}. Output ONLY the translation.")
                     .language("Korean")
                     .markdown_stream()
@@ -194,7 +194,7 @@ pub fn create_text_presets() -> Vec<Preset> {
                 BlockBuilder::input_adapter()
                     .build(),
                 // Node 1: Make a learning HTML (from 0)
-                BlockBuilder::text("cerebras_zai_glm_4_7")
+                BlockBuilder::text("cerebras_gpt_oss")
                     .prompt("Create a standalone INTERACTIVE HTML learning card/game for the following text. Use internal CSS for a beautiful, modern, colored design, game-like and comprehensive interface. Only OUTPUT the raw HTML code, DO NOT include HTML file indicator (```html) or triple backticks.")
                     .language("Vietnamese")
                     .markdown()
