@@ -458,27 +458,38 @@ export function CanvasResizeOverlay({
     // Canvas pixels per screen pixel — x2 because canvas is centered (both sides grow equally)
     const pxPerCanvas = scale > 0 ? 1 / scale : 1;
 
+    let rafId: number | null = null;
+    let latestEvent: MouseEvent | null = null;
+
     const handleMove = (me: MouseEvent) => {
-      const dx = me.clientX - startX;
-      const dy = me.clientY - startY;
-      let newW = startW;
-      let newH = startH;
+      latestEvent = me;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const evt = latestEvent;
+        if (!evt) return;
+        const dx = evt.clientX - startX;
+        const dy = evt.clientY - startY;
+        let newW = startW;
+        let newH = startH;
 
-      if (type.includes('e')) newW = startW + dx * pxPerCanvas * 2;
-      if (type.includes('w')) newW = startW - dx * pxPerCanvas * 2;
-      if (type.includes('s')) newH = startH + dy * pxPerCanvas * 2;
-      if (type.includes('n')) newH = startH - dy * pxPerCanvas * 2;
+        if (type.includes('e')) newW = startW + dx * pxPerCanvas * 2;
+        if (type.includes('w')) newW = startW - dx * pxPerCanvas * 2;
+        if (type.includes('s')) newH = startH + dy * pxPerCanvas * 2;
+        if (type.includes('n')) newH = startH - dy * pxPerCanvas * 2;
 
-      // Clamp to reasonable bounds, ensure even (for ffmpeg yuv420p)
-      newW = Math.max(100, Math.min(7680, Math.round(newW)));
-      newH = Math.max(100, Math.min(4320, Math.round(newH)));
-      if (newW % 2 !== 0) newW++;
-      if (newH % 2 !== 0) newH++;
+        // Clamp to reasonable bounds, ensure even (for ffmpeg yuv420p)
+        newW = Math.max(100, Math.min(7680, Math.round(newW)));
+        newH = Math.max(100, Math.min(4320, Math.round(newH)));
+        if (newW % 2 !== 0) newW++;
+        if (newH % 2 !== 0) newH++;
 
-      setBackgroundConfig(prev => ({ ...prev, canvasWidth: newW, canvasHeight: newH }));
+        setBackgroundConfig(prev => ({ ...prev, canvasWidth: newW, canvasHeight: newH }));
+      });
     };
 
     const handleUp = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
       commitBatch();
