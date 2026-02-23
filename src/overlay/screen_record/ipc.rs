@@ -1,14 +1,11 @@
 // --- SCREEN RECORD IPC ---
 // IPC command handling for screen recording WebView.
 
+use base64::Engine as _;
 use super::bg_download;
 use super::engine::{
-    get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, AUDIO_PATH, ENCODING_FINISHED,
+    get_monitors, CaptureHandler, AUDIO_ENCODING_FINISHED, ENCODING_FINISHED,
     MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
-};
-use super::ffmpeg::{
-    get_ffmpeg_path, get_ffprobe_path, start_ffmpeg_installation, FfmpegInstallStatus,
-    FFMPEG_INSTALL_STATUS,
 };
 use super::keysee_capture;
 use super::native_export;
@@ -23,6 +20,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use tiny_http::{Response, Server, StatusCode};
 use windows::Win32::Foundation::*;
+use windows::Win32::System::Threading::{
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows_capture::capture::GraphicsCaptureApiHandler;
 use windows_capture::monitor::Monitor;
@@ -45,28 +45,6 @@ pub fn handle_ipc_command(
     args: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     match cmd.as_str() {
-        "check_ffmpeg_status" => {
-            let ffmpeg_path = get_ffmpeg_path();
-            let ffprobe_path = get_ffprobe_path();
-            let ffmpeg_missing = !ffmpeg_path.exists();
-            let ffprobe_missing = !ffprobe_path.exists();
-            Ok(serde_json::json!({
-                "ffmpegMissing": ffmpeg_missing,
-                "ffprobeMissing": ffprobe_missing
-            }))
-        }
-        "start_ffmpeg_install" => {
-            start_ffmpeg_installation();
-            Ok(serde_json::Value::Null)
-        }
-        "get_ffmpeg_install_progress" => {
-            let status = FFMPEG_INSTALL_STATUS.lock().unwrap().clone();
-            Ok(serde_json::to_value(&status).unwrap())
-        }
-        "cancel_ffmpeg_install" => {
-            *FFMPEG_INSTALL_STATUS.lock().unwrap() = FfmpegInstallStatus::Cancelled;
-            Ok(serde_json::Value::Null)
-        }
         "check_bg_downloaded" => {
             let id = args["id"].as_str().unwrap_or("");
             let info = bg_download::download_info(id);
@@ -99,7 +77,69 @@ pub fn handle_ipc_command(
                 Err(e) => Err(e),
             }
         }
-        "start_export_server" => native_export::start_native_export(args),
+        "save_uploaded_bg_data_url" => {
+            let data_url = args["dataUrl"].as_str().ok_or("Missing dataUrl")?;
+            let url = bg_download::save_uploaded_data_url(data_url)?;
+            Ok(serde_json::json!(url))
+        }
+        "prewarm_custom_background" => {
+            let url = args["url"].as_str().ok_or("Missing url")?;
+            native_export::prewarm_custom_background(url)?;
+            Ok(serde_json::Value::Null)
+        }
+        "log_message" => {
+            let msg = args["message"].as_str().unwrap_or("");
+            eprintln!("{msg}");
+            Ok(serde_json::Value::Null)
+        }
+        "clear_export_staging" => {
+            native_export::staging::clear_staged();
+            Ok(serde_json::Value::Null)
+        }
+        "stage_export_data" => {
+            let data_type = args["dataType"]
+                .as_str()
+                .ok_or("missing dataType")?;
+            match data_type {
+                "camera" => {
+                    let frames: Vec<native_export::config::BakedCameraFrame> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad camera chunk: {e}"))?;
+                    native_export::staging::append_camera_frames(frames);
+                }
+                "cursor" => {
+                    let frames: Vec<native_export::config::BakedCursorFrame> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad cursor chunk: {e}"))?;
+                    native_export::staging::append_cursor_frames(frames);
+                }
+                "atlas" => {
+                    let b64 = args["base64"].as_str().ok_or("missing base64")?;
+                    let w = args["width"].as_u64().unwrap_or(1) as u32;
+                    let h = args["height"].as_u64().unwrap_or(1) as u32;
+                    let raw = base64::engine::general_purpose::STANDARD
+                        .decode(b64.trim_start_matches("data:image/png;base64,"))
+                        .map_err(|e| e.to_string())?;
+                    let img = image::load_from_memory(&raw)
+                        .map_err(|e| e.to_string())?
+                        .to_rgba8();
+                    native_export::staging::set_atlas(img.into_raw(), w, h);
+                }
+                "overlay_frames_chunk" => {
+                    let frames: Vec<native_export::config::OverlayFrame> =
+                        serde_json::from_value(args["data"].clone())
+                            .map_err(|e| format!("bad overlay chunk: {e}"))?;
+                    native_export::staging::append_overlay_frames(frames);
+                }
+                _ => return Err(format!("unknown stage dataType: {data_type}")),
+            }
+            Ok(serde_json::Value::Null)
+        }
+        "start_export_server" => {
+            let result = native_export::start_native_export(args);
+            native_export::persist_export_result(&result);
+            result
+        }
         "get_export_capabilities" => Ok(native_export::get_export_capabilities()),
         "cancel_export" => {
             println!("[Cancel] IPC cancel_export received");
@@ -219,6 +259,9 @@ pub fn handle_ipc_command(
             );
 
             std::thread::spawn(move || {
+                unsafe {
+                    let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                }
                 let _ = CaptureHandler::start_free_threaded(settings);
             });
 
@@ -237,23 +280,20 @@ pub fn handle_ipc_command(
             }
 
             let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
-            let audio_path = AUDIO_PATH.lock().unwrap().clone().ok_or("No audio path")?;
             let video_file_path = video_path.clone();
 
-            let port = start_media_server(video_path, audio_path.clone())?;
+            let port = start_media_server(video_path.clone())?;
 
             let mouse_positions = MOUSE_POSITIONS.lock().drain(..).collect::<Vec<_>>();
 
             let video_url = format!("http://localhost:{}/video", port);
             let audio_url = format!("http://localhost:{}/audio", port);
 
-            let audio_file_path = audio_path;
-
             Ok(serde_json::json!([
                 video_url,
                 audio_url,
                 mouse_positions,
-                audio_file_path,
+                video_file_path,
                 video_file_path,
                 raw_input_events
             ]))
@@ -712,7 +752,7 @@ pub fn js_code_to_vk(code: &str) -> Option<u32> {
     }
 }
 
-pub fn start_media_server(video_path: String, audio_path: String) -> Result<u16, String> {
+pub fn start_media_server(video_path: String) -> Result<u16, String> {
     let mut port = 8000;
     let server = loop {
         match Server::http(format!("127.0.0.1:{}", port)) {
@@ -756,9 +796,9 @@ pub fn start_media_server(video_path: String, audio_path: String) -> Result<u16,
             }
 
             let url = request.url();
-            let is_audio = url.contains("audio");
-            let media_path = if is_audio { &audio_path } else { &video_path };
-            let content_type = if is_audio { "audio/wav" } else { "video/mp4" };
+            let _is_audio = url.contains("audio");
+            let media_path = &video_path;
+            let content_type = "video/mp4";
 
             if let Ok(file) = File::open(media_path) {
                 let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);

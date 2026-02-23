@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '@/lib/ipc';
 
 type CursorAdjustment = {
   scale: number;
@@ -189,12 +190,6 @@ export default function CursorSvgLab() {
   const applyOne = async (item: CursorItem) => {
     if (!hasAdjustmentChange(item.key)) return;
     const a = adjust[item.key];
-    const invoke = (window as unknown as { __TAURI__?: { core?: { invoke?: (cmd: string, args?: unknown) => Promise<unknown> } } })
-      .__TAURI__?.core?.invoke;
-    if (!invoke) {
-      setApplyStatus((prev) => ({ ...prev, [item.key]: 'fail' }));
-      return;
-    }
     setApplying((prev) => ({ ...prev, [item.key]: true }));
     try {
       await invoke('apply_cursor_svg_adjustment', {
