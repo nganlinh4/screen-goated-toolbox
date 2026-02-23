@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { VideoSegment, CursorVisibilitySegment, TrimSegment } from '@/types/video';
+import { VideoSegment, CursorVisibilitySegment, TrimSegment, ZoomKeyframe } from '@/types/video';
 import { clampVisibilitySegmentsToDuration, mergePointerSegments } from '@/lib/cursorHiding';
 import { getTrimBounds, getTrimSegments, mergeTrimSegments } from '@/lib/trimSegments';
 import { getKeystrokeVisibilitySegmentsForMode, withKeystrokeVisibilitySegmentsForMode } from '@/lib/keystrokeVisibility';
@@ -42,6 +42,8 @@ interface UseTimelineDragOptions {
   commitBatch: () => void;
 }
 
+const ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC = 0.2;
+
 export function useTimelineDrag({
   duration,
   segment,
@@ -76,6 +78,9 @@ export function useTimelineDrag({
   const [draggingKeystrokeId, setDraggingKeystrokeId] = useState<string | null>(null);
   const [draggingPointerId, setDraggingPointerId] = useState<string | null>(null);
   const [draggingZoomIdx, setDraggingZoomIdx] = useState<number | null>(null);
+  const draggingZoomIdxRef = useRef<number | null>(null);
+  const draggingZoomTokenRef = useRef<string | null>(null);
+  const zoomDragTokenMapRef = useRef<WeakMap<ZoomKeyframe, string>>(new WeakMap());
   const textDragOffsetRef = useRef(0);
   const keystrokeDragOffsetRef = useRef(0);
   const pointerDragOffsetRef = useRef(0);
@@ -111,28 +116,73 @@ export function useTimelineDrag({
     beginBatch();
     setIsDraggingZoom(true);
     setDraggingZoomIdx(index);
+    draggingZoomIdxRef.current = index;
+    const draggedKeyframe = segment?.zoomKeyframes[index];
+    if (draggedKeyframe) {
+      const token = crypto.randomUUID();
+      zoomDragTokenMapRef.current.set(draggedKeyframe, token);
+      draggingZoomTokenRef.current = token;
+    } else {
+      draggingZoomTokenRef.current = null;
+    }
     setEditingKeyframeId(index);
     setEditingKeystrokeId?.(null);
     setActivePanel('zoom');
-  }, [setEditingKeyframeId, setEditingKeystrokeId, setActivePanel, beginBatch]);
+  }, [segment, setEditingKeyframeId, setEditingKeystrokeId, setActivePanel, beginBatch]);
 
   const handleZoomDrag = useCallback((clientX: number) => {
-    if (!isDraggingZoom || draggingZoomIdx === null || !segment) return;
+    if (!isDraggingZoom || draggingZoomIdxRef.current === null || !segment) return;
     const newTime = getTimeFromClientX(clientX);
     if (newTime === null) return;
 
-    const prevKeyframe = draggingZoomIdx > 0 ? segment.zoomKeyframes[draggingZoomIdx - 1] : null;
-    const nextKeyframe = draggingZoomIdx < segment.zoomKeyframes.length - 1 ? segment.zoomKeyframes[draggingZoomIdx + 1] : null;
+    const dragToken = draggingZoomTokenRef.current;
+    let currentIdx = dragToken
+      ? segment.zoomKeyframes.findIndex((kf) => zoomDragTokenMapRef.current.get(kf) === dragToken)
+      : -1;
+    if (currentIdx < 0 && draggingZoomIdxRef.current !== null) currentIdx = draggingZoomIdxRef.current;
+    if (currentIdx < 0 || currentIdx >= segment.zoomKeyframes.length) return;
+    const prevKeyframe = currentIdx > 0 ? segment.zoomKeyframes[currentIdx - 1] : null;
+    const nextKeyframe = currentIdx < segment.zoomKeyframes.length - 1 ? segment.zoomKeyframes[currentIdx + 1] : null;
 
     let finalTime = newTime;
-    if (prevKeyframe && finalTime <= prevKeyframe.time + 0.1) finalTime = prevKeyframe.time + 0.1;
-    if (nextKeyframe && finalTime >= nextKeyframe.time - 0.1) finalTime = nextKeyframe.time - 0.1;
+
+    // Sticky walls near neighbors: stop at the configured gap boundary but allow deliberate crossover.
+    if (
+      prevKeyframe &&
+      finalTime > prevKeyframe.time - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC &&
+      finalTime < prevKeyframe.time + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC
+    ) {
+      finalTime = prevKeyframe.time + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC;
+    }
+    if (
+      nextKeyframe &&
+      finalTime > nextKeyframe.time - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC &&
+      finalTime < nextKeyframe.time + ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC
+    ) {
+      finalTime = nextKeyframe.time - ZOOM_KEYFRAME_UNTOUCHABLE_GAP_SEC;
+    }
+
+    finalTime = Math.max(0, Math.min(duration, finalTime));
+
+    const draggedKf = segment.zoomKeyframes[currentIdx];
+    const newKf = { ...draggedKf, time: finalTime };
+    if (dragToken) zoomDragTokenMapRef.current.set(newKf, dragToken);
+    const nextKeyframes = segment.zoomKeyframes.map((kf, i) =>
+      i === currentIdx ? newKf : kf
+    );
+
+    nextKeyframes.sort((a, b) => a.time - b.time);
+    const newIdx = nextKeyframes.indexOf(newKf);
+
+    draggingZoomIdxRef.current = newIdx;
+    if (newIdx !== draggingZoomIdx) {
+      setDraggingZoomIdx(newIdx);
+      setEditingKeyframeId(newIdx);
+    }
 
     setSegment({
       ...segment,
-      zoomKeyframes: segment.zoomKeyframes.map((kf, i) =>
-        i === draggingZoomIdx ? { ...kf, time: finalTime } : kf
-      ),
+      zoomKeyframes: nextKeyframes,
     });
 
     if (onSeek) {
@@ -141,7 +191,7 @@ export function useTimelineDrag({
       videoRef.current.currentTime = finalTime;
       setCurrentTime(finalTime);
     }
-  }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, setSegment, onSeek, videoRef, setCurrentTime]);
+  }, [isDraggingZoom, draggingZoomIdx, segment, getTimeFromClientX, setSegment, onSeek, videoRef, setCurrentTime, duration, setEditingKeyframeId]);
 
   // Trim drag
   const handleTrimDragStart = useCallback((id: string, type: 'start' | 'end') => {
@@ -546,6 +596,8 @@ export function useTimelineDrag({
     setIsDraggingPointerBody(false);
     setIsDraggingZoom(false);
     setDraggingZoomIdx(null);
+    draggingZoomIdxRef.current = null;
+    draggingZoomTokenRef.current = null;
     setDraggingTextId(null);
     setDraggingKeystrokeId(null);
     setDraggingPointerId(null);
@@ -578,6 +630,45 @@ export function useTimelineDrag({
       window.removeEventListener('pointercancel', onUp);
     };
   }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleZoomDrag, handleSeek, handleMouseUp]);
+
+  // Enforce drag cursor globally and suppress hover UI on other timeline tracks while dragging.
+  useEffect(() => {
+    const isEwResize =
+      isDraggingTrimStart ||
+      isDraggingTrimEnd ||
+      isDraggingTextStart ||
+      isDraggingTextEnd ||
+      isDraggingKeystrokeStart ||
+      isDraggingKeystrokeEnd ||
+      isDraggingPointerStart ||
+      isDraggingPointerEnd ||
+      isDraggingZoom;
+    const isMove = isDraggingTextBody || isDraggingKeystrokeBody || isDraggingPointerBody;
+
+    if (isEwResize) document.body.classList.add('dragging-ew');
+    else document.body.classList.remove('dragging-ew');
+
+    if (isMove) document.body.classList.add('dragging-move');
+    else document.body.classList.remove('dragging-move');
+
+    return () => {
+      document.body.classList.remove('dragging-ew');
+      document.body.classList.remove('dragging-move');
+    };
+  }, [
+    isDraggingTrimStart,
+    isDraggingTrimEnd,
+    isDraggingTextStart,
+    isDraggingTextEnd,
+    isDraggingTextBody,
+    isDraggingKeystrokeStart,
+    isDraggingKeystrokeEnd,
+    isDraggingKeystrokeBody,
+    isDraggingPointerStart,
+    isDraggingPointerEnd,
+    isDraggingPointerBody,
+    isDraggingZoom,
+  ]);
 
   const dragState: TimelineDragState = {
     isDraggingTrimStart,
