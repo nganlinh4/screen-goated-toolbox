@@ -495,18 +495,15 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         config::compute_default_video_bitrate_kbps(out_w, out_h, config.framerate)
     };
 
-    // Motion blur: derive samples and shutter from config
-    let mb_max = config
-        .background_config
-        .motion_blur_cursor
-        .max(config.background_config.motion_blur_zoom)
-        .max(config.background_config.motion_blur_pan)
-        / 100.0;
-    let (mb_samples, mb_shutter) = if mb_max > 0.0001 {
-        let samples = (mb_max * 8.0).ceil().clamp(2.0, 8.0) as u32;
-        (samples, mb_max.clamp(0.0, 1.0))
+    // Motion blur: derive samples and per-channel shutters from config
+    let mb_zoom = config.background_config.motion_blur_zoom / 100.0;
+    let mb_pan = config.background_config.motion_blur_pan / 100.0;
+    let mb_cursor = config.background_config.motion_blur_cursor / 100.0;
+    let mb_max = mb_zoom.max(mb_pan).max(mb_cursor);
+    let mb_samples = if mb_max > 0.0001 {
+        (mb_max * 8.0).ceil().clamp(2.0, 8.0) as u32
     } else {
-        (1, 0.0)
+        1
     };
 
     let pipeline_config = gpu_pipeline::PipelineConfig {
@@ -523,10 +520,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         codec: mf_encode::VideoCodec::H264,
         trim_segments: config.segment.trim_segments.clone(),
         motion_blur_samples: mb_samples,
-        motion_blur_shutter: mb_shutter,
-        blur_zoom:   config.background_config.motion_blur_zoom   > 0.01,
-        blur_pan:    config.background_config.motion_blur_pan    > 0.01,
-        blur_cursor: config.background_config.motion_blur_cursor > 0.01,
+        blur_zoom_shutter: mb_zoom.clamp(0.0, 1.0),
+        blur_pan_shutter: mb_pan.clamp(0.0, 1.0),
+        blur_cursor_shutter: mb_cursor.clamp(0.0, 1.0),
         video_width: crop_w,
         video_height: crop_h,
         crop_x: crop_x_offset as u32,

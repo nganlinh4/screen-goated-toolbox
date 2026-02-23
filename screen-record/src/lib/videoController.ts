@@ -42,6 +42,7 @@ export class VideoController {
   private isGeneratingThumbnail = false;
   private audioPlayPromise: Promise<void> | null = null;
   private pendingSeekTime: number | null = null;
+  private lastRequestedSeekTime: number | null = null;
   private readonly SEGMENT_EPS = 0.03;
   private playbackMonitorRaf: number | null = null;
   private renderTimeout: number | null = null;
@@ -132,7 +133,7 @@ export class VideoController {
 
   private handleTimeUpdate = () => {
     if (this.isGeneratingThumbnail) return;
-    if (!this.state.isSeeking) {
+    if (!this.state.isSeeking && this.pendingSeekTime === null) {
       const currentTime = this.video.currentTime;
 
       // Handle segmented trim bounds
@@ -181,11 +182,19 @@ export class VideoController {
         ? (getNextPlayableTime(this.video.currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime)
             ?? clampToTrimSegments(this.video.currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime))
         : this.video.currentTime;
+        
       if (Math.abs(clamped - this.video.currentTime) > 0.001) {
         this.video.currentTime = clamped;
         if (this.audio) this.audio.currentTime = clamped;
       }
-      this.setCurrentTime(clamped);
+
+      let displayTime = clamped;
+      // Prevent UI playhead stutter: if decoder snapped near the requested target,
+      // keep the user's dragged target as the visual playhead position.
+      if (this.lastRequestedSeekTime !== null && Math.abs(clamped - this.lastRequestedSeekTime) < 0.1) {
+        displayTime = this.lastRequestedSeekTime;
+      }
+      this.setCurrentTime(displayTime);
     }
   };
 
@@ -485,6 +494,7 @@ export class VideoController {
         ?? clampToTrimSegments(time, this.renderOptions.segment, duration);
     }
 
+    this.lastRequestedSeekTime = time;
     // Update playhead state immediately so the UI feels responsive
     this.setCurrentTime(time);
 

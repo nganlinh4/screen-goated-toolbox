@@ -150,10 +150,11 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         {/* Content area - timelineRef only covers this, so seek math is correct */}
         <div
           ref={timelineRef}
-          className="timeline-content flex-1 relative cursor-pointer"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
+          className="timeline-content flex-1 relative cursor-pointer touch-none"
+          onPointerDown={handleMouseDown}
+          onPointerMove={handleMouseMove}
+          onPointerUp={handleMouseUp}
+          onPointerCancel={handleMouseUp}
         >
           <div className="timeline-tracks flex flex-col gap-[2px]">
             {/* Zoom Track */}

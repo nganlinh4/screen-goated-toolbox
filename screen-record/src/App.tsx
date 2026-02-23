@@ -880,16 +880,19 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
-      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement).isContentEditable;
-      if (e.code === 'Space' && !isInput) {
+      const targetType = (e.target as HTMLInputElement).type;
+      const isTextInput = (tag === 'INPUT' && ['text', 'number', 'password', 'search', 'email'].includes(targetType))
+                          || tag === 'TEXTAREA'
+                          || (e.target as HTMLElement).isContentEditable;
+
+      if (e.code === 'Space' && !isTextInput) {
         e.preventDefault();
         e.stopImmediatePropagation();
         if (isCropping) return; // Block play/pause during crop mode
-        // Blur focused buttons so keyup doesn't re-trigger their click
-        if (tag === 'BUTTON' || tag === 'A') (e.target as HTMLElement).blur();
+        if (e.target instanceof HTMLElement) e.target.blur(); // Unfocus anything so Space keyup doesn't activate it
         togglePlayPause();
       }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && !isInput) {
+      if ((e.code === 'Delete' || e.code === 'Backspace') && !isTextInput) {
         if (editingKeystrokeSegmentId) {
           handleDeleteKeystrokeSegment();
         } else if (editingPointerId) {

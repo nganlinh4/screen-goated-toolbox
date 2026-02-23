@@ -199,11 +199,6 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     const sx = thumbRect.width / target.width;
     const sy = thumbRect.height / target.height;
 
-    // Background fill — covers the whole parent so no flash when ProjectsView unmounts
-    const bg = document.createElement('div');
-    bg.style.cssText = 'position:absolute;inset:0;z-index:59;background:var(--surface);pointer-events:none;';
-    portalTarget.appendChild(bg);
-
     // Clone lives in the PARENT so it persists after this component unmounts
     const clone = document.createElement('div');
     clone.style.cssText = `
@@ -227,10 +222,6 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         [{ opacity: 1 }, { opacity: 0 }],
         { duration: 200, fill: 'forwards' }
       ).onfinish = () => clone.remove();
-      bg.animate(
-        [{ opacity: 1 }, { opacity: 0 }],
-        { duration: 200, fill: 'forwards' }
-      ).onfinish = () => bg.remove();
     };
 
     // Compensate border-radius for scale so it visually appears as 8px after transform
@@ -246,11 +237,9 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     }).onfinish = () => {
       animatingRef.current = false;
 
-      // Await the full project load, then give React time to commit + paint before dissolving
+      // Wait for project load and allow React lifecycle to completely stabilize canvas dimensions
       Promise.resolve(onLoadProject(projectId)).then(() => {
-        // renderImmediate already drew the frame on the canvas inside handleLoadProject.
-        // Wait 100ms to ensure React effects have flushed, then fade on next frame.
-        setTimeout(() => requestAnimationFrame(fadeOut), 100);
+        setTimeout(() => requestAnimationFrame(fadeOut), 250);
       });
     };
   };
@@ -289,10 +278,6 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     const sx = thumbRect.width / target.width;
     const sy = thumbRect.height / target.height;
 
-    const bg = document.createElement('div');
-    bg.style.cssText = 'position:absolute;inset:0;z-index:59;background:var(--surface);pointer-events:none;';
-    portalTarget.appendChild(bg);
-
     const clone = document.createElement('div');
     clone.style.cssText = `
       position: absolute; z-index: 60; pointer-events: none;
@@ -315,10 +300,6 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         [{ opacity: 1 }, { opacity: 0 }],
         { duration: 200, fill: 'forwards' }
       ).onfinish = () => clone.remove();
-      bg.animate(
-        [{ opacity: 1 }, { opacity: 0 }],
-        { duration: 200, fill: 'forwards' }
-      ).onfinish = () => bg.remove();
     };
 
     // Compensate border-radius for scale so it visually appears as 8px after transform
@@ -334,7 +315,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     }).onfinish = () => {
       animatingRef.current = false;
       onClose();
-      setTimeout(() => requestAnimationFrame(fadeOut), 100);
+      setTimeout(() => requestAnimationFrame(fadeOut), 150);
     };
   };
 

@@ -82,7 +82,7 @@ export function ProcessingOverlay({ show, onCancel }: ProcessingOverlayProps) {
   const etaStr = formatEta(eta);
 
   return (
-    <div className="processing-overlay-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="processing-overlay-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
       <div className="processing-dialog bg-[var(--surface-dim)] p-5 rounded-xl border border-[var(--glass-border)] shadow-lg w-72">
         <p className="processing-title text-sm font-medium text-[var(--on-surface)] mb-3">
           {active ? t.exportingVideo : t.preparingExport}
@@ -313,7 +313,7 @@ export function ExportDialog({
   const selectedKey = `${exportOptions.width}x${exportOptions.height}`;
 
   return (
-    <div className="export-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="export-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
       <div className="export-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-[500px] w-full mx-4">
         <div className="dialog-header flex items-center justify-between mb-4">
           <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.exportOptions}</h3>
@@ -516,7 +516,7 @@ export function RawVideoDialog({
   if (!show) return null;
 
   return (
-    <div className="raw-video-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="raw-video-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
       <div className="raw-video-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
         <div className="dialog-header flex items-center justify-between mb-4">
           <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.rawVideoDialogTitle}</h3>
@@ -536,8 +536,8 @@ export function RawVideoDialog({
             {savedPath ? (
               <>
                 <div className="raw-video-saved-title-row flex items-center gap-1.5 mb-1">
-                  <CheckCircle2 className="raw-video-saved-icon w-3.5 h-3.5 text-emerald-300 flex-shrink-0" />
-                  <div className="raw-video-saved-title text-[11px] font-semibold text-emerald-200">{t.rawVideoSavedTo}</div>
+                  <CheckCircle2 className="raw-video-saved-icon w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300 flex-shrink-0" />
+                  <div className="raw-video-saved-title text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">{t.rawVideoSavedTo}</div>
                 </div>
                 <div className="raw-video-saved-path text-xs text-[var(--on-surface)] break-all">{savedPath}</div>
               </>
@@ -596,7 +596,7 @@ export function MonitorSelectDialog({ show, onClose, monitors, onSelectMonitor }
   if (!show) return null;
 
   return (
-    <div className="monitor-select-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="monitor-select-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
       <div className="monitor-select-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-md w-full mx-4">
         <div className="dialog-header flex items-center justify-between mb-4">
           <h3 className="dialog-title text-sm font-medium text-[var(--on-surface)]">{t.selectMonitor}</h3>
@@ -634,7 +634,7 @@ export function HotkeyDialog({ show, onClose }: HotkeyDialogProps) {
   if (!show) return null;
 
   return (
-    <div className="hotkey-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="hotkey-dialog-backdrop fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
       <div className="hotkey-dialog bg-[var(--surface-dim)] p-5 rounded-lg border border-[var(--glass-border)] shadow-lg max-w-sm w-full mx-4">
         <div className="dialog-header flex items-center justify-between mb-4">
           <div className="dialog-header-icon flex items-center gap-2">
