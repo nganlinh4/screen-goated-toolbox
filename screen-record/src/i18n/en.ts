@@ -149,6 +149,18 @@ const en = {
   // Dialogs - Projects
   noProjectsYet: 'No projects yet',
   max: 'Max',
+  clearAll: 'Clear All',
+  confirmClearAll: 'Are you sure you want to delete ALL projects and their raw videos? This cannot be undone.',
+  confirmClearAllTitle: 'Clear All Projects',
+  confirmClearAllDesc: 'Are you sure you want to delete ALL projects and their raw videos? This cannot be undone.',
+  matchRecorded: 'Match Recorded',
+  savedTo: 'Saved to',
+  showInFolder: 'Show in Folder',
+  rename: 'Rename',
+  save: 'Save',
+  exportSuccessful: 'Export Successful',
+  autoCopyAfterExport: 'Auto copy after export',
+  original: 'Original',
 
   // Dialogs - Monitor Select
   selectMonitor: 'Select Monitor',

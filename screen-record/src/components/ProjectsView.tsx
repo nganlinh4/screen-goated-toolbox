@@ -3,6 +3,8 @@ import { Video, Trash2, Play, X } from 'lucide-react';
 import { Project } from '@/types/video';
 import { projectManager } from '@/lib/projectManager';
 import { useSettings } from '@/hooks/useSettings';
+import { invoke } from '@/lib/ipc';
+import { ConfirmDialog } from './Dialogs';
 
 interface ProjectsViewProps {
   projects: Omit<Project, 'videoBlob'>[];
@@ -44,12 +46,14 @@ function getPreviewCanvasRect(parent: HTMLElement): { left: number; top: number;
     height: canvasRect.height,
   };
 }
+void getPreviewCanvasRect;
 
 export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClose, currentProjectId, restoreImage }: ProjectsViewProps) {
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [animatingId, setAnimatingId] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(() => !!restoreImage && !!currentProjectId);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const animatingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const animatedCloseRef = useRef<() => void>(() => {});
@@ -65,15 +69,21 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     const container = containerRef.current;
 
     requestAnimationFrame(() => {
-      const containerRect = container.getBoundingClientRect();
-
       const img = new Image();
       img.src = restoreImage;
 
       const runAnimation = () => {
+        const canvasEl = document.querySelector('.preview-canvas-element') as HTMLCanvasElement | null;
+        const canvasRect = canvasEl?.getBoundingClientRect();
         const natW = img.naturalWidth || 16;
         const natH = img.naturalHeight || 9;
-        const source = containRect(containerRect.width, containerRect.height, natW, natH);
+        let source: { left: number; top: number; width: number; height: number };
+        if (canvasRect && canvasRect.width > 0) {
+          source = { left: canvasRect.left, top: canvasRect.top, width: canvasRect.width, height: canvasRect.height };
+        } else {
+          source = containRect(window.innerWidth, Math.max(1, window.innerHeight - 44), natW, natH);
+          source.top += 44;
+        }
 
         const card = container.querySelector(`[data-project-id="${currentProjectId}"]`) as HTMLElement | null;
         if (!card) { setIsRestoring(false); return; }
@@ -84,16 +94,12 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         const thumbArea = card.querySelector('.project-thumbnail') as HTMLElement | null;
         if (!thumbArea) { setIsRestoring(false); return; }
 
-        // Re-measure after potential scroll
-        const freshContainerRect = container.getBoundingClientRect();
         const thumbRect = thumbArea.getBoundingClientRect();
-        const thumbRelLeft = thumbRect.left - freshContainerRect.left;
-        const thumbRelTop = thumbRect.top - freshContainerRect.top;
 
         // Clone at canvas (source) position
         const clone = document.createElement('div');
         clone.style.cssText = `
-          position: absolute; z-index: 60; pointer-events: none;
+          position: absolute; z-index: 9999; pointer-events: none;
           left: ${source.left}px; top: ${source.top}px;
           width: ${source.width}px; height: ${source.height}px;
           overflow: hidden; transform-origin: 0 0;
@@ -103,11 +109,11 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         imgEl.src = restoreImage;
         imgEl.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
         clone.appendChild(imgEl);
-        container.appendChild(clone);
+        document.body.appendChild(clone);
 
-        // Animate source → target (reverse of expand)
-        const dx = thumbRelLeft - source.left;
-        const dy = thumbRelTop - source.top;
+        // Animate source → target (reverse of expand), body-relative coordinates
+        const dx = thumbRect.left - source.left;
+        const dy = thumbRect.top - source.top;
         const sx = thumbRect.width / source.width;
         const sy = thumbRect.height / source.height;
 
@@ -118,13 +124,13 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
           { transform: 'none', borderRadius: '0px' },
           { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, borderRadius: thumbRadius }
         ], {
-          duration: 500,
+          duration: 400,
           easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
           fill: 'forwards'
         }).onfinish = () => {
           clone.animate(
             [{ opacity: 1 }, { opacity: 0 }],
-            { duration: 150, fill: 'forwards' }
+            { duration: 100, fill: 'forwards' }
           ).onfinish = () => clone.remove();
         };
 
@@ -165,46 +171,47 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     setEditingNameId(null);
   };
 
+  const handleClearAll = async () => {
+    setShowClearConfirm(false);
+    for (const p of projects) {
+      await projectManager.deleteProject(p.id);
+      if (p.rawVideoPath) {
+        try { await invoke('delete_file', { path: p.rawVideoPath }); } catch {}
+      }
+    }
+    onProjectsChange();
+  };
+
   const handleProjectClick = (projectId: string, e: React.MouseEvent<HTMLDivElement>) => {
     if (animatingRef.current) return;
 
     const thumbnailImg = e.currentTarget.querySelector('img') as HTMLImageElement | null;
     const container = containerRef.current;
-    // Portal target: the preview area parent that survives after this component unmounts
-    const portalTarget = container?.parentElement;
+    const portalTarget = document.querySelector('.video-preview-container') as HTMLElement | null;
 
     if (!thumbnailImg || !container || !portalTarget) {
       onLoadProject(projectId);
       return;
     }
 
-    const parentRect = portalTarget.getBoundingClientRect();
+    const portalRect = portalTarget.getBoundingClientRect();
     const thumbRect = thumbnailImg.getBoundingClientRect();
-    const canvasTarget = getPreviewCanvasRect(portalTarget);
+    const canvasEl = document.querySelector('.preview-canvas-element') as HTMLCanvasElement | null;
+    const canvasRect = canvasEl?.getBoundingClientRect();
     const natW = thumbnailImg.naturalWidth || 16;
     const natH = thumbnailImg.naturalHeight || 9;
-    // For cross-project switches, target the clicked project's own aspect.
-    // For reopening current project, use the live preview canvas rect.
-    const target = projectId === currentProjectId
-      ? (canvasTarget ?? containRect(parentRect.width, parentRect.height, natW, natH))
-      : containRect(parentRect.width, parentRect.height, natW, natH);
+    const target = (projectId === currentProjectId && canvasRect && canvasRect.width > 0)
+      ? { left: canvasRect.left, top: canvasRect.top, width: canvasRect.width, height: canvasRect.height }
+      : containRect(portalRect.width, portalRect.height, natW, natH);
+    const targetGlobal = (projectId === currentProjectId && canvasRect && canvasRect.width > 0)
+      ? target
+      : { left: portalRect.left + target.left, top: portalRect.top + target.top, width: target.width, height: target.height };
 
-    // Thumbnail position relative to portal target
-    const thumbRelLeft = thumbRect.left - parentRect.left;
-    const thumbRelTop = thumbRect.top - parentRect.top;
-
-    // FLIP: source → target
-    const dx = thumbRelLeft - target.left;
-    const dy = thumbRelTop - target.top;
-    const sx = thumbRect.width / target.width;
-    const sy = thumbRect.height / target.height;
-
-    // Clone lives in the PARENT so it persists after this component unmounts
     const clone = document.createElement('div');
     clone.style.cssText = `
-      position: absolute; z-index: 60; pointer-events: none;
-      left: ${target.left}px; top: ${target.top}px;
-      width: ${target.width}px; height: ${target.height}px;
+      position: absolute; z-index: 9999; pointer-events: none;
+      left: ${targetGlobal.left}px; top: ${targetGlobal.top}px;
+      width: ${targetGlobal.width}px; height: ${targetGlobal.height}px;
       overflow: hidden; transform-origin: 0 0;
       will-change: transform;
     `;
@@ -212,7 +219,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     img.src = thumbnailImg.src;
     img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
     clone.appendChild(img);
-    portalTarget.appendChild(clone);
+    document.body.appendChild(clone);
 
     animatingRef.current = true;
     setAnimatingId(projectId);
@@ -224,7 +231,10 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
       ).onfinish = () => clone.remove();
     };
 
-    // Compensate border-radius for scale so it visually appears as 8px after transform
+    const dx = thumbRect.left - targetGlobal.left;
+    const dy = thumbRect.top - targetGlobal.top;
+    const sx = thumbRect.width / targetGlobal.width;
+    const sy = thumbRect.height / targetGlobal.height;
     const thumbRadius = `${12 / sx}px / ${12 / sy}px`;
 
     clone.animate([
@@ -249,7 +259,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     if (animatingRef.current) return;
 
     const container = containerRef.current;
-    const portalTarget = container?.parentElement;
+    const portalTarget = document.querySelector('.video-preview-container') as HTMLElement | null;
 
     if (!currentProjectId || !container || !portalTarget) {
       onClose();
@@ -266,23 +276,31 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
 
     card.scrollIntoView({ block: 'nearest', behavior: 'instant' as ScrollBehavior });
 
-    const parentRect = portalTarget.getBoundingClientRect();
+    const portalRect = portalTarget.getBoundingClientRect();
     const thumbRect = thumbnailImg.getBoundingClientRect();
-    const canvasTarget = getPreviewCanvasRect(portalTarget);
-    const target = canvasTarget ?? containRect(parentRect.width, parentRect.height, 16, 9);
-    const thumbRelLeft = thumbRect.left - parentRect.left;
-    const thumbRelTop = thumbRect.top - parentRect.top;
-
-    const dx = thumbRelLeft - target.left;
-    const dy = thumbRelTop - target.top;
-    const sx = thumbRect.width / target.width;
-    const sy = thumbRect.height / target.height;
+    const canvasEl = document.querySelector('.preview-canvas-element') as HTMLCanvasElement | null;
+    const canvasRect = canvasEl?.getBoundingClientRect();
+    const natW = thumbnailImg.naturalWidth || 16;
+    const natH = thumbnailImg.naturalHeight || 9;
+    const fallbackTarget = containRect(portalRect.width, portalRect.height, natW, natH);
+    const targetGlobal = (canvasRect && canvasRect.width > 0)
+      ? { left: canvasRect.left, top: canvasRect.top, width: canvasRect.width, height: canvasRect.height }
+      : {
+          left: portalRect.left + fallbackTarget.left,
+          top: portalRect.top + fallbackTarget.top,
+          width: fallbackTarget.width,
+          height: fallbackTarget.height,
+        };
+    const dx = thumbRect.left - targetGlobal.left;
+    const dy = thumbRect.top - targetGlobal.top;
+    const sx = thumbRect.width / targetGlobal.width;
+    const sy = thumbRect.height / targetGlobal.height;
 
     const clone = document.createElement('div');
     clone.style.cssText = `
-      position: absolute; z-index: 60; pointer-events: none;
-      left: ${target.left}px; top: ${target.top}px;
-      width: ${target.width}px; height: ${target.height}px;
+      position: absolute; z-index: 9999; pointer-events: none;
+      left: ${targetGlobal.left}px; top: ${targetGlobal.top}px;
+      width: ${targetGlobal.width}px; height: ${targetGlobal.height}px;
       overflow: hidden; transform-origin: 0 0;
       will-change: transform;
     `;
@@ -290,7 +308,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
     img.src = thumbnailImg.src;
     img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
     clone.appendChild(img);
-    portalTarget.appendChild(clone);
+    document.body.appendChild(clone);
 
     animatingRef.current = true;
     setAnimatingId(currentProjectId);
@@ -332,9 +350,19 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         animatingId ? 'opacity-0 duration-200' : isRestoring ? 'opacity-0' : 'opacity-100 duration-300'
       }`}>
         {/* Header */}
-        <div className="projects-header flex justify-between items-center px-4 py-3 flex-shrink-0">
-          <h3 className="text-sm font-medium text-[var(--on-surface)]">{t.projects}</h3>
-          <div className="projects-limit-control flex items-center gap-3 flex-shrink-0 whitespace-nowrap">
+        <div className="projects-header flex justify-between items-center px-6 py-4 flex-shrink-0 border-b border-[var(--glass-border)]">
+          <div className="flex items-center gap-4">
+            <h3 className="text-lg font-semibold text-[var(--on-surface)]">{t.projects}</h3>
+            {projects.length > 0 && (
+              <button
+                onClick={() => setShowClearConfirm(true)}
+                className="text-xs font-medium text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 rounded transition-colors"
+              >
+                {t.clearAll}
+              </button>
+            )}
+          </div>
+          <div className="projects-limit-control flex items-center gap-4 flex-shrink-0 whitespace-nowrap">
             <span className="text-[10px] text-[var(--outline)]">{t.max}</span>
             <input
               type="range" min="10" max="100" value={projectManager.getLimit()}
@@ -349,7 +377,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
         </div>
 
         {/* Grid */}
-        <div className="projects-grid-scroll flex-1 min-h-0 overflow-y-auto thin-scrollbar px-4 pb-4">
+        <div className="projects-grid-scroll flex-1 min-h-0 overflow-y-auto thin-scrollbar px-6 py-5">
           {projects.length === 0 ? (
             <div className="projects-empty-state flex items-center justify-center h-full text-xs text-[var(--outline)]">{t.noProjectsYet}</div>
           ) : (
@@ -410,7 +438,14 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
                       <p className="text-[10px] text-[var(--outline)] mt-0.5">{new Date(project.lastModified).toLocaleDateString()}</p>
                     </div>
                     <button
-                      onClick={async () => { await projectManager.deleteProject(project.id); onProjectsChange(); }}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await projectManager.deleteProject(project.id);
+                        if (project.rawVideoPath) {
+                          try { await invoke('delete_file', { path: project.rawVideoPath }); } catch {}
+                        }
+                        onProjectsChange();
+                      }}
                       className="project-delete-btn text-[var(--outline)] hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 p-0.5 flex-shrink-0"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -422,6 +457,13 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
           )}
         </div>
       </div>
+      <ConfirmDialog
+        show={showClearConfirm}
+        title={t.confirmClearAllTitle}
+        message={t.confirmClearAllDesc}
+        onConfirm={handleClearAll}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 }

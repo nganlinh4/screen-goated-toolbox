@@ -151,6 +151,18 @@ const ko: Translations = {
   // Dialogs - Projects
   noProjectsYet: '프로젝트가 없습니다',
   max: '최대',
+  clearAll: '전체 삭제',
+  confirmClearAll: '모든 프로젝트와 원본 비디오를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.',
+  confirmClearAllTitle: '모든 프로젝트 지우기',
+  confirmClearAllDesc: '모든 프로젝트와 원본 비디오를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.',
+  matchRecorded: '원본 맞춤',
+  savedTo: '저장 위치',
+  showInFolder: '폴더에서 보기',
+  rename: '이름 변경',
+  save: '저장',
+  exportSuccessful: '내보내기 성공',
+  autoCopyAfterExport: '내보내기 후 자동 복사',
+  original: '원본',
 
   // Dialogs - Monitor Select
   selectMonitor: '모니터 선택',

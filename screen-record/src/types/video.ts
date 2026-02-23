@@ -227,7 +227,7 @@ export interface BakedOverlayPayload {
 export interface ExportOptions {
   width: number;   // 0 = use original canvas dimensions
   height: number;  // 0 = use original canvas dimensions
-  fps: number;     // 24, 30, or 60
+  fps: number;     // export framerate (common presets + source framerate)
   targetVideoBitrateKbps: number;
   speed: number;
   exportProfile?: 'balanced' | 'max_speed' | 'quality_strict' | 'turbo_nv';

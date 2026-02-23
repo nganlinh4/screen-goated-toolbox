@@ -953,6 +953,7 @@ export class VideoExporter {
           });
           recordExportEstimateResult(uncalibrated.estimatedBytes, res.bytes, estimateProfileKey);
         }
+        return res;
       } catch (e) {
         console.error('Native Export Failed:', e);
         throw e;

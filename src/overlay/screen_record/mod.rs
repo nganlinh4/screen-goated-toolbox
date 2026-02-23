@@ -1099,6 +1099,9 @@ unsafe fn internal_create_sr_loop() {
         IS_WARMED_UP = true;
     }
 
+    let port = ipc::start_global_media_server().unwrap_or(0);
+    SERVER_PORT.store(port, std::sync::atomic::Ordering::SeqCst);
+
     // Prepare export GPU pipeline in the background so first export starts faster.
     thread::spawn(|| {
         native_export::warm_up_export_pipeline();

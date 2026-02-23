@@ -8,6 +8,7 @@ use super::engine::{
     MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
 use super::keysee_capture;
+use super::mf_decode;
 use super::native_export;
 use super::raw_video;
 use super::{SERVER_PORT, SR_HWND};
@@ -148,6 +149,47 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "get_default_export_dir" => Ok(serde_json::json!(native_export::get_default_export_dir())),
+        "get_media_server_port" => {
+            let mut port = SERVER_PORT.load(std::sync::atomic::Ordering::SeqCst);
+            if port == 0 {
+                port = start_global_media_server().unwrap_or(0);
+            }
+            Ok(serde_json::json!(port))
+        }
+        "generate_thumbnails" => {
+            let path = args["path"].as_str().ok_or("Missing path")?;
+            let count = args["count"].as_u64().unwrap_or(20) as u32;
+            let start = args["start"].as_f64().unwrap_or(0.0);
+            let end = args["end"].as_f64().unwrap_or(start);
+            let result = super::mf_decode::generate_thumbnails(path, count, start, end)?;
+            Ok(serde_json::json!(result))
+        }
+        "probe_video_metadata" => {
+            let path = args["path"].as_str().ok_or("Missing path")?;
+            let result = mf_decode::probe_video_metadata(path)?;
+            Ok(serde_json::to_value(result).unwrap())
+        }
+        "show_in_folder" => {
+            let path = args["path"].as_str().ok_or("Missing path")?;
+            std::process::Command::new("explorer")
+                .args(["/select,", &path.replace("/", "\\")])
+                .spawn()
+                .map_err(|e| e.to_string())?;
+            Ok(serde_json::Value::Null)
+        }
+        "rename_file" => {
+            let path_str = args["path"].as_str().ok_or("Missing path")?;
+            let new_name = args["newName"].as_str().ok_or("Missing newName")?;
+            let path = std::path::PathBuf::from(path_str);
+            let new_path = path.with_file_name(new_name);
+            std::fs::rename(&path, &new_path).map_err(|e| e.to_string())?;
+            Ok(serde_json::json!(new_path.to_string_lossy().to_string()))
+        }
+        "delete_file" => {
+            let path = args["path"].as_str().ok_or("Missing path")?;
+            let _ = std::fs::remove_file(path);
+            Ok(serde_json::Value::Null)
+        }
         "pick_export_folder" => {
             let initial_dir = args["initialDir"].as_str().map(|s| s.to_string());
             let selected = native_export::pick_export_folder(initial_dir)?;
@@ -282,12 +324,16 @@ pub fn handle_ipc_command(
             let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
             let video_file_path = video_path.clone();
 
-            let port = start_media_server(video_path.clone())?;
+            let mut port = SERVER_PORT.load(std::sync::atomic::Ordering::SeqCst);
+            if port == 0 {
+                port = start_global_media_server().unwrap_or(0);
+            }
 
             let mouse_positions = MOUSE_POSITIONS.lock().drain(..).collect::<Vec<_>>();
 
-            let video_url = format!("http://localhost:{}/video", port);
-            let audio_url = format!("http://localhost:{}/audio", port);
+            let encoded_path = urlencoding::encode(&video_path);
+            let video_url = format!("http://localhost:{}/?path={}", port, encoded_path);
+            let audio_url = format!("http://localhost:{}/?path={}", port, encoded_path);
 
             Ok(serde_json::json!([
                 video_url,
@@ -752,7 +798,7 @@ pub fn js_code_to_vk(code: &str) -> Option<u32> {
     }
 }
 
-pub fn start_media_server(video_path: String) -> Result<u16, String> {
+pub fn start_global_media_server() -> Result<u16, String> {
     let mut port = 8000;
     let server = loop {
         match Server::http(format!("127.0.0.1:{}", port)) {
@@ -796,9 +842,33 @@ pub fn start_media_server(video_path: String) -> Result<u16, String> {
             }
 
             let url = request.url();
-            let _is_audio = url.contains("audio");
-            let media_path = &video_path;
-            let content_type = "video/mp4";
+            let media_path_str = if let Some(idx) = url.find("?path=") {
+                let encoded = &url[idx + 6..];
+                urlencoding::decode(encoded)
+                    .unwrap_or_else(|_| std::borrow::Cow::Borrowed(""))
+                    .into_owned()
+            } else {
+                String::new()
+            };
+            if media_path_str.is_empty() || !Path::new(&media_path_str).exists() {
+                let _ = request.respond(Response::from_string("File not found").with_status_code(404));
+                continue;
+            }
+
+            let media_path = Path::new(&media_path_str);
+            let content_type = match media_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "wav" => "audio/wav",
+                "mp3" => "audio/mpeg",
+                "m4a" => "audio/mp4",
+                "aac" => "audio/aac",
+                _ => "video/mp4",
+            };
 
             if let Ok(file) = File::open(media_path) {
                 let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);

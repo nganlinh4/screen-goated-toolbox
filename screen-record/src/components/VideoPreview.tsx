@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Video, Loader2, Play, Pause, Crop } from 'lucide-react';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
@@ -63,6 +63,35 @@ export function Placeholder({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// SeekIndicator
+// ============================================================================
+export function SeekIndicator({ dir, showKey }: { dir: 'left' | 'right'; showKey: number }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (showKey > 0) {
+      setIsVisible(true);
+      const timer = setTimeout(() => setIsVisible(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [showKey]);
+
+  if (!isVisible) return null;
+
+  return (
+    <div className="seek-indicator absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[60] pointer-events-none">
+      <div className="seek-indicator-badge bg-black/60 backdrop-blur-md text-white px-4 py-3 rounded-2xl flex items-center gap-2 shadow-2xl animate-in fade-in zoom-in slide-out-to-top-4 duration-500">
+        {dir === 'left' ? (
+          <><span className="text-xl">⏪</span><span className="font-bold">5s</span></>
+        ) : (
+          <><span className="font-bold">5s</span><span className="text-xl">⏩</span></>
+        )}
+      </div>
     </div>
   );
 }
@@ -202,6 +231,8 @@ interface CropOverlayProps {
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
+  seekIndicatorDir?: 'left' | 'right';
+  seekIndicatorKey?: number;
 }
 
 export function CropOverlay({
@@ -517,6 +548,8 @@ interface VideoPreviewProps {
   onUpdateSegment: (segment: VideoSegment) => void;
   beginBatch: () => void;
   commitBatch: () => void;
+  seekIndicatorDir?: 'left' | 'right';
+  seekIndicatorKey?: number;
 }
 
 export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
@@ -542,7 +575,9 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
   onToggleCrop,
   onUpdateSegment,
   beginBatch,
-  commitBatch
+  commitBatch,
+  seekIndicatorDir = 'right',
+  seekIndicatorKey = 0
 }, _ref) => {
   return (
     <div className="col-span-3 rounded-xl overflow-hidden bg-[var(--surface-container)]/50 flex items-center justify-center">
@@ -576,6 +611,7 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
               commitBatch={commitBatch}
             />
           )}
+          <SeekIndicator dir={seekIndicatorDir} showKey={seekIndicatorKey} />
         </div>
 
         {currentVideo && !isLoadingVideo && (

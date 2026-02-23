@@ -151,6 +151,18 @@ const vi: Translations = {
   // Dialogs - Projects
   noProjectsYet: 'Chưa có dự án nào',
   max: 'Tối đa',
+  clearAll: 'Xóa Tất Cả',
+  confirmClearAll: 'Bạn có chắc chắn muốn xóa TẤT CẢ dự án và các video gốc của chúng không? Hành động này không thể hoàn tác.',
+  confirmClearAllTitle: 'Xóa Tất Cả Dự Án',
+  confirmClearAllDesc: 'Bạn có chắc chắn muốn xóa TẤT CẢ dự án và các video gốc của chúng không? Hành động này không thể hoàn tác.',
+  matchRecorded: 'Khớp Video Gốc',
+  savedTo: 'Đã lưu vào',
+  showInFolder: 'Mở Thư Mục',
+  rename: 'Đổi Tên',
+  save: 'Lưu',
+  exportSuccessful: 'Xuất Thành Công',
+  autoCopyAfterExport: 'Tự động copy sau khi xuất',
+  original: 'Gốc',
 
   // Dialogs - Monitor Select
   selectMonitor: 'Chọn Màn Hình',
