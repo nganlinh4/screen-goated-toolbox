@@ -56,11 +56,9 @@ pub struct PipelineConfig {
     pub codec: VideoCodec,
     pub trim_segments: Vec<TrimSegment>,
     pub motion_blur_samples: u32,
-    pub motion_blur_shutter: f64,
-    /// Per-channel blur isolation: when false, that channel samples base_time (no blur).
-    pub blur_zoom: bool,
-    pub blur_pan: bool,
-    pub blur_cursor: bool,
+    pub blur_zoom_shutter: f64,
+    pub blur_pan_shutter: f64,
+    pub blur_cursor_shutter: f64,
     /// Video texture dimensions (crop_w × crop_h from compositor).
     pub video_width: u32,
     pub video_height: u32,
@@ -98,7 +96,10 @@ pub fn run_zero_copy_export(
     let total_frames = (config.duration * config.framerate as f64 / config.speed).ceil() as u32;
     let step = config.speed / config.framerate as f64;
     let mb_samples = config.motion_blur_samples.max(1);
-    let mb_enabled = mb_samples > 1 && config.motion_blur_shutter > 0.0;
+    let mb_enabled = mb_samples > 1
+        && (config.blur_zoom_shutter > 0.0
+            || config.blur_pan_shutter > 0.0
+            || config.blur_cursor_shutter > 0.0);
 
     // Forward channels (decode → render → encode).
     let (decode_tx, render_rx) = mpsc::sync_channel::<DecodeOutput>(3);
@@ -117,7 +118,7 @@ pub fn run_zero_copy_export(
     let render_err_clone = render_error.clone();
 
     println!(
-        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, blur={} (shutter={:.2}, mb={}), segs={}",
+        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, blur={} (z={:.2}, p={:.2}, c={:.2}, mb={}), segs={}",
         total_frames,
         config.video_width,
         config.video_height,
@@ -125,7 +126,9 @@ pub fn run_zero_copy_export(
         config.output_height,
         config.framerate,
         config.motion_blur_samples,
-        config.motion_blur_shutter,
+        config.blur_zoom_shutter,
+        config.blur_pan_shutter,
+        config.blur_cursor_shutter,
         mb_enabled,
         config.trim_segments.len()
     );
@@ -156,7 +159,6 @@ pub fn run_zero_copy_export(
                 render_rx,
                 step,
                 mb_samples,
-                mb_enabled,
                 render_tx,
                 render_to_decode_tx,
                 encode_to_render_rx,
@@ -414,7 +416,6 @@ fn run_render_thread(
     rx: mpsc::Receiver<DecodeOutput>,
     step: f64,
     mb_samples: u32,
-    mb_enabled: bool,
     tx: mpsc::SyncSender<RenderOutput>,
     recycle_decode_tx: mpsc::Sender<Vec<u8>>,
     recycle_render_rx: mpsc::Receiver<Vec<u8>>,
@@ -469,40 +470,43 @@ fn run_render_thread(
         // Cursor-only fast path: when only the cursor is blurred (scene is sharp),
         // render the scene once and composite the cursor N times at 1/N opacity each.
         // This avoids N full scene re-renders while still blurring the cursor.
-        let only_cursor_blur = mb_enabled && config.blur_cursor && !config.blur_zoom && !config.blur_pan;
+        let only_cursor_blur = mb_samples > 1
+            && config.blur_cursor_shutter > 0.0
+            && config.blur_zoom_shutter == 0.0
+            && config.blur_pan_shutter == 0.0;
         if only_cursor_blur {
             // Scene pass: render background + video with cursor at base_time, clear=true.
             let mut scene_u = build_uniforms(msg.source_time, msg.source_time, msg.source_time, msg.source_time);
             scene_u.render_mode = 1.0; // scene only, cursor skipped
             compositor.render_to_output(&scene_u, true);
             // Cursor blur passes: N renders at different sub-times, each at 1/N opacity.
-            let half_shutter = step * config.motion_blur_shutter * 0.5;
             let opacity_scale = 1.0 / mb_samples as f32;
+            let cursor_shutter = step * config.blur_cursor_shutter;
             for i in 0..mb_samples {
                 let t = if mb_samples > 1 {
                     i as f64 / (mb_samples - 1) as f64
                 } else {
                     0.5
                 };
-                let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
+                let sub_time = msg.source_time - (cursor_shutter * 0.5) + t * cursor_shutter;
                 let mut cursor_u = build_uniforms(msg.source_time, msg.source_time, msg.source_time, sub_time);
-                cursor_u.render_mode = 2.0; // cursor only; ALPHA_BLENDING composites over scene
+                cursor_u.render_mode = 2.0;
                 cursor_u.cursor_opacity *= opacity_scale;
                 compositor.render_to_output(&cursor_u, false); // load existing scene
             }
-        } else if mb_enabled {
-            let half_shutter = step * config.motion_blur_shutter * 0.5;
+        } else if mb_samples > 1 {
+            let zoom_shutter = step * config.blur_zoom_shutter;
+            let pan_shutter = step * config.blur_pan_shutter;
+            let cursor_shutter = step * config.blur_cursor_shutter;
             for i in 0..mb_samples {
                 let t = if mb_samples > 1 {
                     i as f64 / (mb_samples - 1) as f64
                 } else {
                     0.5
                 };
-                let sub_time = msg.source_time - half_shutter + t * 2.0 * half_shutter;
-                // Isolate blur per channel: disabled channels sample base_time (sharp).
-                let pan_time  = if config.blur_pan    { sub_time } else { msg.source_time };
-                let zoom_time = if config.blur_zoom   { sub_time } else { msg.source_time };
-                let cur_time  = if config.blur_cursor { sub_time } else { msg.source_time };
+                let pan_time = msg.source_time - (pan_shutter * 0.5) + t * pan_shutter;
+                let zoom_time = msg.source_time - (zoom_shutter * 0.5) + t * zoom_shutter;
+                let cur_time = msg.source_time - (cursor_shutter * 0.5) + t * cursor_shutter;
                 let uniforms = build_uniforms(msg.source_time, pan_time, zoom_time, cur_time);
                 let weight = 1.0 / (i as f64 + 1.0);
                 compositor.render_accumulate(&uniforms, i == 0, weight);

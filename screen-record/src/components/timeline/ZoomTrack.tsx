@@ -326,10 +326,12 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
           const peakOpacity = Math.min(0.35, 0.08 + (keyframe.zoomFactor - 1) * 0.15);
           const rangeWidth = rangeEnd - rangeStart;
           const peakPct = rangeWidth > 0 ? ((keyframe.time - rangeStart) / rangeWidth) * 100 : 50;
+          const showLeftHandle = rangeWidth > 0 && (keyframe.time - rangeStart) > 0.05;
 
           return (
             <React.Fragment key={index}>
               {/* Left range handle */}
+              {showLeftHandle && (
               <div
                 className="zoom-range-handle absolute inset-y-0 w-3 cursor-col-resize z-30 pointer-events-auto group/handle"
                 style={{ left: `calc(${(rangeStart / duration) * 100}% - 6px)` }}
@@ -363,6 +365,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
                   }`}
                 />
               </div>
+              )}
               {/* Gradient range background (visual only — pointer-events-none to not block green curve) */}
               <div
                 className={`zoom-range-bg absolute inset-y-0 pointer-events-none ${
@@ -376,7 +379,7 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
               />
               {/* Diamond marker + zoom pill */}
               <div
-                className="zoom-keyframe-marker absolute pointer-events-auto cursor-pointer group"
+                className="zoom-keyframe-marker absolute pointer-events-auto cursor-pointer group z-40"
                 style={{
                   left: `${(keyframe.time / duration) * 100}%`,
                   transform: 'translateX(-50%)',

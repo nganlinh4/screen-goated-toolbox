@@ -506,7 +506,7 @@ export function useTimelineDrag({
   }, [onSeek, videoRef, setCurrentTime, setEditingKeyframeId, setEditingKeystrokeId, setActivePanel]);
 
   // Unified mouse handlers for TimelineArea
-  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom) return;
     setIsDraggingSeek(true);
     setEditingTextId(null);
@@ -515,7 +515,7 @@ export function useTimelineDrag({
     handleSeek(e.clientX);
   }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, setEditingTextId, setEditingKeystrokeId, setEditingPointerId, handleSeek]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     handleTrimDrag(e.clientX);
     handleTextDrag(e.clientX);
     handleKeystrokeDrag(e.clientX);
@@ -559,7 +559,7 @@ export function useTimelineDrag({
     const anyDragging = isDraggingTrimStart || isDraggingTrimEnd || isDraggingTextStart || isDraggingTextEnd || isDraggingTextBody || isDraggingKeystrokeStart || isDraggingKeystrokeEnd || isDraggingKeystrokeBody || isDraggingPointerStart || isDraggingPointerEnd || isDraggingPointerBody || isDraggingZoom || isDraggingSeek;
     if (!anyDragging) return;
 
-    const onMove = (e: MouseEvent) => {
+    const onMove = (e: PointerEvent) => {
       handleTrimDrag(e.clientX);
       handleTextDrag(e.clientX);
       handleKeystrokeDrag(e.clientX);
@@ -569,11 +569,13 @@ export function useTimelineDrag({
     };
     const onUp = () => handleMouseUp();
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, [isDraggingTrimStart, isDraggingTrimEnd, isDraggingTextStart, isDraggingTextEnd, isDraggingTextBody, isDraggingKeystrokeStart, isDraggingKeystrokeEnd, isDraggingKeystrokeBody, isDraggingPointerStart, isDraggingPointerEnd, isDraggingPointerBody, isDraggingZoom, isDraggingSeek, handleTrimDrag, handleTextDrag, handleKeystrokeDrag, handlePointerDrag, handleZoomDrag, handleSeek, handleMouseUp]);
 

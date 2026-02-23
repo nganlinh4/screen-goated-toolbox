@@ -1486,28 +1486,26 @@ export class VideoRenderer {
       };
 
       // --- Motion blur detection ---
-      // Match GPU export pipeline logic exactly for perfect WYSIWYG
       const blurZoomVal = backgroundConfig.motionBlurZoom ?? 10;
       const blurPanVal = backgroundConfig.motionBlurPan ?? 10;
       const blurCursorVal = backgroundConfig.motionBlurCursor ?? 25;
       const maxBlurVal = Math.max(blurZoomVal, blurPanVal, blurCursorVal) / 100.0;
       const anyBlurEnabled = maxBlurVal > 0.0001;
-      const mbSamples = anyBlurEnabled ? Math.max(2, Math.min(8, Math.ceil(maxBlurVal * 8.0))) : 1;
-      const mbShutter = anyBlurEnabled ? Math.max(0, Math.min(1.0, maxBlurVal)) : 0;
 
-      // Use 60fps as the target output fps to simulate motion blur identical to export
       const exportStep = 1 / 60;
-      const shutterSec = mbShutter * exportStep;
+      const zoomShutterSec = (blurZoomVal / 100.0) * exportStep;
+      const panShutterSec = (blurPanVal / 100.0) * exportStep;
       const cursorShutterSec = (blurCursorVal / 100.0) * exportStep;
+      const maxShutterSec = Math.max(zoomShutterSec, panShutterSec, cursorShutterSec);
 
-      // Use the same sample count as export to guarantee WYSIWYG
-      const N = mbSamples;
+      const isPlaying = !video.paused;
+      const targetSamples = anyBlurEnabled ? Math.max(2, Math.min(8, Math.ceil(maxBlurVal * 8.0))) : 1;
+      const N = isExportMode ? targetSamples : (isPlaying ? Math.min(targetSamples, 3) : targetSamples);
 
-      // Check if camera/cursor is actually moving
       let cameraMoving = false;
       let cursorMoving = false;
-      if (anyBlurEnabled && shutterSec > 0) {
-        const halfShutter = shutterSec / 2;
+      if (anyBlurEnabled && maxShutterSec > 0) {
+        const halfShutter = maxShutterSec / 2;
         const t0 = video.currentTime - halfShutter;
         const t1 = video.currentTime + halfShutter;
         if (blurZoomVal > 0 || blurPanVal > 0) {
@@ -1519,22 +1517,20 @@ export class VideoRenderer {
           }
         }
         if (blurCursorVal > 0 && shouldRenderCustomCursor && interpolatedPosition) {
-          const c0 = this.interpolateCursorPosition(t0 + this.getCursorMovementDelaySec(backgroundConfig), mousePositions, backgroundConfig);
-          const c1 = this.interpolateCursorPosition(t1 + this.getCursorMovementDelaySec(backgroundConfig), mousePositions, backgroundConfig);
+          const delay = this.getCursorMovementDelaySec(backgroundConfig);
+          const c0 = this.interpolateCursorPosition(t0 + delay, mousePositions, backgroundConfig);
+          const c1 = this.interpolateCursorPosition(t1 + delay, mousePositions, backgroundConfig);
           if (c0 && c1 && Math.hypot(c1.x - c0.x, c1.y - c0.y) > 1.0) cursorMoving = true;
         }
       }
 
       ctx.save();
 
-      if (cameraMoving) {
-        // --- CAMERA BLUR PATH: render each sub-frame to temp canvas, accumulate with lighter ---
-        // Ensure accumulation canvas
+      if (cameraMoving && N > 1) {
         if (!this.blurAccumCanvas || this.blurAccumCanvas.width !== canvasW || this.blurAccumCanvas.height !== canvasH) {
           this.blurAccumCanvas = new OffscreenCanvas(canvasW, canvasH);
           this.blurAccumCtx = this.blurAccumCanvas.getContext('2d')!;
         }
-        // Ensure sub-frame canvas (rendered with NORMAL compositing, then blitted additively)
         if (!this.blurSubCanvas || this.blurSubCanvas.width !== canvasW || this.blurSubCanvas.height !== canvasH) {
           this.blurSubCanvas = new OffscreenCanvas(canvasW, canvasH);
           this.blurSubCtx = this.blurSubCanvas.getContext('2d')!;
@@ -1543,32 +1539,28 @@ export class VideoRenderer {
         const sCtx = this.blurSubCtx!;
         aCtx.clearRect(0, 0, canvasW, canvasH);
 
-        const centerZoom = zoomState;
         for (let i = 0; i < N; i++) {
-          const f = N > 1 ? i / (N - 1) : 0.5; // 0.0 to 1.0
-          const cameraSubT = video.currentTime - (shutterSec / 2) + f * shutterSec;
+          const f = N > 1 ? i / (N - 1) : 0.5;
+          const cameraZoomSubT = video.currentTime - (zoomShutterSec / 2) + f * zoomShutterSec;
+          const cameraPanSubT = video.currentTime - (panShutterSec / 2) + f * panShutterSec;
           const cursorSubT = video.currentTime + this.getCursorMovementDelaySec(backgroundConfig) - (cursorShutterSec / 2) + f * cursorShutterSec;
 
-          // Sample camera — cherry-pick per channel
-          const subCamState = this.calculateCurrentZoomState(cameraSubT, segment, canvasW, canvasH, srcW, srcH);
-          const subZoom: ZoomKeyframe | null = subCamState ? {
-            ...subCamState,
-            zoomFactor: blurZoomVal > 0 ? subCamState.zoomFactor : (centerZoom?.zoomFactor ?? 1),
-            positionX: blurPanVal > 0 ? subCamState.positionX : (centerZoom?.positionX ?? 0.5),
-            positionY: blurPanVal > 0 ? subCamState.positionY : (centerZoom?.positionY ?? 0.5),
-          } : centerZoom;
+          const zState = this.calculateCurrentZoomState(cameraZoomSubT, segment, canvasW, canvasH, srcW, srcH);
+          const pState = this.calculateCurrentZoomState(cameraPanSubT, segment, canvasW, canvasH, srcW, srcH);
+          const subZoom: ZoomKeyframe | null = zState ? {
+            ...zState,
+            zoomFactor: blurZoomVal > 0 ? zState.zoomFactor : (zoomState?.zoomFactor ?? 1),
+            positionX: blurPanVal > 0 && pState ? pState.positionX : (zoomState?.positionX ?? 0.5),
+            positionY: blurPanVal > 0 && pState ? pState.positionY : (zoomState?.positionY ?? 0.5),
+          } : zoomState;
 
           const subCur = cursorMoving
             ? this.interpolateCursorPosition(cursorSubT, mousePositions, backgroundConfig)
             : interpolatedPosition;
 
-          // Render sub-frame with NORMAL compositing to temp canvas
           sCtx.clearRect(0, 0, canvasW, canvasH);
           drawSubFrame(sCtx, subZoom, subCur);
 
-          // Accumulate onto blur canvas with source-over averaging
-          // Online average: frame_i gets alpha = 1/(i+1), blending equally with all prior frames
-          // This avoids 8-bit quantization banding that 'lighter' with 1/N alpha causes
           aCtx.save();
           aCtx.globalAlpha = 1 / (i + 1);
           aCtx.drawImage(this.blurSubCanvas!, 0, 0);
@@ -1578,7 +1570,7 @@ export class VideoRenderer {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.drawImage(this.blurAccumCanvas, 0, 0);
 
-      } else if (cursorMoving && showCursor) {
+      } else if (cursorMoving && showCursor && N > 1) {
         // --- CURSOR-ONLY BLUR PATH: single video draw + multi-cursor ---
         drawSubFrame(ctx, zoomState, null);
 

@@ -1027,9 +1027,6 @@ function BlurPanel({ backgroundConfig, setBackgroundConfig, beginBatch, commitBa
             </div>
           ))}
         </div>
-        <p className="blur-gpu-note text-[10px] text-[var(--on-surface-variant)] leading-relaxed opacity-70">
-          {t.motionBlurNote}
-        </p>
       </div>
     </div>
   );
