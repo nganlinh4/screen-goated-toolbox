@@ -115,10 +115,12 @@ export function useVideoPlayback({
     try { return canvasRef.current.toDataURL('image/jpeg', 0.5); } catch { return undefined; }
   }, []);
 
-  const generateThumbnails = useCallback(async () => {
+  const generateThumbnails = useCallback(async (filePathOverride?: string) => {
     if (!currentVideo || !segment) return;
     const newThumbnails = await thumbnailGenerator.generateThumbnails(currentVideo, 20, {
-      trimStart: segment.trimStart, trimEnd: segment.trimEnd
+      trimStart: segment.trimStart,
+      trimEnd: segment.trimEnd,
+      filePath: filePathOverride
     });
     setThumbnails(newThumbnails);
   }, [currentVideo, segment]);
@@ -219,7 +221,7 @@ interface UseRecordingProps {
   setThumbnails: (thumbnails: string[]) => void;
   setDuration: (duration: number) => void;
   setCurrentTime: (time: number) => void;
-  generateThumbnails: () => void;
+  generateThumbnails: (filePathOverride?: string) => void;
   generateThumbnail: () => string | undefined;
   renderFrame: () => void;
   currentVideo: string | null;
@@ -314,7 +316,7 @@ export function useRecording(props: UseRecordingProps) {
         }
 
         props.setIsVideoReady(true);
-        props.generateThumbnails();
+        props.generateThumbnails(videoPath || undefined);
 
         const videoDuration = props.videoRef.current?.duration || 0;
         const maxMouseTimestamp = rawMouseData.reduce((max, entry) => {
@@ -477,7 +479,16 @@ export function useProjects(props: UseProjectsProps) {
     props.setCurrentAudio(null);
 
     const videoObjectUrl = await props.videoControllerRef.current?.loadVideo({ videoBlob: project.videoBlob });
-    if (videoObjectUrl) props.setCurrentVideo(videoObjectUrl);
+    if (videoObjectUrl) {
+      props.setCurrentVideo(videoObjectUrl);
+      if (project.rawVideoPath) {
+        thumbnailGenerator.generateThumbnails(videoObjectUrl, 20, {
+          trimStart: project.segment.trimStart,
+          trimEnd: project.segment.trimEnd,
+          filePath: project.rawVideoPath
+        }).then(props.setThumbnails).catch(() => {});
+      }
+    }
 
     if (project.audioBlob) {
       const audioObjectUrl = await props.videoControllerRef.current?.loadAudio({ audioBlob: project.audioBlob });
@@ -608,10 +619,24 @@ interface UseExportProps {
   currentVideo: string | null;
 }
 
+interface NativeVideoMetadataProbe {
+  width: number;
+  height: number;
+  fps: number;
+  fpsNum: number;
+  fpsDen: number;
+}
+
 export function useExport(props: UseExportProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showExportSuccessDialog, setShowExportSuccessDialog] = useState(false);
+  const [lastExportedPath, setLastExportedPath] = useState('');
+  const [sourceVideoFps, setSourceVideoFps] = useState<number | null>(null);
+  const [exportAutoCopyEnabled, setExportAutoCopyEnabled] = useState(() => {
+    try { return localStorage.getItem('screen-record-export-auto-copy-v1') === '1'; } catch { return false; }
+  });
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
     width: 0,
     height: 0,
@@ -626,6 +651,10 @@ export function useExport(props: UseExportProps) {
     outputDir: ''
   });
   const [hasCheckedExportCapabilities, setHasCheckedExportCapabilities] = useState(false);
+
+  useEffect(() => {
+    try { localStorage.setItem('screen-record-export-auto-copy-v1', exportAutoCopyEnabled ? '1' : '0'); } catch {}
+  }, [exportAutoCopyEnabled]);
 
   const handleExport = useCallback(() => setShowExportDialog(true), []);
 
@@ -646,6 +675,35 @@ export function useExport(props: UseExportProps) {
     props.rawVideoPath,
     props.savedRawVideoPath
   ]);
+
+  useEffect(() => {
+    if (!showExportDialog) return;
+
+    const sourceVideoPath = resolveSourceVideoPath();
+    if (!sourceVideoPath) {
+      setSourceVideoFps(null);
+      return;
+    }
+
+    let cancelled = false;
+    void invoke<Partial<NativeVideoMetadataProbe>>('probe_video_metadata', { path: sourceVideoPath })
+      .then((metadata) => {
+        if (cancelled) return;
+        const fps = typeof metadata?.fps === 'number' && Number.isFinite(metadata.fps) && metadata.fps > 0
+          ? metadata.fps
+          : null;
+        setSourceVideoFps(fps);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn('[Export] Source video metadata probe failed:', error);
+        setSourceVideoFps(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showExportDialog, resolveSourceVideoPath]);
 
   useEffect(() => {
     let cancelled = false;
@@ -871,7 +929,7 @@ export function useExport(props: UseExportProps) {
       setIsProcessing(true);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
-      await videoExporter.exportAndDownload({
+      const res = await videoExporter.exportAndDownload({
         width: exportOptions.width, height: exportOptions.height, fps: exportOptions.fps, targetVideoBitrateKbps: exportOptions.targetVideoBitrateKbps, speed: exportOptions.speed,
         exportProfile: exportOptions.exportProfile || 'turbo_nv',
         preferNvTurbo: exportOptions.preferNvTurbo ?? true,
@@ -886,6 +944,13 @@ export function useExport(props: UseExportProps) {
         videoFilePath: sourceVideoPath,
         onProgress: setExportProgress
       });
+      if (res?.status === 'success' && typeof res.path === 'string' && res.path) {
+        setLastExportedPath(res.path);
+        setShowExportSuccessDialog(true);
+        if (exportAutoCopyEnabled) {
+          invoke('copy_video_file_to_clipboard', { filePath: res.path }).catch(console.error);
+        }
+      }
     } catch (error) {
       console.error('[Export] Error:', error);
     } finally {
@@ -904,7 +969,9 @@ export function useExport(props: UseExportProps) {
 
   return {
     isProcessing, exportProgress, showExportDialog, setShowExportDialog,
-    exportOptions, setExportOptions, handleExport, startExport, cancelExport, hasAudio
+    exportOptions, setExportOptions, handleExport, startExport, cancelExport, hasAudio,
+    showExportSuccessDialog, setShowExportSuccessDialog, lastExportedPath, setLastExportedPath,
+    exportAutoCopyEnabled, setExportAutoCopyEnabled, sourceVideoFps
   };
 }
 

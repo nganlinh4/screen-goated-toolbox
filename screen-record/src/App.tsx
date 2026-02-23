@@ -15,11 +15,11 @@ import {
 } from '@/hooks/useVideoState';
 
 import { Header } from '@/components/Header';
-import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay } from '@/components/VideoPreview';
+import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay, SeekIndicator } from '@/components/VideoPreview';
 import { SidePanel, ActivePanel } from '@/components/SidePanel';
 import {
   ProcessingOverlay, ExportDialog,
-  MonitorSelectDialog, HotkeyDialog, RawVideoDialog
+  MonitorSelectDialog, HotkeyDialog, RawVideoDialog, ExportSuccessDialog
 } from '@/components/Dialogs';
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
@@ -175,6 +175,8 @@ function App() {
   const [isKeystrokeResizeHandleHover, setIsKeystrokeResizeHandleHover] = useState(false);
   const [isKeystrokeResizeDragging, setIsKeystrokeResizeDragging] = useState(false);
   const rawButtonFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [seekIndicatorKey, setSeekIndicatorKey] = useState(0);
+  const [seekIndicatorDir, setSeekIndicatorDir] = useState<'left' | 'right'>('right');
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
   const persistRef = useRef<typeof persistCurrentProjectNow>(null!);
   const debugProject = useCallback((event: string, data?: Record<string, unknown>) => {
@@ -238,6 +240,10 @@ function App() {
     savedRawVideoPath: lastRawSavedPath,
     currentVideo
   });
+
+  const handleExportSuccessPathChange = useCallback(async (newPath: string) => {
+    exportHook.setLastExportedPath(newPath);
+  }, [exportHook]);
 
   // Zoom keyframes
   const zoomKeyframes = useZoomKeyframes({
@@ -526,6 +532,8 @@ function App() {
       setIsRawActionBusy(false);
     }
   }, [ensureRawVideoSaved, flashRawSavedButton]);
+  void handleChangeRawSavePath;
+  void handleCopyRawVideo;
 
   const handleToggleRawAutoCopy = useCallback(async (enabled: boolean) => {
     setRawAutoCopyEnabled(enabled);
@@ -892,6 +900,20 @@ function App() {
         if (e.target instanceof HTMLElement) e.target.blur(); // Unfocus anything so Space keyup doesn't activate it
         togglePlayPause();
       }
+      if (e.code === 'ArrowLeft' && !isTextInput) {
+        e.preventDefault();
+        const next = Math.max(0, currentTime - 5);
+        seek(next);
+        setSeekIndicatorDir('left');
+        setSeekIndicatorKey(Date.now());
+      }
+      if (e.code === 'ArrowRight' && !isTextInput) {
+        e.preventDefault();
+        const next = Math.min(duration, currentTime + 5);
+        seek(next);
+        setSeekIndicatorDir('right');
+        setSeekIndicatorKey(Date.now());
+      }
       if ((e.code === 'Delete' || e.code === 'Backspace') && !isTextInput) {
         if (editingKeystrokeSegmentId) {
           handleDeleteKeystrokeSegment();
@@ -912,7 +934,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, editingTextId, editingPointerId, editingKeystrokeSegmentId, handleDeleteText, handleDeletePointerSegment, handleDeleteKeystrokeSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping]);
+  }, [editingKeyframeId, editingTextId, editingPointerId, editingKeystrokeSegmentId, handleDeleteText, handleDeletePointerSegment, handleDeleteKeystrokeSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping, currentTime, duration, seek]);
 
   // Wheel zoom
   useEffect(() => {
@@ -1227,19 +1249,10 @@ function App() {
                       commitBatch={commitBatch}
                     />
                   )}
+
+                  <SeekIndicator dir={seekIndicatorDir} showKey={seekIndicatorKey} />
                 </div>
 
-                {/* Projects view — lives inside the preview area for native FLIP animation */}
-                {projects.showProjectsDialog && (
-                  <ProjectsView
-                    projects={projects.projects}
-                    onLoadProject={handleLoadProjectFromGrid}
-                    onProjectsChange={projects.loadProjects}
-                    onClose={() => projects.setShowProjectsDialog(false)}
-                    currentProjectId={projects.currentProjectId}
-                    restoreImage={restoreImageRef.current}
-                  />
-                )}
               </div>
             </div>
 
@@ -1415,6 +1428,20 @@ function App() {
         </div>
       </main>
 
+      {/* Absolute Projects View covering full screen below header */}
+      {projects.showProjectsDialog && (
+        <div className="absolute inset-0 top-[44px] z-[90]">
+          <ProjectsView
+            projects={projects.projects}
+            onLoadProject={handleLoadProjectFromGrid}
+            onProjectsChange={projects.loadProjects}
+            onClose={() => projects.setShowProjectsDialog(false)}
+            currentProjectId={projects.currentProjectId}
+            restoreImage={restoreImageRef.current}
+          />
+        </div>
+      )}
+
       {/* Dialogs */}
       <ProcessingOverlay show={exportHook.isProcessing} exportProgress={0} onCancel={exportHook.cancelExport} />
       <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
@@ -1427,16 +1454,24 @@ function App() {
       <ExportDialog show={exportHook.showExportDialog} onClose={() => exportHook.setShowExportDialog(false)}
         onExport={exportHook.startExport} exportOptions={exportHook.exportOptions}
         setExportOptions={exportHook.setExportOptions} segment={segment}
-        videoRef={videoRef} backgroundConfig={backgroundConfig} hasAudio={exportHook.hasAudio} />
+        videoRef={videoRef} backgroundConfig={backgroundConfig} hasAudio={exportHook.hasAudio}
+        sourceVideoFps={exportHook.sourceVideoFps} />
       <RawVideoDialog
         show={showRawVideoDialog}
         onClose={() => setShowRawVideoDialog(false)}
         savedPath={lastRawSavedPath}
         autoCopyEnabled={rawAutoCopyEnabled}
         isBusy={isRawActionBusy}
-        onChangePath={handleChangeRawSavePath}
-        onCopyVideo={handleCopyRawVideo}
+        onChangePath={(newPath: string) => setLastRawSavedPath(newPath)}
         onToggleAutoCopy={handleToggleRawAutoCopy}
+      />
+      <ExportSuccessDialog
+        show={exportHook.showExportSuccessDialog}
+        onClose={() => exportHook.setShowExportSuccessDialog(false)}
+        filePath={exportHook.lastExportedPath}
+        onFilePathChange={handleExportSuccessPathChange}
+        autoCopyEnabled={exportHook.exportAutoCopyEnabled}
+        onToggleAutoCopy={exportHook.setExportAutoCopyEnabled}
       />
       <HotkeyDialog show={showHotkeyDialog} onClose={closeHotkeyDialog} />
     </div>

@@ -17,8 +17,27 @@ export class ThumbnailGenerator {
       quality?: number;
       trimStart?: number;
       trimEnd?: number;
+      filePath?: string;
     }
   ): Promise<string[]> {
+    if (options?.filePath && !options.filePath.startsWith('blob:')) {
+      try {
+        const { invoke } = await import('@/lib/ipc');
+        const b64s = await invoke<string[]>('generate_thumbnails', {
+          path: options.filePath,
+          count: numThumbnails,
+          start: options.trimStart || 0,
+          end: options.trimEnd || 0
+        });
+        if (b64s && b64s.length > 0) {
+          const px = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+          return b64s.map((b) => b || px);
+        }
+      } catch (e) {
+        console.warn('[Thumbnail] Native generation failed, falling back to HTML5', e);
+      }
+    }
+
     this.video.src = videoUrl;
     await new Promise(r => this.video.addEventListener('loadeddata', r, { once: true }));
 
