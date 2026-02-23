@@ -14,7 +14,6 @@ import {
   type ResolutionOption
 } from '@/lib/videoExporter';
 import { getTotalTrimDuration } from '@/lib/trimSegments';
-import { formatTime } from '@/utils/helpers';
 import { MonitorInfo, Hotkey } from '@/hooks/useAppHooks';
 import { useSettings } from '@/hooks/useSettings';
 
@@ -250,7 +249,6 @@ export function ExportDialog({
     fps: exportOptions.fps,
     targetVideoBitrateKbps,
     trimmedDurationSec,
-    speed: exportOptions.speed,
     hasAudio,
     backgroundConfig,
     segment
@@ -461,39 +459,6 @@ export function ExportDialog({
                 >
                   {t.standard}
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="export-speed-field">
-            <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.speed}</label>
-            <div className="speed-control bg-[var(--glass-bg)] rounded-lg p-3">
-              <div className="speed-display flex items-center justify-between mb-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm text-[var(--on-surface)] tabular-nums">
-                    {formatTime(sizeEstimate.outputDurationSec)}
-                  </span>
-                  {trimmedDurationSec > 0 && exportOptions.speed !== 1 && (
-                    <span className={`text-xs ${exportOptions.speed > 1 ? 'text-red-600 dark:text-red-400/90' : 'text-emerald-700 dark:text-green-400/90'}`}>
-                      {exportOptions.speed > 1 ? '↓' : '↑'}
-                      {formatTime(Math.abs(trimmedDurationSec - sizeEstimate.outputDurationSec))}
-                    </span>
-                  )}
-                </div>
-                <span className="text-sm font-medium text-[var(--on-surface)] tabular-nums">{Math.round(exportOptions.speed * 100)}%</span>
-              </div>
-              <div className="speed-slider-row flex items-center gap-3">
-                <span className="speed-slider-label speed-slider-label-slower text-xs text-[var(--on-surface-variant)] min-w-[36px]">{t.slower}</span>
-                <input
-                  type="range"
-                  min="50"
-                  max="200"
-                  step="10"
-                  value={exportOptions.speed * 100}
-                  onChange={(e) => setExportOptions(prev => ({ ...prev, speed: Number(e.target.value) / 100 }))}
-                  className="flex-1 h-1 rounded"
-                />
-                <span className="speed-slider-label speed-slider-label-faster text-xs text-[var(--on-surface-variant)] min-w-[36px]">{t.faster}</span>
               </div>
             </div>
           </div>

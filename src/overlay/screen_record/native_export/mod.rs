@@ -514,7 +514,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         output_height: out_h,
         framerate: config.framerate,
         bitrate_kbps: bitrate,
-        speed: config.speed,
+        speed_points: {
+            let mut points = config.segment.speed_points.clone();
+            points.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+            points
+        },
         trim_start: config.trim_start,
         duration: config.duration,
         codec: mf_encode::VideoCodec::H264,
@@ -530,13 +534,17 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         overlay_frames,
     };
 
+    let source_times = gpu_pipeline::build_frame_times(&pipeline_config);
+    let total_frames = source_times.len() as u32;
+    let planned_output_duration_sec = total_frames as f64 / config.framerate as f64;
+
     let progress_cb: gpu_pipeline::ProgressCallback = Box::new(|pct, eta| {
         push_export_progress(pct, eta);
     });
 
     println!(
-        "[Export] Pipeline config: {}x{} @ {} fps, bitrate={}k, speed={:.2}, trim_start={:.3}, dur={:.3}",
-        out_w, out_h, config.framerate, bitrate, config.speed, config.trim_start, config.duration
+        "[Export] Pipeline config: {}x{} @ {} fps, bitrate={}k, trim_start={:.3}, dur={:.3}, output_dur={:.3}",
+        out_w, out_h, config.framerate, bitrate, config.trim_start, config.duration, planned_output_duration_sec
     );
 
     let result = gpu_pipeline::run_zero_copy_export(
@@ -545,6 +553,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         &build_uniforms,
         Some(progress_cb),
         &EXPORT_CANCELLED,
+        &source_times,
     );
 
     let _ = mf_decode::mf_shutdown();
@@ -565,7 +574,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             let output_bytes = fs::metadata(&final_output_path)
                 .map(|m| m.len())
                 .unwrap_or(0);
-            let output_duration_sec = (config.duration / config.speed.max(0.1)).max(0.001);
+            let output_duration_sec = (r.frames_encoded as f64 / config.framerate as f64).max(0.001);
             let actual_total_bitrate_kbps =
                 (output_bytes as f64 * 8.0 / output_duration_sec / 1000.0).max(0.0);
 
@@ -587,8 +596,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             };
 
             println!(
-                "[Export][Summary] status=success out={}x{} fps={} speed={:.2} dur={:.3}s frames={} parse={:.3}s gpu={:.3}s cursor={:.3}s total={:.3}s pipeline=zero_copy actual_kbps={:.1}",
-                out_w, out_h, config.framerate, config.speed, config.duration,
+                "[Export][Summary] status=success out={}x{} fps={} dur={:.3}s frames={} parse={:.3}s gpu={:.3}s cursor={:.3}s total={:.3}s pipeline=zero_copy actual_kbps={:.1}",
+                out_w, out_h, config.framerate, config.duration,
                 r.frames_encoded, parse_secs, gpu_device_secs, cursor_init_secs,
                 total_secs, actual_total_bitrate_kbps
             );

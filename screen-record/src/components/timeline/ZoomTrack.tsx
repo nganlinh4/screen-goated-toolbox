@@ -103,24 +103,25 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   const generatePath = () => {
     if (points.length === 0) return 'M 0 20 L 100 20';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    let d = '';
-    const steps = 100;
-    for (let i = 0; i <= steps; i++) {
-      const t = (i / steps) * duration;
-      let v = 1.0;
-      const idx = sorted.findIndex(p => p.time >= t);
-      if (idx === -1) v = sorted[sorted.length - 1].value;
-      else if (idx === 0) v = sorted[0].value;
-      else {
-        const p1 = sorted[idx - 1];
-        const p2 = sorted[idx];
-        const ratio = (t - p1.time) / (p2.time - p1.time);
-        const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
-        v = p1.value * (1 - cosT) + p2.value * cosT;
-      }
-      const y = 4 + (1 - v) * 32;
-      d += `${i === 0 ? 'M' : 'L'} ${i} ${y} `;
+    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toY = (value: number) => 4 + (1 - value) * 32;
+    const x0 = toX(sorted[0].time);
+    const y0 = toY(sorted[0].value);
+    let d = `M 0 ${y0} `;
+    if (x0 > 0) d += `L ${x0} ${y0} `;
+    for (let i = 1; i < sorted.length; i++) {
+      const p1 = sorted[i - 1];
+      const p2 = sorted[i];
+      const x1 = toX(p1.time);
+      const y1 = toY(p1.value);
+      const x2 = toX(p2.time);
+      const y2 = toY(p2.value);
+      const dx = x2 - x1;
+      d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
     }
+    const xLast = toX(sorted[sorted.length - 1].time);
+    const yLast = toY(sorted[sorted.length - 1].value);
+    if (xLast < 100) d += `L 100 ${yLast} `;
     return d;
   };
 
@@ -128,25 +129,23 @@ export const ZoomTrack: React.FC<ZoomTrackProps> = ({
   const generateFillPath = () => {
     if (points.length === 0) return '';
     const sorted = [...points].sort((a, b) => a.time - b.time);
-    let d = 'M 0 40 ';
-    const steps = 100;
-    for (let i = 0; i <= steps; i++) {
-      const t = (i / steps) * duration;
-      let v = 1.0;
-      const idx = sorted.findIndex(p => p.time >= t);
-      if (idx === -1) v = sorted[sorted.length - 1].value;
-      else if (idx === 0) v = sorted[0].value;
-      else {
-        const p1 = sorted[idx - 1];
-        const p2 = sorted[idx];
-        const ratio = (t - p1.time) / (p2.time - p1.time);
-        const cosT = (1 - Math.cos(ratio * Math.PI)) / 2;
-        v = p1.value * (1 - cosT) + p2.value * cosT;
-      }
-      const y = 4 + (1 - v) * 32;
-      d += `L ${i} ${y} `;
+    const toX = (time: number) => (duration > 0 ? (time / duration) * 100 : 0);
+    const toY = (value: number) => 4 + (1 - value) * 32;
+    const x0 = toX(sorted[0].time);
+    const y0 = toY(sorted[0].value);
+    let d = `M 0 40 L ${x0} 40 L ${x0} ${y0} `;
+    for (let i = 1; i < sorted.length; i++) {
+      const p1 = sorted[i - 1];
+      const p2 = sorted[i];
+      const x1 = toX(p1.time);
+      const y1 = toY(p1.value);
+      const x2 = toX(p2.time);
+      const y2 = toY(p2.value);
+      const dx = x2 - x1;
+      d += `C ${x1 + dx / 2} ${y1}, ${x2 - dx / 2} ${y2}, ${x2} ${y2} `;
     }
-    d += 'L 100 40 Z';
+    const xLast = toX(sorted[sorted.length - 1].time);
+    d += `L ${xLast} 40 L 100 40 Z`;
     return d;
   };
 

@@ -980,6 +980,7 @@ function App() {
           }],
           zoomKeyframes: [],
           textSegments: [],
+          speedPoints: [{ time: 0, speed: 1 }, { time: duration, speed: 1 }],
           keystrokeMode: 'off',
           keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
           keystrokeEvents: [],

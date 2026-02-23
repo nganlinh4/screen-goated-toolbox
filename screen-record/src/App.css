@@ -272,3 +272,11 @@ textarea.subtle-resize::-webkit-resizer {
         rgba(255, 255, 255, 0) 56%
     );
 }
+
+body.dragging-speed-point * {
+    cursor: ns-resize !important;
+}
+
+body.dragging-speed-point .timeline-content > div > *:not(.speed-track) {
+    pointer-events: none !important;
+}

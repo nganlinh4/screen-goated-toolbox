@@ -1,28 +1,4 @@
-use super::config::{BakedCameraFrame, ParsedBakedCursorFrame, TrimSegment};
-
-/// Map compact output time -> source time using trim segments.
-/// Baked paths now use source time keys, so the export frame loop needs this mapping.
-pub fn output_to_source_time(
-    output_time: f64,
-    trim_segments: &[TrimSegment],
-    trim_start: f64,
-) -> f64 {
-    if trim_segments.is_empty() {
-        return trim_start + output_time;
-    }
-    let mut remaining = output_time;
-    for seg in trim_segments {
-        let seg_len = seg.end_time - seg.start_time;
-        if remaining <= seg_len + 1e-9 {
-            return seg.start_time + remaining.min(seg_len);
-        }
-        remaining -= seg_len;
-    }
-    trim_segments
-        .last()
-        .map(|s| s.end_time)
-        .unwrap_or(output_time)
-}
+use super::config::{BakedCameraFrame, ParsedBakedCursorFrame};
 
 pub fn sample_baked_path(time: f64, baked_path: &[BakedCameraFrame]) -> (f64, f64, f64) {
     if baked_path.is_empty() {

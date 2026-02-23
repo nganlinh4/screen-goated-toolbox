@@ -1,6 +1,7 @@
 import { videoRenderer } from './videoRenderer';
 import type { VideoSegment, BackgroundConfig, MousePosition } from '@/types/video';
 import { clampToTrimSegments, getNextPlayableTime, getTrimSegments } from './trimSegments';
+import { getSpeedAtTime } from './videoExporter';
 
 interface VideoControllerOptions {
   videoRef: HTMLVideoElement;
@@ -131,6 +132,11 @@ export class VideoController {
     // Seeking (handleSeeked) and edits (updateRenderOptions) still trigger draws.
   };
 
+  private getSpeed(time: number): number {
+    if (!this.renderOptions?.segment?.speedPoints?.length) return 1.0;
+    return getSpeedAtTime(time, this.renderOptions.segment.speedPoints);
+  }
+
   private handleTimeUpdate = () => {
     if (this.isGeneratingThumbnail) return;
     if (!this.state.isSeeking && this.pendingSeekTime === null) {
@@ -144,9 +150,20 @@ export class VideoController {
 
       // Smooth audio sync: only correct if drift > 150ms to avoid audio stutter
       if (this.audio && !this.video.paused) {
+        const speed = this.video.playbackRate;
         const drift = Math.abs(this.video.currentTime - this.audio.currentTime);
-        if (drift > 0.15) {
+        if (drift > Math.max(0.15, 0.1 * speed)) {
           this.audio.currentTime = this.video.currentTime;
+        }
+      }
+
+      // Apply dynamic speed curve smoothly without resetting playback loop
+      if (!this.video.paused) {
+        const currentSpeed = this.getSpeed(currentTime);
+        const safeRate = Math.max(0.0625, Math.min(16.0, currentSpeed));
+        if (Math.abs(this.video.playbackRate - safeRate) > 0.05) {
+          this.video.playbackRate = safeRate;
+          if (this.audio) this.audio.playbackRate = safeRate;
         }
       }
 
