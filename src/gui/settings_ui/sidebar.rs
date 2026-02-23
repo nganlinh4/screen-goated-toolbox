@@ -545,7 +545,8 @@ fn render_preset_item_parts(
             let label_response = ui.selectable_label(is_selected, &display_name);
             let response = ui.interact(label_response.rect, label_response.id, egui::Sense::drag());
 
-            if label_response.clicked() {
+            // Drag interaction on the same rect can consume the first click.
+            if label_response.clicked() || response.clicked() {
                 *preset_idx_to_select = Some(idx);
             }
 
