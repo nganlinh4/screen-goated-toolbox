@@ -363,9 +363,23 @@ function App() {
     const rect = e.currentTarget.getBoundingClientRect();
     beginBatch();
     setIsPreviewDragging(true);
+    let lockedAxis: 'x' | 'y' | null = null;
 
     const handleMouseMove = (me: MouseEvent) => {
-      const dx = me.clientX - startX, dy = me.clientY - startY;
+      let dx = me.clientX - startX;
+      let dy = me.clientY - startY;
+
+      if (me.shiftKey) {
+        if (!lockedAxis) {
+          if (Math.abs(dx) > Math.abs(dy)) lockedAxis = 'x';
+          else lockedAxis = 'y';
+        }
+        if (lockedAxis === 'x') dy = 0;
+        if (lockedAxis === 'y') dx = 0;
+      } else {
+        lockedAxis = null;
+      }
+
       handleAddKeyframe({
         zoomFactor: z,
         positionX: Math.max(0, Math.min(1, startPosX - (dx / rect.width) / z)),

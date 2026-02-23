@@ -280,3 +280,19 @@ body.dragging-speed-point * {
 body.dragging-speed-point .timeline-content > div > *:not(.speed-track) {
     pointer-events: none !important;
 }
+
+body.dragging-ew * {
+    cursor: ew-resize !important;
+}
+
+body.dragging-ew .timeline-content > div {
+    pointer-events: none !important;
+}
+
+body.dragging-move * {
+    cursor: move !important;
+}
+
+body.dragging-move .timeline-content > div {
+    pointer-events: none !important;
+}
