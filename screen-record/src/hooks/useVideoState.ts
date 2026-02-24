@@ -21,7 +21,20 @@ import {
   rebuildKeystrokeVisibilitySegmentsForMode
 } from '@/lib/keystrokeVisibility';
 
-const DEFAULT_KEYSTROKE_DELAY_SEC = -0.33;
+const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
+const KEYSTROKE_DELAY_KEY = 'screen-record-keystroke-delay-v1';
+
+function getSavedKeystrokeDelaySec(): number {
+  try {
+    const raw = localStorage.getItem(KEYSTROKE_DELAY_KEY);
+    if (raw === null) return DEFAULT_KEYSTROKE_DELAY_SEC;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return DEFAULT_KEYSTROKE_DELAY_SEC;
+    return Math.max(-1, Math.min(1, n));
+  } catch {
+    return DEFAULT_KEYSTROKE_DELAY_SEC;
+  }
+}
 
 // ============================================================================
 // useVideoPlayback
@@ -358,15 +371,16 @@ export function useRecording(props: UseRecordingProps) {
           : [];
 
         const keystrokeEvents = buildKeystrokeEvents(rawInputEvents || [], timelineDuration);
+        const savedKeystrokeDelay = getSavedKeystrokeDelaySec();
         const keyboardVisibilitySegments = generateKeystrokeVisibilitySegments(
           filterKeystrokeEventsByMode(keystrokeEvents, 'keyboard'),
           timelineDuration,
-          { mode: 'keyboard', delaySec: DEFAULT_KEYSTROKE_DELAY_SEC }
+          { mode: 'keyboard', delaySec: savedKeystrokeDelay }
         );
         const keyboardMouseVisibilitySegments = generateKeystrokeVisibilitySegments(
           filterKeystrokeEventsByMode(keystrokeEvents, 'keyboardMouse'),
           timelineDuration,
-          { mode: 'keyboardMouse', delaySec: DEFAULT_KEYSTROKE_DELAY_SEC }
+          { mode: 'keyboardMouse', delaySec: savedKeystrokeDelay }
         );
 
         const initialSegment: VideoSegment = {
@@ -379,7 +393,7 @@ export function useRecording(props: UseRecordingProps) {
             ? [{ time: 0, value: 1.0 }, { time: timelineDuration, value: 1.0 }]
             : [],
           keystrokeMode: 'keyboard',
-          keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
+          keystrokeDelaySec: savedKeystrokeDelay,
           keystrokeEvents,
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,

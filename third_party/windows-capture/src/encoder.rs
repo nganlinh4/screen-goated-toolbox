@@ -208,18 +208,20 @@ impl FramePump {
         surface: SendDirectX<IDirect3DSurface>,
         max_pending: usize,
     ) -> bool {
-        let max_pending = max_pending.max(1);
-        if self.pending_video_frames.load(Ordering::Relaxed) >= max_pending {
-            self.dropped_video_frames.fetch_add(1, Ordering::Relaxed);
-            return false;
-        }
-
+        // Advance PTS clock unconditionally — even dropped frames must consume
+        // their slot in the timeline so video stays in sync with audio/mouse.
         let ts = TimeSpan {
             Duration: self.next_video_timestamp_100ns,
         };
         self.next_video_timestamp_100ns = self
             .next_video_timestamp_100ns
             .saturating_add(self.video_frame_interval_100ns);
+
+        let max_pending = max_pending.max(1);
+        if self.pending_video_frames.load(Ordering::Relaxed) >= max_pending {
+            self.dropped_video_frames.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
 
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
         self.frame_sender

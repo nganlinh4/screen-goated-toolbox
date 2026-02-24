@@ -38,8 +38,9 @@ const RECORDING_MODE_KEY = 'screen-record-recording-mode-v1';
 const CAPTURE_SOURCE_KEY = 'screen-record-capture-source-v1';
 const RAW_AUTO_COPY_KEY = 'screen-record-raw-auto-copy-v1';
 const RAW_SAVE_DIR_KEY = 'screen-record-raw-save-dir-v1';
+const KEYSTROKE_DELAY_KEY = 'screen-record-keystroke-delay-v1';
 const PROJECT_SAVE_DEBUG = true;
-const DEFAULT_KEYSTROKE_DELAY_SEC = -0.33;
+const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const sv = (v: number, min: number, max: number): CSSProperties =>
   ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
 
@@ -50,7 +51,7 @@ const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
   shadow: 100,
   volume: 1,
   cursorScale: 5,
-  cursorMovementDelay: 0.03,
+  cursorMovementDelay: 0,
   cursorShadow: 100,
   cursorWiggleStrength: 0.30,
   cursorTiltAngle: -10,
@@ -746,6 +747,7 @@ function App() {
     }
 
     setSegment(nextSegment);
+    try { localStorage.setItem(KEYSTROKE_DELAY_KEY, String(clamped)); } catch { /* ignore */ }
   }, [segment, setSegment, getKeystrokeTimelineDuration]);
 
   const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {

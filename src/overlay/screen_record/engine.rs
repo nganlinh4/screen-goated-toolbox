@@ -808,13 +808,14 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             let p_dropped = pump_dropped.clone();
             let encoder_for_pump = encoder_shared.clone();
             let tick = Duration::from_nanos((frame_interval_100ns * 100) as u64);
+            let start_time = start; // Anchor exactly to the global start time
             eprintln!(
                 "[FramePump] spawning pump thread: tick={:?} max_pending={}",
                 tick, ENCODER_MAX_PENDING_FRAMES
             );
             std::thread::spawn(move || {
                 eprintln!("[FramePump] pump thread started");
-                let mut next_tick = Instant::now() + tick;
+                let mut next_tick = start_time + tick;
                 let mut total_submitted: u64 = 0;
                 let mut total_dropped: u64 = 0;
                 loop {
@@ -867,16 +868,19 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                                 next_tick += tick;
                             }
                         } else {
-                            // No frame available yet — advance tick without submitting.
-                            while next_tick <= now {
-                                next_tick += tick;
-                            }
+                            // No frame available yet. We explicitly DO NOT advance next_tick.
+                            // When the delayed first frame finally arrives, the pump will
+                            // burst-submit to backfill the timeline to T=0.
                         }
                     }
 
-                    let sleep = next_tick
-                        .saturating_duration_since(Instant::now())
-                        .min(Duration::from_millis(2));
+                    let sleep = if next_tick > Instant::now() {
+                        next_tick
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(2))
+                    } else {
+                        Duration::from_millis(1) // Keep polling gently if behind but waiting for a frame
+                    };
                     std::thread::sleep(sleep);
                 }
                 eprintln!("[FramePump] pump thread exiting");
@@ -890,7 +894,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             start,
             cursor_sampler_stop,
             cursor_sampler_thread,
-            next_submit_timestamp_100ns: None,
+            next_submit_timestamp_100ns: Some(0), // Anchor exactly to start time
             last_pending_frames: 0,
             frame_count: 0,
             window_arrivals: 0,
@@ -963,36 +967,28 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             let mut should_submit = false;
             let mut frames_to_submit = 0u32;
 
-            match self.next_submit_timestamp_100ns {
-                Some(mut due_100ns) => {
-                    if now_100ns.saturating_add(TIMESTAMP_RESYNC_THRESHOLD_100NS) < due_100ns {
-                        due_100ns = now_100ns;
-                    }
+            let mut due_100ns = self.next_submit_timestamp_100ns.unwrap_or(0);
 
-                    if now_100ns >= due_100ns {
-                        let due_ticks = ((now_100ns.saturating_sub(due_100ns))
-                            / self.frame_interval_100ns)
-                            .saturating_add(1);
-                        let missed_ticks = due_ticks.saturating_sub(1) as u32;
-                        frames_to_submit = due_ticks as u32;
-                        self.window_paced_skips =
-                            self.window_paced_skips.saturating_add(missed_ticks);
-                        self.next_submit_timestamp_100ns =
-                            Some(due_100ns.saturating_add(
-                                self.frame_interval_100ns.saturating_mul(due_ticks),
-                            ));
-                        should_submit = true;
-                    } else {
-                        self.window_paced_skips = self.window_paced_skips.saturating_add(1);
-                        self.next_submit_timestamp_100ns = Some(due_100ns);
-                    }
-                }
-                None => {
-                    self.next_submit_timestamp_100ns =
-                        Some(now_100ns.saturating_add(self.frame_interval_100ns));
-                    frames_to_submit = 1;
-                    should_submit = true;
-                }
+            if now_100ns.saturating_add(TIMESTAMP_RESYNC_THRESHOLD_100NS) < due_100ns {
+                due_100ns = now_100ns;
+            }
+
+            if now_100ns >= due_100ns {
+                let due_ticks = ((now_100ns.saturating_sub(due_100ns))
+                    / self.frame_interval_100ns)
+                    .saturating_add(1);
+                let missed_ticks = due_ticks.saturating_sub(1) as u32;
+                frames_to_submit = due_ticks as u32;
+                self.window_paced_skips =
+                    self.window_paced_skips.saturating_add(missed_ticks);
+                self.next_submit_timestamp_100ns =
+                    Some(due_100ns.saturating_add(
+                        self.frame_interval_100ns.saturating_mul(due_ticks as i64),
+                    ));
+                should_submit = true;
+            } else {
+                self.window_paced_skips = self.window_paced_skips.saturating_add(1);
+                self.next_submit_timestamp_100ns = Some(due_100ns);
             }
 
             if should_submit {
