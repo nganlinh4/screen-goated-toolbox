@@ -58,8 +58,7 @@ pub struct GpuCompositor {
     background_sampler: wgpu::Sampler,
     output_texture: wgpu::Texture,
     output_buffers: Vec<wgpu::Buffer>,
-    readback_receivers:
-        Vec<Option<std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>>,
+    readback_receivers: Vec<Option<std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>>,
     pending_readbacks: VecDeque<usize>,
     next_readback_slot: usize,
     width: u32,
@@ -114,8 +113,7 @@ impl GpuCompositor {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Bgra8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[wgpu::TextureFormat::Bgra8UnormSrgb],
         });
         let video_view = video_texture.create_view(&wgpu::TextureViewDescriptor {
@@ -285,7 +283,11 @@ impl GpuCompositor {
         // Sprite atlas: starts as a 1×1 transparent placeholder; replaced by upload_atlas().
         let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture"),
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -431,7 +433,11 @@ impl GpuCompositor {
         // Recreate texture at native image dimensions (no CPU pre-scaling needed).
         self.background_texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Background Texture Loaded"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -452,7 +458,11 @@ impl GpuCompositor {
                 bytes_per_row: Some(width * 4),
                 rows_per_image: Some(height),
             },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
         self.background_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Background BG"),
@@ -461,7 +471,9 @@ impl GpuCompositor {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(
-                        &self.background_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                        &self
+                            .background_texture
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -492,7 +504,9 @@ impl GpuCompositor {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.output_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    view: &self
+                        .output_texture
+                        .create_view(&wgpu::TextureViewDescriptor::default()),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: load_op,
@@ -553,7 +567,11 @@ impl GpuCompositor {
 
         let slot = self.next_readback_slot;
         self.next_readback_slot = (self.next_readback_slot + 1) % self.output_buffers.len();
-        if self.pending_readbacks.iter().any(|pending| *pending == slot) {
+        if self
+            .pending_readbacks
+            .iter()
+            .any(|pending| *pending == slot)
+        {
             return Err("Readback slot reuse before previous map completed".to_string());
         }
 
@@ -676,7 +694,9 @@ impl GpuCompositor {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.output_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    view: &self
+                        .output_texture
+                        .create_view(&wgpu::TextureViewDescriptor::default()),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: load_op,
@@ -718,7 +738,11 @@ impl GpuCompositor {
         };
         self.atlas_texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture Loaded"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -739,7 +763,11 @@ impl GpuCompositor {
                 bytes_per_row: Some(width * 4),
                 rows_per_image: Some(height),
             },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
         self.atlas_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Atlas BG"),
@@ -748,7 +776,9 @@ impl GpuCompositor {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(
-                        &self.atlas_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                        &self
+                            .atlas_texture
+                            .create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -785,20 +815,53 @@ impl GpuCompositor {
             let v2 = q.v + q.vh;
             let a = q.alpha;
             // Two triangles (CCW)
-            vertices.push(OverlayVertex { pos: [x1, y1], uv: [u1, v1], alpha: a, _pad: 0.0 });
-            vertices.push(OverlayVertex { pos: [x2, y1], uv: [u2, v1], alpha: a, _pad: 0.0 });
-            vertices.push(OverlayVertex { pos: [x1, y2], uv: [u1, v2], alpha: a, _pad: 0.0 });
-            vertices.push(OverlayVertex { pos: [x2, y1], uv: [u2, v1], alpha: a, _pad: 0.0 });
-            vertices.push(OverlayVertex { pos: [x2, y2], uv: [u2, v2], alpha: a, _pad: 0.0 });
-            vertices.push(OverlayVertex { pos: [x1, y2], uv: [u1, v2], alpha: a, _pad: 0.0 });
+            vertices.push(OverlayVertex {
+                pos: [x1, y1],
+                uv: [u1, v1],
+                alpha: a,
+                _pad: 0.0,
+            });
+            vertices.push(OverlayVertex {
+                pos: [x2, y1],
+                uv: [u2, v1],
+                alpha: a,
+                _pad: 0.0,
+            });
+            vertices.push(OverlayVertex {
+                pos: [x1, y2],
+                uv: [u1, v2],
+                alpha: a,
+                _pad: 0.0,
+            });
+            vertices.push(OverlayVertex {
+                pos: [x2, y1],
+                uv: [u2, v1],
+                alpha: a,
+                _pad: 0.0,
+            });
+            vertices.push(OverlayVertex {
+                pos: [x2, y2],
+                uv: [u2, v2],
+                alpha: a,
+                _pad: 0.0,
+            });
+            vertices.push(OverlayVertex {
+                pos: [x1, y2],
+                uv: [u1, v2],
+                alpha: a,
+                _pad: 0.0,
+            });
         }
 
         let byte_len = (vertices.len() * std::mem::size_of::<OverlayVertex>()) as u64;
         if byte_len > self.overlay_vertex_buffer.size() {
             return; // Buffer too small — skip rather than panic
         }
-        self.queue
-            .write_buffer(&self.overlay_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        self.queue.write_buffer(
+            &self.overlay_vertex_buffer,
+            0,
+            bytemuck::cast_slice(&vertices),
+        );
 
         let mut encoder = self
             .device
@@ -828,5 +891,4 @@ impl GpuCompositor {
         }
         self.queue.submit(std::iter::once(encoder.finish()));
     }
-
 }

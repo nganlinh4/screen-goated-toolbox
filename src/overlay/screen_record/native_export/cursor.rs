@@ -111,9 +111,7 @@ pub fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> 
     slots
 }
 
-pub fn parse_baked_cursor_frames(
-    baked_cursor: &[BakedCursorFrame],
-) -> Vec<ParsedBakedCursorFrame> {
+pub fn parse_baked_cursor_frames(baked_cursor: &[BakedCursorFrame]) -> Vec<ParsedBakedCursorFrame> {
     baked_cursor
         .iter()
         .map(|frame| ParsedBakedCursorFrame {

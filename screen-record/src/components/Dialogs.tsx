@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { Keyboard, X, FolderOpen, Copy, CheckCircle2, Gamepad2, AppWindow, ShieldAlert } from 'lucide-react';
+import { Keyboard, X, FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
 import { invoke } from '@/lib/ipc';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import {
@@ -851,7 +851,11 @@ export function WindowSelectDialog({
             return (
               <div
                 key={win.id}
-                className="window-select-card relative group border border-[var(--glass-border)] rounded-xl bg-[var(--surface-container)] hover:border-[var(--primary-color)] transition-colors overflow-hidden flex flex-col h-36 shadow-sm"
+                onClick={() => {
+                  onClose();
+                  onSelectWindow(win.id, 'window');
+                }}
+                className="window-select-card relative group border border-[var(--glass-border)] rounded-xl bg-[var(--surface-container)] hover:border-[var(--primary-color)] transition-colors overflow-hidden flex flex-col h-36 shadow-sm cursor-pointer"
               >
                 <div className="window-select-card-preview flex-1 flex items-center justify-center bg-black/10 dark:bg-black/20 relative">
                   {win.previewDataUrl ? (
@@ -905,43 +909,6 @@ export function WindowSelectDialog({
                   </div>
                 </div>
 
-                {win.isAdmin ? (
-                  <div className="window-select-card-blocker absolute inset-0 bg-[var(--surface-dim)]/90 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center z-10 border border-amber-500/30">
-                    <ShieldAlert className="w-6 h-6 text-amber-500 mb-2 drop-shadow-sm" />
-                    <span className="window-select-card-blocker-title text-[11px] font-semibold text-[var(--on-surface)]">
-                      {t.adminRequired}
-                    </span>
-                    <span className="window-select-card-blocker-desc text-[9px] text-[var(--on-surface-variant)] mt-1">
-                      {t.adminRequiredDesc}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="window-select-card-actions absolute inset-0 bg-[var(--surface-dim)]/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2.5 p-4 z-10">
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        onClose();
-                        onSelectWindow(win.id, 'game');
-                      }}
-                      className="window-select-game-btn w-full bg-emerald-600 hover:bg-emerald-500 text-white h-8 text-[11px]"
-                    >
-                      <Gamepad2 className="w-3.5 h-3.5 mr-1.5" />
-                      {t.gameCapture}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        onClose();
-                        onSelectWindow(win.id, 'window');
-                      }}
-                      className="window-select-window-btn w-full bg-[var(--surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg)] hover:text-[var(--primary-color)] text-[var(--on-surface)] h-8 text-[11px]"
-                    >
-                      <AppWindow className="w-3.5 h-3.5 mr-1.5" />
-                      {t.windowCapture}
-                    </Button>
-                  </div>
-                )}
               </div>
             );
           })}

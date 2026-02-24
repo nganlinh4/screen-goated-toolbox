@@ -1,4 +1,5 @@
 use crate::overlay::screen_record::audio_engine;
+use crate::overlay::screen_record::d3d_interop::{create_direct3d_surface, VideoProcessor};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -10,9 +11,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use wc_windows::core::Interface as WcInterface;
+use windows::core::{Interface as AppInterface, BOOL};
 use windows::Graphics::Capture::GraphicsCaptureItem;
-use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
+use windows::Win32::Graphics::Direct3D11::{
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_BIND_RENDER_TARGET,
+    D3D11_BIND_SHADER_RESOURCE,
+};
+use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
     DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, GetObjectW, BITMAP, HDC, HMONITOR,
     MONITORINFOEXW,
@@ -26,12 +33,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows_capture::{
     capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
     encoder::{
-        AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder,
-        VideoSettingsBuilder, VideoSettingsSubType,
+        AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
+        VideoSettingsSubType,
     },
     frame::Frame,
     graphics_capture_api::InternalCaptureControl,
     monitor::Monitor,
+    windows_bindings as wc_windows, SendDirectX,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,6 +108,7 @@ const MAX_CATCHUP_SUBMITS_PER_CALLBACK: u32 = 6;
 const TIMESTAMP_RESYNC_THRESHOLD_100NS: i64 = 10_000_000;
 const CAPTURE_STATS_WINDOW_SECS: f64 = 1.0;
 const CURSOR_SAMPLE_INTERVAL_MS: u64 = 50;
+const NO_READY_VRAM_FRAME: usize = usize::MAX;
 
 #[derive(Clone, Copy)]
 struct SystemCursorHandles {
@@ -115,6 +124,16 @@ struct SystemCursorHandles {
     size_nwse: isize,
     size_nesw: isize,
 }
+
+struct VramFrame {
+    texture: SendDirectX<ID3D11Texture2D>,
+    surface: SendDirectX<wc_windows::Graphics::DirectX::Direct3D11::IDirect3DSurface>,
+}
+
+// The ring buffer is shared read-only across threads. Actual mutation happens via
+// the D3D11 API using the texture handles, coordinated by the capture callback and
+// pump index atomics.
+unsafe impl Sync for VramFrame {}
 
 pub struct CaptureHandler {
     encoder: Arc<Mutex<Option<VideoEncoder>>>,
@@ -136,9 +155,17 @@ pub struct CaptureHandler {
     /// When true, frames are submitted by a background pump thread at
     /// constant FPS instead of directly from on_frame_arrived.
     is_window_capture: bool,
-    /// Shared buffer: on_frame_arrived writes the latest BGRA pixels here;
-    /// the pump thread reads and submits to the encoder.
-    cached_frame: Arc<Mutex<Option<Vec<u8>>>>,
+    /// Pre-allocated VRAM ring buffer used for zero-copy window capture pumping
+    /// and GPU resize fallback when the source dimensions do not match the encoder canvas.
+    vram_pool: Arc<Vec<VramFrame>>,
+    /// Latest ring slot with a fully written frame for the pump thread.
+    latest_ready_idx: Arc<AtomicUsize>,
+    /// Next ring slot to write from the capture callback thread.
+    write_idx: usize,
+    /// Hardware scaler/cropper for size mismatch handling, entirely in VRAM.
+    video_processor: Option<VideoProcessor>,
+    /// Immediate D3D11 context for GPU copy/convert operations.
+    d3d_context: ID3D11DeviceContext,
     /// Signal the pump thread to stop.
     pump_stop: Arc<AtomicBool>,
     /// Frames successfully queued by the pump thread (for stats).
@@ -170,6 +197,55 @@ impl CaptureHandler {
             });
         }
     }
+
+    fn stage_frame_in_vram(&mut self, frame: &Frame) -> Result<usize, String> {
+        let slot = self.write_idx;
+        let target_frame = &self.vram_pool[slot];
+        let frame_w = frame.width();
+        let frame_h = frame.height();
+        let wgc_texture = unsafe { frame.as_raw_texture() };
+        let wgc_texture: ID3D11Texture2D = clone_wc_interface_to_app(wgc_texture)
+            .map_err(|e| format!("Failed to bridge WGC texture to app D3D type: {e}"))?;
+
+        if frame_w == self.enc_w && frame_h == self.enc_h {
+            unsafe {
+                self.d3d_context
+                    .CopyResource(&target_frame.texture.0, &wgc_texture);
+            }
+        } else if let Some(vp) = &self.video_processor {
+            vp.convert(&wgc_texture, 0, &target_frame.texture.0)?;
+        } else {
+            return Err(format!(
+                "No GPU resize path available for frame {}x{} -> {}x{}",
+                frame_w, frame_h, self.enc_w, self.enc_h
+            ));
+        }
+
+        self.write_idx = (self.write_idx + 1) % self.vram_pool.len();
+        Ok(slot)
+    }
+}
+
+fn clone_wc_interface_to_app<TFrom, TTo>(src: &TFrom) -> Result<TTo, String>
+where
+    TFrom: WcInterface,
+    TTo: AppInterface,
+{
+    let raw = src.as_raw() as *mut std::ffi::c_void;
+    let borrowed = unsafe { <TTo as AppInterface>::from_raw_borrowed(&raw) }
+        .ok_or_else(|| "null COM pointer".to_string())?;
+    Ok(borrowed.clone())
+}
+
+fn clone_app_interface_to_wc<TFrom, TTo>(src: &TFrom) -> Result<TTo, String>
+where
+    TFrom: AppInterface,
+    TTo: WcInterface,
+{
+    let raw = src.as_raw() as *mut std::ffi::c_void;
+    let borrowed = unsafe { <TTo as WcInterface>::from_raw_borrowed(&raw) }
+        .ok_or_else(|| "null COM pointer".to_string())?;
+    Ok(borrowed.clone())
 }
 
 fn select_target_fps(monitor_hz: u32) -> u32 {
@@ -445,58 +521,51 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             flags.target_type, flags.target_id
         );
 
-        let (width, height, monitor_hz, target_id_print) =
-            if flags.target_type == "window" {
-                let hwnd_val = flags.target_id.parse::<usize>().unwrap_or(0);
-                let window = windows_capture::window::Window::from_raw_hwnd(
-                    hwnd_val as *mut std::ffi::c_void,
-                );
+        let (width, height, monitor_hz, target_id_print) = if flags.target_type == "window" {
+            let hwnd_val = flags.target_id.parse::<usize>().unwrap_or(0);
+            let window =
+                windows_capture::window::Window::from_raw_hwnd(hwnd_val as *mut std::ffi::c_void);
 
-                // Prefer the exact GraphicsCaptureItem size (WGC strips some visual chrome/shadow).
-                let mut item_size: Option<(u32, u32)> = None;
-                if let Ok(interop) =
-                    windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
-                {
-                    if let Ok(item) = unsafe {
-                        interop.CreateForWindow::<GraphicsCaptureItem>(HWND(hwnd_val as *mut _))
-                    } {
-                        if let Ok(size) = item.Size() {
-                            item_size = Some((
-                                (size.Width.max(2)) as u32,
-                                (size.Height.max(2)) as u32,
-                            ));
+            // Prefer the exact GraphicsCaptureItem size (WGC strips some visual chrome/shadow).
+            let mut item_size: Option<(u32, u32)> = None;
+            if let Ok(interop) =
+                windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+            {
+                if let Ok(item) = unsafe {
+                    interop.CreateForWindow::<GraphicsCaptureItem>(HWND(hwnd_val as *mut _))
+                } {
+                    if let Ok(size) = item.Size() {
+                        if size.Width > 128 && size.Height > 128 {
+                            item_size = Some((size.Width as u32, size.Height as u32));
                         }
                     }
                 }
+            }
 
-                let (w, h) = if let Some((w, h)) = item_size {
-                    (w, h)
-                } else {
-                    let rect = window.rect()?;
-                    (
-                        (rect.right - rect.left).max(2) as u32,
-                        (rect.bottom - rect.top).max(2) as u32,
-                    )
-                };
-                (w, h, DEFAULT_TARGET_FPS, hwnd_val)
+            let (w, h) = if let Some((w, h)) = item_size {
+                (w, h)
             } else {
-                let monitor_index = flags.target_id.parse::<usize>().unwrap_or(0);
-                let monitor = Monitor::from_index(monitor_index + 1)?;
-                let w = monitor.width()?;
-                let h = monitor.height()?;
-                let hz = monitor.refresh_rate().unwrap_or(DEFAULT_TARGET_FPS).max(1);
-                (w, h, hz, monitor_index)
+                let rect = window.rect()?;
+                (
+                    (rect.right - rect.left).max(128) as u32,
+                    (rect.bottom - rect.top).max(128) as u32,
+                )
             };
+            (w, h, DEFAULT_TARGET_FPS, hwnd_val)
+        } else {
+            let monitor_index = flags.target_id.parse::<usize>().unwrap_or(0);
+            let monitor = Monitor::from_index(monitor_index + 1)?;
+            let w = monitor.width()?;
+            let h = monitor.height()?;
+            let hz = monitor.refresh_rate().unwrap_or(DEFAULT_TARGET_FPS).max(1);
+            (w, h, hz, monitor_index)
+        };
 
-        // Ensure even dimensions for encoder configuration (H.264 requirement).
-        let mut enc_w = width;
-        let mut enc_h = height;
-        if enc_w % 2 != 0 {
-            enc_w -= 1;
-        }
-        if enc_h % 2 != 0 {
-            enc_h -= 1;
-        }
+        // Align to 16 for universal H.264 hardware encoder compatibility (prevents 0xC00DA412)
+        let mut enc_w = width.max(128);
+        let mut enc_h = height.max(128);
+        enc_w = (enc_w + 15) & !15;
+        enc_h = (enc_h + 15) & !15;
 
         let app_data_dir = dirs::data_local_dir()
             .unwrap_or_else(|| std::env::temp_dir())
@@ -575,7 +644,53 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let cursor_sampler_thread = Some(spawn_cursor_sampler(start, cursor_sampler_stop.clone()));
 
         let is_window_capture = flags.target_type == "window";
-        let cached_frame: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+        let app_d3d_device: ID3D11Device = clone_wc_interface_to_app(&ctx.device)
+            .map_err(|e| format!("Failed to bridge capture D3D11 device: {e}"))?;
+        let app_d3d_context: ID3D11DeviceContext =
+            clone_wc_interface_to_app(&ctx.device_context)
+                .map_err(|e| format!("Failed to bridge capture D3D11 context: {e}"))?;
+        let mut vram_frames = Vec::with_capacity(3);
+        for _ in 0..3 {
+            let texture = VideoProcessor::create_texture(
+                &app_d3d_device,
+                enc_w,
+                enc_h,
+                DXGI_FORMAT_B8G8R8A8_UNORM,
+                D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE,
+            )
+            .map_err(|e| format!("Failed to create VRAM ring texture: {e}"))?;
+            let surface = create_direct3d_surface(&texture)
+                .map_err(|e| format!("Failed to create WinRT surface for VRAM ring: {e}"))?;
+            let surface = clone_app_interface_to_wc(&surface)
+                .map_err(|e| format!("Failed to bridge WinRT surface to encoder type: {e}"))?;
+            vram_frames.push(VramFrame {
+                texture: SendDirectX::new(texture),
+                surface: SendDirectX::new(surface),
+            });
+        }
+        let vram_pool = Arc::new(vram_frames);
+        let latest_ready_idx = Arc::new(AtomicUsize::new(NO_READY_VRAM_FRAME));
+        let video_processor = if width != enc_w || height != enc_h {
+            match VideoProcessor::new(
+                &app_d3d_device,
+                &app_d3d_context,
+                width,
+                height,
+                enc_w,
+                enc_h,
+            ) {
+                Ok(vp) => Some(vp),
+                Err(e) => {
+                    eprintln!(
+                        "[CaptureHandler] GPU resize path unavailable for {}x{} -> {}x{}: {}",
+                        width, height, enc_w, enc_h, e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let pump_stop = Arc::new(AtomicBool::new(false));
         let pump_submitted = Arc::new(AtomicUsize::new(0));
         let pump_dropped = Arc::new(AtomicUsize::new(0));
@@ -587,7 +702,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // frame at constant FPS.  WGC only delivers frames when the window
         // content changes, which can be <1 fps for a static window.
         if is_window_capture {
-            let cached = cached_frame.clone();
+            let pump_pool = vram_pool.clone();
+            let pump_latest = latest_ready_idx.clone();
             let stop = pump_stop.clone();
             let p_submitted = pump_submitted.clone();
             let p_dropped = pump_dropped.clone();
@@ -638,11 +754,11 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
                     let now = Instant::now();
                     if now >= next_tick {
-                        // Grab cached frame (brief lock).
-                        let buf_opt = cached.lock().clone();
-                        if let Some(buf) = buf_opt {
+                        let idx = pump_latest.load(Ordering::Acquire);
+                        if idx != NO_READY_VRAM_FRAME {
                             while next_tick <= now {
-                                if pump.submit_buffer(buf.clone(), ENCODER_MAX_PENDING_FRAMES) {
+                                let surface = SendDirectX::new(pump_pool[idx].surface.0.clone());
+                                if pump.submit_surface(surface, ENCODER_MAX_PENDING_FRAMES) {
                                     p_submitted.fetch_add(1, Ordering::Relaxed);
                                     total_submitted += 1;
                                 } else {
@@ -652,7 +768,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                                 next_tick += tick;
                             }
                         } else {
-                            // No frame yet — advance tick without submitting.
+                            // No frame available yet — advance tick without submitting.
                             while next_tick <= now {
                                 next_tick += tick;
                             }
@@ -686,7 +802,11 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             enc_w,
             enc_h,
             is_window_capture,
-            cached_frame,
+            vram_pool,
+            latest_ready_idx,
+            write_idx: 0,
+            video_processor,
+            d3d_context: app_d3d_context,
             pump_stop,
             pump_submitted,
             pump_dropped,
@@ -710,71 +830,24 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         if self.is_window_capture {
             // ── Window capture path ──
             // WGC only delivers frames when the window content changes.
-            // We just cache the latest frame here; a pump thread submits
-            // it to the encoder at constant target_fps.
+            // We stage the latest frame into a VRAM ring slot; the pump thread
+            // submits that surface to the encoder at constant target_fps.
             let frame_w = frame.width();
             let frame_h = frame.height();
-
-            let was_empty = self.cached_frame.lock().is_none();
-            if frame_w == self.enc_w && frame_h == self.enc_h {
-                if let Ok(mut fb) = frame.buffer() {
-                    if let Ok(raw) = fb.as_nopadding_buffer() {
-                        let len = raw.len();
-                        // MediaFoundation uncompressed CPU buffers are bottom-up by default.
-                        // We must flip the top-down DXGI texture data vertically.
-                        let mut flipped = vec![0u8; len];
-                        let row_bytes = (frame_w * 4) as usize;
-                        for y in 0..frame_h as usize {
-                            let src_idx = y * row_bytes;
-                            let dst_idx = (frame_h as usize - 1 - y) * row_bytes;
-                            if src_idx + row_bytes <= len && dst_idx + row_bytes <= len {
-                                flipped[dst_idx..dst_idx + row_bytes]
-                                    .copy_from_slice(&raw[src_idx..src_idx + row_bytes]);
-                            }
-                        }
-                        *self.cached_frame.lock() = Some(flipped);
-                        self.window_enqueued = self.window_enqueued.saturating_add(1);
-                        if was_empty {
-                            eprintln!(
-                                "[FramePump] first frame cached: {}x{} ({} bytes)",
-                                frame_w, frame_h, len
-                            );
-                        }
-                    } else {
-                        eprintln!("[FramePump] as_nopadding_buffer() failed for {}x{}", frame_w, frame_h);
+            let was_empty = self.latest_ready_idx.load(Ordering::Acquire) == NO_READY_VRAM_FRAME;
+            match self.stage_frame_in_vram(frame) {
+                Ok(slot) => {
+                    self.latest_ready_idx.store(slot, Ordering::Release);
+                    self.window_enqueued = self.window_enqueued.saturating_add(1);
+                    if was_empty {
+                        eprintln!(
+                            "[FramePump] first frame staged in VRAM: frame={}x{} enc={}x{}",
+                            frame_w, frame_h, self.enc_w, self.enc_h
+                        );
                     }
-                } else {
-                    eprintln!("[FramePump] frame.buffer() failed");
                 }
-            } else {
-                // Size mismatch: pad/crop into encoder canvas.
-                let mut final_buf = vec![0u8; (self.enc_w * self.enc_h * 4) as usize];
-                if let Ok(mut fb) = frame.buffer() {
-                    if let Ok(raw) = fb.as_nopadding_buffer() {
-                        let copy_w = frame_w.min(self.enc_w) as usize;
-                        let copy_h = frame_h.min(self.enc_h) as usize;
-                        for y in 0..copy_h {
-                            let src_idx = y * frame_w as usize * 4;
-                            // MF CPU buffers are bottom-up, so flip the Y coordinate
-                            let dst_y = self.enc_h as usize - 1 - y;
-                            let dst_idx = dst_y * self.enc_w as usize * 4;
-                            let row_bytes = copy_w * 4;
-                            if src_idx + row_bytes <= raw.len()
-                                && dst_idx + row_bytes <= final_buf.len()
-                            {
-                                final_buf[dst_idx..dst_idx + row_bytes]
-                                    .copy_from_slice(&raw[src_idx..src_idx + row_bytes]);
-                            }
-                        }
-                        *self.cached_frame.lock() = Some(final_buf);
-                        self.window_enqueued = self.window_enqueued.saturating_add(1);
-                        if was_empty {
-                            eprintln!(
-                                "[FramePump] first frame cached (resized): frame={}x{} enc={}x{}",
-                                frame_w, frame_h, self.enc_w, self.enc_h
-                            );
-                        }
-                    }
+                Err(e) => {
+                    eprintln!("[FramePump] VRAM stage failed: {}", e);
                 }
             }
 
@@ -804,11 +877,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                         frames_to_submit = due_ticks as u32;
                         self.window_paced_skips =
                             self.window_paced_skips.saturating_add(missed_ticks);
-                        self.next_submit_timestamp_100ns = Some(
-                            due_100ns.saturating_add(
+                        self.next_submit_timestamp_100ns =
+                            Some(due_100ns.saturating_add(
                                 self.frame_interval_100ns.saturating_mul(due_ticks),
-                            ),
-                        );
+                            ));
                         should_submit = true;
                     } else {
                         self.window_paced_skips = self.window_paced_skips.saturating_add(1);
@@ -824,6 +896,23 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             }
 
             if should_submit {
+                let frame_w = frame.width();
+                let frame_h = frame.height();
+                let staged_mismatch_slot = if frame_w != self.enc_w || frame_h != self.enc_h {
+                    match self.stage_frame_in_vram(frame) {
+                        Ok(slot) => Some(slot),
+                        Err(e) => {
+                            eprintln!(
+                                "Encoder GPU resize fallback error ({}x{} -> {}x{}): {}",
+                                frame_w, frame_h, self.enc_w, self.enc_h, e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 let mut encoder_guard = self.encoder.lock();
                 if let Some(encoder) = encoder_guard.as_mut() {
                     let mut remaining = frames_to_submit.max(1);
@@ -831,21 +920,15 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                     while remaining > 0 {
                         if submitted >= MAX_CATCHUP_SUBMITS_PER_CALLBACK {
                             encoder.skip_video_frames(remaining);
-                            self.window_dropped =
-                                self.window_dropped.saturating_add(remaining);
+                            self.window_dropped = self.window_dropped.saturating_add(remaining);
                             break;
                         }
 
-                        let frame_w = frame.width();
-                        let frame_h = frame.height();
-
                         if frame_w == self.enc_w && frame_h == self.enc_h {
-                            match encoder
-                                .send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES)
+                            match encoder.send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES)
                             {
                                 Ok(true) => {
-                                    self.window_enqueued =
-                                        self.window_enqueued.saturating_add(1);
+                                    self.window_enqueued = self.window_enqueued.saturating_add(1);
                                     submitted = submitted.saturating_add(1);
                                     remaining -= 1;
                                 }
@@ -864,37 +947,19 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                                 }
                             }
                         } else {
-                            let mut final_buf =
-                                vec![0u8; (self.enc_w * self.enc_h * 4) as usize];
-                            if let Ok(mut frame_buffer) = frame.buffer() {
-                                if let Ok(raw) = frame_buffer.as_nopadding_buffer() {
-                                    let copy_w = frame_w.min(self.enc_w) as usize;
-                                    let copy_h = frame_h.min(self.enc_h) as usize;
-                                    for y in 0..copy_h {
-                                        let src_idx = y * frame_w as usize * 4;
-                                        // MF CPU buffers are bottom-up, so flip the Y coordinate
-                                        let dst_y = self.enc_h as usize - 1 - y;
-                                        let dst_idx = dst_y * self.enc_w as usize * 4;
-                                        let row_bytes = copy_w * 4;
-                                        if src_idx + row_bytes <= raw.len()
-                                            && dst_idx + row_bytes <= final_buf.len()
-                                        {
-                                            final_buf[dst_idx..dst_idx + row_bytes]
-                                                .copy_from_slice(
-                                                    &raw[src_idx..src_idx + row_bytes],
-                                                );
-                                        }
-                                    }
-                                }
-                            }
+                            let Some(slot) = staged_mismatch_slot else {
+                                encoder.skip_video_frames(remaining);
+                                self.window_dropped = self.window_dropped.saturating_add(remaining);
+                                break;
+                            };
 
-                            match encoder.send_frame_owned_buffer_nonblocking(
-                                final_buf,
+                            let surface = SendDirectX::new(self.vram_pool[slot].surface.0.clone());
+                            match encoder.send_directx_surface_nonblocking(
+                                surface,
                                 ENCODER_MAX_PENDING_FRAMES,
                             ) {
                                 Ok(true) => {
-                                    self.window_enqueued =
-                                        self.window_enqueued.saturating_add(1);
+                                    self.window_enqueued = self.window_enqueued.saturating_add(1);
                                     submitted = submitted.saturating_add(1);
                                     remaining -= 1;
                                 }
@@ -905,7 +970,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                                     break;
                                 }
                                 Err(e) => {
-                                    eprintln!("Encoder CPU fallback error: {}", e);
+                                    eprintln!("Encoder GPU resize submit error: {}", e);
                                     encoder.skip_video_frames(remaining);
                                     self.window_dropped =
                                         self.window_dropped.saturating_add(remaining);

@@ -1,23 +1,23 @@
 use std::mem;
 use std::os::windows::prelude::AsRawHandle;
 use std::sync::atomic::{self, AtomicBool};
-use std::sync::{Arc, OnceLock, mpsc};
+use std::sync::{mpsc, Arc, OnceLock};
 use std::thread::{self, JoinHandle};
 
 use parking_lot::Mutex;
+use windows::core::Result as WindowsResult;
 use windows::Win32::Foundation::{HANDLE, LPARAM, S_FALSE, WPARAM};
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext};
 use windows::Win32::System::Com::CoIncrementMTAUsage;
 use windows::Win32::System::Threading::{GetCurrentThreadId, GetThreadId};
 use windows::Win32::System::WinRT::{
-    CreateDispatcherQueueController, DQTAT_COM_NONE, DQTYPE_THREAD_CURRENT, DispatcherQueueOptions,
-    RO_INIT_MULTITHREADED, RoInitialize,
+    CreateDispatcherQueueController, DispatcherQueueOptions, RoInitialize, DQTAT_COM_NONE,
+    DQTYPE_THREAD_CURRENT, RO_INIT_MULTITHREADED,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, MSG, PostQuitMessage, PostThreadMessageW, TranslateMessage,
+    DispatchMessageW, GetMessageW, PostQuitMessage, PostThreadMessageW, TranslateMessage, MSG,
     WM_QUIT,
 };
-use windows::core::Result as WindowsResult;
 use windows_future::AsyncActionCompletedHandler;
 
 use crate::d3d11::{self, create_d3d_device};
@@ -66,7 +66,11 @@ impl<T: GraphicsCaptureApiHandler + Send + 'static, E> CaptureControl<T, E> {
         halt_handle: Arc<AtomicBool>,
         callback: Arc<Mutex<T>>,
     ) -> Self {
-        Self { thread_handle: Some(thread_handle), halt_handle, callback }
+        Self {
+            thread_handle: Some(thread_handle),
+            halt_handle,
+            callback,
+        }
     }
 
     /// Checks to see if the capture thread is finished.
@@ -77,7 +81,9 @@ impl<T: GraphicsCaptureApiHandler + Send + 'static, E> CaptureControl<T, E> {
     #[must_use]
     #[inline]
     pub fn is_finished(&self) -> bool {
-        self.thread_handle.as_ref().is_none_or(std::thread::JoinHandle::is_finished)
+        self.thread_handle
+            .as_ref()
+            .is_none_or(std::thread::JoinHandle::is_finished)
     }
 
     /// Gets the join handle for the capture thread.
@@ -283,8 +289,9 @@ pub trait GraphicsCaptureApiHandler: Sized {
             device_context: d3d_device_context.clone(),
         };
 
-        let callback =
-            Arc::new(Mutex::new(Self::new(ctx).map_err(GraphicsCaptureApiError::NewHandlerError)?));
+        let callback = Arc::new(Mutex::new(
+            Self::new(ctx).map_err(GraphicsCaptureApiError::NewHandlerError)?,
+        ));
 
         // Convert the item into a GraphicsCaptureItem and its type
         let (item, item_type) = settings
@@ -308,7 +315,9 @@ pub trait GraphicsCaptureApiHandler: Sized {
             result.clone(),
         )
         .map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
-        capture.start_capture().map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
+        capture
+            .start_capture()
+            .map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
 
         // Message loop
         let mut message = MSG::default();
@@ -325,10 +334,12 @@ pub trait GraphicsCaptureApiHandler: Sized {
             .map_err(|_| GraphicsCaptureApiError::FailedToShutdownDispatcherQueue)?;
 
         async_action
-            .SetCompleted(&AsyncActionCompletedHandler::new(move |_, _| -> WindowsResult<()> {
-                unsafe { PostQuitMessage(0) };
-                Ok(())
-            }))
+            .SetCompleted(&AsyncActionCompletedHandler::new(
+                move |_, _| -> WindowsResult<()> {
+                    unsafe { PostQuitMessage(0) };
+                    Ok(())
+                },
+            ))
             .map_err(|_| GraphicsCaptureApiError::FailedToSetDispatcherQueueCompletedHandler)?;
 
         // Final message loop
@@ -375,8 +386,8 @@ pub trait GraphicsCaptureApiHandler: Sized {
         let (halt_sender, halt_receiver) = mpsc::channel::<Arc<AtomicBool>>();
         let (callback_sender, callback_receiver) = mpsc::channel::<Arc<Mutex<Self>>>();
 
-        let thread_handle =
-            thread::spawn(move || -> Result<(), GraphicsCaptureApiError<Self::Error>> {
+        let thread_handle = thread::spawn(
+            move || -> Result<(), GraphicsCaptureApiError<Self::Error>> {
                 // Initialize WinRT
                 static INIT_MTA: OnceLock<()> = OnceLock::new();
                 INIT_MTA.get_or_init(|| {
@@ -508,7 +519,8 @@ pub trait GraphicsCaptureApiHandler: Sized {
                 }
 
                 Ok(())
-            });
+            },
+        );
 
         let Ok(halt_handle) = halt_receiver.recv() else {
             match thread_handle.join() {

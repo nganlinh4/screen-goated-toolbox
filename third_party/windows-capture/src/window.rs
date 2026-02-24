@@ -1,9 +1,10 @@
 use std::ptr;
 
+use windows::core::{Owned, BOOL, HSTRING};
 use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, TRUE};
-use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
-use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromWindow};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONULL};
 use windows::Win32::System::ProcessStatus::GetModuleBaseNameW;
 use windows::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
@@ -11,11 +12,10 @@ use windows::Win32::System::Threading::{
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, FindWindowW, GWL_EXSTYLE, GWL_STYLE, GetClientRect, GetDesktopWindow,
-    GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindowVisible, WS_CHILD, WS_EX_TOOLWINDOW,
+    EnumChildWindows, FindWindowW, GetClientRect, GetDesktopWindow, GetForegroundWindow,
+    GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, WS_CHILD, WS_EX_TOOLWINDOW,
 };
-use windows::core::{BOOL, HSTRING, Owned};
 
 use crate::monitor::Monitor;
 use crate::settings::{CaptureItemTypes, TryIntoCaptureItemWithType};
@@ -132,7 +132,12 @@ impl Window {
         }
 
         let name = String::from_utf16(
-            &name.as_slice().iter().take_while(|ch| **ch != 0x0000).copied().collect::<Vec<u16>>(),
+            &name
+                .as_slice()
+                .iter()
+                .take_while(|ch| **ch != 0x0000)
+                .copied()
+                .collect::<Vec<u16>>(),
         )
         .map_err(|_| Error::FailedToConvertWindowsString)?;
 
@@ -179,7 +184,12 @@ impl Window {
         }
 
         let name = String::from_utf16(
-            &name.as_slice().iter().take_while(|ch| **ch != 0x0000).copied().collect::<Vec<u16>>(),
+            &name
+                .as_slice()
+                .iter()
+                .take_while(|ch| **ch != 0x0000)
+                .copied()
+                .collect::<Vec<u16>>(),
         )
         .map_err(|_| Error::FailedToConvertWindowsString)?;
 
@@ -196,7 +206,11 @@ impl Window {
 
         let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONULL) };
 
-        if monitor.is_invalid() { None } else { Some(Monitor::from_raw_hmonitor(monitor.0)) }
+        if monitor.is_invalid() {
+            None
+        } else {
+            Some(Monitor::from_raw_hmonitor(monitor.0))
+        }
     }
 
     /// Returns the bounding rectangle of the window in screen coordinates.
@@ -343,8 +357,7 @@ impl TryIntoCaptureItemWithType for Window {
         let window = HWND(self.as_raw_hwnd());
 
         let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
-        let item: GraphicsCaptureItem =
-            unsafe { interop.CreateForWindow(window)? };
+        let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(window)? };
 
         if let Ok(size) = item.Size() {
             let display_name = item

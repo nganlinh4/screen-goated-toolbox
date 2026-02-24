@@ -4,8 +4,8 @@
 use crossbeam_queue::ArrayQueue;
 use parking_lot::Mutex;
 use serde::Serialize;
-use std::sync::mpsc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
@@ -219,7 +219,10 @@ pub fn stop_capture_and_drain() -> Vec<RawInputEvent> {
     clear_key_state_bits();
     let dropped = DROPPED_EVENTS.swap(0, Ordering::Relaxed);
     if dropped > 0 {
-        eprintln!("[KeyseeCapture] dropped {} hook events due to full queue", dropped);
+        eprintln!(
+            "[KeyseeCapture] dropped {} hook events due to full queue",
+            dropped
+        );
     }
     drain_events()
 }

@@ -230,9 +230,14 @@ pub fn read_as_data_url(id: &str) -> Result<String, String> {
     Err(format!("Background '{id}' not found"))
 }
 
-fn normalize_downloaded_image_for_export(id: &str, file_path: &std::path::Path, ext: &str) -> Result<(), String> {
+fn normalize_downloaded_image_for_export(
+    id: &str,
+    file_path: &std::path::Path,
+    ext: &str,
+) -> Result<(), String> {
     let t0 = std::time::Instant::now();
-    let bytes = std::fs::read(file_path).map_err(|e| format!("Read downloaded image failed: {e}"))?;
+    let bytes =
+        std::fs::read(file_path).map_err(|e| format!("Read downloaded image failed: {e}"))?;
     let decoded = image::load_from_memory(&bytes)
         .map_err(|e| format!("Decode downloaded image failed: {e}"))?;
     let (w, h) = (decoded.width().max(1), decoded.height().max(1));
@@ -258,7 +263,9 @@ fn normalize_downloaded_image_for_export(id: &str, file_path: &std::path::Path, 
     let final_path = if ext == "jpg" || ext == "jpeg" {
         file_path.to_path_buf()
     } else {
-        let dir = file_path.parent().ok_or_else(|| "Missing parent dir".to_string())?;
+        let dir = file_path
+            .parent()
+            .ok_or_else(|| "Missing parent dir".to_string())?;
         dir.join(format!("{id}.jpg"))
     };
 
@@ -451,7 +458,10 @@ pub fn start_download(id: String, url: String) {
 
                 let _ = file.sync_all();
                 if let Err(e) = normalize_downloaded_image_for_export(&id, &file_path, ext) {
-                    set_download_status(&id, BgDownloadStatus::Error(format!("Normalize error: {e}")));
+                    set_download_status(
+                        &id,
+                        BgDownloadStatus::Error(format!("Normalize error: {e}")),
+                    );
                     return;
                 }
                 set_download_status(&id, BgDownloadStatus::Done);

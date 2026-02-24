@@ -9,12 +9,15 @@
 use std::mem::ManuallyDrop;
 
 use windows::core::Interface;
+use windows::Graphics::DirectX::Direct3D11::IDirect3DSurface;
 use windows::Win32::Foundation::{HMODULE, RECT};
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0,
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
+use windows::Win32::Graphics::Dxgi::IDXGISurface;
+use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11SurfaceFromDXGISurface;
 
 /// Create a standalone D3D11 device with video processing support.
 ///
@@ -361,4 +364,21 @@ impl VideoProcessor {
         }
         texture.ok_or_else(|| "CreateTexture2D returned null".to_string())
     }
+}
+
+/// Creates an `IDirect3DSurface` (WinRT) from a D3D11 texture.
+/// This is used to pass our own VRAM textures into the Media Foundation encoder.
+pub fn create_direct3d_surface(texture: &ID3D11Texture2D) -> Result<IDirect3DSurface, String> {
+    let dxgi_surface: IDXGISurface = texture
+        .cast()
+        .map_err(|e| format!("Texture2D -> IDXGISurface cast failed: {e}"))?;
+
+    let inspectable = unsafe {
+        CreateDirect3D11SurfaceFromDXGISurface(&dxgi_surface)
+            .map_err(|e| format!("CreateDirect3D11SurfaceFromDXGISurface failed: {e}"))?
+    };
+
+    inspectable
+        .cast()
+        .map_err(|e| format!("IInspectable -> IDirect3DSurface cast failed: {e}"))
 }

@@ -1,7 +1,8 @@
-use std::sync::Arc;
 use std::sync::atomic::{self, AtomicBool};
+use std::sync::Arc;
 
 use parking_lot::Mutex;
+use windows::core::{IInspectable, Interface, HSTRING};
 use windows::Foundation::Metadata::ApiInformation;
 use windows::Foundation::TypedEventHandler;
 use windows::Graphics::Capture::{
@@ -12,14 +13,13 @@ use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_TEXTURE2D_DESC, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_TEXTURE2D_DESC,
 };
 use windows::Win32::System::WinRT::Direct3D11::IDirect3DDxgiInterfaceAccess;
 use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
-use windows::core::{HSTRING, IInspectable, Interface};
 
 use crate::capture::GraphicsCaptureApiHandler;
-use crate::d3d11::{self, SendDirectX, create_direct3d_device};
+use crate::d3d11::{self, create_direct3d_device, SendDirectX};
 use crate::frame::Frame;
 use crate::settings::{
     CaptureItemTypes, ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
@@ -49,7 +49,9 @@ pub enum Error {
         "Setting a minimum update interval is not supported by the Graphics Capture API on this platform."
     )]
     MinimumUpdateIntervalUnsupported,
-    #[error("Dirty region tracking is not supported by the Graphics Capture API on this platform.")]
+    #[error(
+        "Dirty region tracking is not supported by the Graphics Capture API on this platform."
+    )]
     DirtyRegionUnsupported,
     #[error("The capture has already been started.")]
     AlreadyStarted,

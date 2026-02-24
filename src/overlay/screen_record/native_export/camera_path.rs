@@ -50,7 +50,11 @@ fn blend_zoom(a: &ZoomState, b: &ZoomState, t: f64) -> ZoomState {
     let cx = cax + (cbx - cax) * t;
     let cy = cay + (cby - cay) * t;
     let (pos_x, pos_y) = from_viewport_center(zoom, cx, cy);
-    ZoomState { zoom_factor: zoom, position_x: pos_x, position_y: pos_y }
+    ZoomState {
+        zoom_factor: zoom,
+        position_x: pos_x,
+        position_y: pos_y,
+    }
 }
 
 // Adaptive blending window: larger for bigger movements.
@@ -64,7 +68,12 @@ fn dynamic_window(az: f64, ax: f64, ay: f64, bz: f64, bx: f64, by: f64) -> f64 {
 
 // Port of calculateCurrentZoomStateInternal for the export case
 // (srcCropW = viewW = croppedW → contain-fit is identity → posX/posY = relX/relY).
-fn calculate_zoom_state(current_time: f64, segment: &VideoSegment, cropped_w: f64, cropped_h: f64) -> ZoomState {
+fn calculate_zoom_state(
+    current_time: f64,
+    segment: &VideoSegment,
+    cropped_w: f64,
+    cropped_h: f64,
+) -> ZoomState {
     let crop = segment.crop.as_ref();
     let (crop_x, crop_y, crop_w_frac, crop_h_frac) = crop
         .map(|c| (c.x, c.y, c.width, c.height))
@@ -93,7 +102,11 @@ fn calculate_zoom_state(current_time: f64, segment: &VideoSegment, cropped_w: f6
                     let p1 = &path[i - 1];
                     let p2 = &path[i];
                     let span = p2.time - p1.time;
-                    let t = if span > 1e-10 { (current_time - p1.time) / span } else { 0.0 };
+                    let t = if span > 1e-10 {
+                        (current_time - p1.time) / span
+                    } else {
+                        0.0
+                    };
                     (
                         p1.x + (p2.x - p1.x) * t,
                         p1.y + (p2.y - p1.y) * t,
@@ -112,7 +125,11 @@ fn calculate_zoom_state(current_time: f64, segment: &VideoSegment, cropped_w: f6
                     let ip1 = &pts[i - 1];
                     let ip2 = &pts[i];
                     let span = ip2.time - ip1.time;
-                    let it = if span > 1e-10 { (current_time - ip1.time) / span } else { 0.0 };
+                    let it = if span > 1e-10 {
+                        (current_time - ip1.time) / span
+                    } else {
+                        0.0
+                    };
                     let cos_t = (1.0 - (it * std::f64::consts::PI).cos()) / 2.0;
                     ip1.value * (1.0 - cos_t) + ip2.value * cos_t
                 }
@@ -134,7 +151,11 @@ fn calculate_zoom_state(current_time: f64, segment: &VideoSegment, cropped_w: f6
         let pos_x = ((cam_x - crop_off_x) / cropped_w).clamp(0.0, 1.0);
         let pos_y = ((cam_y - crop_off_y) / cropped_h).clamp(0.0, 1.0);
 
-        Some(ZoomState { zoom_factor: cam_zoom, position_x: pos_x, position_y: pos_y })
+        Some(ZoomState {
+            zoom_factor: cam_zoom,
+            position_x: pos_x,
+            position_y: pos_y,
+        })
     } else {
         None
     };
@@ -143,36 +164,68 @@ fn calculate_zoom_state(current_time: f64, segment: &VideoSegment, cropped_w: f6
 
     // --- 2. MANUAL KEYFRAME STATE ---
     let mut sorted_kfs: Vec<&ZoomKeyframe> = segment.zoom_keyframes.iter().collect();
-    sorted_kfs.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+    sorted_kfs.sort_by(|a, b| {
+        a.time
+            .partial_cmp(&b.time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let (manual_state, manual_influence): (Option<ZoomState>, f64) = if sorted_kfs.is_empty() {
         (None, 0.0)
     } else {
         let next_idx = sorted_kfs.partition_point(|k| k.time <= current_time);
         // prev_kf = last keyframe with time <= current_time
-        let prev_kf = if next_idx > 0 { Some(sorted_kfs[next_idx - 1]) } else { None };
+        let prev_kf = if next_idx > 0 {
+            Some(sorted_kfs[next_idx - 1])
+        } else {
+            None
+        };
         // next_kf = first keyframe with time > current_time
         let next_kf = sorted_kfs.get(next_idx).copied();
 
         if let (Some(prev), Some(next)) = (prev_kf, next_kf) {
             // BETWEEN two keyframes — full influence, smoothly interpolate
             let span = next.time - prev.time;
-            let raw_t = if span > 1e-10 { (current_time - prev.time) / span } else { 1.0 };
+            let raw_t = if span > 1e-10 {
+                (current_time - prev.time) / span
+            } else {
+                1.0
+            };
             let eased_t = ease_camera_move(raw_t.clamp(0.0, 1.0));
-            let prev_z = ZoomState { zoom_factor: prev.zoom_factor, position_x: prev.position_x, position_y: prev.position_y };
-            let next_z = ZoomState { zoom_factor: next.zoom_factor, position_x: next.position_x, position_y: next.position_y };
+            let prev_z = ZoomState {
+                zoom_factor: prev.zoom_factor,
+                position_x: prev.position_x,
+                position_y: prev.position_y,
+            };
+            let next_z = ZoomState {
+                zoom_factor: next.zoom_factor,
+                position_x: next.position_x,
+                position_y: next.position_y,
+            };
             (Some(blend_zoom(&prev_z, &next_z, eased_t)), 1.0)
         } else if let Some(prev) = prev_kf {
             // AFTER LAST KEYFRAME — decay back to auto
-            let prev_z = ZoomState { zoom_factor: prev.zoom_factor, position_x: prev.position_x, position_y: prev.position_y };
+            let prev_z = ZoomState {
+                zoom_factor: prev.zoom_factor,
+                position_x: prev.position_x,
+                position_y: prev.position_y,
+            };
             if has_auto {
                 let target = auto_state.as_ref().unwrap();
                 let window = dynamic_window(
-                    prev.zoom_factor, prev.position_x, prev.position_y,
-                    target.zoom_factor, target.position_x, target.position_y,
+                    prev.zoom_factor,
+                    prev.position_x,
+                    prev.position_y,
+                    target.zoom_factor,
+                    target.position_x,
+                    target.position_y,
                 );
                 let elapsed = current_time - prev.time;
-                let influence = if elapsed < window { 1.0 - ease_camera_move(elapsed / window) } else { 0.0 };
+                let influence = if elapsed < window {
+                    1.0 - ease_camera_move(elapsed / window)
+                } else {
+                    0.0
+                };
                 (Some(prev_z), influence)
             } else {
                 // No auto path — hold keyframe forever
@@ -180,14 +233,22 @@ fn calculate_zoom_state(current_time: f64, segment: &VideoSegment, cropped_w: f6
             }
         } else if let Some(next) = next_kf {
             // BEFORE FIRST KEYFRAME — ramp up to keyframe
-            let next_z = ZoomState { zoom_factor: next.zoom_factor, position_x: next.position_x, position_y: next.position_y };
+            let next_z = ZoomState {
+                zoom_factor: next.zoom_factor,
+                position_x: next.position_x,
+                position_y: next.position_y,
+            };
             let target = auto_state.as_ref().unwrap_or(&DEFAULT_STATE);
             let window = if next.duration > 0.0 {
                 next.duration
             } else {
                 dynamic_window(
-                    next.zoom_factor, next.position_x, next.position_y,
-                    target.zoom_factor, target.position_x, target.position_y,
+                    next.zoom_factor,
+                    next.position_x,
+                    next.position_y,
+                    target.zoom_factor,
+                    target.position_x,
+                    target.position_y,
                 )
             };
             let time_to_next = next.time - current_time;
@@ -266,12 +327,25 @@ pub fn generate_camera_path(
         let state = calculate_zoom_state(t, segment, cropped_w, cropped_h);
         let global_x = crop_offset_x + state.position_x * cropped_w;
         let global_y = crop_offset_y + state.position_y * cropped_h;
-        frames.push(BakedCameraFrame { time: t, x: global_x, y: global_y, zoom: state.zoom_factor });
+        frames.push(BakedCameraFrame {
+            time: t,
+            x: global_x,
+            y: global_y,
+            zoom: state.zoom_factor,
+        });
 
-        if t >= full_end - 1e-9 { break; }
+        if t >= full_end - 1e-9 {
+            break;
+        }
         t = (t + step).min(full_end);
     }
 
-    eprintln!("[CameraPath] Generated {} frames [{:.3}s..{:.3}s] at {}fps", frames.len(), full_start, full_end, fps);
+    eprintln!(
+        "[CameraPath] Generated {} frames [{:.3}s..{:.3}s] at {}fps",
+        frames.len(),
+        full_start,
+        full_end,
+        fps
+    );
     frames
 }

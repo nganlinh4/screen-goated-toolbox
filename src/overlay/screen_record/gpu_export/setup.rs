@@ -125,15 +125,13 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
         adapter_info.driver
     );
 
-    let (device, queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: Some("SGT GPU Compositor"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            memory_hints: wgpu::MemoryHints::Performance,
-            trace: wgpu::Trace::Off,
-        },
-    ))
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("SGT GPU Compositor"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        memory_hints: wgpu::MemoryHints::Performance,
+        trace: wgpu::Trace::Off,
+    }))
     .map_err(|e| format!("Failed to create device: {}", e))?;
 
     let device = Arc::new(device);
@@ -314,40 +312,38 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
     });
 
     // Atlas texture bind group layout (tex + sampler) for the overlay pipeline.
-    let atlas_texture_layout =
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Atlas Texture Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
+    let atlas_texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Atlas Texture Layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
 
     let overlay_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Overlay Shader"),
         source: wgpu::ShaderSource::Wgsl(overlay_shader().into()),
     });
 
-    let overlay_pipeline_layout =
-        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Overlay Pipeline Layout"),
-            bind_group_layouts: &[&atlas_texture_layout],
-            push_constant_ranges: &[],
-        });
+    let overlay_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Overlay Pipeline Layout"),
+        bind_group_layouts: &[&atlas_texture_layout],
+        push_constant_ranges: &[],
+    });
 
     let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Overlay Pipeline"),

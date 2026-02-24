@@ -1,11 +1,10 @@
 // --- SCREEN RECORD IPC ---
 // IPC command handling for screen recording WebView.
 
-use base64::Engine as _;
 use super::bg_download;
 use super::engine::{
-    get_monitors, CaptureHandler, ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED,
-    CAPTURE_ERROR, ENCODER_ACTIVE, ENCODING_FINISHED, MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
+    get_monitors, CaptureHandler, ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR,
+    ENCODER_ACTIVE, ENCODING_FINISHED, MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
 use super::keysee_capture;
 use super::mf_decode;
@@ -14,6 +13,7 @@ use super::raw_video;
 use super::{SERVER_PORT, SR_HWND};
 use crate::config::Hotkey;
 use crate::APP;
+use base64::Engine as _;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Seek};
@@ -23,11 +23,11 @@ use tiny_http::{Response, Server, StatusCode};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::System::Threading::{
     GetCurrentThread, OpenProcess, QueryFullProcessImageNameW, SetThreadPriority,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, THREAD_PRIORITY_ABOVE_NORMAL,
 };
-use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows_capture::capture::GraphicsCaptureApiHandler;
@@ -215,7 +215,8 @@ fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
 
         let old_obj = SelectObject(hdc_mem, hbitmap.into());
         let pw_renderfullcontent = 2u32;
-        let print_ok = PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(pw_renderfullcontent)).as_bool();
+        let print_ok =
+            PrintWindow(hwnd, hdc_mem, PRINT_WINDOW_FLAGS(pw_renderfullcontent)).as_bool();
         if !print_ok {
             let _ = SelectObject(hdc_mem, old_obj);
             let _ = DeleteObject(hbitmap.into());
@@ -366,9 +367,7 @@ pub fn handle_ipc_command(
             Ok(serde_json::Value::Null)
         }
         "stage_export_data" => {
-            let data_type = args["dataType"]
-                .as_str()
-                .ok_or("missing dataType")?;
+            let data_type = args["dataType"].as_str().ok_or("missing dataType")?;
             match data_type {
                 "camera" => {
                     let frames: Vec<native_export::config::BakedCameraFrame> =
@@ -500,8 +499,8 @@ pub fn handle_ipc_command(
             Ok(serde_json::to_value(monitors).unwrap())
         }
         "get_windows" => {
-            let windows = windows_capture::window::Window::enumerate()
-                .map_err(|e| e.to_string())?;
+            let windows =
+                windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
             let mut window_infos = Vec::new();
             for window in windows {
                 if !window.is_valid() {
@@ -524,13 +523,7 @@ pub fn handle_ipc_command(
                     .ok()
                     .and_then(get_process_exe_path)
                     .and_then(|path| extract_icon_data_url_from_exe(&path));
-                let is_admin = matches!(
-                    process_name.as_str(),
-                    name if name.eq_ignore_ascii_case("Taskmgr.exe")
-                        || name.eq_ignore_ascii_case("cmd.exe")
-                        || name.eq_ignore_ascii_case("powershell.exe")
-                        || name.eq_ignore_ascii_case("regedit.exe")
-                );
+                let is_admin = false;
 
                 window_infos.push(serde_json::json!({
                     "id": hwnd_val.to_string(),
@@ -582,26 +575,25 @@ pub fn handle_ipc_command(
 
                 // Log the window title for diagnostics.
                 let mut title_buf = [0u16; 256];
-                let title_len =
-                    unsafe { windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut title_buf) };
+                let title_len = unsafe {
+                    windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut title_buf)
+                };
                 let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
                 eprintln!(
                     "[CaptureBackend] Window capture: hwnd=0x{:X}, title={:?}, IsWindow={}",
                     hwnd_val,
                     title,
-                    unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() }
+                    unsafe {
+                        windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
+                    }
                 );
 
                 if hwnd_val == 0
                     || !unsafe {
-                        windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd))
-                            .as_bool()
+                        windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
                     }
                 {
-                    return Err(format!(
-                        "Invalid window handle: 0x{:X}",
-                        hwnd_val
-                    ));
+                    return Err(format!("Invalid window handle: 0x{:X}", hwnd_val));
                 }
 
                 let window = windows_capture::window::Window::from_raw_hwnd(
@@ -639,8 +631,7 @@ pub fn handle_ipc_command(
 
                 std::thread::spawn(move || {
                     unsafe {
-                        let _ =
-                            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
                     }
                     match CaptureHandler::start_free_threaded(settings) {
                         Ok(control) => {
@@ -655,8 +646,7 @@ pub fn handle_ipc_command(
                 });
             } else {
                 let monitor_index = target_id.parse::<usize>().unwrap_or(0);
-                let monitor =
-                    Monitor::from_index(monitor_index + 1).map_err(|e| e.to_string())?;
+                let monitor = Monitor::from_index(monitor_index + 1).map_err(|e| e.to_string())?;
 
                 unsafe {
                     let mut monitors: Vec<windows::Win32::Graphics::Gdi::HMONITOR> = Vec::new();
@@ -669,9 +659,9 @@ pub fn handle_ipc_command(
                     if let Some(&hmonitor) = monitors.get(monitor_index) {
                         let mut info: windows::Win32::Graphics::Gdi::MONITORINFOEXW =
                             std::mem::zeroed();
-                        info.monitorInfo.cbSize =
-                            std::mem::size_of::<windows::Win32::Graphics::Gdi::MONITORINFOEXW>()
-                                as u32;
+                        info.monitorInfo.cbSize = std::mem::size_of::<
+                            windows::Win32::Graphics::Gdi::MONITORINFOEXW,
+                        >() as u32;
                         if windows::Win32::Graphics::Gdi::GetMonitorInfoW(
                             hmonitor,
                             &mut info.monitorInfo as *mut _,
@@ -699,8 +689,7 @@ pub fn handle_ipc_command(
 
                 std::thread::spawn(move || {
                     unsafe {
-                        let _ =
-                            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
                     }
                     match CaptureHandler::start_free_threaded(settings) {
                         Ok(control) => {
@@ -749,8 +738,7 @@ pub fn handle_ipc_command(
                 ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
                 super::engine::SHOULD_STOP_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
                 ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-                AUDIO_ENCODING_FINISHED
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
                 return Err(err_msg);
             }
 
@@ -772,9 +760,8 @@ pub fn handle_ipc_command(
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
-            let encoding_done =
-                ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                    && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+            let encoding_done = ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
 
             if !encoding_done {
                 eprintln!(
@@ -798,27 +785,23 @@ pub fn handle_ipc_command(
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
 
-                let retry_done =
-                    ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
-                        && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
+                let retry_done = ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst)
+                    && AUDIO_ENCODING_FINISHED.load(std::sync::atomic::Ordering::SeqCst);
 
                 if !retry_done {
                     ENCODER_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
                     super::engine::SHOULD_STOP_AUDIO
                         .store(true, std::sync::atomic::Ordering::SeqCst);
                     ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
-                    AUDIO_ENCODING_FINISHED
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    AUDIO_ENCODING_FINISHED.store(true, std::sync::atomic::Ordering::SeqCst);
 
                     if let Some(ref path) = *VIDEO_PATH.lock().unwrap() {
                         let _ = std::fs::remove_file(path);
                     }
 
-                    return Err(
-                        "Recording failed: encoding did not complete in time. \
+                    return Err("Recording failed: encoding did not complete in time. \
                          Please try again."
-                            .to_string(),
-                    );
+                        .to_string());
                 }
             }
 
@@ -1359,11 +1342,8 @@ pub fn start_global_media_server() -> Result<u16, String> {
             if media_path_str.is_empty() || !Path::new(&media_path_str).exists() {
                 let mut res = Response::from_string("File not found").with_status_code(404);
                 res.add_header(
-                    tiny_http::Header::from_bytes(
-                        &b"Access-Control-Allow-Origin"[..],
-                        &b"*"[..],
-                    )
-                    .unwrap(),
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                        .unwrap(),
                 );
                 let _ = request.respond(res);
                 continue;
@@ -1459,11 +1439,8 @@ pub fn start_global_media_server() -> Result<u16, String> {
             } else {
                 let mut res = Response::from_string("File not found").with_status_code(404);
                 res.add_header(
-                    tiny_http::Header::from_bytes(
-                        &b"Access-Control-Allow-Origin"[..],
-                        &b"*"[..],
-                    )
-                    .unwrap(),
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                        .unwrap(),
                 );
                 let _ = request.respond(res);
             }

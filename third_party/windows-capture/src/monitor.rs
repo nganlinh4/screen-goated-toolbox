@@ -2,23 +2,23 @@ use std::num::ParseIntError;
 use std::string::FromUtf16Error;
 use std::{mem, ptr};
 
+use windows::core::{BOOL, HSTRING, PCWSTR};
 use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Devices::Display::{
+    DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig,
     DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
     DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO,
     DISPLAYCONFIG_SOURCE_DEVICE_NAME, DISPLAYCONFIG_TARGET_DEVICE_NAME,
     DISPLAYCONFIG_TARGET_DEVICE_NAME_FLAGS, DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY,
-    DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QDC_ONLY_ACTIVE_PATHS,
-    QueryDisplayConfig,
+    QDC_ONLY_ACTIVE_PATHS,
 };
 use windows::Win32::Foundation::{LPARAM, POINT, RECT, TRUE};
 use windows::Win32::Graphics::Gdi::{
-    DEVMODEW, DISPLAY_DEVICE_STATE_FLAGS, DISPLAY_DEVICEW, ENUM_CURRENT_SETTINGS,
-    EnumDisplayDevicesW, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, HDC, HMONITOR,
-    MONITOR_DEFAULTTONULL, MONITORINFO, MONITORINFOEXW, MonitorFromPoint,
+    EnumDisplayDevicesW, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW,
+    MonitorFromPoint, DEVMODEW, DISPLAY_DEVICEW, DISPLAY_DEVICE_STATE_FLAGS, ENUM_CURRENT_SETTINGS,
+    HDC, HMONITOR, MONITORINFO, MONITORINFOEXW, MONITOR_DEFAULTTONULL,
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
-use windows::core::{BOOL, HSTRING, PCWSTR};
 
 use crate::settings::{CaptureItemTypes, TryIntoCaptureItemWithType};
 
@@ -344,8 +344,12 @@ impl Monitor {
         };
         let name = HSTRING::from(self.device_name()?);
         if unsafe {
-            !EnumDisplaySettingsW(PCWSTR(name.as_ptr()), ENUM_CURRENT_SETTINGS, &mut device_mode)
-                .as_bool()
+            !EnumDisplaySettingsW(
+                PCWSTR(name.as_ptr()),
+                ENUM_CURRENT_SETTINGS,
+                &mut device_mode,
+            )
+            .as_bool()
         } {
             return Err(Error::FailedToGetMonitorSettings);
         }
@@ -366,8 +370,12 @@ impl Monitor {
         };
         let name = HSTRING::from(self.device_name()?);
         if unsafe {
-            !EnumDisplaySettingsW(PCWSTR(name.as_ptr()), ENUM_CURRENT_SETTINGS, &mut device_mode)
-                .as_bool()
+            !EnumDisplaySettingsW(
+                PCWSTR(name.as_ptr()),
+                ENUM_CURRENT_SETTINGS,
+                &mut device_mode,
+            )
+            .as_bool()
         } {
             return Err(Error::FailedToGetMonitorSettings);
         }
@@ -388,8 +396,12 @@ impl Monitor {
         };
         let name = HSTRING::from(self.device_name()?);
         if unsafe {
-            !EnumDisplaySettingsW(PCWSTR(name.as_ptr()), ENUM_CURRENT_SETTINGS, &mut device_mode)
-                .as_bool()
+            !EnumDisplaySettingsW(
+                PCWSTR(name.as_ptr()),
+                ENUM_CURRENT_SETTINGS,
+                &mut device_mode,
+            )
+            .as_bool()
         } {
             return Err(Error::FailedToGetMonitorSettings);
         }
@@ -427,7 +439,9 @@ impl Monitor {
     #[must_use]
     #[inline]
     pub const fn from_raw_hmonitor(monitor: *mut std::ffi::c_void) -> Self {
-        Self { monitor: HMONITOR(monitor) }
+        Self {
+            monitor: HMONITOR(monitor),
+        }
     }
 
     /// Returns the raw `HMONITOR` handle of the monitor.
