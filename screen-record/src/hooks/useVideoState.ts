@@ -1001,11 +1001,18 @@ interface UseZoomKeyframesProps {
 export function useZoomKeyframes(props: UseZoomKeyframesProps) {
   const [editingKeyframeId, setEditingKeyframeId] = useState<number | null>(null);
   const [zoomFactor, setZoomFactor] = useState(1.5);
+  // Stable ref so handleAddKeyframe always reads the latest timeline position
+  // without needing currentTime in its dependency array (which changes 60fps).
+  const currentTimeRef = useRef(props.currentTime);
+  currentTimeRef.current = props.currentTime;
 
   const handleAddKeyframe = useCallback((override?: Partial<ZoomKeyframe>) => {
     if (!props.segment || !props.videoRef.current) return;
 
-    const currentVideoTime = props.videoRef.current.currentTime;
+    // Use the React-state currentTime (what the user sees on the timeline),
+    // NOT videoRef.current.currentTime which can silently diverge when
+    // throttledUpdateZoom seeks the video element to an editing keyframe's time.
+    const currentVideoTime = currentTimeRef.current;
     const nearbyIndex = props.segment.zoomKeyframes.findIndex(k => Math.abs(k.time - currentVideoTime) < 0.2);
     let updatedKeyframes: ZoomKeyframe[];
 
