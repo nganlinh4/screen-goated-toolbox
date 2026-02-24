@@ -2632,8 +2632,15 @@ export class VideoRenderer {
       const p2 = positions[i + 2];
       const p3 = positions[i + 3];
 
+      // Skip dense interpolation for static idle segments to avoid O(N) bloat.
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      if (dist < 2 && p1.isClicked === p2.isClicked && p1.cursor_type === p2.cursor_type) {
+        smoothed.push({ ...p1 });
+        continue;
+      }
+
       const segmentDuration = p2.timestamp - p1.timestamp;
-      const numFrames = Math.ceil(segmentDuration * targetFps);
+      const numFrames = Math.min(Math.ceil(segmentDuration * targetFps), 60);
 
       for (let frame = 0; frame < numFrames; frame++) {
         const t = frame / numFrames;

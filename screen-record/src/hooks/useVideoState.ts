@@ -301,6 +301,9 @@ export function useRecording(props: UseRecordingProps) {
   const handleStopRecording = async (): Promise<{ mouseData: MousePosition[], initialSegment: VideoSegment, videoUrl: string, recordingMode: RecordingMode, rawVideoPath: string } | null> => {
     if (!isRecording) return null;
 
+    let objectUrl: string | undefined;
+    let audioObjectUrl: string | undefined;
+
     try {
       setIsRecording(false);
       setIsLoadingVideo(true);
@@ -320,7 +323,7 @@ export function useRecording(props: UseRecordingProps) {
       }));
       setMousePositions(mouseData);
 
-      const objectUrl = await props.videoControllerRef.current?.loadVideo({
+      objectUrl = await props.videoControllerRef.current?.loadVideo({
         videoUrl, onLoadingProgress: setLoadingProgress
       });
 
@@ -329,7 +332,7 @@ export function useRecording(props: UseRecordingProps) {
         setVideoFilePathOwnerUrl(objectUrl);
 
         if (audioUrl && audioUrl !== videoUrl) {
-          const audioObjectUrl = await props.videoControllerRef.current?.loadAudio({ audioUrl });
+          audioObjectUrl = await props.videoControllerRef.current?.loadAudio({ audioUrl });
           if (audioObjectUrl) props.setCurrentAudio(audioObjectUrl);
         } else {
           props.setCurrentAudio(null);
@@ -420,6 +423,8 @@ export function useRecording(props: UseRecordingProps) {
       }
       return null;
     } catch (err) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
       setError(err instanceof Error ? err.message : String(err));
       return null;
     } finally {

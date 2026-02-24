@@ -25,8 +25,8 @@ use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::System::Threading::{
-    GetCurrentThread, OpenProcess, QueryFullProcessImageNameW, SetThreadPriority,
-    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, THREAD_PRIORITY_ABOVE_NORMAL,
+    OpenProcess, QueryFullProcessImageNameW,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -644,21 +644,17 @@ pub fn handle_ipc_command(
                     flag_str,
                 );
 
-                std::thread::spawn(move || {
-                    unsafe {
-                        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                match CaptureHandler::start_free_threaded(settings) {
+                    Ok(control) => {
+                        *super::engine::EXTERNAL_CAPTURE_CONTROL.lock() = Some(control);
                     }
-                    match CaptureHandler::start_free_threaded(settings) {
-                        Ok(control) => {
-                            *super::engine::EXTERNAL_CAPTURE_CONTROL.lock() = Some(control);
-                        }
-                        Err(e) => {
-                            let msg = format!("Window capture failed: {}", e);
-                            eprintln!("[CaptureBackend] {}", msg);
-                            *CAPTURE_ERROR.lock() = Some(msg);
-                        }
+                    Err(e) => {
+                        let msg = format!("Window capture failed: {}", e);
+                        eprintln!("[CaptureBackend] {}", msg);
+                        *CAPTURE_ERROR.lock() = Some(msg.clone());
+                        return Err(msg);
                     }
-                });
+                }
             } else {
                 super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::Relaxed);
                 let monitor_index = target_id.parse::<usize>().unwrap_or(0);
@@ -703,21 +699,17 @@ pub fn handle_ipc_command(
                     flag_str,
                 );
 
-                std::thread::spawn(move || {
-                    unsafe {
-                        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+                match CaptureHandler::start_free_threaded(settings) {
+                    Ok(control) => {
+                        *super::engine::EXTERNAL_CAPTURE_CONTROL.lock() = Some(control);
                     }
-                    match CaptureHandler::start_free_threaded(settings) {
-                        Ok(control) => {
-                            *super::engine::EXTERNAL_CAPTURE_CONTROL.lock() = Some(control);
-                        }
-                        Err(e) => {
-                            let msg = format!("Display capture failed: {}", e);
-                            eprintln!("[CaptureBackend] {}", msg);
-                            *CAPTURE_ERROR.lock() = Some(msg);
-                        }
+                    Err(e) => {
+                        let msg = format!("Display capture failed: {}", e);
+                        eprintln!("[CaptureBackend] {}", msg);
+                        *CAPTURE_ERROR.lock() = Some(msg.clone());
+                        return Err(msg);
                     }
-                });
+                }
             }
 
             if let Err(err) = keysee_capture::start_capture() {

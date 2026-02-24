@@ -83,7 +83,7 @@ export function Header({
 
   return (
     <header
-      className="app-header bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[60]"
+      className="app-header bg-[var(--surface)] border-b border-[var(--outline-variant)] select-none h-11 flex items-center justify-between cursor-default relative z-[100]"
       onMouseDown={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const y = e.clientY - rect.top;
@@ -118,11 +118,11 @@ export function Header({
         </div>
 
         <div className="recording-status-area h-full flex items-center">
-          {isRecording && currentVideo && (
-            <div className="recording-indicator flex items-center gap-2 bg-[var(--tertiary-color)]/10 border border-[var(--tertiary-color)]/30 px-2.5 py-1 rounded-lg backdrop-blur-sm animate-in fade-in slide-in-from-left-2 duration-300">
-              <div className="recording-dot w-2 h-2 rounded-full bg-[var(--tertiary-color)] animate-pulse" />
-              <span className="text-[var(--tertiary-color)] text-[10px] font-bold uppercase tracking-wider">{t.rec}</span>
-              <span className="text-[var(--on-surface)] text-xs font-mono">{formatTime(recordingDuration)}</span>
+          {isRecording && (
+            <div className="recording-indicator flex items-center gap-2 bg-red-500/10 border border-red-500/30 shadow-[0_0_12px_rgba(239,68,68,0.25)] px-3 py-1.5 rounded-lg backdrop-blur-md animate-in fade-in slide-in-from-left-2 duration-300">
+              <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse" />
+              <span className="text-red-500 text-[11px] font-extrabold uppercase tracking-widest drop-shadow-sm">{t.rec}</span>
+              <span className="text-red-500 text-xs font-mono font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
             </div>
           )}
         </div>
@@ -157,7 +157,10 @@ export function Header({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <Button
-              onClick={() => setIsRecordingModeMenuOpen((open) => !open)}
+              onClick={() => setIsRecordingModeMenuOpen((open) => {
+                if (!open) setIsCaptureSourceMenuOpen(false);
+                return !open;
+              })}
               className="recording-mode-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center"
               title={selectedRecordingModeLabel}
             >
@@ -210,12 +213,15 @@ export function Header({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <Button
-              onClick={() => setIsCaptureSourceMenuOpen((open) => !open)}
+              onClick={() => setIsCaptureSourceMenuOpen((open) => {
+                if (!open) setIsRecordingModeMenuOpen(false);
+                return !open;
+              })}
               className="capture-source-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center"
               title={captureSource === 'monitor' ? t.displayCapture : t.windowCapture}
             >
               <span className="capture-source-toggle-label">
-                {captureSource === 'monitor' ? t.displayCapture : t.windowCapture}
+                {captureSource === 'monitor' ? t.displayCaptureShort : t.windowCapture}
               </span>
               <ChevronDown className="w-3 h-3 ml-1.5" />
             </Button>
