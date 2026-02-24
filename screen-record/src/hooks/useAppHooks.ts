@@ -18,6 +18,15 @@ export interface Hotkey {
   modifiers: number;
 }
 
+export interface WindowInfo {
+  id: string;
+  title: string;
+  processName: string;
+  isAdmin: boolean;
+  iconDataUrl?: string | null;
+  previewDataUrl?: string | null;
+}
+
 // ============================================================================
 // useThrottle
 // ============================================================================
@@ -124,4 +133,25 @@ export function useMonitors() {
   };
 
   return { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors };
+}
+
+// ============================================================================
+// useWindows
+// ============================================================================
+export function useWindows() {
+  const [windows, setWindows] = useState<WindowInfo[]>([]);
+  const [showWindowSelect, setShowWindowSelect] = useState(false);
+
+  const getWindows = useCallback(async () => {
+    try {
+      const wins = await invoke<WindowInfo[]>('get_windows');
+      setWindows(wins);
+      return wins;
+    } catch (err) {
+      console.error('Failed to get windows:', err);
+      return [];
+    }
+  }, []);
+
+  return { windows, showWindowSelect, setShowWindowSelect, getWindows };
 }

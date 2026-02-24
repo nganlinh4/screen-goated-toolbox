@@ -3,6 +3,11 @@ const en = {
   appTitle: 'SGT Record',
   rec: 'REC',
   clickToRemove: 'Click to remove',
+  displayCapture: 'Display capture',
+  windowCapture: 'Window capture',
+  gameCapture: 'Game Capture',
+  adminRequired: 'Admin Required',
+  adminRequiredDesc: 'Cannot capture elevated process.',
   addHotkey: 'Add Hotkey',
   toggleKeyviz: 'Toggle Keyviz',
   installKeyviz: 'Install & Enable Keyviz',
@@ -164,6 +169,7 @@ const en = {
 
   // Dialogs - Monitor Select
   selectMonitor: 'Select Monitor',
+  selectWindow: 'Select Window or Game',
 
   // Dialogs - Hotkey
   pressKeys: 'Press Keys...',

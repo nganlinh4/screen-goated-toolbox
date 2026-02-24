@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
-import { Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen, ChevronDown, Check } from 'lucide-react';
+import {
+  Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen,
+  ChevronDown, Check, Monitor, AppWindow
+} from 'lucide-react';
 import { Hotkey } from '@/hooks/useAppHooks';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
@@ -25,6 +28,8 @@ interface HeaderProps {
   onOpenProjects: () => void;
   hideExport?: boolean;
   hideRawVideo?: boolean;
+  captureSource: 'monitor' | 'window';
+  onCaptureSourceChange: (source: 'monitor' | 'window') => void;
 }
 
 export function Header({
@@ -44,12 +49,16 @@ export function Header({
   onOpenRawVideoDialog,
   onOpenProjects,
   hideExport = false,
-  hideRawVideo = false
+  hideRawVideo = false,
+  captureSource,
+  onCaptureSourceChange
 }: HeaderProps) {
   const { t } = useSettings();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [isRecordingModeMenuOpen, setIsRecordingModeMenuOpen] = useState(false);
+  const [isCaptureSourceMenuOpen, setIsCaptureSourceMenuOpen] = useState(false);
   const recordingModeMenuRef = useRef<HTMLDivElement | null>(null);
+  const captureSourceMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedRecordingModeLabel = useMemo(
     () => recordingMode === 'withCursor' ? t.recordingModeWithCursor : t.recordingModeNoCursor,
     [recordingMode, t.recordingModeWithCursor, t.recordingModeNoCursor]
@@ -63,6 +72,9 @@ export function Header({
     const onMouseDown = (event: MouseEvent) => {
       if (!recordingModeMenuRef.current?.contains(event.target as Node)) {
         setIsRecordingModeMenuOpen(false);
+      }
+      if (!captureSourceMenuRef.current?.contains(event.target as Node)) {
+        setIsCaptureSourceMenuOpen(false);
       }
     };
     window.addEventListener('mousedown', onMouseDown);
@@ -192,6 +204,56 @@ export function Header({
         </div>
 
         <div className="header-actions flex items-center gap-2">
+          <div
+            ref={captureSourceMenuRef}
+            className="capture-source-dropdown relative flex-shrink-0"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <Button
+              onClick={() => setIsCaptureSourceMenuOpen((open) => !open)}
+              className="capture-source-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center"
+              title={captureSource === 'monitor' ? t.displayCapture : t.windowCapture}
+            >
+              <span className="capture-source-toggle-label">
+                {captureSource === 'monitor' ? t.displayCapture : t.windowCapture}
+              </span>
+              <ChevronDown className="w-3 h-3 ml-1.5" />
+            </Button>
+            {isCaptureSourceMenuOpen && (
+              <div className="capture-source-menu absolute top-[calc(100%+4px)] right-0 min-w-[160px] z-50 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.32)] p-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCaptureSourceChange('monitor');
+                    setIsCaptureSourceMenuOpen(false);
+                  }}
+                  className={`capture-source-option capture-source-option-monitor w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 ${
+                    captureSource === 'monitor'
+                      ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
+                      : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
+                  }`}
+                >
+                  <Monitor className="w-3.5 h-3.5" />
+                  <span>{t.displayCapture}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onCaptureSourceChange('window');
+                    setIsCaptureSourceMenuOpen(false);
+                  }}
+                  className={`capture-source-option capture-source-option-window w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 mt-1 ${
+                    captureSource === 'window'
+                      ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
+                      : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
+                  }`}
+                >
+                  <AppWindow className="w-3.5 h-3.5" />
+                  <span>{t.windowCapture}</span>
+                </button>
+              </div>
+            )}
+          </div>
           {currentVideo && !hideRawVideo && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}

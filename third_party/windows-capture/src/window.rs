@@ -343,7 +343,22 @@ impl TryIntoCaptureItemWithType for Window {
         let window = HWND(self.as_raw_hwnd());
 
         let interop = windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
-        let item = unsafe { interop.CreateForWindow(window)? };
+        let item: GraphicsCaptureItem =
+            unsafe { interop.CreateForWindow(window)? };
+
+        if let Ok(size) = item.Size() {
+            let display_name = item
+                .DisplayName()
+                .map(|s: windows::core::HSTRING| s.to_string())
+                .unwrap_or_default();
+            eprintln!(
+                "[WGC] CreateForWindow(hwnd=0x{:X}) -> item size={}x{}, displayName={:?}",
+                self.as_raw_hwnd() as usize,
+                size.Width,
+                size.Height,
+                display_name
+            );
+        }
 
         Ok((item, CaptureItemTypes::Window(self)))
     }
