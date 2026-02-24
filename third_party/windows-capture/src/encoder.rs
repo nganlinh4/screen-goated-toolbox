@@ -151,6 +151,7 @@ unsafe impl Sync for VideoEncoderError {}
 pub enum VideoEncoderSource {
     DirectX(SendDirectX<IDirect3DSurface>),
     Buffer((SendDirectX<*const u8>, usize)),
+    OwnedBuffer(Vec<u8>),
 }
 
 /// The `AudioEncoderSource` enum represents all the types that can be sent to the encoder.
@@ -180,6 +181,66 @@ impl AudioEncoderHandle {
         Ok(())
     }
 }
+
+/// A handle that submits video frames at a constant framerate, independent of
+/// the WGC frame delivery rate.  Used for window capture where WGC only
+/// delivers frames when the window content changes.
+pub struct FramePump {
+    frame_sender: mpsc::Sender<Option<(VideoEncoderSource, TimeSpan)>>,
+    audio_sender: mpsc::Sender<Option<(AudioEncoderSource, TimeSpan)>>,
+    pending_video_frames: Arc<AtomicUsize>,
+    dropped_video_frames: Arc<AtomicUsize>,
+    video_frame_interval_100ns: i64,
+    next_video_timestamp_100ns: i64,
+}
+
+impl FramePump {
+    /// Submit a BGRA buffer as the next video frame.
+    /// Returns `true` if the frame was queued, `false` if dropped due to backpressure.
+    #[inline]
+    pub fn submit_buffer(&mut self, buffer: Vec<u8>, max_pending: usize) -> bool {
+        let max_pending = max_pending.max(1);
+        if self.pending_video_frames.load(Ordering::Relaxed) >= max_pending {
+            self.dropped_video_frames.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+
+        let ts = TimeSpan {
+            Duration: self.next_video_timestamp_100ns,
+        };
+        self.next_video_timestamp_100ns = self
+            .next_video_timestamp_100ns
+            .saturating_add(self.video_frame_interval_100ns);
+
+        self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
+        self.frame_sender
+            .send(Some((VideoEncoderSource::OwnedBuffer(buffer), ts)))
+            .is_ok()
+    }
+
+    /// Send EOF (None) to both video and audio channels, signaling the MF
+    /// transcode that no more samples will arrive.
+    pub fn signal_eof(&self) {
+        let _ = self.frame_sender.send(None);
+        let _ = self.audio_sender.send(None);
+    }
+
+    /// Number of frames waiting in the encoder queue.
+    #[must_use]
+    #[inline]
+    pub fn pending_frames(&self) -> usize {
+        self.pending_video_frames.load(Ordering::Relaxed)
+    }
+
+    /// Total frames dropped due to backpressure.
+    #[must_use]
+    #[inline]
+    pub fn dropped_frames(&self) -> usize {
+        self.dropped_video_frames.load(Ordering::Relaxed)
+    }
+}
+
+unsafe impl Send for FramePump {}
 
 /// The `VideoSettingsBuilder` struct is used to configure settings for the video encoder.
 pub struct VideoSettingsBuilder {
@@ -719,6 +780,10 @@ impl VideoEncoder {
                                     let buffer = CryptographicBuffer::CreateFromByteArray(buffer)?;
                                     MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
                                 }
+                                VideoEncoderSource::OwnedBuffer(buffer) => {
+                                    let buffer = CryptographicBuffer::CreateFromByteArray(&buffer)?;
+                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
+                                }
                             };
 
                             sample_requested.Request()?.SetSample(&sample)?;
@@ -971,6 +1036,10 @@ impl VideoEncoder {
                                     let buffer = CryptographicBuffer::CreateFromByteArray(buffer)?;
                                     MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
                                 }
+                                VideoEncoderSource::OwnedBuffer(buffer) => {
+                                    let buffer = CryptographicBuffer::CreateFromByteArray(&buffer)?;
+                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
+                                }
                             };
 
                             sample_requested.Request()?.SetSample(&sample)?;
@@ -1134,6 +1203,45 @@ impl VideoEncoder {
         Ok(true)
     }
 
+    /// Sends an owned BGRA buffer without blocking on encoder consumption.
+    ///
+    /// The buffer length must match the encoder's configured frame byte size.
+    #[inline]
+    pub fn send_frame_owned_buffer_nonblocking(
+        &mut self,
+        buffer: Vec<u8>,
+        max_pending_frames: usize,
+    ) -> Result<bool, VideoEncoderError> {
+        if self.is_video_disabled {
+            return Err(VideoEncoderError::VideoDisabled);
+        }
+
+        let max_pending_frames = max_pending_frames.max(1);
+        if self.pending_video_frames.load(Ordering::Relaxed) >= max_pending_frames {
+            self.dropped_video_frames.fetch_add(1, Ordering::Relaxed);
+            return Ok(false);
+        }
+
+        let timestamp = self.next_video_timespan();
+
+        self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
+        if let Err(error) = self
+            .frame_sender
+            .send(Some((VideoEncoderSource::OwnedBuffer(buffer), timestamp)))
+        {
+            saturating_decrement(self.pending_video_frames.as_ref());
+            return Err(error.into());
+        }
+
+        if self.error_notify.load(atomic::Ordering::Relaxed) {
+            if let Some(transcode_thread) = self.transcode_thread.take() {
+                transcode_thread.join().expect("Failed to join transcode thread")?;
+            }
+        }
+
+        Ok(true)
+    }
+
     #[must_use]
     #[inline]
     pub fn pending_video_frames(&self) -> usize {
@@ -1151,6 +1259,23 @@ impl VideoEncoder {
     pub fn create_audio_handle(&self) -> AudioEncoderHandle {
         AudioEncoderHandle {
             sender: self.audio_sender.clone(),
+        }
+    }
+
+    /// Creates a `FramePump` that can submit video frames at a constant
+    /// framerate from a background thread.  When using a FramePump the
+    /// caller must NOT call `send_frame*` or `skip_video_frames` on this
+    /// encoder—the pump owns the video timeline.
+    #[must_use]
+    #[inline]
+    pub fn create_frame_pump(&self) -> FramePump {
+        FramePump {
+            frame_sender: self.frame_sender.clone(),
+            audio_sender: self.audio_sender.clone(),
+            pending_video_frames: self.pending_video_frames.clone(),
+            dropped_video_frames: self.dropped_video_frames.clone(),
+            video_frame_interval_100ns: self.video_frame_interval_100ns,
+            next_video_timestamp_100ns: 0,
         }
     }
 
@@ -1399,6 +1524,7 @@ impl Drop for VideoEncoder {
     #[inline]
     fn drop(&mut self) {
         let _ = self.frame_sender.send(None);
+        let _ = self.audio_sender.send(None);
 
         if let Some(transcode_thread) = self.transcode_thread.take() {
             let _ = transcode_thread.join();

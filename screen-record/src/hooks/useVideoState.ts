@@ -240,7 +240,11 @@ export function useRecording(props: UseRecordingProps) {
   const [videoFilePathOwnerUrl, setVideoFilePathOwnerUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const startNewRecording = async (monitorId: string, recordingMode: RecordingMode) => {
+  const startNewRecording = async (
+    targetId: string,
+    recordingMode: RecordingMode,
+    targetType: 'monitor' | 'window' = 'monitor'
+  ) => {
     try {
       setMousePositions([]);
       props.setIsVideoReady(false);
@@ -269,14 +273,15 @@ export function useRecording(props: UseRecordingProps) {
       }
 
       await invoke("start_recording", {
-        monitorId,
+        targetId,
+        targetType,
         includeCursor: recordingMode === 'withCursor'
       });
       setActiveRecordingMode(recordingMode);
       setIsRecording(true);
       setError(null);
     } catch (err) {
-      setError(err as string);
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -399,7 +404,7 @@ export function useRecording(props: UseRecordingProps) {
       }
       return null;
     } catch (err) {
-      setError(err as string);
+      setError(err instanceof Error ? err.message : String(err));
       return null;
     } finally {
       setIsLoadingVideo(false);

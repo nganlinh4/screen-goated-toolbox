@@ -62,6 +62,7 @@ pub enum Error {
 }
 
 /// Provides a way to gracefully stop the capture session thread.
+#[derive(Clone)]
 pub struct InternalCaptureControl {
     stop: Arc<AtomicBool>,
 }
@@ -191,9 +192,12 @@ impl GraphicsCaptureApi {
             return Err(Error::DirtyRegionUnsupported);
         }
 
-        // Pre-calculate the title bar height so each frame doesn't need to do it
+        // Pre-calculate the title bar height so each frame doesn't need to do it.
+        // Use .ok() instead of ? — DwmGetWindowAttribute / GetClientRect can fail
+        // for console windows, UWP apps, elevated processes, etc.  A failure here
+        // must not abort the entire capture; default to 0 (no title-bar crop).
         let title_bar_height = match item_type {
-            CaptureItemTypes::Window(window) => Some(window.title_bar_height()?),
+            CaptureItemTypes::Window(window) => Some(window.title_bar_height().unwrap_or(0)),
             CaptureItemTypes::Monitor(_) => None,
         };
 
@@ -202,13 +206,25 @@ impl GraphicsCaptureApi {
 
         let pixel_format = DirectXPixelFormat(color_format as i32);
 
-        // Create frame pool
-        let frame_pool = Direct3D11CaptureFramePool::Create(
+        // Create frame pool.
+        // Prefer CreateFreeThreaded (Windows 10 20H1+): it dispatches FrameArrived
+        // on a thread-pool thread instead of the caller's dispatcher queue, which is
+        // more reliable for window captures where the message loop may stall briefly.
+        let item_size = item.Size()?;
+        let frame_pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
             &direct3d_device,
             pixel_format,
             FRAME_POOL_BUFFER_COUNT,
-            item.Size()?,
-        )?;
+            item_size,
+        )
+        .or_else(|_| {
+            Direct3D11CaptureFramePool::Create(
+                &direct3d_device,
+                pixel_format,
+                FRAME_POOL_BUFFER_COUNT,
+                item_size,
+            )
+        })?;
         let frame_pool = Arc::new(frame_pool);
 
         // Create capture session

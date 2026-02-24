@@ -5,6 +5,11 @@ const vi: Translations = {
   appTitle: 'Quay Màn Hình',
   rec: 'GHI',
   clickToRemove: 'Nhấn để xóa',
+  displayCapture: 'Quay màn hình',
+  windowCapture: 'Quay cửa sổ',
+  gameCapture: 'Quay Game',
+  adminRequired: 'Cần Quyền Admin',
+  adminRequiredDesc: 'Không thể quay tiến trình admin.',
   addHotkey: 'Thêm Phím Tắt',
   toggleKeyviz: 'Bật/Tắt Keyviz',
   installKeyviz: 'Cài & Bật Keyviz',
@@ -166,6 +171,7 @@ const vi: Translations = {
 
   // Dialogs - Monitor Select
   selectMonitor: 'Chọn Màn Hình',
+  selectWindow: 'Chọn Cửa sổ hoặc Game',
 
   // Dialogs - Hotkey
   pressKeys: 'Nhấn Phím...',

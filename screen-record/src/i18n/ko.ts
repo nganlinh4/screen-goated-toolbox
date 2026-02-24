@@ -5,6 +5,11 @@ const ko: Translations = {
   appTitle: '화면 녹화',
   rec: '녹화',
   clickToRemove: '클릭하여 제거',
+  displayCapture: '화면 캡처',
+  windowCapture: '창 캡처',
+  gameCapture: '게임 캡처',
+  adminRequired: '관리자 권한 필요',
+  adminRequiredDesc: '권한이 높은 프로세스는 캡처할 수 없습니다.',
   addHotkey: '단축키 추가',
   toggleKeyviz: 'Keyviz 전환',
   installKeyviz: 'Keyviz 설치 및 활성화',
@@ -166,6 +171,7 @@ const ko: Translations = {
 
   // Dialogs - Monitor Select
   selectMonitor: '모니터 선택',
+  selectWindow: '창 또는 게임 선택',
 
   // Dialogs - Hotkey
   pressKeys: '키를 누르세요...',

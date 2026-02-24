@@ -617,6 +617,11 @@ export class VideoController {
         }
 
         blob = new Blob(chunks, { type: 'video/mp4' });
+        if (blob.size === 0) {
+          throw new Error(
+            'Recording failed: 0 frames captured. If you used Window Capture, ensure the window was visible and updating on screen.'
+          );
+        }
       } else {
         throw new Error('No video data provided');
       }

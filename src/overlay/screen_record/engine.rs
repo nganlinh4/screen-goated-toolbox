@@ -6,26 +6,28 @@ use std::collections::VecDeque;
 use std::fs;
 use std::mem::zeroed;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::core::BOOL;
-use windows::Win32::Foundation::{LPARAM, POINT, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Gdi::{
     DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, GetObjectW, BITMAP, HDC, HMONITOR,
     MONITORINFOEXW,
 };
+use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorInfo, GetCursorPos, GetIconInfo, LoadCursorW, CURSORINFO, ICONINFO, IDC_APPSTARTING,
     IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
     IDC_SIZEWE, IDC_WAIT,
 };
 use windows_capture::{
-    capture::{Context, GraphicsCaptureApiHandler},
+    capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
     encoder::{
-        AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
-        VideoSettingsSubType,
+        AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder,
+        VideoSettingsBuilder, VideoSettingsSubType,
     },
     frame::Frame,
     graphics_capture_api::InternalCaptureControl,
@@ -55,11 +57,17 @@ pub struct MonitorInfo {
 lazy_static::lazy_static! {
     pub static ref MOUSE_POSITIONS: Mutex<VecDeque<MousePosition>> = Mutex::new(VecDeque::new());
     pub static ref IS_RECORDING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    /// Stores the last capture-start error so `stop_recording` can report it.
+    pub static ref CAPTURE_ERROR: Mutex<Option<String>> = Mutex::new(None);
     pub static ref SHOULD_STOP: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref SHOULD_STOP_AUDIO: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref AUDIO_ENCODING_FINISHED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     pub static ref ENCODER_ACTIVE: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    pub static ref ACTIVE_CAPTURE_CONTROL: Mutex<Option<InternalCaptureControl>> = Mutex::new(None);
+    /// Stores the CaptureControl returned by start_free_threaded so stop_recording
+    /// can properly terminate the capture thread even when 0 frames arrived.
+    pub static ref EXTERNAL_CAPTURE_CONTROL: Mutex<Option<CaptureControl<CaptureHandler, Box<dyn std::error::Error + Send + Sync>>>> = Mutex::new(None);
     pub static ref IS_MOUSE_CLICKED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // Track if we already captured the click event (to only record one frame as clicked)
     pub static ref CLICK_CAPTURED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -109,7 +117,7 @@ struct SystemCursorHandles {
 }
 
 pub struct CaptureHandler {
-    encoder: Option<VideoEncoder>,
+    encoder: Arc<Mutex<Option<VideoEncoder>>>,
     target_fps: u32,
     frame_interval_100ns: i64,
     start: Instant,
@@ -123,6 +131,45 @@ pub struct CaptureHandler {
     window_dropped: u32,
     window_paced_skips: u32,
     stats_window_start: Instant,
+    enc_w: u32,
+    enc_h: u32,
+    /// When true, frames are submitted by a background pump thread at
+    /// constant FPS instead of directly from on_frame_arrived.
+    is_window_capture: bool,
+    /// Shared buffer: on_frame_arrived writes the latest BGRA pixels here;
+    /// the pump thread reads and submits to the encoder.
+    cached_frame: Arc<Mutex<Option<Vec<u8>>>>,
+    /// Signal the pump thread to stop.
+    pump_stop: Arc<AtomicBool>,
+    /// Frames successfully queued by the pump thread (for stats).
+    pump_submitted: Arc<AtomicUsize>,
+    /// Frames dropped by the pump thread due to backpressure (for stats).
+    pump_dropped: Arc<AtomicUsize>,
+}
+
+impl CaptureHandler {
+    fn shutdown_and_finalize(&mut self) {
+        ENCODER_ACTIVE.store(false, Ordering::SeqCst);
+        SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
+        ACTIVE_CAPTURE_CONTROL.lock().take();
+
+        // Stop the frame pump thread (window capture only).
+        self.pump_stop.store(true, Ordering::SeqCst);
+
+        self.cursor_sampler_stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.cursor_sampler_thread.take() {
+            let _ = handle.join();
+        }
+
+        if let Some(encoder) = self.encoder.lock().take() {
+            std::thread::spawn(move || {
+                if let Err(error) = encoder.finish() {
+                    eprintln!("video encoder finalize error: {}", error);
+                }
+                ENCODING_FINISHED.store(true, Ordering::SeqCst);
+            });
+        }
+    }
 }
 
 fn select_target_fps(monitor_hz: u32) -> u32 {
@@ -371,23 +418,84 @@ fn spawn_cursor_sampler(start: Instant, stop: Arc<AtomicBool>) -> JoinHandle<()>
     })
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct CaptureFlags {
+    target_type: String,
+    target_id: String,
+}
+
 impl GraphicsCaptureApiHandler for CaptureHandler {
     type Flags = String;
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let monitor_index = ctx.flags.parse::<usize>().unwrap_or(0);
+        let flags = serde_json::from_str::<CaptureFlags>(&ctx.flags).unwrap_or_else(|e| {
+            // Backward compatibility for legacy plain monitor-id flags.
+            eprintln!(
+                "[CaptureHandler::new] flags JSON parse failed ({e}), raw={:?}",
+                ctx.flags
+            );
+            CaptureFlags {
+                target_type: "monitor".to_string(),
+                target_id: ctx.flags.clone(),
+            }
+        });
+        eprintln!(
+            "[CaptureHandler::new] target_type={:?}, target_id={:?}",
+            flags.target_type, flags.target_id
+        );
 
-        let monitor = Monitor::from_index(monitor_index + 1)?;
-        let mut width = monitor.width()?;
-        let mut height = monitor.height()?;
+        let (width, height, monitor_hz, target_id_print) =
+            if flags.target_type == "window" {
+                let hwnd_val = flags.target_id.parse::<usize>().unwrap_or(0);
+                let window = windows_capture::window::Window::from_raw_hwnd(
+                    hwnd_val as *mut std::ffi::c_void,
+                );
 
-        // Ensure even dimensions for encoding
-        if width % 2 != 0 {
-            width -= 1;
+                // Prefer the exact GraphicsCaptureItem size (WGC strips some visual chrome/shadow).
+                let mut item_size: Option<(u32, u32)> = None;
+                if let Ok(interop) =
+                    windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
+                {
+                    if let Ok(item) = unsafe {
+                        interop.CreateForWindow::<GraphicsCaptureItem>(HWND(hwnd_val as *mut _))
+                    } {
+                        if let Ok(size) = item.Size() {
+                            item_size = Some((
+                                (size.Width.max(2)) as u32,
+                                (size.Height.max(2)) as u32,
+                            ));
+                        }
+                    }
+                }
+
+                let (w, h) = if let Some((w, h)) = item_size {
+                    (w, h)
+                } else {
+                    let rect = window.rect()?;
+                    (
+                        (rect.right - rect.left).max(2) as u32,
+                        (rect.bottom - rect.top).max(2) as u32,
+                    )
+                };
+                (w, h, DEFAULT_TARGET_FPS, hwnd_val)
+            } else {
+                let monitor_index = flags.target_id.parse::<usize>().unwrap_or(0);
+                let monitor = Monitor::from_index(monitor_index + 1)?;
+                let w = monitor.width()?;
+                let h = monitor.height()?;
+                let hz = monitor.refresh_rate().unwrap_or(DEFAULT_TARGET_FPS).max(1);
+                (w, h, hz, monitor_index)
+            };
+
+        // Ensure even dimensions for encoder configuration (H.264 requirement).
+        let mut enc_w = width;
+        let mut enc_h = height;
+        if enc_w % 2 != 0 {
+            enc_w -= 1;
         }
-        if height % 2 != 0 {
-            height -= 1;
+        if enc_h % 2 != 0 {
+            enc_h -= 1;
         }
 
         let app_data_dir = dirs::data_local_dir()
@@ -408,7 +516,6 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
         *AUDIO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
 
-        let monitor_hz = monitor.refresh_rate().unwrap_or(DEFAULT_TARGET_FPS).max(1);
         let target_fps = select_target_fps(monitor_hz);
         let frame_interval_100ns = 10_000_000 / target_fps as i64;
 
@@ -418,7 +525,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // 1920x1080 @ 60fps = ~27 Mbps
         // 2560x1440 @ 60fps = ~48 Mbps
         // 3840x2160 @ 60fps = ~109 Mbps
-        let pixel_count = width as u64 * height as u64;
+        let pixel_count = enc_w as u64 * enc_h as u64;
         let target_bitrate = (pixel_count as f64 * target_fps as f64 * 0.22) as u32;
 
         // Keep a quality floor while capping peak encoder pressure.
@@ -427,7 +534,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let (sample_rate, channels) = audio_engine::get_default_audio_config();
 
         let encoder = VideoEncoder::new(
-            VideoSettingsBuilder::new(width, height)
+            VideoSettingsBuilder::new(enc_w, enc_h)
                 .sub_type(VideoSettingsSubType::H264)
                 .bitrate(final_bitrate)
                 .frame_rate(target_fps),
@@ -441,14 +548,15 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         )?;
         let audio_handle = encoder.create_audio_handle();
         println!(
-            "Initializing VideoEncoder: {}x{} @ {}fps (monitor={}Hz), Codec: H264 (MediaFoundation {}), Bitrate: {} Mbps, Monitor Index: {}",
-            width,
-            height,
+            "Initializing VideoEncoder: {}x{} @ {}fps (Hz={}), Codec: H264 (MediaFoundation {}), Bitrate: {} Mbps, TargetType: {}, TargetID: {}",
+            enc_w,
+            enc_h,
             target_fps,
             monitor_hz,
             if mf_hw_accel_enabled() { "HW" } else { "SW" },
             final_bitrate / 1_000_000,
-            monitor_index
+            flags.target_type,
+            target_id_print
         );
 
         SHOULD_STOP_AUDIO.store(false, Ordering::SeqCst);
@@ -466,8 +574,102 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let cursor_sampler_stop = Arc::new(AtomicBool::new(false));
         let cursor_sampler_thread = Some(spawn_cursor_sampler(start, cursor_sampler_stop.clone()));
 
+        let is_window_capture = flags.target_type == "window";
+        let cached_frame: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+        let pump_stop = Arc::new(AtomicBool::new(false));
+        let pump_submitted = Arc::new(AtomicUsize::new(0));
+        let pump_dropped = Arc::new(AtomicUsize::new(0));
+
+        let mut pump = encoder.create_frame_pump();
+        let encoder_shared = Arc::new(Mutex::new(Some(encoder)));
+
+        // For window capture, spawn a pump thread that submits the cached
+        // frame at constant FPS.  WGC only delivers frames when the window
+        // content changes, which can be <1 fps for a static window.
+        if is_window_capture {
+            let cached = cached_frame.clone();
+            let stop = pump_stop.clone();
+            let p_submitted = pump_submitted.clone();
+            let p_dropped = pump_dropped.clone();
+            let encoder_for_pump = encoder_shared.clone();
+            let tick = Duration::from_nanos((frame_interval_100ns * 100) as u64);
+            eprintln!(
+                "[FramePump] spawning pump thread: tick={:?} max_pending={}",
+                tick, ENCODER_MAX_PENDING_FRAMES
+            );
+            std::thread::spawn(move || {
+                eprintln!("[FramePump] pump thread started");
+                let mut next_tick = Instant::now() + tick;
+                let mut total_submitted: u64 = 0;
+                let mut total_dropped: u64 = 0;
+                loop {
+                    // Check both the explicit pump_stop flag AND the global
+                    // SHOULD_STOP.  For window capture, on_frame_arrived may
+                    // never fire after stop is requested, so the pump thread
+                    // is responsible for driving the shutdown sequence.
+                    if stop.load(Ordering::SeqCst) || SHOULD_STOP.load(Ordering::SeqCst) {
+                        eprintln!(
+                            "[FramePump] stop detected. total_submitted={} total_dropped={}",
+                            total_submitted, total_dropped
+                        );
+
+                        // Signal the audio engine to stop and wait for it to
+                        // finish flushing before sending EOF to the MF transcode.
+                        SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
+                        let audio_wait = Instant::now();
+                        while !AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                            && audio_wait.elapsed().as_secs() < 5
+                        {
+                            std::thread::sleep(Duration::from_millis(20));
+                        }
+                        eprintln!(
+                            "[FramePump] audio finished={}, finalizing encoder",
+                            AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                        );
+
+                        if let Some(enc) = encoder_for_pump.lock().take() {
+                            if let Err(e) = enc.finish() {
+                                eprintln!("pump thread video encoder finalize error: {}", e);
+                            }
+                            ENCODING_FINISHED.store(true, Ordering::SeqCst);
+                        }
+                        break;
+                    }
+
+                    let now = Instant::now();
+                    if now >= next_tick {
+                        // Grab cached frame (brief lock).
+                        let buf_opt = cached.lock().clone();
+                        if let Some(buf) = buf_opt {
+                            while next_tick <= now {
+                                if pump.submit_buffer(buf.clone(), ENCODER_MAX_PENDING_FRAMES) {
+                                    p_submitted.fetch_add(1, Ordering::Relaxed);
+                                    total_submitted += 1;
+                                } else {
+                                    p_dropped.fetch_add(1, Ordering::Relaxed);
+                                    total_dropped += 1;
+                                }
+                                next_tick += tick;
+                            }
+                        } else {
+                            // No frame yet — advance tick without submitting.
+                            while next_tick <= now {
+                                next_tick += tick;
+                            }
+                        }
+                    }
+
+                    let sleep = next_tick
+                        .saturating_duration_since(Instant::now())
+                        .min(Duration::from_millis(2));
+                    std::thread::sleep(sleep);
+                }
+                eprintln!("[FramePump] pump thread exiting");
+            });
+        }
+
         Ok(Self {
-            encoder: Some(encoder),
+            encoder: encoder_shared,
             target_fps,
             frame_interval_100ns,
             start,
@@ -481,6 +683,13 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             window_dropped: 0,
             window_paced_skips: 0,
             stats_window_start: Instant::now(),
+            enc_w,
+            enc_h,
+            is_window_capture,
+            cached_frame,
+            pump_stop,
+            pump_submitted,
+            pump_dropped,
         })
     }
 
@@ -489,89 +698,226 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         frame: &mut Frame,
         capture_control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
+        *ACTIVE_CAPTURE_CONTROL.lock() = Some(capture_control.clone());
+
         if !ENCODER_ACTIVE.load(Ordering::SeqCst) {
             return Ok(());
         }
 
         let mut queue_depth = 0usize;
         let mut dropped_total = 0usize;
-        let now_100ns = (self.start.elapsed().as_nanos() / 100) as i64;
-        let mut should_submit = false;
-        let mut frames_to_submit = 0u32;
 
-        match self.next_submit_timestamp_100ns {
-            Some(mut due_100ns) => {
-                if now_100ns.saturating_add(TIMESTAMP_RESYNC_THRESHOLD_100NS) < due_100ns {
-                    due_100ns = now_100ns;
-                }
+        if self.is_window_capture {
+            // ── Window capture path ──
+            // WGC only delivers frames when the window content changes.
+            // We just cache the latest frame here; a pump thread submits
+            // it to the encoder at constant target_fps.
+            let frame_w = frame.width();
+            let frame_h = frame.height();
 
-                if now_100ns >= due_100ns {
-                    let due_ticks = ((now_100ns.saturating_sub(due_100ns))
-                        / self.frame_interval_100ns)
-                        .saturating_add(1);
-                    let missed_ticks = due_ticks.saturating_sub(1) as u32;
-                    frames_to_submit = due_ticks as u32;
-                    self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);
-                    self.next_submit_timestamp_100ns = Some(
-                        due_100ns
-                            .saturating_add(self.frame_interval_100ns.saturating_mul(due_ticks)),
-                    );
-                    should_submit = true;
+            let was_empty = self.cached_frame.lock().is_none();
+            if frame_w == self.enc_w && frame_h == self.enc_h {
+                if let Ok(mut fb) = frame.buffer() {
+                    if let Ok(raw) = fb.as_nopadding_buffer() {
+                        let len = raw.len();
+                        // MediaFoundation uncompressed CPU buffers are bottom-up by default.
+                        // We must flip the top-down DXGI texture data vertically.
+                        let mut flipped = vec![0u8; len];
+                        let row_bytes = (frame_w * 4) as usize;
+                        for y in 0..frame_h as usize {
+                            let src_idx = y * row_bytes;
+                            let dst_idx = (frame_h as usize - 1 - y) * row_bytes;
+                            if src_idx + row_bytes <= len && dst_idx + row_bytes <= len {
+                                flipped[dst_idx..dst_idx + row_bytes]
+                                    .copy_from_slice(&raw[src_idx..src_idx + row_bytes]);
+                            }
+                        }
+                        *self.cached_frame.lock() = Some(flipped);
+                        self.window_enqueued = self.window_enqueued.saturating_add(1);
+                        if was_empty {
+                            eprintln!(
+                                "[FramePump] first frame cached: {}x{} ({} bytes)",
+                                frame_w, frame_h, len
+                            );
+                        }
+                    } else {
+                        eprintln!("[FramePump] as_nopadding_buffer() failed for {}x{}", frame_w, frame_h);
+                    }
                 } else {
-                    self.window_paced_skips = self.window_paced_skips.saturating_add(1);
-                    self.next_submit_timestamp_100ns = Some(due_100ns);
+                    eprintln!("[FramePump] frame.buffer() failed");
                 }
-            }
-            None => {
-                self.next_submit_timestamp_100ns =
-                    Some(now_100ns.saturating_add(self.frame_interval_100ns));
-                frames_to_submit = 1;
-                should_submit = true;
-            }
-        }
-
-        if should_submit {
-            if let Some(encoder) = self.encoder.as_mut() {
-                // OBS-style catch-up: when we miss ticks, duplicate the latest frame
-                // for those ticks instead of jumping timeline forward.
-                let mut remaining = frames_to_submit.max(1);
-                let mut submitted = 0u32;
-                while remaining > 0 {
-                    if submitted >= MAX_CATCHUP_SUBMITS_PER_CALLBACK {
-                        // Avoid long duplicate bursts in one callback after a hitch.
-                        // Advance timeline for any unsent tail to keep A/V in sync.
-                        encoder.skip_video_frames(remaining);
-                        self.window_dropped = self.window_dropped.saturating_add(remaining);
-                        break;
-                    }
-
-                    match encoder.send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES) {
-                        Ok(true) => {
-                            self.window_enqueued = self.window_enqueued.saturating_add(1);
-                            submitted = submitted.saturating_add(1);
-                            remaining -= 1;
+            } else {
+                // Size mismatch: pad/crop into encoder canvas.
+                let mut final_buf = vec![0u8; (self.enc_w * self.enc_h * 4) as usize];
+                if let Ok(mut fb) = frame.buffer() {
+                    if let Ok(raw) = fb.as_nopadding_buffer() {
+                        let copy_w = frame_w.min(self.enc_w) as usize;
+                        let copy_h = frame_h.min(self.enc_h) as usize;
+                        for y in 0..copy_h {
+                            let src_idx = y * frame_w as usize * 4;
+                            // MF CPU buffers are bottom-up, so flip the Y coordinate
+                            let dst_y = self.enc_h as usize - 1 - y;
+                            let dst_idx = dst_y * self.enc_w as usize * 4;
+                            let row_bytes = copy_w * 4;
+                            if src_idx + row_bytes <= raw.len()
+                                && dst_idx + row_bytes <= final_buf.len()
+                            {
+                                final_buf[dst_idx..dst_idx + row_bytes]
+                                    .copy_from_slice(&raw[src_idx..src_idx + row_bytes]);
+                            }
                         }
-                        Ok(false) => {
-                            // Queue full: drop immediately to avoid stalling the capture callback.
-                            // Preserve timeline for unsent tail
-                            // so video duration stays aligned with audio duration.
-                            encoder.skip_video_frames(remaining);
-                            self.window_dropped = self.window_dropped.saturating_add(remaining);
-                            break;
-                        }
-                        Err(e) => {
-                            eprintln!("Encoder error: {}", e);
-                            encoder.skip_video_frames(remaining);
-                            self.window_dropped = self.window_dropped.saturating_add(remaining);
-                            break;
+                        *self.cached_frame.lock() = Some(final_buf);
+                        self.window_enqueued = self.window_enqueued.saturating_add(1);
+                        if was_empty {
+                            eprintln!(
+                                "[FramePump] first frame cached (resized): frame={}x{} enc={}x{}",
+                                frame_w, frame_h, self.enc_w, self.enc_h
+                            );
                         }
                     }
                 }
+            }
+
+            if let Some(encoder) = self.encoder.lock().as_ref() {
                 queue_depth = encoder.pending_video_frames();
                 dropped_total = encoder.dropped_video_frames();
             }
         } else {
-            if let Some(encoder) = self.encoder.as_ref() {
+            // ── Display capture path ──
+            // WGC delivers frames frequently; submit directly to encoder
+            // with pacing/catch-up logic.
+            let now_100ns = (self.start.elapsed().as_nanos() / 100) as i64;
+            let mut should_submit = false;
+            let mut frames_to_submit = 0u32;
+
+            match self.next_submit_timestamp_100ns {
+                Some(mut due_100ns) => {
+                    if now_100ns.saturating_add(TIMESTAMP_RESYNC_THRESHOLD_100NS) < due_100ns {
+                        due_100ns = now_100ns;
+                    }
+
+                    if now_100ns >= due_100ns {
+                        let due_ticks = ((now_100ns.saturating_sub(due_100ns))
+                            / self.frame_interval_100ns)
+                            .saturating_add(1);
+                        let missed_ticks = due_ticks.saturating_sub(1) as u32;
+                        frames_to_submit = due_ticks as u32;
+                        self.window_paced_skips =
+                            self.window_paced_skips.saturating_add(missed_ticks);
+                        self.next_submit_timestamp_100ns = Some(
+                            due_100ns.saturating_add(
+                                self.frame_interval_100ns.saturating_mul(due_ticks),
+                            ),
+                        );
+                        should_submit = true;
+                    } else {
+                        self.window_paced_skips = self.window_paced_skips.saturating_add(1);
+                        self.next_submit_timestamp_100ns = Some(due_100ns);
+                    }
+                }
+                None => {
+                    self.next_submit_timestamp_100ns =
+                        Some(now_100ns.saturating_add(self.frame_interval_100ns));
+                    frames_to_submit = 1;
+                    should_submit = true;
+                }
+            }
+
+            if should_submit {
+                let mut encoder_guard = self.encoder.lock();
+                if let Some(encoder) = encoder_guard.as_mut() {
+                    let mut remaining = frames_to_submit.max(1);
+                    let mut submitted = 0u32;
+                    while remaining > 0 {
+                        if submitted >= MAX_CATCHUP_SUBMITS_PER_CALLBACK {
+                            encoder.skip_video_frames(remaining);
+                            self.window_dropped =
+                                self.window_dropped.saturating_add(remaining);
+                            break;
+                        }
+
+                        let frame_w = frame.width();
+                        let frame_h = frame.height();
+
+                        if frame_w == self.enc_w && frame_h == self.enc_h {
+                            match encoder
+                                .send_frame_nonblocking(frame, ENCODER_MAX_PENDING_FRAMES)
+                            {
+                                Ok(true) => {
+                                    self.window_enqueued =
+                                        self.window_enqueued.saturating_add(1);
+                                    submitted = submitted.saturating_add(1);
+                                    remaining -= 1;
+                                }
+                                Ok(false) => {
+                                    encoder.skip_video_frames(remaining);
+                                    self.window_dropped =
+                                        self.window_dropped.saturating_add(remaining);
+                                    break;
+                                }
+                                Err(e) => {
+                                    eprintln!("Encoder error: {}", e);
+                                    encoder.skip_video_frames(remaining);
+                                    self.window_dropped =
+                                        self.window_dropped.saturating_add(remaining);
+                                    break;
+                                }
+                            }
+                        } else {
+                            let mut final_buf =
+                                vec![0u8; (self.enc_w * self.enc_h * 4) as usize];
+                            if let Ok(mut frame_buffer) = frame.buffer() {
+                                if let Ok(raw) = frame_buffer.as_nopadding_buffer() {
+                                    let copy_w = frame_w.min(self.enc_w) as usize;
+                                    let copy_h = frame_h.min(self.enc_h) as usize;
+                                    for y in 0..copy_h {
+                                        let src_idx = y * frame_w as usize * 4;
+                                        // MF CPU buffers are bottom-up, so flip the Y coordinate
+                                        let dst_y = self.enc_h as usize - 1 - y;
+                                        let dst_idx = dst_y * self.enc_w as usize * 4;
+                                        let row_bytes = copy_w * 4;
+                                        if src_idx + row_bytes <= raw.len()
+                                            && dst_idx + row_bytes <= final_buf.len()
+                                        {
+                                            final_buf[dst_idx..dst_idx + row_bytes]
+                                                .copy_from_slice(
+                                                    &raw[src_idx..src_idx + row_bytes],
+                                                );
+                                        }
+                                    }
+                                }
+                            }
+
+                            match encoder.send_frame_owned_buffer_nonblocking(
+                                final_buf,
+                                ENCODER_MAX_PENDING_FRAMES,
+                            ) {
+                                Ok(true) => {
+                                    self.window_enqueued =
+                                        self.window_enqueued.saturating_add(1);
+                                    submitted = submitted.saturating_add(1);
+                                    remaining -= 1;
+                                }
+                                Ok(false) => {
+                                    encoder.skip_video_frames(remaining);
+                                    self.window_dropped =
+                                        self.window_dropped.saturating_add(remaining);
+                                    break;
+                                }
+                                Err(e) => {
+                                    eprintln!("Encoder CPU fallback error: {}", e);
+                                    encoder.skip_video_frames(remaining);
+                                    self.window_dropped =
+                                        self.window_dropped.saturating_add(remaining);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    queue_depth = encoder.pending_video_frames();
+                    dropped_total = encoder.dropped_video_frames();
+                }
+            } else if let Some(encoder) = self.encoder.lock().as_ref() {
                 queue_depth = encoder.pending_video_frames();
                 dropped_total = encoder.dropped_video_frames();
             }
@@ -586,6 +932,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             let queued_fps = self.window_enqueued as f64 / elapsed.max(0.001);
             let pending_now = self
                 .encoder
+                .lock()
                 .as_ref()
                 .map(|encoder| encoder.pending_video_frames())
                 .unwrap_or(self.last_pending_frames);
@@ -593,17 +940,33 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 .saturating_sub(pending_now);
             self.last_pending_frames = pending_now;
             let encoded_fps = encoded_window as f64 / elapsed.max(0.001);
-            println!(
-                "[CaptureStats] backend=monitor capture_fps={:.1} queue_fps={:.1} encode_fps={:.1} target_fps={} paced_skips={} queue_depth={} dropped_window={} dropped_total={}",
-                capture_fps,
-                queued_fps,
-                encoded_fps,
-                self.target_fps,
-                self.window_paced_skips,
-                queue_depth,
-                self.window_dropped,
-                dropped_total
-            );
+            if self.is_window_capture {
+                let ps = self.pump_submitted.swap(0, Ordering::Relaxed);
+                let pd = self.pump_dropped.swap(0, Ordering::Relaxed);
+                let pump_fps = ps as f64 / elapsed.max(0.001);
+                eprintln!(
+                    "[CaptureStats] backend=window(pump) wgc_fps={:.1} cached={} pump_fps={:.1} pump_submitted={} pump_dropped={} queue_depth={} dropped_total={}",
+                    capture_fps,
+                    self.window_enqueued,
+                    pump_fps,
+                    ps,
+                    pd,
+                    queue_depth,
+                    dropped_total
+                );
+            } else {
+                eprintln!(
+                    "[CaptureStats] backend=display capture_fps={:.1} queue_fps={:.1} encode_fps={:.1} target_fps={} paced_skips={} queue_depth={} dropped_window={} dropped_total={}",
+                    capture_fps,
+                    queued_fps,
+                    encoded_fps,
+                    self.target_fps,
+                    self.window_paced_skips,
+                    queue_depth,
+                    self.window_dropped,
+                    dropped_total
+                );
+            }
             self.window_arrivals = 0;
             self.window_enqueued = 0;
             self.window_dropped = 0;
@@ -612,20 +975,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         }
 
         if SHOULD_STOP.load(Ordering::SeqCst) {
-            ENCODER_ACTIVE.store(false, Ordering::SeqCst);
-            SHOULD_STOP_AUDIO.store(true, Ordering::SeqCst);
-            self.cursor_sampler_stop.store(true, Ordering::SeqCst);
-            if let Some(handle) = self.cursor_sampler_thread.take() {
-                let _ = handle.join();
-            }
-            if let Some(encoder) = self.encoder.take() {
-                std::thread::spawn(move || {
-                    if let Err(error) = encoder.finish() {
-                        eprintln!("video encoder finalize error: {}", error);
-                    }
-                    ENCODING_FINISHED.store(true, Ordering::SeqCst);
-                });
-            }
+            self.shutdown_and_finalize();
             capture_control.stop();
         }
 
@@ -633,10 +983,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
     }
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
-        self.cursor_sampler_stop.store(true, Ordering::SeqCst);
-        if let Some(handle) = self.cursor_sampler_thread.take() {
-            let _ = handle.join();
-        }
+        self.shutdown_and_finalize();
         Ok(())
     }
 }
