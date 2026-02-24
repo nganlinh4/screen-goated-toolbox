@@ -128,7 +128,8 @@ pub fn record_audio(
             if count == 0 {
                 break;
             }
-            if let Some((bytes, duration_100ns)) = encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
+            if let Some((bytes, duration_100ns)) =
+                encode_pcm_chunk_i16(&chunk[..count], channels, sample_rate)
             {
                 if let Err(e) = audio_handle.send_audio_buffer(bytes, audio_output_100ns) {
                     eprintln!("Audio mux flush send error: {}", e);
@@ -142,7 +143,11 @@ pub fn record_audio(
     });
 }
 
-fn encode_pcm_chunk_i16(samples: &[f32], channels: usize, sample_rate: u32) -> Option<(Vec<u8>, i64)> {
+fn encode_pcm_chunk_i16(
+    samples: &[f32],
+    channels: usize,
+    sample_rate: u32,
+) -> Option<(Vec<u8>, i64)> {
     if channels == 0 || sample_rate == 0 || samples.is_empty() {
         return None;
     }

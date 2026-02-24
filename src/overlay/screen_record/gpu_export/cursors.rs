@@ -6,8 +6,7 @@ use tiny_skia::{Pixmap, Transform};
 const DEFAULT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("../dist/cursor-default-screenstudio.svg");
 const TEXT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("../dist/cursor-text-screenstudio.svg");
 const POINTER_SCREENSTUDIO_SVG: &[u8] = include_bytes!("../dist/cursor-pointer-screenstudio.svg");
-const OPENHAND_SCREENSTUDIO_SVG: &[u8] =
-    include_bytes!("../dist/cursor-openhand-screenstudio.svg");
+const OPENHAND_SCREENSTUDIO_SVG: &[u8] = include_bytes!("../dist/cursor-openhand-screenstudio.svg");
 const CLOSEHAND_SCREENSTUDIO_SVG: &[u8] =
     include_bytes!("../dist/cursor-closehand-screenstudio.svg");
 const WAIT_SCREENSTUDIO_SVG: &[u8] = include_bytes!("../dist/cursor-wait-screenstudio.svg");
@@ -91,12 +90,9 @@ const CLOSEHAND_JEPRIWIN11_SVG: &[u8] = include_bytes!("../dist/cursor-closehand
 const WAIT_JEPRIWIN11_SVG: &[u8] = include_bytes!("../dist/cursor-wait-jepriwin11.svg");
 const APPSTARTING_JEPRIWIN11_SVG: &[u8] =
     include_bytes!("../dist/cursor-appstarting-jepriwin11.svg");
-const CROSSHAIR_JEPRIWIN11_SVG: &[u8] =
-    include_bytes!("../dist/cursor-crosshair-jepriwin11.svg");
-const RESIZE_NS_JEPRIWIN11_SVG: &[u8] =
-    include_bytes!("../dist/cursor-resize-ns-jepriwin11.svg");
-const RESIZE_WE_JEPRIWIN11_SVG: &[u8] =
-    include_bytes!("../dist/cursor-resize-we-jepriwin11.svg");
+const CROSSHAIR_JEPRIWIN11_SVG: &[u8] = include_bytes!("../dist/cursor-crosshair-jepriwin11.svg");
+const RESIZE_NS_JEPRIWIN11_SVG: &[u8] = include_bytes!("../dist/cursor-resize-ns-jepriwin11.svg");
+const RESIZE_WE_JEPRIWIN11_SVG: &[u8] = include_bytes!("../dist/cursor-resize-we-jepriwin11.svg");
 const RESIZE_NWSE_JEPRIWIN11_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nwse-jepriwin11.svg");
 const RESIZE_NESW_JEPRIWIN11_SVG: &[u8] =

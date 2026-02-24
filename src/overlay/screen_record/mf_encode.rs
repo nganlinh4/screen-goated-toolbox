@@ -3,8 +3,8 @@
 
 use windows::Win32::Media::MediaFoundation::*;
 
-use super::mf_decode::DxgiDeviceManager;
 use super::mf_audio::{AudioConfig, AudioStream};
+use super::mf_decode::DxgiDeviceManager;
 
 /// Encoder codec selection.
 #[derive(Debug, Clone, Copy)]
@@ -43,8 +43,10 @@ impl MfEncoder {
     ) -> Result<(Self, Option<AudioStream>), String> {
         let attrs = create_writer_attributes(&device_manager.manager)?;
 
-        let wide_path: Vec<u16> =
-            output_path.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide_path: Vec<u16> = output_path
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         let writer = unsafe {
             MFCreateSinkWriterFromURL(
                 windows::core::PCWSTR(wide_path.as_ptr()),
@@ -66,11 +68,7 @@ impl MfEncoder {
         let input_type = create_input_media_type(&config)?;
         unsafe {
             writer
-                .SetInputMediaType(
-                    video_stream_index,
-                    &input_type,
-                    None::<&IMFAttributes>,
-                )
+                .SetInputMediaType(video_stream_index, &input_type, None::<&IMFAttributes>)
                 .map_err(|e| format!("SetInputMediaType: {e}"))?;
         }
 
@@ -80,7 +78,11 @@ impl MfEncoder {
             None
         };
 
-        unsafe { writer.BeginWriting().map_err(|e| format!("BeginWriting: {e}"))?; }
+        unsafe {
+            writer
+                .BeginWriting()
+                .map_err(|e| format!("BeginWriting: {e}"))?;
+        }
 
         println!(
             "[MfEncoder] Created {:?} encoder {}x{} @ {}kbps, {}/{} fps (Has Audio: {}) → {}",
@@ -144,9 +146,7 @@ impl MfEncoder {
                 .map_err(|e| format!("SetCurrentLength: {e}"))?;
         }
 
-        let sample = unsafe {
-            MFCreateSample().map_err(|e| format!("MFCreateSample: {e}"))?
-        };
+        let sample = unsafe { MFCreateSample().map_err(|e| format!("MFCreateSample: {e}"))? };
 
         unsafe {
             sample
@@ -187,13 +187,10 @@ impl MfEncoder {
 }
 
 /// Create IMFAttributes for the SinkWriter with D3D11 HW acceleration.
-fn create_writer_attributes(
-    manager: &IMFDXGIDeviceManager,
-) -> Result<IMFAttributes, String> {
+fn create_writer_attributes(manager: &IMFDXGIDeviceManager) -> Result<IMFAttributes, String> {
     let mut attrs: Option<IMFAttributes> = None;
     unsafe {
-        MFCreateAttributes(&mut attrs, 3)
-            .map_err(|e| format!("MFCreateAttributes: {e}"))?;
+        MFCreateAttributes(&mut attrs, 3).map_err(|e| format!("MFCreateAttributes: {e}"))?;
     }
     let attrs = attrs.ok_or("MFCreateAttributes returned null")?;
 
@@ -219,9 +216,7 @@ fn create_writer_attributes(
 
 /// Create the output (encoded) media type for the SinkWriter.
 fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, String> {
-    let media_type = unsafe {
-        MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))?
-    };
+    let media_type = unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
 
     let codec_guid = match config.codec {
         VideoCodec::H264 => MFVideoFormat_H264,
@@ -242,15 +237,13 @@ fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Stri
             .map_err(|e| format!("SetUINT32 AVG_BITRATE: {e}"))?;
 
         // Frame size packed as (width << 32) | height
-        let frame_size =
-            ((config.width as u64) << 32) | (config.height as u64);
+        let frame_size = ((config.width as u64) << 32) | (config.height as u64);
         media_type
             .SetUINT64(&MF_MT_FRAME_SIZE, frame_size)
             .map_err(|e| format!("SetUINT64 FRAME_SIZE: {e}"))?;
 
         // Frame rate packed as (num << 32) | den
-        let frame_rate =
-            ((config.fps_num as u64) << 32) | (config.fps_den as u64);
+        let frame_rate = ((config.fps_num as u64) << 32) | (config.fps_den as u64);
         media_type
             .SetUINT64(&MF_MT_FRAME_RATE, frame_rate)
             .map_err(|e| format!("SetUINT64 FRAME_RATE: {e}"))?;
@@ -274,9 +267,7 @@ fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Stri
 
 /// Create the input (uncompressed NV12) media type for the SinkWriter.
 fn create_input_media_type(config: &EncoderConfig) -> Result<IMFMediaType, String> {
-    let media_type = unsafe {
-        MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))?
-    };
+    let media_type = unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
 
     unsafe {
         media_type
@@ -289,14 +280,12 @@ fn create_input_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Strin
             .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_ARGB32)
             .map_err(|e| format!("SetGUID SUBTYPE ARGB32: {e}"))?;
 
-        let frame_size =
-            ((config.width as u64) << 32) | (config.height as u64);
+        let frame_size = ((config.width as u64) << 32) | (config.height as u64);
         media_type
             .SetUINT64(&MF_MT_FRAME_SIZE, frame_size)
             .map_err(|e| format!("SetUINT64 FRAME_SIZE: {e}"))?;
 
-        let frame_rate =
-            ((config.fps_num as u64) << 32) | (config.fps_den as u64);
+        let frame_rate = ((config.fps_num as u64) << 32) | (config.fps_den as u64);
         media_type
             .SetUINT64(&MF_MT_FRAME_RATE, frame_rate)
             .map_err(|e| format!("SetUINT64 FRAME_RATE: {e}"))?;

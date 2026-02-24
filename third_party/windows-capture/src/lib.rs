@@ -148,6 +148,10 @@
 #![warn(clippy::cargo)]
 #![warn(clippy::multiple_crate_versions)] // Should update as soon as possible
 
+/// Re-export the crate's DirectX send wrapper for advanced integrations.
+pub use crate::d3d11::SendDirectX;
+/// Re-export the crate's Windows bindings so downstream code can bridge COM interfaces safely.
+pub use windows as windows_bindings;
 /// Exported for the trait bounds
 pub use windows::Graphics::Capture::GraphicsCaptureItem as WindowsCaptureGraphicsCaptureItem;
 

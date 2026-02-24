@@ -31,12 +31,12 @@ pub mod audio_engine;
 mod d3d_interop;
 pub mod engine;
 pub mod gpu_export;
+mod gpu_pipeline;
 pub mod keysee_capture;
 pub mod mf_audio;
 mod mf_decode;
 mod mf_encode;
 pub mod native_export;
-mod gpu_pipeline;
 
 // Re-exports
 use ipc::handle_ipc_command;

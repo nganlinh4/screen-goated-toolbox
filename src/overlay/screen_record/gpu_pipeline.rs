@@ -126,7 +126,9 @@ pub fn build_frame_times(config: &PipelineConfig) -> Vec<f64> {
     let end_time = trim_segments.last().unwrap().end_time;
 
     while current_source_time < end_time - 1e-9 {
-        while seg_idx < trim_segments.len() && current_source_time >= trim_segments[seg_idx].end_time {
+        while seg_idx < trim_segments.len()
+            && current_source_time >= trim_segments[seg_idx].end_time
+        {
             seg_idx += 1;
             if seg_idx < trim_segments.len() {
                 current_source_time = trim_segments[seg_idx].start_time;
@@ -168,10 +170,8 @@ pub fn run_zero_copy_export(
     let (render_to_decode_tx, render_to_decode_rx) = mpsc::channel::<Vec<u8>>();
     let (encode_to_render_tx, encode_to_render_rx) = mpsc::channel::<Vec<u8>>();
 
-    let decode_error: std::sync::Arc<Mutex<Option<String>>> =
-        std::sync::Arc::new(Mutex::new(None));
-    let render_error: std::sync::Arc<Mutex<Option<String>>> =
-        std::sync::Arc::new(Mutex::new(None));
+    let decode_error: std::sync::Arc<Mutex<Option<String>>> = std::sync::Arc::new(Mutex::new(None));
+    let render_error: std::sync::Arc<Mutex<Option<String>>> = std::sync::Arc::new(Mutex::new(None));
 
     let mut result: Result<ZeroCopyExportResult, String> = Err("pipeline did not run".into());
     let decode_err_clone = decode_error.clone();
@@ -360,7 +360,10 @@ fn run_decode_thread(
             break;
         }
 
-        let next_source_time = source_times.get(frame_idx + 1).copied().unwrap_or(source_time);
+        let next_source_time = source_times
+            .get(frame_idx + 1)
+            .copied()
+            .unwrap_or(source_time);
         let mut source_step = next_source_time - source_time;
         if source_step <= 0.0 {
             let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
@@ -517,7 +520,12 @@ fn run_render_thread(
         }
 
         if bypass_compositor {
-            if tx.send(RenderOutput { rendered_bgra: msg.bgra_video }).is_err() {
+            if tx
+                .send(RenderOutput {
+                    rendered_bgra: msg.bgra_video,
+                })
+                .is_err()
+            {
                 break;
             }
             continue;
@@ -542,7 +550,12 @@ fn run_render_thread(
             && config.blur_pan_shutter == 0.0;
         if only_cursor_blur {
             // Scene pass: render background + video with cursor at base_time, clear=true.
-            let mut scene_u = build_uniforms(msg.source_time, msg.source_time, msg.source_time, msg.source_time);
+            let mut scene_u = build_uniforms(
+                msg.source_time,
+                msg.source_time,
+                msg.source_time,
+                msg.source_time,
+            );
             scene_u.render_mode = 1.0; // scene only, cursor skipped
             compositor.render_to_output(&scene_u, true);
             // Cursor blur passes: N renders at different sub-times, each at 1/N opacity.
@@ -555,7 +568,8 @@ fn run_render_thread(
                     0.5
                 };
                 let sub_time = msg.source_time - (cursor_shutter * 0.5) + t * cursor_shutter;
-                let mut cursor_u = build_uniforms(msg.source_time, msg.source_time, msg.source_time, sub_time);
+                let mut cursor_u =
+                    build_uniforms(msg.source_time, msg.source_time, msg.source_time, sub_time);
                 cursor_u.render_mode = 2.0;
                 cursor_u.cursor_opacity *= opacity_scale;
                 compositor.render_to_output(&cursor_u, false); // load existing scene
@@ -578,7 +592,12 @@ fn run_render_thread(
                 compositor.render_accumulate(&uniforms, i == 0, weight);
             }
         } else {
-            let uniforms = build_uniforms(msg.source_time, msg.source_time, msg.source_time, msg.source_time);
+            let uniforms = build_uniforms(
+                msg.source_time,
+                msg.source_time,
+                msg.source_time,
+                msg.source_time,
+            );
             compositor.render_to_output(&uniforms, true);
         }
 
@@ -597,13 +616,16 @@ fn run_render_thread(
         //    has time to finish frame N while we set up frame N+1.
         if queued_readbacks >= 2 {
             let trb0 = Instant::now();
-            let mut out_buf = recycle_render_rx
-                .try_recv()
-                .unwrap_or_default();
+            let mut out_buf = recycle_render_rx.try_recv().unwrap_or_default();
             compositor.readback_output(&mut out_buf)?;
             t_readback += trb0.elapsed().as_secs_f64();
             queued_readbacks -= 1;
-            if tx.send(RenderOutput { rendered_bgra: out_buf }).is_err() {
+            if tx
+                .send(RenderOutput {
+                    rendered_bgra: out_buf,
+                })
+                .is_err()
+            {
                 break;
             }
             frames_rendered += 1;
@@ -617,7 +639,9 @@ fn run_render_thread(
         compositor.readback_output(&mut out_buf)?;
         t_readback += trb0.elapsed().as_secs_f64();
         queued_readbacks -= 1;
-        let _ = tx.send(RenderOutput { rendered_bgra: out_buf });
+        let _ = tx.send(RenderOutput {
+            rendered_bgra: out_buf,
+        });
         frames_rendered += 1;
     }
 
@@ -729,8 +753,12 @@ fn run_encode_thread(
         }
     }
 
-    let (encoder, opt_audio_stream) =
-        MfEncoder::new(&config.output_path, encoder_config, &enc_device_manager, audio_config.as_ref())?;
+    let (encoder, opt_audio_stream) = MfEncoder::new(
+        &config.output_path,
+        encoder_config,
+        &enc_device_manager,
+        audio_config.as_ref(),
+    )?;
     let frame_duration_100ns = encoder.frame_duration_100ns();
 
     let mut audio_output_100ns = 0i64;
@@ -771,7 +799,8 @@ fn run_encode_thread(
                 let current_seg = if config.trim_segments.is_empty() {
                     Some((config.trim_start, config.trim_start + config.duration))
                 } else {
-                    config.trim_segments
+                    config
+                        .trim_segments
                         .get(audio_segment_idx)
                         .map(|s| (s.start_time, s.end_time))
                 };
@@ -787,7 +816,9 @@ fn run_encode_thread(
                             audio_segment_idx += 1;
                             if config.trim_segments.is_empty() {
                                 audio_eof = true;
-                            } else if let Some(next_seg) = config.trim_segments.get(audio_segment_idx) {
+                            } else if let Some(next_seg) =
+                                config.trim_segments.get(audio_segment_idx)
+                            {
                                 let _ = dec.seek((next_seg.start_time * 10_000_000.0) as i64);
                             }
                             continue;
@@ -800,7 +831,8 @@ fn run_encode_thread(
                         }
                         if chunk_time <= seg_end {
                             let channels = dec.channels() as usize;
-                            let speed = get_speed(chunk_time, &config.speed_points).clamp(0.1, 16.0);
+                            let speed =
+                                get_speed(chunk_time, &config.speed_points).clamp(0.1, 16.0);
                             let resampled = resample_pcm_bytes(&pcm, speed, channels);
                             if channels == 0 || resampled.is_empty() {
                                 continue;

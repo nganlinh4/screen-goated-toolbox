@@ -171,19 +171,40 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     // Ensure baked paths are sorted by time (partition_point requires sorted input).
     // Chunked IPC staging may deliver frames out of order.
-    let cam_unsorted = baked_path.windows(2).filter(|w| w[1].time < w[0].time).count();
+    let cam_unsorted = baked_path
+        .windows(2)
+        .filter(|w| w[1].time < w[0].time)
+        .count();
     if cam_unsorted > 0 {
-        println!("[Export][WARN] Baked camera path has {} non-monotonic entries — sorting", cam_unsorted);
-        baked_path.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+        println!(
+            "[Export][WARN] Baked camera path has {} non-monotonic entries — sorting",
+            cam_unsorted
+        );
+        baked_path.sort_by(|a, b| {
+            a.time
+                .partial_cmp(&b.time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
-    let cur_unsorted = baked_cursor.windows(2).filter(|w| w[1].time < w[0].time).count();
+    let cur_unsorted = baked_cursor
+        .windows(2)
+        .filter(|w| w[1].time < w[0].time)
+        .count();
     if cur_unsorted > 0 {
-        println!("[Export][WARN] Baked cursor path has {} non-monotonic entries — sorting", cur_unsorted);
-        baked_cursor.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+        println!(
+            "[Export][WARN] Baked cursor path has {} non-monotonic entries — sorting",
+            cur_unsorted
+        );
+        baked_cursor.sort_by(|a, b| {
+            a.time
+                .partial_cmp(&b.time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
     println!(
         "[Export] Baked paths: camera={} frames, cursor={} frames",
-        baked_path.len(), baked_cursor.len()
+        baked_path.len(),
+        baked_cursor.len()
     );
     let overlay_frames = staged.overlay_frames;
     let atlas_rgba = staged.atlas_rgba;
@@ -345,9 +366,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     // Initialize GPU compositor — background uploaded at native image size later;
     // object-fit: cover is handled in the shader (no CPU pre-scaling needed).
     let gpu_init_start = Instant::now();
-    let mut compositor =
-        GpuCompositor::new(out_w, out_h, crop_w, crop_h, out_w, out_h)
-            .map_err(|e| format!("GPU init failed: {}", e))?;
+    let mut compositor = GpuCompositor::new(out_w, out_h, crop_w, crop_h, out_w, out_h)
+        .map_err(|e| format!("GPU init failed: {}", e))?;
     let gpu_device_secs = gpu_init_start.elapsed().as_secs_f64();
 
     let cursor_init_start = Instant::now();
@@ -410,8 +430,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let border_radius = config.background_config.border_radius as f32;
     let shadow_offset = config.background_config.shadow as f32 * 0.5;
     let cursor_scale_cfg = config.background_config.cursor_scale;
-    let cursor_shadow =
-        (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0);
+    let cursor_shadow = (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0);
     let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
     let vw = video_w as f64;
     let vh = video_h as f64;
@@ -422,7 +441,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let ow32 = out_w as f32;
     let oh32 = out_h as f32;
 
-    let build_uniforms = |base_time: f64, cam_pan_time: f64, cam_zoom_time: f64, cursor_time: f64| -> CompositorUniforms {
+    let build_uniforms = |base_time: f64,
+                          cam_pan_time: f64,
+                          cam_zoom_time: f64,
+                          cursor_time: f64|
+     -> CompositorUniforms {
         let (cam_x_raw, cam_y_raw, _) = sample_baked_path(cam_pan_time, &baked_path);
         let (_, _, zoom) = sample_baked_path(cam_zoom_time, &baked_path);
         let cursor_sample = sample_parsed_baked_cursor(cursor_time, &parsed_baked_cursor);
@@ -440,26 +463,26 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         let ox = zsx + bcx;
         let oy = zsy + bcy;
 
-        let (cp_x, cp_y, cs, co, ct, cr) =
-            if let Some((cx, cy, c_s, c_t, c_o, c_r)) = cursor_sample {
-                if c_o < 0.001 {
-                    (-100.0_f32, -100.0, 0.0, 0.0, 0.0, 0.0)
-                } else {
-                    let rel_x = (cx - crop_x_offset) / cw;
-                    let rel_y = (cy - crop_y_offset) / ch;
-                    let fs = c_s * cursor_scale_cfg * zoom * size_ratio;
-                    (
-                        rel_x as f32,
-                        rel_y as f32,
-                        fs as f32,
-                        c_o as f32,
-                        c_t,
-                        c_r as f32,
-                    )
-                }
+        let (cp_x, cp_y, cs, co, ct, cr) = if let Some((cx, cy, c_s, c_t, c_o, c_r)) = cursor_sample
+        {
+            if c_o < 0.001 {
+                (-100.0_f32, -100.0, 0.0, 0.0, 0.0, 0.0)
             } else {
-                (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
-            };
+                let rel_x = (cx - crop_x_offset) / cw;
+                let rel_y = (cy - crop_y_offset) / ch;
+                let fs = c_s * cursor_scale_cfg * zoom * size_ratio;
+                (
+                    rel_x as f32,
+                    rel_y as f32,
+                    fs as f32,
+                    c_o as f32,
+                    c_t,
+                    c_r as f32,
+                )
+            }
+        } else {
+            (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+        };
 
         create_uniforms(
             (ox as f32, oy as f32),
@@ -516,7 +539,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         bitrate_kbps: bitrate,
         speed_points: {
             let mut points = config.segment.speed_points.clone();
-            points.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+            points.sort_by(|a, b| {
+                a.time
+                    .partial_cmp(&b.time)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             points
         },
         trim_start: config.trim_start,
@@ -574,7 +601,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             let output_bytes = fs::metadata(&final_output_path)
                 .map(|m| m.len())
                 .unwrap_or(0);
-            let output_duration_sec = (r.frames_encoded as f64 / config.framerate as f64).max(0.001);
+            let output_duration_sec =
+                (r.frames_encoded as f64 / config.framerate as f64).max(0.001);
             let actual_total_bitrate_kbps =
                 (output_bytes as f64 * 8.0 / output_duration_sec / 1000.0).max(0.0);
 

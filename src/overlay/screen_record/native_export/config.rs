@@ -185,7 +185,6 @@ pub struct OverlayFrame {
     pub quads: Vec<OverlayQuad>,
 }
 
-
 #[derive(Deserialize, Debug, Clone)]
 pub struct CropRect {
     pub x: f64,

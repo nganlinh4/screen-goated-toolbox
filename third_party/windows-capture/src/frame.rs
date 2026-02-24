@@ -6,9 +6,9 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use windows::Foundation::TimeSpan;
 use windows::Graphics::DirectX::Direct3D11::IDirect3DSurface;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CPU_ACCESS_WRITE, D3D11_MAP_READ_WRITE,
-    D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, ID3D11Device,
-    ID3D11DeviceContext, ID3D11Texture2D,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_BOX, D3D11_CPU_ACCESS_READ,
+    D3D11_CPU_ACCESS_WRITE, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ_WRITE, D3D11_TEXTURE2D_DESC,
+    D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT, DXGI_SAMPLE_DESC};
 
@@ -200,7 +200,10 @@ impl<'a> Frame<'a> {
             MipLevels: 1,
             ArraySize: 1,
             Format: DXGI_FORMAT(self.color_format as i32),
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             Usage: D3D11_USAGE_STAGING,
             BindFlags: 0,
             CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32 | D3D11_CPU_ACCESS_WRITE.0 as u32,
@@ -210,7 +213,8 @@ impl<'a> Frame<'a> {
         // Create a texture that the CPU can read
         let mut texture = None;
         unsafe {
-            self.d3d_device.CreateTexture2D(&texture_desc, None, Some(&mut texture))?;
+            self.d3d_device
+                .CreateTexture2D(&texture_desc, None, Some(&mut texture))?;
         };
 
         let texture = texture.unwrap();
@@ -223,7 +227,13 @@ impl<'a> Frame<'a> {
         // Map the texture to enable CPU access
         let mut mapped_resource = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
-            self.context.Map(&texture, 0, D3D11_MAP_READ_WRITE, 0, Some(&mut mapped_resource))?;
+            self.context.Map(
+                &texture,
+                0,
+                D3D11_MAP_READ_WRITE,
+                0,
+                Some(&mut mapped_resource),
+            )?;
         };
 
         // Get a slice of the mapped resource data
@@ -282,7 +292,10 @@ impl<'a> Frame<'a> {
             MipLevels: 1,
             ArraySize: 1,
             Format: DXGI_FORMAT(self.color_format as i32),
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
             Usage: D3D11_USAGE_STAGING,
             BindFlags: 0,
             CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32 | D3D11_CPU_ACCESS_WRITE.0 as u32,
@@ -292,7 +305,8 @@ impl<'a> Frame<'a> {
         // Create a texture that the CPU can read
         let mut texture = None;
         unsafe {
-            self.d3d_device.CreateTexture2D(&texture_desc, None, Some(&mut texture))?;
+            self.d3d_device
+                .CreateTexture2D(&texture_desc, None, Some(&mut texture))?;
         };
         let texture = texture.unwrap();
 
@@ -323,7 +337,13 @@ impl<'a> Frame<'a> {
         // Map the texture to enable CPU access
         let mut mapped_resource = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
-            self.context.Map(&texture, 0, D3D11_MAP_READ_WRITE, 0, Some(&mut mapped_resource))?;
+            self.context.Map(
+                &texture,
+                0,
+                D3D11_MAP_READ_WRITE,
+                0,
+                Some(&mut mapped_resource),
+            )?;
         };
 
         // Get a slice of the mapped resource data
@@ -435,7 +455,15 @@ impl<'a> FrameBuffer<'a> {
         depth_pitch: u32,
         color_format: ColorFormat,
     ) -> Self {
-        Self { raw_buffer, buffer, width, height, row_pitch, depth_pitch, color_format }
+        Self {
+            raw_buffer,
+            buffer,
+            width,
+            height,
+            row_pitch,
+            depth_pitch,
+            color_format,
+        }
     }
 
     /// Gets the width of the frame buffer.

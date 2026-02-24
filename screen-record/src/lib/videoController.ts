@@ -89,6 +89,10 @@ export class VideoController {
   private handlePlay = () => {
     console.log('[VideoController] Play event');
     if (this.audio) {
+      // Hard sync before playing to prevent initial harsh audio glitch
+      if (Math.abs(this.video.currentTime - this.audio.currentTime) > 0.05) {
+        this.audio.currentTime = this.video.currentTime;
+      }
       this.audio.currentTime = this.video.currentTime;
       this.audio.playbackRate = this.video.playbackRate;
       // Store promise so handlePause can await it before pausing (avoids AbortError)

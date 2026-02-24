@@ -40,8 +40,7 @@ impl MfAudioDecoder {
     pub fn new(file_path: &str) -> Result<Self, String> {
         let mut attrs: Option<IMFAttributes> = None;
         unsafe {
-            MFCreateAttributes(&mut attrs, 1)
-                .map_err(|e| format!("MFCreateAttributes: {e}"))?;
+            MFCreateAttributes(&mut attrs, 1).map_err(|e| format!("MFCreateAttributes: {e}"))?;
         }
         let attrs = attrs.ok_or("MFCreateAttributes returned null")?;
 
@@ -52,14 +51,10 @@ impl MfAudioDecoder {
                 .map_err(|e| format!("SetUINT32 HW_TRANSFORMS: {e}"))?;
         }
 
-        let wide_path: Vec<u16> =
-            file_path.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide_path: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
         let reader = unsafe {
-            MFCreateSourceReaderFromURL(
-                windows::core::PCWSTR(wide_path.as_ptr()),
-                &attrs,
-            )
-            .map_err(|e| format!("MFCreateSourceReaderFromURL: {e}"))?
+            MFCreateSourceReaderFromURL(windows::core::PCWSTR(wide_path.as_ptr()), &attrs)
+                .map_err(|e| format!("MFCreateSourceReaderFromURL: {e}"))?
         };
 
         let audio_idx = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
@@ -76,9 +71,8 @@ impl MfAudioDecoder {
         }
 
         // Request PCM float output
-        let pcm_type = unsafe {
-            MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))?
-        };
+        let pcm_type =
+            unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
         unsafe {
             pcm_type
                 .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
@@ -166,9 +160,7 @@ impl MfAudioDecoder {
                 .map_err(|e| format!("Lock buffer: {e}"))?;
         }
 
-        let data = unsafe {
-            std::slice::from_raw_parts(data_ptr, length as usize).to_vec()
-        };
+        let data = unsafe { std::slice::from_raw_parts(data_ptr, length as usize).to_vec() };
 
         unsafe {
             let _ = buffer.Unlock();
@@ -200,14 +192,10 @@ impl MfAudioDecoder {
 impl AudioStream {
     /// Add an AAC audio stream to an existing SinkWriter.
     /// Returns a handle for writing audio samples.
-    pub fn add_to_writer(
-        writer: &IMFSinkWriter,
-        config: &AudioConfig,
-    ) -> Result<Self, String> {
+    pub fn add_to_writer(writer: &IMFSinkWriter, config: &AudioConfig) -> Result<Self, String> {
         // Output type: AAC
-        let output_type = unsafe {
-            MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))?
-        };
+        let output_type =
+            unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
         unsafe {
             output_type
                 .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
@@ -239,9 +227,8 @@ impl AudioStream {
         };
 
         // Input type: PCM float
-        let input_type = unsafe {
-            MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))?
-        };
+        let input_type =
+            unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
         unsafe {
             input_type
                 .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio)
@@ -271,11 +258,7 @@ impl AudioStream {
                 .map_err(|e| format!("SetUINT32 AVG_BYTES_IN: {e}"))?;
 
             writer
-                .SetInputMediaType(
-                    stream_index,
-                    &input_type,
-                    None::<&IMFAttributes>,
-                )
+                .SetInputMediaType(stream_index, &input_type, None::<&IMFAttributes>)
                 .map_err(|e| format!("SetInputMediaType audio: {e}"))?;
         }
 
@@ -284,9 +267,7 @@ impl AudioStream {
             stream_index, config.sample_rate, config.channels, config.bitrate_kbps
         );
 
-        Ok(Self {
-            stream_index,
-        })
+        Ok(Self { stream_index })
     }
 
     /// Write raw PCM float audio data with explicit continuous timestamps.
@@ -298,9 +279,7 @@ impl AudioStream {
         pts_100ns: i64,
         duration_100ns: i64,
     ) -> Result<(), String> {
-        let sample = unsafe {
-            MFCreateSample().map_err(|e| format!("MFCreateSample: {e}"))?
-        };
+        let sample = unsafe { MFCreateSample().map_err(|e| format!("MFCreateSample: {e}"))? };
 
         let buffer = unsafe {
             MFCreateMemoryBuffer(pcm_data.len() as u32)

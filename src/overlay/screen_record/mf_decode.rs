@@ -44,17 +44,12 @@ pub struct MfDecoder {
 
 /// Initialize Media Foundation runtime. Call once at pipeline startup.
 pub fn mf_startup() -> Result<(), String> {
-    unsafe {
-        MFStartup(MF_VERSION, MFSTARTUP_FULL)
-            .map_err(|e| format!("MFStartup failed: {e}"))
-    }
+    unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|e| format!("MFStartup failed: {e}")) }
 }
 
 /// Shutdown Media Foundation runtime. Call once at pipeline teardown.
 pub fn mf_shutdown() -> Result<(), String> {
-    unsafe {
-        MFShutdown().map_err(|e| format!("MFShutdown failed: {e}"))
-    }
+    unsafe { MFShutdown().map_err(|e| format!("MFShutdown failed: {e}")) }
 }
 
 impl DxgiDeviceManager {
@@ -77,9 +72,7 @@ impl DxgiDeviceManager {
                 .map_err(|e| format!("ResetDevice: {e}"))?;
         }
 
-        println!(
-            "[DxgiDeviceManager] Created with token={reset_token}"
-        );
+        println!("[DxgiDeviceManager] Created with token={reset_token}");
 
         Ok(Self {
             manager,
@@ -104,11 +97,8 @@ impl MfDecoder {
         // Create SourceReader from file
         let wide_path: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
         let reader = unsafe {
-            MFCreateSourceReaderFromURL(
-                windows::core::PCWSTR(wide_path.as_ptr()),
-                &attrs,
-            )
-            .map_err(|e| format!("MFCreateSourceReaderFromURL: {e}"))?
+            MFCreateSourceReaderFromURL(windows::core::PCWSTR(wide_path.as_ptr()), &attrs)
+                .map_err(|e| format!("MFCreateSourceReaderFromURL: {e}"))?
         };
 
         let video_idx = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -213,13 +203,10 @@ impl MfDecoder {
 }
 
 /// Create IMFAttributes for the SourceReader with D3D11 HW acceleration.
-fn create_reader_attributes(
-    manager: &IMFDXGIDeviceManager,
-) -> Result<IMFAttributes, String> {
+fn create_reader_attributes(manager: &IMFDXGIDeviceManager) -> Result<IMFAttributes, String> {
     let mut attrs: Option<IMFAttributes> = None;
     unsafe {
-        MFCreateAttributes(&mut attrs, 4)
-            .map_err(|e| format!("MFCreateAttributes: {e}"))?;
+        MFCreateAttributes(&mut attrs, 4).map_err(|e| format!("MFCreateAttributes: {e}"))?;
     }
     let attrs = attrs.ok_or("MFCreateAttributes returned null")?;
 
@@ -247,13 +234,8 @@ fn create_reader_attributes(
 }
 
 /// Configure the SourceReader to output NV12 video.
-fn configure_nv12_output(
-    reader: &IMFSourceReader,
-    stream_index: u32,
-) -> Result<(), String> {
-    let media_type = unsafe {
-        MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))?
-    };
+fn configure_nv12_output(reader: &IMFSourceReader, stream_index: u32) -> Result<(), String> {
+    let media_type = unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
 
     unsafe {
         // Set major type = Video
@@ -276,10 +258,7 @@ fn configure_nv12_output(
 }
 
 /// Read frame dimensions from the current output media type.
-fn get_frame_size(
-    reader: &IMFSourceReader,
-    stream_index: u32,
-) -> Result<(u32, u32), String> {
+fn get_frame_size(reader: &IMFSourceReader, stream_index: u32) -> Result<(u32, u32), String> {
     let media_type = unsafe {
         reader
             .GetCurrentMediaType(stream_index)
@@ -300,9 +279,7 @@ fn get_frame_size(
 }
 
 /// Extract the D3D11 texture from a decoded MF sample.
-fn extract_texture_from_sample(
-    sample: &IMFSample,
-) -> Result<(ID3D11Texture2D, u32), String> {
+fn extract_texture_from_sample(sample: &IMFSample) -> Result<(ID3D11Texture2D, u32), String> {
     let buffer = unsafe {
         sample
             .GetBufferByIndex(0)
@@ -318,10 +295,7 @@ fn extract_texture_from_sample(
     let mut texture_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
     unsafe {
         dxgi_buffer
-            .GetResource(
-                &ID3D11Texture2D::IID,
-                &mut texture_ptr,
-            )
+            .GetResource(&ID3D11Texture2D::IID, &mut texture_ptr)
             .map_err(|e| format!("GetResource: {e}"))?;
     }
 
@@ -330,8 +304,7 @@ fn extract_texture_from_sample(
     }
 
     // Wrap the raw pointer as a COM object (takes ownership of the AddRef'd reference)
-    let texture: ID3D11Texture2D =
-        unsafe { ID3D11Texture2D::from_raw(texture_ptr) };
+    let texture: ID3D11Texture2D = unsafe { ID3D11Texture2D::from_raw(texture_ptr) };
 
     let subresource_index = unsafe {
         dxgi_buffer
@@ -350,17 +323,13 @@ pub fn probe_video_dimensions(file_path: &str) -> Result<(u32, u32), String> {
     // Create a bare SourceReader without DXGI device (software probe only)
     let mut attrs: Option<IMFAttributes> = None;
     unsafe {
-        MFCreateAttributes(&mut attrs, 1)
-            .map_err(|e| format!("MFCreateAttributes: {e}"))?;
+        MFCreateAttributes(&mut attrs, 1).map_err(|e| format!("MFCreateAttributes: {e}"))?;
     }
     let attrs = attrs.ok_or("MFCreateAttributes returned null")?;
 
     let reader = unsafe {
-        MFCreateSourceReaderFromURL(
-            windows::core::PCWSTR(wide_path.as_ptr()),
-            &attrs,
-        )
-        .map_err(|e| format!("MFCreateSourceReaderFromURL probe: {e}"))?
+        MFCreateSourceReaderFromURL(windows::core::PCWSTR(wide_path.as_ptr()), &attrs)
+            .map_err(|e| format!("MFCreateSourceReaderFromURL probe: {e}"))?
     };
 
     let video_idx = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
@@ -397,10 +366,7 @@ pub struct VideoMetadataProbe {
 /// Probe video metadata using a lightweight MF SourceReader (no GPU decode).
 /// Reads native media type to get frame size + nominal frame rate, then drops.
 pub fn probe_video_metadata(file_path: &str) -> Result<VideoMetadataProbe, String> {
-    let wide_path: Vec<u16> = file_path
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
+    let wide_path: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
 
     let mut attrs: Option<IMFAttributes> = None;
     unsafe {
@@ -479,7 +445,8 @@ pub fn generate_thumbnails(
         };
         let video_idx = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
 
-        let media_type = unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
+        let media_type =
+            unsafe { MFCreateMediaType().map_err(|e| format!("MFCreateMediaType: {e}"))? };
         unsafe {
             media_type
                 .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
@@ -505,9 +472,17 @@ pub fn generate_thumbnails(
         let width = (frame_size >> 32) as u32;
         let height = (frame_size & 0xFFFF_FFFF) as u32;
 
-        let safe_end = if end_sec > start_sec { end_sec } else { start_sec };
+        let safe_end = if end_sec > start_sec {
+            end_sec
+        } else {
+            start_sec
+        };
         let duration = (safe_end - start_sec).max(0.0);
-        let step = if count > 1 { duration / (count - 1) as f64 } else { 0.0 };
+        let step = if count > 1 {
+            duration / (count - 1) as f64
+        } else {
+            0.0
+        };
 
         let mut out = Vec::with_capacity(count as usize);
         for i in 0..count {
@@ -563,12 +538,8 @@ pub fn generate_thumbnails(
                 let Some(img) = image::RgbaImage::from_raw(width, height, rgba) else {
                     return Ok(String::new());
                 };
-                let resized = image::imageops::resize(
-                    &img,
-                    160,
-                    90,
-                    image::imageops::FilterType::Triangle,
-                );
+                let resized =
+                    image::imageops::resize(&img, 160, 90, image::imageops::FilterType::Triangle);
                 let mut jpg = Vec::new();
                 let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpg, 60);
                 enc.encode_image(&image::DynamicImage::ImageRgba8(resized))

@@ -1,7 +1,9 @@
 // Rust port of videoRenderer.ts cursor path generation.
 // Mirrors processCursorPositions + generateBakedCursorPath + getCursorVisibility.
 
-use super::config::{BackgroundConfig, BakedCursorFrame, CursorVisibilitySegment, MousePosition, VideoSegment};
+use super::config::{
+    BackgroundConfig, BakedCursorFrame, CursorVisibilitySegment, MousePosition, VideoSegment,
+};
 
 // --- Constants (mirror cursorHiding.ts) ---
 const FADE_IN_DURATION: f64 = 0.2;
@@ -66,12 +68,16 @@ fn get_wiggle_response(bg: Option<&BackgroundConfig>) -> f64 {
 }
 
 fn get_tilt_rad(bg: Option<&BackgroundConfig>) -> f64 {
-    let deg = bg.and_then(|b| b.cursor_tilt_angle).unwrap_or(DEFAULT_CURSOR_TILT_DEG);
+    let deg = bg
+        .and_then(|b| b.cursor_tilt_angle)
+        .unwrap_or(DEFAULT_CURSOR_TILT_DEG);
     deg * (std::f64::consts::PI / 180.0)
 }
 
 fn get_cursor_pack(bg: Option<&BackgroundConfig>) -> &str {
-    let Some(b) = bg else { return "screenstudio"; };
+    let Some(b) = bg else {
+        return "screenstudio";
+    };
     if let Some(ref p) = b.cursor_pack {
         return p.as_str();
     }
@@ -84,7 +90,8 @@ fn get_cursor_pack(bg: Option<&BackgroundConfig>) -> &str {
     ] {
         if let Some(v) = variant_field {
             match v {
-                "jepriwin11" | "sgtpixel" | "sgtai" | "sgtcool" | "sgtcute" | "macos26" | "screenstudio" => return v,
+                "jepriwin11" | "sgtpixel" | "sgtai" | "sgtcool" | "sgtcute" | "macos26"
+                | "screenstudio" => return v,
                 _ => {}
             }
         }
@@ -106,11 +113,9 @@ fn resolve_semantic(raw: &str) -> &'static str {
         "resize_we" | "sizewe" => "resize_we",
         "resize_nwse" | "sizenwse" => "resize_nwse",
         "resize_nesw" | "sizenesw" => "resize_nesw",
-        "move" | "sizeall" | "drag" | "dragging"
-        | "openhand" | "open-hand" | "open_hand"
-        | "closedhand" | "closed-hand" | "closed_hand"
-        | "closehand" | "close-hand" | "close_hand"
-        | "grab" | "grabbing" => "grab",
+        "move" | "sizeall" | "drag" | "dragging" | "openhand" | "open-hand" | "open_hand"
+        | "closedhand" | "closed-hand" | "closed_hand" | "closehand" | "close-hand"
+        | "close_hand" | "grab" | "grabbing" => "grab",
         _ => "default",
     }
 }
@@ -118,7 +123,11 @@ fn resolve_semantic(raw: &str) -> &'static str {
 fn build_cursor_type(semantic: &str, pack: &str, is_clicked: bool) -> String {
     // "grab" semantic resolves to openhand/closehand based on click state
     let effective = if semantic == "grab" {
-        if is_clicked { "closehand" } else { "openhand" }
+        if is_clicked {
+            "closehand"
+        } else {
+            "openhand"
+        }
     } else {
         semantic
     };
@@ -183,7 +192,10 @@ fn spring_step_scalar(
 ) -> SpringResult {
     let disp = current - target;
     if disp.abs() < 1e-8 && velocity.abs() < 1e-8 {
-        return SpringResult { value: target, velocity: 0.0 };
+        return SpringResult {
+            value: target,
+            velocity: 0.0,
+        };
     }
 
     let omega = angular_freq;
@@ -196,7 +208,9 @@ fn spring_step_scalar(
         let cos_a = (alpha * dt).cos();
         let sin_a = (alpha * dt).sin();
         let nd = decay * (disp * cos_a + ((velocity + omega * zeta * disp) / alpha) * sin_a);
-        let nv = decay * (velocity * cos_a - ((velocity * zeta * omega + omega * omega * disp) / alpha) * sin_a);
+        let nv = decay
+            * (velocity * cos_a
+                - ((velocity * zeta * omega + omega * omega * disp) / alpha) * sin_a);
         (nd, nv)
     } else if zeta > 1.0 + 1e-6 {
         // Overdamped — exponential decay
@@ -216,13 +230,20 @@ fn spring_step_scalar(
         (nd, nv)
     };
 
-    SpringResult { value: target + new_disp, velocity: new_vel }
+    SpringResult {
+        value: target + new_disp,
+        velocity: new_vel,
+    }
 }
 
 fn normalize_angle(angle: f64) -> f64 {
     let mut a = angle;
-    while a > std::f64::consts::PI { a -= std::f64::consts::TAU; }
-    while a < -std::f64::consts::PI { a += std::f64::consts::TAU; }
+    while a > std::f64::consts::PI {
+        a -= std::f64::consts::TAU;
+    }
+    while a < -std::f64::consts::PI {
+        a += std::f64::consts::TAU;
+    }
     a
 }
 
@@ -235,7 +256,14 @@ fn spring_step_angle(
     dt: f64,
 ) -> SpringResult {
     let adjusted_target = current + normalize_angle(target - current);
-    spring_step_scalar(current, adjusted_target, velocity, angular_freq, damping_ratio, dt)
+    spring_step_scalar(
+        current,
+        adjusted_target,
+        velocity,
+        angular_freq,
+        damping_ratio,
+        dt,
+    )
 }
 
 /// Smooth-damp scalar (Spring-Damper, Unity-style). Used for heading smoothing.
@@ -266,7 +294,10 @@ fn smooth_damp_scalar(
         output = original_target;
     }
 
-    SpringResult { value: output, velocity: new_velocity }
+    SpringResult {
+        value: output,
+        velocity: new_velocity,
+    }
 }
 
 fn smooth_damp_angle(
@@ -278,7 +309,14 @@ fn smooth_damp_angle(
     dt: f64,
 ) -> SpringResult {
     let adjusted_target = current + normalize_angle(target - current);
-    smooth_damp_scalar(current, adjusted_target, velocity, smooth_time, max_speed, dt)
+    smooth_damp_scalar(
+        current,
+        adjusted_target,
+        velocity,
+        smooth_time,
+        max_speed,
+        dt,
+    )
 }
 
 fn lerp_angle(from: f64, to: f64, t: f64) -> f64 {
@@ -308,7 +346,10 @@ fn smooth_mouse_positions(positions: &[MousePosition], bg: Option<&BackgroundCon
                 y: p.y,
                 timestamp: p.timestamp,
                 is_clicked: p.is_clicked,
-                cursor_type: p.cursor_type.clone().unwrap_or_else(|| "default".to_string()),
+                cursor_type: p
+                    .cursor_type
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
                 cursor_rotation: p.cursor_rotation.unwrap_or(0.0),
             })
             .collect();
@@ -334,11 +375,22 @@ fn smooth_mouse_positions(positions: &[MousePosition], bg: Option<&BackgroundCon
             let y = catmull_rom(p0.y, p1.y, p2.y, p3.y, t);
             let is_clicked = p1.is_clicked || p2.is_clicked;
             let cursor_type = if t < 0.5 {
-                p1.cursor_type.clone().unwrap_or_else(|| "default".to_string())
+                p1.cursor_type
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string())
             } else {
-                p2.cursor_type.clone().unwrap_or_else(|| "default".to_string())
+                p2.cursor_type
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string())
             };
-            smoothed.push(Pos { x, y, timestamp, is_clicked, cursor_type, cursor_rotation: 0.0 });
+            smoothed.push(Pos {
+                x,
+                y,
+                timestamp,
+                is_clicked,
+                cursor_type,
+                cursor_rotation: 0.0,
+            });
         }
     }
 
@@ -350,7 +402,10 @@ fn smooth_mouse_positions(positions: &[MousePosition], bg: Option<&BackgroundCon
                 y: p.y,
                 timestamp: p.timestamp,
                 is_clicked: p.is_clicked,
-                cursor_type: p.cursor_type.clone().unwrap_or_else(|| "default".to_string()),
+                cursor_type: p
+                    .cursor_type
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
                 cursor_rotation: p.cursor_rotation.unwrap_or(0.0),
             })
             .collect();
@@ -415,10 +470,14 @@ fn smooth_mouse_positions(positions: &[MousePosition], bg: Option<&BackgroundCon
 
 /// Step 2: Position spring dynamics — physical inertia / trailing lag.
 fn apply_spring_position_dynamics(positions: Vec<Pos>, bg: Option<&BackgroundConfig>) -> Vec<Pos> {
-    if positions.len() < 2 { return positions; }
+    if positions.len() < 2 {
+        return positions;
+    }
 
     let strength = get_wiggle_strength(bg);
-    if strength <= 0.001 { return positions; }
+    if strength <= 0.001 {
+        return positions;
+    }
 
     let damping = get_wiggle_damping(bg);
     let response_hz = get_wiggle_response(bg);
@@ -460,7 +519,11 @@ fn apply_spring_position_dynamics(positions: Vec<Pos>, bg: Option<&BackgroundCon
             vy *= ratio;
         }
 
-        result.push(Pos { x: sx, y: sy, ..target.clone() });
+        result.push(Pos {
+            x: sx,
+            y: sy,
+            ..target.clone()
+        });
     }
 
     result
@@ -468,10 +531,14 @@ fn apply_spring_position_dynamics(positions: Vec<Pos>, bg: Option<&BackgroundCon
 
 /// Step 3: Adaptive rotation wiggle — heading-based tilt spring.
 fn apply_adaptive_cursor_wiggle(positions: Vec<Pos>, bg: Option<&BackgroundConfig>) -> Vec<Pos> {
-    if positions.len() < 2 { return positions; }
+    if positions.len() < 2 {
+        return positions;
+    }
 
     let strength = get_wiggle_strength(bg);
-    if strength <= 0.001 { return positions; }
+    if strength <= 0.001 {
+        return positions;
+    }
 
     let damping = get_wiggle_damping(bg);
     let response_hz = get_wiggle_response(bg);
@@ -492,7 +559,10 @@ fn apply_adaptive_cursor_wiggle(positions: Vec<Pos>, bg: Option<&BackgroundConfi
     let mut cursor_rotation = 0.0_f64;
     let mut cursor_rotation_vel = 0.0_f64;
 
-    result.push(Pos { cursor_rotation: 0.0, ..positions[0].clone() });
+    result.push(Pos {
+        cursor_rotation: 0.0,
+        ..positions[0].clone()
+    });
 
     for i in 1..positions.len() {
         let prev = &positions[i - 1];
@@ -510,7 +580,14 @@ fn apply_adaptive_cursor_wiggle(positions: Vec<Pos>, bg: Option<&BackgroundConfi
                 lag_heading = heading;
                 has_heading = true;
             }
-            let hs = smooth_damp_angle(lag_heading, heading, lag_heading_vel, heading_smooth_time, 18.0, dt_raw);
+            let hs = smooth_damp_angle(
+                lag_heading,
+                heading,
+                lag_heading_vel,
+                heading_smooth_time,
+                18.0,
+                dt_raw,
+            );
             lag_heading = hs.value;
             lag_heading_vel = hs.velocity;
 
@@ -520,11 +597,21 @@ fn apply_adaptive_cursor_wiggle(positions: Vec<Pos>, bg: Option<&BackgroundConfi
             tilt_target = raw_tilt.clamp(-max_tilt_rad, max_tilt_rad);
         }
 
-        let rs = spring_step_angle(cursor_rotation, tilt_target, cursor_rotation_vel, rotation_omega, rotation_zeta, dt_raw);
+        let rs = spring_step_angle(
+            cursor_rotation,
+            tilt_target,
+            cursor_rotation_vel,
+            rotation_omega,
+            rotation_zeta,
+            dt_raw,
+        );
         cursor_rotation = rs.value;
         cursor_rotation_vel = rs.velocity;
 
-        result.push(Pos { cursor_rotation, ..target.clone() });
+        result.push(Pos {
+            cursor_rotation,
+            ..target.clone()
+        });
     }
 
     result
@@ -533,7 +620,9 @@ fn apply_adaptive_cursor_wiggle(positions: Vec<Pos>, bg: Option<&BackgroundConfi
 /// Step 4: Static tilt offset.
 fn apply_cursor_tilt_offset(positions: Vec<Pos>, bg: Option<&BackgroundConfig>) -> Vec<Pos> {
     let tilt_rad = get_tilt_rad(bg);
-    if tilt_rad.abs() < 0.0001 { return positions; }
+    if tilt_rad.abs() < 0.0001 {
+        return positions;
+    }
     positions
         .into_iter()
         .map(|mut p| {
@@ -555,10 +644,15 @@ fn process_cursor_positions(raw: &[MousePosition], bg: Option<&BackgroundConfig>
 
 /// Interpolate processed positions at a given timestamp.
 fn interpolate_pos(time: f64, positions: &[Pos]) -> Option<Pos> {
-    if positions.is_empty() { return None; }
+    if positions.is_empty() {
+        return None;
+    }
 
     // Exact match (within 1ms)
-    if let Some(p) = positions.iter().find(|p| (p.timestamp - time).abs() < 0.001) {
+    if let Some(p) = positions
+        .iter()
+        .find(|p| (p.timestamp - time).abs() < 0.001)
+    {
         return Some(p.clone());
     }
 
@@ -574,7 +668,11 @@ fn interpolate_pos(time: f64, positions: &[Pos]) -> Option<Pos> {
     let prev = &positions[next_idx - 1];
     let next = &positions[next_idx];
     let span = next.timestamp - prev.timestamp;
-    let t = if span > 1e-10 { (time - prev.timestamp) / span } else { 0.0 };
+    let t = if span > 1e-10 {
+        (time - prev.timestamp) / span
+    } else {
+        0.0
+    };
 
     Some(Pos {
         x: prev.x + (next.x - prev.x) * t,
@@ -596,10 +694,7 @@ fn ease_in_cubic(t: f64) -> f64 {
     t * t * t
 }
 
-fn get_cursor_visibility(
-    time: f64,
-    segments: &Option<Vec<CursorVisibilitySegment>>,
-) -> (f64, f64) {
+fn get_cursor_visibility(time: f64, segments: &Option<Vec<CursorVisibilitySegment>>) -> (f64, f64) {
     // (opacity, scale)
     let Some(segs) = segments else {
         // Feature off — always visible
@@ -674,7 +769,9 @@ pub fn generate_cursor_path(
             let is_clicked = pos.is_clicked;
             let time_since_hold = cursor_t - sim_last_hold_time;
             let should_squish = is_clicked
-                || (sim_last_hold_time >= 0.0 && time_since_hold < CLICK_FUSE_THRESHOLD && time_since_hold > 0.0);
+                || (sim_last_hold_time >= 0.0
+                    && time_since_hold < CLICK_FUSE_THRESHOLD
+                    && time_since_hold > 0.0);
 
             if is_clicked {
                 sim_last_hold_time = cursor_t;
@@ -687,7 +784,8 @@ pub fn generate_cursor_path(
                 sim_squish_scale = (sim_squish_scale + RELEASE_SPEED * SIM_RATIO).min(target_scale);
             }
 
-            let (vis_opacity, vis_scale) = get_cursor_visibility(t, &segment.cursor_visibility_segments);
+            let (vis_opacity, vis_scale) =
+                get_cursor_visibility(t, &segment.cursor_visibility_segments);
             let resolved_type = resolve_cursor_type(&pos.cursor_type, bg, is_clicked);
             let rotation = if should_cursor_rotate(&resolved_type) {
                 (pos.cursor_rotation * 10000.0).round() / 10000.0
@@ -724,10 +822,18 @@ pub fn generate_cursor_path(
             }
         }
 
-        if t >= full_end - 1e-9 { break; }
+        if t >= full_end - 1e-9 {
+            break;
+        }
         t = (t + step).min(full_end);
     }
 
-    eprintln!("[CursorPath] Generated {} frames [{:.3}s..{:.3}s] at {}fps", baked.len(), full_start, full_end, fps);
+    eprintln!(
+        "[CursorPath] Generated {} frames [{:.3}s..{:.3}s] at {}fps",
+        baked.len(),
+        full_start,
+        full_end,
+        fps
+    );
     baked
 }

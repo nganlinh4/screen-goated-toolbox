@@ -2,10 +2,11 @@ use std::fs::{self, File};
 use std::path::Path;
 use std::slice;
 use std::sync::atomic::{self, AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
 
 use parking_lot::{Condvar, Mutex};
+use windows::core::{Interface, HSTRING};
 use windows::Foundation::{TimeSpan, TypedEventHandler};
 use windows::Graphics::DirectX::Direct3D11::IDirect3DSurface;
 use windows::Graphics::Imaging::{BitmapAlphaMode, BitmapEncoder, BitmapPixelFormat};
@@ -27,7 +28,6 @@ use windows::Storage::{FileAccessMode, StorageFile};
 use windows::Win32::System::Threading::{
     GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
 };
-use windows::core::{HSTRING, Interface};
 
 use crate::d3d11::SendDirectX;
 use crate::frame::{Frame, ImageFormat};
@@ -61,7 +61,10 @@ impl ImageEncoder {
     #[must_use]
     #[inline]
     pub const fn new(format: ImageFormat, color_format: ColorFormat) -> Self {
-        Self { format, color_format }
+        Self {
+            format,
+            color_format,
+        }
     }
 
     /// Encodes the image buffer into image bytes with the specified format.
@@ -117,7 +120,9 @@ impl ImageEncoder {
         encoder.FlushAsync()?.get()?;
 
         let buffer = Buffer::Create(u32::try_from(stream.Size()?).unwrap())?;
-        stream.ReadAsync(&buffer, buffer.Capacity()?, InputStreamOptions::None)?.get()?;
+        stream
+            .ReadAsync(&buffer, buffer.Capacity()?, InputStreamOptions::None)?
+            .get()?;
 
         let data_reader = DataReader::FromBuffer(&buffer)?;
         let length = data_reader.UnconsumedBufferLength()?;
@@ -138,6 +143,8 @@ pub enum VideoEncoderError {
     AudioSendError(#[from] mpsc::SendError<Option<(AudioEncoderSource, TimeSpan)>>),
     #[error("Video encoding is disabled")]
     VideoDisabled,
+    #[error("CPU-backed video buffers are not supported by this zero-copy encoder path")]
+    CpuVideoBufferUnsupported,
     #[error("Audio encoding is disabled")]
     AudioDisabled,
     #[error("I/O error: {0}")]
@@ -150,8 +157,6 @@ unsafe impl Sync for VideoEncoderError {}
 /// The `VideoEncoderSource` enum represents all the types that can be sent to the encoder.
 pub enum VideoEncoderSource {
     DirectX(SendDirectX<IDirect3DSurface>),
-    Buffer((SendDirectX<*const u8>, usize)),
-    OwnedBuffer(Vec<u8>),
 }
 
 /// The `AudioEncoderSource` enum represents all the types that can be sent to the encoder.
@@ -195,10 +200,14 @@ pub struct FramePump {
 }
 
 impl FramePump {
-    /// Submit a BGRA buffer as the next video frame.
+    /// Submit a GPU surface as the next video frame.
     /// Returns `true` if the frame was queued, `false` if dropped due to backpressure.
     #[inline]
-    pub fn submit_buffer(&mut self, buffer: Vec<u8>, max_pending: usize) -> bool {
+    pub fn submit_surface(
+        &mut self,
+        surface: SendDirectX<IDirect3DSurface>,
+        max_pending: usize,
+    ) -> bool {
         let max_pending = max_pending.max(1);
         if self.pending_video_frames.load(Ordering::Relaxed) >= max_pending {
             self.dropped_video_frames.fetch_add(1, Ordering::Relaxed);
@@ -214,7 +223,7 @@ impl FramePump {
 
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
         self.frame_sender
-            .send(Some((VideoEncoderSource::OwnedBuffer(buffer), ts)))
+            .send(Some((VideoEncoderSource::DirectX(surface), ts)))
             .is_ok()
     }
 
@@ -310,8 +319,12 @@ impl VideoSettingsBuilder {
         properties.SetHeight(self.height)?;
         properties.FrameRate()?.SetNumerator(self.frame_rate)?;
         properties.FrameRate()?.SetDenominator(1)?;
-        properties.PixelAspectRatio()?.SetNumerator(self.pixel_aspect_ratio.0)?;
-        properties.PixelAspectRatio()?.SetDenominator(self.pixel_aspect_ratio.1)?;
+        properties
+            .PixelAspectRatio()?
+            .SetNumerator(self.pixel_aspect_ratio.0)?;
+        properties
+            .PixelAspectRatio()?
+            .SetDenominator(self.pixel_aspect_ratio.1)?;
 
         Ok((properties, self.disabled))
     }
@@ -393,7 +406,9 @@ pub struct ContainerSettingsBuilder {
 
 impl ContainerSettingsBuilder {
     pub const fn new() -> Self {
-        Self { sub_type: ContainerSettingsSubType::MPEG4 }
+        Self {
+            sub_type: ContainerSettingsSubType::MPEG4,
+        }
     }
 
     pub const fn sub_type(mut self, sub_type: ContainerSettingsSubType) -> Self {
@@ -672,7 +687,9 @@ impl VideoEncoder {
                 .as_ref()
                 .expect("MediaStreamSource Starting parameter was None. This should not happen.");
 
-            stream_start.Request()?.SetActualStartPosition(TimeSpan { Duration: 0 })?;
+            stream_start
+                .Request()?
+                .SetActualStartPosition(TimeSpan { Duration: 0 })?;
             Ok(())
         }))?;
 
@@ -772,17 +789,6 @@ impl VideoEncoder {
                                     MediaStreamSample::CreateFromDirect3D11Surface(
                                         &surface.0, timestamp,
                                     )?
-                                }
-                                VideoEncoderSource::Buffer(buffer_data) => {
-                                    let buffer = buffer_data.0;
-                                    let buffer =
-                                        unsafe { slice::from_raw_parts(buffer.0, buffer_data.1) };
-                                    let buffer = CryptographicBuffer::CreateFromByteArray(buffer)?;
-                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
-                                }
-                                VideoEncoderSource::OwnedBuffer(buffer) => {
-                                    let buffer = CryptographicBuffer::CreateFromByteArray(&buffer)?;
-                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
                                 }
                             };
 
@@ -928,7 +934,9 @@ impl VideoEncoder {
                 .as_ref()
                 .expect("MediaStreamSource Starting parameter was None. This should not happen.");
 
-            stream_start.Request()?.SetActualStartPosition(TimeSpan { Duration: 0 })?;
+            stream_start
+                .Request()?
+                .SetActualStartPosition(TimeSpan { Duration: 0 })?;
             Ok(())
         }))?;
 
@@ -1028,17 +1036,6 @@ impl VideoEncoder {
                                     MediaStreamSample::CreateFromDirect3D11Surface(
                                         &surface.0, timestamp,
                                     )?
-                                }
-                                VideoEncoderSource::Buffer(buffer_data) => {
-                                    let buffer = buffer_data.0;
-                                    let buffer =
-                                        unsafe { slice::from_raw_parts(buffer.0, buffer_data.1) };
-                                    let buffer = CryptographicBuffer::CreateFromByteArray(buffer)?;
-                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
-                                }
-                                VideoEncoderSource::OwnedBuffer(buffer) => {
-                                    let buffer = CryptographicBuffer::CreateFromByteArray(&buffer)?;
-                                    MediaStreamSample::CreateFromBuffer(&buffer, timestamp)?
                                 }
                             };
 
@@ -1154,7 +1151,9 @@ impl VideoEncoder {
 
         if self.error_notify.load(atomic::Ordering::Relaxed) {
             if let Some(transcode_thread) = self.transcode_thread.take() {
-                transcode_thread.join().expect("Failed to join transcode thread")?;
+                transcode_thread
+                    .join()
+                    .expect("Failed to join transcode thread")?;
             }
         }
 
@@ -1196,20 +1195,23 @@ impl VideoEncoder {
 
         if self.error_notify.load(atomic::Ordering::Relaxed) {
             if let Some(transcode_thread) = self.transcode_thread.take() {
-                transcode_thread.join().expect("Failed to join transcode thread")?;
+                transcode_thread
+                    .join()
+                    .expect("Failed to join transcode thread")?;
             }
         }
 
         Ok(true)
     }
 
-    /// Sends an owned BGRA buffer without blocking on encoder consumption.
+    /// Sends a WinRT Direct3D surface without blocking on encoder consumption.
     ///
-    /// The buffer length must match the encoder's configured frame byte size.
+    /// Returns `Ok(true)` when the frame is queued and `Ok(false)` when dropped because
+    /// the pending queue is already at `max_pending_frames`.
     #[inline]
-    pub fn send_frame_owned_buffer_nonblocking(
+    pub fn send_directx_surface_nonblocking(
         &mut self,
-        buffer: Vec<u8>,
+        surface: SendDirectX<IDirect3DSurface>,
         max_pending_frames: usize,
     ) -> Result<bool, VideoEncoderError> {
         if self.is_video_disabled {
@@ -1227,7 +1229,7 @@ impl VideoEncoder {
         self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
         if let Err(error) = self
             .frame_sender
-            .send(Some((VideoEncoderSource::OwnedBuffer(buffer), timestamp)))
+            .send(Some((VideoEncoderSource::DirectX(surface), timestamp)))
         {
             saturating_decrement(self.pending_video_frames.as_ref());
             return Err(error.into());
@@ -1235,11 +1237,25 @@ impl VideoEncoder {
 
         if self.error_notify.load(atomic::Ordering::Relaxed) {
             if let Some(transcode_thread) = self.transcode_thread.take() {
-                transcode_thread.join().expect("Failed to join transcode thread")?;
+                transcode_thread
+                    .join()
+                    .expect("Failed to join transcode thread")?;
             }
         }
 
         Ok(true)
+    }
+
+    /// Sends an owned BGRA buffer without blocking on encoder consumption.
+    ///
+    /// The buffer length must match the encoder's configured frame byte size.
+    #[inline]
+    pub fn send_frame_owned_buffer_nonblocking(
+        &mut self,
+        _buffer: Vec<u8>,
+        _max_pending_frames: usize,
+    ) -> Result<bool, VideoEncoderError> {
+        Err(VideoEncoderError::CpuVideoBufferUnsupported)
     }
 
     #[must_use]
@@ -1289,9 +1305,9 @@ impl VideoEncoder {
             return;
         }
 
-        self.next_video_timestamp_100ns = self.next_video_timestamp_100ns.saturating_add(
-            self.video_frame_interval_100ns.saturating_mul(count as i64),
-        );
+        self.next_video_timestamp_100ns = self
+            .next_video_timestamp_100ns
+            .saturating_add(self.video_frame_interval_100ns.saturating_mul(count as i64));
     }
 
     /// Sends a video frame with audio to the video encoder for encoding.
@@ -1342,7 +1358,9 @@ impl VideoEncoder {
 
         if self.error_notify.load(atomic::Ordering::Relaxed) {
             if let Some(transcode_thread) = self.transcode_thread.take() {
-                transcode_thread.join().expect("Failed to join transcode thread")?;
+                transcode_thread
+                    .join()
+                    .expect("Failed to join transcode thread")?;
             }
         }
 
@@ -1368,7 +1386,9 @@ impl VideoEncoder {
 
         if self.error_notify.load(atomic::Ordering::Relaxed) {
             if let Some(transcode_thread) = self.transcode_thread.take() {
-                transcode_thread.join().expect("Failed to join transcode thread")?;
+                transcode_thread
+                    .join()
+                    .expect("Failed to join transcode thread")?;
             }
         }
 
@@ -1389,47 +1409,10 @@ impl VideoEncoder {
     #[inline]
     pub fn send_frame_buffer(
         &mut self,
-        buffer: &[u8],
-        timestamp: i64,
+        _buffer: &[u8],
+        _timestamp: i64,
     ) -> Result<(), VideoEncoderError> {
-        if self.is_video_disabled {
-            return Err(VideoEncoderError::VideoDisabled);
-        }
-
-        let frame_timestamp = timestamp;
-        let timestamp = match self.first_timestamp {
-            Some(timestamp) => TimeSpan { Duration: frame_timestamp - timestamp.Duration },
-            None => {
-                let timestamp = frame_timestamp;
-                self.first_timestamp = Some(TimeSpan { Duration: timestamp });
-                TimeSpan { Duration: 0 }
-            }
-        };
-
-        self.pending_video_frames.fetch_add(1, Ordering::Relaxed);
-        if let Err(error) = self.frame_sender.send(Some((
-            VideoEncoderSource::Buffer((SendDirectX::new(buffer.as_ptr()), buffer.len())),
-            timestamp,
-        ))) {
-            saturating_decrement(self.pending_video_frames.as_ref());
-            return Err(error.into());
-        }
-
-        let (lock, cvar) = &*self.frame_notify;
-        let mut processed = lock.lock();
-        if !*processed {
-            cvar.wait(&mut processed);
-        }
-        *processed = false;
-        drop(processed);
-
-        if self.error_notify.load(atomic::Ordering::Relaxed) {
-            if let Some(transcode_thread) = self.transcode_thread.take() {
-                transcode_thread.join().expect("Failed to join transcode thread")?;
-            }
-        }
-
-        Ok(())
+        Err(VideoEncoderError::CpuVideoBufferUnsupported)
     }
 
     /// Sends a video audio to the video encoder for encoding.
@@ -1455,10 +1438,14 @@ impl VideoEncoder {
 
         let audio_timestamp = timestamp;
         let timestamp = match self.first_timestamp {
-            Some(timestamp) => TimeSpan { Duration: audio_timestamp - timestamp.Duration },
+            Some(timestamp) => TimeSpan {
+                Duration: audio_timestamp - timestamp.Duration,
+            },
             None => {
                 let timestamp = audio_timestamp;
-                self.first_timestamp = Some(TimeSpan { Duration: timestamp });
+                self.first_timestamp = Some(TimeSpan {
+                    Duration: timestamp,
+                });
                 TimeSpan { Duration: 0 }
             }
         };
@@ -1482,7 +1469,9 @@ impl VideoEncoder {
 
         if self.error_notify.load(atomic::Ordering::Relaxed) {
             if let Some(transcode_thread) = self.transcode_thread.take() {
-                transcode_thread.join().expect("Failed to join transcode thread")?;
+                transcode_thread
+                    .join()
+                    .expect("Failed to join transcode thread")?;
             }
         }
 
@@ -1501,18 +1490,23 @@ impl VideoEncoder {
         self.audio_sender.send(None)?;
 
         if let Some(transcode_thread) = self.transcode_thread.take() {
-            transcode_thread.join().expect("Failed to join transcode thread")?;
+            transcode_thread
+                .join()
+                .expect("Failed to join transcode thread")?;
         }
 
         self.media_stream_source.RemoveStarting(self.starting)?;
-        self.media_stream_source.RemoveSampleRequested(self.sample_requested)?;
+        self.media_stream_source
+            .RemoveSampleRequested(self.sample_requested)?;
 
         Ok(())
     }
 
     #[inline]
     fn next_video_timespan(&mut self) -> TimeSpan {
-        let timestamp = TimeSpan { Duration: self.next_video_timestamp_100ns };
+        let timestamp = TimeSpan {
+            Duration: self.next_video_timestamp_100ns,
+        };
         self.next_video_timestamp_100ns = self
             .next_video_timestamp_100ns
             .saturating_add(self.video_frame_interval_100ns);
