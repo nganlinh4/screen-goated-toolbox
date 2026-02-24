@@ -819,12 +819,12 @@ function CursorPanel({
             min="-0.5"
             max="0.5"
             step="0.01"
-            value={backgroundConfig.cursorMovementDelay ?? 0.03}
-            style={sv(backgroundConfig.cursorMovementDelay ?? 0.03, -0.5, 0.5)}
+            value={backgroundConfig.cursorMovementDelay ?? 0}
+            style={sv(backgroundConfig.cursorMovementDelay ?? 0, -0.5, 0.5)}
             onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: Number(e.target.value) }))}
             className="cursor-movement-delay-slider flex-1 min-w-0"
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0.03).toFixed(2)}s</span>
+          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0).toFixed(2)}s</span>
         </div>
         <div className="cursor-wiggle-strength-field flex items-center gap-3">
           <span className="cursor-wiggle-strength-label text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pointerWiggleStrength}</span>
