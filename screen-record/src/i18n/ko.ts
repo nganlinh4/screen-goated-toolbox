@@ -9,7 +9,7 @@ const ko: Translations = {
   windowCapture: '창 캡처',
   gameCapture: '게임 캡처',
   adminRequired: '관리자 권한 필요',
-  adminRequiredDesc: '권한이 높은 프로세스는 캡처할 수 없습니다.',
+  adminRequiredDesc: '관리자 권한으로 앱을 다시 시작하세요.',
   addHotkey: '단축키 추가',
   toggleKeyviz: 'Keyviz 전환',
   installKeyviz: 'Keyviz 설치 및 활성화',

@@ -248,6 +248,10 @@ fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Stri
             .SetUINT64(&MF_MT_FRAME_RATE, frame_rate)
             .map_err(|e| format!("SetUINT64 FRAME_RATE: {e}"))?;
 
+        // Force a keyframe every 60 frames (~1 sec) for flawless fast seeking in
+        // Chrome/WebKit when previewing the recorded video in the frontend.
+        let _ = media_type.SetUINT32(&MF_MT_MAX_KEYFRAME_SPACING, 60);
+
         // Interlace mode = progressive
         media_type
             .SetUINT32(&MF_MT_INTERLACE_MODE, 2) // MFVideoInterlace_Progressive = 2

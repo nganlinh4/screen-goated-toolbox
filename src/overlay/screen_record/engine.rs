@@ -15,6 +15,7 @@ use wc_windows::core::Interface as WcInterface;
 use windows::core::{Interface as AppInterface, BOOL};
 use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Direct3D11::{
     ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_BIND_RENDER_TARGET,
     D3D11_BIND_SHADER_RESOURCE,
@@ -26,9 +27,9 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorInfo, GetCursorPos, GetIconInfo, LoadCursorW, CURSORINFO, ICONINFO, IDC_APPSTARTING,
-    IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
-    IDC_SIZEWE, IDC_WAIT,
+    GetCursorInfo, GetCursorPos, GetIconInfo, GetWindowRect, LoadCursorW, CURSORINFO, ICONINFO,
+    IDC_APPSTARTING, IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_SIZEALL, IDC_SIZENESW,
+    IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
 };
 use windows_capture::{
     capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
@@ -100,6 +101,9 @@ pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(
 pub static AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
+/// Dynamically track target window so cursor math stays accurate if the window moves.
+pub static TARGET_HWND: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
 const DEFAULT_TARGET_FPS: u32 = 60;
@@ -163,7 +167,10 @@ pub struct CaptureHandler {
     /// Next ring slot to write from the capture callback thread.
     write_idx: usize,
     /// Hardware scaler/cropper for size mismatch handling, entirely in VRAM.
-    video_processor: Option<VideoProcessor>,
+    /// Stores (input_w, input_h, processor) to detect dynamic frame dimension changes.
+    video_processor: Option<(u32, u32, VideoProcessor)>,
+    /// D3D11 device for dynamic resource recreation.
+    d3d_device: ID3D11Device,
     /// Immediate D3D11 context for GPU copy/convert operations.
     d3d_context: ID3D11DeviceContext,
     /// Signal the pump thread to stop.
@@ -190,6 +197,12 @@ impl CaptureHandler {
 
         if let Some(encoder) = self.encoder.lock().take() {
             std::thread::spawn(move || {
+                let audio_wait = Instant::now();
+                while !AUDIO_ENCODING_FINISHED.load(Ordering::SeqCst)
+                    && audio_wait.elapsed().as_secs() < 5
+                {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
                 if let Err(error) = encoder.finish() {
                     eprintln!("video encoder finalize error: {}", error);
                 }
@@ -212,13 +225,38 @@ impl CaptureHandler {
                 self.d3d_context
                     .CopyResource(&target_frame.texture.0, &wgc_texture);
             }
-        } else if let Some(vp) = &self.video_processor {
-            vp.convert(&wgc_texture, 0, &target_frame.texture.0)?;
         } else {
-            return Err(format!(
-                "No GPU resize path available for frame {}x{} -> {}x{}",
-                frame_w, frame_h, self.enc_w, self.enc_h
-            ));
+            let needs_recreate = match &self.video_processor {
+                Some((in_w, in_h, _)) => *in_w != frame_w || *in_h != frame_h,
+                None => true,
+            };
+
+            if needs_recreate {
+                match VideoProcessor::new(
+                    &self.d3d_device,
+                    &self.d3d_context,
+                    frame_w,
+                    frame_h,
+                    self.enc_w,
+                    self.enc_h,
+                ) {
+                    Ok(vp) => {
+                        self.video_processor = Some((frame_w, frame_h, vp));
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "Failed to recreate GPU resize path for {}x{} -> {}x{}: {}",
+                            frame_w, frame_h, self.enc_w, self.enc_h, e
+                        ));
+                    }
+                }
+            }
+
+            if let Some((_, _, vp)) = &self.video_processor {
+                vp.convert(&wgc_texture, 0, &target_frame.texture.0)?;
+            } else {
+                return Err("Failed to obtain VideoProcessor for resize".to_string());
+            }
         }
 
         self.write_idx = (self.write_idx + 1) % self.vram_pool.len();
@@ -473,9 +511,30 @@ fn sample_mouse_position(start: Instant) {
             let is_clicked = IS_MOUSE_CLICKED.load(Ordering::SeqCst);
             let cursor_type = get_cursor_type(is_clicked);
 
+            let mut offset_x = MONITOR_X;
+            let mut offset_y = MONITOR_Y;
+
+            let hwnd_val = TARGET_HWND.load(Ordering::Relaxed);
+            if hwnd_val != 0 {
+                let hwnd = HWND(hwnd_val as *mut _);
+                let mut rect = RECT::default();
+                if DwmGetWindowAttribute(
+                    hwnd,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    &mut rect as *mut _ as *mut std::ffi::c_void,
+                    std::mem::size_of::<RECT>() as u32,
+                )
+                .is_err()
+                {
+                    let _ = GetWindowRect(hwnd, &mut rect);
+                }
+                offset_x = rect.left;
+                offset_y = rect.top;
+            }
+
             let mouse_pos = MousePosition {
-                x: point.x - MONITOR_X,
-                y: point.y - MONITOR_Y,
+                x: point.x - offset_x,
+                y: point.y - offset_y,
                 timestamp: start.elapsed().as_secs_f64(),
                 is_clicked,
                 cursor_type,
@@ -523,34 +582,74 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         let (width, height, monitor_hz, target_id_print) = if flags.target_type == "window" {
             let hwnd_val = flags.target_id.parse::<usize>().unwrap_or(0);
+            let hwnd = HWND(hwnd_val as *mut _);
             let window =
                 windows_capture::window::Window::from_raw_hwnd(hwnd_val as *mut std::ffi::c_void);
 
-            // Prefer the exact GraphicsCaptureItem size (WGC strips some visual chrome/shadow).
-            let mut item_size: Option<(u32, u32)> = None;
+            let mut w = 0u32;
+            let mut h = 0u32;
+
+            // 1. Try WGC item size first, but only trust it if reasonably large.
+            //    Minimized windows report 160x28 (iconic title bar size).
             if let Ok(interop) =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
             {
                 if let Ok(item) = unsafe {
-                    interop.CreateForWindow::<GraphicsCaptureItem>(HWND(hwnd_val as *mut _))
+                    interop.CreateForWindow::<GraphicsCaptureItem>(hwnd)
                 } {
                     if let Ok(size) = item.Size() {
-                        if size.Width > 128 && size.Height > 128 {
-                            item_size = Some((size.Width as u32, size.Height as u32));
+                        if size.Width >= 300 && size.Height >= 300 {
+                            w = size.Width as u32;
+                            h = size.Height as u32;
                         }
                     }
                 }
             }
 
-            let (w, h) = if let Some((w, h)) = item_size {
-                (w, h)
-            } else {
-                let rect = window.rect()?;
-                (
-                    (rect.right - rect.left).max(128) as u32,
-                    (rect.bottom - rect.top).max(128) as u32,
-                )
-            };
+            // 2. Fallback: WINDOWPLACEMENT for restored size if currently minimized or small.
+            if w == 0 || h == 0 {
+                unsafe {
+                    let mut wp =
+                        windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT::default();
+                    wp.length = std::mem::size_of::<
+                        windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT,
+                    >() as u32;
+                    if windows::Win32::UI::WindowsAndMessaging::GetWindowPlacement(hwnd, &mut wp)
+                        .is_ok()
+                    {
+                        let pw = (wp.rcNormalPosition.right - wp.rcNormalPosition.left).abs();
+                        let ph = (wp.rcNormalPosition.bottom - wp.rcNormalPosition.top).abs();
+                        if pw >= 300 && ph >= 300 {
+                            w = pw as u32;
+                            h = ph as u32;
+                        }
+                    }
+                }
+            }
+
+            // 3. Fallback: current window rect.
+            if w == 0 || h == 0 {
+                if let Ok(rect) = window.rect() {
+                    let pw = (rect.right - rect.left).abs();
+                    let ph = (rect.bottom - rect.top).abs();
+                    if pw >= 300 && ph >= 300 {
+                        w = pw as u32;
+                        h = ph as u32;
+                    }
+                }
+            }
+
+            // 4. Ultimate fallback: monitor size (window is hidden or completely iconic).
+            if w < 300 || h < 300 {
+                if let Some(monitor) = window.monitor() {
+                    w = monitor.width().unwrap_or(1920);
+                    h = monitor.height().unwrap_or(1080);
+                } else {
+                    w = 1920;
+                    h = 1080;
+                }
+            }
+
             (w, h, DEFAULT_TARGET_FPS, hwnd_val)
         } else {
             let monitor_index = flags.target_id.parse::<usize>().unwrap_or(0);
@@ -641,7 +740,6 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         ENCODER_ACTIVE.store(true, Ordering::SeqCst);
         ENCODING_FINISHED.store(false, Ordering::SeqCst);
         let cursor_sampler_stop = Arc::new(AtomicBool::new(false));
-        let cursor_sampler_thread = Some(spawn_cursor_sampler(start, cursor_sampler_stop.clone()));
 
         let is_window_capture = flags.target_type == "window";
         let app_d3d_device: ID3D11Device = clone_wc_interface_to_app(&ctx.device)
@@ -679,7 +777,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 enc_w,
                 enc_h,
             ) {
-                Ok(vp) => Some(vp),
+                Ok(vp) => Some((width, height, vp)),
                 Err(e) => {
                     eprintln!(
                         "[CaptureHandler] GPU resize path unavailable for {}x{} -> {}x{}: {}",
@@ -696,6 +794,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let pump_dropped = Arc::new(AtomicUsize::new(0));
 
         let mut pump = encoder.create_frame_pump();
+        let cursor_sampler_thread = Some(spawn_cursor_sampler(start, cursor_sampler_stop.clone()));
         let encoder_shared = Arc::new(Mutex::new(Some(encoder)));
 
         // For window capture, spawn a pump thread that submits the cached
@@ -806,6 +905,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             latest_ready_idx,
             write_idx: 0,
             video_processor,
+            d3d_device: app_d3d_device,
             d3d_context: app_d3d_context,
             pump_stop,
             pump_submitted,
@@ -1050,6 +1150,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         self.shutdown_and_finalize();
         Ok(())
+    }
+}
+
+impl Drop for CaptureHandler {
+    fn drop(&mut self) {
+        self.shutdown_and_finalize();
     }
 }
 

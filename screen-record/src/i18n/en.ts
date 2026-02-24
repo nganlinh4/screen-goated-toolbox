@@ -7,7 +7,7 @@ const en = {
   windowCapture: 'Window capture',
   gameCapture: 'Game Capture',
   adminRequired: 'Admin Required',
-  adminRequiredDesc: 'Cannot capture elevated process.',
+  adminRequiredDesc: 'Restart app with admin rights.',
   addHotkey: 'Add Hotkey',
   toggleKeyviz: 'Toggle Keyviz',
   installKeyviz: 'Install & Enable Keyviz',

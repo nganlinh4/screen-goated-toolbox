@@ -523,13 +523,25 @@ pub fn handle_ipc_command(
                     .ok()
                     .and_then(get_process_exe_path)
                     .and_then(|path| extract_icon_data_url_from_exe(&path));
-                let is_admin = false;
+                let mut is_admin = false;
+                if let Ok(pid) = window.process_id() {
+                    let handle =
+                        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
+                    if handle.is_err() {
+                        is_admin = true; // Access Denied = Elevated process
+                    } else if let Ok(h) = handle {
+                        unsafe { let _ = CloseHandle(h); }
+                    }
+                }
 
+                // Only gate if thumbnail capture also returned nothing — a
+                // black thumbnail combined with elevated process = truly inaccessible.
+                let is_admin_gated = is_admin && preview_data_url.is_none();
                 window_infos.push(serde_json::json!({
                     "id": hwnd_val.to_string(),
                     "title": title,
                     "processName": process_name,
-                    "isAdmin": is_admin,
+                    "isAdmin": is_admin_gated,
                     "iconDataUrl": icon_data_url,
                     "previewDataUrl": preview_data_url,
                 }));
@@ -600,6 +612,9 @@ pub fn handle_ipc_command(
                     hwnd_val as *mut std::ffi::c_void,
                 );
 
+                super::engine::TARGET_HWND
+                    .store(hwnd_val, std::sync::atomic::Ordering::Relaxed);
+
                 unsafe {
                     let mut rect = RECT::default();
                     if DwmGetWindowAttribute(
@@ -645,6 +660,7 @@ pub fn handle_ipc_command(
                     }
                 });
             } else {
+                super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::Relaxed);
                 let monitor_index = target_id.parse::<usize>().unwrap_or(0);
                 let monitor = Monitor::from_index(monitor_index + 1).map_err(|e| e.to_string())?;
 
@@ -725,6 +741,7 @@ pub fn handle_ipc_command(
         }
         "stop_recording" => {
             SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+            super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
             if let Some(control) = ACTIVE_CAPTURE_CONTROL.lock().take() {
                 control.stop();
             }

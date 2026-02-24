@@ -9,7 +9,7 @@ const vi: Translations = {
   windowCapture: 'Quay cửa sổ',
   gameCapture: 'Quay Game',
   adminRequired: 'Cần Quyền Admin',
-  adminRequiredDesc: 'Không thể quay tiến trình admin.',
+  adminRequiredDesc: 'Mở lại app bằng quyền Admin.',
   addHotkey: 'Thêm Phím Tắt',
   toggleKeyviz: 'Bật/Tắt Keyviz',
   installKeyviz: 'Cài & Bật Keyviz',
