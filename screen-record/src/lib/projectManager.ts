@@ -32,7 +32,8 @@ class ProjectManager {
       for (const p of projectsToDelete) {
         await this.deleteVideoBlob(p.id);
         await this.deleteAudioBlob(p.id);
-        await this.deleteMouseData(p.id); // Prune mouse data
+        await this.deleteMouseData(p.id);
+        await this.deleteSegmentData(p.id);
         await this.deleteThumbnailData(p.id);
         await this.deleteCustomBackgroundData(p.id);
       }
@@ -56,8 +57,8 @@ class ProjectManager {
     if (newProject.audioBlob) {
       await this.saveAudioBlob(newProject.id, newProject.audioBlob);
     }
-    // FIX: Store mouse positions in IDB
     await this.saveMouseData(newProject.id, newProject.mousePositions);
+    await this.saveSegmentData(newProject.id, newProject.segment);
     if (newProject.thumbnail) {
       await this.saveThumbnailData(newProject.id, newProject.thumbnail);
     }
@@ -66,13 +67,12 @@ class ProjectManager {
       await this.saveCustomBackgroundData(newProject.id, customBackground);
     }
 
-    // Store project metadata in localStorage (exclude heavy blobs and mouse data)
+    // Store project metadata in localStorage (exclude heavy blobs and arrays)
     const projectMeta = { ...newProject };
     delete (projectMeta as any).videoBlob;
     delete (projectMeta as any).audioBlob;
-    // We keep mousePositions as an empty array in meta to satisfy type, or remove it and re-attach on load
     (projectMeta as any).mousePositions = [];
-    // Keep thumbnails/custom background in IndexedDB to avoid localStorage quota exhaustion
+    delete (projectMeta as any).segment;
     delete (projectMeta as any).thumbnail;
     if ((projectMeta as any).backgroundConfig) {
       (projectMeta as any).backgroundConfig = {
@@ -90,14 +90,13 @@ class ProjectManager {
         await this.deleteVideoBlob(p.id);
         await this.deleteAudioBlob(p.id);
         await this.deleteMouseData(p.id);
+        await this.deleteSegmentData(p.id);
         await this.deleteThumbnailData(p.id);
         await this.deleteCustomBackgroundData(p.id);
       }
     }
 
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
-
-    // Return full object to caller
     return newProject;
   }
 
@@ -124,6 +123,7 @@ class ProjectManager {
 
     const audioBlob = await this.loadAudioBlob(id);
     const mousePositions = await this.loadMouseData(id) || [];
+    const segment = await this.loadSegmentData(id);
     const thumbnail = await this.loadThumbnailData(id) || undefined;
     const customBackground = await this.loadCustomBackgroundData(id) || undefined;
 
@@ -131,7 +131,8 @@ class ProjectManager {
       ...project,
       videoBlob,
       audioBlob: audioBlob || undefined,
-      mousePositions, // Attach loaded positions
+      mousePositions,
+      segment: segment || project.segment,
       thumbnail,
       backgroundConfig: {
         ...project.backgroundConfig,
@@ -146,10 +147,10 @@ class ProjectManager {
     const filteredProjects = projects.filter(p => p.id !== id);
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(filteredProjects));
 
-    // Delete from IndexedDB
     await this.deleteVideoBlob(id);
     await this.deleteAudioBlob(id);
     await this.deleteMouseData(id);
+    await this.deleteSegmentData(id);
     await this.deleteThumbnailData(id);
     await this.deleteCustomBackgroundData(id);
   }
@@ -170,6 +171,9 @@ class ProjectManager {
     if (updates.mousePositions) {
       await this.saveMouseData(id, updates.mousePositions);
     }
+    if (updates.segment) {
+      await this.saveSegmentData(id, updates.segment);
+    }
     if (updates.thumbnail !== undefined) {
       if (updates.thumbnail) await this.saveThumbnailData(id, updates.thumbnail);
       else await this.deleteThumbnailData(id);
@@ -189,10 +193,10 @@ class ProjectManager {
       lastModified: Date.now()
     };
 
-    // Clean heavy props
     delete (updatedProject as any).videoBlob;
     delete (updatedProject as any).audioBlob;
     (updatedProject as any).mousePositions = [];
+    delete (updatedProject as any).segment;
     delete (updatedProject as any).thumbnail;
     if ((updatedProject as any).backgroundConfig) {
       (updatedProject as any).backgroundConfig = {
@@ -207,7 +211,7 @@ class ProjectManager {
 
   private async openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('ScreenDemoDB', 4); // Bump version to 4
+      const request = indexedDB.open('ScreenDemoDB', 5); // Bump version to 5
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
@@ -216,9 +220,10 @@ class ProjectManager {
         const db = (event.target as IDBOpenDBRequest).result;
         if (!db.objectStoreNames.contains('videos')) db.createObjectStore('videos');
         if (!db.objectStoreNames.contains('audio')) db.createObjectStore('audio');
-        if (!db.objectStoreNames.contains('mouse')) db.createObjectStore('mouse'); // New store
+        if (!db.objectStoreNames.contains('mouse')) db.createObjectStore('mouse');
         if (!db.objectStoreNames.contains('thumbnails')) db.createObjectStore('thumbnails');
         if (!db.objectStoreNames.contains('custom_backgrounds')) db.createObjectStore('custom_backgrounds');
+        if (!db.objectStoreNames.contains('segments')) db.createObjectStore('segments');
       };
     });
   }
@@ -258,11 +263,42 @@ class ProjectManager {
         p.backgroundConfig = { ...p.backgroundConfig, customBackground: undefined };
         changed = true;
       }
+      if (p.segment) {
+        await this.saveSegmentData(p.id, p.segment);
+        delete p.segment;
+        changed = true;
+      }
     }
 
     if (changed) {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(projects));
     }
+  }
+
+  // --- SEGMENT DATA HELPERS ---
+  private async saveSegmentData(id: string, data: any): Promise<void> {
+    const db = await this.openDB();
+    const tx = db.transaction('segments', 'readwrite');
+    const store = tx.objectStore('segments');
+    await store.put(data, id);
+  }
+
+  private async loadSegmentData(id: string): Promise<any | null> {
+    const db = await this.openDB();
+    const tx = db.transaction('segments', 'readonly');
+    const store = tx.objectStore('segments');
+    return new Promise((resolve) => {
+      const request = store.get(id);
+      request.onerror = () => resolve(null);
+      request.onsuccess = () => resolve(request.result ?? null);
+    });
+  }
+
+  private async deleteSegmentData(id: string): Promise<void> {
+    const db = await this.openDB();
+    const tx = db.transaction('segments', 'readwrite');
+    const store = tx.objectStore('segments');
+    await store.delete(id);
   }
 
   // --- MOUSE DATA HELPERS ---

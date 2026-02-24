@@ -603,7 +603,7 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
           <video ref={videoRef as React.RefObject<HTMLVideoElement>} className="hidden" playsInline preload="auto" />
           <audio ref={audioRef as React.RefObject<HTMLAudioElement>} className="hidden" />
 
-          {(!currentVideo || isLoadingVideo) && (
+          {(!currentVideo || isLoadingVideo) && !isRecording && (
             <Placeholder
               isLoadingVideo={isLoadingVideo}
               loadingProgress={loadingProgress}

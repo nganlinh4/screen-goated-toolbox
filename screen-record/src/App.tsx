@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect, type CSSProperties } from "react";
 import { Wand2, MousePointer2, Volume2, Keyboard } from "lucide-react";
 import { invoke } from '@/lib/ipc';
 import "./App.css";
@@ -225,11 +225,11 @@ function App() {
     startNewRecording, handleStopRecording
   } = recording;
 
-  // Sync mouse positions to shared ref synchronously during render (NOT in
-  // an effect) so useVideoPlayback's effects always read the latest positions.
-  // Previously this was a useEffect which ran AFTER useVideoPlayback's effects,
-  // causing stale/empty mouse positions on project load → frozen cursor.
-  mousePositionsRef.current = mousePositions;
+  // Sync mouse positions to ref before paint so useVideoPlayback always reads
+  // the latest positions without causing stale-closure bugs in Concurrent Mode.
+  useLayoutEffect(() => {
+    mousePositionsRef.current = mousePositions;
+  }, [mousePositions]);
 
   // Projects
   const handleProjectRawVideoPathChange = useCallback((path: string) => {
