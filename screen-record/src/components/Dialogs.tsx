@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { Keyboard, X, FolderOpen, Copy, CheckCircle2 } from 'lucide-react';
+import { Keyboard, X, FolderOpen, Copy, CheckCircle2, Lock } from 'lucide-react';
 import { invoke } from '@/lib/ipc';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import {
@@ -852,11 +852,23 @@ export function WindowSelectDialog({
               <div
                 key={win.id}
                 onClick={() => {
+                  if (win.isAdmin) return;
                   onClose();
                   onSelectWindow(win.id, 'window');
                 }}
-                className="window-select-card relative group border border-[var(--glass-border)] rounded-xl bg-[var(--surface-container)] hover:border-[var(--primary-color)] transition-colors overflow-hidden flex flex-col h-36 shadow-sm cursor-pointer"
+                className={`window-select-card relative group border border-[var(--glass-border)] rounded-xl overflow-hidden flex flex-col h-36 shadow-sm ${
+                  win.isAdmin
+                    ? 'bg-[var(--surface-dim)] opacity-90 cursor-not-allowed'
+                    : 'bg-[var(--surface-container)] hover:border-[var(--primary-color)] transition-colors cursor-pointer'
+                }`}
               >
+                {win.isAdmin && (
+                  <div className="window-select-card-admin-overlay absolute inset-0 bg-black/60 z-20 flex flex-col items-center justify-center text-white backdrop-blur-sm">
+                    <Lock className="w-6 h-6 mb-2 text-amber-400" />
+                    <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wide">{t.adminRequired}</span>
+                    <span className="text-[9px] text-white/80 mt-1 px-4 text-center">{t.adminRequiredDesc}</span>
+                  </div>
+                )}
                 <div className="window-select-card-preview flex-1 flex items-center justify-center bg-black/10 dark:bg-black/20 relative">
                   {win.previewDataUrl ? (
                     <>

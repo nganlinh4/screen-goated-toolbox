@@ -432,7 +432,11 @@ export class VideoController {
     try {
       // Seek to first visible frame
       this.video.currentTime = options.segment.trimStart;
-      await new Promise<void>(r => this.video.addEventListener('seeked', () => r(), { once: true }));
+      // Safety timeout so thumbnail generation never hangs at 100% processing
+      await new Promise<void>(r => {
+        const timeout = setTimeout(() => r(), 600);
+        this.video.addEventListener('seeked', () => { clearTimeout(timeout); r(); }, { once: true });
+      });
 
       // Render to offscreen canvas (doesn't disturb the main display)
       const thumbCanvas = document.createElement('canvas');
@@ -452,7 +456,10 @@ export class VideoController {
     } finally {
       // Restore position and re-render main canvas
       this.video.currentTime = savedTime;
-      await new Promise<void>(r => this.video.addEventListener('seeked', () => r(), { once: true })).catch(() => {});
+      await new Promise<void>(r => {
+        const timeout = setTimeout(() => r(), 600);
+        this.video.addEventListener('seeked', () => { clearTimeout(timeout); r(); }, { once: true });
+      }).catch(() => {});
       this.isGeneratingThumbnail = false;
       this.renderFrame();
     }
