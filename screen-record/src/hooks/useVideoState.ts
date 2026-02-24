@@ -315,9 +315,11 @@ export function useRecording(props: UseRecordingProps) {
         props.setCurrentVideo(objectUrl);
         setVideoFilePathOwnerUrl(objectUrl);
 
-        if (audioUrl) {
+        if (audioUrl && audioUrl !== videoUrl) {
           const audioObjectUrl = await props.videoControllerRef.current?.loadAudio({ audioUrl });
           if (audioObjectUrl) props.setCurrentAudio(audioObjectUrl);
+        } else {
+          props.setCurrentAudio(null);
         }
 
         props.setIsVideoReady(true);

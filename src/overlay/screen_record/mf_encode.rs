@@ -260,6 +260,12 @@ fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Stri
         media_type
             .SetUINT32(&MF_MT_MPEG2_PROFILE, profile)
             .map_err(|e| format!("SetUINT32 PROFILE: {e}"))?;
+
+        // Enforce Full Range Color + BT.709 to prevent the Color Converter MFT
+        // from compressing 0-255 RGB into 16-235 YUV, which washes out blacks/whites.
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255.0 as u32);
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
+        let _ = media_type.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32);
     }
 
     Ok(media_type)
@@ -294,6 +300,12 @@ fn create_input_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Strin
         media_type
             .SetUINT32(&MF_MT_INTERLACE_MODE, 2)
             .map_err(|e| format!("SetUINT32 INTERLACE: {e}"))?;
+
+        // Enforce Full Range Color + BT.709 to prevent the Color Converter MFT
+        // from compressing 0-255 RGB into 16-235 YUV, which washes out blacks/whites.
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255.0 as u32);
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
+        let _ = media_type.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32);
     }
 
     Ok(media_type)

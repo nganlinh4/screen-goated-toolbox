@@ -86,9 +86,13 @@ export class VideoController {
     this.setReady(true);
   };
 
+  private get hasValidAudio(): boolean {
+    return !!(this.audio && this.audio.src && this.audio.src !== '' && this.audio.src !== window.location.href);
+  }
+
   private handlePlay = () => {
     console.log('[VideoController] Play event');
-    if (this.audio) {
+    if (this.hasValidAudio && this.audio) {
       // Hard sync before playing to prevent initial harsh audio glitch
       if (Math.abs(this.video.currentTime - this.audio.currentTime) > 0.05) {
         this.audio.currentTime = this.video.currentTime;
@@ -118,7 +122,7 @@ export class VideoController {
 
   private handlePause = () => {
     console.log('[VideoController] Pause event');
-    if (this.audio) {
+    if (this.hasValidAudio && this.audio) {
       // Wait for pending play() promise before pausing to avoid AbortError
       const promise = this.audioPlayPromise;
       this.audioPlayPromise = null;
@@ -153,7 +157,7 @@ export class VideoController {
       }
 
       // Smooth audio sync: only correct if drift > 150ms to avoid audio stutter
-      if (this.audio && !this.video.paused) {
+      if (this.hasValidAudio && this.audio && !this.video.paused) {
         const speed = this.video.playbackRate;
         const drift = Math.abs(this.video.currentTime - this.audio.currentTime);
         if (drift > Math.max(0.15, 0.1 * speed)) {
@@ -167,7 +171,7 @@ export class VideoController {
         const safeRate = Math.max(0.0625, Math.min(16.0, currentSpeed));
         if (Math.abs(this.video.playbackRate - safeRate) > 0.05) {
           this.video.playbackRate = safeRate;
-          if (this.audio) this.audio.playbackRate = safeRate;
+          if (this.hasValidAudio && this.audio) this.audio.playbackRate = safeRate;
         }
       }
 
@@ -197,7 +201,7 @@ export class VideoController {
         : t;
       this.setCurrentTime(clamped);
       this.video.currentTime = clamped;
-      if (this.audio) this.audio.currentTime = clamped;
+      if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
     } else {
       const clamped = this.renderOptions?.segment
         ? (getNextPlayableTime(this.video.currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || this.video.currentTime)
@@ -206,7 +210,7 @@ export class VideoController {
         
       if (Math.abs(clamped - this.video.currentTime) > 0.001) {
         this.video.currentTime = clamped;
-        if (this.audio) this.audio.currentTime = clamped;
+        if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
       }
 
       let displayTime = clamped;
@@ -235,7 +239,7 @@ export class VideoController {
       const nextTime = getNextPlayableTime(currentTime, this.renderOptions.segment, this.video.duration || this.state.duration || currentTime);
       if (nextTime !== null && nextTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = nextTime;
-        if (this.audio) this.audio.currentTime = nextTime;
+        if (this.hasValidAudio && this.audio) this.audio.currentTime = nextTime;
         this.setCurrentTime(nextTime);
         return nextTime;
       }
@@ -245,7 +249,7 @@ export class VideoController {
       }
       if (currentTime >= last.endTime - TRANSITION_EPS && !this.video.paused) {
         this.video.currentTime = last.endTime;
-        if (this.audio) this.audio.currentTime = last.endTime;
+        if (this.hasValidAudio && this.audio) this.audio.currentTime = last.endTime;
         this.setCurrentTime(last.endTime);
         this.video.pause();
         return last.endTime;
@@ -258,7 +262,7 @@ export class VideoController {
       const next = segs[currentSegIndex + 1];
       if (next && next.startTime - currentTime > this.SEGMENT_EPS) {
         this.video.currentTime = next.startTime;
-        if (this.audio) this.audio.currentTime = next.startTime;
+        if (this.hasValidAudio && this.audio) this.audio.currentTime = next.startTime;
         this.setCurrentTime(next.startTime);
         return next.startTime;
       }
@@ -267,7 +271,7 @@ export class VideoController {
         return next.startTime;
       }
       this.video.currentTime = currentSeg.endTime;
-      if (this.audio) this.audio.currentTime = currentSeg.endTime;
+      if (this.hasValidAudio && this.audio) this.audio.currentTime = currentSeg.endTime;
       this.setCurrentTime(currentSeg.endTime);
       this.video.pause();
       return currentSeg.endTime;
@@ -495,7 +499,7 @@ export class VideoController {
       const nextTime = getNextPlayableTime(this.video.currentTime, this.renderOptions.segment, duration);
       if (nextTime !== null) this.video.currentTime = nextTime;
       else if (segs.length > 0) this.video.currentTime = segs[0].startTime;
-      if (this.audio) this.audio.currentTime = this.video.currentTime;
+      if (this.hasValidAudio && this.audio) this.audio.currentTime = this.video.currentTime;
       this.setCurrentTime(this.video.currentTime);
     }
 
@@ -531,7 +535,7 @@ export class VideoController {
     // Decoder is idle — start seeking now
     this.setSeeking(true);
     this.video.currentTime = time;
-    if (this.audio) this.audio.currentTime = time;
+    if (this.hasValidAudio && this.audio) this.audio.currentTime = time;
   }
 
   /** Flush any pending seek immediately (call on drag end). */
@@ -545,7 +549,7 @@ export class VideoController {
         : t;
       this.setSeeking(true);
       this.video.currentTime = clamped;
-      if (this.audio) this.audio.currentTime = clamped;
+      if (this.hasValidAudio && this.audio) this.audio.currentTime = clamped;
       this.setCurrentTime(clamped);
     }
   }
@@ -559,10 +563,13 @@ export class VideoController {
   }
 
   public setVolume(volume: number) {
-    if (this.audio) {
+    if (this.hasValidAudio && this.audio) {
       this.audio.volume = volume;
+      this.video.muted = true; // Mute video so it doesn't overlap external audio
+    } else {
+      this.video.muted = false; // Video is the sole audio provider
+      this.video.volume = volume;
     }
-    this.video.volume = volume;
   }
 
   public destroy() {

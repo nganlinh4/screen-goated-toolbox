@@ -42,14 +42,25 @@ pub struct MfDecoder {
     height: u32,
 }
 
-/// Initialize Media Foundation runtime. Call once at pipeline startup.
+use std::sync::OnceLock;
+
+static MF_INIT: OnceLock<Result<(), String>> = OnceLock::new();
+
+/// Initialize Media Foundation runtime. Idempotent — safe to call multiple times.
 pub fn mf_startup() -> Result<(), String> {
-    unsafe { MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|e| format!("MFStartup failed: {e}")) }
+    MF_INIT
+        .get_or_init(|| unsafe {
+            MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|e| format!("MFStartup failed: {e}"))
+        })
+        .clone()
 }
 
-/// Shutdown Media Foundation runtime. Call once at pipeline teardown.
+/// Shutdown Media Foundation runtime.
+/// Intentionally no-op: calling MFShutdown() tears down the shared MF platform
+/// used by the WinRT capture pipeline, causing MF_E_SHUTDOWN (0xC00D3E85) on
+/// subsequent recordings. The OS reclaims all resources on process exit.
 pub fn mf_shutdown() -> Result<(), String> {
-    unsafe { MFShutdown().map_err(|e| format!("MFShutdown failed: {e}")) }
+    Ok(())
 }
 
 impl DxgiDeviceManager {
