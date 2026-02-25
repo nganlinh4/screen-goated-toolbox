@@ -1,5 +1,5 @@
-// --- KEYSEE CAPTURE ---
-// Low-level keyboard + mouse event capture, ported from Keysee semantics.
+// --- INPUT CAPTURE ---
+// Low-level keyboard + mouse event capture.
 
 use crossbeam_queue::ArrayQueue;
 use parking_lot::Mutex;

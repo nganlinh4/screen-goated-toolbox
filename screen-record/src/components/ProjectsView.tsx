@@ -381,7 +381,7 @@ export function ProjectsView({ projects, onLoadProject, onProjectsChange, onClos
           {projects.length === 0 ? (
             <div className="projects-empty-state flex items-center justify-center h-full text-xs text-[var(--outline)]">{t.noProjectsYet}</div>
           ) : (
-            <div className="projects-grid grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
+            <div className="projects-grid grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3 items-start">
               {projects.map((project) => (
                 <div key={project.id} data-project-id={project.id} className="project-card group relative bg-[var(--surface-container)] border border-[var(--glass-border)] rounded-lg overflow-hidden hover:border-[var(--outline)] transition-colors">
                   <div
