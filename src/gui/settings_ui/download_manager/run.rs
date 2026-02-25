@@ -462,7 +462,7 @@ impl DownloadManager {
         let ffmpeg_s = self.ffmpeg_status.clone();
         let ytdlp_s = self.ytdlp_status.clone();
         let deno_s = self.deno_status.clone();
-        let logs = self.logs.clone();
+        let logs = self.install_logs.clone();
 
         thread::spawn(move || {
             if !bin.exists() {
@@ -521,7 +521,7 @@ impl DownloadManager {
         let ytdlp_ver = self.ytdlp_version.clone();
         let ffmpeg_ver = self.ffmpeg_version.clone();
         let deno_ver = self.deno_version.clone();
-        let logs = self.logs.clone();
+        let logs = self.install_logs.clone();
         let ytdlp_install = self.ytdlp_status.clone();
         let ffmpeg_install = self.ffmpeg_status.clone();
         let deno_install = self.deno_status.clone();
@@ -709,7 +709,10 @@ impl DownloadManager {
     }
 
     pub fn cancel_download(&self) {
-        self.cancel_flag.store(true, Ordering::Relaxed);
+        let idx = self.active_idx();
+        if let Some(s) = self.sessions.get(idx) {
+            s.cancel_flag.store(true, Ordering::Relaxed);
+        }
     }
 
     pub fn change_download_folder(&mut self) {
@@ -736,26 +739,9 @@ impl DownloadManager {
         let bin = self.bin_dir.clone();
         let status = self.ytdlp_status.clone();
         let update_status = self.ytdlp_update_status.clone();
-        let logs = self.logs.clone();
-        let cancel = self.cancel_flag.clone();
-        // Cannot pass self_clone easily to thread as DownloadManager is not Clone-able or meant to be?
-        // Actually DownloadManager is not Clone. But we need to call check_updates.
-        // check_updates uses Arc fields. We can separate the check logic or just reset status to Idle and let user check again?
-        // Better: Reset status to Checking and spawn a delayed check.
-
-        // Wait, self.check_updates() is on &self. The struct has Arcs.
-        // We can't nicely call methods from the thread if we don't own self.
-        // But we can reset update_status to Idle.
-
+        let logs = self.install_logs.clone();
+        let cancel = self.install_cancel_flag.clone();
         let bin_clone = bin.clone();
-
-        // We will need to re-run the check logic manually or extract it.
-        // For simplicity: Clear version info and Reset update status to Idle so "Check Update" button appears.
-        // Even better: Set it to UpToDate if we trust the download.
-        // But version string needs update.
-        // Let's just set to Idle, so user clicks "Check Update" or we simulate it.
-        // Actually, let's explicitly run the version check part for ytdlp here again.
-
         let ytdlp_ver_store = self.ytdlp_version.clone();
 
         {
@@ -797,8 +783,8 @@ impl DownloadManager {
         let bin = self.bin_dir.clone();
         let status = self.deno_status.clone();
         let update_status = self.deno_update_status.clone();
-        let logs = self.logs.clone();
-        let cancel = self.cancel_flag.clone();
+        let logs = self.install_logs.clone();
+        let cancel = self.install_cancel_flag.clone();
         let deno_ver_store = self.deno_version.clone();
 
         {
@@ -859,8 +845,8 @@ impl DownloadManager {
         let bin = self.bin_dir.clone();
         let status = self.ffmpeg_status.clone();
         let update_status = self.ffmpeg_update_status.clone();
-        let logs = self.logs.clone();
-        let cancel = self.cancel_flag.clone();
+        let logs = self.install_logs.clone();
+        let cancel = self.install_cancel_flag.clone();
         let app_bin = bin.clone();
         let ffmpeg_ver_store = self.ffmpeg_version.clone();
 
@@ -932,28 +918,29 @@ impl DownloadManager {
     }
 
     pub fn start_analysis(&mut self) {
-        let url = self.input_url.trim().to_string();
+        let idx = self.active_idx();
+        let url = self.sessions[idx].input_url.trim().to_string();
         if url.is_empty() {
             return;
         }
 
         let bin_dir = self.bin_dir.clone();
         let cookie_browser = self.cookie_browser.clone();
-        let formats_clone = self.available_formats.clone();
-        let manual_subs_clone = self.available_subs_manual.clone();
+        let formats_clone = self.sessions[idx].available_formats.clone();
+        let manual_subs_clone = self.sessions[idx].available_subs_manual.clone();
         let use_subtitles_clone = self.use_subtitles.clone();
-        let is_analyzing = self.is_analyzing.clone();
-        let error_clone = self.analysis_error.clone();
+        let is_analyzing = self.sessions[idx].is_analyzing.clone();
+        let error_clone = self.sessions[idx].analysis_error.clone();
 
-        self.last_url_analyzed = url.clone();
+        self.sessions[idx].last_url_analyzed = url.clone();
         *is_analyzing.lock().unwrap() = true;
         *error_clone.lock().unwrap() = None;
 
         // Reset analysis-specific choices for new URL
         formats_clone.lock().unwrap().clear();
         manual_subs_clone.lock().unwrap().clear();
-        self.selected_format = None;
-        self.selected_subtitle = None; // Reset selection
+        self.sessions[idx].selected_format = None;
+        self.sessions[idx].selected_subtitle = None;
 
         use super::utils::fetch_video_formats;
 
@@ -976,19 +963,24 @@ impl DownloadManager {
     }
 
     pub fn start_media_download(&self, progress_fmt: String) {
-        let url = self.input_url.trim().to_string();
+        let idx = self.active_idx();
+        let session = match self.sessions.get(idx) {
+            Some(s) => s,
+            None => return,
+        };
+        let url = session.input_url.trim().to_string();
         if url.is_empty() {
             return;
         }
 
         let bin_dir = self.bin_dir.clone();
-        let download_type = self.download_type.clone();
-        let state = self.download_state.clone();
-        let logs = self.logs.clone();
+        let download_type = session.download_type.clone();
+        let state = session.download_state.clone();
+        let logs = session.logs.clone();
         let ytdlp_status = self.ytdlp_status.clone();
         let ytdlp_update_status = self.ytdlp_update_status.clone();
         let ytdlp_version = self.ytdlp_version.clone();
-        let cancel_flag = self.cancel_flag.clone();
+        let cancel_flag = session.cancel_flag.clone();
 
         // Capture advanced flags
         let use_metadata = self.use_metadata;
@@ -996,8 +988,8 @@ impl DownloadManager {
         let use_subtitles = *self.use_subtitles.lock().unwrap();
         let use_playlist = self.use_playlist;
         let cookie_browser = self.cookie_browser.clone();
-        let selected_format = self.selected_format.clone();
-        let selected_subtitle = self.selected_subtitle.clone();
+        let selected_format = session.selected_format.clone();
+        let selected_subtitle = session.selected_subtitle.clone();
 
         let download_path = self
             .custom_download_path

@@ -592,6 +592,17 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     match result {
         Ok(r) => {
+            // If cancelled, the encode thread may have still finalized a partial file.
+            // Detect this case and report cancellation instead of false success.
+            if EXPORT_CANCELLED.load(Ordering::SeqCst) {
+                if let Some(p) = &temp_audio_path {
+                    let _ = fs::remove_file(p);
+                }
+                let _ = fs::remove_file(&final_output_path);
+                println!("[Export][Summary] status=cancelled (partial encode finalized)");
+                return Ok(serde_json::json!({ "status": "cancelled" }));
+            }
+
             let total_secs = export_total_start.elapsed().as_secs_f64();
 
             if let Some(p) = &temp_audio_path {

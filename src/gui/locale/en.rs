@@ -228,6 +228,7 @@ pub fn get() -> LocaleText {
         realtime_tts_title: "Read translation",
         realtime_tts_speed: "Speed",
         realtime_tts_auto: "AUTO",
+        realtime_tts_volume: "Volume",
         // App selection modal
         app_select_title: "Select App to Capture",
         app_select_hint: "Choose the app whose audio you want to transcribe (TTS isolated)",

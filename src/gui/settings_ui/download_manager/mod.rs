@@ -5,7 +5,7 @@ pub mod types;
 pub mod ui;
 pub mod utils;
 
-pub use self::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus, UpdateStatus};
+pub use self::types::{CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus, UpdateStatus};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -22,18 +22,13 @@ pub struct DownloadManager {
     pub ytdlp_version: Arc<Mutex<Option<String>>>,
     pub deno_version: Arc<Mutex<Option<String>>>,
     pub is_checking_updates: Arc<AtomicBool>,
-    pub logs: Arc<Mutex<Vec<String>>>,
     pub bin_dir: PathBuf,
+    // Logs and cancel for tool installation (ffmpeg/ytdlp/deno), not per-session
+    pub install_logs: Arc<Mutex<Vec<String>>>,
+    pub install_cancel_flag: Arc<AtomicBool>,
 
-    // Downloader State
-    pub input_url: String,
-    pub download_state: Arc<Mutex<DownloadState>>,
-
-    // Config
+    // Shared download config
     pub custom_download_path: Option<PathBuf>,
-    pub cancel_flag: Arc<AtomicBool>,
-
-    // Advanced Options
     pub use_metadata: bool,
     pub use_sponsorblock: bool,
     pub use_subtitles: Arc<Mutex<bool>>,
@@ -41,18 +36,11 @@ pub struct DownloadManager {
     pub cookie_browser: CookieBrowser,
     pub available_browsers: Vec<CookieBrowser>,
 
-    // Analysis State
-    pub available_formats: Arc<Mutex<Vec<String>>>, // e.g. "1080p", "720p"
-    pub selected_format: Option<String>,
-    pub available_subs_manual: Arc<Mutex<Vec<String>>>, // From 'subtitles'
-    pub download_type: DownloadType,
-    pub selected_subtitle: Option<String>,
-    pub is_analyzing: Arc<Mutex<bool>>,
-    pub last_url_analyzed: String,
-    pub analysis_error: Arc<Mutex<Option<String>>>,
-    pub last_input_change: f64, // timestamp
-    pub initial_focus_set: bool,
-    pub show_error_log: bool,
+    // Multi-tab sessions
+    pub sessions: Vec<DownloadSession>,
+    pub active_tab_idx: usize,
+
+    // UI state (window-level, not per-session)
     pub show_cookie_deno_dialog: bool,
     pub pending_cookie_browser: Option<CookieBrowser>,
 }
@@ -65,23 +53,7 @@ impl DownloadManager {
             .join("bin");
 
         let available_browsers = detection::detect_installed_browsers();
-
-        // Load Config
         let config = persistence::load_config();
-
-        // Determine initial browser: Config > First Detected > None
-        // But only if config browser is still available or None?
-        // For simplicity, prefer config. If config is default (None) and we have browsers, maybe default to detected?
-        // Actually, load_config() returns Default (None) if file missing.
-        // Logic:
-        // 1. If config file existed and loaded, respect it (even if strictly None).
-        // 2. If config file missing (default), try auto-detect.
-        // To implement (2), we check if config path exists *inside* load_config, but here we just get a struct.
-        // Let's refine `load_config` or just check: if `cookie_browser` is None, we *might* want to auto-select,
-        // UNLESS user explicitly set it to None.
-        // But if user explicitly saved "None", how do we know?
-        // Maybe just trust config. If it's the first run, persistent file doesn't exist.
-        // We can check if file exists in `new`.
 
         let config_exists = persistence::get_config_path().exists();
         let default_browser = if config_exists {
@@ -89,6 +61,8 @@ impl DownloadManager {
         } else {
             CookieBrowser::None
         };
+
+        let first_session = DownloadSession::new("Tab 1", config.download_type.clone());
 
         let manager = Self {
             show_window: false,
@@ -102,30 +76,18 @@ impl DownloadManager {
             ytdlp_version: Arc::new(Mutex::new(None)),
             deno_version: Arc::new(Mutex::new(None)),
             is_checking_updates: Arc::new(AtomicBool::new(false)),
-            logs: Arc::new(Mutex::new(Vec::new())),
-            bin_dir: bin_dir.clone(),
-            input_url: String::new(),
-            download_state: Arc::new(Mutex::new(DownloadState::Idle)),
+            bin_dir,
+            install_logs: Arc::new(Mutex::new(Vec::new())),
+            install_cancel_flag: Arc::new(AtomicBool::new(false)),
             custom_download_path: config.custom_download_path,
-            cancel_flag: Arc::new(AtomicBool::new(false)),
             use_metadata: config.use_metadata,
             use_sponsorblock: config.use_sponsorblock,
             use_subtitles: Arc::new(Mutex::new(config.use_subtitles)),
             use_playlist: config.use_playlist,
             cookie_browser: default_browser,
             available_browsers,
-
-            available_formats: Arc::new(Mutex::new(Vec::new())),
-            selected_format: None,
-            available_subs_manual: Arc::new(Mutex::new(Vec::new())),
-            download_type: config.download_type,
-            selected_subtitle: config.selected_subtitle,
-            is_analyzing: Arc::new(Mutex::new(false)),
-            last_url_analyzed: String::new(),
-            analysis_error: Arc::new(Mutex::new(None)),
-            last_input_change: 0.0,
-            initial_focus_set: false,
-            show_error_log: false,
+            sessions: vec![first_session],
+            active_tab_idx: 0,
             show_cookie_deno_dialog: false,
             pending_cookie_browser: None,
         };
@@ -134,7 +96,43 @@ impl DownloadManager {
         manager
     }
 
+    /// Returns the index of the active session (clamped to valid range).
+    pub fn active_idx(&self) -> usize {
+        self.active_tab_idx.min(self.sessions.len().saturating_sub(1))
+    }
+
+    pub fn add_tab(&mut self) {
+        let n = self.sessions.len() + 1;
+        let dt = self.sessions
+            .get(self.active_idx())
+            .map(|s| s.download_type.clone())
+            .unwrap_or(DownloadType::Video);
+        self.sessions.push(DownloadSession::new(format!("Tab {}", n), dt));
+        self.active_tab_idx = self.sessions.len() - 1;
+    }
+
+    pub fn close_tab(&mut self, idx: usize) {
+        if self.sessions.len() <= 1 {
+            // Don't close the last tab — just clear it instead
+            let dt = self.sessions[0].download_type.clone();
+            self.sessions[0] = DownloadSession::new("Tab 1", dt);
+            return;
+        }
+        self.sessions.remove(idx);
+        // Re-number all tabs
+        for (i, s) in self.sessions.iter_mut().enumerate() {
+            s.tab_name = format!("Tab {}", i + 1);
+        }
+        if self.active_tab_idx >= self.sessions.len() {
+            self.active_tab_idx = self.sessions.len() - 1;
+        }
+    }
+
     pub fn save_settings(&self) {
+        let dt = self.sessions
+            .get(self.active_idx())
+            .map(|s| s.download_type.clone())
+            .unwrap_or(DownloadType::Video);
         let config = persistence::DownloadManagerConfig {
             custom_download_path: self.custom_download_path.clone(),
             use_metadata: self.use_metadata,
@@ -142,8 +140,8 @@ impl DownloadManager {
             use_subtitles: *self.use_subtitles.lock().unwrap(),
             use_playlist: self.use_playlist,
             cookie_browser: self.cookie_browser.clone(),
-            download_type: self.download_type.clone(),
-            selected_subtitle: self.selected_subtitle.clone(),
+            download_type: dt,
+            selected_subtitle: self.sessions.get(self.active_idx()).and_then(|s| s.selected_subtitle.clone()),
         };
         persistence::save_config(&config);
     }

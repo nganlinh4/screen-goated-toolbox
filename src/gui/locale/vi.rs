@@ -229,6 +229,7 @@ pub fn get() -> LocaleText {
         realtime_tts_title: "Đọc phần Dịch",
         realtime_tts_speed: "Tốc độ",
         realtime_tts_auto: "Tự động",
+        realtime_tts_volume: "Âm lượng",
         // App selection modal
         app_select_title: "Chọn Ứng Dụng",
         app_select_hint: "Chọn ứng dụng cần ghi âm (TTS sẽ được tách riêng)",

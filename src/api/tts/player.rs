@@ -460,8 +460,19 @@ impl AudioPlayer {
             }
         };
 
-        // Upsample from 24kHz to 48kHz (duplicate each sample)
-        let output_samples: Vec<i16> = stretched_samples.iter().flat_map(|&s| [s, s]).collect();
+        // Apply volume scaling before pushing to buffer.
+        let vol = crate::overlay::realtime_webview::state::CURRENT_TTS_VOLUME
+            .load(Ordering::Relaxed) as f32
+            / 100.0;
+
+        // Upsample from 24kHz to 48kHz (duplicate each sample) and scale by volume.
+        let output_samples: Vec<i16> = stretched_samples
+            .iter()
+            .flat_map(|&s| {
+                let scaled = (s as f32 * vol).clamp(-32768.0, 32767.0) as i16;
+                [scaled, scaled]
+            })
+            .collect();
 
         // Add to shared buffer
         if let Ok(mut buf) = self.shared_buffer.lock() {

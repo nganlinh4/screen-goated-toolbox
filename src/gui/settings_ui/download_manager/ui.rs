@@ -2,6 +2,7 @@ use super::types::{CookieBrowser, DownloadState, DownloadType, InstallStatus};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 
 use super::DownloadManager;
 
@@ -60,7 +61,10 @@ impl DownloadManager {
 
     pub fn render(&mut self, ctx: &egui::Context, text: &LocaleText) {
         if !self.show_window {
-            self.initial_focus_set = false;
+            // Reset focus state for all sessions when window is hidden
+            for s in &mut self.sessions {
+                s.initial_focus_set = false;
+            }
             self.show_cookie_deno_dialog = false;
             self.pending_cookie_browser = None;
             return;
@@ -116,14 +120,14 @@ impl DownloadManager {
                                     ui.label(format!("{:.0}%", p * 100.0));
                                     ui.add(egui::ProgressBar::new(p).desired_width(120.0));
                                     if ui.button(text.download_cancel_btn).clicked() {
-                                        self.cancel_download();
+                                        self.install_cancel_flag.store(true, Ordering::Relaxed);
                                     }
                                 }
                                 InstallStatus::Extracting => {
                                     ui.label(text.download_status_extracting);
                                     ui.spinner();
                                     if ui.button(text.download_cancel_btn).clicked() {
-                                        self.cancel_download();
+                                        self.install_cancel_flag.store(true, Ordering::Relaxed);
                                     }
                                 }
                                 InstallStatus::Installed => {
@@ -154,14 +158,14 @@ impl DownloadManager {
                                     ui.label(format!("{:.0}%", p * 100.0));
                                     ui.add(egui::ProgressBar::new(p).desired_width(120.0));
                                     if ui.button(text.download_cancel_btn).clicked() {
-                                        self.cancel_download();
+                                        self.install_cancel_flag.store(true, Ordering::Relaxed);
                                     }
                                 }
                                 InstallStatus::Extracting => {
                                     ui.label(text.download_status_extracting);
                                     ui.spinner();
                                     if ui.button(text.download_cancel_btn).clicked() {
-                                        self.cancel_download();
+                                        self.install_cancel_flag.store(true, Ordering::Relaxed);
                                     }
                                 }
                                 InstallStatus::Installed => {
@@ -174,6 +178,38 @@ impl DownloadManager {
                     // MAIN DOWNLOADER UI - COMPACT & NO SCROLLBAR
                     // Use a Frame with inner margin to keep things tidy but maximize space
                     egui::Frame::default().inner_margin(8.0).show(ui, |ui| {
+                        // --- TAB STRIP ---
+                        ui.horizontal(|ui| {
+                            let mut close_tab_idx: Option<usize> = None;
+                            let mut switch_tab_idx: Option<usize> = None;
+                            for i in 0..self.sessions.len() {
+                                let is_active = i == self.active_tab_idx;
+                                let label = self.sessions[i].tab_name.clone();
+                                let tab_btn = egui::Button::new(egui::RichText::new(&label).size(11.0))
+                                    .selected(is_active);
+                                if ui.add(tab_btn).clicked() {
+                                    switch_tab_idx = Some(i);
+                                }
+                                // Close button for this tab (×)
+                                if ui.small_button("×").clicked() {
+                                    close_tab_idx = Some(i);
+                                }
+                                ui.add_space(2.0);
+                            }
+                            if ui.small_button("+").on_hover_text("New tab").clicked() {
+                                self.add_tab();
+                            }
+                            if let Some(idx) = switch_tab_idx {
+                                self.active_tab_idx = idx;
+                            }
+                            if let Some(idx) = close_tab_idx {
+                                self.close_tab(idx);
+                            }
+                        });
+                        ui.separator();
+
+                        let idx = self.active_idx();
+
                         // --- FOLDER & SETTINGS ---
                         ui.horizontal(|ui| {
                             // Compact Path:  📂 ...\Downloads  [⚙]
@@ -236,32 +272,32 @@ impl DownloadManager {
                         // Compact Label + Input
                         ui.label(egui::RichText::new(text.download_url_label).strong());
                         let response = ui.add(
-                            egui::TextEdit::singleline(&mut self.input_url)
+                            egui::TextEdit::singleline(&mut self.sessions[idx].input_url)
                                 .hint_text("https://youtube.com/watch?v=...")
                                 .desired_width(f32::INFINITY),
                         );
 
                         // Focus on first open
-                        if !self.initial_focus_set {
+                        if !self.sessions[idx].initial_focus_set {
                             response.request_focus();
-                            self.initial_focus_set = true;
+                            self.sessions[idx].initial_focus_set = true;
                         }
 
                         if response.changed() {
-                            self.last_input_change = ctx.input(|i| i.time);
-                            self.available_formats.lock().unwrap().clear();
-                            self.selected_format = None;
+                            self.sessions[idx].last_input_change = ctx.input(|i| i.time);
+                            self.sessions[idx].available_formats.lock().unwrap().clear();
+                            self.sessions[idx].selected_format = None;
                         }
 
                         // Auto-analyze Logic
-                        let time_since_edit = ctx.input(|i| i.time) - self.last_input_change;
-                        let is_analyzing = *self.is_analyzing.lock().unwrap();
-                        let url_changed = self.input_url.trim() != self.last_url_analyzed;
+                        let time_since_edit = ctx.input(|i| i.time) - self.sessions[idx].last_input_change;
+                        let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
+                        let url_changed = self.sessions[idx].input_url.trim() != self.sessions[idx].last_url_analyzed;
 
                         // Trigger analysis
                         if time_since_edit > 0.8
                             && url_changed
-                            && !self.input_url.trim().is_empty()
+                            && !self.sessions[idx].input_url.trim().is_empty()
                             && !is_analyzing
                         {
                             self.start_analysis();
@@ -274,13 +310,13 @@ impl DownloadManager {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(text.download_format_label).strong());
                             if ui
-                                .radio_value(&mut self.download_type, DownloadType::Video, "Video")
+                                .radio_value(&mut self.sessions[idx].download_type, DownloadType::Video, "Video")
                                 .changed()
                             {
                                 self.save_settings();
                             }
                             if ui
-                                .radio_value(&mut self.download_type, DownloadType::Audio, "Audio")
+                                .radio_value(&mut self.sessions[idx].download_type, DownloadType::Audio, "Audio")
                                 .changed()
                             {
                                 self.save_settings();
@@ -290,9 +326,9 @@ impl DownloadManager {
                             ui.add_space(10.0);
 
                             // Quality UI
-                            if self.download_type == DownloadType::Video {
-                                let formats = self.available_formats.lock().unwrap().clone();
-                                let error = self.analysis_error.lock().unwrap().clone();
+                            if self.sessions[idx].download_type == DownloadType::Video {
+                                let formats = self.sessions[idx].available_formats.lock().unwrap().clone();
+                                let error = self.sessions[idx].analysis_error.lock().unwrap().clone();
 
                                 if is_analyzing {
                                     ui.spinner();
@@ -304,7 +340,7 @@ impl DownloadManager {
                                 } else if !formats.is_empty() {
                                     ui.label(text.download_quality_label_text);
                                     let best_text = text.download_quality_best.to_string();
-                                    let current_val = self
+                                    let current_val = self.sessions[idx]
                                         .selected_format
                                         .clone()
                                         .unwrap_or_else(|| best_text.clone());
@@ -314,13 +350,13 @@ impl DownloadManager {
                                         .width(100.0) // Keep it compact
                                         .show_ui(ui, |ui| {
                                             ui.selectable_value(
-                                                &mut self.selected_format,
+                                                &mut self.sessions[idx].selected_format,
                                                 None,
                                                 &best_text,
                                             );
                                             for fmt in formats {
                                                 ui.selectable_value(
-                                                    &mut self.selected_format,
+                                                    &mut self.sessions[idx].selected_format,
                                                     Some(fmt.clone()),
                                                     &fmt,
                                                 );
@@ -332,14 +368,14 @@ impl DownloadManager {
                                         let use_sub = *self.use_subtitles.lock().unwrap();
                                         if use_sub {
                                             let manual_subs =
-                                                self.available_subs_manual.lock().unwrap().clone();
+                                                self.sessions[idx].available_subs_manual.lock().unwrap().clone();
 
                                             if !manual_subs.is_empty() {
                                                 ui.add_space(8.0);
                                                 ui.label(text.download_subtitle_label);
                                                 let auto_text =
                                                     text.download_subtitle_auto.to_string();
-                                                let current_sub = self
+                                                let current_sub = self.sessions[idx]
                                                     .selected_subtitle
                                                     .clone()
                                                     .unwrap_or_else(|| auto_text.clone());
@@ -359,7 +395,7 @@ impl DownloadManager {
 
                                                         if ui
                                                             .selectable_value(
-                                                                &mut self.selected_subtitle,
+                                                                &mut self.sessions[idx].selected_subtitle,
                                                                 None,
                                                                 &auto_text,
                                                             )
@@ -371,13 +407,13 @@ impl DownloadManager {
                                                         for sub in manual_subs {
                                                             if ui
                                                                 .selectable_label(
-                                                                    self.selected_subtitle
+                                                                    self.sessions[idx].selected_subtitle
                                                                         == Some(sub.clone()),
                                                                     &sub,
                                                                 )
                                                                 .clicked()
                                                             {
-                                                                self.selected_subtitle =
+                                                                self.sessions[idx].selected_subtitle =
                                                                     Some(sub.clone());
                                                                 self.save_settings();
                                                             }
@@ -499,8 +535,8 @@ impl DownloadManager {
 
                         // --- ACTION AREA ---
                         // Define common button logic
-                        let state = self.download_state.lock().unwrap().clone();
-                        let is_analyzing = *self.is_analyzing.lock().unwrap();
+                        let state = self.sessions[idx].download_state.lock().unwrap().clone();
+                        let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
 
                         let (btn_text, btn_color) = if is_analyzing {
                             (
@@ -528,10 +564,10 @@ impl DownloadManager {
                         match &state {
                             DownloadState::Idle | DownloadState::Error(_) => {
                                 if draw_download_btn(ui) {
-                                    if !self.input_url.is_empty() {
+                                    if !self.sessions[idx].input_url.is_empty() {
                                         // Reset logs on new start
-                                        self.logs.lock().unwrap().clear();
-                                        self.show_error_log = false;
+                                        self.sessions[idx].logs.lock().unwrap().clear();
+                                        self.sessions[idx].show_error_log = false;
                                         self.start_media_download(
                                             text.download_progress_info_fmt.to_string(),
                                         );
@@ -549,7 +585,7 @@ impl DownloadManager {
                                     );
 
                                     // Toggle Log Button
-                                    let btn_text = if self.show_error_log {
+                                    let btn_text = if self.sessions[idx].show_error_log {
                                         text.download_hide_log_btn
                                     } else {
                                         text.download_show_log_btn
@@ -559,11 +595,11 @@ impl DownloadManager {
                                         .button(egui::RichText::new(btn_text).size(10.0))
                                         .clicked()
                                     {
-                                        self.show_error_log = !self.show_error_log;
+                                        self.sessions[idx].show_error_log = !self.sessions[idx].show_error_log;
                                     }
 
                                     // Show Log Area
-                                    if self.show_error_log {
+                                    if self.sessions[idx].show_error_log {
                                         ui.add_space(4.0);
                                         egui::Frame::group(ui.style())
                                             .fill(if ctx.style().visuals.dark_mode {
@@ -572,7 +608,7 @@ impl DownloadManager {
                                                 egui::Color32::from_gray(240)
                                             })
                                             .show(ui, |ui| {
-                                                let logs = self.logs.lock().unwrap();
+                                                let logs = self.sessions[idx].logs.lock().unwrap();
                                                 let mut full_log_str = logs.join("\n");
                                                 egui::ScrollArea::vertical()
                                                     .max_height(120.0)
@@ -654,7 +690,7 @@ impl DownloadManager {
 
                                 // Consistent Download Button at bottom
                                 if draw_download_btn(ui) {
-                                    if !self.input_url.is_empty() {
+                                    if !self.sessions[idx].input_url.is_empty() {
                                         self.start_media_download(
                                             text.download_progress_info_fmt.to_string(),
                                         );

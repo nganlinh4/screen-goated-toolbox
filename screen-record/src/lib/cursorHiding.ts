@@ -1,7 +1,6 @@
 import { CursorVisibilitySegment, MousePosition, VideoSegment } from '@/types/video';
 
 // --- Configuration ---
-const IDLE_VELOCITY_THRESHOLD = 2;    // px/s — below this is considered idle
 const IDLE_DURATION_THRESHOLD = 1.5;  // seconds of low velocity to trigger idle
 const ANCHORED_RADIUS = 18;           // px — sustained drift within this radius counts as anchored idle
 const ANCHORED_DURATION = 0.9;        // seconds to confirm anchored idle (faster for center-lock gameplay)
@@ -9,8 +8,9 @@ const LOCKED_ANCHORED_RADIUS = 34;    // px — looser radius for center-lock ga
 const LOCKED_CLICK_RATIO_MIN = 0.22;  // clicked sample ratio in anchored window to treat as lock-like
 const LOCKED_CLICK_SAMPLES_MIN = 6;   // avoid classifying tiny accidental click bursts as lock-like
 const VELOCITY_WINDOW = 0.1;          // seconds — sliding window for velocity calc
-const ACTIVE_NET_DISTANCE_MIN = 3.5;  // px — min first→last displacement in the velocity window to count as active
-const ACTIVE_PATH_DISTANCE_MIN = 6;   // px — min accumulated path distance in window to count as active
+const ACTIVE_NET_DISTANCE_MIN = 1.0;  // px — min first→last displacement to count as active (lowered: any movement)
+const ACTIVE_PATH_DISTANCE_MIN = 1.5; // px — min path distance to count as active (lowered: any movement)
+const CLICK_ACTIVE_DURATION = 1.5;    // seconds — keep cursor active after a click event
 const MARGIN_BEFORE = 0.3;            // seconds — show cursor before movement starts
 const MARGIN_AFTER = 0.2;             // seconds — keep cursor visible after movement stops
 const MIN_GAP_TO_MERGE = 0.5;        // seconds — merge visible segments closer than this
@@ -101,6 +101,16 @@ export function generateCursorVisibility(
     }];
   }
 
+  // Pre-collect click timestamps for efficient post-click active window lookup.
+  const clickTimestamps = positions
+    .filter(p => !!p.isClicked)
+    .map(p => p.timestamp);
+
+  // Returns true if any click occurred within CLICK_ACTIVE_DURATION seconds before t.
+  function withinClickWindow(t: number): boolean {
+    return clickTimestamps.some(ct => t >= ct && t - ct <= CLICK_ACTIVE_DURATION);
+  }
+
   // Build activity timeline: for each position, determine if cursor is "active"
   const activeFlags: { time: number; active: boolean; clicked: boolean }[] = [];
 
@@ -114,7 +124,6 @@ export function generateCursorVisibility(
       p => p.timestamp >= windowStart && p.timestamp <= windowEnd
     );
 
-    let velocity = 0;
     let netDistance = 0;
     let pathDistance = 0;
     const clicked = windowPositions.some(p => !!p.isClicked);
@@ -126,7 +135,6 @@ export function generateCursorVisibility(
       if (dt > 0) {
         const dx = last.x - first.x;
         const dy = last.y - first.y;
-        velocity = Math.sqrt(dx * dx + dy * dy) / dt;
         netDistance = Math.sqrt(dx * dx + dy * dy);
       }
 
@@ -137,11 +145,14 @@ export function generateCursorVisibility(
       }
     }
 
+    // Any detectable movement keeps cursor active (thresholds lowered vs velocity-based check).
     const meaningfulMovement =
-      velocity >= IDLE_VELOCITY_THRESHOLD &&
-      (netDistance >= ACTIVE_NET_DISTANCE_MIN || pathDistance >= ACTIVE_PATH_DISTANCE_MIN);
+      netDistance >= ACTIVE_NET_DISTANCE_MIN || pathDistance >= ACTIVE_PATH_DISTANCE_MIN;
 
-    activeFlags.push({ time: t, active: clicked || meaningfulMovement, clicked });
+    // Keep active during and for CLICK_ACTIVE_DURATION after any click.
+    const nearClick = withinClickWindow(t);
+
+    activeFlags.push({ time: t, active: clicked || nearClick || meaningfulMovement, clicked });
   }
 
   // Anchored detection: sustained micro-drift (common in locked-center gameplay) should be treated as idle.

@@ -229,6 +229,7 @@ pub fn get() -> LocaleText {
         realtime_tts_title: "번역 읽기",
         realtime_tts_speed: "속도",
         realtime_tts_auto: "자동",
+        realtime_tts_volume: "볼륨",
         // App selection modal
         app_select_title: "앱 선택",
         app_select_hint: "녹음할 앱을 선택하세요 (TTS는 분리됨)",
