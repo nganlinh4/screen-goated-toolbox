@@ -350,6 +350,8 @@ export function useRecording(props: UseRecordingProps) {
         }
 
         props.setIsVideoReady(true);
+        // Restore the SR window so the user can review the new recording.
+        invoke('restore_window').catch(() => {});
         props.generateThumbnails(videoPath || undefined);
 
         const videoDuration = props.videoRef.current?.duration || 0;

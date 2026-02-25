@@ -310,6 +310,122 @@ fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
     }
 }
 
+fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
+    let windows =
+        windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
+    let mut window_infos = Vec::new();
+    for window in windows {
+        if !window.is_valid() {
+            continue;
+        }
+        let Ok(title) = window.title() else {
+            continue;
+        };
+        if title.trim().is_empty() {
+            continue;
+        }
+        let process_name = window.process_name().unwrap_or_default();
+        let hwnd_val = window.as_raw_hwnd() as usize;
+        let preview_data_url =
+            capture_window_thumbnail(HWND(hwnd_val as *mut std::ffi::c_void));
+        let icon_data_url = window
+            .process_id()
+            .ok()
+            .and_then(get_process_exe_path)
+            .and_then(|path| extract_icon_data_url_from_exe(&path));
+        let mut is_admin = false;
+        if let Ok(pid) = window.process_id() {
+            let handle =
+                unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
+            if handle.is_err() {
+                is_admin = true;
+            } else if let Ok(h) = handle {
+                unsafe {
+                    let _ = CloseHandle(h);
+                }
+            }
+        }
+        let is_admin_gated = is_admin && preview_data_url.is_none();
+        window_infos.push(serde_json::json!({
+            "id": hwnd_val.to_string(),
+            "title": title,
+            "processName": process_name,
+            "isAdmin": is_admin_gated,
+            "iconDataUrl": icon_data_url,
+            "previewDataUrl": preview_data_url,
+        }));
+    }
+    Ok(window_infos)
+}
+
+/// Fast metadata-only enumeration — no thumbnail capture.
+/// Returns each window with `winW`/`winH` for aspect ratio display.
+fn gather_window_metadata() -> Result<Vec<serde_json::Value>, String> {
+    let windows =
+        windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
+    let mut infos = Vec::new();
+    for window in windows {
+        if !window.is_valid() {
+            continue;
+        }
+        let Ok(title) = window.title() else {
+            continue;
+        };
+        if title.trim().is_empty() {
+            continue;
+        }
+        let process_name = window.process_name().unwrap_or_default();
+        let hwnd_val = window.as_raw_hwnd() as usize;
+        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+
+        // Get actual window dimensions for correct aspect ratio.
+        let (win_w, win_h) = unsafe {
+            let mut rect = RECT::default();
+            if DwmGetWindowAttribute(
+                hwnd,
+                DWMWA_EXTENDED_FRAME_BOUNDS,
+                &mut rect as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<RECT>() as u32,
+            )
+            .is_err()
+            {
+                let _ = GetWindowRect(hwnd, &mut rect);
+            }
+            (
+                (rect.right - rect.left).max(1),
+                (rect.bottom - rect.top).max(1),
+            )
+        };
+
+        let icon_data_url = window
+            .process_id()
+            .ok()
+            .and_then(get_process_exe_path)
+            .and_then(|path| extract_icon_data_url_from_exe(&path));
+        let mut is_admin = false;
+        if let Ok(pid) = window.process_id() {
+            let handle =
+                unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
+            if handle.is_err() {
+                is_admin = true;
+            } else if let Ok(h) = handle {
+                unsafe { let _ = CloseHandle(h); }
+            }
+        }
+        infos.push(serde_json::json!({
+            "id": hwnd_val.to_string(),
+            "title": title,
+            "processName": process_name,
+            "isAdmin": is_admin,
+            "iconDataUrl": icon_data_url,
+            "previewDataUrl": serde_json::Value::Null,
+            "winW": win_w,
+            "winH": win_h,
+        }));
+    }
+    Ok(infos)
+}
+
 pub fn handle_ipc_command(
     cmd: String,
     args: serde_json::Value,
@@ -498,56 +614,45 @@ pub fn handle_ipc_command(
             let monitors = get_monitors();
             Ok(serde_json::to_value(monitors).unwrap())
         }
-        "get_windows" => {
-            let windows =
-                windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
-            let mut window_infos = Vec::new();
-            for window in windows {
-                if !window.is_valid() {
-                    continue;
-                }
-
-                let Ok(title) = window.title() else {
-                    continue;
+        "get_windows" => Ok(serde_json::Value::Array(gather_window_infos()?)),
+        "show_window_selector" => {
+            // Fast: gather metadata only (no thumbnails) so the overlay opens instantly.
+            let window_infos = gather_window_metadata()?;
+            let (is_dark, lang) = {
+                let app = crate::APP.lock().unwrap();
+                let is_dark = match app.config.theme_mode {
+                    crate::config::ThemeMode::Dark => true,
+                    crate::config::ThemeMode::Light => false,
+                    crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
                 };
-                if title.trim().is_empty() {
-                    continue;
-                }
+                let lang = app.config.ui_language.clone();
+                (is_dark, lang)
+            };
+            super::window_selection::show_window_selector(window_infos.clone(), is_dark, lang);
 
-                let process_name = window.process_name().unwrap_or_default();
-                let hwnd_val = window.as_raw_hwnd() as usize;
-                let preview_data_url =
-                    capture_window_thumbnail(HWND(hwnd_val as *mut std::ffi::c_void));
-                let icon_data_url = window
-                    .process_id()
-                    .ok()
-                    .and_then(get_process_exe_path)
-                    .and_then(|path| extract_icon_data_url_from_exe(&path));
-                let mut is_admin = false;
-                if let Ok(pid) = window.process_id() {
-                    let handle =
-                        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
-                    if handle.is_err() {
-                        is_admin = true; // Access Denied = Elevated process
-                    } else if let Ok(h) = handle {
-                        unsafe { let _ = CloseHandle(h); }
+            // Lazy-load thumbnails in background — push them one-by-one after UI appears.
+            std::thread::spawn(move || {
+                // Wait for the WebView to finish its entrance animation before flooding it.
+                std::thread::sleep(std::time::Duration::from_millis(280));
+                for win in &window_infos {
+                    if super::window_selection::selector_is_closed() {
+                        break;
+                    }
+                    let hwnd_val = win["id"]
+                        .as_str()
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .unwrap_or(0);
+                    if hwnd_val == 0 {
+                        continue;
+                    }
+                    let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+                    if let Some(data_url) = capture_window_thumbnail(hwnd) {
+                        super::window_selection::post_thumbnail_update(hwnd_val, data_url);
                     }
                 }
+            });
 
-                // Only gate if thumbnail capture also returned nothing — a
-                // black thumbnail combined with elevated process = truly inaccessible.
-                let is_admin_gated = is_admin && preview_data_url.is_none();
-                window_infos.push(serde_json::json!({
-                    "id": hwnd_val.to_string(),
-                    "title": title,
-                    "processName": process_name,
-                    "isAdmin": is_admin_gated,
-                    "iconDataUrl": icon_data_url,
-                    "previewDataUrl": preview_data_url,
-                }));
-            }
-
-            Ok(serde_json::Value::Array(window_infos))
+            Ok(serde_json::Value::Null)
         }
         "start_recording" => {
             let target_type = args["targetType"].as_str().unwrap_or("monitor");
@@ -655,6 +760,27 @@ pub fn handle_ipc_command(
                         return Err(msg);
                     }
                 }
+
+                // Show a distinct blue border around the captured window.
+                unsafe {
+                    let mut rect = RECT::default();
+                    if DwmGetWindowAttribute(
+                        hwnd,
+                        DWMWA_EXTENDED_FRAME_BOUNDS,
+                        &mut rect as *mut _ as *mut std::ffi::c_void,
+                        std::mem::size_of::<RECT>() as u32,
+                    )
+                    .is_err()
+                    {
+                        let _ = GetWindowRect(hwnd, &mut rect);
+                    }
+                    super::capture_border::show_capture_border(
+                        rect.left,
+                        rect.top,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                    );
+                }
             } else {
                 super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::Relaxed);
                 let monitor_index = target_id.parse::<usize>().unwrap_or(0);
@@ -734,6 +860,7 @@ pub fn handle_ipc_command(
         "stop_recording" => {
             SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
             super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
+            super::capture_border::hide_capture_border();
             if let Some(control) = ACTIVE_CAPTURE_CONTROL.lock().take() {
                 control.stop();
             }
@@ -947,6 +1074,20 @@ pub fn handle_ipc_command(
                     if !hwnd.is_invalid() {
                         let _ = PostMessageW(Some(hwnd), WM_REGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
                     }
+                }
+            }
+            Ok(serde_json::Value::Null)
+        }
+        "restore_window" => {
+            unsafe {
+                let hwnd = std::ptr::addr_of!(SR_HWND).read();
+                if !hwnd.is_invalid() {
+                    if IsIconic(hwnd.0).as_bool() {
+                        let _ = ShowWindow(hwnd.0, SW_RESTORE);
+                    } else {
+                        let _ = ShowWindow(hwnd.0, SW_SHOW);
+                    }
+                    let _ = SetForegroundWindow(hwnd.0);
                 }
             }
             Ok(serde_json::Value::Null)

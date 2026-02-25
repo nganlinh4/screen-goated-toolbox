@@ -352,6 +352,9 @@ pub struct LocaleText {
     pub tool_update_available: &'static str,
     // --- CONTINUOUS MODE ---
     pub continuous_mode_activated: &'static str, // "✨ Cấu hình \"{preset}\" sẽ hoạt động liên tục, bấm ESC hay {hotkey} để thoát"
+    // --- WINDOW SELECTOR OVERLAY ---
+    pub win_select_title: &'static str,
+    pub win_select_subtitle: &'static str,
 }
 
 mod en;
