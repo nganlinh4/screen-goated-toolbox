@@ -222,7 +222,12 @@ pub fn get_realtime_html(
                 <span class="speed-value" id="speed-value">1.0x</span>
                 <button class="auto-toggle on" id="auto-speed-toggle" title="Auto-adjust speed to catch up">{tts_auto}</button>
             </div>
-    </div>
+        </div>
+        <div class="tts-modal-row">
+            <span class="tts-modal-label">{tts_volume}</span>
+            <div class="speed-slider-container">
+                <input type="range" class="speed-slider" id="volume-slider" min="0" max="100" value="100" step="5">
+                <span class="speed-value" id="volume-value">100%</span>
             </div>
         </div>
     </div>
@@ -252,6 +257,7 @@ pub fn get_realtime_html(
         tts_title = text.realtime_tts_title,
         tts_speed = text.realtime_tts_speed,
         tts_auto = text.realtime_tts_auto,
+        tts_volume = text.realtime_tts_volume,
         app_select_title = text.app_select_title,
         app_select_hint = text.app_select_hint,
         content_copy_svg = crate::overlay::html_components::icons::get_icon_svg("content_copy"),

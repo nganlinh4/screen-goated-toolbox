@@ -1570,6 +1570,11 @@ pub fn start_global_media_server() -> Result<u16, String> {
                                 &b"*"[..],
                             )
                             .unwrap(),
+                            tiny_http::Header::from_bytes(
+                                &b"Accept-Ranges"[..],
+                                &b"bytes"[..],
+                            )
+                            .unwrap(),
                         ],
                         Box::new(f.take(end - start + 1)) as Box<dyn Read + Send>,
                         Some((end - start + 1) as usize),

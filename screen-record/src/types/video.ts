@@ -117,6 +117,7 @@ export interface VideoSegment {
   textSegments: TextSegment[];
   cursorVisibilitySegments?: CursorVisibilitySegment[];
   keystrokeMode?: KeystrokeMode;
+  keystrokeLanguage?: 'en' | 'ko';
   keystrokeDelaySec?: number;
   keystrokeEvents?: KeystrokeEvent[];
   keyboardVisibilitySegments?: CursorVisibilitySegment[];

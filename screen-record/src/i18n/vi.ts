@@ -20,6 +20,7 @@ const vi: Translations = {
   keystrokeModeOff: 'Phím: Tắt',
   keystrokeModeKeyboard: 'Phím: Bàn Phím',
   keystrokeModeKeyboardMouse: 'Phím: Bàn Phím + Chuột',
+  keystrokeLanguageLabel: 'Bố Cục',
   export: 'Xuất',
   saveRawVideo: 'Lưu video gốc',
   rawVideoSavedButton: 'Đã lưu video gốc',

@@ -62,6 +62,8 @@ lazy_static::lazy_static! {
     pub static ref CURRENT_TTS_SPEED: Arc<std::sync::atomic::AtomicU32> = Arc::new(std::sync::atomic::AtomicU32::new(100));
     /// Signal to close TTS modal (shared between app selection and main window)
     pub static ref CLOSE_TTS_MODAL_REQUEST: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    /// TTS output volume (0–100, default 100)
+    pub static ref CURRENT_TTS_VOLUME: Arc<std::sync::atomic::AtomicU32> = Arc::new(std::sync::atomic::AtomicU32::new(100));
 }
 
 pub static mut REALTIME_HWND: HWND = HWND(std::ptr::null_mut());

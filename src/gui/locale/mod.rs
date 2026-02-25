@@ -179,6 +179,7 @@ pub struct LocaleText {
     pub realtime_tts_title: &'static str,
     pub realtime_tts_speed: &'static str,
     pub realtime_tts_auto: &'static str,
+    pub realtime_tts_volume: &'static str,
     // App selection modal
     pub app_select_title: &'static str,
     pub app_select_hint: &'static str,

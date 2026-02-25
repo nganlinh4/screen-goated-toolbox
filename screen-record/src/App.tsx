@@ -750,6 +750,11 @@ function App() {
     try { localStorage.setItem(KEYSTROKE_DELAY_KEY, String(clamped)); } catch { /* ignore */ }
   }, [segment, setSegment, getKeystrokeTimelineDuration]);
 
+  const handleKeystrokeLanguageChange = useCallback((lang: 'en' | 'ko') => {
+    if (!segment) return;
+    setSegment({ ...segment, keystrokeLanguage: lang });
+  }, [segment, setSegment]);
+
   const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
     const projectId = projects.currentProjectId;
@@ -1442,6 +1447,21 @@ function App() {
                         <span className="playback-keystroke-delay-value text-[10px] tabular-nums text-[var(--overlay-panel-fg)]/86 w-11 text-right">
                           {(segment?.keystrokeDelaySec ?? DEFAULT_KEYSTROKE_DELAY_SEC).toFixed(2)}s
                         </span>
+                      </div>
+                      <div className="playback-keystroke-language-row flex items-center gap-2 mt-1">
+                        <span className="playback-keystroke-language-label text-[10px] text-[var(--overlay-panel-fg)]/60 flex-1">{t.keystrokeLanguageLabel}</span>
+                        <div className="playback-keystroke-language-toggle flex rounded-md overflow-hidden border border-[var(--glass-border)]">
+                          <button
+                            className={`playback-keystroke-language-btn px-2 py-0.5 text-[10px] transition-colors ${(segment?.keystrokeLanguage ?? 'en') === 'en' ? 'bg-[var(--primary-color)] text-white' : 'text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]'}`}
+                            onClick={() => handleKeystrokeLanguageChange('en')}
+                            disabled={!segment}
+                          >EN</button>
+                          <button
+                            className={`playback-keystroke-language-btn px-2 py-0.5 text-[10px] transition-colors ${(segment?.keystrokeLanguage ?? 'en') === 'ko' ? 'bg-[var(--primary-color)] text-white' : 'text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]'}`}
+                            onClick={() => handleKeystrokeLanguageChange('ko')}
+                            disabled={!segment}
+                          >KO</button>
+                        </div>
                       </div>
                     </div>
                   </div>

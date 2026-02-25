@@ -57,7 +57,7 @@ pub fn get(font_size: u32) -> String {
         if (speedSlider && speedValue) {{
             const autoToggle = document.getElementById('auto-speed-toggle');
             let autoSpeed = true; // Default: auto is on
-            
+
             speedSlider.addEventListener('input', function(e) {{
                 e.stopPropagation();
                 ttsSpeed = parseInt(this.value);
@@ -69,7 +69,7 @@ pub fn get(font_size: u32) -> String {
                     autoToggle.classList.remove('on');
                 }}
             }});
-            
+
             if (autoToggle) {{
                 autoToggle.addEventListener('click', function(e) {{
                     e.stopPropagation();
@@ -78,6 +78,17 @@ pub fn get(font_size: u32) -> String {
                     window.ipc.postMessage('ttsAutoSpeed:' + (autoSpeed ? '1' : '0'));
                 }});
             }}
+        }}
+
+        const volumeSlider = document.getElementById('volume-slider');
+        const volumeValue = document.getElementById('volume-value');
+        if (volumeSlider && volumeValue) {{
+            volumeSlider.addEventListener('input', function(e) {{
+                e.stopPropagation();
+                const vol = parseInt(this.value);
+                volumeValue.textContent = vol + '%';
+                window.ipc.postMessage('ttsVolume:' + vol);
+            }});
         }}
         
         // Header toggle (with null check in case element is commented out)

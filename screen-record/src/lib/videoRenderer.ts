@@ -369,6 +369,7 @@ export class VideoRenderer {
     mouseSlotRepresentatives: [],
   };
   private keystrokeLayoutCache: Map<string, KeystrokeBubbleLayout> = new Map();
+  private _keystrokeLanguage: 'en' | 'ko' = 'en';
 
   /**
    * Apply font-variation-settings as CSS on the canvas element.
@@ -3987,8 +3988,22 @@ export class VideoRenderer {
     };
   }
 
+  private applyKoreanMapping(label: string): string {
+    const KO_MAP: Record<string, string> = {
+      'Q': 'ㅂ', 'W': 'ㅈ', 'E': 'ㄷ', 'R': 'ㄱ', 'T': 'ㅅ', 'Y': 'ㅛ', 'U': 'ㅕ', 'I': 'ㅑ', 'O': 'ㅐ', 'P': 'ㅔ',
+      'A': 'ㅁ', 'S': 'ㄴ', 'D': 'ㅇ', 'F': 'ㄹ', 'G': 'ㅎ', 'H': 'ㅗ', 'J': 'ㅓ', 'K': 'ㅏ', 'L': 'ㅣ',
+      'Z': 'ㅋ', 'X': 'ㅌ', 'C': 'ㅊ', 'V': 'ㅍ', 'B': 'ㅠ', 'N': 'ㅜ', 'M': 'ㅡ',
+    };
+    if (label.length === 1) return KO_MAP[label.toUpperCase()] ?? label;
+    return label;
+  }
+
   private getKeystrokeLabel(event: KeystrokeEvent): string {
-    return event.count > 1 ? `${event.label} x${event.count}` : event.label;
+    let label = event.label;
+    if (this._keystrokeLanguage === 'ko' && event.type === 'keyboard') {
+      label = this.applyKoreanMapping(label);
+    }
+    return event.count > 1 ? `${label} x${event.count}` : label;
   }
 
   private getKeystrokeBorderColor(event: KeystrokeEvent, holdMix: number = 0): string {
@@ -4076,7 +4091,7 @@ export class VideoRenderer {
     canvasHeight: number,
     overlayScale: number
   ): KeystrokeBubbleLayout {
-    const cacheKey = `${event.id}@${Math.round(canvasHeight)}@${overlayScale.toFixed(3)}`;
+    const cacheKey = `${event.id}@${Math.round(canvasHeight)}@${overlayScale.toFixed(3)}@${this._keystrokeLanguage}`;
     const cached = this.keystrokeLayoutCache.get(cacheKey);
     if (cached) return cached;
     const measured = this.measureKeystrokeBubble(ctx, event, canvasHeight, overlayScale);
@@ -4618,6 +4633,7 @@ export class VideoRenderer {
     canvasHeight: number,
     duration: number
   ) {
+    this._keystrokeLanguage = segment.keystrokeLanguage ?? 'en';
     const cache = this.rebuildKeystrokeRenderCache(segment, duration);
     if (!cache) return;
     const overlayTransform = this.getKeystrokeOverlayTransform(segment, canvasWidth, canvasHeight);
@@ -5033,6 +5049,7 @@ export class VideoRenderer {
     outputHeight: number,
     fps: number = 60
   ): Promise<BakedOverlayPayload> {
+    this._keystrokeLanguage = segment.keystrokeLanguage ?? 'en';
     const duration = Math.max(
       segment.trimEnd,
       ...(segment.trimSegments || []).map(s => s.endTime),
