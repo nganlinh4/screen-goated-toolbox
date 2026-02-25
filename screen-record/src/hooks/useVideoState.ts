@@ -259,30 +259,34 @@ export function useRecording(props: UseRecordingProps) {
     targetType: 'monitor' | 'window' = 'monitor'
   ) => {
     try {
-      setMousePositions([]);
-      props.setIsVideoReady(false);
-      props.setCurrentTime(0);
-      props.setDuration(0);
-      props.setSegment(null);
-      props.setThumbnails([]);
       setAudioFilePath("");
       setVideoFilePath("");
       setVideoFilePathOwnerUrl("");
+      setMousePositions([]);
 
-      if (props.currentVideo) { URL.revokeObjectURL(props.currentVideo); props.setCurrentVideo(null); }
-      if (props.currentAudio) { URL.revokeObjectURL(props.currentAudio); props.setCurrentAudio(null); }
-
-      if (props.videoRef.current) {
-        props.videoRef.current.pause();
-        props.videoRef.current.removeAttribute('src');
-        props.videoRef.current.load();
-        props.videoRef.current.currentTime = 0;
-      }
-
-      const canvas = props.canvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (props.currentVideo) {
+        // User is editing a video — don't touch the preview at all. The canvas,
+        // segment, playback state, and video URL all stay intact so editing can
+        // continue uninterrupted. Old URLs are revoked in handleStopRecording
+        // once the new video is ready to replace them.
+      } else {
+        // No existing video — safe to clear everything for a clean slate.
+        props.setIsVideoReady(false);
+        props.setCurrentTime(0);
+        props.setDuration(0);
+        props.setSegment(null);
+        props.setThumbnails([]);
+        if (props.videoRef.current) {
+          props.videoRef.current.pause();
+          props.videoRef.current.removeAttribute('src');
+          props.videoRef.current.load();
+          props.videoRef.current.currentTime = 0;
+        }
+        const canvas = props.canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
       }
 
       await invoke("start_recording", {
@@ -308,6 +312,9 @@ export function useRecording(props: UseRecordingProps) {
       setIsRecording(false);
       setIsLoadingVideo(true);
       props.setIsVideoReady(false);
+      props.setSegment(null);
+      props.setCurrentTime(0);
+      props.setDuration(0);
       setLoadingProgress(0);
       props.setThumbnails([]);
 
@@ -328,6 +335,10 @@ export function useRecording(props: UseRecordingProps) {
       });
 
       if (objectUrl) {
+        // Revoke the old video/audio URLs that were preserved during recording.
+        if (props.currentVideo && props.currentVideo !== objectUrl) URL.revokeObjectURL(props.currentVideo);
+        if (props.currentAudio) URL.revokeObjectURL(props.currentAudio);
+
         props.setCurrentVideo(objectUrl);
         setVideoFilePathOwnerUrl(objectUrl);
 

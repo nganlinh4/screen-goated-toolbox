@@ -119,10 +119,10 @@ export function Header({
 
         <div className="recording-status-area h-full flex items-center">
           {isRecording && (
-            <div className="recording-indicator flex items-center gap-2 bg-red-500/10 border border-red-500/30 shadow-[0_0_12px_rgba(239,68,68,0.25)] px-3 py-1.5 rounded-lg backdrop-blur-md animate-in fade-in slide-in-from-left-2 duration-300">
-              <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse" />
+            <div className="recording-indicator flex items-center gap-2 border px-3 py-1.5 rounded-lg backdrop-blur-md animate-in fade-in slide-in-from-left-2 duration-300">
+              <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
               <span className="text-red-500 text-[11px] font-extrabold uppercase tracking-widest drop-shadow-sm">{t.rec}</span>
-              <span className="text-red-500 text-xs font-mono font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
+              <span className="text-red-500 text-xs font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
             </div>
           )}
         </div>
