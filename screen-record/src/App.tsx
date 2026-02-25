@@ -17,11 +17,11 @@ import {
 
 import { Header } from '@/components/Header';
 import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay, SeekIndicator } from '@/components/VideoPreview';
-import { SidePanel, ActivePanel } from '@/components/SidePanel';
+import { SidePanel, type ActivePanel } from '@/components/sidepanel/index';
 import {
   ProcessingOverlay, ExportDialog, WindowSelectDialog,
   MonitorSelectDialog, HotkeyDialog, RawVideoDialog, ExportSuccessDialog
-} from '@/components/Dialogs';
+} from '@/components/dialogs';
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
 import { clampVisibilitySegmentsToDuration } from '@/lib/cursorHiding';
@@ -31,14 +31,15 @@ import {
   rebuildKeystrokeVisibilitySegmentsForMode,
   withKeystrokeVisibilitySegmentsForMode
 } from '@/lib/keystrokeVisibility';
+import { ResizeBorders } from '@/components/layout/ResizeBorders';
+import { useAppShortcuts } from '@/hooks/useAppShortcuts';
+import { useRawVideoHandler } from '@/hooks/useRawVideoHandler';
+import { useKeystrokeDrag } from '@/hooks/useKeystrokeDrag';
 
-const ipc = (msg: string) => (window as any).ipc.postMessage(msg);
 const LAST_BG_CONFIG_KEY = 'screen-record-last-background-config-v1';
 const RECENT_UPLOADS_KEY = 'screen-record-recent-uploads-v1';
 const RECORDING_MODE_KEY = 'screen-record-recording-mode-v1';
 const CAPTURE_SOURCE_KEY = 'screen-record-capture-source-v1';
-const RAW_AUTO_COPY_KEY = 'screen-record-raw-auto-copy-v1';
-const RAW_SAVE_DIR_KEY = 'screen-record-raw-save-dir-v1';
 const KEYSTROKE_DELAY_KEY = 'screen-record-keystroke-delay-v1';
 const PROJECT_SAVE_DEBUG = true;
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
@@ -112,36 +113,6 @@ function getInitialCaptureSource(): 'monitor' | 'window' {
   return 'monitor';
 }
 
-function getInitialRawAutoCopy(): boolean {
-  try {
-    return localStorage.getItem(RAW_AUTO_COPY_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function getInitialRawSaveDir(): string {
-  try {
-    return localStorage.getItem(RAW_SAVE_DIR_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-function ResizeBorders() {
-  const resize = (dir: string) => (e: React.MouseEvent) => { e.preventDefault(); ipc(`resize_${dir}`); };
-  return (
-    <>
-      {/* Edges: left / right full-height, bottom full-width (top handled by Header) */}
-      <div className="resize-border-left fixed top-0 left-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('w')} />
-      <div className="resize-border-right fixed top-0 right-0 bottom-0 w-[6px] z-50 cursor-ew-resize" onMouseDown={resize('e')} />
-      <div className="resize-border-bottom fixed bottom-0 left-[14px] right-[14px] h-[6px] z-50 cursor-ns-resize" onMouseDown={resize('s')} />
-      {/* Corners */}
-      <div className="resize-corner-sw fixed bottom-0 left-0 w-[14px] h-[14px] z-50 cursor-nesw-resize" onMouseDown={resize('sw')} />
-      <div className="resize-corner-se fixed bottom-0 right-0 w-[14px] h-[14px] z-50 cursor-nwse-resize" onMouseDown={resize('se')} />
-    </>
-  );
-}
 
 function App() {
   const settings = useSettingsProvider();
@@ -155,13 +126,19 @@ function App() {
   const [selectedRecordingMode, setSelectedRecordingMode] = useState<RecordingMode>(getInitialRecordingMode);
   const [captureSource, setCaptureSource] = useState<'monitor' | 'window'>(getInitialCaptureSource);
   const [currentRecordingMode, setCurrentRecordingMode] = useState<RecordingMode>('withoutCursor');
-  const [currentRawVideoPath, setCurrentRawVideoPath] = useState('');
-  const [lastRawSavedPath, setLastRawSavedPath] = useState('');
-  const [showRawVideoDialog, setShowRawVideoDialog] = useState(false);
-  const [rawAutoCopyEnabled, setRawAutoCopyEnabled] = useState(getInitialRawAutoCopy);
-  const [rawSaveDir, setRawSaveDir] = useState(getInitialRawSaveDir);
-  const [isRawActionBusy, setIsRawActionBusy] = useState(false);
-  const [rawButtonSavedFlash, setRawButtonSavedFlash] = useState(false);
+  const rawVideo = useRawVideoHandler();
+  const {
+    currentRawVideoPath, setCurrentRawVideoPath,
+    lastRawSavedPath, setLastRawSavedPath,
+    showRawVideoDialog, setShowRawVideoDialog,
+    rawAutoCopyEnabled,
+    rawSaveDir,
+    isRawActionBusy, setIsRawActionBusy,
+    rawButtonSavedFlash, setRawButtonSavedFlash,
+    flashRawSavedButton,
+    handleOpenRawVideoDialog,
+    handleToggleRawAutoCopy,
+  } = rawVideo;
   const [isBackgroundUploadProcessing, setIsBackgroundUploadProcessing] = useState(false);
 
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -188,7 +165,6 @@ function App() {
   const [isPreviewDragging, setIsPreviewDragging] = useState(false);
   const [isKeystrokeResizeHandleHover, setIsKeystrokeResizeHandleHover] = useState(false);
   const [isKeystrokeResizeDragging, setIsKeystrokeResizeDragging] = useState(false);
-  const rawButtonFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [seekIndicatorKey, setSeekIndicatorKey] = useState(0);
   const [seekIndicatorDir, setSeekIndicatorDir] = useState<'left' | 'right'>('right');
   // Stable ref for persist callback — avoids cascading useEffect re-triggers
@@ -353,40 +329,6 @@ function App() {
     };
   }, [showWindowSelect, getWindows]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(RAW_AUTO_COPY_KEY, rawAutoCopyEnabled ? '1' : '0');
-    } catch {
-      // ignore persistence failures
-    }
-  }, [rawAutoCopyEnabled]);
-
-  useEffect(() => {
-    if (!rawSaveDir) return;
-    try {
-      localStorage.setItem(RAW_SAVE_DIR_KEY, rawSaveDir);
-    } catch {
-      // ignore persistence failures
-    }
-  }, [rawSaveDir]);
-
-  useEffect(() => {
-    if (rawSaveDir) return;
-    invoke<string>('get_default_export_dir')
-      .then((dir) => {
-        if (dir) setRawSaveDir(dir);
-      })
-      .catch((e) => console.error('[RawVideo] Failed to get default dir:', e));
-  }, [rawSaveDir]);
-
-  useEffect(() => {
-    return () => {
-      if (rawButtonFlashTimerRef.current) {
-        clearTimeout(rawButtonFlashTimerRef.current);
-      }
-    };
-  }, []);
-
   // Handlers
   const handleToggleCrop = useCallback(() => {
     if (isCropping) {
@@ -520,102 +462,6 @@ function App() {
       return prev;
     });
   }, []);
-
-  const flashRawSavedButton = useCallback(() => {
-    setRawButtonSavedFlash(true);
-    if (rawButtonFlashTimerRef.current) clearTimeout(rawButtonFlashTimerRef.current);
-    rawButtonFlashTimerRef.current = setTimeout(() => {
-      setRawButtonSavedFlash(false);
-      rawButtonFlashTimerRef.current = null;
-    }, 4000);
-  }, []);
-
-  const ensureRawVideoSaved = useCallback(async (): Promise<string> => {
-    if (lastRawSavedPath) return lastRawSavedPath;
-    if (!currentRawVideoPath) return '';
-    if (!rawSaveDir) return '';
-
-    const result = await invoke<{ savedPath: string }>('save_raw_video_copy', {
-      sourcePath: currentRawVideoPath,
-      targetDir: rawSaveDir,
-    });
-    const savedPath = result?.savedPath || '';
-    if (savedPath) {
-      setLastRawSavedPath(savedPath);
-    }
-    return savedPath;
-  }, [lastRawSavedPath, currentRawVideoPath, rawSaveDir]);
-
-  const handleOpenRawVideoDialog = useCallback(async () => {
-    setShowRawVideoDialog(true);
-    if (lastRawSavedPath || !currentRawVideoPath) return;
-    try {
-      setIsRawActionBusy(true);
-      await ensureRawVideoSaved();
-    } catch (e) {
-      console.error('[RawVideo] Failed to save raw video on dialog open:', e);
-    } finally {
-      setIsRawActionBusy(false);
-    }
-  }, [lastRawSavedPath, currentRawVideoPath, ensureRawVideoSaved]);
-
-  const handleChangeRawSavePath = useCallback(async () => {
-    try {
-      setIsRawActionBusy(true);
-      const selected = await invoke<string | null>('pick_export_folder', {
-        initialDir: rawSaveDir || null,
-      });
-      if (!selected) return;
-
-      setRawSaveDir(selected);
-
-      if (lastRawSavedPath) {
-        const moved = await invoke<{ savedPath: string }>('move_saved_raw_video', {
-          currentPath: lastRawSavedPath,
-          targetDir: selected,
-        });
-        if (moved?.savedPath) {
-          setLastRawSavedPath(moved.savedPath);
-        }
-      }
-    } catch (e) {
-      console.error('[RawVideo] Failed to change raw save path:', e);
-    } finally {
-      setIsRawActionBusy(false);
-    }
-  }, [rawSaveDir, lastRawSavedPath]);
-
-  const handleCopyRawVideo = useCallback(async () => {
-    try {
-      setIsRawActionBusy(true);
-      const savedPath = await ensureRawVideoSaved();
-      if (!savedPath) return;
-      await invoke('copy_video_file_to_clipboard', { filePath: savedPath });
-      flashRawSavedButton();
-    } catch (e) {
-      console.error('[RawVideo] Failed to copy raw video to clipboard:', e);
-    } finally {
-      setIsRawActionBusy(false);
-    }
-  }, [ensureRawVideoSaved, flashRawSavedButton]);
-  void handleChangeRawSavePath;
-  void handleCopyRawVideo;
-
-  const handleToggleRawAutoCopy = useCallback(async (enabled: boolean) => {
-    setRawAutoCopyEnabled(enabled);
-    if (!enabled) return;
-    try {
-      setIsRawActionBusy(true);
-      const savedPath = await ensureRawVideoSaved();
-      if (!savedPath) return;
-      await invoke('copy_video_file_to_clipboard', { filePath: savedPath });
-      flashRawSavedButton();
-    } catch (e) {
-      console.error('[RawVideo] Failed to enable auto-copy for raw video:', e);
-    } finally {
-      setIsRawActionBusy(false);
-    }
-  }, [ensureRawVideoSaved, flashRawSavedButton]);
 
   const getKeystrokeTimelineDuration = useCallback((s: VideoSegment) => {
     const segmentDuration = Math.max(
@@ -989,56 +835,14 @@ function App() {
   }, [isRecording, showHotkeyDialog, onStopRecording, handleStartRecording]);
 
   // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      const targetType = (e.target as HTMLInputElement).type;
-      const isTextInput = (tag === 'INPUT' && ['text', 'number', 'password', 'search', 'email'].includes(targetType))
-                          || tag === 'TEXTAREA'
-                          || (e.target as HTMLElement).isContentEditable;
-
-      if (e.code === 'Space' && !isTextInput) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        if (isCropping) return; // Block play/pause during crop mode
-        if (e.target instanceof HTMLElement) e.target.blur(); // Unfocus anything so Space keyup doesn't activate it
-        togglePlayPause();
-      }
-      if (e.code === 'ArrowLeft' && !isTextInput) {
-        e.preventDefault();
-        const next = Math.max(0, currentTime - 5);
-        seek(next);
-        setSeekIndicatorDir('left');
-        setSeekIndicatorKey(Date.now());
-      }
-      if (e.code === 'ArrowRight' && !isTextInput) {
-        e.preventDefault();
-        const next = Math.min(duration, currentTime + 5);
-        seek(next);
-        setSeekIndicatorDir('right');
-        setSeekIndicatorKey(Date.now());
-      }
-      if ((e.code === 'Delete' || e.code === 'Backspace') && !isTextInput) {
-        if (editingKeystrokeSegmentId) {
-          handleDeleteKeystrokeSegment();
-        } else if (editingPointerId) {
-          handleDeletePointerSegment();
-        } else if (editingTextId && !editingKeyframeId) {
-          handleDeleteText();
-        } else if (editingKeyframeId !== null && segment?.zoomKeyframes[editingKeyframeId]) {
-          setSegment({ ...segment, zoomKeyframes: segment.zoomKeyframes.filter((_, i) => i !== editingKeyframeId) });
-          setEditingKeyframeId(null);
-        }
-      }
-      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
-        e.preventDefault();
-        e.shiftKey ? (canRedo && redo()) : (canUndo && undo());
-      }
-      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') { e.preventDefault(); canRedo && redo(); }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, editingTextId, editingPointerId, editingKeystrokeSegmentId, handleDeleteText, handleDeletePointerSegment, handleDeleteKeystrokeSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping, currentTime, duration, seek]);
+  useAppShortcuts({
+    togglePlayPause, currentTime, duration, seek, isCropping,
+    editingKeyframeId, editingTextId, editingKeystrokeSegmentId, editingPointerId,
+    segment, setSegment, setEditingKeyframeId,
+    handleDeleteText, handleDeleteKeystrokeSegment, handleDeletePointerSegment,
+    canUndo, canRedo, undo, redo,
+    setSeekIndicatorKey, setSeekIndicatorDir,
+  });
 
   // Wheel zoom
   useEffect(() => {
@@ -1120,158 +924,15 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segment, backgroundConfig, mousePositions, projects.currentProjectId, currentVideo]);
 
-  // Text drag listeners
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !segment) return;
-    const onDown = (e: MouseEvent) => {
-      const liveSegment = segmentRef.current;
-      if (!liveSegment) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-      const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-      const keystrokeMode = liveSegment.keystrokeMode ?? 'off';
-      if (keystrokeMode !== 'off') {
-        const editBounds = videoRenderer.getKeystrokeOverlayEditBounds(
-          liveSegment,
-          canvas,
-          currentTime,
-          getKeystrokeTimelineDuration(liveSegment)
-        );
-        if (editBounds) {
-          const handleSize = editBounds.handleSize;
-          const handleX = editBounds.x + editBounds.width - handleSize;
-          const handleY = editBounds.y + editBounds.height - handleSize;
-          const inBox = x >= editBounds.x && x <= editBounds.x + editBounds.width
-            && y >= editBounds.y && y <= editBounds.y + editBounds.height;
-          const inHandle = x >= handleX && x <= handleX + handleSize
-            && y >= handleY && y <= handleY + handleSize;
-          if (inBox || inHandle) {
-            const overlay = videoRenderer.getKeystrokeOverlayConfig(liveSegment);
-            const anchorXPx = (overlay.x / 100) * canvas.width;
-            const baselineYPx = (overlay.y / 100) * canvas.height;
-            const centerX = editBounds.x + editBounds.width / 2;
-            const centerY = editBounds.y + editBounds.height / 2;
-            const radius = Math.max(6, Math.hypot(x - centerX, y - centerY));
-            keystrokeOverlayDragStartRef.current = {
-              pointerX: x,
-              pointerY: y,
-              anchorXPx,
-              baselineYPx,
-              startScale: overlay.scale,
-              centerX,
-              centerY,
-              startRadius: radius,
-            };
-            isDraggingKeystrokeOverlayRef.current = !inHandle;
-            isResizingKeystrokeOverlayRef.current = inHandle;
-            setIsPreviewDragging(true);
-            setIsKeystrokeResizeDragging(inHandle);
-            setIsKeystrokeResizeHandleHover(inHandle);
-            setIsKeystrokeOverlaySelected(true);
-            beginBatch();
-            e.stopPropagation();
-            e.preventDefault();
-            return;
-          }
-        }
-      }
-      const hitId = videoRenderer.handleMouseDown(e, segment, canvas);
-      if (hitId) {
-        e.stopPropagation();
-        e.preventDefault();
-        setEditingTextId(hitId);
-        setActivePanel('text');
-        setIsPreviewDragging(true);
-        setIsKeystrokeOverlaySelected(false);
-      } else {
-        setIsKeystrokeResizeHandleHover(false);
-        setIsKeystrokeOverlaySelected(false);
-      }
-    };
-    const onMove = (e: MouseEvent) => {
-      const liveSegment = segmentRef.current;
-      if (!liveSegment) return;
-      const mode = liveSegment.keystrokeMode ?? 'off';
-      if (
-        !isDraggingKeystrokeOverlayRef.current &&
-        !isResizingKeystrokeOverlayRef.current &&
-        mode !== 'off'
-      ) {
-        const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-        const editBounds = videoRenderer.getKeystrokeOverlayEditBounds(
-          liveSegment,
-          canvas,
-          currentTime,
-          getKeystrokeTimelineDuration(liveSegment)
-        );
-        if (editBounds) {
-          const handleSize = editBounds.handleSize;
-          const handleX = editBounds.x + editBounds.width - handleSize;
-          const handleY = editBounds.y + editBounds.height - handleSize;
-          const inHandle = x >= handleX && x <= handleX + handleSize
-            && y >= handleY && y <= handleY + handleSize;
-          setIsKeystrokeResizeHandleHover(inHandle);
-        } else {
-          setIsKeystrokeResizeHandleHover(false);
-        }
-      }
-      const dragState = keystrokeOverlayDragStartRef.current;
-      if (dragState && (isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current)) {
-        const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-        if (isDraggingKeystrokeOverlayRef.current) {
-          const dx = x - dragState.pointerX;
-          const dy = y - dragState.pointerY;
-          const nextX = Math.max(0, Math.min(100, ((dragState.anchorXPx + dx) / canvas.width) * 100));
-          const nextY = Math.max(0, Math.min(100, ((dragState.baselineYPx + dy) / canvas.height) * 100));
-          setSegment({
-            ...liveSegment,
-            keystrokeOverlay: {
-              ...videoRenderer.getKeystrokeOverlayConfig(liveSegment),
-              x: nextX,
-              y: nextY,
-            },
-          });
-        } else if (isResizingKeystrokeOverlayRef.current) {
-          const radius = Math.max(6, Math.hypot(x - dragState.centerX, y - dragState.centerY));
-          const ratio = radius / Math.max(6, dragState.startRadius);
-          const nextScale = Math.max(0.45, Math.min(2.4, dragState.startScale * ratio));
-          setSegment({
-            ...liveSegment,
-            keystrokeOverlay: {
-              ...videoRenderer.getKeystrokeOverlayConfig(liveSegment),
-              scale: nextScale,
-            },
-          });
-        }
-        return;
-      }
-      videoRenderer.handleMouseMove(e, segment, canvas, handleTextDragMove);
-    };
-    const onUp = () => {
-      const wasOverlayEditing = isDraggingKeystrokeOverlayRef.current || isResizingKeystrokeOverlayRef.current;
-      isDraggingKeystrokeOverlayRef.current = false;
-      isResizingKeystrokeOverlayRef.current = false;
-      keystrokeOverlayDragStartRef.current = null;
-      setIsPreviewDragging(false);
-      setIsKeystrokeResizeDragging(false);
-      setIsKeystrokeResizeHandleHover(false);
-      if (wasOverlayEditing) commitBatch();
-      videoRenderer.handleMouseUp();
-    };
-    canvas.addEventListener('mousedown', onDown);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      canvas.removeEventListener('mousedown', onDown);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [segment, handleTextDragMove, canvasRef, setEditingTextId, setActivePanel, beginBatch, commitBatch, currentTime, getKeystrokeTimelineDuration, setSegment]);
+  // Text & keystroke overlay drag listeners
+  useKeystrokeDrag({
+    segment, setSegment, canvasRef, segmentRef,
+    isDraggingKeystrokeOverlayRef, isResizingKeystrokeOverlayRef, keystrokeOverlayDragStartRef,
+    currentTime, getKeystrokeTimelineDuration,
+    setIsPreviewDragging, setIsKeystrokeResizeDragging, setIsKeystrokeResizeHandleHover,
+    setIsKeystrokeOverlaySelected, setEditingTextId, setActivePanel,
+    handleTextDragMove, beginBatch, commitBatch,
+  });
 
   return (
     <SettingsContext.Provider value={settings}>
