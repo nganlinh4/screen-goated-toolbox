@@ -11,9 +11,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
-};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, SetWindowsHookExW, TranslateMessage,
     UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL,
@@ -426,16 +423,20 @@ fn modifiers_from_bits(bits: u8) -> InputModifiers {
 
 fn snapshot_modifiers_bits() -> u8 {
     let mut bits = 0u8;
-    if key_is_down(VK_CONTROL.0 as u32) {
+    // VK_CONTROL (17), VK_LCONTROL (162), VK_RCONTROL (163)
+    if key_is_down(17) || key_is_down(162) || key_is_down(163) {
         bits |= MOD_CTRL_BIT;
     }
-    if key_is_down(VK_MENU.0 as u32) {
+    // VK_MENU (18), VK_LMENU (164), VK_RMENU (165)
+    if key_is_down(18) || key_is_down(164) || key_is_down(165) {
         bits |= MOD_ALT_BIT;
     }
-    if key_is_down(VK_SHIFT.0 as u32) {
+    // VK_SHIFT (16), VK_LSHIFT (160), VK_RSHIFT (161)
+    if key_is_down(16) || key_is_down(160) || key_is_down(161) {
         bits |= MOD_SHIFT_BIT;
     }
-    if key_is_down(VK_LWIN.0 as u32) || key_is_down(VK_RWIN.0 as u32) {
+    // VK_LWIN (91), VK_RWIN (92)
+    if key_is_down(91) || key_is_down(92) {
         bits |= MOD_WIN_BIT;
     }
     bits

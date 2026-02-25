@@ -369,7 +369,7 @@ export class VideoRenderer {
     mouseSlotRepresentatives: [],
   };
   private keystrokeLayoutCache: Map<string, KeystrokeBubbleLayout> = new Map();
-  private _keystrokeLanguage: 'en' | 'ko' = 'en';
+  private _keystrokeLanguage: 'en' | 'ko' | 'vi' | 'es' | 'ja' | 'zh' = 'en';
 
   /**
    * Apply font-variation-settings as CSS on the canvas element.
@@ -3867,10 +3867,6 @@ export class VideoRenderer {
       state.scaleX = this.lerp(1.1, 1, eased);
       state.scaleY = this.lerp(0.9, 1, eased);
       state.translateY = this.lerp(10, 0, eased);
-      state.wdth = this.lerp(isMouse ? 116 : 120, 100, eased);
-      state.wght = this.lerp(isMouse ? 420 : 440, 600, eased);
-      state.slnt = this.lerp(isMouse ? -12 : -4, baseSlnt, eased);
-      state.rond = this.lerp(100, baseRond, eased);
       state.laneWeight = laneLead;
       if (t > 0.76) {
         const settleT = (t - 0.76) / 0.24;
@@ -3879,23 +3875,23 @@ export class VideoRenderer {
     }
 
     if (isHold) {
-      const holdStart = Math.min(eventEnd - 0.08, eventStart + enterSpan * 0.88);
-      const holdEnd = Math.max(holdStart + 0.03, eventEnd - Math.max(exitSpan * 0.62, 0.05));
-      if (currentTime >= holdStart && currentTime <= holdEnd) {
-        const holdT = this.clamp01((currentTime - holdStart) / Math.max(0.001, holdEnd - holdStart));
-        const holdRampIn = this.clamp01(holdT / 0.18);
-        const holdRampOut = this.clamp01((1 - holdT) / 0.14);
-        const holdMix = Math.min(1, holdRampIn, holdRampOut);
+      // The hold visual state begins slightly after the enter animation finishes
+      const holdStart = eventStart + enterSpan * 0.6;
+      // The hold visual state ends just before the exit animation begins
+      const holdEnd = eventEnd - exitSpan * 0.4;
+
+      if (holdEnd > holdStart && currentTime >= holdStart && currentTime <= holdEnd) {
+        const transitionSec = 0.08; // Fixed 80ms snappy transition
+        const holdMixIn = this.clamp01((currentTime - holdStart) / transitionSec);
+        const holdMixOut = this.clamp01((holdEnd - currentTime) / transitionSec);
+        const holdMix = Math.min(holdMixIn, holdMixOut);
+
         const squish = (isMouse ? 0.06 : 0.045) * holdMix;
         state.holdMix = holdMix;
         state.scale *= this.lerp(1, 1.014, holdMix);
         state.scaleX *= 1 + squish;
         state.scaleY *= 1 - squish * 0.72;
         state.translateY += this.lerp(0, -2.6, holdMix);
-        state.wdth = this.lerp(state.wdth, isMouse ? 95 : 97, holdMix);
-        state.wght = this.lerp(state.wght, isMouse ? 675 : 655, holdMix);
-        state.slnt = this.lerp(state.slnt, isMouse ? -12 : -2, holdMix);
-        state.rond = this.lerp(state.rond, isMouse ? 82 : 78, holdMix);
         state.laneWeight = Math.max(state.laneWeight, this.lerp(0.84, 1, holdMix));
       }
     }
@@ -3908,13 +3904,15 @@ export class VideoRenderer {
       state.scaleX *= this.lerp(1, 1.04, eased);
       state.scaleY *= this.lerp(1, 0.89, eased);
       state.translateY += this.lerp(0, -9, eased);
-      state.wdth = this.lerp(state.wdth, 86, eased);
-      state.wght = this.lerp(state.wght, 510, eased);
-      state.slnt = this.lerp(state.slnt, isMouse ? -13 : -8, eased);
-      state.rond = this.lerp(state.rond, isMouse ? 84 : 76, eased);
       state.holdMix *= this.lerp(1, 0.15, eased);
       state.laneWeight *= this.lerp(1, 0.76, eased);
     }
+
+    // Static lock: font variation axes are strictly derived from holdMix to match GPU export crossfade
+    state.wdth = this.lerp(100, isMouse ? 95 : 97, state.holdMix);
+    state.wght = this.lerp(600, isMouse ? 675 : 655, state.holdMix);
+    state.slnt = this.lerp(baseSlnt, isMouse ? -12 : -2, state.holdMix);
+    state.rond = this.lerp(baseRond, isMouse ? 82 : 78, state.holdMix);
 
     return state;
   }
@@ -3988,21 +3986,87 @@ export class VideoRenderer {
     };
   }
 
-  private applyKoreanMapping(label: string): string {
-    const KO_MAP: Record<string, string> = {
-      'Q': 'ㅂ', 'W': 'ㅈ', 'E': 'ㄷ', 'R': 'ㄱ', 'T': 'ㅅ', 'Y': 'ㅛ', 'U': 'ㅕ', 'I': 'ㅑ', 'O': 'ㅐ', 'P': 'ㅔ',
-      'A': 'ㅁ', 'S': 'ㄴ', 'D': 'ㅇ', 'F': 'ㄹ', 'G': 'ㅎ', 'H': 'ㅗ', 'J': 'ㅓ', 'K': 'ㅏ', 'L': 'ㅣ',
-      'Z': 'ㅋ', 'X': 'ㅌ', 'C': 'ㅊ', 'V': 'ㅍ', 'B': 'ㅠ', 'N': 'ㅜ', 'M': 'ㅡ',
+  private translateLabel(label: string, lang: string): string {
+    if (lang === 'en') return label;
+
+    const LOCALIZATION_MAPS: Record<string, Record<string, string>> = {
+      ko: {
+        'Left Click': '좌클릭',
+        'Right Click': '우클릭',
+        'Middle Click': '휠클릭',
+        '↑ Scroll': '↑ 스크롤',
+        '↓ Scroll': '↓ 스크롤',
+        'Space': '스페이스바',
+        'Enter': '엔터',
+        'Backspace': '백스페이스',
+        'Escape': 'ESC',
+        'Mouse Click': '클릭',
+      },
+      vi: {
+        'Left Click': 'Chuột Trái',
+        'Right Click': 'Chuột Phải',
+        'Middle Click': 'Nút Giữa',
+        '↑ Scroll': 'Cuộn ↑',
+        '↓ Scroll': 'Cuộn ↓',
+        'Space': 'Phím Cách',
+        'Mouse Click': 'Nhấn Chuột',
+        'Enter': 'Enter',
+        'Backspace': 'Xoá',
+      },
+      es: {
+        'Left Click': 'Clic Izq',
+        'Right Click': 'Clic Der',
+        'Middle Click': 'Clic Central',
+        '↑ Scroll': 'Desplazar ↑',
+        '↓ Scroll': 'Desplazar ↓',
+        'Space': 'Espacio',
+        'Mouse Click': 'Clic',
+        'Enter': 'Intro',
+        'Backspace': 'Retroceso',
+      },
+      ja: {
+        'Left Click': '左クリック',
+        'Right Click': '右クリック',
+        'Middle Click': '中クリック',
+        '↑ Scroll': '↑ スクロール',
+        '↓ Scroll': '↓ スクロール',
+        'Space': 'スペース',
+        'Mouse Click': 'クリック',
+        'Enter': 'エンター',
+      },
+      zh: {
+        'Left Click': '左键单击',
+        'Right Click': '右键单击',
+        'Middle Click': '中键单击',
+        '↑ Scroll': '向上滚动',
+        '↓ Scroll': '向下滚动',
+        'Space': '空格',
+        'Mouse Click': '点击',
+        'Enter': '回车',
+        'Backspace': '退格',
+      },
     };
-    if (label.length === 1) return KO_MAP[label.toUpperCase()] ?? label;
-    return label;
+
+    const map = LOCALIZATION_MAPS[lang] || {};
+    // Split modifiers like "Ctrl + Left Click" and translate each token separately
+    const parts = label.split(' + ');
+    const translatedParts = parts.map(part => {
+      if (map[part]) return map[part];
+      if (lang === 'ko' && part.length === 1) {
+        const KO_MAP: Record<string, string> = {
+          'Q': 'ㅂ', 'W': 'ㅈ', 'E': 'ㄷ', 'R': 'ㄱ', 'T': 'ㅅ', 'Y': 'ㅛ', 'U': 'ㅕ', 'I': 'ㅑ', 'O': 'ㅐ', 'P': 'ㅔ',
+          'A': 'ㅁ', 'S': 'ㄴ', 'D': 'ㅇ', 'F': 'ㄹ', 'G': 'ㅎ', 'H': 'ㅗ', 'J': 'ㅓ', 'K': 'ㅏ', 'L': 'ㅣ',
+          'Z': 'ㅋ', 'X': 'ㅌ', 'C': 'ㅊ', 'V': 'ㅍ', 'B': 'ㅠ', 'N': 'ㅜ', 'M': 'ㅡ',
+        };
+        return KO_MAP[part.toUpperCase()] ?? part;
+      }
+      return part;
+    });
+    return translatedParts.join(' + ');
   }
 
   private getKeystrokeLabel(event: KeystrokeEvent): string {
-    let label = event.label;
-    if (this._keystrokeLanguage === 'ko' && event.type === 'keyboard') {
-      label = this.applyKoreanMapping(label);
-    }
+    const label = this.translateLabel(event.label, this._keystrokeLanguage);
     return event.count > 1 ? `${label} x${event.count}` : label;
   }
 
@@ -4058,9 +4122,9 @@ export class VideoRenderer {
       scaleX: 1,
       scaleY: 1,
       translateY: 0,
-      wdth: isMouse ? 124 : 132,
+      wdth: 100,
       wght: 600,
-      slnt: 0,
+      slnt: isMouse ? -6 : 0,
       rond: isMouse ? 96 : 88,
       holdMix: 0,
       laneWeight: 1,
@@ -4069,6 +4133,12 @@ export class VideoRenderer {
     const textWidth = ctx.measureText(label).width;
     ctx.canvas.style.fontVariationSettings = originalVariations || 'normal';
     ctx.restore();
+
+    const height = Math.ceil(fontSize + paddingY * 2);
+    const rawWidth = textWidth + iconBoxWidth + iconGap + paddingX * 2;
+    const minLabelWidth = showMouseIcon
+      ? (iconBoxWidth + iconGap + height)
+      : (height * 1.06); // Enforce square-like identical widths for single character keys like E and W
 
     return {
       label,
@@ -4080,8 +4150,8 @@ export class VideoRenderer {
       paddingY,
       radius,
       marginBottom,
-      width: Math.ceil(textWidth + iconBoxWidth + iconGap + paddingX * 2),
-      height: Math.ceil(fontSize + paddingY * 2),
+      width: Math.ceil(Math.max(rawWidth, minLabelWidth)),
+      height,
     };
   }
 
@@ -4099,33 +4169,14 @@ export class VideoRenderer {
     return measured;
   }
 
-  private measureKeystrokeTextWidth(
-    ctx: CanvasRenderingContext2D,
-    label: string,
-    fontSize: number,
-    visual: KeystrokeVisualState
-  ): number {
-    ctx.save();
-    const originalVariations = ctx.canvas.style.fontVariationSettings;
-    this.applyKeystrokeFontVariations(ctx, visual);
-    ctx.font = `${Math.round(visual.wght)} ${fontSize}px 'Google Sans Flex', sans-serif`;
-    const width = ctx.measureText(label).width;
-    ctx.canvas.style.fontVariationSettings = originalVariations || 'normal';
-    ctx.restore();
-    return width;
-  }
-
   private getKeystrokeBubbleWidthForVisual(
     ctx: CanvasRenderingContext2D,
     layout: KeystrokeBubbleLayout,
     visual: KeystrokeVisualState
   ): number {
-    const textWidth = this.measureKeystrokeTextWidth(ctx, layout.label, layout.fontSize, visual);
-    const rawWidth = textWidth + layout.iconBoxWidth + layout.iconGap + layout.paddingX * 2;
-    const minLabelWidth = layout.showMouseIcon
-      ? (layout.iconBoxWidth + layout.iconGap + layout.fontSize * 1.12 + layout.paddingX * 2)
-      : (layout.fontSize * 1.08 + layout.paddingX * 2);
-    return Math.ceil(Math.max(rawWidth, minLabelWidth));
+    // Rely exclusively on static layout width to eliminate E vs W jitter and export padding offsets
+    void ctx; void visual;
+    return layout.width;
   }
 
   private drawMouseIndicatorIcon(
@@ -4713,7 +4764,7 @@ export class VideoRenderer {
           placement.item.layout.showMouseIcon,
           placement.item.layout.iconBoxWidth,
           placement.item.layout.iconGap,
-          placement.align,
+          'center', // Center alignment for perfectly matched consistency with export
           1,
           placement.item.visual
         );
@@ -5097,10 +5148,10 @@ export class VideoRenderer {
       textMap.set(text.id, { rect, baseHitArea: hitArea, pad: textPad });
     }
 
-    // Pack keystroke overlays — deduplicated so visually identical bubbles share one atlas slot.
-    // keystrokeUniqueMap: uniqueKey → {rect, layout, pad}  (one slot per distinct visual)
-    // keystrokeEventMap:  eventId  → uniqueKey             (many events → one visual key)
-    const keystrokeUniqueMap = new Map<string, { rect: AtlasRect; layout: any; pad: number }>();
+    // Pack keystroke overlays — dual-state baking (normal + held) per unique bubble.
+    // keystrokeUniqueMap: uniqueKey → {rectNormal, rectHeld, layout, pad}
+    // keystrokeEventMap:  eventId  → uniqueKey
+    const keystrokeUniqueMap = new Map<string, { rectNormal: AtlasRect; rectHeld: AtlasRect; layout: any; pad: number }>();
     const keystrokeEventMap = new Map<string, string>(); // eventId → uniqueKey
     const cache = this.rebuildKeystrokeRenderCache(segment, duration);
     if (cache && cache.displayEvents.length > 0) {
@@ -5108,25 +5159,44 @@ export class VideoRenderer {
       let uniqueCount = 0;
       for (const event of cache.displayEvents) {
         const layout = this.getCachedKeystrokeBubbleLayout(atlasCtx, event, outputHeight, overlayTransform.scale);
-        // Unique key: label + mouse-icon flag + font-size (determines visual appearance).
         const uniqueKey = `${layout.label}|${layout.showMouseIcon}|${layout.fontSize}`;
         keystrokeEventMap.set(event.id, uniqueKey);
         if (!keystrokeUniqueMap.has(uniqueKey)) {
           const pad = this.getKeystrokeBakePadding(layout);
           const w = layout.width + pad * 2;
           const h = layout.height + pad * 2;
-          const rect = pack(w, h);
-          atlasCtx.clearRect(rect.x, rect.y, w, h);
+
+          const isMouse = event.type === 'mousedown' || event.type === 'wheel';
+          const baseSlnt = isMouse ? -6 : 0;
+          const baseRond = isMouse ? 96 : 88;
+
+          // Bake Normal state (holdMix = 0)
+          const rectNormal = pack(w, h);
+          atlasCtx.clearRect(rectNormal.x, rectNormal.y, w, h);
           this.drawKeystrokeBubble(
             atlasCtx, event,
-            rect.x + pad, rect.y + pad,
+            rectNormal.x + pad, rectNormal.y + pad,
             layout.width, layout.height,
             layout.label, layout.fontSize, layout.radius, layout.paddingX,
             layout.showMouseIcon, layout.iconBoxWidth, layout.iconGap,
             'center', 1.0,
-            { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: 100, wght: 600, slnt: 0, rond: 88, holdMix: 0, laneWeight: 1 }
+            { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: 100, wght: 600, slnt: baseSlnt, rond: baseRond, holdMix: 0, laneWeight: 1 }
           );
-          keystrokeUniqueMap.set(uniqueKey, { rect, layout, pad });
+
+          // Bake Held state (holdMix = 1) — saturated color, slant, narrower width
+          const rectHeld = pack(w, h);
+          atlasCtx.clearRect(rectHeld.x, rectHeld.y, w, h);
+          this.drawKeystrokeBubble(
+            atlasCtx, event,
+            rectHeld.x + pad, rectHeld.y + pad,
+            layout.width, layout.height,
+            layout.label, layout.fontSize, layout.radius, layout.paddingX,
+            layout.showMouseIcon, layout.iconBoxWidth, layout.iconGap,
+            'center', 1.0,
+            { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: isMouse ? 95 : 97, wght: isMouse ? 675 : 655, slnt: isMouse ? -12 : -2, rond: isMouse ? 82 : 78, holdMix: 1, laneWeight: 1 }
+          );
+
+          keystrokeUniqueMap.set(uniqueKey, { rectNormal, rectHeld, layout, pad });
           uniqueCount++;
           // Yield to UI every 10 unique renders so the browser stays responsive.
           if (uniqueCount % 10 === 0) await new Promise(r => setTimeout(r, 0));
@@ -5194,17 +5264,42 @@ export class VideoRenderer {
             const drawH = baseH * visual.scale * visual.scaleY;
             const cx = p.x + p.item.bubbleWidth / 2;
             const cy = p.y + p.item.layout.height / 2 + visual.translateY;
-            quads.push({
-              x: cx - drawW / 2,
-              y: cy - drawH / 2,
-              w: drawW,
-              h: drawH,
-              u: mapping.rect.x / MAX_ATLAS_SIZE,
-              v: mapping.rect.y / actualAtlasHeight,
-              uw: mapping.rect.w / MAX_ATLAS_SIZE,
-              vh: mapping.rect.h / actualAtlasHeight,
-              alpha: visual.alpha,
-            });
+            const quadX = cx - drawW / 2;
+            const quadY = cy - drawH / 2;
+            const mix = this.clamp01(visual.holdMix);
+
+            // To perfectly crossfade two opaque objects over a background using Premultiplied SrcOver blending
+            // without the total opacity dipping in the middle, the bottom (Normal) layer must compensate.
+            // Math: A_total = A_held + A_normal - A_held * A_normal.
+            // Solving for A_total = visual.alpha yields this exact alphaNormal coefficient.
+            const alphaHeld = visual.alpha * mix;
+            const alphaNormal = alphaHeld >= 0.999 ? 0 : (visual.alpha * (1 - mix)) / (1 - alphaHeld);
+            if (alphaNormal > 0.001) {
+              quads.push({
+                x: quadX,
+                y: quadY,
+                w: drawW,
+                h: drawH,
+                u: mapping.rectNormal.x / MAX_ATLAS_SIZE,
+                v: mapping.rectNormal.y / actualAtlasHeight,
+                uw: mapping.rectNormal.w / MAX_ATLAS_SIZE,
+                vh: mapping.rectNormal.h / actualAtlasHeight,
+                alpha: alphaNormal,
+              });
+            }
+            if (alphaHeld > 0.001) {
+              quads.push({
+                x: quadX,
+                y: quadY,
+                w: drawW,
+                h: drawH,
+                u: mapping.rectHeld.x / MAX_ATLAS_SIZE,
+                v: mapping.rectHeld.y / actualAtlasHeight,
+                uw: mapping.rectHeld.w / MAX_ATLAS_SIZE,
+                vh: mapping.rectHeld.h / actualAtlasHeight,
+                alpha: alphaHeld,
+              });
+            }
           }
         };
         drawPlacements(layout.keyboard);
