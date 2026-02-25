@@ -4,7 +4,7 @@ import { Project } from '@/types/video';
 import { projectManager } from '@/lib/projectManager';
 import { useSettings } from '@/hooks/useSettings';
 import { invoke } from '@/lib/ipc';
-import { ConfirmDialog } from './Dialogs';
+import { ConfirmDialog } from './dialogs';
 
 interface ProjectsViewProps {
   projects: Omit<Project, 'videoBlob'>[];
