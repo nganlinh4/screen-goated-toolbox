@@ -11,7 +11,8 @@ import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useHotkeys, useMonitors, useWindows } from '@/hooks/useAppHooks';
 import {
   useVideoPlayback, useRecording, useProjects, useExport,
-  useZoomKeyframes, useTextOverlays, useAutoZoom, useCursorHiding
+  useZoomKeyframes, useTextOverlays, useAutoZoom, useCursorHiding,
+  getSavedKeystrokeLanguage, saveKeystrokeLanguage,
 } from '@/hooks/useVideoState';
 
 import { Header } from '@/components/Header';
@@ -1086,6 +1087,7 @@ function App() {
           speedPoints: [{ time: 0, speed: 1 }, { time: duration, speed: 1 }],
           keystrokeMode: 'off',
           keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
+          keystrokeLanguage: getSavedKeystrokeLanguage(),
           keystrokeEvents: [],
           keyboardVisibilitySegments: [],
           keyboardMouseVisibilitySegments: [],
@@ -1453,6 +1455,7 @@ function App() {
                               className={`playback-keystroke-language-btn px-2 py-0.5 text-[10px] uppercase transition-colors ${(segment?.keystrokeLanguage ?? 'en') === lang ? 'bg-[var(--primary-color)] text-white' : 'text-[var(--overlay-panel-fg)]/70 hover:bg-[var(--glass-bg)]'}`}
                               onClick={() => {
                                 if (!segment) return;
+                                saveKeystrokeLanguage(lang);
                                 setSegment({ ...segment, keystrokeLanguage: lang });
                               }}
                               disabled={!segment}

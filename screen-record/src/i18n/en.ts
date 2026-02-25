@@ -18,7 +18,7 @@ const en = {
   keystrokeModeOff: 'Keys: Off',
   keystrokeModeKeyboard: 'Keys: Keyboard',
   keystrokeModeKeyboardMouse: 'Keys: Keyboard + Mouse',
-  keystrokeLanguageLabel: 'Layout',
+  keystrokeLanguageLabel: 'Language',
   export: 'Export',
   saveRawVideo: 'Save Raw Video',
   rawVideoSavedButton: 'Raw Video Saved',

@@ -145,6 +145,7 @@ interface KeystrokeVisualState {
 interface KeystrokeBubbleLayout {
   label: string;
   showMouseIcon: boolean;
+  keyIcon: string | null;
   iconBoxWidth: number;
   iconGap: number;
   fontSize: number;
@@ -3989,85 +3990,68 @@ export class VideoRenderer {
   private translateLabel(label: string, lang: string): string {
     if (lang === 'en') return label;
 
+    // Arrow keys → symbols universally for all non-English languages.
+    // They appear both as standalone keys and as combo tokens ("Ctrl + Left" → "Ctrl + ←").
+    const ARROW_SYMBOLS: Record<string, string> = {
+      'Left': '←', 'Right': '→', 'Up': '↑', 'Down': '↓',
+    };
+
+    // Language-specific overrides. Rules per locale:
+    //   ko — transliterate to 한국어 phonetics; modifier keys (Ctrl/Shift/Alt/Win) stay English
+    //   vi — only mouse labels + Space get Vietnamese; all other keys stay English (research-backed)
+    //   es — standard Spanish computing terms (Intro, Retroceso, Supr, Inicio/Fin, Re/Av Pág)
+    //   ja — katakana phonetics for common keys; Home/End/PageUp/PageDown stay English
+    //   zh — standard Chinese computing terms; Tab and Esc stay English
     const LOCALIZATION_MAPS: Record<string, Record<string, string>> = {
       ko: {
-        'Left Click': '좌클릭',
-        'Right Click': '우클릭',
-        'Middle Click': '휠클릭',
-        '↑ Scroll': '↑ 스크롤',
-        '↓ Scroll': '↓ 스크롤',
-        'Space': '스페이스바',
-        'Enter': '엔터',
-        'Backspace': '백스페이스',
-        'Escape': 'ESC',
-        'Mouse Click': '클릭',
+        'Left Click': '좌클릭', 'Right Click': '우클릭', 'Middle Click': '휠클릭',
+        '↑ Scroll': '↑ 스크롤', '↓ Scroll': '↓ 스크롤', 'Mouse Click': '클릭',
+        'Space': '스페이스', 'Enter': '엔터', 'Backspace': '백스페이스',
+        'Esc': 'ESC', 'Tab': '탭', 'Delete': '삭제', 'Insert': '삽입',
+        'Home': 'Home', 'End': 'End', 'PageUp': '페이지업', 'PageDown': '페이지다운',
+        'CapsLock': '한/영',
       },
       vi: {
-        'Left Click': 'Chuột Trái',
-        'Right Click': 'Chuột Phải',
-        'Middle Click': 'Nút Giữa',
-        '↑ Scroll': 'Cuộn ↑',
-        '↓ Scroll': 'Cuộn ↓',
-        'Space': 'Phím Cách',
-        'Mouse Click': 'Nhấn Chuột',
-        'Enter': 'Enter',
-        'Backspace': 'Xoá',
+        // Mouse labels use Vietnamese; key names stay English per local convention
+        'Left Click': 'Chuột Trái', 'Right Click': 'Chuột Phải', 'Middle Click': 'Chuột Giữa',
+        '↑ Scroll': '↑ Cuộn', '↓ Scroll': '↓ Cuộn', 'Mouse Click': 'Nhấp Chuột',
+        'Space': 'Cách',
       },
       es: {
-        'Left Click': 'Clic Izq',
-        'Right Click': 'Clic Der',
-        'Middle Click': 'Clic Central',
-        '↑ Scroll': 'Desplazar ↑',
-        '↓ Scroll': 'Desplazar ↓',
-        'Space': 'Espacio',
-        'Mouse Click': 'Clic',
-        'Enter': 'Intro',
-        'Backspace': 'Retroceso',
+        'Left Click': 'Clic Izq', 'Right Click': 'Clic Der', 'Middle Click': 'Clic Central',
+        '↑ Scroll': '↑ Desplazar', '↓ Scroll': '↓ Desplazar', 'Mouse Click': 'Clic',
+        'Space': 'Espacio', 'Enter': 'Intro', 'Backspace': 'Retroceso',
+        'Esc': 'Esc', 'Tab': 'Tab', 'Delete': 'Supr', 'Insert': 'Ins',
+        'Home': 'Inicio', 'End': 'Fin', 'PageUp': 'Re Pág', 'PageDown': 'Av Pág',
       },
       ja: {
-        'Left Click': '左クリック',
-        'Right Click': '右クリック',
-        'Middle Click': '中クリック',
-        '↑ Scroll': '↑ スクロール',
-        '↓ Scroll': '↓ スクロール',
-        'Space': 'スペース',
-        'Mouse Click': 'クリック',
-        'Enter': 'エンター',
+        'Left Click': '左クリック', 'Right Click': '右クリック', 'Middle Click': '中クリック',
+        '↑ Scroll': '↑ スクロール', '↓ Scroll': '↓ スクロール', 'Mouse Click': 'クリック',
+        // Katakana phonetics; Enter≠確定 (that's IME confirm), Backspace≠Delete
+        'Space': 'スペース', 'Enter': 'エンター', 'Backspace': 'バックスペース', 'Delete': 'デリート',
+        'Esc': 'ESC', 'Tab': 'タブ', 'Insert': '挿入',
+        // Home/End/PageUp/PageDown stay English in Japanese convention
       },
       zh: {
-        'Left Click': '左键单击',
-        'Right Click': '右键单击',
-        'Middle Click': '中键单击',
-        '↑ Scroll': '向上滚动',
-        '↓ Scroll': '向下滚动',
-        'Space': '空格',
-        'Mouse Click': '点击',
-        'Enter': '回车',
-        'Backspace': '退格',
+        'Left Click': '左键点击', 'Right Click': '右键点击', 'Middle Click': '中键点击',
+        '↑ Scroll': '↑ 滚动', '↓ Scroll': '↓ 滚动', 'Mouse Click': '点击',
+        // Standard Chinese computing terms; Tab and Esc stay English
+        'Space': '空格', 'Enter': '回车', 'Backspace': '退格', 'Delete': '删除',
+        'Home': '行首', 'End': '行尾', 'PageUp': '上一页', 'PageDown': '下一页',
+        'CapsLock': '大写锁定',
       },
     };
 
     const map = LOCALIZATION_MAPS[lang] || {};
-    // Split modifiers like "Ctrl + Left Click" and translate each token separately
+    // Split modifier combos like "Ctrl + Left Click", translate each token independently
     const parts = label.split(' + ');
-    const translatedParts = parts.map(part => {
-      if (map[part]) return map[part];
-      if (lang === 'ko' && part.length === 1) {
-        const KO_MAP: Record<string, string> = {
-          'Q': 'ㅂ', 'W': 'ㅈ', 'E': 'ㄷ', 'R': 'ㄱ', 'T': 'ㅅ', 'Y': 'ㅛ', 'U': 'ㅕ', 'I': 'ㅑ', 'O': 'ㅐ', 'P': 'ㅔ',
-          'A': 'ㅁ', 'S': 'ㄴ', 'D': 'ㅇ', 'F': 'ㄹ', 'G': 'ㅎ', 'H': 'ㅗ', 'J': 'ㅓ', 'K': 'ㅏ', 'L': 'ㅣ',
-          'Z': 'ㅋ', 'X': 'ㅌ', 'C': 'ㅊ', 'V': 'ㅍ', 'B': 'ㅠ', 'N': 'ㅜ', 'M': 'ㅡ',
-        };
-        return KO_MAP[part.toUpperCase()] ?? part;
-      }
-      return part;
-    });
+    const translatedParts = parts.map(part => map[part] ?? ARROW_SYMBOLS[part] ?? part);
     return translatedParts.join(' + ');
   }
 
   private getKeystrokeLabel(event: KeystrokeEvent): string {
     const label = this.translateLabel(event.label, this._keystrokeLanguage);
-    return event.count > 1 ? `${label} x${event.count}` : label;
+    return event.count > 1 ? `${label} ×${event.count}` : label;
   }
 
   private getKeystrokeBorderColor(event: KeystrokeEvent, holdMix: number = 0): string {
@@ -4110,9 +4094,19 @@ export class VideoRenderer {
     const paddingY = Math.round(fontSize * 0.38);
     const radius = Math.round(fontSize * 0.64);
     const marginBottom = Math.round(Math.max(14, canvasHeight * 0.06));
+    const KEY_ICON_MAP: Record<string, string> = {
+      'Space': 'space', 'Enter': 'enter', 'Backspace': 'backspace',
+      'Tab': 'tab', 'Delete': 'delete', 'CapsLock': 'capslock', 'Shift': 'shift',
+    };
+    // Icons for non-combo single keys only (combos like "Ctrl + Enter" stay text-only)
+    const keyIcon = (!isMouse && !event.label.includes(' + '))
+      ? (KEY_ICON_MAP[event.label] ?? null)
+      : null;
     const showMouseIcon = isMouse;
-    const iconBoxWidth = showMouseIcon ? Math.round(fontSize * 0.78) : 0;
-    const iconGap = showMouseIcon ? Math.round(fontSize * 0.16) : 0;
+    const iconBoxWidth = showMouseIcon
+      ? Math.round(fontSize * 0.78)
+      : (keyIcon ? Math.round(fontSize * 0.72) : 0);
+    const iconGap = (showMouseIcon || keyIcon) ? Math.round(fontSize * 0.16) : 0;
 
     ctx.save();
     const originalVariations = ctx.canvas.style.fontVariationSettings;
@@ -4136,13 +4130,14 @@ export class VideoRenderer {
 
     const height = Math.ceil(fontSize + paddingY * 2);
     const rawWidth = textWidth + iconBoxWidth + iconGap + paddingX * 2;
-    const minLabelWidth = showMouseIcon
+    const minLabelWidth = (showMouseIcon || keyIcon)
       ? (iconBoxWidth + iconGap + height)
       : (height * 1.06); // Enforce square-like identical widths for single character keys like E and W
 
     return {
       label,
       showMouseIcon,
+      keyIcon,
       iconBoxWidth,
       iconGap,
       fontSize,
@@ -4235,6 +4230,151 @@ export class VideoRenderer {
     ctx.restore();
   }
 
+  private drawKeyIconInBubble(
+    ctx: CanvasRenderingContext2D,
+    iconType: string,
+    centerX: number,
+    centerY: number,
+    iconSize: number,
+    visual: KeystrokeVisualState
+  ) {
+    const unit = iconSize / 24;
+    const outline = Math.max(2, unit * 2.8);
+    const holdMix = this.clamp01(visual.holdMix);
+    const color = this.rgbaToCss(this.lerpRgba([255, 255, 255, 0.92], [244, 255, 249, 1.0], holdMix));
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    const slantRadians = (visual.slnt * Math.PI) / 180;
+    ctx.transform(1, 0, Math.tan(slantRadians) * 0.7, 1, 0, 0);
+
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = outline;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (iconType === 'space') {
+      // Horizontal spacebar bar in lower-center of icon area
+      const barW = 17 * unit;
+      const barH = 3.5 * unit;
+      ctx.beginPath();
+      ctx.roundRect(-barW / 2, 3 * unit, barW, barH, barH / 2);
+      ctx.fill();
+    } else if (iconType === 'enter') {
+      // ↵ shape: horizontal arm + vertical arm down + arrowhead pointing left
+      ctx.beginPath();
+      ctx.moveTo(-6 * unit, 3 * unit);
+      ctx.lineTo(7 * unit, 3 * unit);
+      ctx.lineTo(7 * unit, -6 * unit);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-6 * unit, 3 * unit);
+      ctx.lineTo(-1 * unit, -1.5 * unit);
+      ctx.moveTo(-6 * unit, 3 * unit);
+      ctx.lineTo(-1 * unit, 7.5 * unit);
+      ctx.stroke();
+    } else if (iconType === 'backspace') {
+      // ← arrow shaft + arrowhead
+      ctx.beginPath();
+      ctx.moveTo(-7 * unit, 0);
+      ctx.lineTo(8 * unit, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-7 * unit, 0);
+      ctx.lineTo(-2 * unit, -4.5 * unit);
+      ctx.moveTo(-7 * unit, 0);
+      ctx.lineTo(-2 * unit, 4.5 * unit);
+      ctx.stroke();
+    } else if (iconType === 'tab') {
+      // |→ (left vertical bar + right-pointing arrow)
+      ctx.beginPath();
+      ctx.moveTo(-8 * unit, -5 * unit);
+      ctx.lineTo(-8 * unit, 5 * unit);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-4 * unit, 0);
+      ctx.lineTo(7 * unit, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(7 * unit, 0);
+      ctx.lineTo(2 * unit, -4.5 * unit);
+      ctx.moveTo(7 * unit, 0);
+      ctx.lineTo(2 * unit, 4.5 * unit);
+      ctx.stroke();
+    } else if (iconType === 'shift') {
+      // ⇧ upward hollow chevron with stem
+      const tipY = -9 * unit;
+      const midY = -1 * unit;
+      const baseY = 7 * unit;
+      const stemW = 3.5 * unit;
+      const outerW = 9 * unit;
+      ctx.beginPath();
+      ctx.moveTo(0, tipY);
+      ctx.lineTo(-outerW, midY);
+      ctx.lineTo(-stemW, midY);
+      ctx.lineTo(-stemW, baseY);
+      ctx.lineTo(stemW, baseY);
+      ctx.lineTo(stemW, midY);
+      ctx.lineTo(outerW, midY);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (iconType === 'capslock') {
+      // ⇪ shift chevron + underline bar
+      const tipY = -8 * unit;
+      const midY = -1 * unit;
+      const stemTop = 2 * unit;
+      const stemW = 3.5 * unit;
+      const outerW = 9 * unit;
+      ctx.beginPath();
+      ctx.moveTo(0, tipY);
+      ctx.lineTo(-outerW, midY);
+      ctx.lineTo(-stemW, midY);
+      ctx.lineTo(-stemW, stemTop);
+      ctx.lineTo(stemW, stemTop);
+      ctx.lineTo(stemW, midY);
+      ctx.lineTo(outerW, midY);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-outerW, 6 * unit);
+      ctx.lineTo(outerW, 6 * unit);
+      ctx.stroke();
+    } else if (iconType === 'delete') {
+      // Trash can icon
+      const bodyW = 13 * unit;
+      const bodyH = 11 * unit;
+      const bodyTop = -3 * unit;
+      const lidH = 2.5 * unit;
+      const lidW = 16 * unit;
+      const handleW = 5 * unit;
+      const handleH = 2.5 * unit;
+      // Handle (small rounded rect centered above lid)
+      ctx.beginPath();
+      ctx.roundRect(-handleW / 2, bodyTop - lidH - handleH, handleW, handleH, handleH / 2);
+      ctx.stroke();
+      // Lid (filled bar)
+      ctx.beginPath();
+      ctx.roundRect(-lidW / 2, bodyTop - lidH, lidW, lidH, lidH / 2);
+      ctx.fill();
+      // Body (rounded bottom corners)
+      ctx.beginPath();
+      ctx.roundRect(-bodyW / 2, bodyTop, bodyW, bodyH, [0, 0, 3 * unit, 3 * unit]);
+      ctx.stroke();
+      // Two vertical lines inside body
+      const lineTop = bodyTop + 2.5 * unit;
+      const lineBot = bodyTop + bodyH - 2.5 * unit;
+      ctx.beginPath();
+      ctx.moveTo(-3 * unit, lineTop);
+      ctx.lineTo(-3 * unit, lineBot);
+      ctx.moveTo(3 * unit, lineTop);
+      ctx.lineTo(3 * unit, lineBot);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
   private drawKeystrokeBubble(
     ctx: CanvasRenderingContext2D,
     event: KeystrokeEvent,
@@ -4247,6 +4387,7 @@ export class VideoRenderer {
     radius: number,
     paddingX: number,
     showMouseIcon: boolean,
+    keyIcon: string | null,
     iconBoxWidth: number,
     iconGap: number,
     contentAlign: 'left' | 'center' | 'right' = 'center',
@@ -4298,6 +4439,15 @@ export class VideoRenderer {
       const iconCenterX = paddingX + iconBoxWidth * 0.5;
       this.drawMouseIndicatorIcon(ctx, event, iconCenterX, height / 2, iconSize, visual);
       ctx.font = `${Math.round(visual.wght)} ${fontSize}px 'Google Sans Flex', sans-serif`;
+      ctx.textAlign = 'left';
+      const textX = paddingX + iconBoxWidth + iconGap;
+      ctx.fillText(label, textX, height / 2);
+    } else if (keyIcon) {
+      const iconSize = Math.round(fontSize * 0.82);
+      const iconCenterX = paddingX + iconBoxWidth * 0.5;
+      this.drawKeyIconInBubble(ctx, keyIcon, iconCenterX, height / 2, iconSize, visual);
+      ctx.font = `${Math.round(visual.wght)} ${fontSize}px 'Google Sans Flex', sans-serif`;
+      ctx.fillStyle = this.getKeystrokeTextColor(holdMix);
       ctx.textAlign = 'left';
       const textX = paddingX + iconBoxWidth + iconGap;
       ctx.fillText(label, textX, height / 2);
@@ -4762,6 +4912,7 @@ export class VideoRenderer {
           placement.item.layout.radius,
           placement.item.layout.paddingX,
           placement.item.layout.showMouseIcon,
+          placement.item.layout.keyIcon,
           placement.item.layout.iconBoxWidth,
           placement.item.layout.iconGap,
           'center', // Center alignment for perfectly matched consistency with export
@@ -5159,7 +5310,7 @@ export class VideoRenderer {
       let uniqueCount = 0;
       for (const event of cache.displayEvents) {
         const layout = this.getCachedKeystrokeBubbleLayout(atlasCtx, event, outputHeight, overlayTransform.scale);
-        const uniqueKey = `${layout.label}|${layout.showMouseIcon}|${layout.fontSize}`;
+        const uniqueKey = `${layout.label}|${layout.showMouseIcon}|${layout.keyIcon ?? ''}|${layout.fontSize}`;
         keystrokeEventMap.set(event.id, uniqueKey);
         if (!keystrokeUniqueMap.has(uniqueKey)) {
           const pad = this.getKeystrokeBakePadding(layout);
@@ -5178,7 +5329,7 @@ export class VideoRenderer {
             rectNormal.x + pad, rectNormal.y + pad,
             layout.width, layout.height,
             layout.label, layout.fontSize, layout.radius, layout.paddingX,
-            layout.showMouseIcon, layout.iconBoxWidth, layout.iconGap,
+            layout.showMouseIcon, layout.keyIcon, layout.iconBoxWidth, layout.iconGap,
             'center', 1.0,
             { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: 100, wght: 600, slnt: baseSlnt, rond: baseRond, holdMix: 0, laneWeight: 1 }
           );
@@ -5191,7 +5342,7 @@ export class VideoRenderer {
             rectHeld.x + pad, rectHeld.y + pad,
             layout.width, layout.height,
             layout.label, layout.fontSize, layout.radius, layout.paddingX,
-            layout.showMouseIcon, layout.iconBoxWidth, layout.iconGap,
+            layout.showMouseIcon, layout.keyIcon, layout.iconBoxWidth, layout.iconGap,
             'center', 1.0,
             { alpha: 1, scale: 1, scaleX: 1, scaleY: 1, translateY: 0, wdth: isMouse ? 95 : 97, wght: isMouse ? 675 : 655, slnt: isMouse ? -12 : -2, rond: isMouse ? 82 : 78, holdMix: 1, laneWeight: 1 }
           );

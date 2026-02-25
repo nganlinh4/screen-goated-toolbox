@@ -491,6 +491,11 @@ fn vk_to_name(vk: u32) -> Option<&'static str> {
         38 => Some("Up"),
         39 => Some("Right"),
         40 => Some("Down"),
+        21 => Some("한/영"),   // VK_HANGUL (Korean IME toggle) / VK_KANA (Japanese)
+        23 => Some("전자"),    // VK_JUNJA
+        25 => Some("한자"),    // VK_HANJA (Korean) / VK_KANJI (Japanese)
+        28 => Some("変換"),    // VK_CONVERT (Japanese)
+        29 => Some("無変換"),  // VK_NONCONVERT (Japanese)
         44 => Some("PrintScreen"),
         45 => Some("Insert"),
         46 => Some("Delete"),
@@ -499,6 +504,21 @@ fn vk_to_name(vk: u32) -> Option<&'static str> {
         144 => Some("NumLock"),
         145 => Some("ScrollLock"),
         19 => Some("Pause"),
+        // Media keys
+        173 => Some("Mute"),
+        174 => Some("Vol-"),
+        175 => Some("Vol+"),
+        176 => Some("Next"),
+        177 => Some("Prev"),
+        178 => Some("Stop"),
+        179 => Some("Play"),
+        // Browser keys
+        166 => Some("BrBack"),
+        167 => Some("BrFwd"),
+        168 => Some("Refresh"),
+        // Japanese IME toggle keys
+        243 => Some("英数"),
+        244 => Some("ひらがな"),
         160 | 161 => Some("Shift"),
         162 | 163 => Some("Ctrl"),
         164 | 165 => Some("Alt"),
