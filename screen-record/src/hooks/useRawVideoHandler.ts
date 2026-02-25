@@ -129,6 +129,26 @@ export function useRawVideoHandler(): UseRawVideoHandlerReturn {
     }
   }, [lastRawSavedPath, currentRawVideoPath, ensureRawVideoSaved]);
 
+  // When the dialog is already open and a new recording completes (currentRawVideoPath
+  // changes), re-trigger the auto-save so the dialog updates to the new video instead
+  // of going blank. handleOpenRawVideoDialog handles the initial open; this covers the
+  // "dialog stayed open across recordings" edge case.
+  useEffect(() => {
+    if (!showRawVideoDialog) return;
+    if (!currentRawVideoPath) return;
+    if (lastRawSavedPath) return;     // already saved — nothing to do
+    if (rawAutoCopyEnabled) return;   // onStopRecording's auto-copy already handles it
+
+    let active = true;
+    setIsRawActionBusy(true);
+    ensureRawVideoSaved()
+      .catch(e => console.error('[RawVideo] Dialog refresh save failed:', e))
+      .finally(() => { if (active) setIsRawActionBusy(false); });
+    return () => { active = false; };
+  // Only retrigger on path change — dialog-open save is handleOpenRawVideoDialog's job.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRawVideoPath]);
+
   const handleChangeRawSavePath = useCallback(async () => {
     try {
       setIsRawActionBusy(true);

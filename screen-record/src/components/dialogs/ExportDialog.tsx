@@ -128,7 +128,7 @@ export function ExportDialog({
     ? Math.round(nativeSourceFps)
     : 60;
   const sourceResLabel = `${sourceResOptionW}×${sourceResOptionH}`;
-  const fpsChoiceValues = Array.from(new Set([sourceFpsValue, 24, 30, 60])).sort((a, b) => a - b);
+  const fpsChoiceValues = Array.from(new Set([sourceFpsValue, 24, 30, 60, 90, 120])).sort((a, b) => a - b);
   const resOptions = computeResolutionOptions(baseW, baseH, vidH)
     .slice()
     .sort((a, b) => b.height - a.height || b.width - a.width);
@@ -299,7 +299,7 @@ export function ExportDialog({
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.frameRate}</label>
             </div>
-            <div className="fps-options flex gap-2">
+            <div className="fps-options flex flex-wrap gap-2">
               {fpsChoiceValues.map((fps) => {
                 const isSourceOption = fps === sourceFpsValue;
                 return (

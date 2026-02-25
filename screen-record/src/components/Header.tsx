@@ -3,12 +3,34 @@ import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import {
   Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen,
-  ChevronDown, Check, Monitor, AppWindow
+  ChevronDown, ChevronLeft, ChevronRight, Check, Monitor, AppWindow
 } from 'lucide-react';
-import { Hotkey } from '@/hooks/useAppHooks';
+import { Hotkey, MonitorInfo } from '@/hooks/useAppHooks';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
 import { RecordingMode } from '@/types/video';
+
+/** Returns exact integer divisors of Hz that are ≥ 30 (Hz/n for n ∈ {1,2,3,4}). */
+function getPerfectFpsOptions(hz: number): number[] {
+  if (hz <= 0) return [];
+  const options: number[] = [];
+  for (let n = 1; n <= 4; n++) {
+    const fps = hz / n;
+    if (Number.isInteger(fps) && fps >= 30) options.push(fps);
+  }
+  return options;
+}
+
+/** All unique perfect-pacing options across every monitor, sorted ascending. */
+function getCombinedFpsOptions(monitors: MonitorInfo[]): number[] {
+  const set = new Set<number>();
+  for (const m of monitors) {
+    for (const fps of getPerfectFpsOptions(m.hz)) set.add(fps);
+  }
+  return Array.from(set).sort((a, b) => a - b);
+}
+
+type CaptureMenuStep = 'root' | 'display-monitors' | 'display-fps' | 'window-fps';
 
 interface HeaderProps {
   isRecording: boolean;
@@ -29,7 +51,10 @@ interface HeaderProps {
   hideExport?: boolean;
   hideRawVideo?: boolean;
   captureSource: 'monitor' | 'window';
-  onCaptureSourceChange: (source: 'monitor' | 'window') => void;
+  captureFps: number | null;
+  monitors: MonitorInfo[];
+  onSelectMonitorCapture: (monitorId: string, fps: number | null) => void;
+  onSelectWindowCapture: (fps: number | null) => void;
 }
 
 export function Header({
@@ -51,18 +76,42 @@ export function Header({
   hideExport = false,
   hideRawVideo = false,
   captureSource,
-  onCaptureSourceChange
+  captureFps,
+  monitors,
+  onSelectMonitorCapture,
+  onSelectWindowCapture,
 }: HeaderProps) {
   const { t } = useSettings();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [isRecordingModeMenuOpen, setIsRecordingModeMenuOpen] = useState(false);
   const [isCaptureSourceMenuOpen, setIsCaptureSourceMenuOpen] = useState(false);
+  const [menuStep, setMenuStep] = useState<CaptureMenuStep>('root');
+  const [pickedMonitorId, setPickedMonitorId] = useState<string | null>(null);
   const recordingModeMenuRef = useRef<HTMLDivElement | null>(null);
   const captureSourceMenuRef = useRef<HTMLDivElement | null>(null);
+
   const selectedRecordingModeLabel = useMemo(
     () => recordingMode === 'withCursor' ? t.recordingModeWithCursor : t.recordingModeNoCursor,
     [recordingMode, t.recordingModeWithCursor, t.recordingModeNoCursor]
   );
+
+  const captureSourceLabel = useMemo(() => {
+    const sourceLabel = captureSource === 'monitor' ? t.displayCaptureShort : t.windowCapture;
+    return captureFps ? `${sourceLabel} · ${captureFps}fps` : sourceLabel;
+  }, [captureSource, captureFps, t.displayCaptureShort, t.windowCapture]);
+
+  const combinedFpsOptions = useMemo(() => getCombinedFpsOptions(monitors), [monitors]);
+
+  const pickedMonitor = useMemo(
+    () => monitors.find(m => m.id === pickedMonitorId) ?? null,
+    [monitors, pickedMonitorId]
+  );
+
+  const closeMenu = () => {
+    setIsCaptureSourceMenuOpen(false);
+    setMenuStep('root');
+    setPickedMonitorId(null);
+  };
 
   useEffect(() => {
     invoke<boolean>('is_maximized').then(setIsWindowMaximized).catch(() => {});
@@ -74,12 +123,12 @@ export function Header({
         setIsRecordingModeMenuOpen(false);
       }
       if (!captureSourceMenuRef.current?.contains(event.target as Node)) {
-        setIsCaptureSourceMenuOpen(false);
+        closeMenu();
       }
     };
     window.addEventListener('mousedown', onMouseDown);
     return () => window.removeEventListener('mousedown', onMouseDown);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <header
@@ -117,15 +166,14 @@ export function Header({
           <span className="text-[var(--on-surface)] text-sm font-medium">{t.appTitle}</span>
         </div>
 
-        <div className="recording-status-area h-full flex items-center">
-          {isRecording && (
-            <div className="recording-indicator flex items-center gap-2 border px-3 py-1.5 rounded-lg backdrop-blur-md animate-in fade-in slide-in-from-left-2 duration-300">
+        {isRecording && (
+          <div className="recording-status-area h-full flex items-center">
+            <div className="recording-indicator flex items-center gap-2 border border-red-500/20 bg-red-500/10 px-3 py-1 rounded-lg backdrop-blur-md animate-in fade-in slide-in-from-left-2 duration-300">
               <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-              <span className="text-red-500 text-[11px] font-extrabold uppercase tracking-widest drop-shadow-sm">{t.rec}</span>
               <span className="text-red-500 text-xs font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <div className="header-right flex items-center gap-2 h-full pl-2">
@@ -158,7 +206,7 @@ export function Header({
           >
             <Button
               onClick={() => setIsRecordingModeMenuOpen((open) => {
-                if (!open) setIsCaptureSourceMenuOpen(false);
+                if (!open) closeMenu();
                 return !open;
               })}
               className="recording-mode-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center"
@@ -170,14 +218,8 @@ export function Header({
             {isRecordingModeMenuOpen && (
               <div className="recording-mode-menu absolute top-[calc(100%+4px)] left-0 min-w-[360px] z-50 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.32)] p-1.5">
                 {([
-                  {
-                    mode: 'withoutCursor' as const,
-                    label: t.recordingModeNoCursorDetail,
-                  },
-                  {
-                    mode: 'withCursor' as const,
-                    label: t.recordingModeWithCursorDetail,
-                  },
+                  { mode: 'withoutCursor' as const, label: t.recordingModeNoCursorDetail },
+                  { mode: 'withCursor' as const, label: t.recordingModeWithCursorDetail },
                 ]).map((option) => {
                   const selected = recordingMode === option.mode;
                   return (
@@ -207,59 +249,188 @@ export function Header({
         </div>
 
         <div className="header-actions flex items-center gap-2">
+          {/* ── Capture-source dropdown (multi-step) ── */}
           <div
             ref={captureSourceMenuRef}
             className="capture-source-dropdown relative flex-shrink-0"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <Button
+              disabled={isRecording}
               onClick={() => setIsCaptureSourceMenuOpen((open) => {
-                if (!open) setIsRecordingModeMenuOpen(false);
+                if (!open) { setIsRecordingModeMenuOpen(false); setMenuStep('root'); }
+                else closeMenu();
                 return !open;
               })}
-              className="capture-source-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center"
-              title={captureSource === 'monitor' ? t.displayCapture : t.windowCapture}
+              className="capture-source-toggle-btn bg-transparent border border-[var(--outline-variant)] hover:bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] px-2 h-6 text-[11px] transition-colors whitespace-nowrap flex items-center disabled:opacity-40 disabled:pointer-events-none"
             >
-              <span className="capture-source-toggle-label">
-                {captureSource === 'monitor' ? t.displayCaptureShort : t.windowCapture}
-              </span>
+              <span className="capture-source-toggle-label">{captureSourceLabel}</span>
               <ChevronDown className="w-3 h-3 ml-1.5" />
             </Button>
+
             {isCaptureSourceMenuOpen && (
-              <div className="capture-source-menu absolute top-[calc(100%+4px)] right-0 min-w-[160px] z-50 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.32)] p-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onCaptureSourceChange('monitor');
-                    setIsCaptureSourceMenuOpen(false);
-                  }}
-                  className={`capture-source-option capture-source-option-monitor w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 ${
-                    captureSource === 'monitor'
-                      ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
-                      : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
-                  }`}
-                >
-                  <Monitor className="w-3.5 h-3.5" />
-                  <span>{t.displayCapture}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onCaptureSourceChange('window');
-                    setIsCaptureSourceMenuOpen(false);
-                  }}
-                  className={`capture-source-option capture-source-option-window w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 mt-1 ${
-                    captureSource === 'window'
-                      ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
-                      : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
-                  }`}
-                >
-                  <AppWindow className="w-3.5 h-3.5" />
-                  <span>{t.windowCapture}</span>
-                </button>
+              <div className="capture-source-menu absolute top-[calc(100%+4px)] right-0 min-w-[220px] z-50 rounded-lg border border-[var(--glass-border)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.32)] p-1.5 overflow-hidden">
+
+                {/* ── Step: root ── */}
+                {menuStep === 'root' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMenuStep('display-monitors')}
+                      className={`capture-source-option-display w-full text-left rounded-md px-2 py-2 text-[11px] transition-colors flex items-center gap-2 ${
+                        captureSource === 'monitor'
+                          ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
+                          : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
+                      }`}
+                    >
+                      <Monitor className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="flex-1">{t.displayCapture}</span>
+                      <ChevronRight className="w-3 h-3 opacity-50" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMenuStep('window-fps')}
+                      className={`capture-source-option-window w-full text-left rounded-md px-2 py-2 text-[11px] transition-colors flex items-center gap-2 mt-0.5 ${
+                        captureSource === 'window'
+                          ? 'bg-[var(--primary-color)]/16 text-[var(--on-surface)]'
+                          : 'text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]'
+                      }`}
+                    >
+                      <AppWindow className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="flex-1">{t.windowCapture}</span>
+                      <ChevronRight className="w-3 h-3 opacity-50" />
+                    </button>
+                  </>
+                )}
+
+                {/* ── Step: display → pick monitor ── */}
+                {menuStep === 'display-monitors' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMenuStep('root')}
+                      className="capture-back-btn w-full text-left rounded-md px-2 py-1.5 text-[11px] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] transition-colors flex items-center gap-1.5 mb-1"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>{t.displayCapture}</span>
+                    </button>
+                    <div className="border-t border-[var(--outline-variant)]/50 mb-1.5" />
+                    <div className="capture-monitor-list flex flex-col gap-1.5 max-h-[320px] overflow-y-auto">
+                      {monitors.length === 0 ? (
+                        <div className="px-2 py-3 text-[11px] text-[var(--on-surface-variant)] text-center opacity-60">
+                          Loading…
+                        </div>
+                      ) : monitors.map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => { setPickedMonitorId(m.id); setMenuStep('display-fps'); }}
+                          className="capture-monitor-card w-full rounded-md overflow-hidden border border-[var(--outline-variant)]/40 hover:border-[var(--primary-color)]/60 transition-all text-left group"
+                        >
+                          {m.thumbnail ? (
+                            <img
+                              src={m.thumbnail}
+                              alt={m.name}
+                              className="w-full h-[90px] object-cover"
+                              draggable={false}
+                            />
+                          ) : (
+                            <div className="capture-monitor-thumb-placeholder w-full h-[90px] bg-[var(--surface-container)] flex items-center justify-center">
+                              <Monitor className="w-7 h-7 text-[var(--on-surface-variant)]/30" />
+                            </div>
+                          )}
+                          <div className="capture-monitor-info px-2 py-1.5 bg-[var(--surface-container)]/40 group-hover:bg-[var(--surface-container)] transition-colors">
+                            <div className="text-[11px] font-medium text-[var(--on-surface)] leading-tight">{m.name}</div>
+                            <div className="text-[10px] text-[var(--on-surface-variant)] opacity-70 mt-0.5">
+                              {m.width}×{m.height} · {m.hz}Hz
+                              {m.is_primary && <span className="ml-1.5 opacity-60">primary</span>}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* ── Step: display → picked monitor → pick FPS ── */}
+                {menuStep === 'display-fps' && pickedMonitor && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMenuStep('display-monitors')}
+                      className="capture-back-btn w-full text-left rounded-md px-2 py-1.5 text-[11px] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] transition-colors flex items-center gap-1.5 mb-1"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span className="truncate">{pickedMonitor.name}</span>
+                    </button>
+                    <div className="border-t border-[var(--outline-variant)]/50 mb-1" />
+                    <div className="capture-fps-section-label px-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--on-surface-variant)] opacity-60">
+                      FPS · {pickedMonitor.hz}Hz
+                    </div>
+                    {/* Auto */}
+                    <button
+                      type="button"
+                      onClick={() => { onSelectMonitorCapture(pickedMonitor.id, null); closeMenu(); }}
+                      className="capture-fps-option capture-fps-auto w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                    >
+                      <span className="w-3.5 h-3.5" />
+                      <span className="flex-1">Auto</span>
+                    </button>
+                    {getPerfectFpsOptions(pickedMonitor.hz).map((fps) => (
+                      <button
+                        key={fps}
+                        type="button"
+                        onClick={() => { onSelectMonitorCapture(pickedMonitor.id, fps); closeMenu(); }}
+                        className="capture-fps-option mt-0.5 w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                      >
+                        <span className="w-3.5 h-3.5" />
+                        <span className="flex-1 font-medium">{fps}fps</span>
+                        <span className="text-[10px] opacity-40">÷{pickedMonitor.hz / fps}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {/* ── Step: window → pick FPS (combined from all monitors) ── */}
+                {menuStep === 'window-fps' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMenuStep('root')}
+                      className="capture-back-btn w-full text-left rounded-md px-2 py-1.5 text-[11px] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] transition-colors flex items-center gap-1.5 mb-1"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>{t.windowCapture}</span>
+                    </button>
+                    <div className="border-t border-[var(--outline-variant)]/50 mb-1" />
+                    <div className="capture-fps-section-label px-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--on-surface-variant)] opacity-60">
+                      FPS
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { onSelectWindowCapture(null); closeMenu(); }}
+                      className="capture-fps-option capture-fps-auto w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                    >
+                      <span className="w-3.5 h-3.5" />
+                      <span>Auto</span>
+                    </button>
+                    {combinedFpsOptions.map((fps) => (
+                      <button
+                        key={fps}
+                        type="button"
+                        onClick={() => { onSelectWindowCapture(fps); closeMenu(); }}
+                        className="capture-fps-option mt-0.5 w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center gap-2 text-[var(--on-surface-variant)] hover:bg-[var(--surface-container)] hover:text-[var(--on-surface)]"
+                      >
+                        <span className="w-3.5 h-3.5" />
+                        <span className="font-medium">{fps}fps</span>
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>
+
           {currentVideo && !hideRawVideo && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}

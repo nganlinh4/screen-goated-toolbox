@@ -84,14 +84,21 @@ export function MediaResultDialog({
           </button>
         </div>
 
-        <div className="media-result-header-row flex items-center gap-2 rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-2.5">
-          <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-300" />
-          <div className="min-w-0 flex-1 text-sm text-emerald-700 dark:text-emerald-200 whitespace-nowrap">
-            <span className="font-semibold">{t.savedTo}</span>
-            <span className="mx-1 opacity-70">·</span>
-            <span className="inline-block max-w-full truncate align-middle" title={`${title}: ${filePath}`}>{filePath}</span>
+        {isBusy && !filePath ? (
+          <div className="media-result-header-row flex items-center gap-2 rounded-lg border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2.5">
+            <div className="h-4 w-4 flex-shrink-0 rounded-full border-2 border-[var(--primary-color)] border-t-transparent animate-spin" />
+            <span className="text-sm text-[var(--on-surface-variant)]">{t.saving}</span>
           </div>
-        </div>
+        ) : (
+          <div className="media-result-header-row flex items-center gap-2 rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-2.5">
+            <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-300" />
+            <div className="min-w-0 flex-1 text-sm text-emerald-700 dark:text-emerald-200 whitespace-nowrap">
+              <span className="font-semibold">{t.savedTo}</span>
+              <span className="mx-1 opacity-70">·</span>
+              <span className="inline-block max-w-full truncate align-middle" title={`${title}: ${filePath}`}>{filePath}</span>
+            </div>
+          </div>
+        )}
 
         {filePath ? (
           <div className="media-result-content flex flex-col gap-4">

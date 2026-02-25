@@ -164,6 +164,7 @@ const vi: Translations = {
   confirmClearAllDesc: 'Bạn có chắc chắn muốn xóa TẤT CẢ dự án và các video gốc của chúng không? Hành động này không thể hoàn tác.',
   matchRecorded: 'Khớp Video Gốc',
   savedTo: 'Đã lưu vào',
+  saving: 'Đang lưu…',
   showInFolder: 'Mở Thư Mục',
   rename: 'Đổi Tên',
   save: 'Lưu',
