@@ -274,7 +274,8 @@ export function useRecording(props: UseRecordingProps) {
   const startNewRecording = async (
     targetId: string,
     recordingMode: RecordingMode,
-    targetType: 'monitor' | 'window' = 'monitor'
+    targetType: 'monitor' | 'window' = 'monitor',
+    targetFps?: number
   ) => {
     try {
       setAudioFilePath("");
@@ -310,7 +311,8 @@ export function useRecording(props: UseRecordingProps) {
       await invoke("start_recording", {
         targetId,
         targetType,
-        includeCursor: recordingMode === 'withCursor'
+        includeCursor: recordingMode === 'withCursor',
+        fps: targetFps ?? null
       });
       setActiveRecordingMode(recordingMode);
       setIsRecording(true);
@@ -320,7 +322,7 @@ export function useRecording(props: UseRecordingProps) {
     }
   };
 
-  const handleStopRecording = async (): Promise<{ mouseData: MousePosition[], initialSegment: VideoSegment, videoUrl: string, recordingMode: RecordingMode, rawVideoPath: string } | null> => {
+  const handleStopRecording = async (): Promise<{ mouseData: MousePosition[], initialSegment: VideoSegment, videoUrl: string, recordingMode: RecordingMode, rawVideoPath: string, capturedFps: number | null } | null> => {
     if (!isRecording) return null;
 
     let objectUrl: string | undefined;
@@ -336,8 +338,9 @@ export function useRecording(props: UseRecordingProps) {
       setLoadingProgress(0);
       props.setThumbnails([]);
 
-      const [videoUrl, audioUrl, rawMouseData, audioPath, videoPath, rawInputEvents] =
-        await invoke<[string, string, any[], string, string, RawInputEvent[]]>("stop_recording");
+      const [videoUrl, audioUrl, rawMouseData, audioPath, videoPath, rawInputEvents, rawCapturedFps] =
+        await invoke<[string, string, any[], string, string, RawInputEvent[], number | null]>("stop_recording");
+      const capturedFps = typeof rawCapturedFps === 'number' && rawCapturedFps > 0 ? rawCapturedFps : null;
       setAudioFilePath(audioPath);
       setVideoFilePath(videoPath || "");
 
@@ -450,7 +453,8 @@ export function useRecording(props: UseRecordingProps) {
           initialSegment,
           videoUrl: objectUrl,
           recordingMode: activeRecordingMode,
-          rawVideoPath: videoPath || ""
+          rawVideoPath: videoPath || "",
+          capturedFps
         };
       }
       return null;
@@ -679,6 +683,8 @@ interface UseExportProps {
   rawVideoPath: string;
   savedRawVideoPath: string;
   currentVideo: string | null;
+  /** Actual FPS the most-recent recording was encoded at (from backend). Overrides probe. */
+  lastCaptureFps: number | null;
 }
 
 interface NativeVideoMetadataProbe {
@@ -751,21 +757,23 @@ export function useExport(props: UseExportProps) {
     void invoke<Partial<NativeVideoMetadataProbe>>('probe_video_metadata', { path: sourceVideoPath })
       .then((metadata) => {
         if (cancelled) return;
-        const fps = typeof metadata?.fps === 'number' && Number.isFinite(metadata.fps) && metadata.fps > 0
+        const probedFps = typeof metadata?.fps === 'number' && Number.isFinite(metadata.fps) && metadata.fps > 0
           ? metadata.fps
           : null;
-        setSourceVideoFps(fps);
+        // Prefer the authoritative capture FPS from the backend over the container
+        // metadata probe — WinRT encoder may write 60fps headers even for 100fps captures.
+        setSourceVideoFps(props.lastCaptureFps ?? probedFps);
       })
       .catch((error) => {
         if (cancelled) return;
         console.warn('[Export] Source video metadata probe failed:', error);
-        setSourceVideoFps(null);
+        setSourceVideoFps(props.lastCaptureFps ?? null);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [showExportDialog, resolveSourceVideoPath]);
+  }, [showExportDialog, resolveSourceVideoPath, props.lastCaptureFps]);
 
   useEffect(() => {
     let cancelled = false;

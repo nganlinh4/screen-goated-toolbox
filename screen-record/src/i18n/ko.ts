@@ -164,6 +164,7 @@ const ko: Translations = {
   confirmClearAllDesc: '모든 프로젝트와 원본 비디오를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.',
   matchRecorded: '원본 맞춤',
   savedTo: '저장 위치',
+  saving: '저장 중…',
   showInFolder: '폴더에서 보기',
   rename: '이름 변경',
   save: '저장',

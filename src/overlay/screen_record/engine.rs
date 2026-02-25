@@ -22,8 +22,8 @@ use windows::Win32::Graphics::Direct3D11::{
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
-    DeleteObject, EnumDisplayMonitors, GetMonitorInfoW, GetObjectW, BITMAP, HDC, HMONITOR,
-    MONITORINFOEXW,
+    DeleteObject, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, GetObjectW, BITMAP,
+    DEVMODEW, ENUM_CURRENT_SETTINGS, HDC, HMONITOR, MONITORINFOEXW,
 };
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -61,6 +61,9 @@ pub struct MonitorInfo {
     pub width: u32,
     pub height: u32,
     pub is_primary: bool,
+    pub hz: u32,
+    /// JPEG data URL captured at call time; filled in by the IPC handler.
+    pub thumbnail: Option<String>,
 }
 
 lazy_static::lazy_static! {
@@ -99,6 +102,9 @@ lazy_static::lazy_static! {
 
 pub static VIDEO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 pub static AUDIO_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// FPS the most recent recording was actually encoded at. Used by stop_recording
+/// so the frontend can show the correct "Match Original" option in the export UI.
+pub static LAST_RECORDING_FPS: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
 pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
 /// Dynamically track target window so cursor math stays accurate if the window moves.
@@ -557,6 +563,7 @@ fn spawn_cursor_sampler(start: Instant, stop: Arc<AtomicBool>) -> JoinHandle<()>
 struct CaptureFlags {
     target_type: String,
     target_id: String,
+    fps: Option<u32>,
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -573,6 +580,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             CaptureFlags {
                 target_type: "monitor".to_string(),
                 target_id: ctx.flags.clone(),
+                fps: None,
             }
         });
         eprintln!(
@@ -684,7 +692,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         *VIDEO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
         *AUDIO_PATH.lock().unwrap() = Some(video_path.to_string_lossy().to_string());
 
-        let target_fps = select_target_fps(monitor_hz);
+        let target_fps = flags.fps.unwrap_or_else(|| select_target_fps(monitor_hz));
+        *LAST_RECORDING_FPS.lock().unwrap() = Some(target_fps);
         let frame_interval_100ns = 10_000_000 / target_fps as i64;
 
         // DYNAMIC BITRATE CALCULATION
@@ -1172,6 +1181,22 @@ pub fn get_monitors() -> Vec<MonitorInfo> {
 
             if GetMonitorInfoW(hmonitor, &mut info.monitorInfo as *mut _).as_bool() {
                 let rect = info.monitorInfo.rcMonitor;
+
+                // Query the hardware refresh rate for this monitor.
+                let mut devmode: DEVMODEW = zeroed();
+                devmode.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+                let hz = if EnumDisplaySettingsW(
+                    windows::core::PCWSTR(info.szDevice.as_ptr()),
+                    ENUM_CURRENT_SETTINGS,
+                    &mut devmode,
+                )
+                .as_bool()
+                {
+                    devmode.dmDisplayFrequency
+                } else {
+                    60
+                };
+
                 monitor_infos.push(MonitorInfo {
                     id: index.to_string(),
                     name: format!("Display {}", index + 1),
@@ -1180,6 +1205,8 @@ pub fn get_monitors() -> Vec<MonitorInfo> {
                     width: (rect.right - rect.left) as u32,
                     height: (rect.bottom - rect.top) as u32,
                     is_primary: info.monitorInfo.dwFlags & 1 == 1,
+                    hz,
+                    thumbnail: None, // filled by IPC handler
                 });
             }
         }

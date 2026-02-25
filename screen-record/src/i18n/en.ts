@@ -162,6 +162,7 @@ const en = {
   confirmClearAllDesc: 'Are you sure you want to delete ALL projects and their raw videos? This cannot be undone.',
   matchRecorded: 'Match Recorded',
   savedTo: 'Saved to',
+  saving: 'Saving…',
   showInFolder: 'Show in Folder',
   rename: 'Rename',
   save: 'Save',

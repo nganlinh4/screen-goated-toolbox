@@ -10,6 +10,8 @@ export interface MonitorInfo {
   x: number;
   y: number;
   is_primary: boolean;
+  hz: number;
+  thumbnail?: string;
 }
 
 export interface Hotkey {
@@ -122,8 +124,8 @@ export function useMonitors() {
 
   const getMonitors = async () => {
     try {
-      const monitors = await invoke<MonitorInfo[]>("get_monitors");
-      const sortedMonitors = sortMonitorsByPosition(monitors);
+      const result = await invoke<MonitorInfo[]>("get_monitors");
+      const sortedMonitors = sortMonitorsByPosition(result);
       setMonitors(sortedMonitors);
       return sortedMonitors;
     } catch (err) {
@@ -131,6 +133,11 @@ export function useMonitors() {
       return [];
     }
   };
+
+  // Proactive scan on mount so Hz + thumbnails are ready before user opens the dropdown.
+  useEffect(() => {
+    getMonitors();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors };
 }

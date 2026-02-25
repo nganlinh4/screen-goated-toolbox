@@ -310,6 +310,81 @@ fn capture_window_thumbnail(hwnd: HWND) -> Option<String> {
     }
 }
 
+/// Capture a live screenshot of a monitor region and return as a JPEG data URL.
+/// Uses `BitBlt` from the desktop DC — same pattern as `capture_window_thumbnail`.
+fn capture_monitor_thumbnail(x: i32, y: i32, width: i32, height: i32) -> Option<String> {
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    unsafe {
+        let max_dim = 300.0f32;
+        let scale = (max_dim / width.max(height) as f32).min(1.0);
+        let t_w = ((width as f32 * scale).round() as i32).max(1);
+        let t_h = ((height as f32 * scale).round() as i32).max(1);
+
+        let hdc_screen = GetDC(None);
+        let hdc_thumb = CreateCompatibleDC(Some(hdc_screen));
+        let hbitmap = CreateCompatibleBitmap(hdc_screen, t_w, t_h);
+        if hbitmap.0.is_null() {
+            let _ = DeleteDC(hdc_thumb);
+            let _ = ReleaseDC(None, hdc_screen);
+            return None;
+        }
+        let old = SelectObject(hdc_thumb, hbitmap.into());
+        let _ = SetStretchBltMode(hdc_thumb, HALFTONE);
+        let _ = StretchBlt(hdc_thumb, 0, 0, t_w, t_h, Some(hdc_screen), x, y, width, height, SRCCOPY);
+
+        let mut bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: t_w,
+                biHeight: -t_h, // top-down
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut pixels = vec![0u8; (t_w * t_h * 4) as usize];
+        let lines = GetDIBits(
+            hdc_thumb,
+            hbitmap,
+            0,
+            t_h as u32,
+            Some(pixels.as_mut_ptr() as *mut _),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+        let _ = SelectObject(hdc_thumb, old);
+        let _ = DeleteObject(hbitmap.into());
+        let _ = DeleteDC(hdc_thumb);
+        let _ = ReleaseDC(None, hdc_screen);
+
+        if lines == 0 {
+            return None;
+        }
+        for chunk in pixels.chunks_exact_mut(4) {
+            chunk.swap(0, 2); // BGRA → RGBA
+            chunk[3] = 255;
+        }
+        let rgba = image::RgbaImage::from_raw(t_w as u32, t_h as u32, pixels)?;
+        let mut jpeg_data = Vec::new();
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_data, 80);
+        if enc
+            .encode_image(&image::DynamicImage::ImageRgba8(rgba))
+            .is_ok()
+        {
+            Some(format!(
+                "data:image/jpeg;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(&jpeg_data)
+            ))
+        } else {
+            None
+        }
+    }
+}
+
 fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
     let windows =
         windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
@@ -611,7 +686,10 @@ pub fn handle_ipc_command(
             }))
         }
         "get_monitors" => {
-            let monitors = get_monitors();
+            let mut monitors = get_monitors();
+            for m in &mut monitors {
+                m.thumbnail = capture_monitor_thumbnail(m.x, m.y, m.width as i32, m.height as i32);
+            }
             Ok(serde_json::to_value(monitors).unwrap())
         }
         "get_windows" => Ok(serde_json::Value::Array(gather_window_infos()?)),
@@ -675,9 +753,11 @@ pub fn handle_ipc_command(
             super::engine::EXTERNAL_CAPTURE_CONTROL.lock().take();
             *CAPTURE_ERROR.lock() = None;
 
+            let fps: Option<u32> = args["fps"].as_u64().map(|v| v as u32);
             let flag_str = serde_json::to_string(&serde_json::json!({
                 "target_type": target_type,
                 "target_id": target_id,
+                "fps": fps,
             }))
             .unwrap();
 
@@ -736,14 +816,19 @@ pub fn handle_ipc_command(
                     super::engine::MONITOR_Y = rect.top;
                 }
 
+                let update_interval = if let Some(f) = fps {
+                    let target_micros = 1_000_000 / f.max(1);
+                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros((target_micros / 2) as u64))
+                } else {
+                    MinimumUpdateIntervalSettings::Default
+                };
+
                 let settings = Settings::new(
                     window,
                     cursor_setting,
                     DrawBorderSettings::WithoutBorder,
                     SecondaryWindowSettings::Default,
-                    // Keep capture callbacks near output cadence to avoid callback storms
-                    // (165Hz+ arrivals for a 60fps output target) that add scheduler pressure.
-                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros(16_000)),
+                    update_interval,
                     DirtyRegionSettings::Default,
                     ColorFormat::Bgra8,
                     flag_str,
@@ -812,14 +897,19 @@ pub fn handle_ipc_command(
                     }
                 }
 
+                let update_interval = if let Some(f) = fps {
+                    let target_micros = 1_000_000 / f.max(1);
+                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros((target_micros / 2) as u64))
+                } else {
+                    MinimumUpdateIntervalSettings::Default
+                };
+
                 let settings = Settings::new(
                     monitor,
                     cursor_setting,
                     DrawBorderSettings::Default,
                     SecondaryWindowSettings::Include,
-                    // Keep capture callbacks near output cadence to avoid callback storms
-                    // (165Hz+ arrivals for a 60fps output target) that add scheduler pressure.
-                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros(16_000)),
+                    update_interval,
                     DirtyRegionSettings::Default,
                     ColorFormat::Bgra8,
                     flag_str,
@@ -948,6 +1038,7 @@ pub fn handle_ipc_command(
 
             let video_path = VIDEO_PATH.lock().unwrap().clone().ok_or("No video path")?;
             let video_file_path = video_path.clone();
+            let last_recording_fps = *super::engine::LAST_RECORDING_FPS.lock().unwrap();
 
             let mut port = SERVER_PORT.load(std::sync::atomic::Ordering::SeqCst);
             if port == 0 {
@@ -966,7 +1057,8 @@ pub fn handle_ipc_command(
                 mouse_positions,
                 video_file_path,
                 video_file_path,
-                raw_input_events
+                raw_input_events,
+                last_recording_fps
             ]))
         }
         "get_hotkeys" => {

@@ -20,7 +20,7 @@ import { Placeholder, CropOverlay, PlaybackControls, CanvasResizeOverlay, SeekIn
 import { SidePanel, type ActivePanel } from '@/components/sidepanel/index';
 import {
   ProcessingOverlay, ExportDialog, WindowSelectDialog,
-  MonitorSelectDialog, HotkeyDialog, RawVideoDialog, ExportSuccessDialog
+  HotkeyDialog, RawVideoDialog, ExportSuccessDialog
 } from '@/components/dialogs';
 import { ProjectsView } from '@/components/ProjectsView';
 import { SettingsContext, useSettingsProvider } from '@/hooks/useSettings';
@@ -124,7 +124,15 @@ function App() {
   const [recentUploads, setRecentUploads] = useState<string[]>(getInitialRecentUploads);
   const [backgroundConfig, setBackgroundConfig] = useState<BackgroundConfig>(getInitialBackgroundConfig);
   const [selectedRecordingMode, setSelectedRecordingMode] = useState<RecordingMode>(getInitialRecordingMode);
-  const [captureSource, setCaptureSource] = useState<'monitor' | 'window'>(getInitialCaptureSource);
+  const[captureSource, setCaptureSource] = useState<'monitor' | 'window'>(getInitialCaptureSource);
+  const[captureTargetId, setCaptureTargetId] = useState<string>('0');
+  const [captureFps, setCaptureFps] = useState<number | null>(() => {
+    try {
+      const saved = localStorage.getItem('screen-record-capture-fps-v1');
+      return saved ? parseInt(saved, 10) : null;
+    } catch { return null; }
+  });
+  const captureFpsRef = useRef<number | null>(captureFps);
   const [currentRecordingMode, setCurrentRecordingMode] = useState<RecordingMode>('withoutCursor');
   const rawVideo = useRawVideoHandler();
   const {
@@ -177,7 +185,7 @@ function App() {
 
   // Utility hooks
   const { hotkeys, showHotkeyDialog, handleRemoveHotkey, openHotkeyDialog, closeHotkeyDialog } = useHotkeys();
-  const { monitors, showMonitorSelect, setShowMonitorSelect, getMonitors } = useMonitors();
+  const { monitors, getMonitors } = useMonitors();
   const { windows, showWindowSelect, setShowWindowSelect, getWindows } = useWindows();
 
   // Video playback — mousePositionsRef is shared so useVideoPlayback always reads latest
@@ -220,6 +228,9 @@ function App() {
     currentVideo, currentAudio
   });
 
+  // FPS of the most-recent recording (set on stop, cleared when a different project loads).
+  const [lastCaptureFps, setLastCaptureFps] = useState<number | null>(null);
+
   // Export
   const exportHook = useExport({
     videoRef, canvasRef, tempCanvasRef, audioRef, segment, backgroundConfig,
@@ -229,7 +240,8 @@ function App() {
     videoFilePathOwnerUrl,
     rawVideoPath: currentRawVideoPath,
     savedRawVideoPath: lastRawSavedPath,
-    currentVideo
+    currentVideo,
+    lastCaptureFps
   });
 
   const handleExportSuccessPathChange = useCallback(async (newPath: string) => {
@@ -299,6 +311,27 @@ function App() {
       // ignore persistence failures
     }
   }, [captureSource]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('screen-record-capture-target-v1', captureTargetId);
+    } catch {}
+  }, [captureTargetId]);
+
+  useEffect(() => {
+    try {
+      if (captureFps === null) localStorage.removeItem('screen-record-capture-fps-v1');
+      else localStorage.setItem('screen-record-capture-fps-v1', captureFps.toString());
+    } catch {}
+    captureFpsRef.current = captureFps;
+  }, [captureFps]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('screen-record-capture-target-v1');
+      if (saved) setCaptureTargetId(saved);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (!showWindowSelect) return;
@@ -676,6 +709,7 @@ function App() {
       return;
     }
     void persistCurrentProjectNow({ refreshList: false, includeMedia: false });
+    setLastCaptureFps(null); // loading a different project — probe should determine its FPS
     await projects.handleLoadProject(projectId);
     debugProject('grid-load:done', { targetProjectId: projectId });
   }, [persistCurrentProjectNow, projects, debugProject]);
@@ -723,6 +757,28 @@ function App() {
     backgroundConfig.canvasHeight,
   ]);
 
+  const handleSelectMonitorCapture = useCallback((monitorId: string, fps: number | null) => {
+    setCaptureSource('monitor');
+    setCaptureFps(fps);
+    captureFpsRef.current = fps;
+    setCaptureTargetId(monitorId);
+  }, []);
+
+  const handleSelectWindowCapture = useCallback((fps: number | null) => {
+    setCaptureSource('window');
+    setCaptureFps(fps);
+    captureFpsRef.current = fps;
+    invoke('show_window_selector').catch(err => setError(String(err)));
+  }, []);
+
+  const handleSelectWindowForRecording = useCallback((
+    windowId: string,
+    _captureMethod: 'game' | 'window'
+  ) => {
+    setShowWindowSelect(false);
+    setCaptureTargetId(windowId);
+  }, []);
+
   const handleStartRecording = useCallback(async () => {
     if (isRecording) return;
     try {
@@ -730,42 +786,22 @@ function App() {
       setCurrentRawVideoPath('');
       setLastRawSavedPath('');
       setRawButtonSavedFlash(false);
-      if (captureSource === 'window') {
-        // Open the native window-selector overlay. It gathers window data, shows
-        // a fullscreen picker, and fires 'external-window-selected' when the user
-        // picks a window. The result is handled by the useEffect listener below.
-        await invoke('show_window_selector');
-      } else {
-        const monitorList = await getMonitors();
-        if (monitorList.length > 1) {
-          setShowMonitorSelect(true);
-        } else {
-          await startNewRecording('0', selectedRecordingMode, 'monitor');
-        }
+
+      let finalTargetId = captureTargetId;
+      if (captureSource === 'monitor' && (!finalTargetId || finalTargetId === '0')) {
+        const monitorList = monitors.length > 0 ? monitors : await getMonitors();
+        const primary = monitorList.find(m => m.is_primary) ?? monitorList[0];
+        finalTargetId = primary?.id ?? '0';
       }
+
+      await startNewRecording(
+        finalTargetId,
+        selectedRecordingMode,
+        captureSource,
+        captureFpsRef.current ?? undefined
+      );
     } catch (err) { setError(err as string); }
-  }, [
-    isRecording,
-    selectedRecordingMode,
-    captureSource,
-    getMonitors,
-    setShowMonitorSelect,
-    startNewRecording,
-    setError
-  ]);
-
-  const handleSelectMonitorForRecording = useCallback(async (monitorId: string) => {
-    setShowMonitorSelect(false);
-    await startNewRecording(monitorId, selectedRecordingMode, 'monitor');
-  }, [startNewRecording, selectedRecordingMode, setShowMonitorSelect]);
-
-  const handleSelectWindowForRecording = useCallback(async (
-    windowId: string,
-    _captureMethod: 'game' | 'window'
-  ) => {
-    setShowWindowSelect(false);
-    await startNewRecording(windowId, selectedRecordingMode, 'window');
-  }, [startNewRecording, selectedRecordingMode, setShowWindowSelect]);
+  }, [isRecording, selectedRecordingMode, captureSource, captureTargetId, monitors, getMonitors, startNewRecording, setError]);
 
   // Listen for window selections dispatched by the native overlay via IPC.
   useEffect(() => {
@@ -780,7 +816,8 @@ function App() {
   const onStopRecording = useCallback(async () => {
     const result = await handleStopRecording();
     if (result) {
-      const { mouseData, initialSegment, videoUrl, recordingMode, rawVideoPath } = result;
+      const { mouseData, initialSegment, videoUrl, recordingMode, rawVideoPath, capturedFps } = result;
+      setLastCaptureFps(capturedFps);
       setCurrentRecordingMode(recordingMode);
       setCurrentRawVideoPath(rawVideoPath || '');
       setLastRawSavedPath('');
@@ -953,7 +990,10 @@ function App() {
         hideExport={isOverlayMode}
         hideRawVideo={projects.showProjectsDialog}
         captureSource={captureSource}
-        onCaptureSourceChange={setCaptureSource}
+        captureFps={captureFps}
+        monitors={monitors}
+        onSelectMonitorCapture={handleSelectMonitorCapture}
+        onSelectWindowCapture={handleSelectWindowCapture}
       />
 
       <main className="app-main flex flex-col px-3 py-3 overflow-hidden" style={{ height: 'calc(100vh - 44px)' }}>
@@ -1236,8 +1276,6 @@ function App() {
         windows={windows}
         onSelectWindow={handleSelectWindowForRecording}
       />
-      <MonitorSelectDialog show={showMonitorSelect} onClose={() => setShowMonitorSelect(false)}
-        monitors={monitors} onSelectMonitor={handleSelectMonitorForRecording} />
       {currentVideo && !isVideoReady && !projects.showProjectsDialog && (
         <div className="video-loading-overlay absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="loading-message text-[var(--on-surface)]">{t.preparingVideoOverlay}</div>

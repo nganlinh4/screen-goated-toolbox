@@ -377,6 +377,8 @@ pub struct VideoMetadataProbe {
 /// Probe video metadata using a lightweight MF SourceReader (no GPU decode).
 /// Reads native media type to get frame size + nominal frame rate, then drops.
 pub fn probe_video_metadata(file_path: &str) -> Result<VideoMetadataProbe, String> {
+    mf_startup()?;
+
     let wide_path: Vec<u16> = file_path.encode_utf16().chain(std::iter::once(0)).collect();
 
     let mut attrs: Option<IMFAttributes> = None;
@@ -405,9 +407,16 @@ pub fn probe_video_metadata(file_path: &str) -> Result<VideoMetadataProbe, Strin
     let width = (frame_size >> 32) as u32;
     let height = (frame_size & 0xFFFF_FFFF) as u32;
 
-    let frame_rate = unsafe { native_type.GetUINT64(&MF_MT_FRAME_RATE).unwrap_or(0) };
-    let fps_num = (frame_rate >> 32) as u32;
-    let fps_den = (frame_rate & 0xFFFF_FFFF) as u32;
+    let mut fps_num = 0u32;
+    let mut fps_den = 0u32;
+    // MFGetAttributeRatio is a C-SDK inline wrapper around GetUINT64 + unpack.
+    // Replicate it here since windows-rs doesn't export the inline variant.
+    unsafe {
+        if let Ok(packed) = native_type.GetUINT64(&MF_MT_FRAME_RATE) {
+            fps_num = (packed >> 32) as u32;
+            fps_den = (packed & 0xFFFF_FFFF) as u32;
+        }
+    }
     let fps = if fps_num > 0 && fps_den > 0 {
         fps_num as f64 / fps_den as f64
     } else {
