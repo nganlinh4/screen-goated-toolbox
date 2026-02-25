@@ -28,6 +28,7 @@ use wry::{Rect, WebContext, WebViewBuilder};
 use crate::win_types::SendHwnd;
 
 pub mod audio_engine;
+pub mod capture_border;
 mod d3d_interop;
 pub mod engine;
 pub mod gpu_export;
@@ -37,6 +38,7 @@ pub mod mf_audio;
 mod mf_decode;
 mod mf_encode;
 pub mod native_export;
+pub mod window_selection;
 
 // Re-exports
 use ipc::handle_ipc_command;

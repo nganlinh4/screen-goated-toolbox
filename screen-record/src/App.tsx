@@ -883,8 +883,10 @@ function App() {
       setLastRawSavedPath('');
       setRawButtonSavedFlash(false);
       if (captureSource === 'window') {
-        await getWindows();
-        setShowWindowSelect(true);
+        // Open the native window-selector overlay. It gathers window data, shows
+        // a fullscreen picker, and fires 'external-window-selected' when the user
+        // picks a window. The result is handled by the useEffect listener below.
+        await invoke('show_window_selector');
       } else {
         const monitorList = await getMonitors();
         if (monitorList.length > 1) {
@@ -898,8 +900,6 @@ function App() {
     isRecording,
     selectedRecordingMode,
     captureSource,
-    getWindows,
-    setShowWindowSelect,
     getMonitors,
     setShowMonitorSelect,
     startNewRecording,
@@ -918,6 +918,16 @@ function App() {
     setShowWindowSelect(false);
     await startNewRecording(windowId, selectedRecordingMode, 'window');
   }, [startNewRecording, selectedRecordingMode, setShowWindowSelect]);
+
+  // Listen for window selections dispatched by the native overlay via IPC.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const { windowId } = (event as CustomEvent<{ windowId: string }>).detail;
+      handleSelectWindowForRecording(windowId, 'window');
+    };
+    window.addEventListener('external-window-selected', handler);
+    return () => window.removeEventListener('external-window-selected', handler);
+  }, [handleSelectWindowForRecording]);
 
   const onStopRecording = useCallback(async () => {
     const result = await handleStopRecording();

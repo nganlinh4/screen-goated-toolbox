@@ -397,5 +397,7 @@ pub fn get() -> LocaleText {
         tool_update_check_btn: "Check Update",
         tool_update_available: "Update ({})",
         continuous_mode_activated: "✨ Preset \"{preset}\" will run continuously. Press ESC or {hotkey} to exit",
+        win_select_title: "Select a Window to Record",
+        win_select_subtitle: "Press Escape or click outside to cancel",
     }
 }
