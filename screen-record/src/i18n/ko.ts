@@ -20,7 +20,7 @@ const ko: Translations = {
   keystrokeModeOff: '키: 끔',
   keystrokeModeKeyboard: '키: 키보드',
   keystrokeModeKeyboardMouse: '키: 키보드+마우스',
-  keystrokeLanguageLabel: '레이아웃',
+  keystrokeLanguageLabel: '언어',
   export: '내보내기',
   saveRawVideo: '원본 비디오 저장',
   rawVideoSavedButton: '원본 비디오 저장됨',

@@ -23,6 +23,7 @@ import {
 
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const KEYSTROKE_DELAY_KEY = 'screen-record-keystroke-delay-v1';
+const KEYSTROKE_LANGUAGE_KEY = 'screen-record-keystroke-language-v1';
 
 function getSavedKeystrokeDelaySec(): number {
   try {
@@ -34,6 +35,23 @@ function getSavedKeystrokeDelaySec(): number {
   } catch {
     return DEFAULT_KEYSTROKE_DELAY_SEC;
   }
+}
+
+const VALID_KEYSTROKE_LANGUAGES = ['en', 'ko', 'vi', 'es', 'ja', 'zh'] as const;
+type KeystrokeLanguage = typeof VALID_KEYSTROKE_LANGUAGES[number];
+
+export function getSavedKeystrokeLanguage(): KeystrokeLanguage {
+  try {
+    const raw = localStorage.getItem(KEYSTROKE_LANGUAGE_KEY);
+    if (raw && (VALID_KEYSTROKE_LANGUAGES as readonly string[]).includes(raw)) {
+      return raw as KeystrokeLanguage;
+    }
+  } catch { /* ignore */ }
+  return 'en';
+}
+
+export function saveKeystrokeLanguage(lang: KeystrokeLanguage): void {
+  try { localStorage.setItem(KEYSTROKE_LANGUAGE_KEY, lang); } catch { /* ignore */ }
 }
 
 // ============================================================================
@@ -410,6 +428,7 @@ export function useRecording(props: UseRecordingProps) {
             : [],
           keystrokeMode: 'keyboard',
           keystrokeDelaySec: savedKeystrokeDelay,
+          keystrokeLanguage: getSavedKeystrokeLanguage(),
           keystrokeEvents,
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,
