@@ -155,6 +155,7 @@
     body {
         @apply bg-background text-foreground;
         font-family: 'Google Sans Flex', 'Segoe UI', system-ui, sans-serif;
+        font-variation-settings: 'ROND' 100;
     }
 }
 
@@ -295,4 +296,21 @@ body.dragging-move * {
 
 body.dragging-move .timeline-content > div {
     pointer-events: none !important;
+}
+
+@keyframes recording-pill-breathe {
+    0%, 100% {
+        background-color: rgba(239, 68, 68, 0.08);
+        border-color: rgba(239, 68, 68, 0.25);
+        box-shadow: 0 0 8px rgba(239, 68, 68, 0.15);
+    }
+    50% {
+        background-color: rgba(239, 68, 68, 0.22);
+        border-color: rgba(239, 68, 68, 0.55);
+        box-shadow: 0 0 18px rgba(239, 68, 68, 0.40);
+    }
+}
+
+.recording-indicator {
+    animation: recording-pill-breathe 1.8s ease-in-out infinite;
 }
