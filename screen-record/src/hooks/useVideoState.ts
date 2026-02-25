@@ -852,7 +852,7 @@ export function useExport(props: UseExportProps) {
         backgroundConfig: props.backgroundConfig,
         mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined,
-        audioFilePath: props.audioFilePath,
+        audioFilePath: props.audioFilePath || sourceVideoPath,
         videoFilePath: sourceVideoPath
       }).catch(() => {
         // keep background prewarm silent
@@ -945,7 +945,7 @@ export function useExport(props: UseExportProps) {
         backgroundConfig: props.backgroundConfig,
         mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined,
-        audioFilePath: props.audioFilePath,
+        audioFilePath: props.audioFilePath || sourceVideoPath,
         videoFilePath: sourceVideoPath
       }).catch((error) => {
         console.error('[ExportPrep] Warm preparation failed:', error);
@@ -1002,7 +1002,7 @@ export function useExport(props: UseExportProps) {
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
         segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined,
-        audioFilePath: props.audioFilePath,
+        audioFilePath: props.audioFilePath || sourceVideoPath,
         videoFilePath: sourceVideoPath,
         onProgress: setExportProgress
       });
@@ -1025,9 +1025,7 @@ export function useExport(props: UseExportProps) {
     videoExporter.cancel();
   }, []);
 
-  const hasAudio =
-    Boolean(props.audioFilePath && props.audioFilePath.trim()) ||
-    Boolean(props.audioRef.current && props.audioRef.current.src);
+  const hasAudio = Boolean(resolveSourceVideoPath());
 
   return {
     isProcessing, exportProgress, showExportDialog, setShowExportDialog,
