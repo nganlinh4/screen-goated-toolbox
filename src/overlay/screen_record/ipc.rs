@@ -6,7 +6,7 @@ use super::engine::{
     get_monitors, CaptureHandler, ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR,
     ENCODER_ACTIVE, ENCODING_FINISHED, MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
 };
-use super::keysee_capture;
+use super::input_capture;
 use super::mf_decode;
 use super::native_export;
 use super::raw_video;
@@ -838,7 +838,7 @@ pub fn handle_ipc_command(
                 }
             }
 
-            if let Err(err) = keysee_capture::start_capture() {
+            if let Err(err) = input_capture::start_capture() {
                 crate::log_info!("Input capture start failed: {}", err);
             }
 
@@ -864,7 +864,7 @@ pub fn handle_ipc_command(
             if let Some(control) = ACTIVE_CAPTURE_CONTROL.lock().take() {
                 control.stop();
             }
-            let raw_input_events = keysee_capture::stop_capture_and_drain();
+            let raw_input_events = input_capture::stop_capture_and_drain();
 
             // Check if capture failed to start (error stored by the capture thread).
             // Give the capture thread a brief moment to report failure.
