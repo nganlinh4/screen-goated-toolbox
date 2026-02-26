@@ -28,6 +28,7 @@ import {
 import {
   KeystrokeState,
   drawActiveKeystrokeOverlays,
+  getKeystrokeDelaySec,
 } from './keystrokeRenderer';
 import {
   drawTextOverlay,
@@ -290,7 +291,16 @@ export async function drawFrame(
     const showCursor = shouldRenderCustomCursor && interpolatedPosition && cursorVis.opacity > 0.001;
 
     if (showCursor) {
-      const isActuallyClicked = interpolatedPosition!.isClicked;
+      const keystrokeDelaySec = getKeystrokeDelaySec(segment);
+      const lookupTime = video.currentTime - keystrokeDelaySec;
+      // Cap the click window to startTime + 0.1s so the squish bounces back immediately
+      // rather than sticking for the full 0.34s minimum keystroke overlay duration.
+      const isActuallyClicked = interpolatedPosition!.isClicked ||
+        (segment.keystrokeEvents || []).some(
+          e => e.type === 'mousedown' && lookupTime >= e.startTime && lookupTime <= e.startTime + 0.1
+        );
+      // Override isClicked so resolveCursorRenderType also sees synthesized click state
+      interpolatedPosition!.isClicked = isActuallyClicked;
       const timeSinceLastHold = video.currentTime - state.lastHoldTime;
       const shouldBeSquished = isActuallyClicked || (state.lastHoldTime >= 0 && timeSinceLastHold < CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
       if (isActuallyClicked) state.lastHoldTime = video.currentTime;
@@ -300,6 +310,8 @@ export async function drawFrame(
       } else if (state.currentSquishScale < targetScale) {
         state.currentSquishScale = Math.min(targetScale, state.currentSquishScale + RELEASE_SPEED * (state.latestElapsed / (1000 / 120)));
       }
+      // Sync to CursorRenderState — drawCursorShape reads from there, not RendererState
+      state.cursorState.currentSquishScale = state.currentSquishScale;
     }
 
     const bgStyle = getBackgroundStyle(ctx, backgroundConfig.backgroundType, state.customBgCache, () => {
