@@ -87,16 +87,46 @@ function collectReferencedIds(svg) {
   return ids;
 }
 
+/**
+ * For the macos26 format: <g transform="..." clip-path="url(#id)"> wraps all paths.
+ * The clipPath contains a <rect> whose coordinates are already in the inner <g>'s
+ * LOCAL coordinate space — the same space as the M commands in the path d attributes.
+ * No transform conversion needed: just read the rect values directly.
+ * Returns a viewBox-like object, or null if the pattern is not found.
+ */
+function detectClipGViewBox(content) {
+  const gMatch = content.match(/<g\b[^>]*\bclip-path="url\(#([^)]+)\)"/);
+  if (!gMatch) return null;
+  const clipId = gMatch[1];
+
+  const clipRe = new RegExp(`<clipPath[^>]*\\bid="${clipId}"[^>]*>[\\s\\S]*?<rect\\b([^/]*)/>`, 'i');
+  const clipMatch = content.match(clipRe);
+  if (!clipMatch) return null;
+
+  const attrs = clipMatch[1];
+  const rx = parseFloat((attrs.match(/\bx="([-\d.]+)"/) || [])[1] ?? '0');
+  const ry = parseFloat((attrs.match(/\by="([-\d.]+)"/) || [])[1] ?? '0');
+  const rw = parseFloat((attrs.match(/\bwidth="([-\d.]+)"/) || [])[1] ?? '0');
+  const rh = parseFloat((attrs.match(/\bheight="([-\d.]+)"/) || [])[1] ?? '0');
+
+  return { x: rx, y: ry, w: rw, h: rh };
+}
+
 function cleanSVG(content) {
-  // Locate the inner SVG that clips spritesheet content.
-  // It is identified by having both a viewBox and overflow:hidden.
+  // --- Format A: inner <svg viewBox="..." style="overflow:hidden"> ---
   const innerMatch = content.match(/<svg\b([^>]+)\bviewBox="([^"]+)"([^>]*)style="overflow:hidden"/);
-  if (!innerMatch) {
-    // Nothing to clean — no nested clipped SVG.
+
+  // --- Format B: <g clip-path="url(#...)"> with a <clipPath> rect (macos26 style).
+  //     The clipPath rect coordinates are already in the inner <g>'s local space.
+  const vb = innerMatch
+    ? parseViewBox(innerMatch[2])
+    : detectClipGViewBox(content);
+
+  if (!vb) {
+    // Nothing to clean — no recognised clipping structure.
     return { content, removed: 0, defsRemoved: 0 };
   }
 
-  const vb = parseViewBox(innerMatch[2]);
   let removed = 0;
 
   // Remove or trim self-closing <path .../> elements outside the viewBox.
