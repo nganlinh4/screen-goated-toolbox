@@ -1169,9 +1169,9 @@ function App() {
                   }
                   autoZoomButton={
                   <Button onClick={handleAutoZoom}
-                    disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                    disabled={exportHook.isProcessing || !currentVideo || (!mousePositions.length && !segment?.smoothMotionPath?.length)}
                     className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
-                      !currentVideo || exportHook.isProcessing || !mousePositions.length
+                      !currentVideo || exportHook.isProcessing || (!mousePositions.length && !segment?.smoothMotionPath?.length)
                         ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
                         : segment?.smoothMotionPath?.length
                           ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
@@ -1182,21 +1182,29 @@ function App() {
                   }
                   smartPointerButton={
                   <Button onClick={handleSmartPointerHiding}
-                    disabled={exportHook.isProcessing || !currentVideo || !mousePositions.length}
+                    disabled={exportHook.isProcessing || !currentVideo || (() => {
+                      const segs = segment?.cursorVisibilitySegments;
+                      const isActive = !!segs?.length && !(
+                        segs.length === 1 &&
+                        Math.abs(segs[0].startTime - 0) < 0.01 &&
+                        Math.abs(segs[0].endTime - duration) < 0.01
+                      );
+                      return !mousePositions.length && !isActive;
+                    })()}
                     className={`flex items-center px-2.5 py-1 h-7 text-xs font-medium transition-colors whitespace-nowrap rounded-lg ${
-                      !currentVideo || exportHook.isProcessing || !mousePositions.length
-                        ? 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed'
-                        : (() => {
-                            const segs = segment?.cursorVisibilitySegments;
-                            const isDefault = !segs || segs.length === 0 || (
-                              segs.length === 1 &&
-                              Math.abs(segs[0].startTime - 0) < 0.01 &&
-                              Math.abs(segs[0].endTime - duration) < 0.01
-                            );
-                            return isDefault
-                              ? 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]'
-                              : 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white';
-                          })()
+                      (() => {
+                        const segs = segment?.cursorVisibilitySegments;
+                        const isActive = !!segs?.length && !(
+                          segs.length === 1 &&
+                          Math.abs(segs[0].startTime - 0) < 0.01 &&
+                          Math.abs(segs[0].endTime - duration) < 0.01
+                        );
+                        if (!currentVideo || exportHook.isProcessing || (!mousePositions.length && !isActive))
+                          return 'bg-[var(--surface-container)]/50 text-[var(--on-surface)]/35 cursor-not-allowed';
+                        return isActive
+                          ? 'bg-[var(--success-color)] hover:bg-[var(--success-color)]/85 text-white'
+                          : 'bg-[var(--glass-bg)] hover:bg-[var(--glass-bg-hover)] text-[var(--on-surface)]';
+                      })()
                     }`}>
                     <MousePointer2 className="w-3 h-3 mr-1" />{t.smartPointer}
                   </Button>

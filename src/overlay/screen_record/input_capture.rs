@@ -4,7 +4,7 @@
 use crossbeam_queue::ArrayQueue;
 use parking_lot::Mutex;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -81,6 +81,7 @@ const TRACKED_VK_WORDS: usize = 8; // 512 virtual keys
 static IS_RUNNING: AtomicBool = AtomicBool::new(false);
 static START_CAPTURE_UNIX_NS: AtomicU64 = AtomicU64::new(0);
 static DROPPED_EVENTS: AtomicU64 = AtomicU64::new(0);
+static MOUSE_BUTTONS_DOWN: AtomicU8 = AtomicU8::new(0);
 static KEY_DOWN_BITS: [AtomicU64; TRACKED_VK_WORDS] = [
     AtomicU64::new(0),
     AtomicU64::new(0),
@@ -102,6 +103,8 @@ pub fn start_capture() -> anyhow::Result<()> {
         state.hook_thread = None;
     }
     clear_key_state_bits();
+    MOUSE_BUTTONS_DOWN.store(0, Ordering::Relaxed);
+    crate::overlay::screen_record::engine::IS_MOUSE_CLICKED.store(false, Ordering::SeqCst);
     while EVENT_QUEUE.pop().is_some() {}
     DROPPED_EVENTS.store(0, Ordering::Relaxed);
     START_CAPTURE_UNIX_NS.store(now_unix_nanos(), Ordering::Release);
@@ -214,6 +217,8 @@ pub fn stop_capture_and_drain() -> Vec<RawInputEvent> {
     let mut state = CAPTURE_STATE.lock();
     state.hook_thread_id = 0;
     clear_key_state_bits();
+    MOUSE_BUTTONS_DOWN.store(0, Ordering::Relaxed);
+    crate::overlay::screen_record::engine::IS_MOUSE_CLICKED.store(false, Ordering::SeqCst);
     let dropped = DROPPED_EVENTS.swap(0, Ordering::Relaxed);
     if dropped > 0 {
         eprintln!(
@@ -285,6 +290,26 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                 WM_LBUTTONUP | WM_RBUTTONUP | WM_MBUTTONUP => QueuedEventKind::MouseButtonUp,
                 _ => QueuedEventKind::MouseButtonDown,
             };
+
+            let mask: u8 = match message {
+                WM_LBUTTONDOWN | WM_LBUTTONUP => 1,
+                WM_RBUTTONDOWN | WM_RBUTTONUP => 2,
+                WM_MBUTTONDOWN | WM_MBUTTONUP => 4,
+                _ => 0,
+            };
+            if mask != 0 {
+                let is_down = matches!(kind, QueuedEventKind::MouseButtonDown);
+                let mut current = MOUSE_BUTTONS_DOWN.load(Ordering::SeqCst);
+                if is_down {
+                    current |= mask;
+                } else {
+                    current &= !mask;
+                }
+                MOUSE_BUTTONS_DOWN.store(current, Ordering::SeqCst);
+                crate::overlay::screen_record::engine::IS_MOUSE_CLICKED
+                    .store(current != 0, Ordering::SeqCst);
+            }
+
             let _ = push_queued_event(QueuedInputEvent {
                 kind,
                 timestamp_ns: relative_timestamp_ns(),
