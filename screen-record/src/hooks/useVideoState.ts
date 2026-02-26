@@ -400,14 +400,16 @@ export function useRecording(props: UseRecordingProps) {
           speedPoints: [{ time: 0, speed: 1 }, { time: timelineDuration, speed: 1 }],
         };
 
-        const initialPointerSegments = generateCursorVisibility(baseSegment, mouseData, timelineDuration);
+        const keystrokeEvents = buildKeystrokeEvents(rawInputEvents || [], timelineDuration);
+        const segmentWithKeystrokes: VideoSegment = { ...baseSegment, keystrokeEvents };
+
+        const initialPointerSegments = generateCursorVisibility(segmentWithKeystrokes, mouseData, timelineDuration);
         const vidW = props.videoRef.current?.videoWidth || 0;
         const vidH = props.videoRef.current?.videoHeight || 0;
         const initialAutoPath = (vidW > 0 && vidH > 0 && mouseData.length > 0)
           ? autoZoomGenerator.generateMotionPath(baseSegment, mouseData, vidW, vidH)
           : [];
 
-        const keystrokeEvents = buildKeystrokeEvents(rawInputEvents || [], timelineDuration);
         const savedKeystrokeDelay = getSavedKeystrokeDelaySec();
         const keyboardVisibilitySegments = generateKeystrokeVisibilitySegments(
           filterKeystrokeEventsByMode(keystrokeEvents, 'keyboard'),

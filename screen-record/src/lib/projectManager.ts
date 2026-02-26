@@ -268,6 +268,16 @@ class ProjectManager {
         delete p.segment;
         changed = true;
       }
+      // Migrate mousePositions: older versions stored them inline in localStorage metadata.
+      // Only migrate if there's actual data (not the [] placeholder written by saveProject).
+      if (Array.isArray(p.mousePositions) && p.mousePositions.length > 0) {
+        const existing = await this.loadMouseData(p.id);
+        if (!existing || existing.length === 0) {
+          await this.saveMouseData(p.id, p.mousePositions);
+        }
+        p.mousePositions = [];
+        changed = true;
+      }
     }
 
     if (changed) {
@@ -275,12 +285,31 @@ class ProjectManager {
     }
   }
 
+  // --- LOW-LEVEL IDB HELPERS ---
+  // IDBRequest is NOT a Promise/thenable — `await store.put(...)` resolves immediately
+  // without waiting for the write to commit. These helpers wrap writes/deletes in real
+  // Promises that resolve only after onsuccess fires, making them properly awaitable.
+  private idbPut<T>(storeName: string, value: T, key: string): Promise<void> {
+    return this.openDB().then(db => new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const request = tx.objectStore(storeName).put(value, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    }));
+  }
+
+  private idbDelete(storeName: string, key: string): Promise<void> {
+    return this.openDB().then(db => new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const request = tx.objectStore(storeName).delete(key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    }));
+  }
+
   // --- SEGMENT DATA HELPERS ---
-  private async saveSegmentData(id: string, data: any): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('segments', 'readwrite');
-    const store = tx.objectStore('segments');
-    await store.put(data, id);
+  private saveSegmentData(id: string, data: any): Promise<void> {
+    return this.idbPut('segments', data, id);
   }
 
   private async loadSegmentData(id: string): Promise<any | null> {
@@ -294,19 +323,13 @@ class ProjectManager {
     });
   }
 
-  private async deleteSegmentData(id: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('segments', 'readwrite');
-    const store = tx.objectStore('segments');
-    await store.delete(id);
+  private deleteSegmentData(id: string): Promise<void> {
+    return this.idbDelete('segments', id);
   }
 
   // --- MOUSE DATA HELPERS ---
-  private async saveMouseData(id: string, data: any[]): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('mouse', 'readwrite');
-    const store = tx.objectStore('mouse');
-    await store.put(data, id);
+  private saveMouseData(id: string, data: any[]): Promise<void> {
+    return this.idbPut('mouse', data, id);
   }
 
   private async loadMouseData(id: string): Promise<any[] | null> {
@@ -320,19 +343,13 @@ class ProjectManager {
     });
   }
 
-  private async deleteMouseData(id: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('mouse', 'readwrite');
-    const store = tx.objectStore('mouse');
-    await store.delete(id);
+  private deleteMouseData(id: string): Promise<void> {
+    return this.idbDelete('mouse', id);
   }
 
   // --- THUMBNAIL DATA HELPERS ---
-  private async saveThumbnailData(id: string, data: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('thumbnails', 'readwrite');
-    const store = tx.objectStore('thumbnails');
-    await store.put(data, id);
+  private saveThumbnailData(id: string, data: string): Promise<void> {
+    return this.idbPut('thumbnails', data, id);
   }
 
   private async loadThumbnailData(id: string): Promise<string | null> {
@@ -346,19 +363,13 @@ class ProjectManager {
     });
   }
 
-  private async deleteThumbnailData(id: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('thumbnails', 'readwrite');
-    const store = tx.objectStore('thumbnails');
-    await store.delete(id);
+  private deleteThumbnailData(id: string): Promise<void> {
+    return this.idbDelete('thumbnails', id);
   }
 
   // --- CUSTOM BACKGROUND DATA HELPERS ---
-  private async saveCustomBackgroundData(id: string, data: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('custom_backgrounds', 'readwrite');
-    const store = tx.objectStore('custom_backgrounds');
-    await store.put(data, id);
+  private saveCustomBackgroundData(id: string, data: string): Promise<void> {
+    return this.idbPut('custom_backgrounds', data, id);
   }
 
   private async loadCustomBackgroundData(id: string): Promise<string | null> {
@@ -372,19 +383,13 @@ class ProjectManager {
     });
   }
 
-  private async deleteCustomBackgroundData(id: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('custom_backgrounds', 'readwrite');
-    const store = tx.objectStore('custom_backgrounds');
-    await store.delete(id);
+  private deleteCustomBackgroundData(id: string): Promise<void> {
+    return this.idbDelete('custom_backgrounds', id);
   }
 
   // --- EXISTING HELPERS ---
-  private async saveVideoBlob(id: string, blob: Blob): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('videos', 'readwrite');
-    const store = tx.objectStore('videos');
-    await store.put(blob, id);
+  private saveVideoBlob(id: string, blob: Blob): Promise<void> {
+    return this.idbPut('videos', blob, id);
   }
 
   private async loadVideoBlob(id: string): Promise<Blob | null> {
@@ -398,18 +403,12 @@ class ProjectManager {
     });
   }
 
-  private async deleteVideoBlob(id: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('videos', 'readwrite');
-    const store = tx.objectStore('videos');
-    await store.delete(id);
+  private deleteVideoBlob(id: string): Promise<void> {
+    return this.idbDelete('videos', id);
   }
 
-  private async saveAudioBlob(id: string, blob: Blob): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('audio', 'readwrite');
-    const store = tx.objectStore('audio');
-    await store.put(blob, id);
+  private saveAudioBlob(id: string, blob: Blob): Promise<void> {
+    return this.idbPut('audio', blob, id);
   }
 
   private async loadAudioBlob(id: string): Promise<Blob | null> {
@@ -423,11 +422,8 @@ class ProjectManager {
     });
   }
 
-  private async deleteAudioBlob(id: string): Promise<void> {
-    const db = await this.openDB();
-    const tx = db.transaction('audio', 'readwrite');
-    const store = tx.objectStore('audio');
-    await store.delete(id);
+  private deleteAudioBlob(id: string): Promise<void> {
+    return this.idbDelete('audio', id);
   }
 }
 

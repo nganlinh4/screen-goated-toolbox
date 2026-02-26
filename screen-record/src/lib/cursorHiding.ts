@@ -101,14 +101,20 @@ export function generateCursorVisibility(
     }];
   }
 
-  // Pre-collect click timestamps for efficient post-click active window lookup.
-  const clickTimestamps = positions
-    .filter(p => !!p.isClicked)
-    .map(p => p.timestamp);
+  const mouseEvents = (segment.keystrokeEvents || []).filter(
+    e => e.type === 'mousedown' || e.type === 'wheel'
+  );
 
-  // Returns true if any click occurred within CLICK_ACTIVE_DURATION seconds before t.
-  function withinClickWindow(t: number): boolean {
-    return clickTimestamps.some(ct => t >= ct && t - ct <= CLICK_ACTIVE_DURATION);
+  // Pre-collect interaction timestamps for efficient post-interaction active window lookup.
+  const interactionTimestamps = [
+    ...positions.filter(p => !!p.isClicked).map(p => p.timestamp),
+    ...mouseEvents.map(e => e.startTime),
+    ...mouseEvents.filter(e => e.endTime > e.startTime).map(e => e.endTime),
+  ];
+
+  // Returns true if any interaction occurred within CLICK_ACTIVE_DURATION seconds before t.
+  function withinInteractionWindow(t: number): boolean {
+    return interactionTimestamps.some(ct => t >= ct && t - ct <= CLICK_ACTIVE_DURATION);
   }
 
   // Build activity timeline: for each position, determine if cursor is "active"
@@ -126,7 +132,8 @@ export function generateCursorVisibility(
 
     let netDistance = 0;
     let pathDistance = 0;
-    const clicked = windowPositions.some(p => !!p.isClicked);
+    const clicked = windowPositions.some(p => !!p.isClicked) ||
+      mouseEvents.some(e => t >= e.startTime && t <= e.endTime);
 
     if (windowPositions.length >= 2) {
       const first = windowPositions[0];
@@ -149,10 +156,10 @@ export function generateCursorVisibility(
     const meaningfulMovement =
       netDistance >= ACTIVE_NET_DISTANCE_MIN || pathDistance >= ACTIVE_PATH_DISTANCE_MIN;
 
-    // Keep active during and for CLICK_ACTIVE_DURATION after any click.
-    const nearClick = withinClickWindow(t);
+    // Keep active during and for CLICK_ACTIVE_DURATION after any click/scroll.
+    const nearInteraction = withinInteractionWindow(t);
 
-    activeFlags.push({ time: t, active: clicked || nearClick || meaningfulMovement, clicked });
+    activeFlags.push({ time: t, active: clicked || nearInteraction || meaningfulMovement, clicked });
   }
 
   // Anchored detection: sustained micro-drift (common in locked-center gameplay) should be treated as idle.
