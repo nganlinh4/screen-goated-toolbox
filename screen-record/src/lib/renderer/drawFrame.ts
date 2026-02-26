@@ -53,7 +53,13 @@ export interface RendererState {
 
   // Squish animation
   currentSquishScale: number;
+  squishTarget: number;
+  squishAnimFrom: number;
+  squishAnimProgress: number;
+  squishAnimDuration: number;
+  squishHasRoom: boolean;    // locked-in at animation start — keeps easing consistent mid-animation
   lastHoldTime: number;
+  lastActiveEventId: string | null;
 
   // Motion blur canvases (reused across frames)
   blurAccumCanvas: OffscreenCanvas | null;
@@ -84,9 +90,24 @@ export interface RendererState {
 }
 
 // Constants
-const CLICK_FUSE_THRESHOLD = 0.15;
-const SQUISH_SPEED = 0.015;
-const RELEASE_SPEED = 0.01;
+const CLICK_FUSE_THRESHOLD  = 0.05;
+const SQUISH_TARGET          = 0.75;
+const SQUISH_DOWN_DUR_BASE   = 0.10;  // comfortable press when click is isolated
+const SQUISH_DOWN_DUR_MIN    = 0.04;  // rushed press when previous click was close
+const RELEASE_DUR_BASE       = 0.15;  // comfortable spring-back when no next click is close
+const RELEASE_DUR_MIN        = 0.04;  // rushed spring-back when next click is imminent
+
+// Ease-out cubic: fast initial response, smooth arrival
+function squishEaseDown(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+// Spring-back easing: subtle overshoot (springy) when there's room,
+// plain ease-out cubic when the gap to the next click is tight
+function squishEaseUp(t: number, hasRoom: boolean): number {
+  if (!hasRoom) return 1 - Math.pow(1 - t, 3);
+  const c = 1.2; // overshoot ≈ 5%
+  return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
+}
 
 // ---------------------------------------------------------------------------
 // interpolateCursorPosition - cached wrapper around cursorDynamics
@@ -293,23 +314,106 @@ export async function drawFrame(
     if (showCursor) {
       const keystrokeDelaySec = getKeystrokeDelaySec(segment);
       const lookupTime = video.currentTime - keystrokeDelaySec;
-      // Cap the click window to startTime + 0.1s so the squish bounces back immediately
-      // rather than sticking for the full 0.34s minimum keystroke overlay duration.
-      const isActuallyClicked = interpolatedPosition!.isClicked ||
-        (segment.keystrokeEvents || []).some(
-          e => e.type === 'mousedown' && lookupTime >= e.startTime && lookupTime <= e.startTime + 0.1
-        );
-      // Override isClicked so resolveCursorRenderType also sees synthesized click state
+      const events = segment.keystrokeEvents || [];
+
+      // Find the currently active click event.
+      // Quick clicks: snappy 0.1s detection window. Holds: stay squished until physical release.
+      const activeEvent = events.find(
+        e => e.type === 'mousedown' && lookupTime >= e.startTime &&
+          lookupTime <= (e.isHold ? e.endTime : e.startTime + 0.1)
+      ) ?? null;
+      const isActuallyClicked = !!activeEvent;
+      // Propagate so resolveCursorRenderType (grab/closehand icon) also sees this
       interpolatedPosition!.isClicked = isActuallyClicked;
-      const timeSinceLastHold = video.currentTime - state.lastHoldTime;
-      const shouldBeSquished = isActuallyClicked || (state.lastHoldTime >= 0 && timeSinceLastHold < CLICK_FUSE_THRESHOLD && timeSinceLastHold > 0);
+
+      // Fuse: briefly stay squished after release so spring-back is perceivable
+      const prevLastHoldTime = state.lastHoldTime; // capture before update, used in snap guard below
       if (isActuallyClicked) state.lastHoldTime = video.currentTime;
-      const targetScale = shouldBeSquished ? 0.75 : 1.0;
-      if (state.currentSquishScale > targetScale) {
-        state.currentSquishScale = Math.max(targetScale, state.currentSquishScale - SQUISH_SPEED * (state.latestElapsed / (1000 / 120)));
-      } else if (state.currentSquishScale < targetScale) {
-        state.currentSquishScale = Math.min(targetScale, state.currentSquishScale + RELEASE_SPEED * (state.latestElapsed / (1000 / 120)));
+      const timeSinceLastHold = video.currentTime - state.lastHoldTime;
+      const shouldBeSquished = isActuallyClicked ||
+        (state.lastHoldTime >= 0 && timeSinceLastHold < CLICK_FUSE_THRESHOLD);
+      const targetScale = shouldBeSquished ? SQUISH_TARGET : 1.0;
+
+      const activeEventId = activeEvent?.id ?? null;
+      const isNewClick = activeEventId !== null && activeEventId !== state.lastActiveEventId;
+      state.lastActiveEventId = activeEventId;
+
+      // Start a new animation segment on target change or new click.
+      // All gap lookups happen here (once per segment start) so easing stays consistent.
+      if (targetScale !== state.squishTarget || isNewClick) {
+        if (isNewClick && state.currentSquishScale < 0.95 && prevLastHoldTime >= 0) {
+          // Rapid re-click while already squished from a prior click: snap to 1.0 so each
+          // click gets its own pulse. Guard with prevLastHoldTime >= 0 so the very first
+          // click of a fresh session never triggers a spurious snap-up.
+          state.currentSquishScale = 1.0;
+        }
+        state.squishAnimFrom = state.currentSquishScale;
+        state.squishTarget = targetScale;
+        state.squishAnimProgress = 0;
+
+        if (targetScale < state.squishAnimFrom) {
+          // ── SQUISH DOWN ──
+          // Adapt press speed to gap from the previous click:
+          // isolated click → comfortable; rapid sequence → faster to fit the B-side gap
+          const prevEvent = events.slice().reverse().find(
+            e => e.type === 'mousedown' &&
+              e.startTime < (activeEvent?.startTime ?? lookupTime) - 0.01
+          ) ?? null;
+          const prevEffectiveEnd = prevEvent
+            ? (prevEvent.isHold ? prevEvent.endTime : prevEvent.startTime + 0.1)
+            : -Infinity;
+          const gapFromPrev = activeEvent
+            ? Math.max(0, activeEvent.startTime - prevEffectiveEnd)
+            : Infinity;
+          state.squishAnimDuration = isFinite(gapFromPrev) && gapFromPrev < SQUISH_DOWN_DUR_BASE * 2
+            ? Math.max(SQUISH_DOWN_DUR_MIN, gapFromPrev * 0.4)
+            : SQUISH_DOWN_DUR_BASE;
+          state.squishHasRoom = false; // unused for down-easing; keep it clean
+
+        } else {
+          // ── SPRING BACK ──
+          // Only animate if we're actually coming out of a real recent click.
+          // If the user seeked or there's no click context, snap instantly.
+          const recentClick = state.lastHoldTime >= 0 &&
+            video.currentTime >= state.lastHoldTime &&
+            video.currentTime - state.lastHoldTime < CLICK_FUSE_THRESHOLD + 0.1;
+
+          if (!recentClick) {
+            state.squishAnimProgress = 1; // snap — no click context
+          } else {
+            // Adapt release speed to gap toward the next click:
+            // isolated click → comfortable + springy overshoot;
+            // next click coming soon → faster + no overshoot
+            const activeEffectiveEnd = activeEvent
+              ? (activeEvent.isHold ? activeEvent.endTime : activeEvent.startTime + 0.1)
+              : lookupTime;
+            const nextEvent = events.find(
+              e => e.type === 'mousedown' &&
+                e.startTime > (activeEvent?.startTime ?? lookupTime) + 0.01
+            ) ?? null;
+            const gapToNext = nextEvent
+              ? Math.max(0, nextEvent.startTime - activeEffectiveEnd)
+              : Infinity;
+            state.squishHasRoom = gapToNext > RELEASE_DUR_BASE * 2;
+            state.squishAnimDuration = isFinite(gapToNext) && gapToNext < RELEASE_DUR_BASE * 2
+              ? Math.max(RELEASE_DUR_MIN, gapToNext * 0.5)
+              : RELEASE_DUR_BASE;
+          }
+        }
       }
+
+      // Advance animation by wall-clock elapsed; easing params are locked in at segment start
+      if (state.squishAnimProgress < 1) {
+        const elapsedSec = state.latestElapsed / 1000;
+        state.squishAnimProgress = Math.min(1, state.squishAnimProgress + elapsedSec / state.squishAnimDuration);
+        const t = state.squishAnimProgress;
+        const goingDown = state.squishTarget < state.squishAnimFrom;
+        const eased = goingDown ? squishEaseDown(t) : squishEaseUp(t, state.squishHasRoom);
+        state.currentSquishScale = state.squishAnimFrom + (state.squishTarget - state.squishAnimFrom) * eased;
+      } else {
+        state.currentSquishScale = state.squishTarget;
+      }
+
       // Sync to CursorRenderState — drawCursorShape reads from there, not RendererState
       state.cursorState.currentSquishScale = state.currentSquishScale;
     }

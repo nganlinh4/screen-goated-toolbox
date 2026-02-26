@@ -747,8 +747,6 @@ pub fn handle_ipc_command(
             };
 
             SHOULD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
-            super::engine::IS_MOUSE_CLICKED.store(false, std::sync::atomic::Ordering::SeqCst);
-            super::engine::CLICK_CAPTURED.store(false, std::sync::atomic::Ordering::SeqCst);
             super::engine::CURSOR_SIGNATURE_CACHE.lock().clear();
             MOUSE_POSITIONS.lock().clear();
             ACTIVE_CAPTURE_CONTROL.lock().take();

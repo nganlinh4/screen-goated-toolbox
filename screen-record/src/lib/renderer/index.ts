@@ -133,7 +133,13 @@ class VideoRenderer {
         layoutCache: new Map(),
       },
       currentSquishScale: 1.0,
+      squishTarget: 1.0,
+      squishAnimFrom: 1.0,
+      squishAnimProgress: 1,
+      squishAnimDuration: 0.15,
+      squishHasRoom: true,
       lastHoldTime: -1,
+      lastActiveEventId: null,
       blurAccumCanvas: null,
       blurAccumCtx: null,
       blurSubCanvas: null,
@@ -322,6 +328,18 @@ class VideoRenderer {
 
   public startAnimation(renderContext: RenderContext) {
     this.stopAnimation();
+    // Reset squish state unconditionally — stopAnimation() only resets when animationFrame
+    // was running. A fresh startAnimation must always begin with cursor at full scale,
+    // regardless of whether the previous session was playing or paused.
+    this.state.lastHoldTime = -1;
+    this.state.currentSquishScale = 1.0;
+    this.state.cursorState.currentSquishScale = 1.0;
+    this.state.squishTarget = 1.0;
+    this.state.squishAnimFrom = 1.0;
+    this.state.squishAnimProgress = 1;
+    this.state.squishAnimDuration = 0.15;
+    this.state.squishHasRoom = true;
+    this.state.lastActiveEventId = null;
     this.state.lastDrawTime = 0;
     this.activeRenderContext = renderContext;
 
@@ -353,6 +371,13 @@ class VideoRenderer {
       this.activeRenderContext = null;
       this.state.lastHoldTime = -1;
       this.state.currentSquishScale = 1.0;
+      this.state.cursorState.currentSquishScale = 1.0;
+      this.state.squishTarget = 1.0;
+      this.state.squishAnimFrom = 1.0;
+      this.state.squishAnimProgress = 1;
+      this.state.squishAnimDuration = 0.15;
+      this.state.squishHasRoom = true;
+      this.state.lastActiveEventId = null;
     }
   }
 
