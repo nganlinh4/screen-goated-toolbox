@@ -102,12 +102,13 @@ export function drawMouseIndicatorIcon(
   visual: KeystrokeVisualState
 ) {
   const unit = iconSize / 24;
-  const bodyX = -7 * unit;
-  const bodyY = -10 * unit;
-  const bodyW = 14 * unit;
-  const bodyH = 20 * unit;
-  const corner = 7 * unit;
-  const outline = Math.max(1, unit * 1.6);
+  const bodyW = 13 * unit;
+  const bodyH = 21 * unit;
+  const bodyX = -bodyW / 2;
+  const bodyY = -bodyH / 2;
+  const radius = 6.5 * unit;
+  const midY = bodyY + bodyH * 0.44;
+  const outline = Math.max(1.8, unit * 2.2);
   const holdMix = clamp01(visual.holdMix);
 
   ctx.save();
@@ -115,37 +116,71 @@ export function drawMouseIndicatorIcon(
   const slantRadians = (visual.slnt * Math.PI) / 180;
   ctx.transform(1, 0, Math.tan(slantRadians) * 0.7, 1, 0, 0);
 
-  ctx.fillStyle = rgbaToCss(lerpRgba([255, 255, 255, 0.14], [255, 250, 222, 0.26], holdMix));
-  ctx.strokeStyle = rgbaToCss(lerpRgba([255, 255, 255, 0.94], [255, 246, 189, 1], holdMix));
+  const baseFill = rgbaToCss(lerpRgba([255, 255, 255, 0.14],[255, 250, 222, 0.26], holdMix));
+  const strokeColor = rgbaToCss(lerpRgba([255, 255, 255, 0.94], [255, 246, 189, 1], holdMix));
+  const activeFill = rgbaToCss(lerpRgba([255, 255, 255, 0.9],[255, 246, 189, 1], holdMix));
+
   ctx.lineWidth = outline;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // 1. Base Mouse Body
+  ctx.fillStyle = baseFill;
+  ctx.strokeStyle = strokeColor;
   ctx.beginPath();
-  ctx.roundRect(bodyX, bodyY, bodyW, bodyH, corner);
+  ctx.roundRect(bodyX, bodyY, bodyW, bodyH, radius);
   ctx.fill();
   ctx.stroke();
 
-  ctx.beginPath();
-  ctx.moveTo(0, -6 * unit);
-  ctx.lineTo(0, -2 * unit);
-  ctx.stroke();
-
-  ctx.fillStyle = rgbaToCss(lerpRgba([255, 255, 255, 0.9], [255, 246, 189, 1], holdMix));
-  if (event.type === 'wheel') {
-    ctx.beginPath();
-    ctx.roundRect(-1.5 * unit, -5.2 * unit, 3 * unit, 4.4 * unit, 1.4 * unit);
-    ctx.fill();
+  // 2. Active Highlight Overlay
+  ctx.fillStyle = activeFill;
+  if (event.type === 'wheel' || event.btn === 'middle') {
+    // Handled below in the wheel rendering block
   } else if (event.btn === 'right') {
     ctx.beginPath();
-    ctx.roundRect(0.35 * unit, -9 * unit, 5.8 * unit, 5.8 * unit, 2.8 * unit);
-    ctx.fill();
-  } else if (event.btn === 'middle') {
-    ctx.beginPath();
-    ctx.roundRect(-1.3 * unit, -8.9 * unit, 2.6 * unit, 5.3 * unit, 1.4 * unit);
+    ctx.moveTo(0, midY);
+    ctx.lineTo(bodyX + bodyW, midY);
+    ctx.lineTo(bodyX + bodyW, bodyY + radius);
+    ctx.arcTo(bodyX + bodyW, bodyY, bodyX + bodyW - radius, bodyY, radius);
+    ctx.lineTo(0, bodyY);
+    ctx.closePath();
     ctx.fill();
   } else {
+    // Default to left click
     ctx.beginPath();
-    ctx.roundRect(-6.15 * unit, -9 * unit, 5.8 * unit, 5.8 * unit, 2.8 * unit);
+    ctx.moveTo(0, midY);
+    ctx.lineTo(bodyX, midY);
+    ctx.lineTo(bodyX, bodyY + radius);
+    ctx.arcTo(bodyX, bodyY, bodyX + radius, bodyY, radius);
+    ctx.lineTo(0, bodyY);
+    ctx.closePath();
     ctx.fill();
   }
+
+  // 3. Inner Separator Lines
+  const wheelW = 2.6 * unit;
+  const wheelH = 5.5 * unit;
+  const wheelY = bodyY + 2.5 * unit;
+
+  ctx.beginPath();
+  // Horizontal divider
+  ctx.moveTo(bodyX, midY);
+  ctx.lineTo(bodyX + bodyW, midY);
+  // Vertical top divider
+  ctx.moveTo(0, bodyY);
+  ctx.lineTo(0, wheelY);
+  // Vertical bottom divider
+  ctx.moveTo(0, wheelY + wheelH);
+  ctx.lineTo(0, midY);
+  ctx.stroke();
+
+  // 4. Scroll Wheel
+  ctx.beginPath();
+  ctx.roundRect(-wheelW / 2, wheelY, wheelW, wheelH, wheelW / 2);
+  ctx.fillStyle = (event.type === 'wheel' || event.btn === 'middle') ? activeFill : baseFill;
+  ctx.fill();
+  ctx.stroke();
+
   ctx.restore();
 }
 
@@ -158,7 +193,7 @@ export function drawKeyIconInBubble(
   visual: KeystrokeVisualState
 ) {
   const unit = iconSize / 24;
-  const outline = Math.max(2, unit * 2.8);
+  const outline = Math.max(1.8, unit * 2.2);
   const holdMix = clamp01(visual.holdMix);
   const color = rgbaToCss(lerpRgba([255, 255, 255, 0.92], [244, 255, 249, 1.0], holdMix));
 
@@ -174,120 +209,147 @@ export function drawKeyIconInBubble(
   ctx.lineJoin = 'round';
 
   if (iconType === 'space') {
-    // Horizontal spacebar bar in lower-center of icon area
-    const barW = 17 * unit;
-    const barH = 3.5 * unit;
+    // Proper Spacebar bracket symbol[__]
+    const barW = 16 * unit;
+    const barH = 5 * unit;
+    const yTop = -1.5 * unit;
+    const yBot = yTop + barH;
+    const r = 2 * unit;
+
     ctx.beginPath();
-    ctx.roundRect(-barW / 2, 3 * unit, barW, barH, barH / 2);
-    ctx.fill();
-  } else if (iconType === 'enter') {
-    // Return shape: horizontal arm + vertical arm down + arrowhead pointing left
-    ctx.beginPath();
-    ctx.moveTo(-6 * unit, 3 * unit);
-    ctx.lineTo(7 * unit, 3 * unit);
-    ctx.lineTo(7 * unit, -6 * unit);
+    ctx.moveTo(-barW / 2, yTop);
+    ctx.lineTo(-barW / 2, yBot - r);
+    ctx.arcTo(-barW / 2, yBot, -barW / 2 + r, yBot, r);
+    ctx.lineTo(barW / 2 - r, yBot);
+    ctx.arcTo(barW / 2, yBot, barW / 2, yBot - r, r);
+    ctx.lineTo(barW / 2, yTop);
     ctx.stroke();
+  } else if (iconType === 'enter') {
+    // Classic Return symbol ⏎
     ctx.beginPath();
-    ctx.moveTo(-6 * unit, 3 * unit);
-    ctx.lineTo(-1 * unit, -1.5 * unit);
-    ctx.moveTo(-6 * unit, 3 * unit);
-    ctx.lineTo(-1 * unit, 7.5 * unit);
+    ctx.moveTo(6.5 * unit, -4 * unit);
+    ctx.lineTo(6.5 * unit, 0);
+    ctx.arcTo(6.5 * unit, 2.5 * unit, 4 * unit, 2.5 * unit, 2.5 * unit);
+    ctx.lineTo(-4.5 * unit, 2.5 * unit);
+    ctx.stroke();
+
+    // Arrowhead
+    ctx.beginPath();
+    ctx.moveTo(-1.5 * unit, -0.5 * unit);
+    ctx.lineTo(-4.5 * unit, 2.5 * unit);
+    ctx.lineTo(-1.5 * unit, 5.5 * unit);
     ctx.stroke();
   } else if (iconType === 'backspace') {
-    // Left arrow shaft + arrowhead
+    // Standard Backspace symbol ⌫
+    const leftX = -6.5 * unit;
+    const midX = -2 * unit;
+    const rightX = 6.5 * unit;
+    const topY = -4 * unit;
+    const botY = 4 * unit;
+    const r = 1.5 * unit;
+
     ctx.beginPath();
-    ctx.moveTo(-7 * unit, 0);
-    ctx.lineTo(8 * unit, 0);
+    ctx.moveTo(midX, topY);
+    ctx.lineTo(rightX - r, topY);
+    ctx.arcTo(rightX, topY, rightX, topY + r, r);
+    ctx.lineTo(rightX, botY - r);
+    ctx.arcTo(rightX, botY, rightX - r, botY, r);
+    ctx.lineTo(midX, botY);
+    ctx.lineTo(leftX, 0);
+    ctx.closePath();
     ctx.stroke();
+
+    // Inner X
+    const xSize = 1.6 * unit;
+    const xCenter = 1.5 * unit;
     ctx.beginPath();
-    ctx.moveTo(-7 * unit, 0);
-    ctx.lineTo(-2 * unit, -4.5 * unit);
-    ctx.moveTo(-7 * unit, 0);
-    ctx.lineTo(-2 * unit, 4.5 * unit);
+    ctx.moveTo(xCenter - xSize, -xSize);
+    ctx.lineTo(xCenter + xSize, xSize);
+    ctx.moveTo(xCenter + xSize, -xSize);
+    ctx.lineTo(xCenter - xSize, xSize);
     ctx.stroke();
   } else if (iconType === 'tab') {
-    // |-> (left vertical bar + right-pointing arrow)
+    // Standard Tab symbol ⇥
     ctx.beginPath();
-    ctx.moveTo(-8 * unit, -5 * unit);
-    ctx.lineTo(-8 * unit, 5 * unit);
+    ctx.moveTo(-6 * unit, 0);
+    ctx.lineTo(4.5 * unit, 0);
     ctx.stroke();
+
     ctx.beginPath();
-    ctx.moveTo(-4 * unit, 0);
-    ctx.lineTo(7 * unit, 0);
+    ctx.moveTo(1.5 * unit, -3 * unit);
+    ctx.lineTo(4.5 * unit, 0);
+    ctx.lineTo(1.5 * unit, 3 * unit);
     ctx.stroke();
+
     ctx.beginPath();
-    ctx.moveTo(7 * unit, 0);
-    ctx.lineTo(2 * unit, -4.5 * unit);
-    ctx.moveTo(7 * unit, 0);
-    ctx.lineTo(2 * unit, 4.5 * unit);
+    ctx.moveTo(6.5 * unit, -4 * unit);
+    ctx.lineTo(6.5 * unit, 4 * unit);
     ctx.stroke();
   } else if (iconType === 'shift') {
-    // Upward hollow chevron with stem
-    const tipY = -9 * unit;
-    const midY = -1 * unit;
-    const baseY = 7 * unit;
-    const stemW = 3.5 * unit;
-    const outerW = 9 * unit;
+    // Standard Shift symbol ⇧
     ctx.beginPath();
-    ctx.moveTo(0, tipY);
-    ctx.lineTo(-outerW, midY);
-    ctx.lineTo(-stemW, midY);
-    ctx.lineTo(-stemW, baseY);
-    ctx.lineTo(stemW, baseY);
-    ctx.lineTo(stemW, midY);
-    ctx.lineTo(outerW, midY);
+    ctx.moveTo(0, -6.5 * unit);
+    ctx.lineTo(-6 * unit, 0.5 * unit);
+    ctx.lineTo(-2.5 * unit, 0.5 * unit);
+    ctx.lineTo(-2.5 * unit, 6.5 * unit);
+    ctx.lineTo(2.5 * unit, 6.5 * unit);
+    ctx.lineTo(2.5 * unit, 0.5 * unit);
+    ctx.lineTo(6 * unit, 0.5 * unit);
     ctx.closePath();
     ctx.stroke();
   } else if (iconType === 'capslock') {
-    // Shift chevron + underline bar
-    const tipY = -8 * unit;
-    const midY = -1 * unit;
-    const stemTop = 2 * unit;
-    const stemW = 3.5 * unit;
-    const outerW = 9 * unit;
+    // Standard Capslock symbol ⇪
     ctx.beginPath();
-    ctx.moveTo(0, tipY);
-    ctx.lineTo(-outerW, midY);
-    ctx.lineTo(-stemW, midY);
-    ctx.lineTo(-stemW, stemTop);
-    ctx.lineTo(stemW, stemTop);
-    ctx.lineTo(stemW, midY);
-    ctx.lineTo(outerW, midY);
+    ctx.moveTo(0, -7.5 * unit);
+    ctx.lineTo(-6 * unit, -0.5 * unit);
+    ctx.lineTo(-2.5 * unit, -0.5 * unit);
+    ctx.lineTo(-2.5 * unit, 4.5 * unit);
+    ctx.lineTo(2.5 * unit, 4.5 * unit);
+    ctx.lineTo(2.5 * unit, -0.5 * unit);
+    ctx.lineTo(6 * unit, -0.5 * unit);
     ctx.closePath();
     ctx.stroke();
+
     ctx.beginPath();
-    ctx.moveTo(-outerW, 6 * unit);
-    ctx.lineTo(outerW, 6 * unit);
-    ctx.stroke();
-  } else if (iconType === 'delete') {
-    // Trash can icon
-    const bodyW = 13 * unit;
-    const bodyH = 11 * unit;
-    const bodyTop = -3 * unit;
-    const lidH = 2.5 * unit;
-    const lidW = 16 * unit;
-    const handleW = 5 * unit;
-    const handleH = 2.5 * unit;
-    // Handle (small rounded rect centered above lid)
-    ctx.beginPath();
-    ctx.roundRect(-handleW / 2, bodyTop - lidH - handleH, handleW, handleH, handleH / 2);
-    ctx.stroke();
-    // Lid (filled bar)
-    ctx.beginPath();
-    ctx.roundRect(-lidW / 2, bodyTop - lidH, lidW, lidH, lidH / 2);
+    ctx.roundRect(-6 * unit, 6.5 * unit, 12 * unit, 2.5 * unit, 1 * unit);
     ctx.fill();
-    // Body (rounded bottom corners)
+  } else if (iconType === 'delete') {
+    // Sleek Modern Trash Can
+    const topY = -3.5 * unit;
+    const botY = 6 * unit;
+
+    // Bin Lid
     ctx.beginPath();
-    ctx.roundRect(-bodyW / 2, bodyTop, bodyW, bodyH, [0, 0, 3 * unit, 3 * unit]);
+    ctx.moveTo(-5.5 * unit, topY);
+    ctx.lineTo(5.5 * unit, topY);
     ctx.stroke();
-    // Two vertical lines inside body
-    const lineTop = bodyTop + 2.5 * unit;
-    const lineBot = bodyTop + bodyH - 2.5 * unit;
+
+    // Bin Handle
     ctx.beginPath();
-    ctx.moveTo(-3 * unit, lineTop);
-    ctx.lineTo(-3 * unit, lineBot);
-    ctx.moveTo(3 * unit, lineTop);
-    ctx.lineTo(3 * unit, lineBot);
+    ctx.moveTo(-2 * unit, topY);
+    ctx.lineTo(-2 * unit, topY - 1.5 * unit);
+    ctx.arcTo(-2 * unit, topY - 2.5 * unit, -1 * unit, topY - 2.5 * unit, 1 * unit);
+    ctx.lineTo(1 * unit, topY - 2.5 * unit);
+    ctx.arcTo(2 * unit, topY - 2.5 * unit, 2 * unit, topY - 1.5 * unit, 1 * unit);
+    ctx.lineTo(2 * unit, topY);
+    ctx.stroke();
+
+    // Bin Body
+    ctx.beginPath();
+    ctx.moveTo(-4.5 * unit, topY);
+    ctx.lineTo(-3.5 * unit, botY - 1.5 * unit);
+    ctx.arcTo(-3.5 * unit, botY, -2 * unit, botY, 1.5 * unit);
+    ctx.lineTo(2 * unit, botY);
+    ctx.arcTo(3.5 * unit, botY, 3.5 * unit, botY - 1.5 * unit, 1.5 * unit);
+    ctx.lineTo(4.5 * unit, topY);
+    ctx.stroke();
+
+    // Vertical Ribs
+    ctx.beginPath();
+    ctx.moveTo(-1.5 * unit, topY + 2 * unit);
+    ctx.lineTo(-1 * unit, botY - 2 * unit);
+    ctx.moveTo(1.5 * unit, topY + 2 * unit);
+    ctx.lineTo(1 * unit, botY - 2 * unit);
     ctx.stroke();
   }
 
