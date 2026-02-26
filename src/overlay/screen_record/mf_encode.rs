@@ -1,6 +1,8 @@
 // Media Foundation hardware-accelerated video encoder.
 // Encodes BGRA frames to H.264 MP4 via SinkWriter.
 
+use windows::core::Interface;
+use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Media::MediaFoundation::*;
 
 use super::mf_audio::{AudioConfig, AudioStream};
@@ -164,6 +166,59 @@ impl MfEncoder {
             self.writer
                 .WriteSample(self.video_stream_index, &sample)
                 .map_err(|e| format!("WriteSample: {e}"))?;
+        }
+
+        Ok(())
+    }
+
+    /// Write a GPU-resident D3D11 texture as one encoded frame (zero CPU copy).
+    ///
+    /// Uses `MFCreateDXGISurfaceBuffer` to wrap the texture directly as an MF buffer.
+    /// The SinkWriter reads from VRAM — no Lock/memcpy/Unlock, no MFCreateMemoryBuffer.
+    pub fn write_frame_gpu(
+        &self,
+        texture: &ID3D11Texture2D,
+        timestamp_100ns: i64,
+        duration_100ns: i64,
+    ) -> Result<(), String> {
+        let buffer = unsafe {
+            MFCreateDXGISurfaceBuffer(
+                &ID3D11Texture2D::IID,
+                texture,
+                0,    // subresource index
+                false, // bottom-up = false
+            )
+            .map_err(|e| format!("MFCreateDXGISurfaceBuffer: {e}"))?
+        };
+
+        // Set current length so the encoder knows how many bytes are valid.
+        unsafe {
+            let max_len = buffer
+                .GetMaxLength()
+                .map_err(|e| format!("GetMaxLength: {e}"))?;
+            buffer
+                .SetCurrentLength(max_len)
+                .map_err(|e| format!("SetCurrentLength: {e}"))?;
+        }
+
+        let sample = unsafe { MFCreateSample().map_err(|e| format!("MFCreateSample: {e}"))? };
+
+        unsafe {
+            sample
+                .AddBuffer(&buffer)
+                .map_err(|e| format!("AddBuffer: {e}"))?;
+            sample
+                .SetSampleTime(timestamp_100ns)
+                .map_err(|e| format!("SetSampleTime: {e}"))?;
+            sample
+                .SetSampleDuration(duration_100ns)
+                .map_err(|e| format!("SetSampleDuration: {e}"))?;
+        }
+
+        unsafe {
+            self.writer
+                .WriteSample(self.video_stream_index, &sample)
+                .map_err(|e| format!("WriteSample GPU: {e}"))?;
         }
 
         Ok(())

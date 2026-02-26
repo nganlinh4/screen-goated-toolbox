@@ -789,6 +789,45 @@ impl GpuCompositor {
         });
     }
 
+    /// Copy the output texture to a shared wgpu texture (GPU-to-GPU, no PCIe bus).
+    ///
+    /// Used by the zero-copy pipeline: after rendering, the output is copied to a
+    /// shared texture that the D3D11 encode device can read directly via DXGI interop.
+    pub fn copy_output_to_shared(&self, target: &wgpu::Texture) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Copy to Shared"),
+            });
+
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.output_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// Get a reference to the wgpu device (needed by pipeline for HAL interop).
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
     /// Draw atlas quads directly onto the output texture (called after the main render pass).
     /// Uses premultiplied-alpha blending so transparent quads compose correctly.
     pub fn render_overlays(&self, quads: &[OverlayQuad]) {

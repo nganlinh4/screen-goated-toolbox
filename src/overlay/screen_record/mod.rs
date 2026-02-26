@@ -1035,7 +1035,15 @@ unsafe fn internal_create_sr_loop() {
                             }
                         } else if body == "close_window" {
                             let _ = ShowWindow(hwnd, SW_HIDE);
-                        } else if let Ok(req) = serde_json::from_str::<IpcRequest>(body) {
+                        } else if let Ok(req) = {
+                            let t0 = std::time::Instant::now();
+                            let r = serde_json::from_str::<IpcRequest>(body);
+                            let elapsed = t0.elapsed();
+                            if elapsed.as_millis() > 50 {
+                                eprintln!("[IPC] Body parse: {:.0}ms ({}KB)", elapsed.as_secs_f64() * 1000.0, body.len() / 1024);
+                            }
+                            r
+                        } {
                             let id = req.id;
                             let cmd = req.cmd;
                             let args = req.args;

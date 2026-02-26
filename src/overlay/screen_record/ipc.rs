@@ -28,6 +28,7 @@ use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW,
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows_capture::capture::GraphicsCaptureApiHandler;
@@ -748,6 +749,7 @@ pub fn handle_ipc_command(
             SHOULD_STOP.store(false, std::sync::atomic::Ordering::SeqCst);
             super::engine::IS_MOUSE_CLICKED.store(false, std::sync::atomic::Ordering::SeqCst);
             super::engine::CLICK_CAPTURED.store(false, std::sync::atomic::Ordering::SeqCst);
+            super::engine::CURSOR_SIGNATURE_CACHE.lock().clear();
             MOUSE_POSITIONS.lock().clear();
             ACTIVE_CAPTURE_CONTROL.lock().take();
             super::engine::EXTERNAL_CAPTURE_CONTROL.lock().take();
@@ -765,6 +767,10 @@ pub fn handle_ipc_command(
                 "[CaptureBackend] start_recording: target_type={:?}, target_id={:?}",
                 target_type, target_id
             );
+
+            // Request 1ms timer resolution so thread::sleep(1ms) actually sleeps ~1ms
+            // instead of the default ~15.6ms Windows scheduler quantum.
+            unsafe { timeBeginPeriod(1); }
 
             if target_type == "window" {
                 let hwnd_val = target_id.parse::<usize>().unwrap_or(0);
@@ -951,6 +957,9 @@ pub fn handle_ipc_command(
             SHOULD_STOP.store(true, std::sync::atomic::Ordering::SeqCst);
             super::engine::TARGET_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
             super::capture_border::hide_capture_border();
+
+            // Restore default timer resolution (matching the timeBeginPeriod in start_recording).
+            unsafe { timeEndPeriod(1); }
             if let Some(control) = ACTIVE_CAPTURE_CONTROL.lock().take() {
                 control.stop();
             }

@@ -2,8 +2,7 @@ use crate::overlay::screen_record::audio_engine;
 use crate::overlay::screen_record::d3d_interop::{create_direct3d_surface, VideoProcessor};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::mem::zeroed;
 use std::path::PathBuf;
@@ -92,6 +91,10 @@ lazy_static::lazy_static! {
     };
     // Resolve system cursor handles once; avoids repeated LoadCursorW calls per sample.
     static ref SYSTEM_CURSOR_HANDLES: SystemCursorHandles = load_system_cursor_handles();
+    // Cache cursor_signature() results by HCURSOR raw pointer value.
+    // Windows reuses cursor handles for the lifetime of a process, so a given
+    // pointer always maps to the same bitmap metadata.  Cleared on recording start.
+    pub static ref CURSOR_SIGNATURE_CACHE: Mutex<HashMap<isize, String>> = Mutex::new(HashMap::new());
     // Set SCREEN_RECORD_CURSOR_DEBUG=1 to enable verbose cursor classification logs.
     static ref CURSOR_DEBUG_ENABLED: bool = {
         std::env::var("SCREEN_RECORD_CURSOR_DEBUG")
@@ -347,8 +350,17 @@ fn get_cursor_type(is_clicked: bool) -> String {
             } else if current_handle_key == handles.hand {
                 "pointer".to_string()
             } else {
-                signature =
-                    cursor_signature(cursor_info.hCursor).unwrap_or_else(|| "n/a".to_string());
+                signature = {
+                    let mut cache = CURSOR_SIGNATURE_CACHE.lock();
+                    if let Some(cached) = cache.get(&current_handle_key) {
+                        cached.clone()
+                    } else {
+                        let sig = cursor_signature(cursor_info.hCursor)
+                            .unwrap_or_else(|| "n/a".to_string());
+                        cache.insert(current_handle_key, sig.clone());
+                        sig
+                    }
+                };
                 if CUSTOM_GRAB_SIGNATURES.lock().contains(&signature) {
                     "grab".to_string()
                 } else if is_clicked {

@@ -134,7 +134,6 @@ export class VideoExporter {
   private nextObjectId = 1;
   private prepCacheBytes = 0;
 
-  private static readonly MAX_INLINE_MEDIA_BYTES = 128 * 1024 * 1024;
   private static readonly MAX_PREP_CACHE_BYTES = 512 * 1024 * 1024;
   private static readonly MAX_PREP_CACHE_ENTRIES = 10;
 
@@ -380,6 +379,7 @@ export class VideoExporter {
     }
     this.isExporting = true;
     await this.yieldToUiFrame();
+    const t0Total = performance.now();
 
     try {
       const {
@@ -389,44 +389,14 @@ export class VideoExporter {
       } = options;
       const context = this.buildPreparationContext(options);
       const prepared = await this.getPreparedPayload(context);
+      const tAfterPrep = performance.now();
+      console.log(`[Prep] getPreparedPayload: ${(tAfterPrep - t0Total).toFixed(0)}ms`);
 
-      // Convert media blobs to arrays for Rust only when we do not have a native source path.
-      // Large recordings should flow by file path to avoid huge JS allocations.
-      let videoDataArray: number[] | null = null;
-      let audioDataArray: number[] | null = null;
+      // Video/audio data always flows by file path — Rust falls back to VIDEO_PATH
+      // if sourceVideoPath is empty. Never send raw bytes through JSON IPC.
       const sourceVideoPath = (videoFilePath || '').trim();
 
-      if (!sourceVideoPath && context.video && context.video.src && context.video.src.startsWith('blob:')) {
-        try {
-          const resp = await fetch(context.video.src);
-          const blob = await resp.blob();
-          if (blob.size > VideoExporter.MAX_INLINE_MEDIA_BYTES) {
-            throw new Error(
-              `Video blob too large for inline transfer (${Math.round(blob.size / (1024 * 1024))} MB). ` +
-              'A native source file path is required for large projects.'
-            );
-          }
-          const buffer = await blob.arrayBuffer();
-          videoDataArray = Array.from(new Uint8Array(buffer));
-        } catch (e) {
-          console.error('Failed to extract video data', e);
-          const message = e instanceof Error ? e.message : String(e);
-          throw new Error(`Failed to prepare video for export: ${message}`);
-        }
-      }
-
-      if (audio && audio.src && audio.src.startsWith('blob:') && !audioFilePath) {
-        try {
-          const resp = await fetch(audio.src);
-          const blob = await resp.blob();
-          const buffer = await blob.arrayBuffer();
-          audioDataArray = Array.from(new Uint8Array(buffer));
-        } catch (e) {
-          console.error('Failed to extract audio data', e);
-        }
-      }
-
-      const hasAudio = Boolean((audioFilePath || '').trim() || audioDataArray || (audio && audio.src));
+      const hasAudio = Boolean((audioFilePath || '').trim() || (audio && audio.src));
       const estimateProfileKey = getExportEstimateProfileKey({
         width: prepared.width,
         height: prepared.height,
@@ -464,6 +434,7 @@ export class VideoExporter {
       await invoke('log_message', { message: `[Prep] IPC Atlas+Overlays: ${Date.now() - t0Overlays}ms` });
 
       // Send lightweight config (no baked arrays — they're already staged)
+      const mousePositions = context.mousePositions ?? [];
       const exportConfig = {
         width: prepared.width,
         height: prepared.height,
@@ -480,18 +451,24 @@ export class VideoExporter {
         duration: prepared.activeDuration,
         segment: prepared.normalizedSegment,
         backgroundConfig: context.backgroundConfig,
-        mousePositions: context.mousePositions ?? [],
-        videoData: videoDataArray,
-        audioData: audioDataArray,
+        mousePositions,
       };
+      const tBeforeStringify = performance.now();
+      const configJsonSize = JSON.stringify(exportConfig).length;
+      const tAfterStringify = performance.now();
+      console.log(`[Prep] JSON.stringify exportConfig: ${(tAfterStringify - tBeforeStringify).toFixed(0)}ms, size=${(configJsonSize / 1024).toFixed(0)}KB, mousePositions=${mousePositions.length}`);
 
       try {
+        const tBeforeInvoke = performance.now();
         const res = await invoke('start_export_server', exportConfig) as {
           status?: string;
           path?: string;
           bytes?: number;
           diagnostics?: ExportRuntimeDiagnostics;
         };
+        const tAfterInvoke = performance.now();
+        console.log(`[Prep] invoke('start_export_server') roundtrip: ${(tAfterInvoke - tBeforeInvoke).toFixed(0)}ms`);
+        console.log(`[Prep] Total 'Preparing' duration: ${(tAfterInvoke - t0Total).toFixed(0)}ms`);
         if (res?.diagnostics) {
           window.postMessage({
             type: 'sr-export-diagnostics',

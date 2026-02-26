@@ -211,21 +211,13 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let atlas_w = staged.atlas_w;
     let atlas_h = staged.atlas_h;
 
-    // 0. Handle Source Video/Audio
-    let mut temp_video_path: Option<PathBuf> = None;
-    let mut temp_audio_path: Option<PathBuf> = None;
-
+    // 0. Handle Source Video/Audio — always by file path, never inline data.
     let explicit_source_video_path = config.source_video_path.trim().to_string();
 
     let source_video_path = if !explicit_source_video_path.is_empty()
         && Path::new(&explicit_source_video_path).exists()
     {
         explicit_source_video_path
-    } else if let Some(video_data) = config.video_data.take() {
-        let path = std::env::temp_dir().join("sgt_temp_source.mp4");
-        fs::write(&path, video_data).map_err(|e| format!("Failed to write temp video: {}", e))?;
-        temp_video_path = Some(path.clone());
-        path.to_string_lossy().to_string()
     } else {
         VIDEO_PATH
             .lock()
@@ -234,12 +226,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             .ok_or("No source video found")?
     };
 
-    let source_audio_path = if let Some(audio_data) = config.audio_data.take() {
-        let path = std::env::temp_dir().join("sgt_temp_source_audio.wav");
-        fs::write(&path, audio_data).map_err(|e| format!("Failed to write temp audio: {}", e))?;
-        temp_audio_path = Some(path.clone());
-        Some(path.to_string_lossy().to_string())
-    } else if !config.audio_path.is_empty() {
+    let source_audio_path = if !config.audio_path.is_empty() {
         Some(config.audio_path.clone())
     } else {
         None
@@ -585,19 +572,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let _ = mf_decode::mf_shutdown();
 
-    // Clean up temp files
-    if let Some(p) = &temp_video_path {
-        let _ = fs::remove_file(p);
-    }
-
     match result {
         Ok(r) => {
             // If cancelled, the encode thread may have still finalized a partial file.
             // Detect this case and report cancellation instead of false success.
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {
-                if let Some(p) = &temp_audio_path {
-                    let _ = fs::remove_file(p);
-                }
                 let _ = fs::remove_file(&final_output_path);
                 println!("[Export][Summary] status=cancelled (partial encode finalized)");
                 return Ok(serde_json::json!({ "status": "cancelled" }));
@@ -605,9 +584,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
             let total_secs = export_total_start.elapsed().as_secs_f64();
 
-            if let Some(p) = &temp_audio_path {
-                let _ = fs::remove_file(p);
-            }
 
             let output_bytes = fs::metadata(&final_output_path)
                 .map(|m| m.len())
@@ -653,9 +629,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             }))
         }
         Err(e) => {
-            if let Some(p) = &temp_audio_path {
-                let _ = fs::remove_file(p);
-            }
             let _ = fs::remove_file(&final_output_path);
 
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {

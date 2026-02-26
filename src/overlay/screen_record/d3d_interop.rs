@@ -1,22 +1,23 @@
-// D3D11 device creation, video processing, and CPU readback utilities.
+// D3D11 device creation, video processing, CPU readback, and shared VRAM utilities.
 // Creates a standalone D3D11 device for Media Foundation decode/encode
 // and D3D11 VideoProcessor for NV12→RGBA color space conversion.
 //
-// wgpu and D3D11 are completely independent devices — no D3D11On12.
-// CPU copies bridge data between the two:
-//   MF D3D11 → CPU readback → wgpu upload → wgpu render → wgpu readback → MF encode
+// wgpu (DX12) and D3D11 are completely independent devices — no D3D11On12.
+// SharedVramBuffer enables GPU-to-GPU transfer: wgpu renders → copy to shared
+// D3D11 texture → MF encoder reads directly, eliminating PCIe round-trips.
 
 use std::mem::ManuallyDrop;
 
 use windows::core::Interface;
 use windows::Graphics::DirectX::Direct3D11::IDirect3DSurface;
-use windows::Win32::Foundation::{HMODULE, RECT};
+use windows::Win32::Foundation::{HANDLE, HMODULE, RECT};
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL_11_0,
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Graphics::Dxgi::IDXGISurface;
+use windows::Win32::Graphics::Dxgi::{IDXGIResource1, IDXGISurface};
+use windows::Win32::Security::SECURITY_ATTRIBUTES;
 use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11SurfaceFromDXGISurface;
 
 /// Create a standalone D3D11 device with video processing support.
@@ -382,3 +383,75 @@ pub fn create_direct3d_surface(texture: &ID3D11Texture2D) -> Result<IDirect3DSur
         .cast()
         .map_err(|e| format!("IInspectable -> IDirect3DSurface cast failed: {e}"))
 }
+
+/// D3D11 texture with an NT shared handle for cross-API interop.
+///
+/// The texture lives on the encode D3D11 device and is shared with wgpu (DX12)
+/// via `CreateSharedHandle` / `OpenSharedHandle`. Used as a ring buffer slot
+/// for zero-copy render→encode transfer.
+pub struct SharedVramBuffer {
+    pub texture: ID3D11Texture2D,
+    pub handle: HANDLE,
+}
+
+impl SharedVramBuffer {
+    /// Create a shared BGRA texture on the given D3D11 device.
+    ///
+    /// The texture is created with `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` misc flags
+    /// and `RENDER_TARGET | SHADER_RESOURCE` bind flags so it can be imported into
+    /// DX12 via `OpenSharedHandle`.
+    pub fn new(device: &ID3D11Device, width: u32, height: u32) -> Result<Self, String> {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: width,
+            Height: height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
+                | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
+        };
+
+        let mut texture: Option<ID3D11Texture2D> = None;
+        unsafe {
+            device
+                .CreateTexture2D(&desc, None, Some(&mut texture))
+                .map_err(|e| format!("CreateTexture2D shared: {e}"))?;
+        }
+        let texture = texture.ok_or("CreateTexture2D shared returned null")?;
+
+        let dxgi_resource: IDXGIResource1 = texture
+            .cast()
+            .map_err(|e| format!("QI IDXGIResource1: {e}"))?;
+
+        let handle = unsafe {
+            dxgi_resource
+                .CreateSharedHandle(
+                    None::<*const SECURITY_ATTRIBUTES>,
+                    windows::Win32::Graphics::Dxgi::DXGI_SHARED_RESOURCE_READ.0
+                        | windows::Win32::Graphics::Dxgi::DXGI_SHARED_RESOURCE_WRITE.0,
+                    None,
+                )
+                .map_err(|e| format!("CreateSharedHandle: {e}"))?
+        };
+
+        Ok(Self { texture, handle })
+    }
+}
+
+impl Drop for SharedVramBuffer {
+    fn drop(&mut self) {
+        if !self.handle.is_invalid() {
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(self.handle);
+            }
+        }
+    }
+}
+
