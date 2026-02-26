@@ -149,7 +149,7 @@ export function CursorPanel({
         </SettingRow>
         <SettingRow label={t.cursorTilt} valueDisplay={`${backgroundConfig.cursorTiltAngle ?? -10}°`} className="cursor-tilt-angle-field">
           <Slider
-            min={-30} max={30} step={1} value={backgroundConfig.cursorTiltAngle ?? -10}
+            min={-30} max={60} step={1} value={backgroundConfig.cursorTiltAngle ?? -10}
             onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorTiltAngle: val }))}
             className="cursor-tilt-angle-slider"
           />
