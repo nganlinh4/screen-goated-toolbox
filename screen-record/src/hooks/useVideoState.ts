@@ -541,14 +541,39 @@ export function useProjects(props: UseProjectsProps) {
     props.setThumbnails([]);
     props.setCurrentAudio(null);
 
+    // Restore rawVideoPath for old projects that only have a blob.
+    // Writes the blob to disk via the media server POST endpoint (binary, no JSON overhead).
+    let rawVideoPath = project.rawVideoPath ?? '';
+    if (!rawVideoPath && project.videoBlob && project.videoBlob.size > 0) {
+      try {
+        const port = await invoke<number>('get_media_server_port');
+        if (port) {
+          const resp = await fetch(`http://localhost:${port}/write-temp`, {
+            method: 'POST',
+            body: project.videoBlob,
+          });
+          if (resp.ok) {
+            const { path } = await resp.json() as { path: string };
+            if (path) {
+              rawVideoPath = path;
+              // Persist so this migration only happens once.
+              await projectManager.updateProject(projectId, { ...project, rawVideoPath: path });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[ProjectLoad] Failed to restore rawVideoPath:', e);
+      }
+    }
+
     const videoObjectUrl = await props.videoControllerRef.current?.loadVideo({ videoBlob: project.videoBlob });
     if (videoObjectUrl) {
       props.setCurrentVideo(videoObjectUrl);
-      if (project.rawVideoPath) {
+      if (rawVideoPath) {
         thumbnailGenerator.generateThumbnails(videoObjectUrl, 20, {
           trimStart: project.segment.trimStart,
           trimEnd: project.segment.trimEnd,
-          filePath: project.rawVideoPath
+          filePath: rawVideoPath
         }).then(props.setThumbnails).catch(() => {});
       }
     }
@@ -638,7 +663,7 @@ export function useProjects(props: UseProjectsProps) {
     props.setBackgroundConfig(project.backgroundConfig);
     props.setMousePositions(project.mousePositions);
     props.setCurrentRecordingMode?.(project.recordingMode ?? 'withoutCursor');
-    props.setCurrentRawVideoPath?.(project.rawVideoPath ?? '');
+    props.setCurrentRawVideoPath?.(rawVideoPath);
     logProjectLoad('load:applied', {
       projectId,
       canvasMode: project.backgroundConfig?.canvasMode,
