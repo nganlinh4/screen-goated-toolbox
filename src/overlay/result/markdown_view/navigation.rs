@@ -156,20 +156,29 @@ pub fn update_markdown_content_ex(
         );
     }
 
-    // Fast path for simple content without scripts
+    // Fast path: store page in font server and navigate to it.
+    // Replaces the old document.open/write/close approach. document.open() clears the page
+    // immediately — any failure in document.write() (e.g. JS template literal syntax error from
+    // special chars in the HTML) left the WebView permanently blank, and the blank state
+    // persisted through text↔markdown mode toggles because the WebView was reused not recreated.
+    let mut page_url = String::new();
+    for _ in 0..10 {
+        if let Some(url) =
+            crate::overlay::html_components::font_manager::store_html_page(html.clone())
+        {
+            page_url = url;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    if page_url.is_empty() {
+        return false;
+    }
+
     WEBVIEWS.with(|webviews| {
         if let Some(webview) = webviews.borrow().get(&hwnd_key) {
-            // For simple markdown, update body content via DOM manipulation
-            // This is safe because we verified there are no conflicting scripts
-            let escaped_html = html
-                .replace('\\', "\\\\")
-                .replace('`', "\\`")
-                .replace("${", "\\${");
-            let script = format!(
-                "document.open(); document.write(`{}`); document.close();",
-                escaped_html
-            );
-            let _ = webview.evaluate_script(&script);
+            let _ = webview.load_url(&page_url);
             return true;
         }
         false
