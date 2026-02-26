@@ -107,4 +107,16 @@ pub struct SettingsApp {
 
     // --- ARGUMENT HANDLING ---
     pub(crate) pending_file_path: Option<std::path::PathBuf>,
+
+    // --- DRAG WARMUP ---
+    // Counts down after focus is gained. While > 0 the title-bar drag sensor
+    // is suppressed so the first click always reaches a button instead of
+    // being swallowed by the native drag loop.
+    pub(crate) drag_warmup_frames: u8,
+    pub(crate) was_focused: bool,
+    // Measured gap rect between left-side buttons and right-side controls.
+    // Updated each frame; used as the drag zone for the next frame.
+    pub(crate) title_bar_drag_rect: egui::Rect,
+    // Set to true once the WM_NCHITTEST resize subclass has been installed.
+    pub(crate) resize_subclass_installed: bool,
 }

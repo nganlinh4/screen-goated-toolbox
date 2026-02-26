@@ -2,6 +2,7 @@ pub mod app;
 pub mod icons;
 mod key_mapping;
 pub mod locale;
+pub mod resize_subclass;
 pub mod settings_ui;
 pub mod splash;
 pub mod utils;

@@ -494,7 +494,7 @@ unsafe fn internal_create_pdj_loop() {
             }}
         }})();
 
-        window.addEventListener('load', () => {{
+        window.addEventListener('DOMContentLoaded', () => {{
             const style = document.createElement('style');
             style.innerHTML = `
                 body {{

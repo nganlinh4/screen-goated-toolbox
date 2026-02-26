@@ -1,11 +1,10 @@
 import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/Slider';
+import { PanelCard } from '@/components/layout/PanelCard';
+import { SettingRow } from '@/components/layout/SettingRow';
 import { Trash2 } from 'lucide-react';
 import { VideoSegment } from '@/types/video';
 import { useSettings } from '@/hooks/useSettings';
-
-/** Inline style for slider active track fill */
-const sv = (v: number, min: number, max: number): React.CSSProperties =>
-  ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
 
 export interface ZoomPanelProps {
   segment: VideoSegment | null;
@@ -34,9 +33,9 @@ export function ZoomPanel({
     if (!keyframe) return null;
 
     return (
-      <div className="zoom-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+      <PanelCard className="zoom-panel">
         <div className="panel-header flex justify-between items-center mb-3">
-          <h2 className="panel-title text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)]">{t.zoomConfiguration}</h2>
+          <h2 className="panel-title text-xs font-medium uppercase tracking-wide text-on-surface-variant">{t.zoomConfiguration}</h2>
           <Button
             onClick={onDeleteKeyframe}
             variant="ghost"
@@ -47,66 +46,35 @@ export function ZoomPanel({
           </Button>
         </div>
         <div className="zoom-controls space-y-3.5">
-          <div className="zoom-factor-field flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.zoomFactor}</span>
-            <input
-              type="range"
-              min="1"
-              max="3"
-              step="0.01"
-              value={zoomFactor}
-              style={sv(zoomFactor, 1, 3)}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
-              onChange={(e) => {
-                const newValue = Number(e.target.value);
-                setZoomFactor(newValue);
-                onUpdateZoom({ zoomFactor: newValue });
-              }}
-              className="flex-1 min-w-0"
+          <SettingRow label={t.zoomFactor} valueDisplay={`${zoomFactor.toFixed(1)}x`} className="zoom-factor-field">
+            <Slider
+              min={1} max={3} step={0.01} value={zoomFactor}
+              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onChange={(val) => { setZoomFactor(val); onUpdateZoom({ zoomFactor: val }); }}
             />
-            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{zoomFactor.toFixed(1)}x</span>
-          </div>
-          <div className="position-x-field flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.horizontalPosition}</span>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={keyframe?.positionX ?? 0.5}
-              style={sv(keyframe?.positionX ?? 0.5, 0, 1)}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
-              onChange={(e) => onUpdateZoom({ positionX: Number(e.target.value) })}
-              className="flex-1 min-w-0"
+          </SettingRow>
+          <SettingRow label={t.horizontalPosition} valueDisplay={`${Math.round((keyframe?.positionX ?? 0.5) * 100)}%`} className="position-x-field">
+            <Slider
+              min={0} max={1} step={0.01} value={keyframe?.positionX ?? 0.5}
+              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onChange={(val) => onUpdateZoom({ positionX: val })}
             />
-            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((keyframe?.positionX ?? 0.5) * 100)}%</span>
-          </div>
-          <div className="position-y-field flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.verticalPosition}</span>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={keyframe?.positionY ?? 0.5}
-              style={sv(keyframe?.positionY ?? 0.5, 0, 1)}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
-              onChange={(e) => onUpdateZoom({ positionY: Number(e.target.value) })}
-              className="flex-1 min-w-0"
+          </SettingRow>
+          <SettingRow label={t.verticalPosition} valueDisplay={`${Math.round((keyframe?.positionY ?? 0.5) * 100)}%`} className="position-y-field">
+            <Slider
+              min={0} max={1} step={0.01} value={keyframe?.positionY ?? 0.5}
+              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onChange={(val) => onUpdateZoom({ positionY: val })}
             />
-            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((keyframe?.positionY ?? 0.5) * 100)}%</span>
-          </div>
+          </SettingRow>
         </div>
-      </div>
+      </PanelCard>
     );
   }
 
   return (
-    <div className="zoom-panel-hint bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-4 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-      <p className="text-xs text-[var(--on-surface-variant)]">{t.zoomHint}</p>
-    </div>
+    <PanelCard className="zoom-panel-hint p-4">
+      <p className="text-xs text-on-surface-variant">{t.zoomHint}</p>
+    </PanelCard>
   );
 }
