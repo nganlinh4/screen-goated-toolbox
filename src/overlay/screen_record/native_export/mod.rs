@@ -226,7 +226,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             .ok_or("No source video found")?
     };
 
-    let source_audio_path = if !config.audio_path.is_empty() {
+    let audio_volume = config.background_config.volume.clamp(0.0, 2.0);
+    // Volume 0 → omit audio track entirely (no point decoding/encoding silence).
+    let source_audio_path = if !config.audio_path.is_empty() && audio_volume > 0.0 {
         Some(config.audio_path.clone())
     } else {
         None
@@ -520,6 +522,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         source_video_path: source_video_path.clone(),
         output_path: final_output_path.to_str().unwrap().to_string(),
         audio_path: source_audio_path.clone(),
+        audio_volume,
         output_width: out_w,
         output_height: out_h,
         framerate: config.framerate,

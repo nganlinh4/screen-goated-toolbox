@@ -47,6 +47,8 @@ pub struct PipelineConfig {
     pub source_video_path: String,
     pub output_path: String,
     pub audio_path: Option<String>,
+    /// Volume multiplier applied to every PCM sample (0.0 = silent, 1.0 = unchanged).
+    pub audio_volume: f64,
     pub output_width: u32,
     pub output_height: u32,
     pub framerate: u32,
@@ -1027,7 +1029,15 @@ fn run_encode_thread(
                             let channels = dec.channels() as usize;
                             let speed =
                                 get_speed(chunk_time, &config.speed_points).clamp(0.1, 16.0);
-                            let resampled = resample_pcm_bytes(&pcm, speed, channels);
+                            let mut resampled = resample_pcm_bytes(&pcm, speed, channels);
+                            // Apply volume scaling (config.audio_volume == 1.0 → no-op).
+                            if config.audio_volume < 0.999 {
+                                let vol = config.audio_volume as f32;
+                                for chunk in resampled.chunks_exact_mut(4) {
+                                    let s = f32::from_le_bytes(chunk.try_into().unwrap());
+                                    chunk.copy_from_slice(&(s * vol).clamp(-1.0, 1.0).to_le_bytes());
+                                }
+                            }
                             if channels == 0 || resampled.is_empty() {
                                 continue;
                             }

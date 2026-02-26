@@ -232,6 +232,13 @@ pub struct BackgroundConfig {
     pub cursor_wiggle_response: Option<f64>,
     #[serde(default)]
     pub cursor_tilt_angle: Option<f64>,
+    /// Audio volume multiplier (0.0 = silent, 1.0 = original). Default 1.0.
+    #[serde(default = "default_volume")]
+    pub volume: f64,
+}
+
+fn default_volume() -> f64 {
+    1.0
 }
 
 #[derive(Serialize, Debug, Clone)]
