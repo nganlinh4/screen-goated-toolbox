@@ -6,6 +6,7 @@ import type {
   OverlayQuad,
 } from '@/types/video';
 import { getTrimSegments } from '@/lib/trimSegments';
+import { getSpeedAtTime } from '@/lib/exportEstimator';
 import {
   type KeystrokeState,
   type KeystrokeBubbleLayout,
@@ -460,17 +461,39 @@ export async function bakeOverlayAtlasAndPaths(
   const atlasBase64 = finalCanvas.toDataURL('image/png');
   atlasCanvas.remove();
 
-  // Generate per-frame quad arrays
+  // Generate per-frame quad arrays.
+  // IMPORTANT: This loop must mirror gpu_pipeline.rs `build_frame_times` exactly so that
+  // frames[i] corresponds to output frame i. The Rust compositor indexes overlay_frames by
+  // frame_idx directly — so any mismatch here causes keystrokes to be invisible at non-1x
+  // speed segments (at 1x speed source_time == output_time, masking the bug).
+  //
+  // Algorithm (identical to Rust build_frame_times):
+  //   current_source_time starts at trimSegments[0].startTime
+  //   per output frame: advance by clamp(speed(t), 0.1, 16) * (1/fps)
+  //   when current_source_time crosses a segment boundary: jump to next segment's startTime
   const frames: OverlayFrame[] = [];
-  const step = 1 / fps;
+  const outDt = 1 / fps;
+  const speedPoints = segment.speedPoints || [];
   const trimSegments = getTrimSegments(segment, duration);
-  const fullStart = trimSegments[0].startTime;
-  const fullEnd = trimSegments[trimSegments.length - 1].endTime;
+  const endTime = trimSegments[trimSegments.length - 1].endTime;
   const delaySec = getKeystrokeDelaySec(segment);
   const fadeDur = 0.3;
 
+  let segIdx = 0;
+  let t = trimSegments[0].startTime;
   let frameCount = 0;
-  for (let t = fullStart; t <= fullEnd + 0.0001; t += step) {
+
+  while (t < endTime - 1e-9) {
+    // Advance to the next trim segment if source time has passed the current segment's end
+    // (mirrors the inner while in Rust build_frame_times)
+    while (segIdx < trimSegments.length && t >= trimSegments[segIdx].endTime) {
+      segIdx++;
+      if (segIdx < trimSegments.length) {
+        t = trimSegments[segIdx].startTime;
+      }
+    }
+    if (segIdx >= trimSegments.length) break;
+
     const quads: OverlayQuad[] = [];
 
     for (const text of segment.textSegments || []) {
@@ -516,10 +539,9 @@ export async function bakeOverlayAtlasAndPaths(
           const quadY = cy - drawH / 2;
           const mix = clamp01(visual.holdMix);
 
-          // To perfectly crossfade two opaque objects over a background using Premultiplied SrcOver blending
-          // without the total opacity dipping in the middle, the bottom (Normal) layer must compensate.
+          // Crossfade two opaque states (Normal + Held) using Premultiplied SrcOver.
           // Math: A_total = A_held + A_normal - A_held * A_normal.
-          // Solving for A_total = visual.alpha yields this exact alphaNormal coefficient.
+          // Solving for A_total = visual.alpha gives the alphaNormal coefficient below.
           const alphaHeld = visual.alpha * mix;
           const alphaNormal = alphaHeld >= 0.999 ? 0 : (visual.alpha * (1 - mix)) / (1 - alphaHeld);
           if (alphaNormal > 0.001) {
@@ -558,6 +580,12 @@ export async function bakeOverlayAtlasAndPaths(
     frameCount++;
     // Yield every 500 frames to keep the browser responsive during long exports.
     if (frameCount % 500 === 0) await new Promise(r => setTimeout(r, 0));
+
+    // Advance source time by speed-adjusted output step — identical to Rust build_frame_times:
+    //   speed = get_speed(current_source_time, speed_points).clamp(0.1, 16.0)
+    //   current_source_time += speed * out_dt
+    const speed = Math.max(0.1, Math.min(16.0, getSpeedAtTime(t, speedPoints)));
+    t += speed * outDt;
   }
 
   return { atlasBase64, atlasWidth: MAX_ATLAS_SIZE, atlasHeight: actualAtlasHeight, frames };
