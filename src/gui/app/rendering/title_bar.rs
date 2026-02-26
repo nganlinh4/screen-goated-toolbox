@@ -59,24 +59,10 @@ impl SettingsApp {
             )
             .show_separator_line(false)
             .show(ctx, |ui| {
-                // --- FOCUS-GAIN WARMUP ---
-                // When the window transitions from unfocused → focused, suppress the
-                // drag sensor for a few frames. This prevents the native drag loop
-                // (SendMessageW WM_NCLBUTTONDOWN) from swallowing the first real
-                // button click that immediately follows focus activation.
-                let focused = ctx.input(|i| i.focused);
-                if focused && !self.was_focused {
-                    self.drag_warmup_frames = 4;
-                }
-                self.was_focused = focused;
-                if self.drag_warmup_frames > 0 {
-                    self.drag_warmup_frames -= 1;
-                }
-
                 // --- DRAG HANDLE (Middle Gap Only) ---
                 // Registered FIRST so buttons rendered later always take priority.
                 // Uses last frame's measured gap rect — the drag zone never overlaps buttons.
-                if self.drag_warmup_frames == 0 && self.title_bar_drag_rect.width() > 4.0 {
+                if self.title_bar_drag_rect.width() > 4.0 {
                     let drag_resp = ui.interact(
                         self.title_bar_drag_rect,
                         ui.id().with("drag_bar"),
