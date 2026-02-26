@@ -25,8 +25,6 @@ pub struct ExportConfig {
     pub duration: f64,
     pub segment: VideoSegment,
     pub background_config: BackgroundConfig,
-    pub video_data: Option<Vec<u8>>,
-    pub audio_data: Option<Vec<u8>>,
     pub baked_path: Option<Vec<BakedCameraFrame>>,
     pub baked_cursor_path: Option<Vec<BakedCursorFrame>>,
     /// Raw mouse positions sent from frontend; Rust generates baked cursor path from these.
