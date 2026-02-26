@@ -1556,7 +1556,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
     SERVER_PORT.store(actual_port, std::sync::atomic::Ordering::SeqCst);
 
     thread::spawn(move || {
-        for request in server.incoming_requests() {
+        for mut request in server.incoming_requests() {
             if request.method() == &tiny_http::Method::Options {
                 let mut res = Response::empty(204);
                 res.add_header(
@@ -1566,18 +1566,66 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 res.add_header(
                     tiny_http::Header::from_bytes(
                         &b"Access-Control-Allow-Methods"[..],
-                        &b"GET, OPTIONS"[..],
+                        &b"GET, POST, OPTIONS"[..],
                     )
                     .unwrap(),
                 );
                 res.add_header(
                     tiny_http::Header::from_bytes(
                         &b"Access-Control-Allow-Headers"[..],
-                        &b"Range"[..],
+                        &b"Range, Content-Type"[..],
                     )
                     .unwrap(),
                 );
                 let _ = request.respond(res);
+                continue;
+            }
+
+            // POST /write-temp — write binary body to recordings dir, return file path.
+            // Used to restore rawVideoPath for old projects that only have a blob.
+            if request.method() == &tiny_http::Method::Post
+                && request.url().starts_with("/write-temp")
+            {
+                let cors = tiny_http::Header::from_bytes(
+                    &b"Access-Control-Allow-Origin"[..],
+                    &b"*"[..],
+                )
+                .unwrap();
+                let recordings_dir = dirs::data_local_dir()
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("screen-goated-toolbox")
+                    .join("recordings");
+                let _ = std::fs::create_dir_all(&recordings_dir);
+                let dest = recordings_dir.join(format!(
+                    "restored_{}.mp4",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis()
+                ));
+                let mut body = Vec::new();
+                if request.as_reader().read_to_end(&mut body).is_ok()
+                    && !body.is_empty()
+                    && std::fs::write(&dest, &body).is_ok()
+                {
+                    let json =
+                        format!("{{\"path\":{}}}", serde_json::json!(dest.to_string_lossy()));
+                    let mut res = Response::from_string(json).with_status_code(200);
+                    res.add_header(cors);
+                    res.add_header(
+                        tiny_http::Header::from_bytes(
+                            &b"Content-Type"[..],
+                            &b"application/json"[..],
+                        )
+                        .unwrap(),
+                    );
+                    let _ = request.respond(res);
+                } else {
+                    let mut res =
+                        Response::from_string("Write failed").with_status_code(500);
+                    res.add_header(cors);
+                    let _ = request.respond(res);
+                }
                 continue;
             }
 
