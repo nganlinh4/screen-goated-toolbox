@@ -79,9 +79,6 @@ lazy_static::lazy_static! {
     /// Stores the CaptureControl returned by start_free_threaded so stop_recording
     /// can properly terminate the capture thread even when 0 frames arrived.
     pub static ref EXTERNAL_CAPTURE_CONTROL: Mutex<Option<CaptureControl<CaptureHandler, Box<dyn std::error::Error + Send + Sync>>>> = Mutex::new(None);
-    pub static ref IS_MOUSE_CLICKED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    // Track if we already captured the click event (to only record one frame as clicked)
-    pub static ref CLICK_CAPTURED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // Last emitted cursor debug record to avoid spamming logs every frame.
     static ref LAST_CURSOR_DEBUG: Mutex<Option<(isize, String, bool, String)>> = Mutex::new(None);
     // Learned non-system custom cursor signatures that represent grab/openhand cursors.
@@ -526,8 +523,7 @@ fn sample_mouse_position(start: Instant) {
     unsafe {
         let mut point = POINT::default();
         if GetCursorPos(&mut point).is_ok() {
-            let is_clicked = IS_MOUSE_CLICKED.load(Ordering::SeqCst);
-            let cursor_type = get_cursor_type(is_clicked);
+            let cursor_type = get_cursor_type(false);
 
             let mut offset_x = MONITOR_X;
             let mut offset_y = MONITOR_Y;
@@ -554,7 +550,7 @@ fn sample_mouse_position(start: Instant) {
                 x: point.x - offset_x,
                 y: point.y - offset_y,
                 timestamp: start.elapsed().as_secs_f64(),
-                is_clicked,
+                is_clicked: false,
                 cursor_type,
             };
             MOUSE_POSITIONS.lock().push_back(mouse_pos);
