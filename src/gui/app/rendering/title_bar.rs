@@ -59,13 +59,33 @@ impl SettingsApp {
             )
             .show_separator_line(false)
             .show(ctx, |ui| {
-                // --- DRAG HANDLE (Whole Bar) ---
-                // We use interact instead of allocate_response to avoid pushing content
-                let drag_resp =
-                    ui.interact(ui.max_rect(), ui.id().with("drag_bar"), egui::Sense::drag());
-                if drag_resp.drag_started() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                    start_native_window_drag_fallback();
+                // --- FOCUS-GAIN WARMUP ---
+                // When the window transitions from unfocused → focused, suppress the
+                // drag sensor for a few frames. This prevents the native drag loop
+                // (SendMessageW WM_NCLBUTTONDOWN) from swallowing the first real
+                // button click that immediately follows focus activation.
+                let focused = ctx.input(|i| i.focused);
+                if focused && !self.was_focused {
+                    self.drag_warmup_frames = 4;
+                }
+                self.was_focused = focused;
+                if self.drag_warmup_frames > 0 {
+                    self.drag_warmup_frames -= 1;
+                }
+
+                // --- DRAG HANDLE (Middle Gap Only) ---
+                // Registered FIRST so buttons rendered later always take priority.
+                // Uses last frame's measured gap rect — the drag zone never overlaps buttons.
+                if self.drag_warmup_frames == 0 && self.title_bar_drag_rect.width() > 4.0 {
+                    let drag_resp = ui.interact(
+                        self.title_bar_drag_rect,
+                        ui.id().with("drag_bar"),
+                        egui::Sense::drag(),
+                    );
+                    if drag_resp.drag_started() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                        start_native_window_drag_fallback();
+                    }
                 }
 
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -73,9 +93,20 @@ impl SettingsApp {
 
                     // --- LEFT SIDE: Sidebar Controls ---
                     self.render_title_bar_left_side(ui, &text);
+                    let left_end_x = ui.cursor().left();
 
                     // --- RIGHT SIDE: Window Controls & Branding ---
-                    self.render_title_bar_right_side(ui, ctx, is_dark, is_maximized);
+                    let right_start_x =
+                        self.render_title_bar_right_side(ui, ctx, is_dark, is_maximized);
+
+                    // Update drag zone for next frame: the empty gap between the two sides.
+                    let bar_rect = ui.max_rect();
+                    if right_start_x > left_end_x {
+                        self.title_bar_drag_rect = egui::Rect::from_min_max(
+                            egui::pos2(left_end_x, bar_rect.top()),
+                            egui::pos2(right_start_x, bar_rect.bottom()),
+                        );
+                    }
                 });
             });
     }
@@ -234,8 +265,8 @@ impl SettingsApp {
         ctx: &egui::Context,
         is_dark: bool,
         is_maximized: bool,
-    ) {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    ) -> f32 {
+        let resp = ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
 
             let grid_h = if is_maximized { 40.0 } else { 28.0 };
@@ -359,7 +390,11 @@ impl SettingsApp {
 
             // App Icon
             self.render_app_icon(ui, ctx, is_dark);
+
+            // Return the leftmost x of all right-side widgets (used to measure the drag gap).
+            ui.min_rect().left()
         });
+        resp.inner
     }
 
     fn render_app_icon(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, is_dark: bool) {

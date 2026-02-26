@@ -63,6 +63,23 @@ impl eframe::App for SettingsApp {
         // Tips Logic
         self.update_tips_logic(ctx);
 
+        // --- RESIZE SUBCLASS (once, after window is visible) ---
+        if self.startup_stage >= 37 && !self.resize_subclass_installed {
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+                let class_name = windows::core::w!("eframe");
+                let mut hwnd = FindWindowW(class_name, None).unwrap_or_default();
+                if hwnd.is_invalid() {
+                    let title = windows::core::w!("Screen Goated Toolbox (SGT by nganlinh4)");
+                    hwnd = FindWindowW(None, title).unwrap_or_default();
+                }
+                if !hwnd.is_invalid() {
+                    crate::gui::resize_subclass::install(hwnd);
+                    self.resize_subclass_installed = true;
+                }
+            }
+        }
+
         // --- UI LAYOUT ---
         if self.startup_stage >= 37 {
             // Title Bar (Custom Windows Bar)

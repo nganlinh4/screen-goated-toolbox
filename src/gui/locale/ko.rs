@@ -326,7 +326,7 @@ pub fn get() -> LocaleText {
         tool_desc_parakeet: "캐빈 번역 기능 및 Audio->Text 노드의 \"Stream offline\" 모델로 사용됩니다",
         tool_desc_ytdlp: "미디어 다운로드 기능에서 사용됨",
         tool_desc_deno: "yt-dlp의 JavaScript 런타임으로 사용됨 (YouTube 챌린지 해결)",
-        tool_desc_ffmpeg: "미디어 다운로드 및 화면 녹화 기능에서 사용됨",
+        tool_desc_ffmpeg: "미디어 다운로드 기능에서 사용됨",
         tool_downloadable_backgrounds: "화면 녹화 배경",
         tool_desc_downloadable_backgrounds: "화면 녹화용 다운로드 배경",
         tool_bg_downloaded_count_fmt: "{} / {} 이미지 다운로드됨",

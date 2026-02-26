@@ -10,6 +10,7 @@ module.exports = {
   			sm: 'calc(var(--radius) - 4px)'
   		},
   		colors: {
+  			// shadcn/ui semantic colors
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {
@@ -49,7 +50,29 @@ module.exports = {
   				'3': 'hsl(var(--chart-3))',
   				'4': 'hsl(var(--chart-4))',
   				'5': 'hsl(var(--chart-5))'
-  			}
+  			},
+  			// Project design tokens — mapped from App.css CSS variables.
+  			// Note: opacity modifiers (bg-surface/50) won't work with these since
+  			// they use raw CSS var references, not the HSL channel pattern.
+  			surface: {
+  				DEFAULT: 'var(--surface)',
+  				dim: 'var(--surface-dim)',
+  				container: 'var(--surface-container)',
+  				'container-high': 'var(--surface-container-high)',
+  				'container-highest': 'var(--surface-container-highest)',
+  			},
+  			'on-surface': {
+  				DEFAULT: 'var(--on-surface)',
+  				variant: 'var(--on-surface-variant)',
+  			},
+  			glass: {
+  				bg: 'var(--glass-bg)',
+  				border: 'var(--glass-border)',
+  				hover: 'var(--glass-bg-hover)',
+  			},
+  			'primary-color': 'var(--primary-color)',
+  			'tertiary-color': 'var(--tertiary-color)',
+  			'outline-variant': 'var(--outline-variant)',
   		}
   	}
   },

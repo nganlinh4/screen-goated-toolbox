@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@/lib/ipc';
 import { Trash2, Download, Loader2 } from 'lucide-react';
 import { BackgroundConfig } from '@/types/video';
+import { Slider } from '@/components/ui/Slider';
+import { PanelCard } from '@/components/layout/PanelCard';
+import { SettingRow } from '@/components/layout/SettingRow';
 import { useSettings } from '@/hooks/useSettings';
 import downloadableBackgrounds from '@/config/downloadable-backgrounds.json';
-
-/** Inline style for slider active track fill */
-const sv = (v: number, min: number, max: number): React.CSSProperties =>
-  ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
 
 export const GRADIENT_PRESETS: Record<string, { className?: string; style?: React.CSSProperties }> = {
   gradient1: { className: 'bg-gradient-to-r from-[#4f7fd9] to-[#8a72d8]' },
@@ -198,7 +197,6 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
 
   const selectBg = useCallback(async () => {
     if (state.status !== 'done') return;
-    // Use protocol URL — served by the custom protocol handler from local app data
     const url = buildDownloadedBgUrl(bg.id, state.ext, state.version);
     if (!prewarmedUrlSetRef.current.has(url)) {
       setState({ status: 'prewarming' });
@@ -232,7 +230,6 @@ export function useDownloadableBg(bg: DownloadableBg, setBackgroundConfig: React
     }
   }, [bg.id, setBackgroundConfig]);
 
-  // Keep tile state synced even when downloads/deletes happen outside this panel
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -265,9 +262,6 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
   const isDownloading = state.status === 'downloading';
   const isPrewarming = state.status === 'prewarming';
   const progress = isDownloading ? (state as { status: 'downloading'; progress: number }).progress : 0;
-
-  // Overlay opacity: keep some visible cover while download reaches 100% so the
-  // spinner/progress remains visible until post-download prewarm finishes.
   const overlayOpacity = isDownloaded ? 0 : isDownloading ? Math.max(0.4, 1 - (progress / 100)) : 1;
 
   const handleClick = () => {
@@ -283,7 +277,6 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
     deleteBg();
   };
 
-  // Check if this downloaded bg is currently selected
   const isSelected = isDownloaded && backgroundConfig.backgroundType === 'custom'
     && backgroundConfig.customBackground?.includes(`/bg-downloaded/${bg.id}.`);
 
@@ -303,15 +296,12 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
           : 'ring-1 ring-[var(--glass-border)] hover:ring-[var(--primary-color)]/40 hover:scale-105'
       }`}
     >
-      {/* Preview image */}
       <img
         src={bg.preview}
         alt={bg.id}
         className="absolute inset-0 w-full h-full object-cover"
         draggable={false}
       />
-
-      {/* Delete button (top-right, shown on hover when downloaded) */}
       {isDownloaded && (
         <div
           onClick={handleDelete}
@@ -321,8 +311,6 @@ function DownloadableBgButton({ bg, backgroundConfig, setBackgroundConfig }: {
           <Trash2 className="w-2 h-2 text-white" />
         </div>
       )}
-
-      {/* Download overlay: opacity decreases as download progresses */}
       {overlayOpacity > 0 && (
         <div
           className="downloadable-bg-overlay absolute inset-0 flex items-center justify-center transition-opacity duration-200"
@@ -375,40 +363,31 @@ export function BackgroundPanel({
 }: BackgroundPanelProps) {
   const { t } = useSettings();
   return (
-    <div className="background-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+    <PanelCard className="background-panel">
       <div className="background-controls space-y-3.5">
-        <div className="video-size-field flex items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.videoSize}</span>
-          <input type="range" min="50" max="100" value={backgroundConfig.scale}
-            style={sv(backgroundConfig.scale, 50, 100)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, scale: Number(e.target.value) }))}
-            className="flex-1 min-w-0"
+        <SettingRow label={t.videoSize} valueDisplay={`${backgroundConfig.scale}%`} className="video-size-field">
+          <Slider
+            min={50} max={100} value={backgroundConfig.scale}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, scale: val }))}
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.scale}%</span>
-        </div>
-        <div className="roundness-field flex items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.roundness}</span>
-          <input type="range" min="0" max="64" value={backgroundConfig.borderRadius}
-            style={sv(backgroundConfig.borderRadius, 0, 64)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, borderRadius: Number(e.target.value) }))}
-            className="flex-1 min-w-0"
+        </SettingRow>
+        <SettingRow label={t.roundness} valueDisplay={`${backgroundConfig.borderRadius}px`} className="roundness-field">
+          <Slider
+            min={0} max={64} value={backgroundConfig.borderRadius}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, borderRadius: val }))}
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.borderRadius}px</span>
-        </div>
-        <div className="shadow-field flex items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.shadow}</span>
-          <input type="range" min="0" max="100" value={backgroundConfig.shadow || 0}
-            style={sv(backgroundConfig.shadow || 0, 0, 100)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, shadow: Number(e.target.value) }))}
-            className="flex-1 min-w-0"
+        </SettingRow>
+        <SettingRow label={t.shadow} valueDisplay={`${backgroundConfig.shadow || 0}px`} className="shadow-field">
+          <Slider
+            min={0} max={100} value={backgroundConfig.shadow || 0}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, shadow: val }))}
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.shadow || 0}px</span>
-        </div>
+        </SettingRow>
         <div className="background-style-field">
-          <label className="text-xs font-medium uppercase tracking-wide text-[var(--on-surface-variant)] mb-2 block">{t.backgroundStyle}</label>
+          <label className="text-xs font-medium uppercase tracking-wide text-on-surface-variant mb-2 block">{t.backgroundStyle}</label>
           <div className="background-presets-grid grid grid-cols-6 gap-2">
             {/* Upload button */}
-            <label className={`background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] relative overflow-hidden group bg-[var(--glass-bg)] ${
+            <label className={`background-upload-btn aspect-square h-10 rounded-lg transition-all duration-150 cursor-pointer ring-1 ring-[var(--glass-border)] relative overflow-hidden group bg-glass-bg ${
               isBackgroundUploadProcessing
                 ? 'opacity-80 cursor-wait'
                 : 'hover:ring-[var(--primary-color)]/40 hover:scale-105'
@@ -418,7 +397,7 @@ export function BackgroundPanel({
                 {isBackgroundUploadProcessing ? (
                   <Loader2 className="w-4 h-4 text-[var(--primary-color)] animate-spin" />
                 ) : (
-                  <svg className="w-4 h-4 text-[var(--on-surface-variant)] group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <svg className="w-4 h-4 text-on-surface-variant group-hover:text-[var(--primary-color)] transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 )}
               </div>
             </label>
@@ -494,6 +473,6 @@ export function BackgroundPanel({
           </div>
         </div>
       </div>
-    </div>
+    </PanelCard>
   );
 }

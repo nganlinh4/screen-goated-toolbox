@@ -361,7 +361,7 @@ pub fn get() -> LocaleText {
         tool_desc_parakeet: "Used in Cabin Translation and as the \"Stream offline\" model in Audio->Text node",
         tool_desc_ytdlp: "Used in Media Download feature",
         tool_desc_deno: "Used as JavaScript runtime for yt-dlp (YouTube challenge solving)",
-        tool_desc_ffmpeg: "Used in Media Download and Screen Record features",
+        tool_desc_ffmpeg: "Used in Media Download feature",
         tool_downloadable_backgrounds: "Screen Record Backgrounds",
         tool_desc_downloadable_backgrounds: "Downloadable backgrounds for Screen Record",
         tool_bg_downloaded_count_fmt: "{} / {} images downloaded",

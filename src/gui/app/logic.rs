@@ -243,8 +243,14 @@ impl SettingsApp {
     }
 
     /// Called exactly once when the splash screen finishes its exit animation.
-    fn on_splash_finished(&mut self) {
-        // High-prio tasks now done before splash.
+    fn on_splash_finished(&mut self, ctx: &egui::Context) {
+        // Ensure the main window has focus after the splash exit animation.
+        // The splash runs for several seconds; if the user interacted with
+        // another window during that time the egui window may no longer be
+        // the foreground window. Without an explicit focus request the first
+        // click on any button would only activate the window instead of
+        // triggering the action, requiring an unwanted second click.
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
     pub(crate) fn update_bubble_sync(&mut self) {
@@ -281,7 +287,7 @@ impl SettingsApp {
                 }
                 crate::gui::splash::SplashStatus::Finished => {
                     self.splash = None;
-                    self.on_splash_finished();
+                    self.on_splash_finished(ctx);
                 }
             }
         }

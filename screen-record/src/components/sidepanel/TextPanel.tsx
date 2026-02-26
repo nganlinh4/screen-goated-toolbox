@@ -1,6 +1,9 @@
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import { VideoSegment, TextSegment } from '@/types/video';
 import { ColorPicker } from '@/components/ui/ColorPicker';
+import { Slider } from '@/components/ui/Slider';
+import { PanelCard } from '@/components/layout/PanelCard';
+import { SettingRow } from '@/components/layout/SettingRow';
 import { useSettings } from '@/hooks/useSettings';
 
 function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): string | undefined {
@@ -10,10 +13,6 @@ function buildFontVariationCSS(vars?: TextSegment['style']['fontVariations']): s
   if (vars?.ROND !== undefined && vars.ROND !== 0) parts.push(`'ROND' ${vars.ROND}`);
   return parts.length > 0 ? parts.join(', ') : undefined;
 }
-
-/** Inline style for slider active track fill */
-const sv = (v: number, min: number, max: number): React.CSSProperties =>
-  ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
 
 export interface TextPanelProps {
   segment: VideoSegment | null;
@@ -38,7 +37,7 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
   };
 
   return (
-    <div className="text-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+    <PanelCard className="text-panel">
       {editingText && segment ? (
         <div className="text-controls space-y-3.5">
           <textarea
@@ -53,7 +52,7 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
                 )
               });
             }}
-            className="w-full bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-lg px-3 py-2 text-[var(--on-surface)] text-sm focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors thin-scrollbar subtle-resize"
+            className="w-full bg-glass-bg border border-glass-border rounded-lg px-3 py-2 text-on-surface text-sm focus:border-[var(--primary-color)]/50 focus:ring-1 focus:ring-[var(--primary-color)]/30 transition-colors thin-scrollbar subtle-resize"
             style={{
               fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif",
               fontWeight: editingText.style.fontVariations?.wght ?? 400,
@@ -62,26 +61,18 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
             rows={2}
           />
 
-          <p className="text-[10px] text-[var(--on-surface-variant)]">{t.dragTextHint}</p>
+          <p className="text-[10px] text-on-surface-variant">{t.dragTextHint}</p>
 
-          {/* Font Size */}
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.fontSize}</span>
-            <input
-              type="range" min={12} max={200} step={1}
-              value={editingText.style.fontSize}
-              style={sv(editingText.style.fontSize, 12, 200)}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
-              onChange={(e) => updateStyle({ fontSize: Number(e.target.value) })}
-              className="flex-1 min-w-0"
+          <SettingRow label={t.fontSize} valueDisplay={`${editingText.style.fontSize}`}>
+            <Slider
+              min={12} max={200} step={1} value={editingText.style.fontSize}
+              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onChange={(val) => updateStyle({ fontSize: val })}
             />
-            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{editingText.style.fontSize}</span>
-          </div>
+          </SettingRow>
 
-          {/* Color */}
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.color}</span>
+          <div className="color-field flex items-center gap-3">
+            <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.color}</span>
             <ColorPicker
               value={editingText.style.color}
               onChange={(color) => updateStyle({ color })}
@@ -99,28 +90,21 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
           ] as const).map(({ axis, label, min, max, defaultVal, step }) => {
             const value = (editingText.style.fontVariations as any)?.[axis] ?? defaultVal;
             return (
-              <div key={axis} className="flex items-center gap-3">
-                <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{label}</span>
-                <input
-                  type="range" min={min} max={max} step={step}
-                  value={value}
-                  style={sv(value, min, max)}
-                  onPointerDown={beginBatch}
-                  onPointerUp={commitBatch}
-                  onChange={(e) => updateStyle({
-                    fontVariations: { ...(editingText.style.fontVariations || {}), [axis]: Number(e.target.value) }
+              <SettingRow key={axis} label={label} valueDisplay={`${value}`} className={`font-axis-${axis.toLowerCase()}-field`}>
+                <Slider
+                  min={min} max={max} step={step} value={value}
+                  onPointerDown={beginBatch} onPointerUp={commitBatch}
+                  onChange={(val) => updateStyle({
+                    fontVariations: { ...(editingText.style.fontVariations || {}), [axis]: val }
                   })}
-                  className="flex-1 min-w-0"
                 />
-                <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{value}</span>
-              </div>
+              </SettingRow>
             );
           })}
 
-          {/* Alignment */}
           <div className="text-align-field flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.textAlignment}</span>
-            <div className="alignment-button-group flex rounded-lg border border-[var(--glass-border)] overflow-hidden">
+            <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.textAlignment}</span>
+            <div className="alignment-button-group flex rounded-lg border border-glass-border overflow-hidden">
               {(['left', 'center', 'right'] as const).map(align => {
                 const Icon = align === 'left' ? AlignLeft : align === 'center' ? AlignCenter : AlignRight;
                 const isActive = (editingText.style.textAlign ?? 'center') === align;
@@ -131,7 +115,7 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
                     className={`flex items-center justify-center w-7 h-7 transition-colors ${
                       isActive
                         ? 'bg-[var(--primary-color)]/20 text-[var(--primary-color)]'
-                        : 'bg-[var(--glass-bg)] text-[var(--on-surface-variant)] hover:text-[var(--on-surface)]'
+                        : 'bg-glass-bg text-on-surface-variant hover:text-on-surface'
                     }`}
                     title={align}
                   >
@@ -142,39 +126,25 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
             </div>
           </div>
 
-          {/* Opacity */}
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.opacity}</span>
-            <input
-              type="range" min="0" max="1" step="0.01"
-              value={editingText.style.opacity ?? 1}
-              style={sv(editingText.style.opacity ?? 1, 0, 1)}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
-              onChange={(e) => updateStyle({ opacity: Number(e.target.value) })}
-              className="flex-1 min-w-0"
+          <SettingRow label={t.opacity} valueDisplay={`${Math.round((editingText.style.opacity ?? 1) * 100)}%`}>
+            <Slider
+              min={0} max={1} step={0.01} value={editingText.style.opacity ?? 1}
+              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onChange={(val) => updateStyle({ opacity: val })}
             />
-            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((editingText.style.opacity ?? 1) * 100)}%</span>
-          </div>
+          </SettingRow>
 
-          {/* Letter Spacing */}
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.letterSpacing}</span>
-            <input
-              type="range" min="-5" max="20" step="1"
-              value={editingText.style.letterSpacing ?? 0}
-              style={sv(editingText.style.letterSpacing ?? 0, -5, 20)}
-              onPointerDown={beginBatch}
-              onPointerUp={commitBatch}
-              onChange={(e) => updateStyle({ letterSpacing: Number(e.target.value) })}
-              className="flex-1 min-w-0"
+          <SettingRow label={t.letterSpacing} valueDisplay={`${editingText.style.letterSpacing ?? 0}`}>
+            <Slider
+              min={-5} max={20} step={1} value={editingText.style.letterSpacing ?? 0}
+              onPointerDown={beginBatch} onPointerUp={commitBatch}
+              onChange={(val) => updateStyle({ letterSpacing: val })}
             />
-            <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{editingText.style.letterSpacing ?? 0}</span>
-          </div>
+          </SettingRow>
 
           {/* Background Pill */}
           <div>
-            <label className="flex items-center gap-3 text-[10px] text-[var(--on-surface-variant)] cursor-pointer">
+            <label className="flex items-center gap-3 text-[10px] text-on-surface-variant cursor-pointer">
               <input
                 type="checkbox"
                 checked={editingText.style.background?.enabled ?? false}
@@ -194,8 +164,8 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
             </label>
             {editingText.style.background?.enabled && (
               <div className="background-pill-controls space-y-3.5 mt-1 pl-1">
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pillColor}</span>
+                <div className="pill-color-field flex items-center gap-3">
+                  <span className="text-[11px] font-medium text-on-surface-variant w-20 flex-shrink-0">{t.pillColor}</span>
                   <ColorPicker
                     value={editingText.style.background.color.startsWith('rgba') ? '#000000' : editingText.style.background.color}
                     onChange={(color) => updateStyle({
@@ -205,43 +175,31 @@ export function TextPanel({ segment, editingTextId, onUpdateSegment, beginBatch,
                     onClose={commitBatch}
                   />
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pillOpacity}</span>
-                  <input
-                    type="range" min="0" max="1" step="0.01"
-                    value={editingText.style.background.opacity ?? 0.6}
-                    style={sv(editingText.style.background.opacity ?? 0.6, 0, 1)}
-                    onPointerDown={beginBatch}
-                    onPointerUp={commitBatch}
-                    onChange={(e) => updateStyle({
-                      background: { ...editingText.style.background!, opacity: Number(e.target.value) }
+                <SettingRow label={t.pillOpacity} valueDisplay={`${Math.round((editingText.style.background.opacity ?? 0.6) * 100)}%`} className="pill-opacity-field">
+                  <Slider
+                    min={0} max={1} step={0.01} value={editingText.style.background.opacity ?? 0.6}
+                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onChange={(val) => updateStyle({
+                      background: { ...editingText.style.background!, opacity: val }
                     })}
-                    className="flex-1 min-w-0"
                   />
-                  <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((editingText.style.background.opacity ?? 0.6) * 100)}%</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pillRadius}</span>
-                  <input
-                    type="range" min="0" max="32" step="1"
-                    value={editingText.style.background.borderRadius}
-                    style={sv(editingText.style.background.borderRadius, 0, 32)}
-                    onPointerDown={beginBatch}
-                    onPointerUp={commitBatch}
-                    onChange={(e) => updateStyle({
-                      background: { ...editingText.style.background!, borderRadius: Number(e.target.value) }
+                </SettingRow>
+                <SettingRow label={t.pillRadius} valueDisplay={`${editingText.style.background.borderRadius}`} className="pill-radius-field">
+                  <Slider
+                    min={0} max={32} step={1} value={editingText.style.background.borderRadius}
+                    onPointerDown={beginBatch} onPointerUp={commitBatch}
+                    onChange={(val) => updateStyle({
+                      background: { ...editingText.style.background!, borderRadius: val }
                     })}
-                    className="flex-1 min-w-0"
                   />
-                  <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{editingText.style.background.borderRadius}</span>
-                </div>
+                </SettingRow>
               </div>
             )}
           </div>
         </div>
       ) : (
-        <p className="text-xs text-[var(--on-surface-variant)]">{t.textPanelHint}</p>
+        <p className="text-xs text-on-surface-variant">{t.textPanelHint}</p>
       )}
-    </div>
+    </PanelCard>
   );
 }

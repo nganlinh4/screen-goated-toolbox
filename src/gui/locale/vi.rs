@@ -362,7 +362,7 @@ pub fn get() -> LocaleText {
         tool_desc_parakeet: "Dùng trong tính năng Dịch cabin và là mô hình \"Stream offline\" trong node Audio->Text",
         tool_desc_ytdlp: "Dùng trong tính năng Tải media",
         tool_desc_deno: "Dùng làm JavaScript runtime cho yt-dlp (giải challenge YouTube)",
-        tool_desc_ffmpeg: "Dùng trong tính năng Tải media và Quay màn hình",
+        tool_desc_ffmpeg: "Dùng trong tính năng Tải media",
         tool_downloadable_backgrounds: "Nền Quay màn hình",
         tool_desc_downloadable_backgrounds: "Ảnh nền tải về cho tính năng Quay màn hình",
         tool_bg_downloaded_count_fmt: "Đã tải {} / {} ảnh",

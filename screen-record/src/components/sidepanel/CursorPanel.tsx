@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
+import { Slider } from '@/components/ui/Slider';
+import { Switch } from '@/components/ui/Switch';
+import { PanelCard } from '@/components/layout/PanelCard';
+import { SettingRow } from '@/components/layout/SettingRow';
 import { useSettings } from '@/hooks/useSettings';
-
-/** Inline style for slider active track fill */
-const sv = (v: number, min: number, max: number): React.CSSProperties =>
-  ({ '--value-pct': `${((v - min) / (max - min)) * 100}%` } as React.CSSProperties);
 
 export const CURSOR_ASSET_VERSION = `cursor-variants-runtime-${Date.now()}`;
 export const CURSOR_VARIANT_ROW_HEIGHT = 58;
@@ -102,155 +102,77 @@ export function CursorPanel({
   const endIndex = Math.min(rows.length, startIndex + visibleCount);
   const visibleRows = rows.slice(startIndex, endIndex);
   return (
-    <div className="cursor-panel bg-[var(--glass-bg)] backdrop-blur-xl rounded-xl border border-[var(--glass-border)] p-3 shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+    <PanelCard className="cursor-panel">
       <div className="cursor-controls space-y-3.5">
         <div className="cursor-custom-toggle-field flex items-center justify-between gap-2">
-          <span className="text-[10px] text-[var(--on-surface-variant)]">{t.useCustomCursor}</span>
-          <button
-            type="button"
+          <span className="text-[10px] text-on-surface-variant">{t.useCustomCursor}</span>
+          <Switch
+            checked={useCustomCursor}
             disabled={!canToggleCustomCursor}
-            onClick={() => {
+            onCheckedChange={(val) => {
               if (!segment) return;
-              onUpdateSegment({ ...segment, useCustomCursor: !useCustomCursor });
+              onUpdateSegment({ ...segment, useCustomCursor: val });
             }}
-            className={`cursor-custom-toggle-btn relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-              !canToggleCustomCursor
-                ? 'opacity-40 cursor-not-allowed bg-[var(--outline-variant)]'
-                : useCustomCursor
-                  ? 'bg-[var(--primary-color)]'
-                  : 'bg-[var(--outline-variant)]'
-            }`}
-            aria-pressed={useCustomCursor}
-            title={t.useCustomCursor}
-          >
-            <span
-              className={`cursor-custom-toggle-thumb inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                useCustomCursor ? 'translate-x-4' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
-        </div>
-        <div className="cursor-size-field flex items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.cursorSize}</span>
-          <input type="range" min="1" max="8" step="0.1" value={backgroundConfig.cursorScale ?? 2}
-            style={sv(backgroundConfig.cursorScale ?? 2, 1, 8)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorScale: Number(e.target.value) }))}
-            className="flex-1 min-w-0"
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{(backgroundConfig.cursorScale ?? 2).toFixed(1)}x</span>
         </div>
-        <div className="cursor-shadow-field flex items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">Shadow</span>
-          <input type="range" min="0" max="200" step="1" value={backgroundConfig.cursorShadow ?? 35}
-            style={sv(backgroundConfig.cursorShadow ?? 35, 0, 200)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: Number(e.target.value) }))}
-            className="flex-1 min-w-0"
+        <SettingRow label={t.cursorSize} valueDisplay={`${(backgroundConfig.cursorScale ?? 2).toFixed(1)}x`} className="cursor-size-field">
+          <Slider
+            min={1} max={8} step={0.1} value={backgroundConfig.cursorScale ?? 2}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorScale: val }))}
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round(backgroundConfig.cursorShadow ?? 35)}%</span>
-        </div>
-        <div className="cursor-smoothness-field flex items-center gap-3">
-          <span className="text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.movementSmoothing}</span>
-          <input type="range" min="0" max="10" step="1" value={backgroundConfig.cursorSmoothness ?? 5}
-            style={sv(backgroundConfig.cursorSmoothness ?? 5, 0, 10)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: Number(e.target.value) }))}
-            className="flex-1 min-w-0"
+        </SettingRow>
+        <SettingRow label="Shadow" valueDisplay={`${Math.round(backgroundConfig.cursorShadow ?? 35)}%`} className="cursor-shadow-field">
+          <Slider
+            min={0} max={200} step={1} value={backgroundConfig.cursorShadow ?? 35}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorShadow: val }))}
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.cursorSmoothness ?? 5}</span>
-        </div>
-        <div className="cursor-movement-delay-field flex items-center gap-3">
-          <span className="cursor-movement-delay-label text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pointerMovementDelay}</span>
-          <input
-            type="range"
-            min="-0.5"
-            max="0.5"
-            step="0.01"
-            value={backgroundConfig.cursorMovementDelay ?? 0}
-            style={sv(backgroundConfig.cursorMovementDelay ?? 0, -0.5, 0.5)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: Number(e.target.value) }))}
-            className="cursor-movement-delay-slider flex-1 min-w-0"
+        </SettingRow>
+        <SettingRow label={t.movementSmoothing} valueDisplay={`${backgroundConfig.cursorSmoothness ?? 5}`} className="cursor-smoothness-field">
+          <Slider
+            min={0} max={10} step={1} value={backgroundConfig.cursorSmoothness ?? 5}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorSmoothness: val }))}
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{(backgroundConfig.cursorMovementDelay ?? 0).toFixed(2)}s</span>
-        </div>
-        <div className="cursor-wiggle-strength-field flex items-center gap-3">
-          <span className="cursor-wiggle-strength-label text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.pointerWiggleStrength}</span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={backgroundConfig.cursorWiggleStrength ?? 0.30}
-            style={sv(backgroundConfig.cursorWiggleStrength ?? 0.30, 0, 1)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: Number(e.target.value) }))}
-            className="cursor-wiggle-strength-slider flex-1 min-w-0"
+        </SettingRow>
+        <SettingRow label={t.pointerMovementDelay} valueDisplay={`${(backgroundConfig.cursorMovementDelay ?? 0).toFixed(2)}s`} className="cursor-movement-delay-field">
+          <Slider
+            min={-0.5} max={0.5} step={0.01} value={backgroundConfig.cursorMovementDelay ?? 0}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorMovementDelay: val }))}
+            className="cursor-movement-delay-slider"
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%</span>
-        </div>
-        <div className="cursor-tilt-angle-field flex items-center gap-3">
-          <span className="cursor-tilt-angle-label text-[11px] font-medium text-[var(--on-surface-variant)] w-20 flex-shrink-0">{t.cursorTilt}</span>
-          <input
-            type="range"
-            min="-30"
-            max="30"
-            step="1"
-            value={backgroundConfig.cursorTiltAngle ?? -10}
-            style={sv(backgroundConfig.cursorTiltAngle ?? -10, -30, 30)}
-            onChange={(e) => setBackgroundConfig(prev => ({ ...prev, cursorTiltAngle: Number(e.target.value) }))}
-            className="cursor-tilt-angle-slider flex-1 min-w-0"
+        </SettingRow>
+        <SettingRow label={t.pointerWiggleStrength} valueDisplay={`${Math.round((backgroundConfig.cursorWiggleStrength ?? 0.30) * 100)}%`} className="cursor-wiggle-strength-field">
+          <Slider
+            min={0} max={1} step={0.01} value={backgroundConfig.cursorWiggleStrength ?? 0.30}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorWiggleStrength: val }))}
+            className="cursor-wiggle-strength-slider"
           />
-          <span className="text-[11px] font-medium text-[var(--on-surface)] tabular-nums w-12 text-right flex-shrink-0">{backgroundConfig.cursorTiltAngle ?? -10}°</span>
-        </div>
+        </SettingRow>
+        <SettingRow label={t.cursorTilt} valueDisplay={`${backgroundConfig.cursorTiltAngle ?? -10}°`} className="cursor-tilt-angle-field">
+          <Slider
+            min={-30} max={30} step={1} value={backgroundConfig.cursorTiltAngle ?? -10}
+            onChange={(val) => setBackgroundConfig(prev => ({ ...prev, cursorTiltAngle: val }))}
+            className="cursor-tilt-angle-slider"
+          />
+        </SettingRow>
         <div className="cursor-variants-section space-y-3.5">
           <div
-            className="cursor-variant-virtualized-list border border-[var(--glass-border)] rounded-lg overflow-hidden"
+            className="cursor-variant-virtualized-list border border-glass-border rounded-lg overflow-hidden"
             style={{ height: `${viewportHeight}px` }}
           >
             <div
               className="cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-y-auto"
               onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
             >
-              <div className="cursor-variant-column-header sticky top-0 z-10 min-h-8 py-1 px-1.5 border-b border-[var(--glass-border)] grid grid-cols-7 gap-1.5 items-start bg-[var(--surface)]">
-                <span
-                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
-                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
-                >
-                  Mac OG
-                </span>
-                <span
-                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
-                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
-                >
-                  Mac Tahoe+
-                </span>
-                <span
-                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
-                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
-                >
-                  SGT Cute
-                </span>
-                <span
-                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
-                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
-                >
-                  SGT Cool
-                </span>
-                <span
-                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
-                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
-                >
-                  SGT AI
-                </span>
-                <span
-                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
-                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
-                >
-                  SGT Pixel
-                </span>
-                <span
-                  className="text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-[var(--on-surface-variant)]"
-                  style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
-                >
-                  Jepri Win11
-                </span>
+              <div className="cursor-variant-column-header sticky top-0 z-10 min-h-8 py-1 px-1.5 border-b border-glass-border grid grid-cols-7 gap-1.5 items-start bg-surface">
+                {['Mac OG', 'Mac Tahoe+', 'SGT Cute', 'SGT Cool', 'SGT AI', 'SGT Pixel', 'Jepri Win11'].map((name) => (
+                  <span
+                    key={name}
+                    className="cursor-variant-col-label text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-on-surface-variant"
+                    style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 84, 'ROND' 100" }}
+                  >
+                    {name}
+                  </span>
+                ))}
               </div>
               <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
                 {visibleRows.map((row, i) => {
@@ -258,61 +180,31 @@ export function CursorPanel({
                   const tiltDeg = backgroundConfig.cursorTiltAngle ?? -10;
                   const hasTilt = (row.id === 'default' || row.id === 'pointer') && Math.abs(tiltDeg) > 0.5;
                   const tiltStyle = hasTilt ? { rotate: `${tiltDeg}deg` } as React.CSSProperties : undefined;
+                  const variantKeys: Array<{ pack: CursorVariant; src: string }> = [
+                    { pack: 'screenstudio', src: row.screenstudioSrc },
+                    { pack: 'macos26', src: row.macos26Src },
+                    { pack: 'sgtcute', src: row.sgtcuteSrc },
+                    { pack: 'sgtcool', src: row.sgtcoolSrc },
+                    { pack: 'sgtai', src: row.sgtaiSrc },
+                    { pack: 'sgtpixel', src: row.sgtpixelSrc },
+                    { pack: 'jepriwin11', src: row.jepriwin11Src },
+                  ];
                   return (
                     <div
                       key={row.id}
                       className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-7 gap-1.5 items-center"
                       style={{ top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`, height: `${CURSOR_VARIANT_ROW_HEIGHT}px` }}
                     >
-                      <CursorVariantButton
-                        isSelected={inferredPack === 'screenstudio'}
-                        onClick={() => setCursorPack('screenstudio')}
-                        label={`${row.label} screen studio`}
-                      >
-                        <img src={`${row.screenstudioSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
-                      </CursorVariantButton>
-                      <CursorVariantButton
-                        isSelected={inferredPack === 'macos26'}
-                        onClick={() => setCursorPack('macos26')}
-                        label={`${row.label} macos26`}
-                      >
-                        <img src={`${row.macos26Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
-                      </CursorVariantButton>
-                      <CursorVariantButton
-                        isSelected={inferredPack === 'sgtcute'}
-                        onClick={() => setCursorPack('sgtcute')}
-                        label={`${row.label} sgtcute`}
-                      >
-                        <img src={`${row.sgtcuteSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
-                      </CursorVariantButton>
-                      <CursorVariantButton
-                        isSelected={inferredPack === 'sgtcool'}
-                        onClick={() => setCursorPack('sgtcool')}
-                        label={`${row.label} sgtcool`}
-                      >
-                        <img src={`${row.sgtcoolSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
-                      </CursorVariantButton>
-                      <CursorVariantButton
-                        isSelected={inferredPack === 'sgtai'}
-                        onClick={() => setCursorPack('sgtai')}
-                        label={`${row.label} sgtai`}
-                      >
-                        <img src={`${row.sgtaiSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
-                      </CursorVariantButton>
-                      <CursorVariantButton
-                        isSelected={inferredPack === 'sgtpixel'}
-                        onClick={() => setCursorPack('sgtpixel')}
-                        label={`${row.label} sgtpixel`}
-                      >
-                        <img src={`${row.sgtpixelSrc}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
-                      </CursorVariantButton>
-                      <CursorVariantButton
-                        isSelected={inferredPack === 'jepriwin11'}
-                        onClick={() => setCursorPack('jepriwin11')}
-                        label={`${row.label} jepriwin11`}
-                      >
-                        <img src={`${row.jepriwin11Src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
-                      </CursorVariantButton>
+                      {variantKeys.map(({ pack, src }) => (
+                        <CursorVariantButton
+                          key={pack}
+                          isSelected={inferredPack === pack}
+                          onClick={() => setCursorPack(pack)}
+                          label={`${row.label} ${pack}`}
+                        >
+                          <img src={`${src}?v=${CURSOR_ASSET_VERSION}`} alt="" className="cursor-preview-image w-8 h-8 min-w-8 min-h-8 object-contain scale-[1.35]" style={tiltStyle} />
+                        </CursorVariantButton>
+                      ))}
                     </div>
                   );
                 })}
@@ -321,6 +213,6 @@ export function CursorPanel({
           </div>
         </div>
       </div>
-    </div>
+    </PanelCard>
   );
 }
