@@ -168,7 +168,7 @@ class ProjectManager {
     if (updates.audioBlob) {
       await this.saveAudioBlob(id, updates.audioBlob);
     }
-    if (updates.mousePositions) {
+    if (updates.mousePositions && updates.mousePositions.length > 0) {
       await this.saveMouseData(id, updates.mousePositions);
     }
     if (updates.segment) {
