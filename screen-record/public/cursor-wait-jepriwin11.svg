@@ -1,8 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="44" height="43" viewBox="0 0 44 43">
-  <defs><clipPath id="clip_jepriwin11_06"><rect x="0" y="0" width="44" height="43"/></clipPath></defs>
-  <g clip-path="url(#clip_jepriwin11_06)">
-    <svg x="1.69" y="2.93" width="43.12" height="42.14" viewBox="96.4 135.6667 262.5 258.9667" preserveAspectRatio="xMidYMid meet" style="overflow:hidden">
-<path style="stroke-width:1" d="M217.6 196.7a52.7 52.7 0 0 1 55.7 56.7c-1.5 19-10.3 30.8-25.8 42-10.8 7.8-28.2 7.6-27.6-10 .2-7.8 12-10 17.7-14.2 1.6-1.5 3.2-3 4.5-4.8a29.4 29.4 0 0 0 5.2-22.1c-4.2-25.2-37.6-29.7-50.1-8-4.7 8.1-10.8 16.4-20.8 8.8-11.2-8.7-2.6-21.1 4-29.4a52.6 52.6 0 0 1 37.2-19Z" fill="#0A61B2"/>
-    </svg>
-  </g>
+  <style>
+    .spinner {
+      fill: none;
+      stroke: #0A61B2;
+      stroke-width: 3.8;
+      stroke-linecap: round;
+      /* Origin set to exactly the center of the 44x43 canvas so it doesn't wobble */
+      transform-origin: 22px 21.5px;
+      animation: 
+        spin 2s linear infinite, 
+        stretch 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+    
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* 
+      The circumference of a 6.7 radius circle is ~42.1. 
+      The dash offsets are scaled exactly to this length to make the tail catch up.
+    */
+    @keyframes stretch {
+      0% {
+        stroke-dasharray: 1, 150;
+        stroke-dashoffset: 0;
+      }
+      50% {
+        stroke-dasharray: 30, 150;
+        stroke-dashoffset: -10;
+      }
+      100% {
+        stroke-dasharray: 1, 150;
+        stroke-dashoffset: -42.1;
+      }
+    }
+  </style>
+  <circle class="spinner" cx="22" cy="21.5" r="6.7" />
 </svg>
