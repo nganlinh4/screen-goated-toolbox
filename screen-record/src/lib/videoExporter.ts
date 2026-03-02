@@ -40,6 +40,7 @@ export {
   getExportEstimateCalibration,
   recordExportEstimateResult,
   getSpeedAtTime,
+  videoTimeToWallClock,
   calculateOutputDuration,
   estimateExportSize,
 } from './exportEstimator';

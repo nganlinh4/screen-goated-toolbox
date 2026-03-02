@@ -19,7 +19,9 @@ use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS,
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
 };
-use windows::Win32::Graphics::Gdi::CreateSolidBrush;
+use windows::Win32::Graphics::Gdi::{
+    CreateSolidBrush, GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -52,6 +54,9 @@ const WM_APP_UPDATE_SETTINGS: u32 = WM_USER + 113;
 // --- STATE ---
 static REGISTER_SR_CLASS: Once = Once::new();
 pub static mut SR_HWND: SendHwnd = SendHwnd(HWND(std::ptr::null_mut()));
+/// Saved window rect before entering video fullscreen, to restore on exit.
+static PRE_FULLSCREEN_RECT: std::sync::Mutex<Option<(i32, i32, i32, i32)>> =
+    std::sync::Mutex::new(None);
 static mut IS_WARMED_UP: bool = false;
 static mut IS_INITIALIZING: bool = false;
 
@@ -1035,6 +1040,44 @@ unsafe fn internal_create_sr_loop() {
                             }
                         } else if body == "close_window" {
                             let _ = ShowWindow(hwnd, SW_HIDE);
+                        } else if body == "enter_fullscreen" {
+                            // Save current window rect so we can restore it on exit
+                            let mut rect = RECT::default();
+                            let _ = GetWindowRect(hwnd, &mut rect);
+                            *PRE_FULLSCREEN_RECT.lock().unwrap() = Some((
+                                rect.left, rect.top, rect.right, rect.bottom,
+                            ));
+                            // Expand to the full monitor rect (covers taskbar too)
+                            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                            let mut mi = MONITORINFO::default();
+                            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+                            let _ = GetMonitorInfoW(monitor, &mut mi);
+                            let r = mi.rcMonitor;
+                            let _ = SetWindowPos(
+                                hwnd,
+                                Some(HWND_TOPMOST),
+                                r.left, r.top,
+                                r.right - r.left, r.bottom - r.top,
+                                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                            );
+                        } else if body == "exit_fullscreen" {
+                            let saved = PRE_FULLSCREEN_RECT.lock().unwrap().take();
+                            if let Some((l, t, r, b)) = saved {
+                                let _ = SetWindowPos(
+                                    hwnd,
+                                    Some(HWND_NOTOPMOST),
+                                    l, t, r - l, b - t,
+                                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                                );
+                            } else {
+                                // Fallback: just remove topmost without moving
+                                let _ = SetWindowPos(
+                                    hwnd,
+                                    Some(HWND_NOTOPMOST),
+                                    0, 0, 0, 0,
+                                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                                );
+                            }
                         } else if let Ok(req) = {
                             let t0 = std::time::Instant::now();
                             let r = serde_json::from_str::<IpcRequest>(body);

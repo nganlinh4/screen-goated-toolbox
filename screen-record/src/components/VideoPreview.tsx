@@ -106,6 +106,10 @@ interface PlaybackControlsProps {
   isCropping: boolean;
   currentTime: number;
   duration: number;
+  /** Wall-clock current time (speed-adjusted) for display */
+  wallClockCurrentTime?: number;
+  /** Wall-clock total duration (speed-adjusted) for display */
+  wallClockDuration?: number;
   onTogglePlayPause: () => void;
   onToggleCrop: () => void;
   canvasModeToggle?: React.ReactNode;
@@ -122,6 +126,8 @@ export function PlaybackControls({
   isCropping,
   currentTime,
   duration,
+  wallClockCurrentTime,
+  wallClockDuration,
   onTogglePlayPause,
   onToggleCrop,
   canvasModeToggle,
@@ -188,8 +194,8 @@ export function PlaybackControls({
       >
         {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
       </Button>
-      <div className="time-display text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
-        {formatTime(currentTime)} / {formatTime(duration)}
+<div className="time-display text-[11px] font-medium tabular-nums flex-shrink-0 text-[var(--overlay-panel-fg)]/90">
+        {formatTime(wallClockCurrentTime ?? currentTime)} / {formatTime(wallClockDuration ?? duration)}
       </div>
       {keystrokeToggle && (
         <>

@@ -10,6 +10,7 @@ import { Playhead } from './Playhead';
 import { useTimelineDrag } from './useTimelineDrag';
 import { useSettings } from '@/hooks/useSettings';
 import { ZoomDebugOverlay } from './ZoomDebugOverlay';
+import { videoTimeToWallClock } from '@/lib/exportEstimator';
 
 function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
@@ -286,11 +287,15 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
         <div className="timeline-ruler-gutter w-[4rem] flex-shrink-0" />
         <div className="timeline-ruler flex-1 relative h-4 select-none">
           {duration > 0 && (() => {
+            const speedPoints = segment?.speedPoints;
             const tickCount = duration <= 5 ? 5 : duration <= 15 ? 8 : duration <= 30 ? 10 : 12;
             return Array.from({ length: tickCount + 1 }).map((_, i) => {
-              const time = (duration * i) / tickCount;
+              const videoTime = (duration * i) / tickCount;
               const left = (i / tickCount) * 100;
               const isMajor = i === 0 || i === tickCount || i % Math.ceil(tickCount / 4) === 0;
+              const displayTime = speedPoints?.length
+                ? videoTimeToWallClock(videoTime, speedPoints)
+                : videoTime;
               return (
                 <div
                   key={i}
@@ -300,7 +305,7 @@ export const TimelineArea: React.FC<TimelineAreaProps> = ({
                   <div className={`w-px ${isMajor ? 'h-1.5 bg-[var(--outline)]/40' : 'h-1 bg-[var(--outline)]/20'}`} />
                   {isMajor && (
                     <span className="text-[9px] font-mono text-[var(--outline)] leading-none mt-0.5">
-                      {formatTime(time)}
+                      {formatTime(displayTime)}
                     </span>
                   )}
                 </div>

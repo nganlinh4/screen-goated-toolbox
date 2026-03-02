@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect, type CSSProperties } from "react";
+import { videoTimeToWallClock } from '@/lib/exportEstimator';
 import { Wand2, MousePointer2, Volume2, Keyboard } from "lucide-react";
 import { invoke } from '@/lib/ipc';
 import "./App.css";
@@ -41,6 +42,8 @@ const RECENT_UPLOADS_KEY = 'screen-record-recent-uploads-v1';
 const RECORDING_MODE_KEY = 'screen-record-recording-mode-v1';
 const CAPTURE_SOURCE_KEY = 'screen-record-capture-source-v1';
 const KEYSTROKE_DELAY_KEY = 'screen-record-keystroke-delay-v1';
+const KEYSTROKE_MODE_PREF_KEY = 'screen-record-keystroke-mode-pref-v1';
+const KEYSTROKE_OVERLAY_PREF_KEY = 'screen-record-keystroke-overlay-pref-v1';
 const PROJECT_SAVE_DEBUG = true;
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const sv = (v: number, min: number, max: number): CSSProperties =>
@@ -111,6 +114,35 @@ function getInitialCaptureSource(): 'monitor' | 'window' {
     // ignore
   }
   return 'monitor';
+}
+
+function getSavedKeystrokeModePref(): KeystrokeMode {
+  try {
+    const raw = localStorage.getItem(KEYSTROKE_MODE_PREF_KEY);
+    if (raw === 'keyboard' || raw === 'keyboardMouse' || raw === 'off') return raw;
+  } catch {
+    // ignore
+  }
+  return 'off';
+}
+
+function getSavedKeystrokeOverlayPref(): { x: number; y: number; scale: number } {
+  try {
+    const raw = localStorage.getItem(KEYSTROKE_OVERLAY_PREF_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<{ x: number; y: number; scale: number }>;
+      if (typeof parsed === 'object' && parsed !== null) {
+        return {
+          x: typeof parsed.x === 'number' ? parsed.x : 50,
+          y: typeof parsed.y === 'number' ? parsed.y : 100,
+          scale: typeof parsed.scale === 'number' ? parsed.scale : 1,
+        };
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { x: 50, y: 100, scale: 1 };
 }
 
 
@@ -274,6 +306,19 @@ function App() {
   const { editingPointerId, setEditingPointerId, handleSmartPointerHiding,
     handleAddPointerSegment, handleDeletePointerSegment } = cursorHiding;
   const isOverlayMode = projects.showProjectsDialog || isCropping;
+
+  // Wall-clock times (adjusted for speed curve) for display in controls and ruler.
+  const wallClockDuration = useMemo(() => {
+    const pts = segment?.speedPoints;
+    if (!pts?.length || !duration) return duration;
+    return videoTimeToWallClock(duration, pts);
+  }, [duration, segment?.speedPoints]);
+
+  const wallClockCurrentTime = useMemo(() => {
+    const pts = segment?.speedPoints;
+    if (!pts?.length) return currentTime;
+    return videoTimeToWallClock(currentTime, pts);
+  }, [currentTime, segment?.speedPoints]);
 
   useEffect(() => {
     segmentRef.current = segment;
@@ -630,6 +675,18 @@ function App() {
     try { localStorage.setItem(KEYSTROKE_DELAY_KEY, String(clamped)); } catch { /* ignore */ }
   }, [segment, setSegment, getKeystrokeTimelineDuration]);
 
+  // Persist keystroke mode preference so new recordings remember the last setting.
+  useEffect(() => {
+    if (!segment?.keystrokeMode) return;
+    try { localStorage.setItem(KEYSTROKE_MODE_PREF_KEY, segment.keystrokeMode); } catch { /* ignore */ }
+  }, [segment?.keystrokeMode]);
+
+  // Persist keystroke overlay position/scale so new recordings inherit the last layout.
+  useEffect(() => {
+    if (!segment?.keystrokeOverlay) return;
+    try { localStorage.setItem(KEYSTROKE_OVERLAY_PREF_KEY, JSON.stringify(segment.keystrokeOverlay)); } catch { /* ignore */ }
+  }, [segment?.keystrokeOverlay]);
+
 
   const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
@@ -874,6 +931,7 @@ function App() {
   // Keyboard shortcuts
   useAppShortcuts({
     togglePlayPause, currentTime, duration, seek, isCropping,
+    isModalOpen: showRawVideoDialog || exportHook.showExportSuccessDialog,
     editingKeyframeId, editingTextId, editingKeystrokeSegmentId, editingPointerId,
     segment, setSegment, setEditingKeyframeId,
     handleDeleteText, handleDeleteKeystrokeSegment, handleDeletePointerSegment,
@@ -926,13 +984,13 @@ function App() {
           zoomKeyframes: [],
           textSegments: [],
           speedPoints: [{ time: 0, speed: 1 }, { time: duration, speed: 1 }],
-          keystrokeMode: 'off',
+          keystrokeMode: getSavedKeystrokeModePref(),
           keystrokeDelaySec: DEFAULT_KEYSTROKE_DELAY_SEC,
           keystrokeLanguage: getSavedKeystrokeLanguage(),
           keystrokeEvents: [],
           keyboardVisibilitySegments: [],
           keyboardMouseVisibilitySegments: [],
-          keystrokeOverlay: { x: 50, y: 100, scale: 1 },
+          keystrokeOverlay: getSavedKeystrokeOverlayPref(),
           useCustomCursor: true,
         };
         setSegment(initialSegment);
@@ -1069,7 +1127,8 @@ function App() {
               {currentVideo && !isLoadingVideo && (
                 <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
                   isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
-                  duration={duration} onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
+                  duration={duration} wallClockCurrentTime={wallClockCurrentTime} wallClockDuration={wallClockDuration}
+                  onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
                   canvasModeToggle={
                   <div className="playback-canvas-mode-toggle flex rounded-lg border border-[var(--overlay-divider)] overflow-hidden">
                     {(['auto', 'custom'] as const).map((mode) => {

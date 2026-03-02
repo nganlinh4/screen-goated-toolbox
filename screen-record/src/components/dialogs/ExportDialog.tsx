@@ -216,8 +216,13 @@ export function ExportDialog({
       return { ...prev, width: 0, height: 0 };
     });
 
-    // Keep FPS on auto-match until the user manually picks another option.
-    autoMatchFpsPendingRef.current = true;
+    // Only auto-match FPS if the user hasn't saved a preference yet.
+    const hasSavedFps = (() => {
+      try { return localStorage.getItem('screen-record-export-fps-pref-v1') !== null; } catch { return false; }
+    })();
+    if (!hasSavedFps) {
+      autoMatchFpsPendingRef.current = true;
+    }
   }, [show, setExportOptions]);
 
   useEffect(() => {
@@ -308,6 +313,7 @@ export function ExportDialog({
                     onClick={() => {
                       autoMatchFpsPendingRef.current = false;
                       setExportOptions(prev => ({ ...prev, fps }));
+                      try { localStorage.setItem('screen-record-export-fps-pref-v1', String(fps)); } catch { /* ignore */ }
                     }}
                     className={`fps-option flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
                       exportOptions.fps === fps
