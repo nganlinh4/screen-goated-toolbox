@@ -248,8 +248,12 @@ pub unsafe extern "system" fn keyboard_hook_proc(
         if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
             // ESC always exits continuous mode
             if kbd_struct.vkCode == VK_ESCAPE.0 as u32 {
+                // If image_continuous_mode is active, let its own hook handle ESC
+                // (it may cancel a drag instead of fully exiting)
+                if crate::overlay::image_continuous_mode::is_active() {
+                    return CallNextHookEx(None, code, wparam, lparam);
+                }
                 crate::overlay::continuous_mode::deactivate();
-                crate::overlay::image_continuous_mode::exit();
                 super::cancel_selection();
                 TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
                 return LRESULT(1);

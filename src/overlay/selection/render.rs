@@ -2,8 +2,10 @@
 // Rendering and bitmap extraction for selection overlay.
 
 use super::state::*;
+use crate::overlay::image_continuous_mode::{dim_pixels, render_frozen_with_selection};
 use crate::win_types::SendHbitmap;
 use crate::GdiCapture;
+use crate::APP;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -154,7 +156,6 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
     let mem_dc = CreateCompatibleDC(Some(hdc_screen));
     let old_bmp = SelectObject(mem_dc, CACHED_BITMAP.0.into());
 
-    // OPTIMIZATION: Clear background directly via memory fill
     let effective_alpha = if let Some(zoom_alpha) = ZOOM_ALPHA_OVERRIDE {
         zoom_alpha.min(CURRENT_ALPHA)
     } else {
@@ -164,34 +165,103 @@ pub unsafe fn sync_layered_window_contents(hwnd: HWND) {
     let total_pixels = (width * height) as usize;
     let pixels_u32 = std::slice::from_raw_parts_mut(CACHED_BITS as *mut u32, total_pixels);
 
-    // Fill with pre-multiplied alpha black: (0, 0, 0, alpha)
-    let bg_val = (effective_alpha as u32) << 24;
-    pixels_u32.fill(bg_val);
+    // === FROZEN SCREEN RENDERING ===
+    // Blit the captured HBITMAP as overlay background for WYSIWYG integrity.
+    let frozen_hbitmap = {
+        if let Ok(guard) = APP.lock() {
+            guard.screenshot_handle.as_ref().map(|c| c.hbitmap)
+        } else {
+            None
+        }
+    };
 
-    // Draw the selection rectangle
-    if IS_DRAGGING {
-        let rect_abs = RECT {
-            left: START_POS.x.min(CURR_POS.x),
-            top: START_POS.y.min(CURR_POS.y),
-            right: START_POS.x.max(CURR_POS.x),
-            bottom: START_POS.y.max(CURR_POS.y),
-        };
+    let has_frozen = if let Some(hbm) = frozen_hbitmap {
+        if effective_alpha > 0 {
+            let hdc_src = CreateCompatibleDC(Some(mem_dc));
+            let old = SelectObject(hdc_src, hbm.into());
+            let _ = BitBlt(mem_dc, 0, 0, width, height, Some(hdc_src), 0, 0, SRCCOPY);
+            SelectObject(hdc_src, old);
+            let _ = DeleteDC(hdc_src);
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
 
-        let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-        let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    // Frozen frame rendering: show captured screen from activation for WYSIWYG integrity.
+    // The frozen frame is opaque — at alpha=0 it matches live desktop exactly,
+    // then dims smoothly as alpha increases. No visual discontinuity.
+    if has_frozen && effective_alpha > 0 {
+        if IS_DRAGGING {
+            let rect_abs = RECT {
+                left: START_POS.x.min(CURR_POS.x),
+                top: START_POS.y.min(CURR_POS.y),
+                right: START_POS.x.max(CURR_POS.x),
+                bottom: START_POS.y.max(CURR_POS.y),
+            };
 
-        let r = RECT {
-            left: rect_abs.left - screen_x,
-            top: rect_abs.top - screen_y,
-            right: rect_abs.right - screen_x,
-            bottom: rect_abs.bottom - screen_y,
-        };
+            let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
 
-        let w = (r.right - r.left).abs();
-        let h = (r.bottom - r.top).abs();
+            let r = RECT {
+                left: rect_abs.left - screen_x,
+                top: rect_abs.top - screen_y,
+                right: rect_abs.right - screen_x,
+                bottom: rect_abs.bottom - screen_y,
+            };
 
-        if w > 0 && h > 0 {
-            draw_rounded_selection_box(pixels_u32, width, height, &r, effective_alpha);
+            let w = (r.right - r.left).abs();
+            let h = (r.bottom - r.top).abs();
+
+            if w > 0 && h > 0 {
+                render_frozen_with_selection(
+                    pixels_u32,
+                    width,
+                    height,
+                    r.left,
+                    r.top,
+                    r.right,
+                    r.bottom,
+                    effective_alpha,
+                );
+            } else {
+                dim_pixels(pixels_u32, 256u32 - effective_alpha as u32);
+            }
+        } else {
+            // Frozen frame with dim only (no selection box yet)
+            dim_pixels(pixels_u32, 256u32 - effective_alpha as u32);
+        }
+    } else {
+        // Transparent overlay (fade-in/out, zoom browse, or no frozen frame)
+        let bg_val = (effective_alpha as u32) << 24;
+        pixels_u32.fill(bg_val);
+
+        if IS_DRAGGING {
+            let rect_abs = RECT {
+                left: START_POS.x.min(CURR_POS.x),
+                top: START_POS.y.min(CURR_POS.y),
+                right: START_POS.x.max(CURR_POS.x),
+                bottom: START_POS.y.max(CURR_POS.y),
+            };
+
+            let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+
+            let r = RECT {
+                left: rect_abs.left - screen_x,
+                top: rect_abs.top - screen_y,
+                right: rect_abs.right - screen_x,
+                bottom: rect_abs.bottom - screen_y,
+            };
+
+            let w = (r.right - r.left).abs();
+            let h = (r.bottom - r.top).abs();
+
+            if w > 0 && h > 0 {
+                draw_rounded_selection_box(pixels_u32, width, height, &r, effective_alpha);
+            }
         }
     }
 

@@ -28,7 +28,7 @@ pub fn show_selection_overlay(preset_idx: usize, hotkey_id: i32) {
         CURRENT_PRESET_IDX = preset_idx;
         CURRENT_HOTKEY_ID = hotkey_id;
         SELECTION_OVERLAY_ACTIVE.store(true, Ordering::SeqCst);
-        CURRENT_ALPHA = 0;
+        CURRENT_ALPHA = 1; // Start at 1 to make the layered window hit-testable immediately
         IS_FADING_OUT = false;
         IS_DRAGGING = false;
 
@@ -119,9 +119,17 @@ pub fn show_selection_overlay(preset_idx: usize, hotkey_id: i32) {
             }
         }
 
-        // Initial sync to set alpha 0
+        // Initial sync to set alpha 1 (hit-testable but visually invisible)
         sync_layered_window_contents(hwnd);
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+
+        // Force OS to update the cursor immediately for our overlay.
+        // Because CURRENT_ALPHA is 1, the overlay is hit-testable.
+        // Simulating a zero-distance mouse movement forces WM_SETCURSOR.
+        let mut pt = POINT::default();
+        if GetCursorPos(&mut pt).is_ok() {
+            let _ = SetCursorPos(pt.x, pt.y);
+        }
 
         let _ = SetTimer(Some(hwnd), FADE_TIMER_ID, 16, None);
         let _ = SetTimer(Some(hwnd), CONTINUOUS_CHECK_TIMER_ID, 50, None);

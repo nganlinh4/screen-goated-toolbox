@@ -5,6 +5,7 @@
 
 use crate::overlay::process::start_processing_pipeline;
 use crate::overlay::selection::extract_crop_from_hbitmap_public;
+use crate::win_types::SendHbitmap;
 use crate::{GdiCapture, APP};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -55,6 +56,12 @@ static mut MAG_INITIALIZE_FN: Option<MagInitializeFn> = None;
 static mut MAG_UNINITIALIZE_FN: Option<MagUninitializeFn> = None;
 static mut MAG_SET_FULLSCREEN_TRANSFORM_FN: Option<MagSetFullscreenTransformFn> = None;
 static MAG_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+// Cached overlay DIB section (avoid per-frame allocation — reused across renders)
+static mut OVERLAY_DIB: SendHbitmap = SendHbitmap(HBITMAP(std::ptr::null_mut()));
+static mut OVERLAY_DIB_BITS: *mut u32 = std::ptr::null_mut();
+static mut OVERLAY_DIB_W: i32 = 0;
+static mut OVERLAY_DIB_H: i32 = 0;
 
 // Window and Hook Handles (Managed by the thread)
 static OVERLAY_THREAD_ID: AtomicU32 = AtomicU32::new(0);
@@ -130,15 +137,20 @@ pub fn exit() {
     if !IS_ACTIVE.load(Ordering::SeqCst) {
         return;
     }
+
+    // If currently dragging, cancel the drag instead of exiting the mode.
+    if RIGHT_DOWN.swap(false, Ordering::SeqCst) {
+        *GESTURE_CAPTURE.lock().unwrap() = None;
+        crate::log_info!("[ImageContinuous] Drag cancelled via exit()");
+        return;
+    }
+
     crate::log_info!("[ImageContinuous] Mode exit() called");
 
     IS_ACTIVE.store(false, Ordering::SeqCst);
 
     // Hide badge
     crate::overlay::text_selection::set_image_continuous_badge(false);
-
-    // NOTE: We NO LONGER call crate::overlay::continuous_mode::deactivate() here.
-    // This allows image continuous mode to exist independently of other modes.
 
     // Signal the thread to exit by posting WM_QUIT
     let thread_id = OVERLAY_THREAD_ID.load(Ordering::SeqCst);
@@ -181,6 +193,7 @@ fn overlay_thread_entry() {
         wc.lpfnWndProc = Some(rect_overlay_wnd_proc);
         wc.hInstance = instance.into();
         wc.lpszClassName = class_name;
+        wc.hCursor = LoadCursorW(None, IDC_CROSS).unwrap();
         wc.style = CS_HREDRAW | CS_VREDRAW;
         let _ = RegisterClassExW(&wc);
 
@@ -252,8 +265,15 @@ fn overlay_thread_entry() {
         // Reset Magnification
         reset_magnification();
 
-        // Clear capture
+        // Clear capture and cached DIB
         *GESTURE_CAPTURE.lock().unwrap() = None;
+        if !std::ptr::addr_of!(OVERLAY_DIB).read().0.is_invalid() {
+            let _ = DeleteObject(OVERLAY_DIB.0.into());
+            OVERLAY_DIB = SendHbitmap(HBITMAP(std::ptr::null_mut()));
+            OVERLAY_DIB_BITS = std::ptr::null_mut();
+            OVERLAY_DIB_W = 0;
+            OVERLAY_DIB_H = 0;
+        }
         RECT_OVERLAY_HWND.store(0, Ordering::SeqCst);
         OVERLAY_THREAD_ID.store(0, Ordering::SeqCst);
     }
@@ -275,10 +295,13 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: 
 
     if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
         if vk == VK_ESCAPE.0 as u32 {
-            // Only exit on REAL user-pressed ESC, not injected events
+            // Only handle REAL user-pressed ESC, not injected events
             if is_injected {
                 return CallNextHookEx(None, code, wparam, lparam);
             }
+            // exit() handles both cases: cancel drag if dragging, or full exit.
+            // Other hooks (text_selection, etc.) may also call exit() on the same
+            // ESC keystroke — the DRAG_JUST_CANCELLED flag absorbs duplicates.
             exit();
             return LRESULT(1);
         }
@@ -319,10 +342,9 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
             LAST_Y.store(pt.y, Ordering::SeqCst);
 
             // CRITICAL: Hide all badges BEFORE capture to prevent them appearing in screenshot
+            // ShowWindow(SW_HIDE) is synchronous — window is hidden immediately in the
+            // window manager before BitBlt, no sleep needed.
             crate::overlay::text_selection::hide_all_badges_for_capture();
-
-            // Small delay to ensure window is hidden before capture
-            std::thread::sleep(std::time::Duration::from_millis(16));
 
             // Capture screen NOW at start of drag
             // This ensures we get what the user sees before drawing box
@@ -336,9 +358,13 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
             // Trigger fade-in animation
             let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
             if hwnd_val != 0 {
-                unsafe {
-                    SetTimer(Some(HWND(hwnd_val as *mut _)), DIM_TIMER_ID, 16, None);
-                }
+                let hwnd = HWND(hwnd_val as *mut _);
+                SetTimer(Some(hwnd), DIM_TIMER_ID, 16, None);
+
+                // Remove WS_EX_TRANSPARENT so overlay captures mouse → crosshair cursor
+                let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                SetWindowLongW(hwnd, GWL_EXSTYLE, style & !(WS_EX_TRANSPARENT.0 as i32));
+                SetCursor(Some(LoadCursorW(None, IDC_CROSS).unwrap()));
             }
 
             return LRESULT(1); // Swallow event
@@ -348,12 +374,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
             if RIGHT_DOWN.load(Ordering::SeqCst) {
                 LAST_X.store(pt.x, Ordering::SeqCst);
                 LAST_Y.store(pt.y, Ordering::SeqCst);
-
-                // Update overlay
-                let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
-                if hwnd_val != 0 {
-                    sync_rect_overlay(HWND(hwnd_val as *mut _));
-                }
+                // Timer (60fps) picks up latest position — no blocking in hook.
             }
         }
 
@@ -382,7 +403,15 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: WPARAM, lparam: LPA
                     handle_region_capture(start_x, start_y, pt.x, pt.y);
                 }
 
-                // Clean up capture
+                // Restore WS_EX_TRANSPARENT for click-through behavior
+                let hwnd_val = RECT_OVERLAY_HWND.load(Ordering::SeqCst);
+                if hwnd_val != 0 {
+                    let hwnd = HWND(hwnd_val as *mut _);
+                    let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                    SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT.0 as i32);
+                }
+
+                // Clean up capture (fade-out uses transparent overlay)
                 *GESTURE_CAPTURE.lock().unwrap() = None;
 
                 return LRESULT(1);
@@ -565,155 +594,317 @@ unsafe fn capture_screen_now() -> anyhow::Result<GdiCapture> {
     })
 }
 
+/// Darken pixels by dim factor and set alpha to 0xFF.
+/// inv_dim_256 = 256 - dim_alpha (256 = no dim, 0 = full black).
+#[inline]
+pub(crate) fn dim_pixels(pixels: &mut [u32], inv_dim_256: u32) {
+    for px in pixels.iter_mut() {
+        let v = *px;
+        let r = (((v >> 16) & 0xFF) * inv_dim_256) >> 8;
+        let g = (((v >> 8) & 0xFF) * inv_dim_256) >> 8;
+        let b = ((v & 0xFF) * inv_dim_256) >> 8;
+        *px = 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+}
+
+/// Fix alpha to 0xFF (HBITMAP from BitBlt has alpha=0).
+#[inline]
+pub(crate) fn fix_alpha(pixels: &mut [u32]) {
+    for px in pixels.iter_mut() {
+        *px |= 0xFF000000;
+    }
+}
+
+/// Render frozen frame with dim outside selection + SDF border.
+/// All pixels end up alpha=0xFF (fully opaque overlay).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_frozen_with_selection(
+    pixels: &mut [u32],
+    w: i32,
+    h: i32,
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+    dim_alpha: u8,
+) {
+    let clear_l = left.max(0).min(w) as usize;
+    let clear_r = right.max(0).min(w) as usize;
+    let inv_dim = 256u32 - dim_alpha as u32;
+    let dim_f = dim_alpha as f32 / 255.0;
+
+    // SDF parameters
+    let default_radius = 8.0f32;
+    let border_width = 2.0f32;
+    let hw = (right - left) as f32 / 2.0;
+    let hh_f = (bottom - top) as f32 / 2.0;
+    let cx = left as f32 + hw;
+    let cy = top as f32 + hh_f;
+    let radius = default_radius.min(hw).min(hh_f);
+
+    let b_left = (left - 10).max(0);
+    let b_right = (right + 10).min(w);
+    let b_top_y = (top - 10).max(0);
+    let b_bottom_y = (bottom + 10).min(h);
+    let rad_int = radius.ceil() as i32;
+    let top_band_end = (top + rad_int).min(b_bottom_y);
+    let bottom_band_start = (bottom - rad_int).max(top_band_end);
+    let len = pixels.len();
+
+    for y in 0..h {
+        let row_start = (y * w) as usize;
+        let row_end = (row_start + w as usize).min(len);
+        let row = &mut pixels[row_start..row_end];
+
+        if y < b_top_y || y >= b_bottom_y {
+            // Far from selection: dim entire row
+            dim_pixels(row, inv_dim);
+        } else if y >= top_band_end && y < bottom_band_start {
+            // Middle band: dim left/right, leave selection undimmed, draw border
+            dim_pixels(&mut row[..clear_l], inv_dim);
+            fix_alpha(&mut row[clear_l..clear_r]);
+            for bx in 0..2usize {
+                if clear_l + bx < row.len() {
+                    row[clear_l + bx] = 0xFFFFFFFF;
+                }
+                if clear_r > bx && clear_r - 1 - bx < row.len() {
+                    row[clear_r - 1 - bx] = 0xFFFFFFFF;
+                }
+            }
+            dim_pixels(&mut row[clear_r..], inv_dim);
+        } else {
+            // Corner band: dim outside SDF zone, SDF per-pixel inside zone
+            let b_l = b_left.max(0) as usize;
+            let b_r = (b_right as usize).min(row.len());
+            dim_pixels(&mut row[..b_l], inv_dim);
+            let py = y as f32 + 0.5;
+            for px_int in b_left..b_right {
+                let xi = px_int as usize;
+                if xi >= row.len() {
+                    continue;
+                }
+                let px_f = px_int as f32 + 0.5;
+                let dx = (px_f - cx).abs() - (hw - radius);
+                let dy = (py - cy).abs() - (hh_f - radius);
+                let dist = if dx > 0.0 && dy > 0.0 {
+                    (dx * dx + dy * dy).sqrt() - radius
+                } else {
+                    dx.max(dy) - radius
+                };
+
+                let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
+                let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
+                let border_alpha = alpha_outer - alpha_inner;
+                let pixel_dim = dim_f * (1.0 - alpha_outer);
+                let inv_pd = 1.0 - pixel_dim;
+
+                let v = row[xi];
+                let r = ((v >> 16) & 0xFF) as f32;
+                let g = ((v >> 8) & 0xFF) as f32;
+                let b = (v & 0xFF) as f32;
+                let dr = r * inv_pd;
+                let dg = g * inv_pd;
+                let db = b * inv_pd;
+
+                let inv_ba = 1.0 - border_alpha;
+                let fr = (dr * inv_ba + 255.0 * border_alpha) as u32;
+                let fg = (dg * inv_ba + 255.0 * border_alpha) as u32;
+                let fb = (db * inv_ba + 255.0 * border_alpha) as u32;
+                row[xi] =
+                    0xFF000000 | (fr.min(255) << 16) | (fg.min(255) << 8) | fb.min(255);
+            }
+            dim_pixels(&mut row[b_r..], inv_dim);
+        }
+    }
+}
+
+#[allow(static_mut_refs)]
 unsafe fn sync_rect_overlay(hwnd: HWND) {
     let w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     let h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     let sx = GetSystemMetrics(SM_XVIRTUALSCREEN);
     let sy = GetSystemMetrics(SM_YVIRTUALSCREEN);
 
-    let bmi = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: w,
-            biHeight: -h,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let hdc_screen = GetDC(None);
-    let mut bits: *mut u32 = std::ptr::null_mut();
-    let hbm = CreateDIBSection(
-        Some(hdc_screen),
-        &bmi,
-        DIB_RGB_COLORS,
-        &mut bits as *mut _ as *mut _,
-        None,
-        0,
-    )
-    .unwrap();
-
-    let mem_dc = CreateCompatibleDC(Some(hdc_screen));
-    let old_bmp = SelectObject(mem_dc, hbm.into());
-
-    let len = (w * h) as usize;
-    let pixels_u32 = std::slice::from_raw_parts_mut(bits, len);
-
-    // Apply Dimming based on CURRENT_DIM_ALPHA
-    if CURRENT_DIM_ALPHA > 0 {
-        let alpha = CURRENT_DIM_ALPHA as u32;
-        let dim_val = (alpha << 24) | 0x00000000; // Black with alpha
-        pixels_u32.fill(dim_val);
-    } else {
-        pixels_u32.fill(0); // Transparent
+    if w <= 0 || h <= 0 {
+        return;
     }
 
-    // Draw selection box if dragging
-    if RIGHT_DOWN.load(Ordering::SeqCst) {
-        let s_x = START_X.load(Ordering::SeqCst);
-        let s_y = START_Y.load(Ordering::SeqCst);
-        let l_x = LAST_X.load(Ordering::SeqCst);
-        let l_y = LAST_Y.load(Ordering::SeqCst);
+    // 1. Cache DIB section (avoid per-frame allocation of ~8MB)
+    if OVERLAY_DIB_W != w || OVERLAY_DIB_H != h {
+        if !std::ptr::addr_of!(OVERLAY_DIB).read().0.is_invalid() {
+            let _ = DeleteObject(OVERLAY_DIB.0.into());
+            OVERLAY_DIB_BITS = std::ptr::null_mut();
+        }
 
-        let left = s_x.min(l_x) - sx;
-        let top = s_y.min(l_y) - sy;
-        let right = s_x.max(l_x) - sx;
-        let bottom = s_y.max(l_y) - sy;
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
 
-        let rect_w = (right - left).abs();
-        let rect_h = (bottom - top).abs();
+        let hdc_screen = GetDC(None);
+        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+        let hbm = CreateDIBSection(Some(hdc_screen), &bmi, DIB_RGB_COLORS, &mut bits, None, 0);
+        ReleaseDC(None, hdc_screen);
 
-        if rect_w > 0 && rect_h > 0 && CURRENT_DIM_ALPHA > 0 {
-            // 1. Punch the Hole (Clear selection area to Transparent)
-            let clear_l = left.max(0).min(w);
-            let clear_r = right.max(0).min(w);
-            let clear_t = top.max(0).min(h);
-            let clear_b = bottom.max(0).min(h);
+        if let Ok(dib) = hbm {
+            OVERLAY_DIB = SendHbitmap(dib);
+            OVERLAY_DIB_BITS = bits as *mut u32;
+            OVERLAY_DIB_W = w;
+            OVERLAY_DIB_H = h;
+        } else {
+            return;
+        }
+    }
 
-            for y in clear_t..clear_b {
-                let start = (y * w + clear_l) as usize;
-                let end = (y * w + clear_r) as usize;
-                if start < end && end <= pixels_u32.len() {
-                    pixels_u32[start..end].fill(0);
-                }
+    // 2. Render into the cached DIB
+    let hdc_screen = GetDC(None);
+    let mem_dc = CreateCompatibleDC(Some(hdc_screen));
+    let old_bmp = SelectObject(mem_dc, OVERLAY_DIB.0.into());
+
+    let len = (w * h) as usize;
+    let pixels_u32 = std::slice::from_raw_parts_mut(OVERLAY_DIB_BITS, len);
+
+    // BitBlt frozen capture into DIB (hardware-accelerated, same approach as normal mode).
+    let has_frozen = {
+        let guard = GESTURE_CAPTURE.lock().unwrap();
+        if let Some(cap) = guard.as_ref() {
+            let hdc_src = CreateCompatibleDC(Some(mem_dc));
+            let old = SelectObject(hdc_src, cap.hbitmap.into());
+            let _ = BitBlt(mem_dc, 0, 0, w, h, Some(hdc_src), 0, 0, SRCCOPY);
+            SelectObject(hdc_src, old);
+            let _ = DeleteDC(hdc_src);
+            true
+        } else {
+            false
+        }
+    };
+
+    let dim_alpha = CURRENT_DIM_ALPHA;
+    let is_dragging = RIGHT_DOWN.load(Ordering::SeqCst);
+
+    if has_frozen && dim_alpha > 0 {
+        if is_dragging {
+            let s_x = START_X.load(Ordering::SeqCst);
+            let s_y = START_Y.load(Ordering::SeqCst);
+            let l_x = LAST_X.load(Ordering::SeqCst);
+            let l_y = LAST_Y.load(Ordering::SeqCst);
+
+            let left = s_x.min(l_x) - sx;
+            let top = s_y.min(l_y) - sy;
+            let right = s_x.max(l_x) - sx;
+            let bottom = s_y.max(l_y) - sy;
+
+            if (right - left).abs() > 0 && (bottom - top).abs() > 0 {
+                render_frozen_with_selection(pixels_u32, w, h, left, top, right, bottom, dim_alpha);
+            } else {
+                dim_pixels(pixels_u32, 256u32 - dim_alpha as u32);
             }
+        } else {
+            // Frozen frame with dim only (fade-in before drag starts, or shouldn't happen)
+            dim_pixels(pixels_u32, 256u32 - dim_alpha as u32);
+        }
+    } else {
+        // No frozen frame: transparent overlay (original behavior)
+        if CURRENT_DIM_ALPHA > 0 {
+            let alpha = CURRENT_DIM_ALPHA as u32;
+            pixels_u32.fill(alpha << 24);
+        } else {
+            pixels_u32.fill(0);
+        }
 
-            // 2. Draw Borders (SDF)
-            let default_radius = 8.0f32;
-            let border_width = 2.0f32;
+        if RIGHT_DOWN.load(Ordering::SeqCst) {
+            let s_x = START_X.load(Ordering::SeqCst);
+            let s_y = START_Y.load(Ordering::SeqCst);
+            let l_x = LAST_X.load(Ordering::SeqCst);
+            let l_y = LAST_Y.load(Ordering::SeqCst);
 
-            // Box coordinates
-            let l_f = left as f32;
-            let t_f = top as f32;
-            let r_f = right as f32;
-            let b_f = bottom as f32;
+            let left = s_x.min(l_x) - sx;
+            let top = s_y.min(l_y) - sy;
+            let right = s_x.max(l_x) - sx;
+            let bottom = s_y.max(l_y) - sy;
 
-            let hw = (r_f - l_f) / 2.0;
-            let hh = (b_f - t_f) / 2.0;
-            let cx = l_f + hw;
-            let cy = t_f + hh;
-            let radius = default_radius.min(hw).min(hh);
+            if (right - left).abs() > 0 && (bottom - top).abs() > 0 && CURRENT_DIM_ALPHA > 0 {
+                let clear_l = left.max(0).min(w);
+                let clear_r = right.max(0).min(w);
+                let clear_t = top.max(0).min(h);
+                let clear_b = bottom.max(0).min(h);
 
-            let b_left = (left - 10).max(0);
-            let b_top = (top - 10).max(0);
-            let b_right = (right + 10).min(w);
-            let b_bottom = (bottom + 10).min(h);
+                for y in clear_t..clear_b {
+                    let start = (y * w + clear_l) as usize;
+                    let end = (y * w + clear_r) as usize;
+                    if start < end && end <= pixels_u32.len() {
+                        pixels_u32[start..end].fill(0);
+                    }
+                }
 
-            let rad_int = radius.ceil() as i32;
-            let top_band_end = (top + rad_int).min(b_bottom);
-            let bottom_band_start = (bottom - rad_int).max(top_band_end);
+                let default_radius = 8.0f32;
+                let border_width = 2.0f32;
+                let sel_hw = (right - left) as f32 / 2.0;
+                let sel_hh = (bottom - top) as f32 / 2.0;
+                let cx = left as f32 + sel_hw;
+                let cy = top as f32 + sel_hh;
+                let radius = default_radius.min(sel_hw).min(sel_hh);
 
-            for py_int in b_top..b_bottom {
-                let row_base = (py_int * w) as usize;
-                // Fast Path Middle
-                if py_int >= top_band_end && py_int < bottom_band_start {
-                    let lb = left as usize;
-                    let rb = right as usize;
-                    if row_base + lb < pixels_u32.len() {
-                        for x in 0..2 {
-                            if row_base + lb + x < pixels_u32.len() {
-                                pixels_u32[row_base + lb + x] = 0xFFFFFFFF;
-                            }
-                            if row_base + rb - 1 - x < pixels_u32.len() {
-                                pixels_u32[row_base + rb - 1 - x] = 0xFFFFFFFF;
+                let b_left = (left - 10).max(0);
+                let b_top = (top - 10).max(0);
+                let b_right = (right + 10).min(w);
+                let b_bottom = (bottom + 10).min(h);
+                let rad_int = radius.ceil() as i32;
+                let top_band_end = (top + rad_int).min(b_bottom);
+                let bottom_band_start = (bottom - rad_int).max(top_band_end);
+
+                for py_int in b_top..b_bottom {
+                    let row_base = (py_int * w) as usize;
+                    if py_int >= top_band_end && py_int < bottom_band_start {
+                        let lb = left as usize;
+                        let rb = right as usize;
+                        if row_base + lb < pixels_u32.len() {
+                            for x in 0..2 {
+                                if row_base + lb + x < pixels_u32.len() {
+                                    pixels_u32[row_base + lb + x] = 0xFFFFFFFF;
+                                }
+                                if row_base + rb - 1 - x < pixels_u32.len() {
+                                    pixels_u32[row_base + rb - 1 - x] = 0xFFFFFFFF;
+                                }
                             }
                         }
-                    }
-                    continue;
-                }
-                // Slow Path Corners
-                let py = py_int as f32 + 0.5;
-                for px_int in b_left..b_right {
-                    let idx = row_base + px_int as usize;
-                    if idx >= pixels_u32.len() {
                         continue;
                     }
-                    let px = px_int as f32 + 0.5;
-                    let dx = (px - cx).abs() - (hw - radius);
-                    let dy = (py - cy).abs() - (hh - radius);
-                    let dist = if dx > 0.0 && dy > 0.0 {
-                        (dx * dx + dy * dy).sqrt() - radius
-                    } else {
-                        dx.max(dy) - radius
-                    };
-
-                    let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
-                    let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
-                    let border_alpha = alpha_outer - alpha_inner;
-
-                    if border_alpha > 0.001 {
-                        let a = (border_alpha * 255.0) as u32;
-                        let c = (border_alpha * 255.0) as u32;
-                        pixels_u32[idx] = (a << 24) | (c << 16) | (c << 8) | c;
+                    let py = py_int as f32 + 0.5;
+                    for px_int in b_left..b_right {
+                        let idx = row_base + px_int as usize;
+                        if idx >= pixels_u32.len() { continue; }
+                        let px = px_int as f32 + 0.5;
+                        let dx = (px - cx).abs() - (sel_hw - radius);
+                        let dy = (py - cy).abs() - (sel_hh - radius);
+                        let dist = if dx > 0.0 && dy > 0.0 {
+                            (dx * dx + dy * dy).sqrt() - radius
+                        } else {
+                            dx.max(dy) - radius
+                        };
+                        let alpha_outer = (0.5 - dist).clamp(0.0, 1.0);
+                        let alpha_inner = (0.5 - (dist + border_width)).clamp(0.0, 1.0);
+                        let border_alpha = alpha_outer - alpha_inner;
+                        if border_alpha > 0.001 {
+                            let a = (border_alpha * 255.0) as u32;
+                            let c = (border_alpha * 255.0) as u32;
+                            pixels_u32[idx] = (a << 24) | (c << 16) | (c << 8) | c;
+                        }
                     }
                 }
             }
         }
     }
 
+    // 3. Update the Layered Window
     let pt_src = POINT { x: 0, y: 0 };
     let size = SIZE { cx: w, cy: h };
     let pt_dst = POINT { x: sx, y: sy };
@@ -737,10 +928,10 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
         ULW_ALPHA,
     );
 
-    let _ = SelectObject(mem_dc, old_bmp);
+    // Cleanup DC only (bitmap is cached and reused)
+    SelectObject(mem_dc, old_bmp);
     let _ = DeleteDC(mem_dc);
-    let _ = DeleteObject(hbm.into());
-    let _ = ReleaseDC(None, hdc_screen);
+    ReleaseDC(None, hdc_screen);
 }
 
 unsafe extern "system" fn rect_overlay_wnd_proc(
@@ -766,10 +957,24 @@ unsafe extern "system" fn rect_overlay_wnd_proc(
                     changed = true;
                 }
 
-                if changed {
+                if changed || RIGHT_DOWN.load(Ordering::SeqCst) {
+                    // Render during fade animation AND during drag.
+                    // Timer at 60fps reads latest mouse position from atomics.
                     sync_rect_overlay(hwnd);
                 } else {
+                    // Fade complete, not dragging — clean up
                     let _ = KillTimer(Some(hwnd), DIM_TIMER_ID);
+                    // Restore click-through if it was removed during drag
+                    let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                    if style & WS_EX_TRANSPARENT.0 as i32 == 0 {
+                        SetWindowLongW(
+                            hwnd,
+                            GWL_EXSTYLE,
+                            style | WS_EX_TRANSPARENT.0 as i32,
+                        );
+                    }
+                    // Clear any leftover capture
+                    *GESTURE_CAPTURE.lock().unwrap() = None;
                 }
             }
             LRESULT(0)
