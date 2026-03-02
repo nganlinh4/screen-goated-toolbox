@@ -1,1 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="44" height="43" viewBox="0 0 44 43"><defs><clipPath id="clip_sgtcool_06"><rect x="0" y="0" width="44" height="43"/></clipPath></defs><g clip-path="url(#clip_sgtcool_06)"><svg x="-0.78" y="-0.5" width="44" height="43" viewBox="308 288 308 288" preserveAspectRatio="xMidYMid meet" style="overflow:hidden"><g transform="translate(0 0)" data-sgt-offset="1"><path fill="#344969" d="M461 374a63 63 0 1 1 14 125 63 63 0 0 1-14-125Z" data-index="0" style="opacity:1"/><path fill="#344969" d="M464 377a59 59 0 1 1 8 118 59 59 0 0 1-8-118Z" data-index="1" style="opacity:1"/><defs><linearGradient id="a" x1="427.5" x2="481.4" y1="391.8" y2="494.3" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#6CA4EC"/><stop offset="1" stop-color="#C0DCF7"/></linearGradient></defs><path fill="url(#a)" d="M518 468a59 59 0 1 1-54-91l-3 6c3 7 3 7 9 7a46 46 0 1 0 37 71c9 0 7 3 11 7Z" data-index="2" style="opacity:1"/><defs><linearGradient id="b" x1="479.5" x2="504" y1="452.9" y2="387.7" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#CFE5FA"/><stop offset="1" stop-color="#FFFFFE"/></linearGradient></defs><path fill="url(#b)" d="M464 377a59 59 0 0 1 54 91c-4-4-2-7-11-7a46 46 0 0 0-37-71c-6 0-6 0-9-7l3-6Z" data-index="3" style="opacity:1"/></g></svg></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
+  <defs>
+    <!-- Light blue to white gradient (Leading Edge) -->
+    <linearGradient id="gradRight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFE" />
+      <stop offset="100%" stop-color="#CFE5FA" />
+    </linearGradient>
+    
+    <!-- Dark blue to medium blue gradient (Trailing Edge) -->
+    <linearGradient id="gradLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6CA4EC" />
+      <stop offset="100%" stop-color="#C0DCF7" />
+    </linearGradient>
+  </defs>
+
+  <!-- Group containing the spinner -->
+  <g>
+    <!-- Seamless infinite rotation around the mathematical center (22, 22) -->
+    <animateTransform 
+      attributeName="transform" 
+      type="rotate" 
+      from="0 22 22" 
+      to="360 22 22" 
+      dur="1s" 
+      repeatCount="indefinite" 
+    />
+    
+    <!-- Outer background / dark blue center core -->
+    <circle cx="22" cy="22" r="9" fill="#344969" />
+    
+    <!-- Full circle for the left/trailing gradient -->
+    <circle cx="22" cy="22" r="7.5" fill="none" stroke="url(#gradLeft)" stroke-width="2" />
+    
+    <!-- Half circle path for the right/leading gradient (Overlaps perfectly) -->
+    <path d="M 22 14.5 A 7.5 7.5 0 0 1 22 29.5" fill="none" stroke="url(#gradRight)" stroke-width="2" />
+  </g>
+</svg>

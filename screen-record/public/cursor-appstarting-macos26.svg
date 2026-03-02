@@ -2,82 +2,40 @@
 <g transform="translate(4.5 4.46) scale(1)">
 <g transform="translate(-148.262442 3.151124) scale(0.618703144)" clip-path="url(#clip_r1c5)">
 
-
-
 <g>
-
-
-
-
-
-
-</g>
-
-
-
-
-<g clip-path="url(#clip0_1_317)">
+<!-- STATIC CURSOR ARROW -->
+<g>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M268.501 21.8601L276.884 30.2611C277.937 31.3171 277.19 33.1191 275.699 33.1191L272.252 33.1181L269.784 35.3031C268.703 36.2591 267 35.4921 267 34.0481V22.4811C267 21.6971 267.947 21.3051 268.501 21.8601Z" fill="white" style="fill:white;fill-opacity:1;"/>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M268 23.1292V34.0262C268 34.6162 268.697 34.9302 269.139 34.5392L271.874 32.1182L275.674 32.1192C276.284 32.1192 276.59 31.3822 276.159 30.9502L268.251 23.0252C268.159 22.9322 268 22.9982 268 23.1292Z" fill="black" style="fill:black;fill-opacity:1;"/>
+</g>
+
+<!-- ANIMATED MOUSE ICON -->
+<g>
+<!-- Floats the whole mouse icon smoothly -->
+<animateTransform attributeName="transform" type="translate" values="0,0; 0,-2.5; 0,0" dur="2s" repeatCount="indefinite" />
+
+<!-- Outer / Inner Body -->
 <path fill-rule="evenodd" clip-rule="evenodd" d="M281.889 50.1186H274.11C272.945 50.1186 272 49.1736 272 48.0076V37.2296C272 36.0636 272.945 35.1186 274.11 35.1186H281.889C283.055 35.1186 284 36.0636 284 37.2296V48.0076C284 49.1736 283.055 50.1186 281.889 50.1186Z" fill="white" style="fill:white;fill-opacity:1;"/>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M281.75 49.1186H274.25C273.56 49.1186 273 48.5586 273 47.8686V37.3686C273 36.6786 273.56 36.1186 274.25 36.1186H281.75C282.44 36.1186 283 36.6786 283 37.3686V47.8686C283 48.5586 282.44 49.1186 281.75 49.1186Z" fill="black" style="fill:black;fill-opacity:1;"/>
+
+<!-- Top & Bottom Lines -->
 <path fill-rule="evenodd" clip-rule="evenodd" d="M280.5 39.1186H275.5C275.224 39.1186 275 38.8946 275 38.6186C275 38.3426 275.224 38.1186 275.5 38.1186H280.5C280.776 38.1186 281 38.3426 281 38.6186C281 38.8946 280.776 39.1186 280.5 39.1186Z" fill="white" style="fill:white;fill-opacity:1;"/>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M280.5 47.1186H275.5C275.224 47.1186 275 46.8946 275 46.6186C275 46.3426 275.224 46.1186 275.5 46.1186H280.5C280.776 46.1186 281 46.3426 281 46.6186C281 46.8946 280.776 47.1186 280.5 47.1186Z" fill="white" style="fill:white;fill-opacity:1;"/>
+
+<!-- Animated Scroll Wheel -->
+<g>
+<!-- Animates the wheel faster to simulate active scrolling -->
+<animateTransform attributeName="transform" type="translate" values="0,0; 0,-1.5; 0,0; 0,1.5; 0,0" dur="1s" repeatCount="indefinite" />
 <path fill-rule="evenodd" clip-rule="evenodd" d="M281.061 44.1186H274.938C274.42 44.1186 274 43.6986 274 43.1796V42.0576C274 41.5386 274.42 41.1186 274.938 41.1186H281.061C281.579 41.1186 282 41.5386 282 42.0576V43.1796C282 43.6986 281.579 44.1186 281.061 44.1186Z" fill="white" style="fill:white;fill-opacity:1;"/>
 <path fill-rule="evenodd" clip-rule="evenodd" d="M278.5 43.1186H275.5C275.224 43.1186 275 42.8946 275 42.6186C275 42.3426 275.224 42.1186 275.5 42.1186H278.5C278.776 42.1186 279 42.3426 279 42.6186C279 42.8946 278.776 43.1186 278.5 43.1186Z" fill="black" style="fill:black;fill-opacity:1;"/>
 </g>
+</g>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+</g>
 
 </g>
 </g>
 <defs>
-
-
-
-
-
-
-
-
-<clipPath id="clip0_1_317">
-<rect width="16.9998" height="28.5186" fill="white" style="fill:white;fill-opacity:1;" transform="translate(267 21.6)"/>
-</clipPath>
-
 <clipPath id="clip_r1c5"><rect x="237.5" y="-6.5" width="61" height="61"/></clipPath>
 </defs>
 </svg>

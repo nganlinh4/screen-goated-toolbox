@@ -1,8 +1,61 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="44" height="43" viewBox="0 0 44 43">
-  <defs><clipPath id="clip_jepriwin11_07"><rect x="0" y="0" width="44" height="43"/></clipPath></defs>
+  <style>
+    .spinner-container {
+      /* Mapped precisely to the right side of the cursor */
+      transform-origin: 37.5px 24.2px;
+      animation: spin 2s linear infinite;
+    }
+    
+    .spinner-path {
+      fill: none;
+      stroke: #0A61B2;
+      /* Scaled down proportionally for the smaller mini-spinner */
+      stroke-width: 2.6; 
+      stroke-linecap: round;
+      animation: stretch 1.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+    
+    @keyframes spin {
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Circumference for the new smaller radius (4.8) is precisely 30.159 */
+    @keyframes stretch {
+      0% {
+        stroke-dasharray: 0.1, 100;
+        stroke-dashoffset: 0;
+      }
+      50% {
+        stroke-dasharray: 21, 100;
+        stroke-dashoffset: -7;
+      }
+      100% {
+        stroke-dasharray: 0.1, 100;
+        stroke-dashoffset: -30.159;
+      }
+    }
+  </style>
+  
+  <defs>
+    <clipPath id="clip_jepriwin11_07">
+      <rect x="0" y="0" width="44" height="43"/>
+    </clipPath>
+  </defs>
+  
   <g clip-path="url(#clip_jepriwin11_07)">
+    
+    <!-- 1. The original mouse pointer (kept exactly as you provided) -->
     <svg x="14.16" y="10.26" width="38.72" height="37.84" viewBox="358.9 135.6667 262.5 258.9667" preserveAspectRatio="xMidYMid meet" style="overflow:hidden">
-<path style="stroke-width:1" d="M422.4 209.2c14.4 13.5 29 27.8 42.3 42.3 1.8 2.1 1.7 7.6 1.3 10.3-3.1 9.2-11.7 9.4-19.8 11.6a47 47 0 0 0-16 7.1c-5.3 3.8-8.6 10.3-15.6 11-3.4.3-6.8-.7-9.4-3-1.6-1.3-3.7-4.3-3.9-6.4-1.6-20.4.7-42.6-.6-62.9 2-11.3 13.8-17.5 21.7-10Z"/><path style="stroke-width:1" d="M411.9 212.6c6.2-.6 8 2.2 12 6.3 10.7 10.9 21.8 21.2 32.2 32.2 13.5 14.1-8.5 15-17.2 17.9a52 52 0 0 0-11.7 6.4c-5 3.2-11.7 12.5-18.2 8.7-2.4-3.8-2.1-14.7-2-19.3.3-15.9-.6-31.9.4-47.7.2-2 3-3.6 4.5-4.5Z" fill="#FCFCFB"/><path style="stroke-width:1" d="M513.6 211.7c7-1 15.4 1 21.6 4.5a40 40 0 0 1 14.6 55c-5 8.2-11 15.1-21.5 9.5-8.3-7.8-1.8-14.7 3.9-21.3 3.7-5 3.4-16.1-3-21.7-11.3-10.3-25.6-1.9-28.7 6.1-2.8 7.2.6 14.5-3 19.3-8 9.5-19.2 2.5-19.7-8-1.1-22.8 13-41 35.8-43.4Z" fill="#0A61B2"/>
+      <!-- Black outline -->
+      <path style="stroke-width:1" d="M422.4 209.2c14.4 13.5 29 27.8 42.3 42.3 1.8 2.1 1.7 7.6 1.3 10.3-3.1 9.2-11.7 9.4-19.8 11.6a47 47 0 0 0-16 7.1c-5.3 3.8-8.6 10.3-15.6 11-3.4.3-6.8-.7-9.4-3-1.6-1.3-3.7-4.3-3.9-6.4-1.6-20.4.7-42.6-.6-62.9 2-11.3 13.8-17.5 21.7-10Z"/>
+      <!-- White fill -->
+      <path style="stroke-width:1" d="M411.9 212.6c6.2-.6 8 2.2 12 6.3 10.7 10.9 21.8 21.2 32.2 32.2 13.5 14.1-8.5 15-17.2 17.9a52 52 0 0 0-11.7 6.4c-5 3.2-11.7 12.5-18.2 8.7-2.4-3.8-2.1-14.7-2-19.3.3-15.9-.6-31.9.4-47.7.2-2 3-3.6 4.5-4.5Z" fill="#FCFCFB"/>
     </svg>
+    
+    <!-- 2. The new clean, animated replacement for the 3rd blue path -->
+    <g class="spinner-container">
+      <circle class="spinner-path" cx="37.5" cy="24.2" r="4.8" transform="rotate(-90 37.5 24.2)" />
+    </g>
+    
   </g>
 </svg>
