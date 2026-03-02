@@ -24,6 +24,10 @@ import {
 const DEFAULT_KEYSTROKE_DELAY_SEC = 0;
 const KEYSTROKE_DELAY_KEY = 'screen-record-keystroke-delay-v1';
 const KEYSTROKE_LANGUAGE_KEY = 'screen-record-keystroke-language-v1';
+const KEYSTROKE_MODE_PREF_KEY = 'screen-record-keystroke-mode-pref-v1';
+const KEYSTROKE_OVERLAY_PREF_KEY = 'screen-record-keystroke-overlay-pref-v1';
+const AUTO_ZOOM_PREF_KEY = 'screen-record-auto-zoom-pref-v1';
+const SMART_POINTER_PREF_KEY = 'screen-record-smart-pointer-pref-v1';
 
 function getSavedKeystrokeDelaySec(): number {
   try {
@@ -52,6 +56,55 @@ export function getSavedKeystrokeLanguage(): KeystrokeLanguage {
 
 export function saveKeystrokeLanguage(lang: KeystrokeLanguage): void {
   try { localStorage.setItem(KEYSTROKE_LANGUAGE_KEY, lang); } catch { /* ignore */ }
+}
+
+function getSavedKeystrokeModePref(): 'off' | 'keyboard' | 'keyboardMouse' {
+  try {
+    const raw = localStorage.getItem(KEYSTROKE_MODE_PREF_KEY);
+    if (raw === 'keyboard' || raw === 'keyboardMouse' || raw === 'off') return raw;
+  } catch { /* ignore */ }
+  return 'off';
+}
+
+function getSavedKeystrokeOverlayPref(): { x: number; y: number; scale: number } {
+  try {
+    const raw = localStorage.getItem(KEYSTROKE_OVERLAY_PREF_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<{ x: number; y: number; scale: number }>;
+      if (typeof p === 'object' && p !== null) {
+        return {
+          x: typeof p.x === 'number' ? p.x : 50,
+          y: typeof p.y === 'number' ? p.y : 100,
+          scale: typeof p.scale === 'number' ? p.scale : 1,
+        };
+      }
+    }
+  } catch { /* ignore */ }
+  return { x: 50, y: 100, scale: 1 };
+}
+
+function getSavedAutoZoomPref(): boolean {
+  try {
+    const raw = localStorage.getItem(AUTO_ZOOM_PREF_KEY);
+    if (raw !== null) return raw === '1';
+  } catch { /* ignore */ }
+  return true; // default ON for first-time users
+}
+
+function saveAutoZoomPref(enabled: boolean): void {
+  try { localStorage.setItem(AUTO_ZOOM_PREF_KEY, enabled ? '1' : '0'); } catch { /* ignore */ }
+}
+
+function getSavedSmartPointerPref(): boolean {
+  try {
+    const raw = localStorage.getItem(SMART_POINTER_PREF_KEY);
+    if (raw !== null) return raw === '1';
+  } catch { /* ignore */ }
+  return true; // default ON for first-time users
+}
+
+function saveSmartPointerPref(enabled: boolean): void {
+  try { localStorage.setItem(SMART_POINTER_PREF_KEY, enabled ? '1' : '0'); } catch { /* ignore */ }
 }
 
 // ============================================================================
@@ -422,22 +475,24 @@ export function useRecording(props: UseRecordingProps) {
           { mode: 'keyboardMouse', delaySec: savedKeystrokeDelay }
         );
 
+        const wantAutoZoom = getSavedAutoZoomPref();
+        const wantSmartPointer = getSavedSmartPointerPref();
+        const defaultPointerSeg: CursorVisibilitySegment[] = [{ id: crypto.randomUUID(), startTime: 0, endTime: timelineDuration }];
+
         const initialSegment: VideoSegment = {
           ...baseSegment,
-          // Smart Pointer ON by default for new recordings.
-          cursorVisibilitySegments: initialPointerSegments,
-          // Auto Zoom ON by default for new recordings.
-          smoothMotionPath: initialAutoPath,
-          zoomInfluencePoints: initialAutoPath.length > 0
+          cursorVisibilitySegments: wantSmartPointer ? initialPointerSegments : defaultPointerSeg,
+          smoothMotionPath: wantAutoZoom ? initialAutoPath : [],
+          zoomInfluencePoints: wantAutoZoom && initialAutoPath.length > 0
             ? [{ time: 0, value: 1.0 }, { time: timelineDuration, value: 1.0 }]
             : [],
-          keystrokeMode: 'keyboard',
+          keystrokeMode: getSavedKeystrokeModePref(),
           keystrokeDelaySec: savedKeystrokeDelay,
           keystrokeLanguage: getSavedKeystrokeLanguage(),
           keystrokeEvents,
           keyboardVisibilitySegments,
           keyboardMouseVisibilitySegments,
-          keystrokeOverlay: { x: 50, y: 100, scale: 1 },
+          keystrokeOverlay: getSavedKeystrokeOverlayPref(),
           useCustomCursor: activeRecordingMode !== 'withCursor',
         };
         props.setSegment(initialSegment);
@@ -732,18 +787,28 @@ export function useExport(props: UseExportProps) {
   const [exportAutoCopyEnabled, setExportAutoCopyEnabled] = useState(() => {
     try { return localStorage.getItem('screen-record-export-auto-copy-v1') === '1'; } catch { return false; }
   });
-  const [exportOptions, setExportOptions] = useState<ExportOptions>({
-    width: 0,
-    height: 0,
-    fps: 60,
-    targetVideoBitrateKbps: 0,
-    speed: 1,
-    exportProfile: 'turbo_nv',
-    preferNvTurbo: true,
-    qualityGatePercent: 3,
-    turboCodec: 'hevc',
-    preRenderPolicy: 'aggressive',
-    outputDir: ''
+  const [exportOptions, setExportOptions] = useState<ExportOptions>(() => {
+    let savedFps = 60;
+    try {
+      const raw = localStorage.getItem('screen-record-export-fps-pref-v1');
+      if (raw) {
+        const n = Number(raw);
+        if ([24, 30, 60, 90, 120].includes(n)) savedFps = n;
+      }
+    } catch { /* ignore */ }
+    return {
+      width: 0,
+      height: 0,
+      fps: savedFps,
+      targetVideoBitrateKbps: 0,
+      speed: 1,
+      exportProfile: 'turbo_nv',
+      preferNvTurbo: true,
+      qualityGatePercent: 3,
+      turboCodec: 'hevc',
+      preRenderPolicy: 'aggressive',
+      outputDir: ''
+    };
   });
   const [hasCheckedExportCapabilities, setHasCheckedExportCapabilities] = useState(false);
 
@@ -1276,6 +1341,7 @@ export function useAutoZoom(props: UseAutoZoomProps) {
     // Toggle: if auto zoom is already active, clear it
     const hasAutoPath = props.segment.smoothMotionPath && props.segment.smoothMotionPath.length > 0;
     if (hasAutoPath) {
+      saveAutoZoomPref(false);
       const newSegment: VideoSegment = {
         ...props.segment,
         smoothMotionPath: [],
@@ -1297,6 +1363,7 @@ export function useAutoZoom(props: UseAutoZoomProps) {
       props.segment, props.mousePositions, vid.videoWidth, vid.videoHeight
     );
 
+    saveAutoZoomPref(true);
     const newSegment: VideoSegment = {
       ...props.segment,
       smoothMotionPath: motionPath,
@@ -1344,6 +1411,7 @@ export function useCursorHiding(props: UseCursorHidingProps) {
 
     if (!isDefault) {
       // Has customized/generated segments → reset to default (cursor visible everywhere)
+      saveSmartPointerPref(false);
       props.setSegment({
         ...props.segment,
         cursorVisibilitySegments: [{
@@ -1357,6 +1425,7 @@ export function useCursorHiding(props: UseCursorHidingProps) {
     }
 
     // Default or empty → generate from mouse data
+    saveSmartPointerPref(true);
     const segments = generateCursorVisibility(props.segment, props.mousePositions, props.duration);
     props.setSegment({
       ...props.segment,

@@ -387,6 +387,24 @@ export function calculateOutputDuration(segment: VideoSegment | null, fallbackDu
   return duration;
 }
 
+/**
+ * Convert a video-time position to wall-clock time accounting for the speed curve.
+ * Integrates dt/speed over [0, videoTime].
+ */
+export function videoTimeToWallClock(videoTime: number, speedPoints: SpeedPoint[]): number {
+  if (!speedPoints?.length || videoTime <= 0) return videoTime;
+  const DT = 0.01666; // ~60fps integration step
+  let wallTime = 0;
+  let t = 0;
+  while (t < videoTime) {
+    const dt = Math.min(DT, videoTime - t);
+    const s = getSpeedAtTime(t + dt * 0.5, speedPoints);
+    wallTime += dt / Math.max(0.1, s);
+    t += dt;
+  }
+  return wallTime;
+}
+
 /** Estimate encoded file size for VBR output (with calibration feedback from previous exports). */
 export function estimateExportSize(params: {
   width: number;

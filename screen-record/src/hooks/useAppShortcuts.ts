@@ -8,6 +8,8 @@ export interface UseAppShortcutsParams {
   seek: (time: number) => void;
   flushSeek?: () => void;
   isCropping: boolean;
+  /** When true (a modal dialog is open), suppress play/seek shortcuts so the dialog video controls work normally */
+  isModalOpen?: boolean;
   editingKeyframeId: number | null;
   editingTextId: string | null;
   editingKeystrokeSegmentId: string | null;
@@ -32,6 +34,7 @@ export function useAppShortcuts({
   duration,
   seek,
   isCropping,
+  isModalOpen = false,
   editingKeyframeId,
   editingTextId,
   editingKeystrokeSegmentId,
@@ -58,6 +61,7 @@ export function useAppShortcuts({
                           || (e.target as HTMLElement).isContentEditable;
 
       if (e.code === 'Space' && !isTextInput) {
+        if (isModalOpen) return; // Let the dialog's native video controls handle Space
         e.preventDefault();
         e.stopImmediatePropagation();
         if (isCropping) return; // Block play/pause during crop mode
@@ -65,6 +69,7 @@ export function useAppShortcuts({
         togglePlayPause();
       }
       if (e.code === 'ArrowLeft' && !isTextInput) {
+        if (isModalOpen) return; // Let the dialog's native video controls handle arrow keys
         e.preventDefault();
         const next = Math.max(0, currentTime - 5);
         seek(next);
@@ -72,6 +77,7 @@ export function useAppShortcuts({
         setSeekIndicatorKey(Date.now());
       }
       if (e.code === 'ArrowRight' && !isTextInput) {
+        if (isModalOpen) return; // Let the dialog's native video controls handle arrow keys
         e.preventDefault();
         const next = Math.min(duration, currentTime + 5);
         seek(next);
@@ -98,5 +104,5 @@ export function useAppShortcuts({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingKeyframeId, editingTextId, editingPointerId, editingKeystrokeSegmentId, handleDeleteText, handleDeletePointerSegment, handleDeleteKeystrokeSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping, currentTime, duration, seek, setSeekIndicatorKey, setSeekIndicatorDir]);
+  }, [editingKeyframeId, editingTextId, editingPointerId, editingKeystrokeSegmentId, handleDeleteText, handleDeletePointerSegment, handleDeleteKeystrokeSegment, segment, canUndo, canRedo, undo, redo, setSegment, setEditingKeyframeId, togglePlayPause, isCropping, isModalOpen, currentTime, duration, seek, setSeekIndicatorKey, setSeekIndicatorDir]);
 }
