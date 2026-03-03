@@ -50,6 +50,7 @@ interface HeaderProps {
   rawButtonDisabled: boolean;
   onOpenRawVideoDialog: () => void;
   onOpenProjects: () => void;
+  onOpenCursorLab: () => void;
   hideExport?: boolean;
   hideRawVideo?: boolean;
   captureSource: 'monitor' | 'window';
@@ -75,6 +76,7 @@ export function Header({
   rawButtonDisabled,
   onOpenRawVideoDialog,
   onOpenProjects,
+  onOpenCursorLab,
   hideExport = false,
   hideRawVideo = false,
   captureSource,
@@ -465,7 +467,6 @@ export function Header({
               {rawButtonLabel}
             </Button>
           )}
-          {/* Cursor Lab hidden for now.
           <Button
             variant="ghost"
             size="sm"
@@ -475,7 +476,6 @@ export function Header({
           >
             Cursor Lab
           </Button>
-          */}
           {currentVideo && !hideExport && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}
