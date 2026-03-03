@@ -100,7 +100,19 @@ export type CursorRenderType =
   | 'resize-ns-sgtwatermelon'
   | 'resize-we-sgtwatermelon'
   | 'resize-nwse-sgtwatermelon'
-  | 'resize-nesw-sgtwatermelon';
+  | 'resize-nesw-sgtwatermelon'
+  | 'default-sgtfastfood'
+  | 'text-sgtfastfood'
+  | 'pointer-sgtfastfood'
+  | 'openhand-sgtfastfood'
+  | 'closehand-sgtfastfood'
+  | 'wait-sgtfastfood'
+  | 'appstarting-sgtfastfood'
+  | 'crosshair-sgtfastfood'
+  | 'resize-ns-sgtfastfood'
+  | 'resize-we-sgtfastfood'
+  | 'resize-nwse-sgtfastfood'
+  | 'resize-nesw-sgtfastfood';
 
 // ---------------------------------------------------------------------------
 // CursorImageSet – all HTMLImageElement fields used by cursor rendering
@@ -218,6 +230,20 @@ export interface CursorImageSet {
   resizeWeSgtwatermelonImage: HTMLImageElement;
   resizeNwseSgtwatermelonImage: HTMLImageElement;
   resizeNeswSgtwatermelonImage: HTMLImageElement;
+
+  // SGT Fastfood pack
+  defaultSgtfastfoodImage: HTMLImageElement;
+  textSgtfastfoodImage: HTMLImageElement;
+  pointerSgtfastfoodImage: HTMLImageElement;
+  openHandSgtfastfoodImage: HTMLImageElement;
+  closeHandSgtfastfoodImage: HTMLImageElement;
+  waitSgtfastfoodImage: HTMLImageElement;
+  appStartingSgtfastfoodImage: HTMLImageElement;
+  crosshairSgtfastfoodImage: HTMLImageElement;
+  resizeNsSgtfastfoodImage: HTMLImageElement;
+  resizeWeSgtfastfoodImage: HTMLImageElement;
+  resizeNwseSgtfastfoodImage: HTMLImageElement;
+  resizeNeswSgtfastfoodImage: HTMLImageElement;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +262,9 @@ export interface CursorRenderState {
 // getCursorPack – determine which cursor pack is active
 // ---------------------------------------------------------------------------
 
-export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' {
-  if (backgroundConfig?.cursorPack === 'sgtwatermelon') return 'sgtwatermelon';
+export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' {
+    if (backgroundConfig?.cursorPack === 'sgtfastfood') return 'sgtfastfood';
+    if (backgroundConfig?.cursorPack === 'sgtwatermelon') return 'sgtwatermelon';
   if (backgroundConfig?.cursorPack === 'jepriwin11') return 'jepriwin11';
   if (backgroundConfig?.cursorPack === 'sgtpixel') return 'sgtpixel';
   if (backgroundConfig?.cursorPack === 'sgtai') return 'sgtai';
@@ -412,6 +439,23 @@ export function resolveCursorRenderType(rawType: string, backgroundConfig?: Back
       case 'resize_nwse': return 'resize-nwse-sgtwatermelon';
       case 'resize_nesw': return 'resize-nesw-sgtwatermelon';
       default: return 'default-sgtwatermelon';
+    }
+  }
+
+  if (pack === 'sgtfastfood') {
+    switch (semanticType) {
+      case 'text': return 'text-sgtfastfood';
+      case 'pointer': return 'pointer-sgtfastfood';
+      case 'openhand': return 'openhand-sgtfastfood';
+      case 'closehand': return 'closehand-sgtfastfood';
+      case 'wait': return 'wait-sgtfastfood';
+      case 'appstarting': return 'appstarting-sgtfastfood';
+      case 'crosshair': return 'crosshair-sgtfastfood';
+      case 'resize_ns': return 'resize-ns-sgtfastfood';
+      case 'resize_we': return 'resize-we-sgtfastfood';
+      case 'resize_nwse': return 'resize-nwse-sgtfastfood';
+      case 'resize_nesw': return 'resize-nesw-sgtfastfood';
+      default: return 'default-sgtfastfood';
     }
   }
 
@@ -595,6 +639,23 @@ export function getSgtwatermelonCursorImage(images: CursorImageSet, type: Cursor
   }
 }
 
+export function getSgtfastfoodCursorImage(images: CursorImageSet, type: CursorRenderType): HTMLImageElement | null {
+  switch (type) {
+    case 'default-sgtfastfood': return images.defaultSgtfastfoodImage;
+    case 'text-sgtfastfood': return images.textSgtfastfoodImage;
+    case 'pointer-sgtfastfood': return images.pointerSgtfastfoodImage;
+    case 'openhand-sgtfastfood': return images.openHandSgtfastfoodImage;
+    case 'closehand-sgtfastfood': return images.closeHandSgtfastfoodImage;
+    case 'wait-sgtfastfood': return images.waitSgtfastfoodImage;
+    case 'appstarting-sgtfastfood': return images.appStartingSgtfastfoodImage;
+    case 'crosshair-sgtfastfood': return images.crosshairSgtfastfoodImage;
+    case 'resize-ns-sgtfastfood': return images.resizeNsSgtfastfoodImage;
+    case 'resize-we-sgtfastfood': return images.resizeWeSgtfastfoodImage;
+    case 'resize-nwse-sgtfastfood': return images.resizeNwseSgtfastfoodImage;
+    case 'resize-nesw-sgtfastfood': return images.resizeNeswSgtfastfoodImage;
+    default: return null;
+  }
+}
 export function getScreenStudioCursorImage(images: CursorImageSet, type: CursorRenderType | string): HTMLImageElement | null {
   switch (type) {
     case 'default-screenstudio': return images.defaultScreenStudioImage;

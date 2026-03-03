@@ -119,6 +119,21 @@ const RESIZE_NWSE_SGTWATERMELON_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nwse-sgtwatermelon.svg");
 const RESIZE_NESW_SGTWATERMELON_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nesw-sgtwatermelon.svg");
+const DEFAULT_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-default-sgtfastfood.svg");
+const TEXT_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-text-sgtfastfood.svg");
+const POINTER_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-pointer-sgtfastfood.svg");
+const OPENHAND_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-openhand-sgtfastfood.svg");
+const CLOSEHAND_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-closehand-sgtfastfood.svg");
+const WAIT_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-wait-sgtfastfood.svg");
+const APPSTARTING_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("../dist/cursor-appstarting-sgtfastfood.svg");
+const CROSSHAIR_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-crosshair-sgtfastfood.svg");
+const RESIZE_NS_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-resize-ns-sgtfastfood.svg");
+const RESIZE_WE_SGTFASTFOOD_SVG: &[u8] = include_bytes!("../dist/cursor-resize-we-sgtfastfood.svg");
+const RESIZE_NWSE_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-nwse-sgtfastfood.svg");
+const RESIZE_NESW_SGTFASTFOOD_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-nesw-sgtfastfood.svg");
 
 pub(super) const CURSOR_ATLAS_COLS: u32 = 9;
 pub(super) const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
@@ -231,6 +246,19 @@ const CURSOR_SVG_DATA: &[&[u8]] = &[
     RESIZE_WE_SGTWATERMELON_SVG,
     RESIZE_NWSE_SGTWATERMELON_SVG,
     RESIZE_NESW_SGTWATERMELON_SVG,
+    // sgtfastfood
+    DEFAULT_SGTFASTFOOD_SVG,
+    TEXT_SGTFASTFOOD_SVG,
+    POINTER_SGTFASTFOOD_SVG,
+    OPENHAND_SGTFASTFOOD_SVG,
+    CLOSEHAND_SGTFASTFOOD_SVG,
+    WAIT_SGTFASTFOOD_SVG,
+    APPSTARTING_SGTFASTFOOD_SVG,
+    CROSSHAIR_SGTFASTFOOD_SVG,
+    RESIZE_NS_SGTFASTFOOD_SVG,
+    RESIZE_WE_SGTFASTFOOD_SVG,
+    RESIZE_NWSE_SGTFASTFOOD_SVG,
+    RESIZE_NESW_SGTFASTFOOD_SVG,
 ];
 
 type TileCache = Mutex<Vec<Option<Arc<Vec<u8>>>>>;
