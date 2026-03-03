@@ -84,10 +84,4 @@ cargo test               # Run tests
 - Apply per-cursor position offsets by editing the SVG content transform (not temporary runtime mapping), so preview/UI/export stay aligned.
 - Recorder-side cursor capture can receive non-system/custom cursor handles (won't match IDC_*). Keep fallback mapping resilient so drag cursors still classify as `grab/openhand/closehand` instead of collapsing to default.
 - Prefer stable cursor-shape/signature based detection for custom drag cursors and persist learned grab signatures per machine; avoid relying on volatile raw handle values.
-- When adding a new pack:
-  - wire UI selection sources
-  - wire frontend renderer types and image loading
-  - wire native export cursor type IDs and GPU atlas entries (keep each pack as a contiguous 12-slot block)
-  - update Rust WebView asset router (`src/overlay/screen_record/mod.rs`) so every new `cursor-*-<pack>.svg` is served
-  - **update GPU atlas dimensions AND shader UV divisors in `gpu_export.rs`**: `CURSOR_ATLAS_ROWS` must fit all slots (`ceil(total_slots / CURSOR_ATLAS_COLS)`), and the WGSL shader's atlas UV must divide by the same values — `/ {COLS}.0` for X, `/ {ROWS}.0` for Y. Forgetting the shader causes cursors to sample wrong atlas rows → invisible in export.
-  - verify one preview screenshot and one exported frame for each pack.
+- **Adding a new pack** — use `/add-cursor-pack` skill (see `.claude/commands/add-cursor-pack.md` for full workflow)
