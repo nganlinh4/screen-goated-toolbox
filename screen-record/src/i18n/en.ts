@@ -134,7 +134,7 @@ const en = {
   exportBackendDetecting: 'Detecting backend...',
   exportBackendCpuX264: 'CPU x264',
   exportBackendZeroCopyGpu: 'GPU Zero-Copy',
-  exportBackendMfH264Encode: 'Media Foundation H.264 encode',
+  exportBackendMfH264Encode: 'DX12 Compositor · Media Foundation H.264',
   exportBackendNvencTurbo: 'GPU NVENC Turbo',
   exportBackendProbeFailedFallback: 'Capability probe failed, using safe fallback',
   exportBackendNoCapabilityData: 'Capability data unavailable',

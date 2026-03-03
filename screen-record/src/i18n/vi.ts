@@ -136,7 +136,7 @@ const vi: Translations = {
   exportBackendDetecting: 'Đang nhận diện backend...',
   exportBackendCpuX264: 'CPU x264',
   exportBackendZeroCopyGpu: 'GPU Zero-Copy',
-  exportBackendMfH264Encode: 'Mã hóa H.264 Media Foundation',
+  exportBackendMfH264Encode: 'DX12 Compositor · Media Foundation H.264',
   exportBackendNvencTurbo: 'GPU NVENC Turbo',
   exportBackendProbeFailedFallback: 'Probe capability thất bại, dùng fallback an toàn',
   exportBackendNoCapabilityData: 'Không có dữ liệu capability',
