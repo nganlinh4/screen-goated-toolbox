@@ -21,62 +21,60 @@ function parseViewBox(vbStr) {
   return { x, y, w, h };
 }
 
-// Parses the (x, y) of the opening M command of an SVG subpath segment.
-// Uses ([-+]?[\d.]+) so the sign is an optional prefix only (not part of
-// the repeating class), which lets "221.8-56.8" parse correctly:
-//   group1="221.8" ([\d.]+ stops at '-'), group2="-56.8" (sign as prefix).
-// Avoids the old [-\d.]+ bug where '-' in the char class greedily consumed
-// "221.8-56.8" as one token, causing both M coords to be missed.
-const MCOORD_RE = /^[Mm]\s*([-+]?[\d.]+)[,\s]*([-+]?[\d.]+)/;
-
-function mCoords(subpath) {
-  const m = subpath.match(MCOORD_RE);
-  if (!m) return null;
-  return [parseFloat(m[1]), parseFloat(m[2])];
+const NUM = '[-+]?[\\d]*\\.?[\\d]+(?:e[-+]?[\\d]+)?';
+// Extracts all absolute coordinate pairs from a path d string.
+// Tokenises the path into commands + number sequences, tracks current pen
+// position to resolve relative commands, and collects every endpoint.
+// This is far safer than checking only the M start point: a path that begins
+// outside the viewBox but curves/lines into it will still be detected.
+function allAbsolutePoints(d) {
+  const points = [];
+  // Tokenise: split into [command-letter, ...numbers] chunks.
+  const tokens = d.match(/[MmZzLlHhVvCcSsQqTtAa]|[-+]?[\d]*\.?[\d]+(?:e[-+]?[\d]+)?/gi) || [];
+  let i = 0;
+  let cx = 0, cy = 0; // current pen
+  let cmd = 'M';
+  const nums = () => { const n = []; while (i < tokens.length && /^[-+.\d]/.test(tokens[i])) n.push(parseFloat(tokens[i++])); return n; };
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (/^[A-Za-z]$/.test(t)) { cmd = t; i++; }
+    const rel = cmd === cmd.toLowerCase() && cmd !== 'z' && cmd !== 'Z';
+    const abs = (dx, dy) => rel ? [cx + dx, cy + dy] : [dx, dy];
+    switch (cmd.toUpperCase()) {
+      case 'M': { const n = nums(); if (n.length >= 2) { const [x, y] = abs(n[0], n[1]); points.push([x, y]); cx = x; cy = y; cmd = rel ? 'l' : 'L'; } break; }
+      case 'L': { const n = nums(); for (let j = 0; j + 1 < n.length; j += 2) { const [x, y] = abs(n[j], n[j+1]); points.push([x, y]); cx = x; cy = y; } break; }
+      case 'H': { const n = nums(); for (const v of n) { cx = rel ? cx + v : v; points.push([cx, cy]); } break; }
+      case 'V': { const n = nums(); for (const v of n) { cy = rel ? cy + v : v; points.push([cx, cy]); } break; }
+      case 'C': { const n = nums(); for (let j = 0; j + 5 < n.length; j += 6) { const [x, y] = abs(n[j+4], n[j+5]); points.push([x, y]); cx = x; cy = y; } break; }
+      case 'S': case 'Q': { const n = nums(); for (let j = 0; j + 3 < n.length; j += 4) { const [x, y] = abs(n[j+2], n[j+3]); points.push([x, y]); cx = x; cy = y; } break; }
+      case 'T': { const n = nums(); for (let j = 0; j + 1 < n.length; j += 2) { const [x, y] = abs(n[j], n[j+1]); points.push([x, y]); cx = x; cy = y; } break; }
+      case 'A': { const n = nums(); for (let j = 0; j + 6 < n.length; j += 7) { const [x, y] = abs(n[j+5], n[j+6]); points.push([x, y]); cx = x; cy = y; } break; }
+      case 'Z': { i++; break; }
+      default: i++;
+    }
+  }
+  return points;
 }
 
 function isInsideViewBox([x, y], vb) {
   return x >= vb.x && x <= vb.x + vb.w && y >= vb.y && y <= vb.y + vb.h;
 }
 
-/**
- * Filters invisible subpaths from a compound path d attribute.
- *
- * A compound path uses Z...M to start additional subpaths. Each subpath is
- * tested independently: its starting M coordinate is checked against the
- * viewBox. Subpaths with unparseable M commands are kept (conservative).
- *
- * Returns the filtered d string, or null if all subpaths are invisible.
- */
-function filterCompoundPath(d, vb) {
-  // Split at Z (or z) that is immediately followed by M (or m), preserving Z.
-  // "...arcZ M221..." → ["...arcZ", " M221..."]
-  const segments = d.split(/(?<=[Zz])(?=\s*[Mm])/);
-
-  const visible = segments.filter(seg => {
-    const trimmed = seg.replace(/^[Zz\s]+/, ''); // strip leading Z from continuations
-    const coords = mCoords(trimmed);
-    if (!coords) return true; // can't determine → keep (conservative)
-    return isInsideViewBox(coords, vb);
-  });
-
-  if (visible.length === 0) return null;
-  return visible.join('');
+/** Returns true if any endpoint of the path falls inside the viewBox. */
+function pathIntersectsViewBox(d, vb) {
+  const pts = allAbsolutePoints(d);
+  if (pts.length === 0) return true; // unparseable → keep
+  return pts.some(p => isInsideViewBox(p, vb));
 }
 
 /**
  * Return a cleaned d attribute string for a path, or null to remove the
- * whole path element. Handles both simple and compound paths.
+ * whole path element.
+ * Checks ALL endpoint coordinates (not just M) so paths that start outside
+ * but draw into the viewBox are correctly preserved.
  */
 function cleanedPathD(d, vb) {
-  const isCompound = /[Zz]\s*[Mm]/.test(d);
-  if (isCompound) {
-    return filterCompoundPath(d, vb);
-  }
-  // Simple path: check single M coord.
-  const coords = mCoords(d);
-  if (!coords) return d; // unparseable → keep
-  return isInsideViewBox(coords, vb) ? d : null;
+  return pathIntersectsViewBox(d, vb) ? d : null;
 }
 
 /** Collect all IDs referenced via url(#id) or href="#id" in an SVG string. */
