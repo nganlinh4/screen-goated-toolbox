@@ -27,7 +27,6 @@ use windows::core::Interface;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
-use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
 
 use super::d3d_interop::{
     create_d3d11_device, D3D11GpuFence, D3D11Readback, SharedVramBuffer, VideoProcessor,
@@ -126,7 +125,7 @@ enum RenderOutput {
     Gpu { ring_idx: usize },
 }
 
-const GPU_RING_SIZE: usize = 3;
+const GPU_RING_SIZE: usize = 16;
 const DECODE_RING_SIZE: usize = 3;
 
 /// Shared VRAM ring for zero-copy render→encode.
@@ -630,15 +629,6 @@ fn run_decode_thread(
 
     let gpu_fence = D3D11GpuFence::new(d3d11_device, d3d11_context)?;
 
-    // Keyed mutex handles for each shared ring slot.
-    // D3D11 SHARED_KEYEDMUTEX textures require AcquireSync/ReleaseSync around every
-    // GPU write — without this, CopyResource silently no-ops and DX12 reads zeros.
-    let keyed_mutexes: Vec<IDXGIKeyedMutex> = shared_textures
-        .iter()
-        .map(|t| t.cast::<IDXGIKeyedMutex>())
-        .collect::<Result<_, _>>()
-        .map_err(|e| format!("QI IDXGIKeyedMutex (decode ring): {e}"))?;
-
     let device_manager = DxgiDeviceManager::new(d3d11_device)?;
     let decoder = MfDecoder::new(&config.source_video_path, &device_manager, true)?;
     let source_w = decoder.width();
@@ -704,10 +694,11 @@ fn run_decode_thread(
             .get(frame_idx + 1)
             .copied()
             .unwrap_or(source_time);
+        let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
+        let expected_step = speed / config.framerate as f64;
         let mut source_step = next_source_time - source_time;
-        if source_step <= 0.0 {
-            let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
-            source_step = speed / config.framerate as f64;
+        if source_step <= 0.0 || source_step > expected_step * 1.05 {
+            source_step = expected_step;
         }
 
         // Seek on trim segment boundary change.
@@ -795,20 +786,12 @@ fn run_decode_thread(
         };
 
         // VP Blt: NV12 → BGRA into intermediate texture, then GPU copy to shared ring.
-        // Two GPU-internal ops (VP can't write to keyed-mutex shared textures directly).
         decode_vp.convert(
             &cur_decoded.texture,
             cur_decoded.subresource_index,
             &vp_output,
         )?;
 
-        // Keyed mutex: acquire before writing to the shared texture.
-        // Without this, D3D11 CopyResource to a SHARED_KEYEDMUTEX texture is a no-op.
-        unsafe {
-            keyed_mutexes[ring_idx]
-                .AcquireSync(0, u32::MAX)
-                .map_err(|e| format!("AcquireSync(decode ring[{ring_idx}]): {e}"))?;
-        }
         unsafe {
             let dst: ID3D11Resource = shared_textures[ring_idx]
                 .cast()
@@ -819,16 +802,8 @@ fn run_decode_thread(
             d3d11_context.CopyResource(&dst, &src);
         }
 
-        // GPU fence: ensure CopyResource completes before releasing the mutex.
+        // GPU fence: ensure CopyResource completes before signaling DX12.
         gpu_fence.signal_and_wait();
-
-        // Release mutex — commits data to shared memory, visible to DX12 readers.
-        // Key stays at 0 so the next AcquireSync(0) succeeds immediately.
-        unsafe {
-            keyed_mutexes[ring_idx]
-                .ReleaseSync(0)
-                .map_err(|e| format!("ReleaseSync(decode ring[{ring_idx}]): {e}"))?;
-        }
 
         if tx
             .send(DecodeOutput::Gpu {
@@ -962,10 +937,11 @@ fn run_decode_thread_cpu(
             .get(frame_idx + 1)
             .copied()
             .unwrap_or(source_time);
+        let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
+        let expected_step = speed / config.framerate as f64;
         let mut source_step = next_source_time - source_time;
-        if source_step <= 0.0 {
-            let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
-            source_step = speed / config.framerate as f64;
+        if source_step <= 0.0 || source_step > expected_step * 1.05 {
+            source_step = expected_step;
         }
 
         // Seek on trim segment boundary change.
@@ -1106,6 +1082,15 @@ fn run_render_thread(
     // Pipelined readback state (CPU encode path only).
     let mut queued_readbacks: u32 = 0;
 
+    // GPU decode ring recycle queue.
+    // copy_frame_from_shared is async — the ring slot cannot be returned to the decode
+    // thread until after poll(Wait) confirms the DX12 read has completed.
+    // Each entry is Some(ring_idx) for GPU-decode frames, None for CPU-decode frames.
+    // GPU encode: one entry per frame, drained immediately after poll(Wait).
+    // CPU encode: entries accumulate with pipelined readbacks and are drained together.
+    let mut dec_ring_recycle_queue: std::collections::VecDeque<Option<usize>> =
+        std::collections::VecDeque::new();
+
     loop {
         let tw0 = Instant::now();
         let msg = match rx.recv() {
@@ -1132,17 +1117,24 @@ fn run_render_thread(
         let frame_idx = msg.frame_idx();
 
         // 1. Upload video frame to GPU (GPU copy or CPU upload depending on decode path).
+        //
+        // GPU path: push ring_idx onto dec_ring_recycle_queue instead of recycling now.
+        // copy_frame_from_shared submits a DX12 copy but does NOT wait for completion.
+        // Recycling the ring slot before poll(Wait) would let the decode thread overwrite
+        // dec_d3d_textures[ring_idx] (the shared D3D11 texture) while DX12 reads it →
+        // partial frame data / "back-and-forth" corruption in the rendered output.
         let tu0 = Instant::now();
         match msg {
             DecodeOutput::Gpu { ring_idx, .. } => {
                 // Zero-copy: GPU-to-GPU copy from shared decode texture to video_texture.
                 compositor.copy_frame_from_shared(&dec_wgpu_textures[ring_idx]);
-                let _ = dec_gpu_recycle_tx.send(ring_idx);
+                dec_ring_recycle_queue.push_back(Some(ring_idx)); // recycled after poll(Wait)
             }
             DecodeOutput::Cpu { bgra_video, .. } => {
-                // CPU fallback: PCIe upload.
+                // CPU fallback: PCIe upload (no deferred recycle needed).
                 compositor.upload_frame(&bgra_video);
                 let _ = dec_cpu_recycle_tx.send(bgra_video);
+                dec_ring_recycle_queue.push_back(None);
             }
         }
         t_upload += tu0.elapsed().as_secs_f64();
@@ -1158,8 +1150,6 @@ fn run_render_thread(
             compositor.upload_cursor_slot_rgba(slot.slot_id, &slot.frames[idx]);
         }
 
-        // 2. Render to output texture — adaptive motion blur.
-        //
         // 2. Render to output texture.
         let tr0 = Instant::now();
         if mb_samples > 1 {
@@ -1167,19 +1157,18 @@ fn run_render_thread(
             let pan_shutter = source_step * config.blur_pan_shutter;
             let cursor_shutter = source_step * config.blur_cursor_shutter;
 
-            // N running-average accumulate passes. When scene is static, scene pixels
-            // average with themselves (unchanged); cursor averages across sub-positions.
-            // render_accumulate's Constant/OneMinusConstant blend is always mathematically
-            // correct regardless of whether zoom, pan, or cursor actually moves.
+            // Collect all N (uniforms, weight) pairs then dispatch as a single
+            // RenderPass — 1 encoder, 1 submit, N draw calls with dynamic offsets.
+            let mut passes = Vec::with_capacity(mb_samples as usize);
             for i in 0..mb_samples {
                 let t = i as f64 / (mb_samples - 1).max(1) as f64;
                 let pan_time = source_time - (pan_shutter * 0.5) + t * pan_shutter;
                 let zoom_time = source_time - (zoom_shutter * 0.5) + t * zoom_shutter;
                 let cur_time = source_time - (cursor_shutter * 0.5) + t * cursor_shutter;
                 let uniforms = build_uniforms(source_time, pan_time, zoom_time, cur_time);
-                let weight = 1.0 / (i as f64 + 1.0);
-                compositor.render_accumulate(&uniforms, i == 0, weight);
+                passes.push((uniforms, 1.0 / (i as f64 + 1.0)));
             }
+            compositor.render_accumulate_batched(&passes);
         } else {
             let uniforms = build_uniforms(
                 source_time,
@@ -1191,8 +1180,9 @@ fn run_render_thread(
         }
 
         // Atlas overlay pass.
-        if let Some(frame) = config.overlay_frames.get(frame_idx as usize) {
-            compositor.render_overlays(&frame.quads);
+        if !config.overlay_frames.is_empty() {
+            let overlay_idx = (frame_idx as usize).min(config.overlay_frames.len() - 1);
+            compositor.render_overlays(&config.overlay_frames[overlay_idx].quads);
         }
 
         t_render += tr0.elapsed().as_secs_f64();
@@ -1205,8 +1195,22 @@ fn run_render_thread(
                 .map_err(|_| "GPU slot recycle channel closed")?;
             let trb0 = Instant::now();
             compositor.copy_output_to_shared(&gpu_textures[ring_idx]);
-            // Wait for DX12 copy to complete before D3D11 reads the shared texture.
+
+            // Wait for all DX12 work to complete using on_submitted_work_done + poll.
+            // This is strictly safer than poll(Wait) alone.
+            let (tx_done, rx_done) = std::sync::mpsc::channel();
+            compositor.queue().on_submitted_work_done(move || {
+                let _ = tx_done.send(());
+            });
             let _ = compositor.device().poll(wgpu::PollType::Wait);
+            let _ = rx_done.recv();
+
+            // Recycle decode ring slot — DX12 is done reading it.
+            if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
+                let _ = dec_gpu_recycle_tx.send(idx);
+            } else {
+                dec_ring_recycle_queue.pop_front(); // discard None entry
+            }
             t_readback += trb0.elapsed().as_secs_f64();
             if tx.send(RenderOutput::Gpu { ring_idx }).is_err() {
                 break;
@@ -1220,6 +1224,13 @@ fn run_render_thread(
                 let trb0 = Instant::now();
                 let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
                 compositor.readback_output(&mut out_buf)?;
+                // readback_output internally does poll(Wait) — DX12 copy is done.
+                // Recycle the decode ring slot for the oldest pipelined frame.
+                if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
+                    let _ = dec_gpu_recycle_tx.send(idx);
+                } else {
+                    dec_ring_recycle_queue.pop_front();
+                }
                 t_readback += trb0.elapsed().as_secs_f64();
                 queued_readbacks -= 1;
                 if tx
@@ -1240,6 +1251,11 @@ fn run_render_thread(
         let trb0 = Instant::now();
         let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
         compositor.readback_output(&mut out_buf)?;
+        if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
+            let _ = dec_gpu_recycle_tx.send(idx);
+        } else {
+            dec_ring_recycle_queue.pop_front();
+        }
         t_readback += trb0.elapsed().as_secs_f64();
         queued_readbacks -= 1;
         let _ = tx.send(RenderOutput::Cpu {

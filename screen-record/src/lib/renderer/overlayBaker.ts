@@ -75,7 +75,8 @@ export function drawTextOverlay(
   const wght = vars?.wght ?? (style.fontWeight === 'bold' ? 700 : 400);
 
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to identity -- text is viewport-relative
+  // Do NOT reset the transform here. During export atlas baking the caller
+  // has applied a translation to place text inside its sprite slot.
   ctx.globalAlpha = opacity * fadeAlpha;
 
   // Set font-variation-settings on canvas element CSS -- the only way to control
