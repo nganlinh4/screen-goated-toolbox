@@ -12,6 +12,7 @@ import {
   getSgtpixelCursorImage,
   getJepriwin11CursorImage,
 } from './cursorTypes';
+import { getPreviewFrame } from './cursorAnimationCapture';
 
 // Re-export everything from cursorTypes for backwards compatibility
 export {
@@ -35,16 +36,27 @@ export {
 // ---------------------------------------------------------------------------
 
 export function drawCenteredCursorImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement): void {
+  // Check if this cursor has pre-rendered animation frames.
+  // Returns a blob URL <img> pointing to a frozen SVG — Chrome renders it as
+  // vector graphics at the final display resolution, perfectly crisp at any scale.
+  const animImg = getPreviewFrame(img);
+  if (animImg && animImg.complete && animImg.naturalWidth > 0 && animImg.naturalHeight > 0) {
+    const sourceMax = Math.max(animImg.naturalWidth, animImg.naturalHeight);
+    const normalizeScale = sourceMax > 96 ? (48 / sourceMax) : 1;
+    const drawW = animImg.naturalWidth * normalizeScale;
+    const drawH = animImg.naturalHeight * normalizeScale;
+    ctx.translate(-drawW * 0.5, -drawH * 0.5);
+    ctx.drawImage(animImg, 0, 0, drawW, drawH);
+    return;
+  }
+
+  // Static cursor — fallback when no animation or frame not ready.
   if (!img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return;
-  // Normalize very large-source SVG cursors (e.g. imported sprite slices) so they
-  // match the same on-canvas footprint as the native cursor packs.
   const sourceMax = Math.max(img.naturalWidth, img.naturalHeight);
   const normalizeScale = sourceMax > 96 ? (48 / sourceMax) : 1;
   const drawW = img.naturalWidth * normalizeScale;
   const drawH = img.naturalHeight * normalizeScale;
-  const hotspotX = drawW * 0.5;
-  const hotspotY = drawH * 0.5;
-  ctx.translate(-hotspotX, -hotspotY);
+  ctx.translate(-drawW * 0.5, -drawH * 0.5);
   ctx.drawImage(img, 0, 0, drawW, drawH);
 }
 

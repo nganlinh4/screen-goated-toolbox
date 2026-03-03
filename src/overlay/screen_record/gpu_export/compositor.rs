@@ -361,7 +361,7 @@ impl GpuCompositor {
         })
     }
 
-    fn upload_cursor_slot_rgba(&self, slot: u32, rgba: &[u8]) {
+    pub fn upload_cursor_slot_rgba(&self, slot: u32, rgba: &[u8]) {
         let col = slot % CURSOR_ATLAS_COLS;
         let row = slot / CURSOR_ATLAS_COLS;
 

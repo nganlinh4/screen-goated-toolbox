@@ -276,6 +276,15 @@ fn default_pre_render_policy() -> String {
     "idle_only".to_string()
 }
 
+/// Pre-rasterized animation frames for one cursor atlas slot.
+/// Decoded from PNG in the IPC handler; each entry is CURSOR_TILE_SIZE²×4 raw RGBA.
+#[derive(Debug, Clone)]
+pub struct AnimatedCursorSlotData {
+    pub slot_id: u32,
+    pub loop_duration: f64,
+    pub frames: Vec<Vec<u8>>,
+}
+
 pub fn compute_default_video_bitrate_kbps(width: u32, height: u32, fps: u32) -> u32 {
     let bits_per_pixel = 0.09_f64;
     let kbps = (width as f64 * height as f64 * fps.max(1) as f64 * bits_per_pixel) / 1000.0;

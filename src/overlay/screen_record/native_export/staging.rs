@@ -7,7 +7,7 @@
 
 use std::sync::Mutex;
 
-use super::config::{BakedCameraFrame, BakedCursorFrame, OverlayFrame};
+use super::config::{AnimatedCursorSlotData, BakedCameraFrame, BakedCursorFrame, OverlayFrame};
 
 pub struct StagedExportData {
     pub camera_frames: Vec<BakedCameraFrame>,
@@ -35,7 +35,13 @@ impl StagedExportData {
 
 static STAGED: Mutex<Option<StagedExportData>> = Mutex::new(None);
 
+/// Persistent store for pre-rendered animated cursor frames.
+/// Unlike STAGED, this is NOT cleared by `clear_staged()` — the frontend
+/// pre-computes these in the background so export has zero additional work.
+static ANIMATED_CURSORS: Mutex<Vec<AnimatedCursorSlotData>> = Mutex::new(Vec::new());
+
 /// Clear all staged data (called before a new export session).
+/// Does NOT clear animated cursor slots — those are pre-computed and persistent.
 pub fn clear_staged() {
     let mut guard = STAGED.lock().unwrap();
     *guard = Some(StagedExportData::new());
@@ -66,6 +72,22 @@ pub fn append_overlay_frames(frames: Vec<OverlayFrame>) {
     let mut guard = STAGED.lock().unwrap();
     let staged = guard.get_or_insert_with(StagedExportData::new);
     staged.overlay_frames.extend(frames);
+}
+
+/// Store a pre-rendered animated cursor slot persistently.
+/// Called from the background pre-staging IPC — survives `clear_staged()`.
+pub fn set_animated_cursor_slot(data: AnimatedCursorSlotData) {
+    let mut guard = ANIMATED_CURSORS.lock().unwrap();
+    if let Some(existing) = guard.iter_mut().find(|s| s.slot_id == data.slot_id) {
+        *existing = data;
+    } else {
+        guard.push(data);
+    }
+}
+
+/// Clone all pre-rendered animated cursor slots for the export pipeline.
+pub fn get_animated_cursor_slots() -> Vec<AnimatedCursorSlotData> {
+    ANIMATED_CURSORS.lock().unwrap().clone()
 }
 
 /// Take all staged data, leaving None behind. Returns the accumulated data

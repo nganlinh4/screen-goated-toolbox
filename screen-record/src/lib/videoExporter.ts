@@ -434,6 +434,10 @@ export class VideoExporter {
       }
       await invoke('log_message', { message: `[Prep] IPC Atlas+Overlays: ${Date.now() - t0Overlays}ms` });
 
+      // Animated cursor frames are pre-staged to Rust's persistent store
+      // in the background at app startup (see cursorAnimationCapture.ts).
+      // Zero additional work here — export reads from the persistent store.
+
       // Send lightweight config (no baked arrays — they're already staged)
       const mousePositions = context.mousePositions ?? [];
       const exportConfig = {

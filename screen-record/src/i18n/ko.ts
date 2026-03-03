@@ -33,6 +33,8 @@ const ko: Translations = {
   recordingModeWithCursor: '커서 포함 녹화',
   recordingModeNoCursorDetail: '커서 없이 녹화(기본): 커스텀 커서 편집에 적합',
   recordingModeWithCursorDetail: '커서 포함 녹화: 바로 원본을 가져가기 적합',
+  statusPreparingCursors: '애니메이션 커서 준비 중\u2026',
+  statusCursorsReady: '커서 준비 완료!',
 
   // SidePanel tabs
   tabZoom: '확대',
