@@ -1062,6 +1062,7 @@ function App() {
         onOpenRawVideoDialog={handleOpenRawVideoDialog}
         onExport={exportHook.handleExport}
         onOpenProjects={handleToggleProjects}
+        onOpenCursorLab={() => { window.location.hash = 'cursor-lab'; }}
         hideExport={isOverlayMode}
         hideRawVideo={projects.showProjectsDialog}
         captureSource={captureSource}
