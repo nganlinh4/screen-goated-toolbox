@@ -454,10 +454,11 @@ pub struct SharedVramBuffer {
 impl SharedVramBuffer {
     /// Create a shared BGRA texture on the given D3D11 device.
     ///
-    /// The texture is created with `SHARED_NTHANDLE | SHARED` misc flags
+    /// The texture is created with `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` misc flags
     /// and `RENDER_TARGET | SHADER_RESOURCE` bind flags so it can be imported into
-    /// DX12 via `OpenSharedHandle`. Plain `SHARED` (no keyed mutex) lets the driver
-    /// handle cache coherence naturally without explicit AcquireSync/ReleaseSync.
+    /// DX12 via `OpenSharedHandle`. The keyed mutex is the WDDM-mandated mechanism
+    /// for GPU cache coherence across D3D11↔D3D12 API boundaries: without it, the
+    /// DX12 engine's L2 cache is never invalidated and stale frames appear.
     pub fn new(device: &ID3D11Device, width: u32, height: u32) -> Result<Self, String> {
         let desc = D3D11_TEXTURE2D_DESC {
             Width: width,
@@ -473,7 +474,7 @@ impl SharedVramBuffer {
             BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
             CPUAccessFlags: 0,
             MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
-                | D3D11_RESOURCE_MISC_SHARED.0) as u32,
+                | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
         };
 
         let mut texture: Option<ID3D11Texture2D> = None;
