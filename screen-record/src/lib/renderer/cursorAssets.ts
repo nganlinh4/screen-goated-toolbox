@@ -34,6 +34,7 @@ export function createCursorImageSet(): CursorImageSet {
     { slug: 'sgtpixel', suffix: 'Sgtpixel' },
     { slug: 'jepriwin11', suffix: 'Jepriwin11' },
     { slug: 'sgtwatermelon', suffix: 'Sgtwatermelon' },
+    { slug: 'sgtfastfood', suffix: 'Sgtfastfood' },
   ] as const;
 
   // Map cursor type slug -> CursorImageSet field prefix

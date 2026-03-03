@@ -12,6 +12,7 @@ import {
   getSgtpixelCursorImage,
   getJepriwin11CursorImage,
   getSgtwatermelonCursorImage,
+  getSgtfastfoodCursorImage,
 } from './cursorTypes';
 import { getPreviewFrame } from './cursorAnimationCapture';
 
@@ -29,6 +30,7 @@ export {
   getSgtpixelCursorImage,
   getJepriwin11CursorImage,
   getSgtwatermelonCursorImage,
+  getSgtfastfoodCursorImage,
   getScreenStudioCursorImage,
 } from './cursorTypes';
 
@@ -183,7 +185,8 @@ export function drawCursorShape(
       getSgtaiCursorImage(images, effectiveType as CursorRenderType) ??
       getSgtpixelCursorImage(images, effectiveType as CursorRenderType) ??
       getJepriwin11CursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType);
+      getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType) ??
+      getSgtfastfoodCursorImage(images, effectiveType as CursorRenderType);
     console.log('[CursorDebug] loaded', {
       effectiveType,
       src: debugImg?.src,
@@ -329,6 +332,23 @@ export function drawCursorShape(
       break;
     }
 
+    case 'default-sgtfastfood':
+    case 'text-sgtfastfood':
+    case 'pointer-sgtfastfood':
+    case 'openhand-sgtfastfood':
+    case 'closehand-sgtfastfood':
+    case 'wait-sgtfastfood':
+    case 'appstarting-sgtfastfood':
+    case 'crosshair-sgtfastfood':
+    case 'resize-ns-sgtfastfood':
+    case 'resize-we-sgtfastfood':
+    case 'resize-nwse-sgtfastfood':
+    case 'resize-nesw-sgtfastfood':
+    case 'resize-nesw-sgtfastfood': {
+      const img = getSgtfastfoodCursorImage(images, effectiveType);
+      if (img) drawCenteredCursorImage(ctx, img);
+      break;
+    }
     case 'default-screenstudio': {
       const img = images.defaultScreenStudioImage;
       drawCenteredCursorImage(ctx, img);

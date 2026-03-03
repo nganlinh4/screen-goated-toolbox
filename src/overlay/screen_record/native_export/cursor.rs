@@ -101,13 +101,25 @@ pub fn cursor_type_to_id(c_type: &str) -> f32 {
         "resize-we-sgtwatermelon" => 93.0,
         "resize-nwse-sgtwatermelon" => 94.0,
         "resize-nesw-sgtwatermelon" => 95.0,
+        "default-sgtfastfood" => 96.0,
+        "text-sgtfastfood" => 97.0,
+        "pointer-sgtfastfood" => 98.0,
+        "openhand-sgtfastfood" => 99.0,
+        "closehand-sgtfastfood" => 100.0,
+        "wait-sgtfastfood" => 101.0,
+        "appstarting-sgtfastfood" => 102.0,
+        "crosshair-sgtfastfood" => 103.0,
+        "resize-ns-sgtfastfood" => 104.0,
+        "resize-we-sgtfastfood" => 105.0,
+        "resize-nwse-sgtfastfood" => 106.0,
+        "resize-nesw-sgtfastfood" => 107.0,
         "other" => 12.0,
         _ => 0.0,
     }
 }
 
 pub fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> {
-    let mut seen = [false; 96];
+    let mut seen = [false; 108];
     let mut slots = Vec::new();
     for frame in baked_cursor {
         let slot = cursor_type_to_id(&frame.cursor_type) as u32;
