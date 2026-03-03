@@ -595,6 +595,66 @@ pub fn handle_ipc_command(
             }
             Ok(serde_json::Value::Null)
         }
+        // Check disk cache for pre-rendered animated cursor frames.
+        // Returns cached preview PNGs (base64) + populates export store, or null.
+        "load_cursor_anim_cache" => {
+            let slot_id = args["slotId"].as_u64().ok_or("missing slotId")? as u32;
+            let svg_hash = args["svgHash"].as_str().ok_or("missing svgHash")?;
+            match native_export::anim_cache::load_cache(slot_id, svg_hash) {
+                Some(result) => {
+                    let preview_b64: Vec<String> = result
+                        .preview_pngs
+                        .iter()
+                        .map(|png| base64::engine::general_purpose::STANDARD.encode(png))
+                        .collect();
+                    Ok(serde_json::json!({
+                        "cached": true,
+                        "loopDuration": result.loop_duration,
+                        "naturalWidth": result.natural_width,
+                        "naturalHeight": result.natural_height,
+                        "previewFrames": preview_b64,
+                    }))
+                }
+                None => Ok(serde_json::json!({ "cached": false })),
+            }
+        }
+        // Save pre-rendered animated cursor frames to disk cache.
+        // Also decodes export PNGs to RGBA and populates the persistent export store.
+        "save_cursor_anim_cache" => {
+            let slot_id = args["slotId"].as_u64().ok_or("missing slotId")? as u32;
+            let svg_hash = args["svgHash"].as_str().ok_or("missing svgHash")?;
+            let loop_duration = args["loopDuration"].as_f64().ok_or("missing loopDuration")?;
+            let natural_width = args["naturalWidth"].as_u64().ok_or("missing naturalWidth")? as u32;
+            let natural_height =
+                args["naturalHeight"].as_u64().ok_or("missing naturalHeight")? as u32;
+
+            let decode_png_array = |key: &str| -> Result<Vec<Vec<u8>>, String> {
+                let arr = args[key].as_array().ok_or(format!("missing {key}"))?;
+                let mut out = Vec::with_capacity(arr.len());
+                for (i, v) in arr.iter().enumerate() {
+                    let b64 = v.as_str().ok_or(format!("{key}[{i}] not string"))?;
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(b64)
+                        .map_err(|e| format!("{key}[{i}] b64: {e}"))?;
+                    out.push(bytes);
+                }
+                Ok(out)
+            };
+
+            let export_pngs = decode_png_array("exportPngs")?;
+            let preview_pngs = decode_png_array("previewFrames")?;
+
+            native_export::anim_cache::save_cache(
+                slot_id,
+                svg_hash,
+                loop_duration,
+                natural_width,
+                natural_height,
+                &export_pngs,
+                &preview_pngs,
+            )?;
+            Ok(serde_json::Value::Null)
+        }
         "start_export_server" => {
             let result = native_export::start_native_export(args);
             native_export::persist_export_result(&result);

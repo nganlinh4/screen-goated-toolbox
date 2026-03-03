@@ -30,7 +30,7 @@ use super::gpu_export::{CompositorUniforms, GpuCompositor};
 use super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::mf_decode::{DxgiDeviceManager, MfDecoder};
 use super::mf_encode::{EncoderConfig, MfEncoder, VideoCodec};
-use super::native_export::config::{OverlayFrame, SpeedPoint, TrimSegment};
+use super::native_export::config::{AnimatedCursorSlotData, OverlayFrame, SpeedPoint, TrimSegment};
 
 /// Result of a GPU export run.
 pub struct ZeroCopyExportResult {
@@ -71,6 +71,9 @@ pub struct PipelineConfig {
     /// Pre-computed overlay quads per output frame (indexed by frame_idx).
     /// Empty when there are no text/keystroke overlays.
     pub overlay_frames: Vec<OverlayFrame>,
+    /// Pre-rasterized animation frames for animated cursor atlas slots.
+    /// Each entry is updated in the atlas before every output frame render.
+    pub animated_cursor_slots: Vec<AnimatedCursorSlotData>,
 }
 
 /// Message sent from decode thread to render thread.
@@ -718,6 +721,19 @@ fn run_render_thread(
         let tu0 = Instant::now();
         compositor.upload_frame(&msg.bgra_video);
         t_upload += tu0.elapsed().as_secs_f64();
+
+        // 1b. Update animated cursor atlas tiles based on current source time.
+        // Each slot holds pre-rasterized RGBA frames captured by the browser
+        // at evenly-spaced offsets; we pick the frame for this timestamp.
+        for slot in &config.animated_cursor_slots {
+            if slot.frames.is_empty() || slot.loop_duration <= 0.0 {
+                continue;
+            }
+            let n = slot.frames.len();
+            let t = msg.source_time % slot.loop_duration;
+            let frame_idx = ((t / slot.loop_duration) * n as f64).floor() as usize % n;
+            compositor.upload_cursor_slot_rgba(slot.slot_id, &slot.frames[frame_idx]);
+        }
 
         // 2. Return the decoded video buffer to the decode thread.
         let _ = recycle_decode_tx.send(msg.bgra_video);

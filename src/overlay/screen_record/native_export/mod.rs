@@ -1,3 +1,4 @@
+pub mod anim_cache;
 mod camera_path;
 mod color;
 pub mod config;
@@ -207,6 +208,9 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         baked_cursor.len()
     );
     let overlay_frames = staged.overlay_frames;
+    // Animated cursor slots live in a persistent store (pre-computed in background,
+    // survives clear_staged). Zero export-time cost.
+    let animated_cursor_slots = staging::get_animated_cursor_slots();
     let atlas_rgba = staged.atlas_rgba;
     let atlas_w = staged.atlas_w;
     let atlas_h = staged.atlas_h;
@@ -549,6 +553,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         crop_x: crop_x_offset as u32,
         crop_y: crop_y_offset as u32,
         overlay_frames,
+        animated_cursor_slots,
     };
 
     let source_times = gpu_pipeline::build_frame_times(&pipeline_config);

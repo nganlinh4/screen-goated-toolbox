@@ -3,12 +3,14 @@ import { invoke } from '@/lib/ipc';
 import { Button } from '@/components/ui/button';
 import {
   Video, Keyboard, X, Minus, Square, Copy, Download, FolderOpen,
-  ChevronDown, ChevronLeft, ChevronRight, Check, Monitor, AppWindow
+  ChevronDown, ChevronLeft, ChevronRight, Check, Monitor, AppWindow,
+  Loader2, CircleCheck,
 } from 'lucide-react';
 import { Hotkey, MonitorInfo } from '@/hooks/useAppHooks';
 import { formatTime } from '@/utils/helpers';
 import { useSettings } from '@/hooks/useSettings';
 import { RecordingMode } from '@/types/video';
+import { useHeaderStatus } from '@/lib/headerStatus';
 
 /** Returns exact integer divisors of Hz that are ≥ 30 (Hz/n for n ∈ {1,2,3,4}). */
 function getPerfectFpsOptions(hz: number): number[] {
@@ -82,6 +84,7 @@ export function Header({
   onSelectWindowCapture,
 }: HeaderProps) {
   const { t } = useSettings();
+  const headerStatus = useHeaderStatus();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [isRecordingModeMenuOpen, setIsRecordingModeMenuOpen] = useState(false);
   const [isCaptureSourceMenuOpen, setIsCaptureSourceMenuOpen] = useState(false);
@@ -172,6 +175,23 @@ export function Header({
               <div className="recording-dot w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
               <span className="text-red-500 text-xs font-bold drop-shadow-sm">{formatTime(recordingDuration)}</span>
             </div>
+          </div>
+        )}
+
+        {headerStatus && (
+          <div
+            key={headerStatus.id + headerStatus.type}
+            className={`header-status-badge flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium animate-in fade-in slide-in-from-left-2 duration-200 ${
+              headerStatus.type === 'success'
+                ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                : 'border border-[var(--primary-color)]/20 bg-[var(--primary-color)]/10 text-[var(--primary-color)]'
+            }`}
+          >
+            {headerStatus.type === 'success'
+              ? <CircleCheck className="w-3 h-3 flex-shrink-0" />
+              : <Loader2 className="w-3 h-3 flex-shrink-0 animate-spin" />
+            }
+            <span className="header-status-message">{(t as Record<string, string>)[headerStatus.messageKey] ?? headerStatus.messageKey}</span>
           </div>
         )}
       </div>

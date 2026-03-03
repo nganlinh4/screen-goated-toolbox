@@ -31,6 +31,8 @@ const en = {
   recordingModeWithCursor: 'With Cursor',
   recordingModeNoCursorDetail: 'No cursor (default): best for editing with custom cursor',
   recordingModeWithCursorDetail: 'With cursor: best for immediate raw take',
+  statusPreparingCursors: 'Preparing animated cursors\u2026',
+  statusCursorsReady: 'Cursors ready!',
 
   // SidePanel tabs
   tabZoom: 'Zoom',

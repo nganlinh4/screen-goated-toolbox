@@ -36,7 +36,7 @@ pub fn run_parakeet_transcription(
         full_audio_buffer,
         hwnd_overlay, // Send volume updates to overlay
         hide_recording_ui,
-        true,  // Don't show download badge (webview handles its own modal)
+        false, // Download progress shown in WebView modal, not badge
         None,  // Use global config
         false, // auto_stop_enabled - DISABLED for realtime mode to prevent killing the transcription thread on silence
         move |text| {

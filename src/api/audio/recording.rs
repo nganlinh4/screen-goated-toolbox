@@ -59,7 +59,7 @@ pub fn record_and_stream_parakeet(
         Some(full_audio_buffer.clone()),
         Some(overlay_hwnd),
         preset.hide_recording_ui,
-        true, // Enable download badge
+        false, // Download progress shown in UI, not badge
         Some(preset.audio_source.clone()),
         preset.auto_stop_recording,
         callback,

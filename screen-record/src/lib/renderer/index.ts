@@ -23,7 +23,7 @@ import {
   bakeOverlayAtlasAndPaths,
 } from './overlayBaker';
 import { calculateCurrentZoomStateInternal } from './cameraZoom';
-import { createCursorImageSet } from './cursorAssets';
+import { createCursorImageSet, ensureCursorAnimations } from './cursorAssets';
 import { drawFrame as drawFrameImpl, type RendererState } from './drawFrame';
 
 // ---------------------------------------------------------------------------
@@ -172,6 +172,9 @@ class VideoRenderer {
 
   public updateRenderContext(context: RenderContext) {
     this.activeRenderContext = context;
+    // Lazy-init animated cursor frames only when the project has wait/appstarting moments.
+    const pack = context.backgroundConfig.cursorPack ?? 'screenstudio';
+    ensureCursorAnimations(pack, context.mousePositions, this.state.cursorImages);
   }
 
   // ---------------------------------------------------------------------------
@@ -342,6 +345,8 @@ class VideoRenderer {
     this.state.lastActiveEventId = null;
     this.state.lastDrawTime = 0;
     this.activeRenderContext = renderContext;
+    const pack = renderContext.backgroundConfig.cursorPack ?? 'screenstudio';
+    ensureCursorAnimations(pack, renderContext.mousePositions, this.state.cursorImages);
 
     const animate = () => {
       if (!this.activeRenderContext || this.activeRenderContext.video.paused) {

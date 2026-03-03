@@ -33,6 +33,8 @@ const vi: Translations = {
   recordingModeWithCursor: 'Quay có chuột',
   recordingModeNoCursorDetail: 'Quay không chuột (mặc định): phù hợp để edit tiếp bằng chuột tuỳ chỉnh',
   recordingModeWithCursorDetail: 'Quay có chuột: phù hợp để quay và lấy ngay video vừa quay',
+  statusPreparingCursors: 'Đang chuẩn bị con trỏ động\u2026',
+  statusCursorsReady: 'Con trỏ đã sẵn sàng!',
 
   // SidePanel tabs
   tabZoom: 'Phóng To',
