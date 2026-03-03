@@ -82,6 +82,11 @@ const JEPRIWIN11_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
   label: `Jepri Win11 • ${t.label}`,
   src: `/cursor-${t.id}-jepriwin11.svg`,
 }));
+const SGTWATERMELON_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
+  key: `sgtwatermelon-${t.id}`,
+  label: `SGT Watermelon • ${t.label}`,
+  src: `/cursor-${t.id}-sgtwatermelon.svg`,
+}));
 
 const CURSOR_ITEMS: CursorItem[] = [
   ...SCREENSTUDIO_ITEMS,
@@ -91,6 +96,7 @@ const CURSOR_ITEMS: CursorItem[] = [
   ...SGTAI_ITEMS,
   ...SGTPIXEL_ITEMS,
   ...JEPRIWIN11_ITEMS,
+  ...SGTWATERMELON_ITEMS,
 ];
 
 function makeDefaultAdjustments(): Record<string, CursorAdjustment> {

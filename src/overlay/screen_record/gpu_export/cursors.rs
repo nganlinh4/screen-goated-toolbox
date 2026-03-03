@@ -97,6 +97,28 @@ const RESIZE_NWSE_JEPRIWIN11_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nwse-jepriwin11.svg");
 const RESIZE_NESW_JEPRIWIN11_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nesw-jepriwin11.svg");
+const DEFAULT_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-default-sgtwatermelon.svg");
+const TEXT_SGTWATERMELON_SVG: &[u8] = include_bytes!("../dist/cursor-text-sgtwatermelon.svg");
+const POINTER_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-pointer-sgtwatermelon.svg");
+const OPENHAND_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-openhand-sgtwatermelon.svg");
+const CLOSEHAND_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-closehand-sgtwatermelon.svg");
+const WAIT_SGTWATERMELON_SVG: &[u8] = include_bytes!("../dist/cursor-wait-sgtwatermelon.svg");
+const APPSTARTING_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-appstarting-sgtwatermelon.svg");
+const CROSSHAIR_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-crosshair-sgtwatermelon.svg");
+const RESIZE_NS_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-ns-sgtwatermelon.svg");
+const RESIZE_WE_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-we-sgtwatermelon.svg");
+const RESIZE_NWSE_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-nwse-sgtwatermelon.svg");
+const RESIZE_NESW_SGTWATERMELON_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-nesw-sgtwatermelon.svg");
 
 pub(super) const CURSOR_ATLAS_COLS: u32 = 9;
 pub(super) const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
@@ -196,6 +218,19 @@ const CURSOR_SVG_DATA: &[&[u8]] = &[
     RESIZE_WE_JEPRIWIN11_SVG,
     RESIZE_NWSE_JEPRIWIN11_SVG,
     RESIZE_NESW_JEPRIWIN11_SVG,
+    // sgtwatermelon
+    DEFAULT_SGTWATERMELON_SVG,
+    TEXT_SGTWATERMELON_SVG,
+    POINTER_SGTWATERMELON_SVG,
+    OPENHAND_SGTWATERMELON_SVG,
+    CLOSEHAND_SGTWATERMELON_SVG,
+    WAIT_SGTWATERMELON_SVG,
+    APPSTARTING_SGTWATERMELON_SVG,
+    CROSSHAIR_SGTWATERMELON_SVG,
+    RESIZE_NS_SGTWATERMELON_SVG,
+    RESIZE_WE_SGTWATERMELON_SVG,
+    RESIZE_NWSE_SGTWATERMELON_SVG,
+    RESIZE_NESW_SGTWATERMELON_SVG,
 ];
 
 type TileCache = Mutex<Vec<Option<Arc<Vec<u8>>>>>;
