@@ -16,8 +16,8 @@ use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_BIND_RENDER_TARGET,
-    D3D11_BIND_SHADER_RESOURCE,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Multithread, ID3D11Texture2D,
+    D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
@@ -761,6 +761,18 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let is_window_capture = flags.target_type == "window";
         let app_d3d_device: ID3D11Device = clone_wc_interface_to_app(&ctx.device)
             .map_err(|e| format!("Failed to bridge capture D3D11 device: {e}"))?;
+        // Enable D3D11 multithread protection: the WGC on_frame_arrived callback fires
+        // from a background OS thread while the pump thread concurrently accesses the
+        // same D3D11 Immediate Context. Without this, CopyResource races cause
+        // DXGI_ERROR_DEVICE_REMOVED or silent GPU corruption.
+        {
+            let mt: ID3D11Multithread = app_d3d_device
+                .cast()
+                .map_err(|e| format!("QI ID3D11Multithread (capture): {e}"))?;
+            unsafe {
+                let _ = mt.SetMultithreadProtected(true);
+            }
+        }
         let app_d3d_context: ID3D11DeviceContext =
             clone_wc_interface_to_app(&ctx.device_context)
                 .map_err(|e| format!("Failed to bridge capture D3D11 context: {e}"))?;

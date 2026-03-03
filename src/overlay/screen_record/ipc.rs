@@ -386,6 +386,24 @@ fn capture_monitor_thumbnail(x: i32, y: i32, width: i32, height: i32) -> Option<
     }
 }
 
+/// Capture a single window thumbnail with a timeout to prevent deadlock.
+///
+/// `PrintWindow` sends a synchronous `WM_PRINT` to the target app's UI thread.
+/// If the target is hung/frozen, it blocks indefinitely. This wrapper runs the
+/// capture on a spawned thread with a 500ms deadline to avoid blocking the caller.
+fn capture_window_thumbnail_with_timeout(hwnd: HWND) -> Option<String> {
+    let hwnd_val = hwnd.0 as usize;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = capture_window_thumbnail(HWND(hwnd_val as *mut std::ffi::c_void));
+        let _ = tx.send(result);
+    });
+    match rx.recv_timeout(std::time::Duration::from_millis(500)) {
+        Ok(result) => result,
+        Err(_) => None, // Timed out — target window is likely hung
+    }
+}
+
 fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
     let windows =
         windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
@@ -403,7 +421,7 @@ fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
         let process_name = window.process_name().unwrap_or_default();
         let hwnd_val = window.as_raw_hwnd() as usize;
         let preview_data_url =
-            capture_window_thumbnail(HWND(hwnd_val as *mut std::ffi::c_void));
+            capture_window_thumbnail_with_timeout(HWND(hwnd_val as *mut std::ffi::c_void));
         let icon_data_url = window
             .process_id()
             .ok()

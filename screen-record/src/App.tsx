@@ -420,6 +420,15 @@ function App() {
     }
   }, [isCropping, isPlaying, togglePlayPause, setZoomFactor, setEditingKeyframeId]);
 
+  // Track active preview drag listeners for cleanup on unmount.
+  const previewDragCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      previewDragCleanupRef.current?.();
+    };
+  }, []);
+
   const handlePreviewMouseDown = useCallback((e: React.MouseEvent) => {
     if (!currentVideo || isCropping || activePanel === 'text') return;
     e.preventDefault();
@@ -463,9 +472,17 @@ function App() {
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      previewDragCleanupRef.current = null;
       setIsPreviewDragging(false);
       commitBatch();
     };
+
+    // Store cleanup so unmount can remove listeners if mouseup never fires.
+    previewDragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   }, [currentVideo, isCropping, activePanel, isPlaying, togglePlayPause, handleAddKeyframe, beginBatch, commitBatch]);

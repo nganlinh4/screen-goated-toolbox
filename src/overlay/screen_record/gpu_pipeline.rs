@@ -1,16 +1,19 @@
-// Threaded GPU export pipeline with zero-copy render→encode path.
+// Threaded GPU export pipeline with fully zero-copy decode→render→encode path.
 //
 // Three threads running in parallel:
-//   Decode thread:  MF decode → D3D11 VP (NV12→BGRA) → CPU readback → channel
-//   Render thread:  channel → wgpu upload → compositor render → [GPU copy | CPU readback] → channel
+//   Decode thread:  MF decode → D3D11 VP (NV12→BGRA) → shared VRAM texture → channel
+//   Render thread:  channel → GPU copy to video texture → compositor render → GPU copy to shared → channel
 //   Main thread:    channel → MF encode → MP4
 //
-// Zero-copy output path (default):
-//   wgpu renders → GPU copy to shared VRAM texture → MF encoder reads directly
-//   Eliminates 2 PCIe crossings (~4GB/s at 4K60). Ring buffer of 3 shared slots.
+// Zero-copy path (default):
+//   Decode: D3D11 VP blits directly into shared VRAM texture (NT handle), GPU fence, send ring index.
+//   Render: wgpu copies shared decode texture to video_texture (GPU-to-GPU), renders, copies output
+//           to shared encode texture. No PCIe bus crossings in the entire pipeline.
+//   Encode: MF encoder reads directly from shared VRAM via MFCreateDXGISurfaceBuffer.
 //
 // CPU fallback (env SGT_FORCE_CPU_ENCODE=1 or if shared texture init fails):
-//   wgpu renders → GPU→CPU readback → CPU→MF encoder (original path)
+//   Decode: D3D11 VP → CPU readback → channel (Vec<u8>)
+//   Render: CPU upload → compositor → [GPU copy | CPU readback] → channel
 //
 // Frame selection: sample-and-hold using source PTS to handle VFR sources.
 // wgpu (DX12) and D3D11 use completely independent devices — no D3D11On12.
@@ -24,8 +27,11 @@ use windows::core::Interface;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
+use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
 
-use super::d3d_interop::{create_d3d11_device, D3D11Readback, SharedVramBuffer, VideoProcessor};
+use super::d3d_interop::{
+    create_d3d11_device, D3D11GpuFence, D3D11Readback, SharedVramBuffer, VideoProcessor,
+};
 use super::gpu_export::{CompositorUniforms, GpuCompositor};
 use super::mf_audio::{AudioConfig, MfAudioDecoder};
 use super::mf_decode::{DxgiDeviceManager, MfDecoder};
@@ -77,12 +83,39 @@ pub struct PipelineConfig {
 }
 
 /// Message sent from decode thread to render thread.
-struct DecodeOutput {
-    /// Recycled send buffer (video_w×h×4 BGRA). Returned to decode via recycle after GPU upload.
-    bgra_video: Vec<u8>,
-    source_time: f64,
-    source_step: f64,
-    frame_idx: u32,
+enum DecodeOutput {
+    /// GPU path: index into shared decode VRAM ring. Returned to decode via recycle.
+    Gpu {
+        ring_idx: usize,
+        source_time: f64,
+        source_step: f64,
+        frame_idx: u32,
+    },
+    /// CPU fallback: BGRA pixels (video_w×h×4). Returned to decode via recycle.
+    Cpu {
+        bgra_video: Vec<u8>,
+        source_time: f64,
+        source_step: f64,
+        frame_idx: u32,
+    },
+}
+
+impl DecodeOutput {
+    fn source_time(&self) -> f64 {
+        match self {
+            Self::Gpu { source_time, .. } | Self::Cpu { source_time, .. } => *source_time,
+        }
+    }
+    fn source_step(&self) -> f64 {
+        match self {
+            Self::Gpu { source_step, .. } | Self::Cpu { source_step, .. } => *source_step,
+        }
+    }
+    fn frame_idx(&self) -> u32 {
+        match self {
+            Self::Gpu { frame_idx, .. } | Self::Cpu { frame_idx, .. } => *frame_idx,
+        }
+    }
 }
 
 /// Message sent from render thread to encode thread.
@@ -94,9 +127,16 @@ enum RenderOutput {
 }
 
 const GPU_RING_SIZE: usize = 3;
+const DECODE_RING_SIZE: usize = 3;
 
 /// Shared VRAM ring for zero-copy render→encode.
 struct GpuOutputRing {
+    shared_buffers: Vec<SharedVramBuffer>,
+    wgpu_textures: Vec<wgpu::Texture>,
+}
+
+/// Shared VRAM ring for zero-copy decode→render.
+struct DecodeInputRing {
     shared_buffers: Vec<SharedVramBuffer>,
     wgpu_textures: Vec<wgpu::Texture>,
 }
@@ -172,6 +212,7 @@ unsafe fn import_shared_handle_into_wgpu(
     handle: HANDLE,
     width: u32,
     height: u32,
+    usage: wgpu::TextureUsages,
 ) -> Result<wgpu::Texture, String> {
     use windows::Win32::Graphics::Direct3D12 as d3d12;
 
@@ -223,7 +264,7 @@ unsafe fn import_shared_handle_into_wgpu(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Bgra8UnormSrgb,
-        usage: wgpu::TextureUsages::COPY_DST,
+        usage,
         view_formats: &[],
     };
 
@@ -250,7 +291,13 @@ fn try_create_gpu_output_ring(
             }
         };
         let tex = match unsafe {
-            import_shared_handle_into_wgpu(wgpu_device, buf.handle, width, height)
+            import_shared_handle_into_wgpu(
+                wgpu_device,
+                buf.handle,
+                width,
+                height,
+                wgpu::TextureUsages::COPY_DST,
+            )
         } {
             Ok(t) => t,
             Err(e) => {
@@ -263,6 +310,50 @@ fn try_create_gpu_output_ring(
     }
 
     Some(GpuOutputRing {
+        shared_buffers,
+        wgpu_textures,
+    })
+}
+
+/// Try to create a decode input ring (shared VRAM textures for decode→render zero-copy).
+/// Returns None if any step fails — caller falls back to CPU decode path.
+fn try_create_decode_input_ring(
+    dec_device: &ID3D11Device,
+    wgpu_device: &wgpu::Device,
+    width: u32,
+    height: u32,
+) -> Option<DecodeInputRing> {
+    let mut shared_buffers = Vec::with_capacity(DECODE_RING_SIZE);
+    let mut wgpu_textures = Vec::with_capacity(DECODE_RING_SIZE);
+
+    for i in 0..DECODE_RING_SIZE {
+        let buf = match SharedVramBuffer::new(dec_device, width, height) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("[Export] Decode SharedVramBuffer[{i}] failed: {e}");
+                return None;
+            }
+        };
+        let tex = match unsafe {
+            import_shared_handle_into_wgpu(
+                wgpu_device,
+                buf.handle,
+                width,
+                height,
+                wgpu::TextureUsages::COPY_SRC,
+            )
+        } {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("[Export] Decode wgpu import[{i}] failed: {e}");
+                return None;
+            }
+        };
+        shared_buffers.push(buf);
+        wgpu_textures.push(tex);
+    }
+
+    Some(DecodeInputRing {
         shared_buffers,
         wgpu_textures,
     })
@@ -285,8 +376,20 @@ pub fn run_zero_copy_export(
             || config.blur_pan_shutter > 0.0
             || config.blur_cursor_shutter > 0.0);
 
-    // Create encode D3D11 device BEFORE thread::scope so shared textures
-    // can be created and imported into wgpu for zero-copy output.
+    // ─── Device creation (before thread::scope for shared texture init) ─────
+
+    // Decode D3D11 device (shared textures + VP live on this device).
+    let (dec_device, dec_context) = create_d3d11_device()?;
+    {
+        let mt: ID3D11Multithread = dec_device
+            .cast()
+            .map_err(|e| format!("QI ID3D11Multithread (dec): {e}"))?;
+        unsafe {
+            let _ = mt.SetMultithreadProtected(true);
+        }
+    }
+
+    // Encode D3D11 device (shared output textures + MF encoder).
     let (enc_device, _enc_context) = create_d3d11_device()?;
     {
         let mt: ID3D11Multithread = enc_device
@@ -298,10 +401,38 @@ pub fn run_zero_copy_export(
     }
     let enc_device_manager = DxgiDeviceManager::new(&enc_device)?;
 
-    // Try zero-copy GPU output ring (shared VRAM textures).
     let force_cpu = std::env::var("SGT_FORCE_CPU_ENCODE").is_ok();
+
+    // ─── Zero-copy decode input ring (decode → render) ──────────────────────
+
+    let decode_ring = if force_cpu {
+        None
+    } else {
+        match try_create_decode_input_ring(
+            &dec_device,
+            compositor.device(),
+            config.video_width,
+            config.video_height,
+        ) {
+            Some(ring) => {
+                println!(
+                    "[Export] Zero-copy GPU decode path ({}-slot ring)",
+                    DECODE_RING_SIZE
+                );
+                Some(ring)
+            }
+            None => {
+                println!("[Export] Decode ring init failed, falling back to CPU decode");
+                None
+            }
+        }
+    };
+    let use_gpu_decode = decode_ring.is_some();
+
+    // ─── Zero-copy output ring (render → encode) ────────────────────────────
+
     let gpu_ring = if force_cpu {
-        println!("[Export] SGT_FORCE_CPU_ENCODE set, using CPU output path");
+        println!("[Export] SGT_FORCE_CPU_ENCODE set, using full CPU path");
         None
     } else {
         match try_create_gpu_output_ring(
@@ -312,7 +443,7 @@ pub fn run_zero_copy_export(
         ) {
             Some(ring) => {
                 println!(
-                    "[Export] Using zero-copy GPU output path ({}-slot ring)",
+                    "[Export] Zero-copy GPU output path ({}-slot ring)",
                     GPU_RING_SIZE
                 );
                 Some(ring)
@@ -323,9 +454,19 @@ pub fn run_zero_copy_export(
             }
         }
     };
-    let use_gpu = gpu_ring.is_some();
+    let use_gpu_encode = gpu_ring.is_some();
 
     // Borrow ring contents for the scoped threads.
+    let dec_wgpu_textures: &[wgpu::Texture] = decode_ring
+        .as_ref()
+        .map(|r| r.wgpu_textures.as_slice())
+        .unwrap_or(&[]);
+    // Extract D3D11 textures for the decode thread (ID3D11Texture2D is Send+Sync,
+    // unlike SharedVramBuffer whose HANDLE contains a raw pointer).
+    let dec_d3d_textures: Vec<ID3D11Texture2D> = decode_ring
+        .as_ref()
+        .map(|r| r.shared_buffers.iter().map(|b| b.texture.clone()).collect())
+        .unwrap_or_default();
     let gpu_wgpu_textures: &[wgpu::Texture] = gpu_ring
         .as_ref()
         .map(|r| r.wgpu_textures.as_slice())
@@ -335,16 +476,25 @@ pub fn run_zero_copy_export(
         .map(|r| r.shared_buffers.as_slice())
         .unwrap_or(&[]);
 
+    // ─── Channels ───────────────────────────────────────────────────────────
+
     // Forward channels (decode → render → encode).
     let (decode_tx, render_rx) = mpsc::sync_channel::<DecodeOutput>(3);
     let (render_tx, encode_rx) = mpsc::sync_channel::<RenderOutput>(3);
-    // Recycle channels (backwards): buffers return to their producer thread for reuse.
-    let (render_to_decode_tx, render_to_decode_rx) = mpsc::channel::<Vec<u8>>();
-    // CPU output recycle (only active when gpu_ring is None).
+
+    // Decode recycle: GPU path returns ring indices, CPU path returns Vec<u8>.
+    let (dec_gpu_recycle_tx, dec_gpu_recycle_rx) = mpsc::channel::<usize>();
+    let (dec_cpu_recycle_tx, dec_cpu_recycle_rx) = mpsc::channel::<Vec<u8>>();
+    if use_gpu_decode {
+        for i in 0..DECODE_RING_SIZE {
+            let _ = dec_gpu_recycle_tx.send(i);
+        }
+    }
+
+    // Encode recycle: GPU path returns ring indices, CPU path returns Vec<u8>.
     let (cpu_recycle_tx, cpu_recycle_rx) = mpsc::channel::<Vec<u8>>();
-    // GPU slot recycle (only active when gpu_ring is Some).
     let (gpu_recycle_tx, gpu_recycle_rx) = mpsc::channel::<usize>();
-    if use_gpu {
+    if use_gpu_encode {
         for i in 0..GPU_RING_SIZE {
             let _ = gpu_recycle_tx.send(i);
         }
@@ -357,14 +507,18 @@ pub fn run_zero_copy_export(
     let decode_err_clone = decode_error.clone();
     let render_err_clone = render_error.clone();
 
+    let decode_label = if use_gpu_decode { "GPU" } else { "CPU" };
+    let encode_label = if use_gpu_encode { "GPU" } else { "CPU" };
     println!(
-        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, blur={} (z={:.2}, p={:.2}, c={:.2}, mb={}), segs={}",
+        "[Pipeline] {} frames, {}x{} → {}x{} @ {}fps, decode={}, encode={}, blur={} (z={:.2}, p={:.2}, c={:.2}, mb={}), segs={}",
         total_frames,
         config.video_width,
         config.video_height,
         config.output_width,
         config.output_height,
         config.framerate,
+        decode_label,
+        encode_label,
         config.motion_blur_samples,
         config.blur_zoom_shutter,
         config.blur_pan_shutter,
@@ -376,13 +530,27 @@ pub fn run_zero_copy_export(
     std::thread::scope(|s| {
         // Thread 1: Decode
         s.spawn(move || {
-            if let Err(e) = run_decode_thread(
-                config,
-                cancel_flag,
-                source_times,
-                decode_tx,
-                render_to_decode_rx,
-            ) {
+            let result = if use_gpu_decode {
+                run_decode_thread(
+                    config,
+                    cancel_flag,
+                    source_times,
+                    &dec_device,
+                    &dec_context,
+                    decode_tx,
+                    dec_gpu_recycle_rx,
+                    &dec_d3d_textures,
+                )
+            } else {
+                run_decode_thread_cpu(
+                    config,
+                    cancel_flag,
+                    source_times,
+                    decode_tx,
+                    dec_cpu_recycle_rx,
+                )
+            };
+            if let Err(e) = result {
                 cancel_flag.store(true, Ordering::Relaxed);
                 *decode_err_clone.lock().unwrap() = Some(e);
             }
@@ -398,7 +566,9 @@ pub fn run_zero_copy_export(
                 render_rx,
                 mb_samples,
                 render_tx,
-                render_to_decode_tx,
+                dec_gpu_recycle_tx,
+                dec_cpu_recycle_tx,
+                dec_wgpu_textures,
                 gpu_wgpu_textures,
                 gpu_recycle_rx,
                 cpu_recycle_rx,
@@ -427,27 +597,270 @@ pub fn run_zero_copy_export(
         }
     });
 
-    if let Some(e) = decode_error.lock().unwrap().take() {
-        if result.is_ok() {
-            return Err(format!("Decode thread: {e}"));
-        }
-    }
-    if let Some(e) = render_error.lock().unwrap().take() {
-        if result.is_ok() {
-            return Err(format!("Render thread: {e}"));
-        }
-    }
+    // Surface decode/render errors — prefer the earliest root cause over encode errors.
+    let decode_err = decode_error.lock().unwrap().take();
+    let render_err = render_error.lock().unwrap().take();
 
-    result
+    match (decode_err, render_err, result) {
+        (Some(d), Some(r), _) => Err(format!("Decode thread: {d}\nRender thread: {r}")),
+        (Some(d), None, _) => Err(format!("Decode thread: {d}")),
+        (None, Some(r), _) => Err(format!("Render thread: {r}")),
+        (None, None, res) => res,
+    }
 }
 
-/// Decode thread: creates its own D3D11 device; decodes with sample-and-hold frame selection.
+/// GPU decode thread: VP blits NV12 directly into shared VRAM textures (zero-copy).
+///
+/// Keeps `cur_decoded`/`next_decoded` DecodedFrames alive for the "hold" case.
+/// Per output frame we VP Blt the current NV12 source into a shared ring texture,
+/// GPU fence, then send the ring index to the render thread. Re-VP-Blt for held
+/// frames is cheap (microseconds on GPU) compared to the old CPU readback (~6ms).
+#[allow(clippy::too_many_arguments)]
+fn run_decode_thread(
+    config: &PipelineConfig,
+    cancel_flag: &std::sync::atomic::AtomicBool,
+    source_times: &[f64],
+    d3d11_device: &ID3D11Device,
+    d3d11_context: &ID3D11DeviceContext,
+    tx: mpsc::SyncSender<DecodeOutput>,
+    recycle_rx: mpsc::Receiver<usize>,
+    shared_textures: &[ID3D11Texture2D],
+) -> Result<(), String> {
+    let t_thread = Instant::now();
+
+    let gpu_fence = D3D11GpuFence::new(d3d11_device, d3d11_context)?;
+
+    // Keyed mutex handles for each shared ring slot.
+    // D3D11 SHARED_KEYEDMUTEX textures require AcquireSync/ReleaseSync around every
+    // GPU write — without this, CopyResource silently no-ops and DX12 reads zeros.
+    let keyed_mutexes: Vec<IDXGIKeyedMutex> = shared_textures
+        .iter()
+        .map(|t| t.cast::<IDXGIKeyedMutex>())
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("QI IDXGIKeyedMutex (decode ring): {e}"))?;
+
+    let device_manager = DxgiDeviceManager::new(d3d11_device)?;
+    let decoder = MfDecoder::new(&config.source_video_path, &device_manager, true)?;
+    let source_w = decoder.width();
+    let source_h = decoder.height();
+
+    let initial_seek = if !config.trim_segments.is_empty() {
+        config.trim_segments[0].start_time
+    } else {
+        config.trim_start
+    };
+    if initial_seek > 0.0 {
+        decoder.seek_seconds(initial_seek)?;
+    }
+
+    let vp_out_w = config.video_width;
+    let vp_out_h = config.video_height;
+    let decode_vp = VideoProcessor::new(
+        d3d11_device,
+        d3d11_context,
+        source_w,
+        source_h,
+        vp_out_w,
+        vp_out_h,
+    )?;
+    decode_vp.set_source_rect(config.crop_x, config.crop_y, vp_out_w, vp_out_h);
+
+    // Intermediate VP output texture (regular, no SHARED_KEYEDMUTEX flags).
+    // VP hardware path can't create output views on keyed-mutex textures, so we
+    // VP Blt to this intermediate first, then CopyResource to the shared ring slot.
+    // Both ops are GPU-internal — still eliminates the old 2× PCIe crossings.
+    let vp_output = VideoProcessor::create_texture(
+        d3d11_device,
+        vp_out_w,
+        vp_out_h,
+        DXGI_FORMAT_B8G8R8A8_UNORM,
+        D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE,
+    )?;
+
+    // Current and next decoded NV12 frames (pool texture stays alive via _sample).
+    let mut cur_decoded = match decoder.read_frame()? {
+        Some(f) => f,
+        None => return Ok(()),
+    };
+    let mut cur_pts = cur_decoded.pts_100ns as f64 / 10_000_000.0;
+
+    let mut next_decoded = decoder.read_frame()?;
+    let mut next_pts = next_decoded
+        .as_ref()
+        .map(|f| f.pts_100ns as f64 / 10_000_000.0)
+        .unwrap_or(f64::MAX);
+    let mut have_next = next_decoded.is_some();
+
+    let mut current_segment_idx: usize = 0;
+    let mut frames_held: u32 = 0;
+    let mut src_decoded: u32 = if have_next { 2 } else { 1 };
+
+    for (frame_idx, &source_time) in source_times.iter().enumerate() {
+        if cancel_flag.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let next_source_time = source_times
+            .get(frame_idx + 1)
+            .copied()
+            .unwrap_or(source_time);
+        let mut source_step = next_source_time - source_time;
+        if source_step <= 0.0 {
+            let speed = get_speed(source_time, &config.speed_points).clamp(0.1, 16.0);
+            source_step = speed / config.framerate as f64;
+        }
+
+        // Seek on trim segment boundary change.
+        if !config.trim_segments.is_empty() {
+            let target_seg = config
+                .trim_segments
+                .iter()
+                .position(|s| {
+                    source_time >= s.start_time - 0.001 && source_time <= s.end_time + 0.001
+                })
+                .unwrap_or(current_segment_idx);
+
+            if target_seg != current_segment_idx {
+                decoder.seek_seconds(config.trim_segments[target_seg].start_time)?;
+                current_segment_idx = target_seg;
+                cur_decoded = match decoder.read_frame()? {
+                    Some(f) => f,
+                    None => break,
+                };
+                cur_pts = cur_decoded.pts_100ns as f64 / 10_000_000.0;
+                src_decoded += 1;
+                next_decoded = decoder.read_frame()?;
+                next_pts = next_decoded
+                    .as_ref()
+                    .map(|f| f.pts_100ns as f64 / 10_000_000.0)
+                    .unwrap_or(f64::MAX);
+                have_next = next_decoded.is_some();
+                if have_next {
+                    src_decoded += 1;
+                }
+            }
+        }
+
+        // Fast-forward seek if source_time is >1.5s ahead.
+        if have_next && source_time - next_pts > 1.5 {
+            decoder.seek_seconds(source_time)?;
+            cur_decoded = match decoder.read_frame()? {
+                Some(f) => f,
+                None => break,
+            };
+            cur_pts = cur_decoded.pts_100ns as f64 / 10_000_000.0;
+            src_decoded += 1;
+            next_decoded = decoder.read_frame()?;
+            next_pts = next_decoded
+                .as_ref()
+                .map(|f| f.pts_100ns as f64 / 10_000_000.0)
+                .unwrap_or(f64::MAX);
+            have_next = next_decoded.is_some();
+            if have_next {
+                src_decoded += 1;
+            }
+        }
+
+        let mut advanced = false;
+        while have_next && next_pts <= source_time {
+            cur_decoded = next_decoded.take().unwrap();
+            cur_pts = next_pts;
+            advanced = true;
+            match decoder.read_frame()? {
+                Some(f) => {
+                    next_pts = f.pts_100ns as f64 / 10_000_000.0;
+                    next_decoded = Some(f);
+                    src_decoded += 1;
+                }
+                None => {
+                    have_next = false;
+                    next_pts = f64::MAX;
+                }
+            }
+        }
+
+        if !advanced && frame_idx > 0 {
+            frames_held += 1;
+        }
+        let _ = cur_pts;
+
+        // Acquire a free ring slot (blocks if all slots are in use by render thread).
+        let ring_idx = match recycle_rx.try_recv() {
+            Ok(idx) => idx,
+            Err(mpsc::TryRecvError::Empty) => match recycle_rx.recv() {
+                Ok(idx) => idx,
+                Err(_) => break,
+            },
+            Err(_) => break,
+        };
+
+        // VP Blt: NV12 → BGRA into intermediate texture, then GPU copy to shared ring.
+        // Two GPU-internal ops (VP can't write to keyed-mutex shared textures directly).
+        decode_vp.convert(
+            &cur_decoded.texture,
+            cur_decoded.subresource_index,
+            &vp_output,
+        )?;
+
+        // Keyed mutex: acquire before writing to the shared texture.
+        // Without this, D3D11 CopyResource to a SHARED_KEYEDMUTEX texture is a no-op.
+        unsafe {
+            keyed_mutexes[ring_idx]
+                .AcquireSync(0, u32::MAX)
+                .map_err(|e| format!("AcquireSync(decode ring[{ring_idx}]): {e}"))?;
+        }
+        unsafe {
+            let dst: ID3D11Resource = shared_textures[ring_idx]
+                .cast()
+                .map_err(|e| format!("shared→Resource: {e}"))?;
+            let src: ID3D11Resource = vp_output
+                .cast()
+                .map_err(|e| format!("vp_output→Resource: {e}"))?;
+            d3d11_context.CopyResource(&dst, &src);
+        }
+
+        // GPU fence: ensure CopyResource completes before releasing the mutex.
+        gpu_fence.signal_and_wait();
+
+        // Release mutex — commits data to shared memory, visible to DX12 readers.
+        // Key stays at 0 so the next AcquireSync(0) succeeds immediately.
+        unsafe {
+            keyed_mutexes[ring_idx]
+                .ReleaseSync(0)
+                .map_err(|e| format!("ReleaseSync(decode ring[{ring_idx}]): {e}"))?;
+        }
+
+        if tx
+            .send(DecodeOutput::Gpu {
+                ring_idx,
+                source_time,
+                source_step,
+                frame_idx: frame_idx as u32,
+            })
+            .is_err()
+        {
+            break;
+        }
+    }
+
+    let elapsed = t_thread.elapsed().as_secs_f64();
+    println!(
+        "[Decode] GPU: {} src → {} out ({} held) in {:.1}s",
+        src_decoded,
+        source_times.len(),
+        frames_held,
+        elapsed
+    );
+    Ok(())
+}
+
+/// CPU fallback decode thread: D3D11 VP + CPU readback (legacy path).
 ///
 /// `cur_bgra` and `next_bgra` are PERMANENT buffers owned by this thread (never sent across
 /// threads). Per output frame we copy `cur_bgra` into a recycled `send_buf` and send that.
 /// This correctly handles the "hold" case (same source frame reused for multiple output frames)
 /// which occurs whenever output fps > source fps.
-fn run_decode_thread(
+fn run_decode_thread_cpu(
     config: &PipelineConfig,
     cancel_flag: &std::sync::atomic::AtomicBool,
     source_times: &[f64],
@@ -456,7 +869,7 @@ fn run_decode_thread(
 ) -> Result<(), String> {
     let t_thread = Instant::now();
 
-    // D3D11 device #1 (decode thread owns this)
+    // D3D11 device (CPU decode thread creates its own)
     let (d3d11_device, d3d11_context) = create_d3d11_device()?;
     {
         let mt: ID3D11Multithread = d3d11_device
@@ -635,7 +1048,7 @@ fn run_decode_thread(
         send_buf.copy_from_slice(&cur_bgra);
 
         if tx
-            .send(DecodeOutput {
+            .send(DecodeOutput::Cpu {
                 bgra_video: send_buf,
                 source_time,
                 source_step,
@@ -649,7 +1062,7 @@ fn run_decode_thread(
 
     let elapsed = t_thread.elapsed().as_secs_f64();
     println!(
-        "[Decode] {} src → {} out ({} held) in {:.1}s",
+        "[Decode] CPU: {} src → {} out ({} held) in {:.1}s",
         src_decoded,
         source_times.len(),
         frames_held,
@@ -658,10 +1071,13 @@ fn run_decode_thread(
     Ok(())
 }
 
-/// Render thread: receives BGRA frames, runs compositor, sends output to encoder.
+/// Render thread: receives decoded frames (GPU ring or CPU buffer), runs compositor,
+/// sends output to encoder.
 ///
-/// GPU path: copy output to shared VRAM texture, send ring_idx (no CPU readback).
-/// CPU path: pipelined readback depth 2, send BGRA Vec.
+/// Decode input: GPU path copies shared decode texture to video_texture (fast GPU copy).
+///               CPU path uploads BGRA via queue.write_texture (PCIe upload).
+/// Encode output: GPU path copies output to shared VRAM texture, send ring_idx.
+///                CPU path: pipelined readback depth 2, send BGRA Vec.
 #[allow(clippy::too_many_arguments)]
 fn run_render_thread(
     config: &PipelineConfig,
@@ -671,25 +1087,23 @@ fn run_render_thread(
     rx: mpsc::Receiver<DecodeOutput>,
     mb_samples: u32,
     tx: mpsc::SyncSender<RenderOutput>,
-    recycle_decode_tx: mpsc::Sender<Vec<u8>>,
+    // Decode recycle channels (render → decode).
+    dec_gpu_recycle_tx: mpsc::Sender<usize>,
+    dec_cpu_recycle_tx: mpsc::Sender<Vec<u8>>,
+    dec_wgpu_textures: &[wgpu::Texture],
+    // Encode output resources.
     gpu_textures: &[wgpu::Texture],
     gpu_slot_rx: mpsc::Receiver<usize>,
     cpu_recycle_rx: mpsc::Receiver<Vec<u8>>,
 ) -> Result<(), String> {
-    let use_gpu = !gpu_textures.is_empty();
+    let use_gpu_encode = !gpu_textures.is_empty();
     let mut frames_rendered: u32 = 0;
     let mut t_upload = 0.0_f64;
     let mut t_render = 0.0_f64;
     let mut t_readback = 0.0_f64;
     let mut t_wait = 0.0_f64;
 
-    // Diagnostic: bypass wgpu compositor — pass decoded BGRA directly to encoder.
-    let bypass_compositor = std::env::var("SGT_BYPASS_COMPOSITOR").is_ok();
-    if bypass_compositor {
-        println!("[Pipeline] BYPASS_COMPOSITOR mode — skipping wgpu, raw decode→encode");
-    }
-
-    // Pipelined readback state (CPU path only).
+    // Pipelined readback state (CPU encode path only).
     let mut queued_readbacks: u32 = 0;
 
     loop {
@@ -701,109 +1115,90 @@ fn run_render_thread(
         t_wait += tw0.elapsed().as_secs_f64();
 
         if cancel_flag.load(Ordering::Relaxed) {
-            let _ = recycle_decode_tx.send(msg.bgra_video);
+            // Recycle the decode resource back.
+            match &msg {
+                DecodeOutput::Gpu { ring_idx, .. } => {
+                    let _ = dec_gpu_recycle_tx.send(*ring_idx);
+                }
+                DecodeOutput::Cpu { .. } => {
+                    // Can't recover the Vec without destructuring; just drop it.
+                }
+            }
             break;
         }
 
-        if bypass_compositor {
-            if tx
-                .send(RenderOutput::Cpu {
-                    rendered_bgra: msg.bgra_video,
-                })
-                .is_err()
-            {
-                break;
-            }
-            continue;
-        }
+        let source_time = msg.source_time();
+        let source_step = msg.source_step();
+        let frame_idx = msg.frame_idx();
 
-        // 1. Upload video frame to GPU.
+        // 1. Upload video frame to GPU (GPU copy or CPU upload depending on decode path).
         let tu0 = Instant::now();
-        compositor.upload_frame(&msg.bgra_video);
+        match msg {
+            DecodeOutput::Gpu { ring_idx, .. } => {
+                // Zero-copy: GPU-to-GPU copy from shared decode texture to video_texture.
+                compositor.copy_frame_from_shared(&dec_wgpu_textures[ring_idx]);
+                let _ = dec_gpu_recycle_tx.send(ring_idx);
+            }
+            DecodeOutput::Cpu { bgra_video, .. } => {
+                // CPU fallback: PCIe upload.
+                compositor.upload_frame(&bgra_video);
+                let _ = dec_cpu_recycle_tx.send(bgra_video);
+            }
+        }
         t_upload += tu0.elapsed().as_secs_f64();
 
         // 1b. Update animated cursor atlas tiles based on current source time.
-        // Each slot holds pre-rasterized RGBA frames captured by the browser
-        // at evenly-spaced offsets; we pick the frame for this timestamp.
         for slot in &config.animated_cursor_slots {
             if slot.frames.is_empty() || slot.loop_duration <= 0.0 {
                 continue;
             }
             let n = slot.frames.len();
-            let t = msg.source_time % slot.loop_duration;
-            let frame_idx = ((t / slot.loop_duration) * n as f64).floor() as usize % n;
-            compositor.upload_cursor_slot_rgba(slot.slot_id, &slot.frames[frame_idx]);
+            let t = source_time % slot.loop_duration;
+            let idx = ((t / slot.loop_duration) * n as f64).floor() as usize % n;
+            compositor.upload_cursor_slot_rgba(slot.slot_id, &slot.frames[idx]);
         }
 
-        // 2. Return the decoded video buffer to the decode thread.
-        let _ = recycle_decode_tx.send(msg.bgra_video);
-
-        // 3. Render to output texture (same for both paths).
+        // 2. Render to output texture — adaptive motion blur.
+        //
+        // 2. Render to output texture.
         let tr0 = Instant::now();
-        let only_cursor_blur = mb_samples > 1
-            && config.blur_cursor_shutter > 0.0
-            && config.blur_zoom_shutter == 0.0
-            && config.blur_pan_shutter == 0.0;
-        if only_cursor_blur {
-            let mut scene_u = build_uniforms(
-                msg.source_time,
-                msg.source_time,
-                msg.source_time,
-                msg.source_time,
-            );
-            scene_u.render_mode = 1.0;
-            compositor.render_to_output(&scene_u, true);
-            let opacity_scale = 1.0 / mb_samples as f32;
-            let cursor_shutter = msg.source_step * config.blur_cursor_shutter;
+        if mb_samples > 1 {
+            let zoom_shutter = source_step * config.blur_zoom_shutter;
+            let pan_shutter = source_step * config.blur_pan_shutter;
+            let cursor_shutter = source_step * config.blur_cursor_shutter;
+
+            // N running-average accumulate passes. When scene is static, scene pixels
+            // average with themselves (unchanged); cursor averages across sub-positions.
+            // render_accumulate's Constant/OneMinusConstant blend is always mathematically
+            // correct regardless of whether zoom, pan, or cursor actually moves.
             for i in 0..mb_samples {
-                let t = if mb_samples > 1 {
-                    i as f64 / (mb_samples - 1) as f64
-                } else {
-                    0.5
-                };
-                let sub_time = msg.source_time - (cursor_shutter * 0.5) + t * cursor_shutter;
-                let mut cursor_u =
-                    build_uniforms(msg.source_time, msg.source_time, msg.source_time, sub_time);
-                cursor_u.render_mode = 2.0;
-                cursor_u.cursor_opacity *= opacity_scale;
-                compositor.render_to_output(&cursor_u, false);
-            }
-        } else if mb_samples > 1 {
-            let zoom_shutter = msg.source_step * config.blur_zoom_shutter;
-            let pan_shutter = msg.source_step * config.blur_pan_shutter;
-            let cursor_shutter = msg.source_step * config.blur_cursor_shutter;
-            for i in 0..mb_samples {
-                let t = if mb_samples > 1 {
-                    i as f64 / (mb_samples - 1) as f64
-                } else {
-                    0.5
-                };
-                let pan_time = msg.source_time - (pan_shutter * 0.5) + t * pan_shutter;
-                let zoom_time = msg.source_time - (zoom_shutter * 0.5) + t * zoom_shutter;
-                let cur_time = msg.source_time - (cursor_shutter * 0.5) + t * cursor_shutter;
-                let uniforms = build_uniforms(msg.source_time, pan_time, zoom_time, cur_time);
+                let t = i as f64 / (mb_samples - 1).max(1) as f64;
+                let pan_time = source_time - (pan_shutter * 0.5) + t * pan_shutter;
+                let zoom_time = source_time - (zoom_shutter * 0.5) + t * zoom_shutter;
+                let cur_time = source_time - (cursor_shutter * 0.5) + t * cursor_shutter;
+                let uniforms = build_uniforms(source_time, pan_time, zoom_time, cur_time);
                 let weight = 1.0 / (i as f64 + 1.0);
                 compositor.render_accumulate(&uniforms, i == 0, weight);
             }
         } else {
             let uniforms = build_uniforms(
-                msg.source_time,
-                msg.source_time,
-                msg.source_time,
-                msg.source_time,
+                source_time,
+                source_time,
+                source_time,
+                source_time,
             );
             compositor.render_to_output(&uniforms, true);
         }
 
         // Atlas overlay pass.
-        if let Some(frame) = config.overlay_frames.get(msg.frame_idx as usize) {
+        if let Some(frame) = config.overlay_frames.get(frame_idx as usize) {
             compositor.render_overlays(&frame.quads);
         }
 
         t_render += tr0.elapsed().as_secs_f64();
 
-        // 4. Output: GPU zero-copy or CPU readback.
-        if use_gpu {
+        // 3. Output: GPU zero-copy or CPU readback.
+        if use_gpu_encode {
             // GPU path: copy to shared VRAM texture, wait for GPU, send ring_idx.
             let ring_idx = gpu_slot_rx
                 .recv()
@@ -840,7 +1235,7 @@ fn run_render_thread(
         }
     }
 
-    // CPU path: drain remaining GPU readbacks at end of video.
+    // CPU encode path: drain remaining GPU readbacks at end of video.
     while queued_readbacks > 0 {
         let trb0 = Instant::now();
         let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
@@ -854,7 +1249,7 @@ fn run_render_thread(
     }
 
     let n = frames_rendered.max(1) as f64;
-    let label = if use_gpu { "copy" } else { "readback" };
+    let label = if use_gpu_encode { "copy" } else { "readback" };
     println!(
         "[Render] {} frames: upload {:.1} + render {:.1} + {} {:.1} + wait {:.1}ms avg",
         frames_rendered,
