@@ -164,6 +164,63 @@ impl D3D11Readback {
     }
 }
 
+/// GPU fence using D3D11 event query — blocks CPU until all prior GPU commands complete.
+///
+/// Used to synchronize D3D11 VideoProcessor writes to shared textures before
+/// wgpu (DX12) reads them in the render thread. The fence inserts a query
+/// after the current GPU commands and spin-waits until the GPU retires them.
+pub struct D3D11GpuFence {
+    query: ID3D11Query,
+    context: ID3D11DeviceContext,
+}
+
+impl D3D11GpuFence {
+    pub fn new(device: &ID3D11Device, context: &ID3D11DeviceContext) -> Result<Self, String> {
+        let desc = D3D11_QUERY_DESC {
+            Query: D3D11_QUERY_EVENT,
+            MiscFlags: 0,
+        };
+        let mut query: Option<ID3D11Query> = None;
+        unsafe {
+            device
+                .CreateQuery(&desc, Some(&mut query))
+                .map_err(|e| format!("CreateQuery(EVENT): {e}"))?;
+        }
+        let query = query.ok_or("CreateQuery(EVENT) returned null")?;
+        Ok(Self {
+            query,
+            context: context.clone(),
+        })
+    }
+
+    /// Insert a fence after the current GPU commands and block until they complete.
+    pub fn signal_and_wait(&self) {
+        unsafe {
+            self.context.End(&self.query);
+            self.context.Flush();
+            // Poll until GPU retires all commands before the End().
+            // D3D11_QUERY_EVENT data is a BOOL (i32): TRUE when complete.
+            let mut spins = 0u32;
+            loop {
+                let mut done: i32 = 0;
+                let _ = self.context.GetData(
+                    &self.query,
+                    Some(&mut done as *mut i32 as *mut std::ffi::c_void),
+                    4,
+                    0,
+                );
+                if done != 0 {
+                    break;
+                }
+                spins += 1;
+                if spins > 1000 {
+                    std::thread::yield_now();
+                }
+            }
+        }
+    }
+}
+
 /// D3D11 Video Processor for NV12↔RGBA/BGRA color space conversion on GPU.
 pub struct VideoProcessor {
     processor: ID3D11VideoProcessor,

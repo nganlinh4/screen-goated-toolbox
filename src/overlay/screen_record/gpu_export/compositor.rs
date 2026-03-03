@@ -674,7 +674,7 @@ impl GpuCompositor {
         out
     }
 
-    /// Render one sub-frame with additive blending (weight via blend constant).
+    /// Render one sub-frame with weighted-average blending (weight via blend constant).
     /// GPU-only — no CPU readback. Call `enqueue_output_readback` once after all sub-frames.
     pub fn render_accumulate(&mut self, uniforms: &CompositorUniforms, clear: bool, weight: f64) {
         let uniform_data = bytemuck::bytes_of(uniforms);
@@ -787,6 +787,40 @@ impl GpuCompositor {
                 },
             ],
         });
+    }
+
+    /// Copy a shared decode texture into the video input texture (GPU-to-GPU).
+    ///
+    /// Replaces the CPU `upload_frame()` path: instead of PCIe download + upload,
+    /// this is an internal GPU memory copy (~0.1ms at 4K vs ~6ms for CPU round-trip).
+    pub fn copy_frame_from_shared(&self, source: &wgpu::Texture) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Copy Decode to Video"),
+            });
+
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: source,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.video_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: self.video_width,
+                height: self.video_height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
     /// Copy the output texture to a shared wgpu texture (GPU-to-GPU, no PCIe bus).
