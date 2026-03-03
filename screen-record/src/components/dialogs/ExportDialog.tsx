@@ -179,7 +179,7 @@ export function ExportDialog({
     if (exportCapabilities.pipeline === 'zero_copy_gpu') {
       return {
         label: t.exportBackendZeroCopyGpu,
-        detail: exportCapabilities.mfH264Available ? t.exportBackendMfH264Encode : t.hardwareEncode,
+        detail: t.exportBackendMfH264Encode,
         tone: 'text-emerald-700 dark:text-emerald-400'
       };
     }

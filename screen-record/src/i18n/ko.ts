@@ -136,7 +136,7 @@ const ko: Translations = {
   exportBackendDetecting: '백엔드 확인 중...',
   exportBackendCpuX264: 'CPU x264',
   exportBackendZeroCopyGpu: 'GPU Zero-Copy',
-  exportBackendMfH264Encode: 'Media Foundation H.264 인코딩',
+  exportBackendMfH264Encode: 'DX12 컴포지터 · Media Foundation H.264',
   exportBackendNvencTurbo: 'GPU NVENC Turbo',
   exportBackendProbeFailedFallback: '성능 확인 실패, 안전한 폴백 사용',
   exportBackendNoCapabilityData: '성능 정보 없음',
