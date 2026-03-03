@@ -155,8 +155,10 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
             visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
+                has_dynamic_offset: true,
+                min_binding_size: wgpu::BufferSize::new(
+                    std::mem::size_of::<CompositorUniforms>() as u64,
+                ),
             },
             count: None,
         }],
