@@ -11,6 +11,7 @@ import {
   getSgtaiCursorImage,
   getSgtpixelCursorImage,
   getJepriwin11CursorImage,
+  getSgtwatermelonCursorImage,
 } from './cursorTypes';
 import { getPreviewFrame } from './cursorAnimationCapture';
 
@@ -27,6 +28,7 @@ export {
   getSgtaiCursorImage,
   getSgtpixelCursorImage,
   getJepriwin11CursorImage,
+  getSgtwatermelonCursorImage,
   getScreenStudioCursorImage,
 } from './cursorTypes';
 
@@ -155,6 +157,12 @@ export function drawCursorShape(
       effectiveType = 'default-screenstudio';
     }
   }
+  if (effectiveType.endsWith('-sgtwatermelon')) {
+    const image = getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType);
+    if (!image || !image.complete || image.naturalWidth === 0) {
+      effectiveType = 'default-screenstudio';
+    }
+  }
 
   const mappingKey = `${cursorType}=>${effectiveType}`;
   if (!state.loggedCursorMappings.has(mappingKey)) {
@@ -174,7 +182,8 @@ export function drawCursorShape(
       getSgtcoolCursorImage(images, effectiveType as CursorRenderType) ??
       getSgtaiCursorImage(images, effectiveType as CursorRenderType) ??
       getSgtpixelCursorImage(images, effectiveType as CursorRenderType) ??
-      getJepriwin11CursorImage(images, effectiveType as CursorRenderType);
+      getJepriwin11CursorImage(images, effectiveType as CursorRenderType) ??
+      getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType);
     console.log('[CursorDebug] loaded', {
       effectiveType,
       src: debugImg?.src,
@@ -299,6 +308,23 @@ export function drawCursorShape(
     case 'resize-nwse-jepriwin11':
     case 'resize-nesw-jepriwin11': {
       const img = getJepriwin11CursorImage(images, effectiveType);
+      if (img) drawCenteredCursorImage(ctx, img);
+      break;
+    }
+
+    case 'default-sgtwatermelon':
+    case 'text-sgtwatermelon':
+    case 'pointer-sgtwatermelon':
+    case 'openhand-sgtwatermelon':
+    case 'closehand-sgtwatermelon':
+    case 'wait-sgtwatermelon':
+    case 'appstarting-sgtwatermelon':
+    case 'crosshair-sgtwatermelon':
+    case 'resize-ns-sgtwatermelon':
+    case 'resize-we-sgtwatermelon':
+    case 'resize-nwse-sgtwatermelon':
+    case 'resize-nesw-sgtwatermelon': {
+      const img = getSgtwatermelonCursorImage(images, effectiveType);
       if (img) drawCenteredCursorImage(ctx, img);
       break;
     }

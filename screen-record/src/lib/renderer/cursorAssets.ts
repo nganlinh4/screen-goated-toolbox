@@ -33,6 +33,7 @@ export function createCursorImageSet(): CursorImageSet {
     { slug: 'sgtai', suffix: 'Sgtai' },
     { slug: 'sgtpixel', suffix: 'Sgtpixel' },
     { slug: 'jepriwin11', suffix: 'Jepriwin11' },
+    { slug: 'sgtwatermelon', suffix: 'Sgtwatermelon' },
   ] as const;
 
   // Map cursor type slug -> CursorImageSet field prefix
@@ -82,6 +83,7 @@ const PACK_SUFFIXES: Record<string, string> = {
   sgtai: 'Sgtai',
   sgtpixel: 'Sgtpixel',
   jepriwin11: 'Jepriwin11',
+  sgtwatermelon: 'Sgtwatermelon',
 };
 
 const TYPE_FIELD_PREFIX: Record<string, string> = {

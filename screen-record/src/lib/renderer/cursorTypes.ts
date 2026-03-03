@@ -88,7 +88,19 @@ export type CursorRenderType =
   | 'resize-ns-jepriwin11'
   | 'resize-we-jepriwin11'
   | 'resize-nwse-jepriwin11'
-  | 'resize-nesw-jepriwin11';
+  | 'resize-nesw-jepriwin11'
+  | 'default-sgtwatermelon'
+  | 'text-sgtwatermelon'
+  | 'pointer-sgtwatermelon'
+  | 'openhand-sgtwatermelon'
+  | 'closehand-sgtwatermelon'
+  | 'wait-sgtwatermelon'
+  | 'appstarting-sgtwatermelon'
+  | 'crosshair-sgtwatermelon'
+  | 'resize-ns-sgtwatermelon'
+  | 'resize-we-sgtwatermelon'
+  | 'resize-nwse-sgtwatermelon'
+  | 'resize-nesw-sgtwatermelon';
 
 // ---------------------------------------------------------------------------
 // CursorImageSet – all HTMLImageElement fields used by cursor rendering
@@ -192,6 +204,20 @@ export interface CursorImageSet {
   resizeWeJepriwin11Image: HTMLImageElement;
   resizeNwseJepriwin11Image: HTMLImageElement;
   resizeNeswJepriwin11Image: HTMLImageElement;
+
+  // SGT Watermelon pack
+  defaultSgtwatermelonImage: HTMLImageElement;
+  textSgtwatermelonImage: HTMLImageElement;
+  pointerSgtwatermelonImage: HTMLImageElement;
+  openHandSgtwatermelonImage: HTMLImageElement;
+  closeHandSgtwatermelonImage: HTMLImageElement;
+  waitSgtwatermelonImage: HTMLImageElement;
+  appStartingSgtwatermelonImage: HTMLImageElement;
+  crosshairSgtwatermelonImage: HTMLImageElement;
+  resizeNsSgtwatermelonImage: HTMLImageElement;
+  resizeWeSgtwatermelonImage: HTMLImageElement;
+  resizeNwseSgtwatermelonImage: HTMLImageElement;
+  resizeNeswSgtwatermelonImage: HTMLImageElement;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +236,8 @@ export interface CursorRenderState {
 // getCursorPack – determine which cursor pack is active
 // ---------------------------------------------------------------------------
 
-export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' {
+export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' {
+  if (backgroundConfig?.cursorPack === 'sgtwatermelon') return 'sgtwatermelon';
   if (backgroundConfig?.cursorPack === 'jepriwin11') return 'jepriwin11';
   if (backgroundConfig?.cursorPack === 'sgtpixel') return 'sgtpixel';
   if (backgroundConfig?.cursorPack === 'sgtai') return 'sgtai';
@@ -218,6 +245,12 @@ export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'scre
   if (backgroundConfig?.cursorPack === 'sgtcute') return 'sgtcute';
   if (backgroundConfig?.cursorPack === 'macos26') return 'macos26';
   if (backgroundConfig?.cursorPack === 'screenstudio') return 'screenstudio';
+  if (backgroundConfig?.cursorDefaultVariant === 'sgtwatermelon'
+    || backgroundConfig?.cursorTextVariant === 'sgtwatermelon'
+    || backgroundConfig?.cursorPointerVariant === 'sgtwatermelon'
+    || backgroundConfig?.cursorOpenHandVariant === 'sgtwatermelon') {
+    return 'sgtwatermelon';
+  }
   if (backgroundConfig?.cursorDefaultVariant === 'jepriwin11'
     || backgroundConfig?.cursorTextVariant === 'jepriwin11'
     || backgroundConfig?.cursorPointerVariant === 'jepriwin11'
@@ -362,6 +395,23 @@ export function resolveCursorRenderType(rawType: string, backgroundConfig?: Back
       case 'resize_nwse': return 'resize-nwse-sgtpixel';
       case 'resize_nesw': return 'resize-nesw-sgtpixel';
       default: return 'default-sgtpixel';
+    }
+  }
+
+  if (pack === 'sgtwatermelon') {
+    switch (semanticType) {
+      case 'text': return 'text-sgtwatermelon';
+      case 'pointer': return 'pointer-sgtwatermelon';
+      case 'openhand': return 'openhand-sgtwatermelon';
+      case 'closehand': return 'closehand-sgtwatermelon';
+      case 'wait': return 'wait-sgtwatermelon';
+      case 'appstarting': return 'appstarting-sgtwatermelon';
+      case 'crosshair': return 'crosshair-sgtwatermelon';
+      case 'resize_ns': return 'resize-ns-sgtwatermelon';
+      case 'resize_we': return 'resize-we-sgtwatermelon';
+      case 'resize_nwse': return 'resize-nwse-sgtwatermelon';
+      case 'resize_nesw': return 'resize-nesw-sgtwatermelon';
+      default: return 'default-sgtwatermelon';
     }
   }
 
@@ -523,6 +573,24 @@ export function getJepriwin11CursorImage(images: CursorImageSet, type: CursorRen
     case 'resize-we-jepriwin11': return images.resizeWeJepriwin11Image;
     case 'resize-nwse-jepriwin11': return images.resizeNwseJepriwin11Image;
     case 'resize-nesw-jepriwin11': return images.resizeNeswJepriwin11Image;
+    default: return null;
+  }
+}
+
+export function getSgtwatermelonCursorImage(images: CursorImageSet, type: CursorRenderType): HTMLImageElement | null {
+  switch (type) {
+    case 'default-sgtwatermelon': return images.defaultSgtwatermelonImage;
+    case 'text-sgtwatermelon': return images.textSgtwatermelonImage;
+    case 'pointer-sgtwatermelon': return images.pointerSgtwatermelonImage;
+    case 'openhand-sgtwatermelon': return images.openHandSgtwatermelonImage;
+    case 'closehand-sgtwatermelon': return images.closeHandSgtwatermelonImage;
+    case 'wait-sgtwatermelon': return images.waitSgtwatermelonImage;
+    case 'appstarting-sgtwatermelon': return images.appStartingSgtwatermelonImage;
+    case 'crosshair-sgtwatermelon': return images.crosshairSgtwatermelonImage;
+    case 'resize-ns-sgtwatermelon': return images.resizeNsSgtwatermelonImage;
+    case 'resize-we-sgtwatermelon': return images.resizeWeSgtwatermelonImage;
+    case 'resize-nwse-sgtwatermelon': return images.resizeNwseSgtwatermelonImage;
+    case 'resize-nesw-sgtwatermelon': return images.resizeNeswSgtwatermelonImage;
     default: return null;
   }
 }
