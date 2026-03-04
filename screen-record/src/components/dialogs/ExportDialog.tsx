@@ -5,6 +5,8 @@ import { invoke } from '@/lib/ipc';
 import { ExportOptions, VideoSegment, BackgroundConfig } from '@/types/video';
 import {
   computeResolutionOptions,
+  computeGifResolutionOptions,
+  GIF_MAX_WIDTH,
   computeBitrateSliderBounds,
   getCanvasBaseDimensions,
   resolveExportDimensions,
@@ -128,10 +130,15 @@ export function ExportDialog({
     ? Math.round(nativeSourceFps)
     : 60;
   const sourceResLabel = `${sourceResOptionW}×${sourceResOptionH}`;
-  const fpsChoiceValues = Array.from(new Set([sourceFpsValue, 24, 30, 60, 90, 120])).sort((a, b) => a - b);
-  const resOptions = computeResolutionOptions(baseW, baseH, vidH)
-    .slice()
-    .sort((a, b) => b.height - a.height || b.width - a.width);
+  const isGif = (exportOptions.format || 'mp4') === 'gif';
+  const fpsChoiceValues = isGif
+    ? [10, 15, 24]
+    : Array.from(new Set([sourceFpsValue, 24, 30, 60, 90, 120])).sort((a, b) => a - b);
+  const resOptions = (
+    isGif
+      ? computeGifResolutionOptions(baseW, baseH)
+      : computeResolutionOptions(baseW, baseH, vidH)
+  ).slice().sort((a, b) => b.width - a.width || b.height - a.height);
   const { width: outW, height: outH } = resolveExportDimensions(exportOptions.width, exportOptions.height, baseW, baseH);
   const bitrateBounds = computeBitrateSliderBounds(outW, outH, exportOptions.fps);
   const targetVideoBitrateKbps = exportOptions.targetVideoBitrateKbps > 0
@@ -146,6 +153,7 @@ export function ExportDialog({
     width: outW,
     height: outH,
     fps: exportOptions.fps,
+    format: exportOptions.format || 'mp4',
     targetVideoBitrateKbps,
     trimmedDurationSec,
     hasAudio,
@@ -210,8 +218,15 @@ export function ExportDialog({
       return;
     }
 
-    // Default to "match recorded" resolution each time the dialog opens.
+    // Default resolution each time the dialog opens — GIF gets explicit width, MP4 gets "match recorded" (0x0).
     setExportOptions((prev) => {
+      const gif = (prev.format || 'mp4') === 'gif';
+      if (gif) {
+        const gifOptions = computeGifResolutionOptions(baseW, baseH);
+        const def = gifOptions[0];
+        if (!def || (prev.width === def.width && prev.height === def.height)) return prev;
+        return { ...prev, width: def.width, height: def.height };
+      }
       if (prev.width === 0 && prev.height === 0) return prev;
       return { ...prev, width: 0, height: 0 };
     });
@@ -223,15 +238,18 @@ export function ExportDialog({
     if (!hasSavedFps) {
       autoMatchFpsPendingRef.current = true;
     }
-  }, [show, setExportOptions]);
+  }, [show, setExportOptions, baseW, baseH]);
 
   useEffect(() => {
     if (!show || !autoMatchFpsPendingRef.current) return;
-    setExportOptions((prev) => (
-      prev.fps === sourceFpsValue
-        ? prev
-        : { ...prev, fps: sourceFpsValue }
-    ));
+    setExportOptions((prev) => {
+      // Don't override GIF fps — it has its own limited choices
+      if ((prev.format || 'mp4') === 'gif') {
+        autoMatchFpsPendingRef.current = false;
+        return prev;
+      }
+      return prev.fps === sourceFpsValue ? prev : { ...prev, fps: sourceFpsValue };
+    });
   }, [show, sourceFpsValue, setExportOptions]);
 
   useEffect(() => {
@@ -272,11 +290,11 @@ export function ExportDialog({
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.resolution}</label>
             </div>
-            <div className="resolution-options grid grid-cols-3 gap-2">
+            <div className={`resolution-options grid gap-2 ${isGif ? 'grid-cols-4' : 'grid-cols-3'}`}>
               {resOptions.map((opt: ResolutionOption) => {
                 const key = `${opt.width}x${opt.height}`;
-                const isSourceOption = opt.width === sourceResOptionW && opt.height === sourceResOptionH;
-                const isSelected = selectedKey === key || (exportOptions.width === 0 && exportOptions.height === 0 && isSourceOption);
+                const isSourceOption = !isGif && opt.width === sourceResOptionW && opt.height === sourceResOptionH;
+                const isSelected = selectedKey === key || (!isGif && exportOptions.width === 0 && exportOptions.height === 0 && isSourceOption);
                 return (
                   <button
                     key={key}
@@ -287,16 +305,55 @@ export function ExportDialog({
                         : 'bg-[var(--surface)] text-[var(--on-surface)] border-[var(--glass-border)] hover:border-[var(--outline)] hover:bg-[var(--surface-container)]'
                     }`}
                   >
-                    <span>{formatResolutionPLabel(isSourceOption ? sourceResOptionH : opt.height)}</span>
-                    <span className="text-[9px] opacity-70 font-mono">
-                      {isSourceOption ? sourceResLabel : `${opt.width}×${opt.height}`}
-                    </span>
-                    <span className={`text-[9px] opacity-70 ${isSourceOption ? 'block' : 'invisible'}`}>
-                      {isSourceOption ? t.matchRecorded : '.'}
-                    </span>
+                    {isGif ? (
+                      <>
+                        <span>{opt.width}w</span>
+                        <span className="text-[9px] opacity-70 font-mono">{opt.width}×{opt.height}</span>
+                        <span className="invisible text-[9px]">.</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{formatResolutionPLabel(isSourceOption ? sourceResOptionH : opt.height)}</span>
+                        <span className="text-[9px] opacity-70 font-mono">
+                          {isSourceOption ? sourceResLabel : `${opt.width}×${opt.height}`}
+                        </span>
+                        <span className={`text-[9px] opacity-70 ${isSourceOption ? 'block' : 'invisible'}`}>
+                          {isSourceOption ? t.matchRecorded : '.'}
+                        </span>
+                      </>
+                    )}
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="export-format-field">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-[var(--on-surface-variant)]">{t.exportFormat}</label>
+            </div>
+            <div className="format-options flex flex-wrap gap-2">
+              {(['mp4', 'gif'] as const).map(fmt => (
+                <button
+                  key={fmt}
+                  onClick={() => setExportOptions(prev => {
+                    if (fmt === 'gif') {
+                      const fps = prev.fps > 24 ? 24 : prev.fps;
+                      const gifOptions = computeGifResolutionOptions(baseW, baseH);
+                      const def = gifOptions[0];
+                      return { ...prev, format: fmt, fps, width: def?.width ?? GIF_MAX_WIDTH, height: def?.height ?? 540 };
+                    }
+                    return { ...prev, format: fmt, width: 0, height: 0 };
+                  })}
+                  className={`format-option flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                    (exportOptions.format || 'mp4') === fmt
+                      ? 'bg-[var(--primary-color)] text-white border-transparent shadow-sm'
+                      : 'bg-[var(--glass-bg)] text-[var(--on-surface)] border-[var(--glass-border)] hover:bg-[var(--glass-bg-hover)]'
+                  }`}
+                >
+                  {fmt === 'mp4' ? t.exportFormatMp4 : t.exportFormatGif}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -331,7 +388,7 @@ export function ExportDialog({
             </div>
           </div>
 
-          <div className="export-bitrate-field">
+          {!isGif && <div className="export-bitrate-field">
             <label className="text-xs text-[var(--on-surface-variant)] mb-2 block">{t.videoBitrate}</label>
             <div className="bitrate-control bg-[var(--glass-bg)] rounded-lg p-3">
               <div className="bitrate-display flex items-center justify-between mb-3">
@@ -366,7 +423,7 @@ export function ExportDialog({
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
 
           <div className="export-size-estimate-field">
             <div className="size-estimate-header flex items-center justify-between">

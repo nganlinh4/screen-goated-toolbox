@@ -14,6 +14,7 @@ import {
   getSgtwatermelonCursorImage,
   getSgtfastfoodCursorImage,
   getSgtveggieCursorImage,
+  getSgtvietnamCursorImage,
 } from './cursorTypes';
 import { getPreviewFrame } from './cursorAnimationCapture';
 
@@ -33,6 +34,7 @@ export {
   getSgtwatermelonCursorImage,
   getSgtfastfoodCursorImage,
   getSgtveggieCursorImage,
+  getSgtvietnamCursorImage,
   getScreenStudioCursorImage,
 } from './cursorTypes';
 
@@ -189,7 +191,8 @@ export function drawCursorShape(
       getJepriwin11CursorImage(images, effectiveType as CursorRenderType) ??
       getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType) ??
       getSgtfastfoodCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtveggieCursorImage(images, effectiveType as CursorRenderType);
+      getSgtveggieCursorImage(images, effectiveType as CursorRenderType) ??
+      getSgtvietnamCursorImage(images, effectiveType as CursorRenderType);
     console.log('[CursorDebug] loaded', {
       effectiveType,
       src: debugImg?.src,
@@ -366,6 +369,23 @@ export function drawCursorShape(
     case 'resize-nesw-sgtveggie':
     case 'resize-nesw-sgtveggie': {
       const img = getSgtveggieCursorImage(images, effectiveType);
+      if (img) drawCenteredCursorImage(ctx, img);
+      break;
+    }
+    case 'default-sgtvietnam':
+    case 'text-sgtvietnam':
+    case 'pointer-sgtvietnam':
+    case 'openhand-sgtvietnam':
+    case 'closehand-sgtvietnam':
+    case 'wait-sgtvietnam':
+    case 'appstarting-sgtvietnam':
+    case 'crosshair-sgtvietnam':
+    case 'resize-ns-sgtvietnam':
+    case 'resize-we-sgtvietnam':
+    case 'resize-nwse-sgtvietnam':
+    case 'resize-nesw-sgtvietnam':
+    case 'resize-nesw-sgtvietnam': {
+      const img = getSgtvietnamCursorImage(images, effectiveType);
       if (img) drawCenteredCursorImage(ctx, img);
       break;
     }

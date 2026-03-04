@@ -7,6 +7,12 @@ import type {
 // Standard video heights (descending) for resolution options
 export const STANDARD_HEIGHTS = [2160, 1440, 1080, 720, 480] as const;
 export const TARGET_VIDEO_BITS_PER_PIXEL = 0.09;
+
+// GIF-specific constants
+export const GIF_MAX_WIDTH = 960;
+export const GIF_STANDARD_WIDTHS = [960, 640, 480, 320] as const;
+// Conservative LZW compression ratio for screen recordings (~3x on typical desktop content)
+export const GIF_LZW_COMPRESSION_RATIO = 3.0;
 export const DEFAULT_AUDIO_BITRATE_KBPS = 192;
 export const MIN_VIDEO_BITRATE_KBPS = 600;
 export const MAX_VIDEO_BITRATE_KBPS = 80000;
@@ -410,6 +416,7 @@ export function estimateExportSize(params: {
   width: number;
   height: number;
   fps: number;
+  format?: string;
   targetVideoBitrateKbps: number;
   trimmedDurationSec: number;
   hasAudio?: boolean;
@@ -420,6 +427,31 @@ export function estimateExportSize(params: {
   calibration?: ExportEstimateCalibrationSnapshot;
 }): ExportSizeEstimate {
   const outputDurationSec = calculateOutputDuration(params.segment ?? null, params.trimmedDurationSec);
+
+  // GIF: use pixel-count/LZW estimate (bitrate has no meaning for palette-based animation)
+  if (params.format === 'gif') {
+    const gifW = params.width > 0 ? Math.min(params.width, GIF_MAX_WIDTH) : GIF_MAX_WIDTH;
+    const gifH = params.width > 0 && params.width > gifW
+      ? Math.round(params.height * gifW / params.width)
+      : params.height;
+    const frames = outputDurationSec * Math.max(1, params.fps);
+    const estimatedBytes = (gifW * gifH * frames) / GIF_LZW_COMPRESSION_RATIO;
+    // GIF size is highly content-dependent — wide variability band
+    const variability = 0.50;
+    return {
+      outputDurationSec,
+      estimatedBytes,
+      minBytes: estimatedBytes * (1 - variability),
+      maxBytes: estimatedBytes * (1 + variability),
+      targetVideoBitrateKbps: 0,
+      expectedVideoBitrateKbps: 0,
+      audioBitrateKbps: 0,
+      variability,
+      calibrationSamples: 0,
+      calibrationRatio: 1,
+      profileKey: 'gif',
+    };
+  }
   const suggestedBitrateKbps = computeSuggestedVideoBitrateKbps(params.width, params.height, params.fps);
   const targetVideoBitrateKbps = clamp(
     params.targetVideoBitrateKbps > 0 ? params.targetVideoBitrateKbps : suggestedBitrateKbps,
@@ -494,6 +526,32 @@ export function estimateExportSize(params: {
     calibrationRatio,
     profileKey
   };
+}
+
+/** Compute width-based resolution options for GIF export (always capped at GIF_MAX_WIDTH). */
+export function computeGifResolutionOptions(baseW: number, baseH: number): ResolutionOption[] {
+  const aspect = baseH / Math.max(1, baseW);
+  const cappedW = Math.min(baseW, GIF_MAX_WIDTH);
+  const options: ResolutionOption[] = [];
+
+  for (const w of GIF_STANDARD_WIDTHS) {
+    if (w > cappedW) continue;
+    const wEven = w % 2 === 0 ? w : w - 1;
+    if (wEven < 2) continue;
+    const h = Math.round(wEven * aspect);
+    const hEven = h % 2 === 0 ? h : Math.max(2, h - 1);
+    if (hEven < 2) continue;
+    options.push({ width: wEven, height: hEven, label: `${wEven}w` });
+  }
+
+  if (options.length === 0) {
+    const wEven = cappedW % 2 === 0 ? cappedW : Math.max(2, cappedW - 1);
+    const h = Math.max(2, Math.round(wEven * aspect));
+    const hEven = h % 2 === 0 ? h : h - 1;
+    options.push({ width: wEven, height: Math.max(2, hEven), label: `${wEven}w` });
+  }
+
+  return options;
 }
 
 /** Compute resolution options based on the actual canvas base dimensions. */

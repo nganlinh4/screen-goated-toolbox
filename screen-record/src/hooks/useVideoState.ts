@@ -807,7 +807,8 @@ export function useExport(props: UseExportProps) {
       qualityGatePercent: 3,
       turboCodec: 'hevc',
       preRenderPolicy: 'aggressive',
-      outputDir: ''
+      outputDir: '',
+      format: 'mp4'
     };
   });
   const [hasCheckedExportCapabilities, setHasCheckedExportCapabilities] = useState(false);
@@ -1099,6 +1100,7 @@ export function useExport(props: UseExportProps) {
         turboCodec: exportOptions.turboCodec || 'hevc',
         preRenderPolicy: exportOptions.preRenderPolicy || 'idle_only',
         outputDir: exportOptions.outputDir || '',
+        format: exportOptions.format || 'mp4',
         video: props.videoRef.current, canvas: props.canvasRef.current, tempCanvas: props.tempCanvasRef.current!,
         segment: props.segment, backgroundConfig: props.backgroundConfig, mousePositions: props.mousePositions,
         audio: props.audioRef.current || undefined,
@@ -1123,6 +1125,8 @@ export function useExport(props: UseExportProps) {
 
   const cancelExport = useCallback(() => {
     videoExporter.cancel();
+    setIsProcessing(false);
+    setExportProgress(0);
   }, []);
 
   const hasAudio = Boolean(resolveSourceVideoPath());

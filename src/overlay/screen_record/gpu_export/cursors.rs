@@ -146,6 +146,21 @@ const RESIZE_NS_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-ns-
 const RESIZE_WE_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-we-sgtveggie.svg");
 const RESIZE_NWSE_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-nwse-sgtveggie.svg");
 const RESIZE_NESW_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-nesw-sgtveggie.svg");
+const DEFAULT_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-default-sgtvietnam.svg");
+const TEXT_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-text-sgtvietnam.svg");
+const POINTER_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-pointer-sgtvietnam.svg");
+const OPENHAND_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-openhand-sgtvietnam.svg");
+const CLOSEHAND_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-closehand-sgtvietnam.svg");
+const WAIT_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-wait-sgtvietnam.svg");
+const APPSTARTING_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("../dist/cursor-appstarting-sgtvietnam.svg");
+const CROSSHAIR_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-crosshair-sgtvietnam.svg");
+const RESIZE_NS_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-resize-ns-sgtvietnam.svg");
+const RESIZE_WE_SGTVIETNAM_SVG: &[u8] = include_bytes!("../dist/cursor-resize-we-sgtvietnam.svg");
+const RESIZE_NWSE_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-nwse-sgtvietnam.svg");
+const RESIZE_NESW_SGTVIETNAM_SVG: &[u8] =
+    include_bytes!("../dist/cursor-resize-nesw-sgtvietnam.svg");
 
 pub(super) const CURSOR_ATLAS_COLS: u32 = 9;
 pub(super) const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
@@ -284,6 +299,19 @@ const CURSOR_SVG_DATA: &[&[u8]] = &[
     RESIZE_WE_SGTVEGGIE_SVG,
     RESIZE_NWSE_SGTVEGGIE_SVG,
     RESIZE_NESW_SGTVEGGIE_SVG,
+    // sgtvietnam
+    DEFAULT_SGTVIETNAM_SVG,
+    TEXT_SGTVIETNAM_SVG,
+    POINTER_SGTVIETNAM_SVG,
+    OPENHAND_SGTVIETNAM_SVG,
+    CLOSEHAND_SGTVIETNAM_SVG,
+    WAIT_SGTVIETNAM_SVG,
+    APPSTARTING_SGTVIETNAM_SVG,
+    CROSSHAIR_SGTVIETNAM_SVG,
+    RESIZE_NS_SGTVIETNAM_SVG,
+    RESIZE_WE_SGTVIETNAM_SVG,
+    RESIZE_NWSE_SGTVIETNAM_SVG,
+    RESIZE_NESW_SGTVIETNAM_SVG,
 ];
 
 type TileCache = Mutex<Vec<Option<Arc<Vec<u8>>>>>;

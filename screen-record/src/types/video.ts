@@ -144,11 +144,11 @@ export interface BackgroundConfig {
   motionBlurCursor?: number; // 0-100 intensity (default 25, 0=off, 100=extreme)
   motionBlurZoom?: number;   // 0-100 intensity
   motionBlurPan?: number;    // 0-100 intensity
-  cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
-  cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
-  cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
-  cursorPointerVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
-  cursorOpenHandVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
+  cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam';
+  cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam';
+  cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam';
+  cursorPointerVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam';
+  cursorOpenHandVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam';
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1
@@ -244,6 +244,7 @@ export interface ExportOptions {
   preRenderPolicy?: 'off' | 'idle_only' | 'aggressive';
   exportDiagnostics?: boolean;
   outputDir?: string;
+  format?: 'mp4' | 'gif';
   video?: HTMLVideoElement;
   canvas?: HTMLCanvasElement;
   tempCanvas?: HTMLCanvasElement;

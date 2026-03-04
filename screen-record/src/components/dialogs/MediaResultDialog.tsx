@@ -196,6 +196,7 @@ export function MediaResultDialog({
   extraControls
 }: MediaResultDialogProps) {
   const { t } = useSettings();
+  const isGif = filePath.toLowerCase().endsWith('.gif');
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
@@ -313,20 +314,29 @@ export function MediaResultDialog({
 
         {filePath ? (
           <div className={`media-result-content ${isVideoFullscreen ? 'flex-1 relative min-h-0' : 'flex flex-col gap-4'}`}>
-            {/* Video box */}
+            {/* Preview box — GIF uses <img> (auto-animates), video uses CustomVideoPlayer */}
             <div className={`overflow-hidden bg-black ${isVideoFullscreen ? 'absolute inset-0' : 'relative media-preview-box aspect-video min-h-[220px] rounded-lg border border-[var(--glass-border)] shadow-inner'}`}>
               {streamUrl ? (
-                <CustomVideoPlayer
-                  src={streamUrl}
-                  isFullscreen={isVideoFullscreen}
-                  onEnterFullscreen={enterVideoFullscreen}
-                  onExitFullscreen={exitVideoFullscreen}
-                  onReady={() => setPreviewReady(true)}
-                />
+                isGif ? (
+                  <img
+                    src={streamUrl}
+                    alt="GIF preview"
+                    className="gif-preview absolute inset-0 w-full h-full object-contain"
+                    onLoad={() => setPreviewReady(true)}
+                  />
+                ) : (
+                  <CustomVideoPlayer
+                    src={streamUrl}
+                    isFullscreen={isVideoFullscreen}
+                    onEnterFullscreen={enterVideoFullscreen}
+                    onExitFullscreen={exitVideoFullscreen}
+                    onReady={() => setPreviewReady(true)}
+                  />
+                )
               ) : !isVideoFullscreen && (
                 <div className="media-preview-placeholder absolute inset-0 flex items-center justify-center text-xs text-white/70">{title}</div>
               )}
-              {!previewReady && !streamUrl && !isVideoFullscreen && (
+              {!previewReady && !isVideoFullscreen && (
                 <div className="media-preview-loading absolute inset-0 flex items-center justify-center text-xs text-white/50">{title}</div>
               )}
             </div>
@@ -363,7 +373,7 @@ export function MediaResultDialog({
                       <FolderOpen className="w-3.5 h-3.5 mr-1.5" /> {t.showInFolder}
                     </Button>
                     <Button onClick={handleCopyVideo} disabled={isBusy} className="h-9 text-xs bg-[var(--primary-color)] hover:opacity-90 text-white transition-all shadow-sm">
-                      <Copy className="w-3.5 h-3.5 mr-1.5" /> {t.copyVideo}
+                      <Copy className="w-3.5 h-3.5 mr-1.5" /> {isGif ? t.copyGif : t.copyVideo}
                     </Button>
                   </div>
                   {extraControls}

@@ -55,6 +55,7 @@ pub struct PipelineConfig {
     pub audio_path: Option<String>,
     /// Volume multiplier applied to every PCM sample (0.0 = silent, 1.0 = unchanged).
     pub audio_volume: f64,
+    pub format: String,
     pub output_width: u32,
     pub output_height: u32,
     pub framerate: u32,
@@ -139,9 +140,11 @@ struct GpuOutputRing {
 struct DecodeInputRing {
     shared_buffers: Vec<SharedVramBuffer>,
     wgpu_textures: Vec<wgpu::Texture>,
-    /// D3D12-side keyed mutex handles — one per ring slot.
-    /// Used by the render thread to call AcquireSync/ReleaseSync so the DX12
-    /// engine's GPU cache is properly invalidated after D3D11 writes each slot.
+    /// Keyed mutex handles — one per ring slot, obtained via QI from the D3D11 texture.
+    /// Used by the render thread to call AcquireSync/ReleaseSync so the GPU cache is
+    /// properly invalidated after D3D11 writes each slot. IDXGIKeyedMutex is a
+    /// DXGI-level primitive, not API-bound: the render thread may call it even though
+    /// it runs in the wgpu/DX12 context.
     dx12_keyed_mutexes: Vec<IDXGIKeyedMutex>,
 }
 
@@ -319,37 +322,6 @@ fn try_create_gpu_output_ring(
     })
 }
 
-/// Open a shared NT handle from the DX12 device and query IDXGIKeyedMutex from it.
-///
-/// This gives the render thread (DX12/wgpu) a keyed-mutex handle to the same
-/// physical VRAM texture that D3D11 writes. Calling AcquireSync on this handle
-/// forces a GPU L2-cache invalidation so DX12 sees the D3D11-written data.
-unsafe fn open_handle_as_dx12_keyed_mutex(
-    device: &wgpu::Device,
-    handle: HANDLE,
-) -> Result<IDXGIKeyedMutex, String> {
-    use windows::Win32::Graphics::Direct3D12 as d3d12;
-    device.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| -> Result<IDXGIKeyedMutex, String> {
-        let hal_dev = hal_dev.ok_or("No DX12 HAL device")?;
-        let hal_d12_ref = hal_dev.raw_device();
-        // Safety: hal_d12_ref is a wgpu-hal DX12 device whose underlying raw type
-        // is ID3D12Device. We borrow it for the duration of this closure only.
-        let our_d12: &d3d12::ID3D12Device = unsafe {
-            &*(hal_d12_ref as *const _ as *const d3d12::ID3D12Device)
-        };
-        let mut d3d12_resource: Option<d3d12::ID3D12Resource> = None;
-        unsafe {
-            our_d12
-                .OpenSharedHandle(handle, &mut d3d12_resource)
-                .map_err(|e| format!("OpenSharedHandle (D3D12 keyed mutex): {e}"))?;
-        }
-        let d3d12_resource =
-            d3d12_resource.ok_or_else(|| "OpenSharedHandle returned null".to_string())?;
-        d3d12_resource
-            .cast::<IDXGIKeyedMutex>()
-            .map_err(|e| format!("QI IDXGIKeyedMutex from D3D12 resource: {e}"))
-    })
-}
 
 /// Try to create a decode input ring (shared VRAM textures for decode→render zero-copy).
 /// Returns None if any step fails — caller falls back to CPU decode path.
@@ -386,13 +358,16 @@ fn try_create_decode_input_ring(
                 return None;
             }
         };
-        // Open the same NT handle a second time from the D3D12 device to obtain
-        // the IDXGIKeyedMutex interface. This is a separate COM reference —
-        // both the wgpu texture and this handle independently keep the resource alive.
-        let km = match unsafe { open_handle_as_dx12_keyed_mutex(wgpu_device, buf.handle) } {
+        // Get IDXGIKeyedMutex from the D3D11 texture. This works because the texture
+        // was created with D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, so QI always succeeds.
+        // IDXGIKeyedMutex is a DXGI-level scheduler primitive — the render thread can
+        // call AcquireSync/ReleaseSync on it regardless of which D3D API obtained it.
+        // (Attempting QI from the D3D12 resource opened via OpenSharedHandle fails on
+        // some adapters with E_NOINTERFACE, making the D3D11 path the reliable approach.)
+        let km = match buf.texture.cast::<IDXGIKeyedMutex>() {
             Ok(k) => k,
             Err(e) => {
-                eprintln!("[Export] D3D12 keyed mutex[{i}] failed: {e}");
+                eprintln!("[Export] Decode keyed mutex[{i}] QI failed: {e}");
                 return None;
             }
         };
@@ -481,7 +456,7 @@ pub fn run_zero_copy_export(
     // ─── Zero-copy output ring (render → encode) ────────────────────────────
 
     let gpu_ring = if force_cpu {
-        println!("[Export] SGT_FORCE_CPU_ENCODE set, using full CPU path");
+        println!("[Export] Falling back to CPU output path (force_cpu={})", force_cpu);
         None
     } else {
         match try_create_gpu_output_ring(
@@ -1463,14 +1438,6 @@ fn run_encode_thread(
     gpu_recycle_tx: mpsc::Sender<usize>,
     cpu_recycle_tx: mpsc::Sender<Vec<u8>>,
 ) -> Result<ZeroCopyExportResult, String> {
-    let encoder_config = EncoderConfig {
-        codec: config.codec,
-        width: config.output_width,
-        height: config.output_height,
-        fps_num: config.framerate,
-        fps_den: 1,
-        bitrate_kbps: config.bitrate_kbps,
-    };
     let mut audio_decoder = None;
     let mut audio_config = None;
 
@@ -1485,11 +1452,19 @@ fn run_encode_thread(
                     });
                     audio_decoder = Some(dec);
                 }
-                Err(e) => eprintln!("[Audio] Failed to open native audio decoder: {}", e),
+                Err(e) => eprintln!("[Audio] Failed to open native audio decoder: {e}"),
             }
         }
     }
 
+    let encoder_config = EncoderConfig {
+        codec: config.codec,
+        width: config.output_width,
+        height: config.output_height,
+        fps_num: config.framerate,
+        fps_den: 1,
+        bitrate_kbps: config.bitrate_kbps,
+    };
     let (encoder, opt_audio_stream) = MfEncoder::new(
         &config.output_path,
         encoder_config,
@@ -1532,7 +1507,7 @@ fn run_encode_thread(
 
         let timestamp_100ns = frames_encoded as i64 * frame_duration_100ns;
 
-        // Audio interleaving (identical for both paths).
+        // Audio interleaving.
         if let (Some(dec), Some(stream)) = (&audio_decoder, &opt_audio_stream) {
             while !audio_eof && audio_output_100ns <= timestamp_100ns {
                 let current_seg = if config.trim_segments.is_empty() {
