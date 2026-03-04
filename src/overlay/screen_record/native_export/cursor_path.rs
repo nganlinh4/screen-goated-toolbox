@@ -91,7 +91,7 @@ fn get_cursor_pack(bg: Option<&BackgroundConfig>) -> &str {
         if let Some(v) = variant_field {
             match v {
                 "jepriwin11" | "sgtpixel" | "sgtai" | "sgtcool" | "sgtcute" | "macos26"
-                | "sgtwatermelon" | "sgtfastfood" | "screenstudio" => return v,
+                | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" | "screenstudio" => return v,
                 _ => {}
             }
         }
@@ -134,7 +134,7 @@ fn build_cursor_type(semantic: &str, pack: &str, is_clicked: bool) -> String {
 
     let suffix = match pack {
         "macos26" | "sgtcool" | "sgtai" | "sgtpixel" | "jepriwin11" | "sgtcute"
-        | "sgtwatermelon" | "sgtfastfood" => pack,
+        | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" => pack,
         _ => "screenstudio",
     };
 

@@ -88,6 +88,12 @@ const SGTWATERMELON_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
   src: `/cursor-${t.id}-sgtwatermelon.svg`,
 }));
 
+const SGTVEGGIE_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
+  key: `sgtveggie-${t.id}`,
+  label: `SGT Veggie • ${t.label}`,
+  src: `/cursor-${t.id}-sgtveggie.svg`,
+}));
+
 const SGTFASTFOOD_ITEMS: CursorItem[] = CURSOR_TYPES.map((t) => ({
   key: `sgtfastfood-${t.id}`,
   label: `SGT Fastfood • ${t.label}`,
@@ -104,6 +110,7 @@ const CURSOR_ITEMS: CursorItem[] = [
   ...JEPRIWIN11_ITEMS,
   ...SGTWATERMELON_ITEMS,
   ...SGTFASTFOOD_ITEMS,
+  ...SGTVEGGIE_ITEMS,
 ];
 
 function makeDefaultAdjustments(): Record<string, CursorAdjustment> {

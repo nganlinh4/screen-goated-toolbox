@@ -112,7 +112,19 @@ export type CursorRenderType =
   | 'resize-ns-sgtfastfood'
   | 'resize-we-sgtfastfood'
   | 'resize-nwse-sgtfastfood'
-  | 'resize-nesw-sgtfastfood';
+  | 'resize-nesw-sgtfastfood'
+  | 'default-sgtveggie'
+  | 'text-sgtveggie'
+  | 'pointer-sgtveggie'
+  | 'openhand-sgtveggie'
+  | 'closehand-sgtveggie'
+  | 'wait-sgtveggie'
+  | 'appstarting-sgtveggie'
+  | 'crosshair-sgtveggie'
+  | 'resize-ns-sgtveggie'
+  | 'resize-we-sgtveggie'
+  | 'resize-nwse-sgtveggie'
+  | 'resize-nesw-sgtveggie';
 
 // ---------------------------------------------------------------------------
 // CursorImageSet – all HTMLImageElement fields used by cursor rendering
@@ -244,6 +256,20 @@ export interface CursorImageSet {
   resizeWeSgtfastfoodImage: HTMLImageElement;
   resizeNwseSgtfastfoodImage: HTMLImageElement;
   resizeNeswSgtfastfoodImage: HTMLImageElement;
+
+  // Sgtveggie pack
+  defaultSgtveggieImage: HTMLImageElement;
+  textSgtveggieImage: HTMLImageElement;
+  pointerSgtveggieImage: HTMLImageElement;
+  openHandSgtveggieImage: HTMLImageElement;
+  closeHandSgtveggieImage: HTMLImageElement;
+  waitSgtveggieImage: HTMLImageElement;
+  appStartingSgtveggieImage: HTMLImageElement;
+  crosshairSgtveggieImage: HTMLImageElement;
+  resizeNsSgtveggieImage: HTMLImageElement;
+  resizeWeSgtveggieImage: HTMLImageElement;
+  resizeNwseSgtveggieImage: HTMLImageElement;
+  resizeNeswSgtveggieImage: HTMLImageElement;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +288,8 @@ export interface CursorRenderState {
 // getCursorPack – determine which cursor pack is active
 // ---------------------------------------------------------------------------
 
-export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' {
+export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' {
+  if (backgroundConfig?.cursorPack === 'sgtveggie') return 'sgtveggie';
     if (backgroundConfig?.cursorPack === 'sgtfastfood') return 'sgtfastfood';
     if (backgroundConfig?.cursorPack === 'sgtwatermelon') return 'sgtwatermelon';
   if (backgroundConfig?.cursorPack === 'jepriwin11') return 'jepriwin11';
@@ -442,6 +469,22 @@ export function resolveCursorRenderType(rawType: string, backgroundConfig?: Back
     }
   }
 
+  if (pack === 'sgtveggie') {
+    switch (semanticType) {
+      case 'text': return 'text-sgtveggie';
+      case 'pointer': return 'pointer-sgtveggie';
+      case 'openhand': return 'openhand-sgtveggie';
+      case 'closehand': return 'closehand-sgtveggie';
+      case 'wait': return 'wait-sgtveggie';
+      case 'appstarting': return 'appstarting-sgtveggie';
+      case 'crosshair': return 'crosshair-sgtveggie';
+      case 'resize_ns': return 'resize-ns-sgtveggie';
+      case 'resize_we': return 'resize-we-sgtveggie';
+      case 'resize_nwse': return 'resize-nwse-sgtveggie';
+      case 'resize_nesw': return 'resize-nesw-sgtveggie';
+      default: return 'default-sgtveggie';
+    }
+  }
   if (pack === 'sgtfastfood') {
     switch (semanticType) {
       case 'text': return 'text-sgtfastfood';
@@ -653,6 +696,23 @@ export function getSgtfastfoodCursorImage(images: CursorImageSet, type: CursorRe
     case 'resize-we-sgtfastfood': return images.resizeWeSgtfastfoodImage;
     case 'resize-nwse-sgtfastfood': return images.resizeNwseSgtfastfoodImage;
     case 'resize-nesw-sgtfastfood': return images.resizeNeswSgtfastfoodImage;
+    default: return null;
+  }
+}
+export function getSgtveggieCursorImage(images: CursorImageSet, type: CursorRenderType): HTMLImageElement | null {
+  switch (type) {
+    case 'default-sgtveggie': return images.defaultSgtveggieImage;
+    case 'text-sgtveggie': return images.textSgtveggieImage;
+    case 'pointer-sgtveggie': return images.pointerSgtveggieImage;
+    case 'openhand-sgtveggie': return images.openHandSgtveggieImage;
+    case 'closehand-sgtveggie': return images.closeHandSgtveggieImage;
+    case 'wait-sgtveggie': return images.waitSgtveggieImage;
+    case 'appstarting-sgtveggie': return images.appStartingSgtveggieImage;
+    case 'crosshair-sgtveggie': return images.crosshairSgtveggieImage;
+    case 'resize-ns-sgtveggie': return images.resizeNsSgtveggieImage;
+    case 'resize-we-sgtveggie': return images.resizeWeSgtveggieImage;
+    case 'resize-nwse-sgtveggie': return images.resizeNwseSgtveggieImage;
+    case 'resize-nesw-sgtveggie': return images.resizeNeswSgtveggieImage;
     default: return null;
   }
 }
