@@ -85,6 +85,7 @@ const PACK_SUFFIXES: Record<string, string> = {
   sgtpixel: 'Sgtpixel',
   jepriwin11: 'Jepriwin11',
   sgtwatermelon: 'Sgtwatermelon',
+  sgtfastfood: 'Sgtfastfood',
 };
 
 const TYPE_FIELD_PREFIX: Record<string, string> = {
