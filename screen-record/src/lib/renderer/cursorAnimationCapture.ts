@@ -109,6 +109,8 @@ const CURSOR_TYPE_TO_SLOT: Readonly<Record<string, number>> = {
   'appstarting-sgtveggie': 114,
   'wait-sgtvietnam': 125,
   'appstarting-sgtvietnam': 126,
+  'wait-sgtkorea': 137,
+  'appstarting-sgtkorea': 138,
 };
 export function getCursorAtlasSlotId(cursorType: string): number {
   return CURSOR_TYPE_TO_SLOT[cursorType] ?? -1;

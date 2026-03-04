@@ -22,7 +22,7 @@ export function createCursorImageSet(): CursorImageSet {
     'default', 'text', 'pointer', 'openhand', 'closehand',
     'wait', 'appstarting', 'crosshair', 'resize-ns', 'resize-we',
     'resize-nwse', 'resize-nesw',
-] as const;
+  ] as const;
 
   // Pack slug -> CursorImageSet field suffix
   const packs = [
@@ -37,6 +37,7 @@ export function createCursorImageSet(): CursorImageSet {
     { slug: 'sgtfastfood', suffix: 'Sgtfastfood' },
     { slug: 'sgtveggie', suffix: 'Sgtveggie' },
     { slug: 'sgtvietnam', suffix: 'Sgtvietnam' },
+    { slug: 'sgtkorea', suffix: 'Sgtkorea' },
   ] as const;
 
   // Map cursor type slug -> CursorImageSet field prefix
@@ -90,6 +91,7 @@ const PACK_SUFFIXES: Record<string, string> = {
   sgtfastfood: 'Sgtfastfood',
   sgtveggie: 'Sgtveggie',
   sgtvietnam: 'Sgtvietnam',
+  sgtkorea: 'Sgtkorea',
 };
 
 const TYPE_FIELD_PREFIX: Record<string, string> = {

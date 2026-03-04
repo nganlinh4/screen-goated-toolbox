@@ -15,6 +15,7 @@ import {
   getSgtfastfoodCursorImage,
   getSgtveggieCursorImage,
   getSgtvietnamCursorImage,
+  getSgtkoreaCursorImage,
 } from './cursorTypes';
 import { getPreviewFrame } from './cursorAnimationCapture';
 
@@ -35,6 +36,7 @@ export {
   getSgtfastfoodCursorImage,
   getSgtveggieCursorImage,
   getSgtvietnamCursorImage,
+  getSgtkoreaCursorImage,
   getScreenStudioCursorImage,
 } from './cursorTypes';
 
@@ -192,7 +194,8 @@ export function drawCursorShape(
       getSgtwatermelonCursorImage(images, effectiveType as CursorRenderType) ??
       getSgtfastfoodCursorImage(images, effectiveType as CursorRenderType) ??
       getSgtveggieCursorImage(images, effectiveType as CursorRenderType) ??
-      getSgtvietnamCursorImage(images, effectiveType as CursorRenderType);
+      getSgtvietnamCursorImage(images, effectiveType as CursorRenderType) ??
+      getSgtkoreaCursorImage(images, effectiveType as CursorRenderType);
     console.log('[CursorDebug] loaded', {
       effectiveType,
       src: debugImg?.src,
@@ -386,6 +389,23 @@ export function drawCursorShape(
     case 'resize-nesw-sgtvietnam':
     case 'resize-nesw-sgtvietnam': {
       const img = getSgtvietnamCursorImage(images, effectiveType);
+      if (img) drawCenteredCursorImage(ctx, img);
+      break;
+    }
+    case 'default-sgtkorea':
+    case 'text-sgtkorea':
+    case 'pointer-sgtkorea':
+    case 'openhand-sgtkorea':
+    case 'closehand-sgtkorea':
+    case 'wait-sgtkorea':
+    case 'appstarting-sgtkorea':
+    case 'crosshair-sgtkorea':
+    case 'resize-ns-sgtkorea':
+    case 'resize-we-sgtkorea':
+    case 'resize-nwse-sgtkorea':
+    case 'resize-nesw-sgtkorea':
+    case 'resize-nesw-sgtkorea': {
+      const img = getSgtkoreaCursorImage(images, effectiveType);
       if (img) drawCenteredCursorImage(ctx, img);
       break;
     }
