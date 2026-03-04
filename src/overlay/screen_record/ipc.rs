@@ -1736,6 +1736,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                 "mp3" => "audio/mpeg",
                 "m4a" => "audio/mp4",
                 "aac" => "audio/aac",
+                "gif" => "image/gif",
                 _ => "video/mp4",
             };
 

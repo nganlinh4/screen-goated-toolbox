@@ -142,6 +142,11 @@ const ko: Translations = {
   exportBackendNoCapabilityData: '성능 정보 없음',
   exportBackendNvencFallbackIfError: 'NVENC 실패 시 CPU x264로 폴백',
   exportBackendNvencUnavailable: '이 기기에서는 NVENC를 사용할 수 없음',
+  exportFormat: '형식',
+  exportFormatGif: 'GIF',
+  exportFormatMp4: 'MP4',
+  exportBackendSoftwareGif: '소프트웨어 GIF 인코더',
+  exportSizeVaries: '가변',
   standard: '표준',
   slower: '느리게',
   faster: '빠르게',
@@ -155,6 +160,7 @@ const ko: Translations = {
   rawVideoPathUnavailable: '이 프로젝트의 원본 비디오 경로를 찾을 수 없습니다',
   changePath: '경로 변경',
   copyVideo: '비디오 복사',
+  copyGif: 'GIF 복사',
   autoCopyAfterRecording: '다음 녹화부터 자동 복사',
 
   // Dialogs - Projects

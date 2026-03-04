@@ -142,6 +142,11 @@ const vi: Translations = {
   exportBackendNoCapabilityData: 'Không có dữ liệu capability',
   exportBackendNvencFallbackIfError: 'Fallback về CPU x264 nếu NVENC lỗi',
   exportBackendNvencUnavailable: 'NVENC không khả dụng trên máy này',
+  exportFormat: 'Định dạng',
+  exportFormatGif: 'GIF',
+  exportFormatMp4: 'MP4',
+  exportBackendSoftwareGif: 'Bộ mã hóa GIF phần mềm',
+  exportSizeVaries: 'Thay đổi',
   standard: 'Chuẩn',
   slower: 'Chậm hơn',
   faster: 'Nhanh hơn',
@@ -155,6 +160,7 @@ const vi: Translations = {
   rawVideoPathUnavailable: 'Không tìm thấy đường dẫn video gốc cho dự án này',
   changePath: 'Đổi đường dẫn',
   copyVideo: 'Copy video',
+  copyGif: 'Copy GIF',
   autoCopyAfterRecording: 'Tự copy sau khi quay cho lần sau',
 
   // Dialogs - Projects

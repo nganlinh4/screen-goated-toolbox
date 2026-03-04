@@ -286,8 +286,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     };
 
     let audio_volume = config.background_config.volume.clamp(0.0, 2.0);
-    // Volume 0 → omit audio track entirely (no point decoding/encoding silence).
-    let source_audio_path = if !config.audio_path.is_empty() && audio_volume > 0.0 {
+    // Volume 0 or GIF format → omit audio track (GIF is silent looping video).
+    let source_audio_path = if !config.audio_path.is_empty() && audio_volume > 0.0 && config.format != "gif" {
         Some(config.audio_path.clone())
     } else {
         None
@@ -302,14 +302,25 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     fs::create_dir_all(&output_base_dir)
         .map_err(|e| format!("Failed to create output directory: {}", e))?;
 
-    // Native zero-copy export writes final MP4 directly (video + optional audio).
+    let is_gif = config.format == "gif";
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    // Final output path: always uses the user-selected extension.
     let final_output_path = output_base_dir.join(format!(
-        "SGT_Export_{}.mp4",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
+        "SGT_Export_{}.{}",
+        timestamp_ms,
+        config.format
     ));
+    // For GIF: GPU encodes a temp silent MP4, then FFmpeg converts it to a real
+    // animated GIF (two-pass palettegen+paletteuse). For MP4: encode directly.
+    let encode_output_path = if is_gif {
+        output_base_dir.join(format!("SGT_Export_{}_tmp.mp4", timestamp_ms))
+    } else {
+        final_output_path.clone()
+    };
 
     // Get source dimensions via MF SourceReader (lightweight probe, no GPU)
     mf_decode::mf_startup()?;
@@ -579,9 +590,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let pipeline_config = gpu_pipeline::PipelineConfig {
         source_video_path: source_video_path.clone(),
-        output_path: final_output_path.to_str().unwrap().to_string(),
+        output_path: encode_output_path.to_str().unwrap().to_string(),
         audio_path: source_audio_path.clone(),
         audio_volume,
+        format: "mp4".to_string(), // GPU encoder always produces MP4
         output_width: out_w,
         output_height: out_h,
         framerate: config.framerate,
@@ -640,13 +652,30 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             // If cancelled, the encode thread may have still finalized a partial file.
             // Detect this case and report cancellation instead of false success.
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {
-                let _ = fs::remove_file(&final_output_path);
+                let _ = fs::remove_file(&encode_output_path);
                 println!("[Export][Summary] status=cancelled (partial encode finalized)");
                 return Ok(serde_json::json!({ "status": "cancelled" }));
             }
 
-            let total_secs = export_total_start.elapsed().as_secs_f64();
+            // GIF: convert temp MP4 → animated GIF via FFmpeg, then remove the temp file.
+            if is_gif {
+                println!("[Export] Converting to GIF via FFmpeg...");
+                let gif_max_w = out_w.min(960);
+                match convert_mp4_to_gif(&encode_output_path, &final_output_path, gif_max_w) {
+                    Ok(()) => {
+                        let _ = fs::remove_file(&encode_output_path);
+                        println!("[Export] GIF conversion complete");
+                    }
+                    Err(e) => {
+                        let _ = fs::remove_file(&encode_output_path);
+                        let _ = fs::remove_file(&final_output_path);
+                        println!("[Export][Summary] status=error (gif convert) error={}", e);
+                        return Err(e);
+                    }
+                }
+            }
 
+            let total_secs = export_total_start.elapsed().as_secs_f64();
 
             let output_bytes = fs::metadata(&final_output_path)
                 .map(|m| m.len())
@@ -692,6 +721,7 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             }))
         }
         Err(e) => {
+            let _ = fs::remove_file(&encode_output_path);
             let _ = fs::remove_file(&final_output_path);
 
             if EXPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -703,4 +733,57 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             Err(e)
         }
     }
+}
+
+/// Path to the FFmpeg binary installed by the app setup.
+fn ffmpeg_exe() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or(PathBuf::from("."))
+        .join("screen-goated-toolbox")
+        .join("bin")
+        .join("ffmpeg.exe")
+}
+
+/// Convert a silent MP4 to an animated GIF using FFmpeg's two-pass palettegen+paletteuse.
+///
+/// Uses a single filtergraph with `split` so FFmpeg only decodes the input once.
+/// The palette is built from the entire video (`stats_mode=full`) for best global quality.
+/// Bayer dithering (scale 3) gives a good quality/size balance without Floyd-Steinberg noise.
+fn convert_mp4_to_gif(mp4_path: &Path, gif_path: &Path, max_width: u32) -> Result<(), String> {
+    let ffmpeg = ffmpeg_exe();
+    if !ffmpeg.exists() {
+        return Err(format!(
+            "FFmpeg not found at {}. Please install it via the app setup.",
+            ffmpeg.display()
+        ));
+    }
+
+    // scale=W:-1 keeps the original if the video is already narrower than max_width.
+    let filter = format!(
+        "scale='min({max_width},iw)':-1:flags=lanczos,\
+         split[s0][s1];\
+         [s0]palettegen=stats_mode=full[p];\
+         [s1][p]paletteuse=dither=bayer:bayer_scale=3"
+    );
+
+    let out = std::process::Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-i",
+            mp4_path.to_str().unwrap_or(""),
+            "-vf",
+            &filter,
+            "-loop",
+            "0",
+            gif_path.to_str().unwrap_or(""),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to launch FFmpeg: {e}"))?;
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("FFmpeg GIF conversion failed:\n{stderr}"));
+    }
+
+    Ok(())
 }

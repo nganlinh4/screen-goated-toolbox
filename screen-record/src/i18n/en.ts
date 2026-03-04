@@ -140,6 +140,11 @@ const en = {
   exportBackendNoCapabilityData: 'Capability data unavailable',
   exportBackendNvencFallbackIfError: 'Falls back to CPU x264 if NVENC fails',
   exportBackendNvencUnavailable: 'NVENC is not available on this machine',
+  exportFormat: 'Format',
+  exportFormatGif: 'GIF',
+  exportFormatMp4: 'MP4',
+  exportBackendSoftwareGif: 'Software GIF Encoder',
+  exportSizeVaries: 'Varies',
   standard: 'Standard',
   slower: 'Slower',
   faster: 'Faster',
@@ -153,6 +158,7 @@ const en = {
   rawVideoPathUnavailable: 'Raw video path unavailable for this project',
   changePath: 'Change Path',
   copyVideo: 'Copy Video',
+  copyGif: 'Copy GIF',
   autoCopyAfterRecording: 'Auto copy after recording for future recordings',
 
   // Dialogs - Projects

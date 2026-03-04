@@ -124,7 +124,19 @@ export type CursorRenderType =
   | 'resize-ns-sgtveggie'
   | 'resize-we-sgtveggie'
   | 'resize-nwse-sgtveggie'
-  | 'resize-nesw-sgtveggie';
+  | 'resize-nesw-sgtveggie'
+  | 'default-sgtvietnam'
+  | 'text-sgtvietnam'
+  | 'pointer-sgtvietnam'
+  | 'openhand-sgtvietnam'
+  | 'closehand-sgtvietnam'
+  | 'wait-sgtvietnam'
+  | 'appstarting-sgtvietnam'
+  | 'crosshair-sgtvietnam'
+  | 'resize-ns-sgtvietnam'
+  | 'resize-we-sgtvietnam'
+  | 'resize-nwse-sgtvietnam'
+  | 'resize-nesw-sgtvietnam';
 
 // ---------------------------------------------------------------------------
 // CursorImageSet – all HTMLImageElement fields used by cursor rendering
@@ -270,6 +282,20 @@ export interface CursorImageSet {
   resizeWeSgtveggieImage: HTMLImageElement;
   resizeNwseSgtveggieImage: HTMLImageElement;
   resizeNeswSgtveggieImage: HTMLImageElement;
+
+  // Sgtvietnam pack
+  defaultSgtvietnamImage: HTMLImageElement;
+  textSgtvietnamImage: HTMLImageElement;
+  pointerSgtvietnamImage: HTMLImageElement;
+  openHandSgtvietnamImage: HTMLImageElement;
+  closeHandSgtvietnamImage: HTMLImageElement;
+  waitSgtvietnamImage: HTMLImageElement;
+  appStartingSgtvietnamImage: HTMLImageElement;
+  crosshairSgtvietnamImage: HTMLImageElement;
+  resizeNsSgtvietnamImage: HTMLImageElement;
+  resizeWeSgtvietnamImage: HTMLImageElement;
+  resizeNwseSgtvietnamImage: HTMLImageElement;
+  resizeNeswSgtvietnamImage: HTMLImageElement;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,8 +314,9 @@ export interface CursorRenderState {
 // getCursorPack – determine which cursor pack is active
 // ---------------------------------------------------------------------------
 
-export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' {
-  if (backgroundConfig?.cursorPack === 'sgtveggie') return 'sgtveggie';
+export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' {
+if (backgroundConfig?.cursorPack === 'sgtvietnam') return 'sgtvietnam';
+    if (backgroundConfig?.cursorPack === 'sgtveggie') return 'sgtveggie';
     if (backgroundConfig?.cursorPack === 'sgtfastfood') return 'sgtfastfood';
     if (backgroundConfig?.cursorPack === 'sgtwatermelon') return 'sgtwatermelon';
   if (backgroundConfig?.cursorPack === 'jepriwin11') return 'jepriwin11';
@@ -469,6 +496,22 @@ export function resolveCursorRenderType(rawType: string, backgroundConfig?: Back
     }
   }
 
+  if (pack === 'sgtvietnam') {
+    switch (semanticType) {
+      case 'text': return 'text-sgtvietnam';
+      case 'pointer': return 'pointer-sgtvietnam';
+      case 'openhand': return 'openhand-sgtvietnam';
+      case 'closehand': return 'closehand-sgtvietnam';
+      case 'wait': return 'wait-sgtvietnam';
+      case 'appstarting': return 'appstarting-sgtvietnam';
+      case 'crosshair': return 'crosshair-sgtvietnam';
+      case 'resize_ns': return 'resize-ns-sgtvietnam';
+      case 'resize_we': return 'resize-we-sgtvietnam';
+      case 'resize_nwse': return 'resize-nwse-sgtvietnam';
+      case 'resize_nesw': return 'resize-nesw-sgtvietnam';
+      default: return 'default-sgtvietnam';
+    }
+  }
   if (pack === 'sgtveggie') {
     switch (semanticType) {
       case 'text': return 'text-sgtveggie';
@@ -713,6 +756,23 @@ export function getSgtveggieCursorImage(images: CursorImageSet, type: CursorRend
     case 'resize-we-sgtveggie': return images.resizeWeSgtveggieImage;
     case 'resize-nwse-sgtveggie': return images.resizeNwseSgtveggieImage;
     case 'resize-nesw-sgtveggie': return images.resizeNeswSgtveggieImage;
+    default: return null;
+  }
+}
+export function getSgtvietnamCursorImage(images: CursorImageSet, type: CursorRenderType): HTMLImageElement | null {
+  switch (type) {
+    case 'default-sgtvietnam': return images.defaultSgtvietnamImage;
+    case 'text-sgtvietnam': return images.textSgtvietnamImage;
+    case 'pointer-sgtvietnam': return images.pointerSgtvietnamImage;
+    case 'openhand-sgtvietnam': return images.openHandSgtvietnamImage;
+    case 'closehand-sgtvietnam': return images.closeHandSgtvietnamImage;
+    case 'wait-sgtvietnam': return images.waitSgtvietnamImage;
+    case 'appstarting-sgtvietnam': return images.appStartingSgtvietnamImage;
+    case 'crosshair-sgtvietnam': return images.crosshairSgtvietnamImage;
+    case 'resize-ns-sgtvietnam': return images.resizeNsSgtvietnamImage;
+    case 'resize-we-sgtvietnam': return images.resizeWeSgtvietnamImage;
+    case 'resize-nwse-sgtvietnam': return images.resizeNwseSgtvietnamImage;
+    case 'resize-nesw-sgtvietnam': return images.resizeNeswSgtvietnamImage;
     default: return null;
   }
 }

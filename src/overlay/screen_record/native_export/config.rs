@@ -21,6 +21,8 @@ pub struct ExportConfig {
     pub audio_path: String,
     #[serde(default)]
     pub output_dir: String,
+    #[serde(default = "default_format")]
+    pub format: String,
     pub trim_start: f64,
     pub duration: f64,
     pub segment: VideoSegment,
@@ -274,6 +276,10 @@ fn default_quality_gate_percent() -> f64 {
 
 fn default_pre_render_policy() -> String {
     "idle_only".to_string()
+}
+
+fn default_format() -> String {
+    "mp4".to_string()
 }
 
 /// Pre-rasterized animation frames for one cursor atlas slot.
