@@ -69,7 +69,9 @@ After the automation script runs, check and fix each of these by hand:
 
 4. **`CursorSvgLab.tsx`** — script may place `SGT<SLUG>_ITEMS` declaration inside a function body. Verify it is at module level, before `CURSOR_ITEMS`.
 
-5. **`cursorGraphics.ts`** — check for stray `; ??` (semicolon before `??`) on the previous pack's `getSgt...CursorImage()` call; remove the semicolon.
+5. **`cursorGraphics.ts`** — two bugs here:
+   - **Import block**: script inserts `}  getSgt<Slug>CursorImage,` with a stray `}` prefix. Fix: remove the `}` so it's just `  getSgt<Slug>CursorImage,`.
+   - **`; ??` corruption**: script inserts a `;` before the `??` on the previous pack's `getSgt...CursorImage()` call. Fix: change `; ??` → ` ??`.
 
 6. **`native_export/cursor_path.rs` `build_cursor_type()`** — script does NOT add the slug here. Add manually to the match arm:
    ```rust

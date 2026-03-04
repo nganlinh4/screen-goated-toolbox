@@ -161,6 +161,18 @@ const RESIZE_NWSE_SGTVIETNAM_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nwse-sgtvietnam.svg");
 const RESIZE_NESW_SGTVIETNAM_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nesw-sgtvietnam.svg");
+const DEFAULT_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-default-sgtkorea.svg");
+const TEXT_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-text-sgtkorea.svg");
+const POINTER_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-pointer-sgtkorea.svg");
+const OPENHAND_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-openhand-sgtkorea.svg");
+const CLOSEHAND_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-closehand-sgtkorea.svg");
+const WAIT_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-wait-sgtkorea.svg");
+const APPSTARTING_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-appstarting-sgtkorea.svg");
+const CROSSHAIR_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-crosshair-sgtkorea.svg");
+const RESIZE_NS_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-resize-ns-sgtkorea.svg");
+const RESIZE_WE_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-resize-we-sgtkorea.svg");
+const RESIZE_NWSE_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-resize-nwse-sgtkorea.svg");
+const RESIZE_NESW_SGTKOREA_SVG: &[u8] = include_bytes!("../dist/cursor-resize-nesw-sgtkorea.svg");
 
 pub(super) const CURSOR_ATLAS_COLS: u32 = 9;
 pub(super) const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
@@ -312,6 +324,19 @@ const CURSOR_SVG_DATA: &[&[u8]] = &[
     RESIZE_WE_SGTVIETNAM_SVG,
     RESIZE_NWSE_SGTVIETNAM_SVG,
     RESIZE_NESW_SGTVIETNAM_SVG,
+    // sgtkorea
+    DEFAULT_SGTKOREA_SVG,
+    TEXT_SGTKOREA_SVG,
+    POINTER_SGTKOREA_SVG,
+    OPENHAND_SGTKOREA_SVG,
+    CLOSEHAND_SGTKOREA_SVG,
+    WAIT_SGTKOREA_SVG,
+    APPSTARTING_SGTKOREA_SVG,
+    CROSSHAIR_SGTKOREA_SVG,
+    RESIZE_NS_SGTKOREA_SVG,
+    RESIZE_WE_SGTKOREA_SVG,
+    RESIZE_NWSE_SGTKOREA_SVG,
+    RESIZE_NESW_SGTKOREA_SVG,
 ];
 
 type TileCache = Mutex<Vec<Option<Arc<Vec<u8>>>>>;

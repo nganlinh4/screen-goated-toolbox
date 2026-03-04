@@ -136,7 +136,19 @@ export type CursorRenderType =
   | 'resize-ns-sgtvietnam'
   | 'resize-we-sgtvietnam'
   | 'resize-nwse-sgtvietnam'
-  | 'resize-nesw-sgtvietnam';
+  | 'resize-nesw-sgtvietnam'
+  | 'default-sgtkorea'
+  | 'text-sgtkorea'
+  | 'pointer-sgtkorea'
+  | 'openhand-sgtkorea'
+  | 'closehand-sgtkorea'
+  | 'wait-sgtkorea'
+  | 'appstarting-sgtkorea'
+  | 'crosshair-sgtkorea'
+  | 'resize-ns-sgtkorea'
+  | 'resize-we-sgtkorea'
+  | 'resize-nwse-sgtkorea'
+  | 'resize-nesw-sgtkorea';
 
 // ---------------------------------------------------------------------------
 // CursorImageSet – all HTMLImageElement fields used by cursor rendering
@@ -296,6 +308,20 @@ export interface CursorImageSet {
   resizeWeSgtvietnamImage: HTMLImageElement;
   resizeNwseSgtvietnamImage: HTMLImageElement;
   resizeNeswSgtvietnamImage: HTMLImageElement;
+
+  // Sgtkorea pack
+  defaultSgtkoreaImage: HTMLImageElement;
+  textSgtkoreaImage: HTMLImageElement;
+  pointerSgtkoreaImage: HTMLImageElement;
+  openHandSgtkoreaImage: HTMLImageElement;
+  closeHandSgtkoreaImage: HTMLImageElement;
+  waitSgtkoreaImage: HTMLImageElement;
+  appStartingSgtkoreaImage: HTMLImageElement;
+  crosshairSgtkoreaImage: HTMLImageElement;
+  resizeNsSgtkoreaImage: HTMLImageElement;
+  resizeWeSgtkoreaImage: HTMLImageElement;
+  resizeNwseSgtkoreaImage: HTMLImageElement;
+  resizeNeswSgtkoreaImage: HTMLImageElement;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +340,8 @@ export interface CursorRenderState {
 // getCursorPack – determine which cursor pack is active
 // ---------------------------------------------------------------------------
 
-export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' {
+export function getCursorPack(backgroundConfig?: BackgroundConfig | null): 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' | 'sgtkorea' {
+  if (backgroundConfig?.cursorPack === 'sgtkorea') return 'sgtkorea';
 if (backgroundConfig?.cursorPack === 'sgtvietnam') return 'sgtvietnam';
     if (backgroundConfig?.cursorPack === 'sgtveggie') return 'sgtveggie';
     if (backgroundConfig?.cursorPack === 'sgtfastfood') return 'sgtfastfood';
@@ -496,6 +523,22 @@ export function resolveCursorRenderType(rawType: string, backgroundConfig?: Back
     }
   }
 
+  if (pack === 'sgtkorea') {
+    switch (semanticType) {
+      case 'text': return 'text-sgtkorea';
+      case 'pointer': return 'pointer-sgtkorea';
+      case 'openhand': return 'openhand-sgtkorea';
+      case 'closehand': return 'closehand-sgtkorea';
+      case 'wait': return 'wait-sgtkorea';
+      case 'appstarting': return 'appstarting-sgtkorea';
+      case 'crosshair': return 'crosshair-sgtkorea';
+      case 'resize_ns': return 'resize-ns-sgtkorea';
+      case 'resize_we': return 'resize-we-sgtkorea';
+      case 'resize_nwse': return 'resize-nwse-sgtkorea';
+      case 'resize_nesw': return 'resize-nesw-sgtkorea';
+      default: return 'default-sgtkorea';
+    }
+  }
   if (pack === 'sgtvietnam') {
     switch (semanticType) {
       case 'text': return 'text-sgtvietnam';
@@ -773,6 +816,23 @@ export function getSgtvietnamCursorImage(images: CursorImageSet, type: CursorRen
     case 'resize-we-sgtvietnam': return images.resizeWeSgtvietnamImage;
     case 'resize-nwse-sgtvietnam': return images.resizeNwseSgtvietnamImage;
     case 'resize-nesw-sgtvietnam': return images.resizeNeswSgtvietnamImage;
+    default: return null;
+  }
+}
+export function getSgtkoreaCursorImage(images: CursorImageSet, type: CursorRenderType): HTMLImageElement | null {
+  switch (type) {
+    case 'default-sgtkorea': return images.defaultSgtkoreaImage;
+    case 'text-sgtkorea': return images.textSgtkoreaImage;
+    case 'pointer-sgtkorea': return images.pointerSgtkoreaImage;
+    case 'openhand-sgtkorea': return images.openHandSgtkoreaImage;
+    case 'closehand-sgtkorea': return images.closeHandSgtkoreaImage;
+    case 'wait-sgtkorea': return images.waitSgtkoreaImage;
+    case 'appstarting-sgtkorea': return images.appStartingSgtkoreaImage;
+    case 'crosshair-sgtkorea': return images.crosshairSgtkoreaImage;
+    case 'resize-ns-sgtkorea': return images.resizeNsSgtkoreaImage;
+    case 'resize-we-sgtkorea': return images.resizeWeSgtkoreaImage;
+    case 'resize-nwse-sgtkorea': return images.resizeNwseSgtkoreaImage;
+    case 'resize-nesw-sgtkorea': return images.resizeNeswSgtkoreaImage;
     default: return null;
   }
 }

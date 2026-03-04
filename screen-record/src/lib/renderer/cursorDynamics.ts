@@ -599,6 +599,9 @@ export function getCursorRotationPivot(cursorType: string): { x: number; y: numb
     case 'pointer-sgtvietnam':
     case 'openhand-sgtvietnam':
     case 'closehand-sgtvietnam':
+    case 'pointer-sgtkorea':
+    case 'openhand-sgtkorea':
+    case 'closehand-sgtkorea':
       return { x: 3.0, y: 8.5 };
     case 'text-screenstudio':
     case 'text-macos26':
@@ -611,6 +614,7 @@ export function getCursorRotationPivot(cursorType: string): { x: number; y: numb
     case 'text-sgtfastfood':
     case 'text-sgtveggie':
     case 'text-sgtvietnam':
+    case 'text-sgtkorea':
       return { x: 0, y: 0 };
     default:
       return { x: 3.6, y: 5.6 };

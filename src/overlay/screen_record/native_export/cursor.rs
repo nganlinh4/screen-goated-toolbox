@@ -137,13 +137,25 @@ pub fn cursor_type_to_id(c_type: &str) -> f32 {
         "resize-we-sgtvietnam" => 129.0,
         "resize-nwse-sgtvietnam" => 130.0,
         "resize-nesw-sgtvietnam" => 131.0,
+        "default-sgtkorea" => 132.0,
+        "text-sgtkorea" => 133.0,
+        "pointer-sgtkorea" => 134.0,
+        "openhand-sgtkorea" => 135.0,
+        "closehand-sgtkorea" => 136.0,
+        "wait-sgtkorea" => 137.0,
+        "appstarting-sgtkorea" => 138.0,
+        "crosshair-sgtkorea" => 139.0,
+        "resize-ns-sgtkorea" => 140.0,
+        "resize-we-sgtkorea" => 141.0,
+        "resize-nwse-sgtkorea" => 142.0,
+        "resize-nesw-sgtkorea" => 143.0,
         "other" => 12.0,
         _ => 0.0,
     }
 }
 
 pub fn collect_used_cursor_slots(baked_cursor: &[BakedCursorFrame]) -> Vec<u32> {
-    let mut seen = [false; 132];
+    let mut seen = [false; 144];
     let mut slots = Vec::new();
     for frame in baked_cursor {
         let slot = cursor_type_to_id(&frame.cursor_type) as u32;
