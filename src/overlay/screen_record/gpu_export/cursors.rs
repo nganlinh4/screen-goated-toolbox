@@ -134,6 +134,18 @@ const RESIZE_NWSE_SGTFASTFOOD_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nwse-sgtfastfood.svg");
 const RESIZE_NESW_SGTFASTFOOD_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nesw-sgtfastfood.svg");
+const DEFAULT_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-default-sgtveggie.svg");
+const TEXT_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-text-sgtveggie.svg");
+const POINTER_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-pointer-sgtveggie.svg");
+const OPENHAND_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-openhand-sgtveggie.svg");
+const CLOSEHAND_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-closehand-sgtveggie.svg");
+const WAIT_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-wait-sgtveggie.svg");
+const APPSTARTING_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-appstarting-sgtveggie.svg");
+const CROSSHAIR_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-crosshair-sgtveggie.svg");
+const RESIZE_NS_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-ns-sgtveggie.svg");
+const RESIZE_WE_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-we-sgtveggie.svg");
+const RESIZE_NWSE_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-nwse-sgtveggie.svg");
+const RESIZE_NESW_SGTVEGGIE_SVG: &[u8] = include_bytes!("../dist/cursor-resize-nesw-sgtveggie.svg");
 
 pub(super) const CURSOR_ATLAS_COLS: u32 = 9;
 pub(super) const CURSOR_ATLAS_SLOTS: u32 = CURSOR_SVG_DATA.len() as u32;
@@ -259,6 +271,19 @@ const CURSOR_SVG_DATA: &[&[u8]] = &[
     RESIZE_WE_SGTFASTFOOD_SVG,
     RESIZE_NWSE_SGTFASTFOOD_SVG,
     RESIZE_NESW_SGTFASTFOOD_SVG,
+    // sgtveggie
+    DEFAULT_SGTVEGGIE_SVG,
+    TEXT_SGTVEGGIE_SVG,
+    POINTER_SGTVEGGIE_SVG,
+    OPENHAND_SGTVEGGIE_SVG,
+    CLOSEHAND_SGTVEGGIE_SVG,
+    WAIT_SGTVEGGIE_SVG,
+    APPSTARTING_SGTVEGGIE_SVG,
+    CROSSHAIR_SGTVEGGIE_SVG,
+    RESIZE_NS_SGTVEGGIE_SVG,
+    RESIZE_WE_SGTVEGGIE_SVG,
+    RESIZE_NWSE_SGTVEGGIE_SVG,
+    RESIZE_NESW_SGTVEGGIE_SVG,
 ];
 
 type TileCache = Mutex<Vec<Option<Arc<Vec<u8>>>>>;

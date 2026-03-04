@@ -144,11 +144,11 @@ export interface BackgroundConfig {
   motionBlurCursor?: number; // 0-100 intensity (default 25, 0=off, 100=extreme)
   motionBlurZoom?: number;   // 0-100 intensity
   motionBlurPan?: number;    // 0-100 intensity
-  cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood';
-  cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood';
-  cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood';
-  cursorPointerVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood';
-  cursorOpenHandVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood';
+  cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
+  cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
+  cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
+  cursorPointerVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
+  cursorOpenHandVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie';
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1
