@@ -48,7 +48,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
       {segment.textSegments?.map((text) => (
         <div
           key={text.id}
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
             const clickX = e.clientX - rect.left;
@@ -84,7 +84,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
           {/* Resize handles — rounded pill style */}
           <div
             className="text-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-            onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'start'); }}
+            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'start'); }}
           >
             <div
               className="text-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
@@ -93,7 +93,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
           </div>
           <div
             className="text-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-            onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'end'); }}
+            onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(text.id, 'end'); }}
           >
             <div
               className="text-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
@@ -108,7 +108,7 @@ export const TextTrack: React.FC<TextTrackProps> = ({
         <button
           className="text-add-btn absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-[var(--primary-color)]/50 hover:bg-[var(--primary-color)] flex items-center justify-center text-white text-[10px] leading-none font-bold transition-colors z-10 pointer-events-auto"
           style={{ left: hoverX - 8 }}
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
             const time = (hoverX / rect.width) * duration;

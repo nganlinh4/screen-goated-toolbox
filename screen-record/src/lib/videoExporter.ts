@@ -309,6 +309,110 @@ export class VideoExporter {
     return `${segments.length}:${hash.toString(16)}`;
   }
 
+  private buildJsonHash(value: unknown): string {
+    let json = '';
+    try {
+      json = JSON.stringify(value) ?? '';
+    } catch {
+      json = '';
+    }
+    let hash = 2166136261 >>> 0;
+    for (let i = 0; i < json.length; i++) {
+      hash ^= json.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return `${json.length}:${hash.toString(16)}`;
+  }
+
+  private buildMousePositionsStamp(positions: MousePosition[]): string {
+    if (positions.length === 0) return '0:0';
+    return this.buildJsonHash(positions.map((position) => ({
+      x: Math.round(position.x * 1000) / 1000,
+      y: Math.round(position.y * 1000) / 1000,
+      timestamp: Math.round(position.timestamp * 1000) / 1000,
+      isClicked: Boolean(position.isClicked),
+      cursorType: position.cursor_type ?? '',
+      rotation: Math.round((position.cursor_rotation ?? 0) * 10000) / 10000,
+    })));
+  }
+
+  private buildSegmentContentStamp(segment: VideoSegment): string {
+    return this.buildJsonHash({
+      trimStart: Math.round(segment.trimStart * 1000) / 1000,
+      trimEnd: Math.round(segment.trimEnd * 1000) / 1000,
+      trimSegments: (segment.trimSegments ?? []).map((trim) => ({
+        start: Math.round(trim.startTime * 1000) / 1000,
+        end: Math.round(trim.endTime * 1000) / 1000,
+      })),
+      zoomKeyframes: (segment.zoomKeyframes ?? []).map((frame) => ({
+        time: Math.round(frame.time * 1000) / 1000,
+        duration: Math.round(frame.duration * 1000) / 1000,
+        zoomFactor: Math.round(frame.zoomFactor * 10000) / 10000,
+        positionX: Math.round(frame.positionX * 10000) / 10000,
+        positionY: Math.round(frame.positionY * 10000) / 10000,
+        easingType: frame.easingType,
+      })),
+      speedPoints: (segment.speedPoints ?? []).map((point) => ({
+        time: Math.round(point.time * 1000) / 1000,
+        speed: Math.round(point.speed * 10000) / 10000,
+      })),
+      textSegments: (segment.textSegments ?? []).map((text) => ({
+        id: text.id,
+        start: Math.round(text.startTime * 1000) / 1000,
+        end: Math.round(text.endTime * 1000) / 1000,
+        text: text.text,
+        style: text.style,
+      })),
+      cursorVisibility: (segment.cursorVisibilitySegments ?? []).map((visibility) => ({
+        start: Math.round(visibility.startTime * 1000) / 1000,
+        end: Math.round(visibility.endTime * 1000) / 1000,
+      })),
+      crop: segment.crop ?? null,
+      useCustomCursor: segment.useCustomCursor ?? true,
+      keystrokeMode: segment.keystrokeMode ?? 'off',
+      keystrokeLanguage: segment.keystrokeLanguage ?? 'en',
+      keystrokeDelaySec: Math.round((segment.keystrokeDelaySec ?? 0) * 1000) / 1000,
+      keystrokeOverlay: segment.keystrokeOverlay ?? null,
+      keyboardVisibility: (segment.keyboardVisibilitySegments ?? []).map((visibility) => ({
+        start: Math.round(visibility.startTime * 1000) / 1000,
+        end: Math.round(visibility.endTime * 1000) / 1000,
+      })),
+      keyboardMouseVisibility: (segment.keyboardMouseVisibilitySegments ?? []).map((visibility) => ({
+        start: Math.round(visibility.startTime * 1000) / 1000,
+        end: Math.round(visibility.endTime * 1000) / 1000,
+      })),
+      keystrokeEvents: (segment.keystrokeEvents ?? []).map((event) => ({
+        id: event.id,
+        type: event.type,
+        start: Math.round(event.startTime * 1000) / 1000,
+        end: Math.round(event.endTime * 1000) / 1000,
+        label: event.label,
+        count: event.count,
+        isHold: Boolean(event.isHold),
+        key: event.key ?? '',
+        btn: event.btn ?? '',
+        direction: event.direction ?? '',
+        modifiers: {
+          ctrl: Boolean(event.modifiers?.ctrl),
+          alt: Boolean(event.modifiers?.alt),
+          shift: Boolean(event.modifiers?.shift),
+          win: Boolean(event.modifiers?.win),
+        },
+      })),
+    });
+  }
+
+  private buildBackgroundStamp(backgroundConfig: BackgroundConfig | undefined): string {
+    if (!backgroundConfig) return 'none';
+    const customBackground = backgroundConfig.customBackground ?? '';
+    return this.buildJsonHash({
+      ...backgroundConfig,
+      customBackground: customBackground
+        ? `${customBackground.length}:${customBackground.slice(0, 64)}:${customBackground.slice(-64)}`
+        : '',
+    });
+  }
+
   private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
     const cameraBytes = payload.bakedPath.length * 32;
     const cursorBytes = payload.bakedCursorPath.length * 48;
@@ -428,32 +532,21 @@ export class VideoExporter {
     const segment = context.segment;
     const segmentStamp = segment
       ? [
-        segment.trimStart.toFixed(4),
-        segment.trimEnd.toFixed(4),
-        segment.zoomKeyframes?.length || 0,
-        segment.textSegments?.length || 0,
-        segment.trimSegments?.length || 0,
-        segment.keystrokeMode ?? 'off',
-        (segment.keystrokeDelaySec ?? 0).toFixed(4),
-        segment.keystrokeLanguage ?? 'en',
+        this.buildSegmentContentStamp(segment),
+        this.buildTimeSegmentStamp(segment.cursorVisibilitySegments),
         this.buildTimeSegmentStamp(segment.keyboardVisibilitySegments),
         this.buildTimeSegmentStamp(segment.keyboardMouseVisibilitySegments),
-        segment.keystrokeEvents?.length || 0,
-        segment.cursorVisibilitySegments?.length || 0,
-        this.buildTimeSegmentStamp(segment.cursorVisibilitySegments),
       ].join(':')
       : 'none';
     const mousePositions = context.mousePositions ?? [];
     const mouseLastTs = mousePositions.length > 0 ? mousePositions[mousePositions.length - 1].timestamp : 0;
-    const bg = context.backgroundConfig;
-    const backgroundStamp = bg
-      ? `${bg.backgroundType}:${bg.scale}:${bg.borderRadius}:${bg.cursorScale ?? 0}:${bg.motionBlurCursor ?? 0}:${bg.motionBlurZoom ?? 0}:${bg.motionBlurPan ?? 0}`
-      : 'none';
+    const mouseStamp = this.buildMousePositionsStamp(mousePositions);
+    const backgroundStamp = this.buildBackgroundStamp(context.backgroundConfig);
     return [
       segmentId,
       segmentStamp,
       mouseId,
-      `${mousePositions.length}:${mouseLastTs.toFixed(3)}`,
+      `${mousePositions.length}:${mouseLastTs.toFixed(3)}:${mouseStamp}`,
       backgroundId,
       backgroundStamp,
       `${context.sourceWidth}x${context.sourceHeight}`,

@@ -152,7 +152,7 @@ export async function drawFrame(
   if (video.seeking) return;
 
   const isExportMode = options.exportMode || false;
-  const quality = options.highQuality || isExportMode ? 'high' : 'medium';
+  const quality: ImageSmoothingQuality = 'high';
 
   const ctx = canvas.getContext('2d', {
     alpha: false,
@@ -220,9 +220,11 @@ export async function drawFrame(
     const zf = zoomState?.zoomFactor ?? 1;
     const bgScale = Math.max(0.01, backgroundConfig.scale / 100);
     let ss = 1;
+    const fullQualitySs = zf > 1 ? Math.min(Math.ceil(zf / bgScale), 4) : 1;
+    const isRealtimePreview = !isExportMode && !video.paused;
 
-    if (isExportMode) {
-      ss = zf > 1 ? Math.min(Math.ceil(zf / bgScale), 4) : 1;
+    if (!isRealtimePreview) {
+      ss = fullQualitySs;
     } else {
       const requiredSs = zf / bgScale;
       if (requiredSs > 1.05) {
@@ -500,9 +502,8 @@ export async function drawFrame(
     const cursorShutterSec = (blurCursorVal / 100.0) * exportStep;
     const maxShutterSec = Math.max(zoomShutterSec, panShutterSec, cursorShutterSec);
 
-    const isPlaying = !video.paused;
     const targetSamples = anyBlurEnabled ? Math.max(2, Math.min(8, Math.ceil(maxBlurVal * 8.0))) : 1;
-    const N = isExportMode ? targetSamples : (isPlaying ? Math.min(targetSamples, 3) : targetSamples);
+    const N = targetSamples;
 
     let cameraMoving = false;
     let cursorMoving = false;
@@ -618,16 +619,13 @@ export async function drawFrame(
 
     if (segment.textSegments) {
       const FADE_DURATION = 0.3;
-      const isTextPlaying = !video.paused;
       for (const textSegment of segment.textSegments) {
         if (video.currentTime >= textSegment.startTime && video.currentTime <= textSegment.endTime) {
           let fadeAlpha = 1.0;
-          if (isTextPlaying) {
-            const elapsed = video.currentTime - textSegment.startTime;
-            const remaining = textSegment.endTime - video.currentTime;
-            if (elapsed < FADE_DURATION) fadeAlpha = elapsed / FADE_DURATION;
-            if (remaining < FADE_DURATION) fadeAlpha = Math.min(fadeAlpha, remaining / FADE_DURATION);
-          }
+          const elapsed = video.currentTime - textSegment.startTime;
+          const remaining = textSegment.endTime - video.currentTime;
+          if (elapsed < FADE_DURATION) fadeAlpha = elapsed / FADE_DURATION;
+          if (remaining < FADE_DURATION) fadeAlpha = Math.min(fadeAlpha, remaining / FADE_DURATION);
           drawTextOverlay(ctx, textSegment, canvas.width, canvas.height, fadeAlpha);
         }
       }

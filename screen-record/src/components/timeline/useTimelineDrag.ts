@@ -313,7 +313,9 @@ export function useTimelineDrag({
   // Text drag
   const handleTextDragStart = useCallback((id: string, type: 'start' | 'end' | 'body', offset?: number) => {
     beginBatch();
+    setEditingTextId(id);
     setEditingKeystrokeId?.(null);
+    setActivePanel('text');
     setDraggingTextId(id);
     if (type === 'start') setIsDraggingTextStart(true);
     else if (type === 'end') setIsDraggingTextEnd(true);
@@ -321,7 +323,7 @@ export function useTimelineDrag({
       setIsDraggingTextBody(true);
       if (offset !== undefined) textDragOffsetRef.current = offset;
     }
-  }, [beginBatch, setEditingKeystrokeId]);
+  }, [beginBatch, setEditingTextId, setEditingKeystrokeId, setActivePanel]);
 
   const handleTextDrag = useCallback((clientX: number) => {
     if ((!isDraggingTextStart && !isDraggingTextEnd && !isDraggingTextBody) || !draggingTextId || !segment) return;
