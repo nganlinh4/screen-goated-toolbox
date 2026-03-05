@@ -24,17 +24,20 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use windows::core::Interface;
+use windows::Win32::Foundation::GENERIC_ALL;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Graphics::Direct3D11::*;
+use windows::Win32::Graphics::Direct3D12 as d3d12;
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
 
 use super::d3d_interop::{
-    create_d3d11_device, D3D11GpuFence, D3D11Readback, SharedVramBuffer, VideoProcessor,
+    create_d3d11_device, create_d3d11_device_on_adapter, D3D11GpuFence, D3D11Readback,
+    SharedVramBuffer, VideoProcessor,
 };
 use super::gpu_export::{CompositorUniforms, GpuCompositor};
 use super::mf_audio::{AudioConfig, MfAudioDecoder};
-use super::mf_decode::{DxgiDeviceManager, MfDecoder};
+use super::mf_decode::{DecodedFrame, DxgiDeviceManager, MfDecoder};
 use super::mf_encode::{EncoderConfig, MfEncoder, VideoCodec};
 use super::native_export::config::{AnimatedCursorSlotData, OverlayFrame, SpeedPoint, TrimSegment};
 
@@ -55,7 +58,6 @@ pub struct PipelineConfig {
     pub audio_path: Option<String>,
     /// Volume multiplier applied to every PCM sample (0.0 = silent, 1.0 = unchanged).
     pub audio_volume: f64,
-    pub format: String,
     pub output_width: u32,
     pub output_height: u32,
     pub framerate: u32,
@@ -91,6 +93,15 @@ enum DecodeOutput {
         source_time: f64,
         source_step: f64,
         frame_idx: u32,
+        /// Cross-API fence value signaled by D3D11 after writing this frame.
+        /// The render thread must Wait on the DX12 queue for this value before reading.
+        fence_value: u64,
+    },
+    /// GPU path hold frame: source frame did not advance, reuse the previous video texture.
+    GpuHold {
+        source_time: f64,
+        source_step: f64,
+        frame_idx: u32,
     },
     /// CPU fallback: BGRA pixels (video_w×h×4). Returned to decode via recycle.
     Cpu {
@@ -104,17 +115,23 @@ enum DecodeOutput {
 impl DecodeOutput {
     fn source_time(&self) -> f64 {
         match self {
-            Self::Gpu { source_time, .. } | Self::Cpu { source_time, .. } => *source_time,
+            Self::Gpu { source_time, .. }
+            | Self::GpuHold { source_time, .. }
+            | Self::Cpu { source_time, .. } => *source_time,
         }
     }
     fn source_step(&self) -> f64 {
         match self {
-            Self::Gpu { source_step, .. } | Self::Cpu { source_step, .. } => *source_step,
+            Self::Gpu { source_step, .. }
+            | Self::GpuHold { source_step, .. }
+            | Self::Cpu { source_step, .. } => *source_step,
         }
     }
     fn frame_idx(&self) -> u32 {
         match self {
-            Self::Gpu { frame_idx, .. } | Self::Cpu { frame_idx, .. } => *frame_idx,
+            Self::Gpu { frame_idx, .. }
+            | Self::GpuHold { frame_idx, .. }
+            | Self::Cpu { frame_idx, .. } => *frame_idx,
         }
     }
 }
@@ -134,18 +151,29 @@ const DECODE_RING_SIZE: usize = 3;
 struct GpuOutputRing {
     shared_buffers: Vec<SharedVramBuffer>,
     wgpu_textures: Vec<wgpu::Texture>,
+    /// Keyed mutex handles for GPU cache coherence between DX12 (render) and D3D11 (encode).
+    /// Render thread: AcquireSync before copy, ReleaseSync after poll(Wait).
+    /// Encode thread QIs its own set from the same textures.
+    dx12_keyed_mutexes: Vec<IDXGIKeyedMutex>,
 }
 
 /// Shared VRAM ring for zero-copy decode→render.
+///
+/// Uses D3D11-created `SHARED_KEYEDMUTEX | SHARED_NTHANDLE` textures.
+/// Keyed mutex provides CPU-level ownership. Cross-API shared fence provides
+/// GPU-timeline ordering (D3D11 Signal → DX12 Wait). A per-frame 1-pixel
+/// `copy_buffer_to_texture` (COPY_DST) before `copy_texture_to_texture` (COPY_SRC)
+/// forces a COPY_DST→COPY_SRC DX12 barrier that flushes L2 cache.
+///
+/// DX12 can't participate in keyed mutex cache coherence (QI for IDXGIKeyedMutex
+/// from ID3D12Resource returns E_NOINTERFACE), so we manually force a DX12 barrier
+/// via the COPY_DST→COPY_SRC state transition trick.
 struct DecodeInputRing {
     shared_buffers: Vec<SharedVramBuffer>,
     wgpu_textures: Vec<wgpu::Texture>,
-    /// Keyed mutex handles — one per ring slot, obtained via QI from the D3D11 texture.
-    /// Used by the render thread to call AcquireSync/ReleaseSync so the GPU cache is
-    /// properly invalidated after D3D11 writes each slot. IDXGIKeyedMutex is a
-    /// DXGI-level primitive, not API-bound: the render thread may call it even though
-    /// it runs in the wgpu/DX12 context.
-    dx12_keyed_mutexes: Vec<IDXGIKeyedMutex>,
+    keyed_mutexes: Vec<IDXGIKeyedMutex>,
+    d3d11_fence: ID3D11Fence,
+    d3d12_fence: d3d12::ID3D12Fence,
 }
 
 fn get_speed(time: f64, points: &[SpeedPoint]) -> f64 {
@@ -288,22 +316,27 @@ fn try_create_gpu_output_ring(
 ) -> Option<GpuOutputRing> {
     let mut shared_buffers = Vec::with_capacity(GPU_RING_SIZE);
     let mut wgpu_textures = Vec::with_capacity(GPU_RING_SIZE);
+    let mut dx12_keyed_mutexes = Vec::with_capacity(GPU_RING_SIZE);
 
     for i in 0..GPU_RING_SIZE {
-        let buf = match SharedVramBuffer::new(enc_device, width, height) {
+        // Use keyed mutex for GPU cache coherence between DX12 (render) and D3D11 (encode).
+        let buf = match SharedVramBuffer::new(enc_device, width, height, true) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("[Export] SharedVramBuffer[{i}] failed: {e}");
                 return None;
             }
         };
+        // COPY_DST: render thread writes (copy_output_to_shared).
+        // COPY_SRC: state-reset read after each write — forces wgpu to insert a
+        //   COPY_SRC → COPY_DST barrier (with cache flush) on the next frame.
         let tex = match unsafe {
             import_shared_handle_into_wgpu(
                 wgpu_device,
                 buf.handle,
                 width,
                 height,
-                wgpu::TextureUsages::COPY_DST,
+                wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
             )
         } {
             Ok(t) => t,
@@ -312,58 +345,143 @@ fn try_create_gpu_output_ring(
                 return None;
             }
         };
+        let km = match buf.texture.cast::<IDXGIKeyedMutex>() {
+            Ok(k) => k,
+            Err(e) => {
+                eprintln!("[Export] Encode keyed mutex[{i}] QI failed: {e}");
+                return None;
+            }
+        };
         shared_buffers.push(buf);
         wgpu_textures.push(tex);
+        dx12_keyed_mutexes.push(km);
     }
 
     Some(GpuOutputRing {
         shared_buffers,
         wgpu_textures,
+        dx12_keyed_mutexes,
     })
 }
 
-
-/// Try to create a decode input ring (shared VRAM textures for decode→render zero-copy).
-/// Returns None if any step fails — caller falls back to CPU decode path.
+/// Try to create a decode input ring (shared VRAM textures for decode→render).
+///
+/// Uses D3D11-created `SHARED_KEYEDMUTEX | SHARED_NTHANDLE` textures with cross-API
+/// shared fence. wgpu imports with `COPY_SRC | COPY_DST` so the render thread can
+/// force a COPY_DST→COPY_SRC barrier (L2 cache flush) each frame via a 1-pixel
+/// `copy_buffer_to_texture` before the full `copy_texture_to_texture`.
 fn try_create_decode_input_ring(
     dec_device: &ID3D11Device,
     wgpu_device: &wgpu::Device,
     width: u32,
     height: u32,
 ) -> Option<DecodeInputRing> {
+    if std::env::var("SGT_FORCE_CPU_DECODE").is_ok() {
+        eprintln!("[Export] SGT_FORCE_CPU_DECODE: forcing CPU decode path");
+        return None;
+    }
+
+    // ── Create cross-API shared fence ──────────────────────────────────────
+
+    let d3d12_device: d3d12::ID3D12Device = unsafe {
+        let mut d12: Option<d3d12::ID3D12Device> = None;
+        wgpu_device.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| {
+            if let Some(hal_dev) = hal_dev {
+                let d12_ref = hal_dev.raw_device();
+                d12 = Some((*(d12_ref as *const _ as *const d3d12::ID3D12Device)).clone());
+            }
+        });
+        match d12 {
+            Some(d) => d,
+            None => {
+                eprintln!("[Export] Failed to get ID3D12Device from wgpu");
+                return None;
+            }
+        }
+    };
+
+    let d3d12_fence: d3d12::ID3D12Fence = match unsafe {
+        d3d12_device.CreateFence::<d3d12::ID3D12Fence>(0, d3d12::D3D12_FENCE_FLAG_SHARED)
+    } {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("[Export] ID3D12Device::CreateFence(SHARED) failed: {e}");
+            return None;
+        }
+    };
+
+    let fence_handle =
+        match unsafe { d3d12_device.CreateSharedHandle(&d3d12_fence, None, GENERIC_ALL.0, None) } {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("[Export] CreateSharedHandle for fence failed: {e}");
+                return None;
+            }
+        };
+
+    let d3d11_device5: ID3D11Device5 = match dec_device.cast() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("[Export] Cast to ID3D11Device5 failed: {e}");
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(fence_handle);
+            }
+            return None;
+        }
+    };
+
+    let d3d11_fence: ID3D11Fence = {
+        let mut f: Option<ID3D11Fence> = None;
+        if let Err(e) = unsafe { d3d11_device5.OpenSharedFence(fence_handle, &mut f) } {
+            eprintln!("[Export] OpenSharedFence failed: {e}");
+            unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(fence_handle);
+            }
+            return None;
+        }
+        unsafe {
+            let _ = windows::Win32::Foundation::CloseHandle(fence_handle);
+        }
+        f.unwrap()
+    };
+
+    eprintln!("[Export] Cross-API shared fence created (D3D12→D3D11)");
+
+    // ── Create shared texture ring ───────────────────────────────────────
+    // SHARED_NTHANDLE requires SHARED_KEYEDMUTEX (D3D11 API constraint).
+    // Keyed mutex provides CPU-level ownership. The shared fence provides
+    // GPU ordering. A per-frame COPY_DST→COPY_SRC barrier forces L2 flush.
+
     let mut shared_buffers = Vec::with_capacity(DECODE_RING_SIZE);
     let mut wgpu_textures = Vec::with_capacity(DECODE_RING_SIZE);
-    let mut dx12_keyed_mutexes = Vec::with_capacity(DECODE_RING_SIZE);
+    let mut keyed_mutexes = Vec::with_capacity(DECODE_RING_SIZE);
 
     for i in 0..DECODE_RING_SIZE {
-        let buf = match SharedVramBuffer::new(dec_device, width, height) {
+        let buf = match SharedVramBuffer::new(dec_device, width, height, true) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("[Export] Decode SharedVramBuffer[{i}] failed: {e}");
                 return None;
             }
         };
+        // COPY_SRC: read source for copy_texture_to_texture.
+        // COPY_DST: target for 1-pixel copy_buffer_to_texture that forces a
+        //   COPY_DST→COPY_SRC barrier (with L2 cache flush) on the next copy.
         let tex = match unsafe {
             import_shared_handle_into_wgpu(
                 wgpu_device,
                 buf.handle,
                 width,
                 height,
-                wgpu::TextureUsages::COPY_SRC,
+                wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
             )
         } {
             Ok(t) => t,
             Err(e) => {
-                eprintln!("[Export] Decode wgpu import[{i}] failed: {e}");
+                eprintln!("[Export] wgpu decode import[{i}] failed: {e}");
                 return None;
             }
         };
-        // Get IDXGIKeyedMutex from the D3D11 texture. This works because the texture
-        // was created with D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, so QI always succeeds.
-        // IDXGIKeyedMutex is a DXGI-level scheduler primitive — the render thread can
-        // call AcquireSync/ReleaseSync on it regardless of which D3D API obtained it.
-        // (Attempting QI from the D3D12 resource opened via OpenSharedHandle fails on
-        // some adapters with E_NOINTERFACE, making the D3D11 path the reliable approach.)
         let km = match buf.texture.cast::<IDXGIKeyedMutex>() {
             Ok(k) => k,
             Err(e) => {
@@ -373,13 +491,15 @@ fn try_create_decode_input_ring(
         };
         shared_buffers.push(buf);
         wgpu_textures.push(tex);
-        dx12_keyed_mutexes.push(km);
+        keyed_mutexes.push(km);
     }
 
     Some(DecodeInputRing {
         shared_buffers,
         wgpu_textures,
-        dx12_keyed_mutexes,
+        keyed_mutexes,
+        d3d11_fence,
+        d3d12_fence,
     })
 }
 
@@ -401,9 +521,43 @@ pub fn run_zero_copy_export(
             || config.blur_cursor_shutter > 0.0);
 
     // ─── Device creation (before thread::scope for shared texture init) ─────
+    //
+    // CRITICAL: Create D3D11 devices on the SAME adapter as wgpu (DX12).
+    // On multi-GPU systems (iGPU + dGPU), D3D11CreateDevice(D3D_DRIVER_TYPE_HARDWARE)
+    // picks the default adapter which may be the iGPU, while wgpu picks the dGPU.
+    // Shared textures between different adapters don't share VRAM — D3D12 reads
+    // stale data because D3D11 wrote to a completely different GPU's memory.
 
-    // Decode D3D11 device (shared textures + VP live on this device).
-    let (dec_device, dec_context) = create_d3d11_device()?;
+    // Get the wgpu adapter's vendor/device for matching.
+    let (wgpu_vendor, wgpu_device_id) = unsafe {
+        compositor
+            .device()
+            .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| -> (u32, u32) {
+                if let Some(hal_dev) = hal_dev {
+                    let d12_ref = hal_dev.raw_device();
+                    let d12: &d3d12::ID3D12Device =
+                        &*(d12_ref as *const _ as *const d3d12::ID3D12Device);
+                    // GetAdapterLuid gives us the LUID; but we need vendor/device.
+                    // Query via DXGI instead: QI to IDXGIDevice, get adapter.
+                    if let Ok(dxgi_dev) = d12.cast::<windows::Win32::Graphics::Dxgi::IDXGIDevice>()
+                    {
+                        if let Ok(adapter) = dxgi_dev.GetAdapter() {
+                            if let Ok(desc) = adapter.GetDesc() {
+                                return (desc.VendorId, desc.DeviceId);
+                            }
+                        }
+                    }
+                }
+                (0, 0) // fallback: create_d3d11_device_on_adapter will fall back to default
+            })
+    };
+
+    // Decode D3D11 device — MUST be on the same adapter as wgpu for shared texture coherence.
+    let (dec_device, dec_context) = if wgpu_vendor != 0 {
+        create_d3d11_device_on_adapter(wgpu_vendor, wgpu_device_id)?
+    } else {
+        create_d3d11_device()?
+    };
     {
         let mt: ID3D11Multithread = dec_device
             .cast()
@@ -413,8 +567,12 @@ pub fn run_zero_copy_export(
         }
     }
 
-    // Encode D3D11 device (shared output textures + MF encoder).
-    let (enc_device, _enc_context) = create_d3d11_device()?;
+    // Encode D3D11 device — same adapter requirement.
+    let (enc_device, _enc_context) = if wgpu_vendor != 0 {
+        create_d3d11_device_on_adapter(wgpu_vendor, wgpu_device_id)?
+    } else {
+        create_d3d11_device()?
+    };
     {
         let mt: ID3D11Multithread = enc_device
             .cast()
@@ -456,7 +614,10 @@ pub fn run_zero_copy_export(
     // ─── Zero-copy output ring (render → encode) ────────────────────────────
 
     let gpu_ring = if force_cpu {
-        println!("[Export] Falling back to CPU output path (force_cpu={})", force_cpu);
+        println!(
+            "[Export] Falling back to CPU output path (force_cpu={})",
+            force_cpu
+        );
         None
     } else {
         match try_create_gpu_output_ring(
@@ -480,22 +641,22 @@ pub fn run_zero_copy_export(
     };
     let use_gpu_encode = gpu_ring.is_some();
 
-    // Borrow ring contents for the scoped threads.
+    // Borrow decode ring contents for the scoped threads.
     let dec_wgpu_textures: &[wgpu::Texture] = decode_ring
         .as_ref()
         .map(|r| r.wgpu_textures.as_slice())
         .unwrap_or(&[]);
-    // D3D12-side keyed mutexes for the render thread to call AcquireSync/ReleaseSync.
-    let dec_dx12_keyed_mutexes: &[IDXGIKeyedMutex] = decode_ring
-        .as_ref()
-        .map(|r| r.dx12_keyed_mutexes.as_slice())
-        .unwrap_or(&[]);
-    // Extract D3D11 textures for the decode thread (ID3D11Texture2D is Send+Sync,
-    // unlike SharedVramBuffer whose HANDLE contains a raw pointer).
     let dec_d3d_textures: Vec<ID3D11Texture2D> = decode_ring
         .as_ref()
         .map(|r| r.shared_buffers.iter().map(|b| b.texture.clone()).collect())
         .unwrap_or_default();
+    let dec_keyed_mutexes: &[IDXGIKeyedMutex] = decode_ring
+        .as_ref()
+        .map(|r| r.keyed_mutexes.as_slice())
+        .unwrap_or(&[]);
+    // Cross-API shared fence: D3D11 fence for decode thread, D3D12 fence for render thread.
+    let dec_d3d11_fence: Option<&ID3D11Fence> = decode_ring.as_ref().map(|r| &r.d3d11_fence);
+    let dec_d3d12_fence: Option<&d3d12::ID3D12Fence> = decode_ring.as_ref().map(|r| &r.d3d12_fence);
     let gpu_wgpu_textures: &[wgpu::Texture] = gpu_ring
         .as_ref()
         .map(|r| r.wgpu_textures.as_slice())
@@ -503,6 +664,11 @@ pub fn run_zero_copy_export(
     let gpu_shared_buffers: &[SharedVramBuffer] = gpu_ring
         .as_ref()
         .map(|r| r.shared_buffers.as_slice())
+        .unwrap_or(&[]);
+    // DX12-side keyed mutexes for the render thread (encode ring).
+    let gpu_dx12_keyed_mutexes: &[IDXGIKeyedMutex] = gpu_ring
+        .as_ref()
+        .map(|r| r.dx12_keyed_mutexes.as_slice())
         .unwrap_or(&[]);
 
     // ─── Channels ───────────────────────────────────────────────────────────
@@ -569,6 +735,8 @@ pub fn run_zero_copy_export(
                     decode_tx,
                     dec_gpu_recycle_rx,
                     &dec_d3d_textures,
+                    dec_keyed_mutexes,
+                    dec_d3d11_fence,
                 )
             } else {
                 run_decode_thread_cpu(
@@ -598,8 +766,10 @@ pub fn run_zero_copy_export(
                 dec_gpu_recycle_tx,
                 dec_cpu_recycle_tx,
                 dec_wgpu_textures,
-                dec_dx12_keyed_mutexes,
+                dec_d3d12_fence,
+                dec_keyed_mutexes,
                 gpu_wgpu_textures,
+                gpu_dx12_keyed_mutexes,
                 gpu_recycle_rx,
                 cpu_recycle_rx,
             ) {
@@ -655,19 +825,18 @@ fn run_decode_thread(
     tx: mpsc::SyncSender<DecodeOutput>,
     recycle_rx: mpsc::Receiver<usize>,
     shared_textures: &[ID3D11Texture2D],
+    keyed_mutexes: &[IDXGIKeyedMutex],
+    d3d11_fence: Option<&ID3D11Fence>,
 ) -> Result<(), String> {
     let t_thread = Instant::now();
 
     let gpu_fence = D3D11GpuFence::new(d3d11_device, d3d11_context)?;
 
-    // D3D11-side keyed mutex handles — required for CopyResource to a SHARED_KEYEDMUTEX
-    // texture to not silently no-op, AND to signal the GPU cache flush that makes
-    // the write visible to the DX12 render thread (via DX12's paired AcquireSync).
-    let keyed_mutexes: Vec<IDXGIKeyedMutex> = shared_textures
-        .iter()
-        .map(|t| t.cast::<IDXGIKeyedMutex>())
-        .collect::<Result<_, _>>()
-        .map_err(|e| format!("QI IDXGIKeyedMutex (decode ring): {e}"))?;
+    // Cast to ID3D11DeviceContext4 for cross-API fence signaling.
+    let d3d11_context4: Option<ID3D11DeviceContext4> =
+        d3d11_fence.and_then(|_| d3d11_context.cast::<ID3D11DeviceContext4>().ok());
+
+    let mut fence_value: u64 = 0;
 
     let device_manager = DxgiDeviceManager::new(d3d11_device)?;
     let decoder = MfDecoder::new(&config.source_video_path, &device_manager, true)?;
@@ -695,36 +864,139 @@ fn run_decode_thread(
     )?;
     decode_vp.set_source_rect(config.crop_x, config.crop_y, vp_out_w, vp_out_h);
 
-    // Intermediate VP output texture (regular, no SHARED_KEYEDMUTEX flags).
-    // VP hardware path can't create output views on keyed-mutex textures, so we
-    // VP Blt to this intermediate first, then CopyResource to the shared ring slot.
-    // Both ops are GPU-internal — still eliminates the old 2× PCIe crossings.
-    let vp_output = VideoProcessor::create_texture(
-        d3d11_device,
-        vp_out_w,
-        vp_out_h,
-        DXGI_FORMAT_B8G8R8A8_UNORM,
-        D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE,
-    )?;
+    // Pool of VP output textures for B-frame PTS reorder.
+    // Hardware decoders deliver B-frames in decode order (non-monotonic PTS).
+    // We fill a window of REORDER_WINDOW frames, sort by PTS, then output in
+    // display order — fixing the "back and forth frames" issue on B-frame content.
+    const REORDER_WINDOW: usize = 6;
+    let pool_size = REORDER_WINDOW + 2; // +2 for cur + next held simultaneously
+    let mut vp_pool: Vec<ID3D11Texture2D> = Vec::with_capacity(pool_size);
+    let mut vp_resources: Vec<ID3D11Resource> = Vec::with_capacity(pool_size);
+    let mut free_vp_slots: Vec<usize> = (0..pool_size).rev().collect();
 
-    // Current and next decoded NV12 frames (pool texture stays alive via _sample).
-    let mut cur_decoded = match decoder.read_frame()? {
-        Some(f) => f,
-        None => return Ok(()),
-    };
-    let mut cur_pts = cur_decoded.pts_100ns as f64 / 10_000_000.0;
+    for _ in 0..pool_size {
+        let tex = VideoProcessor::create_texture(
+            d3d11_device,
+            vp_out_w,
+            vp_out_h,
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE,
+        )?;
+        vp_resources.push(tex.cast().map_err(|e| format!("vp_pool→Resource: {e}"))?);
+        vp_pool.push(tex);
+    }
 
-    let mut next_decoded = decoder.read_frame()?;
-    let mut next_pts = next_decoded
-        .as_ref()
-        .map(|f| f.pts_100ns as f64 / 10_000_000.0)
-        .unwrap_or(f64::MAX);
-    let mut have_next = next_decoded.is_some();
+    // Pre-cast shared ring textures to ID3D11Resource (avoids per-frame cast).
+    let shared_resources: Vec<ID3D11Resource> = shared_textures
+        .iter()
+        .map(|t| t.cast().map_err(|e| format!("shared_ring→Resource: {e}")))
+        .collect::<Result<_, _>>()?;
+
+    // Reorder queue: (vp_slot, pts). Sorted descending so pop() yields the lowest PTS.
+    let mut reorder_queue: Vec<(usize, f64)> = Vec::with_capacity(REORDER_WINDOW);
+    let mut eof_reached = false;
+    let mut src_decoded: u32 = 0;
+
+    // Holds DecodedFrames (IMFSamples) alive while VP Blts are pending on the GPU.
+    // VP Blt reads from the decoder's NV12 texture asynchronously; if the IMFSample is
+    // dropped too early, MF recycles the texture subresource and NVDEC (a separate HW
+    // engine) can overwrite it before the VP Blt finishes reading — causing frame corruption.
+    // We collect frames here, then gpu_fence.signal_and_wait() after all VP Blts are queued,
+    // ensuring they complete before the decoder can recycle any texture.
+    let mut pending_samples: Vec<DecodedFrame> = Vec::new();
+
+    // Diagnostic: log raw decoder PTS and output frame selection for first N frames.
+    let decode_debug = false;
+
+    // Fill the reorder queue from the decoder up to REORDER_WINDOW entries.
+    // VP-converts each frame at read time (decode order), then sorts by PTS (display order).
+    macro_rules! fill_reorder_queue {
+        () => {
+            if !eof_reached {
+                while reorder_queue.len() < REORDER_WINDOW {
+                    let slot = match free_vp_slots.pop() {
+                        Some(s) => s,
+                        None => break, // all slots busy — queue is as full as possible
+                    };
+                    match decoder.read_frame()? {
+                        Some(f) => {
+                            decode_vp.convert(&f.texture, f.subresource_index, &vp_pool[slot])?;
+                            let pts = f.pts_100ns as f64 / 10_000_000.0;
+                            if decode_debug && src_decoded < 40 {
+                                eprintln!(
+                                    "[DecDbg] raw#{} pts={:.4} slot={}",
+                                    src_decoded, pts, slot
+                                );
+                            }
+                            reorder_queue.push((slot, pts));
+                            pending_samples.push(f); // keep IMFSample alive until VP Blt done
+                            src_decoded += 1;
+                        }
+                        None => {
+                            eof_reached = true;
+                            free_vp_slots.push(slot);
+                            break;
+                        }
+                    }
+                }
+                // Ensure all VP Blts complete before releasing decoder textures.
+                // NVDEC runs on a separate HW engine from the VP — without this fence,
+                // the decoder can overwrite source NV12 textures while VP is still reading.
+                if !pending_samples.is_empty() {
+                    gpu_fence.signal_and_wait();
+                    pending_samples.clear();
+                }
+                // Sort descending; pop() then gives the frame with the lowest PTS.
+                reorder_queue
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            }
+        };
+    }
+
+    fill_reorder_queue!();
+    let fa = reorder_queue.pop();
+    fill_reorder_queue!();
+    let fb = reorder_queue.pop();
+
+    let mut cur_slot: Option<usize> = fa.map(|(s, _)| s);
+    let mut _cur_pts: f64 = fa.map(|(_, p)| p).unwrap_or(0.0);
+    let mut next_slot: Option<usize> = fb.map(|(s, _)| s);
+    let mut next_pts: f64 = fb.map(|(_, p)| p).unwrap_or(f64::MAX);
+    let mut have_next = next_slot.is_some();
+
+    // Flush all reorder state, seek, and re-prime with fresh frames.
+    // Must be defined AFTER the `let mut cur_slot/next_slot/cur_pts/next_pts/have_next`
+    // declarations — macro_rules! resolves bare identifiers at the definition site.
+    macro_rules! flush_and_refill {
+        () => {
+            if let Some(s) = cur_slot.take() {
+                free_vp_slots.push(s);
+            }
+            if let Some(s) = next_slot.take() {
+                free_vp_slots.push(s);
+            }
+            for (s, _) in reorder_queue.drain(..) {
+                free_vp_slots.push(s);
+            }
+            eof_reached = false;
+            fill_reorder_queue!();
+            let fa = reorder_queue.pop();
+            fill_reorder_queue!();
+            let fb = reorder_queue.pop();
+            cur_slot = fa.map(|(s, _)| s);
+            _cur_pts = fa.map(|(_, p)| p).unwrap_or(0.0);
+            next_slot = fb.map(|(s, _)| s);
+            next_pts = fb.map(|(_, p)| p).unwrap_or(f64::MAX);
+            have_next = next_slot.is_some();
+        };
+    }
+
+    if cur_slot.is_none() {
+        return Ok(());
+    }
 
     let mut current_segment_idx: usize = 0;
     let mut frames_held: u32 = 0;
-    let mut src_decoded: u32 = if have_next { 2 } else { 1 };
-
     for (frame_idx, &source_time) in source_times.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             break;
@@ -741,6 +1013,8 @@ fn run_decode_thread(
             source_step = expected_step;
         }
 
+        let mut source_changed = false;
+
         // Seek on trim segment boundary change.
         if !config.trim_segments.is_empty() {
             let target_seg = config
@@ -754,66 +1028,52 @@ fn run_decode_thread(
             if target_seg != current_segment_idx {
                 decoder.seek_seconds(config.trim_segments[target_seg].start_time)?;
                 current_segment_idx = target_seg;
-                cur_decoded = match decoder.read_frame()? {
-                    Some(f) => f,
-                    None => break,
-                };
-                cur_pts = cur_decoded.pts_100ns as f64 / 10_000_000.0;
-                src_decoded += 1;
-                next_decoded = decoder.read_frame()?;
-                next_pts = next_decoded
-                    .as_ref()
-                    .map(|f| f.pts_100ns as f64 / 10_000_000.0)
-                    .unwrap_or(f64::MAX);
-                have_next = next_decoded.is_some();
-                if have_next {
-                    src_decoded += 1;
-                }
+                flush_and_refill!();
+                source_changed = true;
             }
         }
 
         // Fast-forward seek if source_time is >1.5s ahead.
         if have_next && source_time - next_pts > 1.5 {
             decoder.seek_seconds(source_time)?;
-            cur_decoded = match decoder.read_frame()? {
-                Some(f) => f,
-                None => break,
-            };
-            cur_pts = cur_decoded.pts_100ns as f64 / 10_000_000.0;
-            src_decoded += 1;
-            next_decoded = decoder.read_frame()?;
-            next_pts = next_decoded
-                .as_ref()
-                .map(|f| f.pts_100ns as f64 / 10_000_000.0)
-                .unwrap_or(f64::MAX);
-            have_next = next_decoded.is_some();
-            if have_next {
-                src_decoded += 1;
-            }
+            flush_and_refill!();
+            source_changed = true;
         }
 
         let mut advanced = false;
         while have_next && next_pts <= source_time {
-            cur_decoded = next_decoded.take().unwrap();
-            cur_pts = next_pts;
+            if let Some(s) = cur_slot.take() {
+                free_vp_slots.push(s);
+            }
+            cur_slot = next_slot.take();
+            _cur_pts = next_pts;
             advanced = true;
-            match decoder.read_frame()? {
-                Some(f) => {
-                    next_pts = f.pts_100ns as f64 / 10_000_000.0;
-                    next_decoded = Some(f);
-                    src_decoded += 1;
-                }
-                None => {
-                    have_next = false;
-                    next_pts = f64::MAX;
-                }
+
+            fill_reorder_queue!();
+            if let Some((s, p)) = reorder_queue.pop() {
+                next_slot = Some(s);
+                next_pts = p;
+            } else {
+                have_next = false;
+                next_slot = None;
+                next_pts = f64::MAX;
             }
         }
 
-        if !advanced && frame_idx > 0 {
+        if !advanced && !source_changed && frame_idx > 0 {
             frames_held += 1;
+            if tx
+                .send(DecodeOutput::GpuHold {
+                    source_time,
+                    source_step,
+                    frame_idx: frame_idx as u32,
+                })
+                .is_err()
+            {
+                break;
+            }
+            continue;
         }
-        let _ = cur_pts;
 
         // Acquire a free ring slot (blocks if all slots are in use by render thread).
         let ring_idx = match recycle_rx.try_recv() {
@@ -825,41 +1085,52 @@ fn run_decode_thread(
             Err(_) => break,
         };
 
-        // VP Blt: NV12 → BGRA into intermediate texture, then GPU copy to shared ring.
-        // Two GPU-internal ops (VP can't write to keyed-mutex shared textures directly).
-        decode_vp.convert(
-            &cur_decoded.texture,
-            cur_decoded.subresource_index,
-            &vp_output,
-        )?;
+        let cur_vp_slot = match cur_slot {
+            Some(s) => s,
+            None => break,
+        };
 
-        // D3D11-side keyed mutex: acquire before writing.
-        // Required for CopyResource to a SHARED_KEYEDMUTEX texture to not no-op.
-        // Also pairs with DX12's ReleaseSync from the previous use of this slot.
-        unsafe {
-            keyed_mutexes[ring_idx]
-                .AcquireSync(0, u32::MAX)
-                .map_err(|e| format!("AcquireSync D3D11 ring[{ring_idx}]: {e}"))?;
-        }
-        unsafe {
-            let dst: ID3D11Resource = shared_textures[ring_idx]
-                .cast()
-                .map_err(|e| format!("shared→Resource: {e}"))?;
-            let src: ID3D11Resource = vp_output
-                .cast()
-                .map_err(|e| format!("vp_output→Resource: {e}"))?;
-            d3d11_context.CopyResource(&dst, &src);
+        if decode_debug && frame_idx < 40 {
+            eprintln!(
+                "[DecDbg] OUT f{} src_t={:.4} cur_pts={:.4} next_pts={:.4} slot={} adv={}",
+                frame_idx, source_time, _cur_pts, next_pts, cur_vp_slot, advanced
+            );
         }
 
-        // GPU fence: ensure CopyResource is committed to VRAM before releasing.
+        // Acquire keyed mutex for the shared decode ring slot (CPU-side ownership).
+        if !keyed_mutexes.is_empty() {
+            unsafe {
+                keyed_mutexes[ring_idx]
+                    .AcquireSync(0, u32::MAX)
+                    .map_err(|e| format!("AcquireSync dec[{ring_idx}]: {e}"))?;
+            }
+        }
+
+        // Copy VP output to shared decode ring slot.
+        unsafe {
+            d3d11_context.CopyResource(&shared_resources[ring_idx], &vp_resources[cur_vp_slot]);
+        }
+
+        // Signal cross-API fence AFTER the CopyResource.
+        // This queues a GPU-timeline signal on D3D11's command queue. The render thread
+        // calls ID3D12CommandQueue::Wait on this fence value, which stalls DX12's queue
+        // until D3D11's GPU work completes — providing both ordering AND cache coherence.
+        fence_value += 1;
+        if let (Some(ctx4), Some(fence)) = (&d3d11_context4, d3d11_fence) {
+            unsafe {
+                ctx4.Signal(fence, fence_value)
+                    .map_err(|e| format!("D3D11 Signal fence[{ring_idx}]: {e}"))?;
+            }
+        }
+
+        // GPU fence: ensure CopyResource + Signal are committed to GPU queue.
         gpu_fence.signal_and_wait();
 
-        // Release mutex — this flushes D3D11's GPU cache so DX12's AcquireSync
-        // can see the freshly written data when the render thread picks up this slot.
-        unsafe {
-            keyed_mutexes[ring_idx]
-                .ReleaseSync(0)
-                .map_err(|e| format!("ReleaseSync D3D11 ring[{ring_idx}]: {e}"))?;
+        // Release keyed mutex — D3D11 is done writing, render thread can acquire.
+        if !keyed_mutexes.is_empty() {
+            unsafe {
+                let _ = keyed_mutexes[ring_idx].ReleaseSync(0);
+            }
         }
 
         if tx
@@ -868,6 +1139,7 @@ fn run_decode_thread(
                 source_time,
                 source_step,
                 frame_idx: frame_idx as u32,
+                fence_value,
             })
             .is_err()
         {
@@ -966,24 +1238,87 @@ fn run_decode_thread_cpu(
         Ok(Some(decoded.pts_100ns as f64 / 10_000_000.0))
     };
 
-    // Permanent hold buffers — never leave this thread.
-    let mut cur_bgra: Vec<u8> = Vec::with_capacity(frame_size);
-    let mut cur_pts: f64 = match decode_one(&mut cur_bgra)? {
-        Some(pts) => pts,
-        None => return Ok(()),
-    };
+    // B-frame reorder buffer: same window approach as the GPU path.
+    // decode_one (VP + readback) already runs at fill time; queue holds decoded BGRA.
+    const REORDER_WINDOW_CPU: usize = 6;
+    let mut free_bufs: Vec<Vec<u8>> = Vec::new();
+    let mut reorder_queue_cpu: Vec<(Vec<u8>, f64)> = Vec::with_capacity(REORDER_WINDOW_CPU);
+    let mut eof_reached_cpu = false;
+    let mut src_decoded: u32 = 0;
 
-    let mut next_bgra: Vec<u8> = Vec::with_capacity(frame_size);
-    let mut next_pts = f64::MAX;
-    let mut have_next = false;
-    if let Some(pts) = decode_one(&mut next_bgra)? {
-        next_pts = pts;
-        have_next = true;
+    macro_rules! get_buf {
+        () => {
+            free_bufs.pop().unwrap_or_else(|| {
+                let mut b = Vec::with_capacity(frame_size);
+                b.resize(frame_size, 0);
+                b
+            })
+        };
+    }
+
+    macro_rules! fill_reorder_cpu {
+        () => {
+            if !eof_reached_cpu {
+                while reorder_queue_cpu.len() < REORDER_WINDOW_CPU {
+                    let mut buf = get_buf!();
+                    match decode_one(&mut buf)? {
+                        Some(pts) => {
+                            reorder_queue_cpu.push((buf, pts));
+                            src_decoded += 1;
+                        }
+                        None => {
+                            eof_reached_cpu = true;
+                            free_bufs.push(buf);
+                            break;
+                        }
+                    }
+                }
+                reorder_queue_cpu
+                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            }
+        };
+    }
+
+    fill_reorder_cpu!();
+    let fa = reorder_queue_cpu.pop();
+    fill_reorder_cpu!();
+    let fb = reorder_queue_cpu.pop();
+
+    let (mut cur_bgra, mut cur_pts): (Option<Vec<u8>>, f64) =
+        fa.map(|(b, p)| (Some(b), p)).unwrap_or((None, 0.0));
+    let (mut next_bgra, mut next_pts): (Option<Vec<u8>>, f64) =
+        fb.map(|(b, p)| (Some(b), p)).unwrap_or((None, f64::MAX));
+    let mut have_next = next_bgra.is_some();
+
+    // Must be defined AFTER the variable declarations above — see comment on flush_and_refill!.
+    macro_rules! flush_and_refill_cpu {
+        () => {
+            if let Some(b) = cur_bgra.take() {
+                free_bufs.push(b);
+            }
+            if let Some(b) = next_bgra.take() {
+                free_bufs.push(b);
+            }
+            for (b, _) in reorder_queue_cpu.drain(..) {
+                free_bufs.push(b);
+            }
+            eof_reached_cpu = false;
+            fill_reorder_cpu!();
+            let fa = reorder_queue_cpu.pop();
+            fill_reorder_cpu!();
+            let fb = reorder_queue_cpu.pop();
+            (cur_bgra, cur_pts) = fa.map(|(b, p)| (Some(b), p)).unwrap_or((None, 0.0));
+            (next_bgra, next_pts) = fb.map(|(b, p)| (Some(b), p)).unwrap_or((None, f64::MAX));
+            have_next = next_bgra.is_some();
+        };
+    }
+
+    if cur_bgra.is_none() {
+        return Ok(());
     }
 
     let mut current_segment_idx: usize = 0;
     let mut frames_held: u32 = 0;
-    let mut src_decoded: u32 = if have_next { 2 } else { 1 };
 
     for (frame_idx, &source_time) in source_times.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
@@ -1014,81 +1349,58 @@ fn run_decode_thread_cpu(
             if target_seg != current_segment_idx {
                 decoder.seek_seconds(config.trim_segments[target_seg].start_time)?;
                 current_segment_idx = target_seg;
-                cur_pts = match decode_one(&mut cur_bgra)? {
-                    Some(pts) => pts,
-                    None => break,
-                };
-                src_decoded += 1;
-                if let Some(pts) = decode_one(&mut next_bgra)? {
-                    next_pts = pts;
-                    have_next = true;
-                    src_decoded += 1;
-                } else {
-                    have_next = false;
-                    next_pts = f64::MAX;
-                }
+                flush_and_refill_cpu!();
             }
         }
 
-        // Advance: find the best source frame for this output time.
-        // Fast-forward: if source_time is >1.5s ahead of the next frame (high-speed timelapse),
-        // seek directly instead of decoding every intermediate frame sequentially.
+        // Fast-forward seek if source_time is >1.5s ahead.
         if have_next && source_time - next_pts > 1.5 {
             decoder.seek_seconds(source_time)?;
-            cur_pts = match decode_one(&mut cur_bgra)? {
-                Some(pts) => pts,
-                None => break,
-            };
-            src_decoded += 1;
-            if let Some(pts) = decode_one(&mut next_bgra)? {
-                next_pts = pts;
-                have_next = true;
-                src_decoded += 1;
-            } else {
-                have_next = false;
-                next_pts = f64::MAX;
-            }
+            flush_and_refill_cpu!();
         }
 
         let mut advanced = false;
         while have_next && next_pts <= source_time {
-            std::mem::swap(&mut cur_bgra, &mut next_bgra);
+            if let Some(b) = cur_bgra.take() {
+                free_bufs.push(b);
+            }
+            cur_bgra = next_bgra.take();
             cur_pts = next_pts;
             advanced = true;
-            match decode_one(&mut next_bgra)? {
-                Some(pts) => {
-                    next_pts = pts;
-                    src_decoded += 1;
-                }
-                None => {
-                    have_next = false;
-                    next_pts = f64::MAX;
-                }
+
+            fill_reorder_cpu!();
+            if let Some((b, p)) = reorder_queue_cpu.pop() {
+                next_bgra = Some(b);
+                next_pts = p;
+            } else {
+                have_next = false;
+                next_bgra = None;
+                next_pts = f64::MAX;
             }
         }
 
         if !advanced && frame_idx > 0 {
             frames_held += 1;
         }
-        let _ = cur_pts; // suppress unused warning
+        let _ = cur_pts;
 
-        // Copy cur_bgra into a recycled send buffer (avoids per-frame allocation).
-        // cur_bgra STAYS in this thread so holds (same frame reused for multiple outputs) work.
-        let mut send_buf = recycle_rx
-            .try_recv()
-            .unwrap_or_else(|_| Vec::with_capacity(frame_size));
-        send_buf.resize(frame_size, 0);
-        send_buf.copy_from_slice(&cur_bgra);
+        if let Some(ref bgra) = cur_bgra {
+            let mut send_buf = recycle_rx.try_recv().unwrap_or_else(|_| get_buf!());
+            send_buf.resize(frame_size, 0);
+            send_buf.copy_from_slice(bgra);
 
-        if tx
-            .send(DecodeOutput::Cpu {
-                bgra_video: send_buf,
-                source_time,
-                source_step,
-                frame_idx: frame_idx as u32,
-            })
-            .is_err()
-        {
+            if tx
+                .send(DecodeOutput::Cpu {
+                    bgra_video: send_buf,
+                    source_time,
+                    source_step,
+                    frame_idx: frame_idx as u32,
+                })
+                .is_err()
+            {
+                break;
+            }
+        } else {
             break;
         }
     }
@@ -1124,11 +1436,15 @@ fn run_render_thread(
     dec_gpu_recycle_tx: mpsc::Sender<usize>,
     dec_cpu_recycle_tx: mpsc::Sender<Vec<u8>>,
     dec_wgpu_textures: &[wgpu::Texture],
-    // D3D12-side keyed mutex per decode ring slot.
-    // AcquireSync before reading; ReleaseSync after poll(Wait)+on_submitted_work_done.
-    dec_dx12_keyed_mutexes: &[IDXGIKeyedMutex],
+    // Cross-API shared fence: DX12 waits for D3D11's Signal before reading shared textures.
+    dec_d3d12_fence: Option<&d3d12::ID3D12Fence>,
+    // Keyed mutexes for decode ring slots (CPU ownership protocol).
+    dec_keyed_mutexes: &[IDXGIKeyedMutex],
     // Encode output resources.
     gpu_textures: &[wgpu::Texture],
+    // D3D12-side keyed mutex per encode ring slot.
+    // AcquireSync before writing; ReleaseSync after poll(Wait)+on_submitted_work_done.
+    gpu_dx12_keyed_mutexes: &[IDXGIKeyedMutex],
     gpu_slot_rx: mpsc::Receiver<usize>,
     cpu_recycle_rx: mpsc::Receiver<Vec<u8>>,
 ) -> Result<(), String> {
@@ -1160,14 +1476,12 @@ fn run_render_thread(
         t_wait += tw0.elapsed().as_secs_f64();
 
         if cancel_flag.load(Ordering::Relaxed) {
-            // Recycle the decode resource back.
             match &msg {
                 DecodeOutput::Gpu { ring_idx, .. } => {
                     let _ = dec_gpu_recycle_tx.send(*ring_idx);
                 }
-                DecodeOutput::Cpu { .. } => {
-                    // Can't recover the Vec without destructuring; just drop it.
-                }
+                DecodeOutput::GpuHold { .. } => {}
+                DecodeOutput::Cpu { .. } => {}
             }
             break;
         }
@@ -1178,28 +1492,52 @@ fn run_render_thread(
 
         // 1. Upload video frame to GPU (GPU copy or CPU upload depending on decode path).
         //
-        // GPU path: push ring_idx onto dec_ring_recycle_queue instead of recycling now.
-        // copy_frame_from_shared submits a DX12 copy but does NOT wait for completion.
-        // Recycling the ring slot before poll(Wait) would let the decode thread overwrite
-        // dec_d3d_textures[ring_idx] (the shared D3D11 texture) while DX12 reads it →
-        // partial frame data / "back-and-forth" corruption in the rendered output.
+        // GPU path: Wait on cross-API shared fence to ensure D3D11's writes are visible
+        // on DX12's GPU timeline, then copy from persistent shared texture.
+        // Ring slot recycled after poll(Wait) confirms DX12 copy+render complete.
         let tu0 = Instant::now();
         match msg {
-            DecodeOutput::Gpu { ring_idx, .. } => {
-                // D3D12-side keyed mutex: AcquireSync flushes the DX12 GPU cache so
-                // this device sees the D3D11-written frame rather than stale L2 data.
-                // D3D11 already called ReleaseSync(0) before sending ring_idx, so this
-                // succeeds immediately while still issuing the required cache barrier.
-                if !dec_dx12_keyed_mutexes.is_empty() {
+            DecodeOutput::Gpu {
+                ring_idx,
+                fence_value,
+                ..
+            } => {
+                // Acquire keyed mutex on DX12 side (CPU ownership for shared texture).
+                if !dec_keyed_mutexes.is_empty() {
                     unsafe {
-                        dec_dx12_keyed_mutexes[ring_idx]
+                        dec_keyed_mutexes[ring_idx]
                             .AcquireSync(0, u32::MAX)
-                            .map_err(|e| format!("AcquireSync D3D12 ring[{ring_idx}]: {e}"))?;
+                            .map_err(|e| format!("AcquireSync dec render[{ring_idx}]: {e}"))?;
                     }
                 }
-                // Zero-copy: GPU-to-GPU copy from shared decode texture to video_texture.
+
+                // Wait on DX12 command queue for D3D11's fence Signal.
+                // This stalls DX12's GPU pipeline until D3D11 completes writing to the
+                // shared texture. The Wait acts as an implicit acquire barrier, invalidating
+                // DX12's L2 cache so subsequent reads get fresh VRAM data.
+                if let Some(fence) = dec_d3d12_fence {
+                    unsafe {
+                        compositor
+                            .device()
+                            .as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_dev| {
+                                if let Some(hal_dev) = hal_dev {
+                                    let raw_queue: &d3d12::ID3D12CommandQueue =
+                                        &*(hal_dev.raw_queue() as *const _
+                                            as *const d3d12::ID3D12CommandQueue);
+                                    let _ = raw_queue.Wait(fence, fence_value);
+                                }
+                            });
+                    }
+                }
+
                 compositor.copy_frame_from_shared(&dec_wgpu_textures[ring_idx]);
+
                 dec_ring_recycle_queue.push_back(Some(ring_idx)); // recycled after poll(Wait)
+            }
+            DecodeOutput::GpuHold { .. } => {
+                // Reuse the previously uploaded frame when the source PTS is held.
+                // This avoids unnecessary shared-texture reads on hold frames.
+                dec_ring_recycle_queue.push_back(None);
             }
             DecodeOutput::Cpu { bgra_video, .. } => {
                 // CPU fallback: PCIe upload (no deferred recycle needed).
@@ -1239,15 +1577,10 @@ fn run_render_thread(
                 let uniforms = build_uniforms(source_time, pan_time, zoom_time, cur_time);
                 passes.push((uniforms, 1.0 / (i as f64 + 1.0)));
             }
-            compositor.render_accumulate_batched(&passes);
+            compositor.render_accumulate_batched(&passes, None);
         } else {
-            let uniforms = build_uniforms(
-                source_time,
-                source_time,
-                source_time,
-                source_time,
-            );
-            compositor.render_to_output(&uniforms, true);
+            let uniforms = build_uniforms(source_time, source_time, source_time, source_time);
+            compositor.render_to_output(&uniforms, true, None);
         }
 
         // Atlas overlay pass.
@@ -1265,6 +1598,18 @@ fn run_render_thread(
                 .recv()
                 .map_err(|_| "GPU slot recycle channel closed")?;
             let trb0 = Instant::now();
+
+            // Acquire DX12-side keyed mutex before writing to the encode ring slot.
+            // This cache-invalidates any stale D3D11 data and satisfies the DXGI
+            // keyed-mutex contract for cross-API (DX12↔D3D11) sharing.
+            if !gpu_dx12_keyed_mutexes.is_empty() {
+                unsafe {
+                    gpu_dx12_keyed_mutexes[ring_idx]
+                        .AcquireSync(0, u32::MAX)
+                        .map_err(|e| format!("AcquireSync DX12 enc[{ring_idx}]: {e}"))?;
+                }
+            }
+
             compositor.copy_output_to_shared(&gpu_textures[ring_idx]);
 
             // Wait for all DX12 work to complete using on_submitted_work_done + poll.
@@ -1276,18 +1621,25 @@ fn run_render_thread(
             let _ = compositor.device().poll(wgpu::PollType::Wait);
             let _ = rx_done.recv();
 
-            // Release D3D12-side keyed mutex before recycling — this allows D3D11's
-            // next AcquireSync(0) to proceed and also flushes DX12 caches.
-            // Must happen after poll(Wait)+on_submitted_work_done (GPU fully retired).
-            if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
-                if !dec_dx12_keyed_mutexes.is_empty() {
-                    unsafe {
-                        let _ = dec_dx12_keyed_mutexes[idx].ReleaseSync(0);
-                    }
+            // Release DX12-side keyed mutex for this encode ring slot — flushes DX12
+            // caches so D3D11 (MF encoder) sees the freshly written frame data.
+            if !gpu_dx12_keyed_mutexes.is_empty() {
+                unsafe {
+                    let _ = gpu_dx12_keyed_mutexes[ring_idx].ReleaseSync(0);
                 }
-                let _ = dec_gpu_recycle_tx.send(idx);
-            } else {
-                dec_ring_recycle_queue.pop_front(); // discard None entry
+            }
+
+            // Recycle decode ring slot — GPU work is done (poll+on_submitted_work_done).
+            if let Some(entry) = dec_ring_recycle_queue.pop_front() {
+                if let Some(idx) = entry {
+                    // Release decode keyed mutex so decode thread can re-acquire.
+                    if !dec_keyed_mutexes.is_empty() {
+                        unsafe {
+                            let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
+                        }
+                    }
+                    let _ = dec_gpu_recycle_tx.send(idx);
+                }
             }
             t_readback += trb0.elapsed().as_secs_f64();
             if tx.send(RenderOutput::Gpu { ring_idx }).is_err() {
@@ -1303,16 +1655,15 @@ fn run_render_thread(
                 let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
                 compositor.readback_output(&mut out_buf)?;
                 // readback_output internally does poll(Wait) — DX12 copy is done.
-                // Recycle the decode ring slot for the oldest pipelined frame.
-                if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
-                    if !dec_dx12_keyed_mutexes.is_empty() {
-                        unsafe {
-                            let _ = dec_dx12_keyed_mutexes[idx].ReleaseSync(0);
+                if let Some(entry) = dec_ring_recycle_queue.pop_front() {
+                    if let Some(idx) = entry {
+                        if !dec_keyed_mutexes.is_empty() {
+                            unsafe {
+                                let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
+                            }
                         }
+                        let _ = dec_gpu_recycle_tx.send(idx);
                     }
-                    let _ = dec_gpu_recycle_tx.send(idx);
-                } else {
-                    dec_ring_recycle_queue.pop_front();
                 }
                 t_readback += trb0.elapsed().as_secs_f64();
                 queued_readbacks -= 1;
@@ -1334,15 +1685,15 @@ fn run_render_thread(
         let trb0 = Instant::now();
         let mut out_buf = cpu_recycle_rx.try_recv().unwrap_or_default();
         compositor.readback_output(&mut out_buf)?;
-        if let Some(Some(idx)) = dec_ring_recycle_queue.pop_front() {
-            if !dec_dx12_keyed_mutexes.is_empty() {
-                unsafe {
-                    let _ = dec_dx12_keyed_mutexes[idx].ReleaseSync(0);
+        if let Some(entry) = dec_ring_recycle_queue.pop_front() {
+            if let Some(idx) = entry {
+                if !dec_keyed_mutexes.is_empty() {
+                    unsafe {
+                        let _ = dec_keyed_mutexes[idx].ReleaseSync(0);
+                    }
                 }
+                let _ = dec_gpu_recycle_tx.send(idx);
             }
-            let _ = dec_gpu_recycle_tx.send(idx);
-        } else {
-            dec_ring_recycle_queue.pop_front();
         }
         t_readback += trb0.elapsed().as_secs_f64();
         queued_readbacks -= 1;
@@ -1493,6 +1844,55 @@ fn run_encode_thread(
     let mut t_encode = 0.0_f64;
     let mut t_wait = 0.0_f64;
 
+    // D3D11-side keyed mutexes for the encode ring — AcquireSync before reading each
+    // shared slot and ReleaseSync only after the slot has been copied to a private
+    // encode texture owned by this thread.
+    let gpu_enc_keyed_mutexes: Vec<IDXGIKeyedMutex> = gpu_buffers
+        .iter()
+        .map(|b| b.texture.cast::<IDXGIKeyedMutex>())
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("QI IDXGIKeyedMutex (encode ring): {e}"))?;
+
+    // Pre-cast shared encode textures once for fast CopyResource.
+    let gpu_buffer_resources: Vec<ID3D11Resource> = gpu_buffers
+        .iter()
+        .map(|b| b.texture.cast::<ID3D11Resource>())
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("QI ID3D11Resource (encode ring): {e}"))?;
+
+    // Encode-side private texture copy context:
+    //   shared slot (render-owned) -> private texture (encode-owned) -> MF WriteSample.
+    //
+    // This decouples shared-slot reuse timing from asynchronous MF consumption and
+    // removes ring-periodic frame interleaving when the writer keeps GPU samples alive.
+    let (enc_copy_device, enc_copy_context, enc_copy_fence, enc_copy_desc) =
+        if let Some(first_buf) = gpu_buffers.first() {
+            let device = unsafe {
+                first_buf
+                    .texture
+                    .GetDevice()
+                    .map_err(|e| format!("GetDevice (encode shared texture): {e}"))?
+            };
+
+            let context = unsafe {
+                device
+                    .GetImmediateContext()
+                    .map_err(|e| format!("GetImmediateContext (encode): {e}"))?
+            };
+
+            let fence = D3D11GpuFence::new(&device, &context)?;
+
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            unsafe {
+                first_buf.texture.GetDesc(&mut desc);
+            }
+            desc.MiscFlags = 0;
+
+            (Some(device), Some(context), Some(fence), Some(desc))
+        } else {
+            (None, None, None, None)
+        };
+
     loop {
         let tw0 = Instant::now();
         let msg = match rx.recv() {
@@ -1550,7 +1950,8 @@ fn run_encode_thread(
                                 let vol = config.audio_volume as f32;
                                 for chunk in resampled.chunks_exact_mut(4) {
                                     let s = f32::from_le_bytes(chunk.try_into().unwrap());
-                                    chunk.copy_from_slice(&(s * vol).clamp(-1.0, 1.0).to_le_bytes());
+                                    chunk
+                                        .copy_from_slice(&(s * vol).clamp(-1.0, 1.0).to_le_bytes());
                                 }
                             }
                             if channels == 0 || resampled.is_empty() {
@@ -1562,8 +1963,7 @@ fn run_encode_thread(
                             }
                             let next_total =
                                 total_audio_samples_written + samples_per_channel as u64;
-                            let next_100ns =
-                                (next_total * 10_000_000) / dec.sample_rate() as u64;
+                            let next_100ns = (next_total * 10_000_000) / dec.sample_rate() as u64;
                             let dur_100ns = next_100ns as i64 - audio_output_100ns;
                             if dur_100ns <= 0 {
                                 continue;
@@ -1595,13 +1995,55 @@ fn run_encode_thread(
         let te0 = Instant::now();
         match msg {
             RenderOutput::Gpu { ring_idx } => {
-                encoder.write_frame_gpu(
-                    &gpu_buffers[ring_idx].texture,
-                    timestamp_100ns,
-                    frame_duration_100ns,
-                )?;
-                // Return the ring slot to the render thread for reuse.
+                // Acquire D3D11-side keyed mutex — cache-invalidates the DX12-written
+                // data so the MF encoder reads the correct frame, not stale L2 data.
+                if !gpu_enc_keyed_mutexes.is_empty() {
+                    unsafe {
+                        gpu_enc_keyed_mutexes[ring_idx]
+                            .AcquireSync(0, u32::MAX)
+                            .map_err(|e| format!("AcquireSync D3D11 enc[{ring_idx}]: {e}"))?;
+                    }
+                }
+
+                let private_texture =
+                    if let (Some(device), Some(context), Some(fence), Some(desc)) = (
+                        &enc_copy_device,
+                        &enc_copy_context,
+                        &enc_copy_fence,
+                        &enc_copy_desc,
+                    ) {
+                        let mut copied_opt: Option<ID3D11Texture2D> = None;
+                        unsafe {
+                            device
+                                .CreateTexture2D(desc, None, Some(&mut copied_opt))
+                                .map_err(|e| format!("CreateTexture2D encode-private: {e}"))?;
+                        }
+                        let copied =
+                            copied_opt.ok_or("CreateTexture2D encode-private returned null")?;
+
+                        let copied_res: ID3D11Resource = copied
+                            .cast()
+                            .map_err(|e| format!("QI encode-private ID3D11Resource: {e}"))?;
+                        unsafe {
+                            context.CopyResource(&copied_res, &gpu_buffer_resources[ring_idx]);
+                        }
+                        // Ensure the shared->private copy is complete before releasing the
+                        // shared slot back to the render thread.
+                        fence.signal_and_wait();
+                        copied
+                    } else {
+                        gpu_buffers[ring_idx].texture.clone()
+                    };
+
+                // Shared slot is no longer needed once the private copy is complete.
+                if !gpu_enc_keyed_mutexes.is_empty() {
+                    unsafe {
+                        let _ = gpu_enc_keyed_mutexes[ring_idx].ReleaseSync(0);
+                    }
+                }
                 let _ = gpu_recycle_tx.send(ring_idx);
+
+                encoder.write_frame_gpu(&private_texture, timestamp_100ns, frame_duration_100ns)?;
             }
             RenderOutput::Cpu { rendered_bgra } => {
                 encoder.write_frame_cpu(&rendered_bgra, timestamp_100ns, frame_duration_100ns)?;

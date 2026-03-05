@@ -710,8 +710,7 @@ pub(crate) fn render_frozen_with_selection(
                 let fr = (dr * inv_ba + 255.0 * border_alpha) as u32;
                 let fg = (dg * inv_ba + 255.0 * border_alpha) as u32;
                 let fb = (db * inv_ba + 255.0 * border_alpha) as u32;
-                row[xi] =
-                    0xFF000000 | (fr.min(255) << 16) | (fg.min(255) << 8) | fb.min(255);
+                row[xi] = 0xFF000000 | (fr.min(255) << 16) | (fg.min(255) << 8) | fb.min(255);
             }
             dim_pixels(&mut row[b_r..], inv_dim);
         }
@@ -881,7 +880,9 @@ unsafe fn sync_rect_overlay(hwnd: HWND) {
                     let py = py_int as f32 + 0.5;
                     for px_int in b_left..b_right {
                         let idx = row_base + px_int as usize;
-                        if idx >= pixels_u32.len() { continue; }
+                        if idx >= pixels_u32.len() {
+                            continue;
+                        }
                         let px = px_int as f32 + 0.5;
                         let dx = (px - cx).abs() - (sel_hw - radius);
                         let dy = (py - cy).abs() - (sel_hh - radius);
@@ -967,11 +968,7 @@ unsafe extern "system" fn rect_overlay_wnd_proc(
                     // Restore click-through if it was removed during drag
                     let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
                     if style & WS_EX_TRANSPARENT.0 as i32 == 0 {
-                        SetWindowLongW(
-                            hwnd,
-                            GWL_EXSTYLE,
-                            style | WS_EX_TRANSPARENT.0 as i32,
-                        );
+                        SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT.0 as i32);
                     }
                     // Clear any leftover capture
                     *GESTURE_CAPTURE.lock().unwrap() = None;

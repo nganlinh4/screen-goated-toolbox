@@ -365,7 +365,10 @@ impl SettingsApp {
             pending_file_path,
 
             // --- DRAG WARMUP ---
-            title_bar_drag_rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(0.0, 0.0)),
+            title_bar_drag_rect: egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.0),
+                egui::pos2(0.0, 0.0),
+            ),
             resize_subclass_installed: false,
         }
     }

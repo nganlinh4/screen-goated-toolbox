@@ -97,11 +97,9 @@ const RESIZE_NWSE_JEPRIWIN11_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nwse-jepriwin11.svg");
 const RESIZE_NESW_JEPRIWIN11_SVG: &[u8] =
     include_bytes!("../dist/cursor-resize-nesw-jepriwin11.svg");
-const DEFAULT_SGTWATERMELON_SVG: &[u8] =
-    include_bytes!("../dist/cursor-default-sgtwatermelon.svg");
+const DEFAULT_SGTWATERMELON_SVG: &[u8] = include_bytes!("../dist/cursor-default-sgtwatermelon.svg");
 const TEXT_SGTWATERMELON_SVG: &[u8] = include_bytes!("../dist/cursor-text-sgtwatermelon.svg");
-const POINTER_SGTWATERMELON_SVG: &[u8] =
-    include_bytes!("../dist/cursor-pointer-sgtwatermelon.svg");
+const POINTER_SGTWATERMELON_SVG: &[u8] = include_bytes!("../dist/cursor-pointer-sgtwatermelon.svg");
 const OPENHAND_SGTWATERMELON_SVG: &[u8] =
     include_bytes!("../dist/cursor-openhand-sgtwatermelon.svg");
 const CLOSEHAND_SGTWATERMELON_SVG: &[u8] =

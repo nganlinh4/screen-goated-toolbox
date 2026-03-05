@@ -19,10 +19,7 @@ const FORMAT_VERSION: u32 = 2;
 const TILE: u32 = 512;
 
 fn cache_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|base| {
-        base.join("screen-goated-toolbox")
-            .join("cursor-anim-cache")
-    })
+    dirs::data_local_dir().map(|base| base.join("screen-goated-toolbox").join("cursor-anim-cache"))
 }
 
 fn cache_path(slot_id: u32, svg_hash: &str) -> Option<PathBuf> {
@@ -32,10 +29,7 @@ fn cache_path(slot_id: u32, svg_hash: &str) -> Option<PathBuf> {
 /// Try to load cached animation data for a slot.
 /// On success, populates the persistent ANIMATED_CURSORS store with export
 /// frames and returns the preview PNG bytes for JS to reconstruct canvases.
-pub fn load_cache(
-    slot_id: u32,
-    svg_hash: &str,
-) -> Option<CacheLoadResult> {
+pub fn load_cache(slot_id: u32, svg_hash: &str) -> Option<CacheLoadResult> {
     let path = cache_path(slot_id, svg_hash)?;
     if !path.exists() {
         return None;
@@ -84,13 +78,17 @@ fn parse_cache_file(data: &[u8], expected_slot: u32) -> Option<ParsedCache> {
     pos += 8;
 
     let read_u32 = |p: &mut usize| -> Option<u32> {
-        if *p + 4 > data.len() { return None; }
+        if *p + 4 > data.len() {
+            return None;
+        }
         let v = u32::from_le_bytes(data[*p..*p + 4].try_into().ok()?);
         *p += 4;
         Some(v)
     };
     let read_f64 = |p: &mut usize| -> Option<f64> {
-        if *p + 8 > data.len() { return None; }
+        if *p + 8 > data.len() {
+            return None;
+        }
         let v = f64::from_le_bytes(data[*p..*p + 8].try_into().ok()?);
         *p += 8;
         Some(v)
@@ -116,7 +114,9 @@ fn parse_cache_file(data: &[u8], expected_slot: u32) -> Option<ParsedCache> {
     let mut export_rgba_frames = Vec::with_capacity(export_count);
     for _ in 0..export_count {
         let png_len = read_u32(&mut pos)? as usize;
-        if pos + png_len > data.len() { return None; }
+        if pos + png_len > data.len() {
+            return None;
+        }
         let png_data = &data[pos..pos + png_len];
         pos += png_len;
 
@@ -142,7 +142,9 @@ fn parse_cache_file(data: &[u8], expected_slot: u32) -> Option<ParsedCache> {
     let mut preview_pngs = Vec::with_capacity(preview_count);
     for _ in 0..preview_count {
         let png_len = read_u32(&mut pos)? as usize;
-        if pos + png_len > data.len() { return None; }
+        if pos + png_len > data.len() {
+            return None;
+        }
         preview_pngs.push(data[pos..pos + png_len].to_vec());
         pos += png_len;
     }

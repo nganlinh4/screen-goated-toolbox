@@ -5,7 +5,9 @@ pub mod types;
 pub mod ui;
 pub mod utils;
 
-pub use self::types::{CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus, UpdateStatus};
+pub use self::types::{
+    CookieBrowser, DownloadSession, DownloadState, DownloadType, InstallStatus, UpdateStatus,
+};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -98,16 +100,19 @@ impl DownloadManager {
 
     /// Returns the index of the active session (clamped to valid range).
     pub fn active_idx(&self) -> usize {
-        self.active_tab_idx.min(self.sessions.len().saturating_sub(1))
+        self.active_tab_idx
+            .min(self.sessions.len().saturating_sub(1))
     }
 
     pub fn add_tab(&mut self) {
         let n = self.sessions.len() + 1;
-        let dt = self.sessions
+        let dt = self
+            .sessions
             .get(self.active_idx())
             .map(|s| s.download_type.clone())
             .unwrap_or(DownloadType::Video);
-        self.sessions.push(DownloadSession::new(format!("Tab {}", n), dt));
+        self.sessions
+            .push(DownloadSession::new(format!("Tab {}", n), dt));
         self.active_tab_idx = self.sessions.len() - 1;
     }
 
@@ -129,7 +134,8 @@ impl DownloadManager {
     }
 
     pub fn save_settings(&self) {
-        let dt = self.sessions
+        let dt = self
+            .sessions
             .get(self.active_idx())
             .map(|s| s.download_type.clone())
             .unwrap_or(DownloadType::Video);
@@ -141,7 +147,10 @@ impl DownloadManager {
             use_playlist: self.use_playlist,
             cookie_browser: self.cookie_browser.clone(),
             download_type: dt,
-            selected_subtitle: self.sessions.get(self.active_idx()).and_then(|s| s.selected_subtitle.clone()),
+            selected_subtitle: self
+                .sessions
+                .get(self.active_idx())
+                .and_then(|s| s.selected_subtitle.clone()),
         };
         persistence::save_config(&config);
     }

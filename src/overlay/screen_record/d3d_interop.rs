@@ -16,9 +16,76 @@ use windows::Win32::Graphics::Direct3D::{
 };
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Graphics::Dxgi::{IDXGIResource1, IDXGISurface};
+use windows::Win32::Graphics::Dxgi::{self as dxgi, IDXGIResource1, IDXGISurface};
 use windows::Win32::Security::SECURITY_ATTRIBUTES;
 use windows::Win32::System::WinRT::Direct3D11::CreateDirect3D11SurfaceFromDXGISurface;
+
+/// Create a D3D11 device on the SAME adapter as the wgpu/DX12 device.
+///
+/// Takes an adapter LUID (from `wgpu::AdapterInfo::device`) and enumerates DXGI
+/// adapters to find the matching one. This ensures shared textures live on the
+/// same GPU — without this, D3D11 may pick the iGPU while wgpu uses the dGPU,
+/// causing cross-adapter sharing where D3D12 reads stale VRAM from the wrong GPU.
+pub fn create_d3d11_device_on_adapter(
+    vendor_id: u32,
+    device_id: u32,
+) -> Result<(ID3D11Device, ID3D11DeviceContext), String> {
+    let factory: dxgi::IDXGIFactory1 =
+        unsafe { dxgi::CreateDXGIFactory1().map_err(|e| format!("CreateDXGIFactory1: {e}"))? };
+
+    // Enumerate adapters and find the one matching the wgpu adapter's vendor/device.
+    let mut matched_adapter = None;
+    for i in 0.. {
+        let adapter = match unsafe { factory.EnumAdapters1(i) } {
+            Ok(a) => a,
+            Err(_) => break,
+        };
+        let desc = unsafe { adapter.GetDesc1().map_err(|e| format!("GetDesc1: {e}"))? };
+        if desc.VendorId == vendor_id && desc.DeviceId == device_id {
+            let name = String::from_utf16_lossy(
+                &desc.Description[..desc
+                    .Description
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(desc.Description.len())],
+            );
+            eprintln!(
+                "[D3D11] Matched wgpu adapter: {name} (vendor=0x{:x} device=0x{:x})",
+                vendor_id, device_id
+            );
+            matched_adapter = Some(adapter);
+            break;
+        }
+    }
+
+    let flags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    let feature_levels = [D3D_FEATURE_LEVEL_11_0];
+
+    if let Some(adapter) = matched_adapter {
+        // Create D3D11 device on the specific adapter (driver_type must be UNKNOWN when adapter is provided).
+        let mut device: Option<ID3D11Device> = None;
+        let mut context: Option<ID3D11DeviceContext> = None;
+        unsafe {
+            D3D11CreateDevice(
+                &adapter,
+                windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN,
+                HMODULE::default(),
+                flags,
+                Some(&feature_levels),
+                7,
+                Some(&mut device),
+                None,
+                Some(&mut context),
+            )
+            .map_err(|e| format!("D3D11CreateDevice on matched adapter: {e}"))?;
+        }
+        println!("[D3D11] Device created on wgpu-matched adapter");
+        Ok((device.unwrap(), context.unwrap()))
+    } else {
+        eprintln!("[D3D11] WARNING: No adapter matched wgpu LUID, falling back to default");
+        create_d3d11_device()
+    }
+}
 
 /// Create a standalone D3D11 device with video processing support.
 ///
@@ -454,12 +521,19 @@ pub struct SharedVramBuffer {
 impl SharedVramBuffer {
     /// Create a shared BGRA texture on the given D3D11 device.
     ///
-    /// The texture is created with `SHARED_NTHANDLE | SHARED_KEYEDMUTEX` misc flags
-    /// and `RENDER_TARGET | SHADER_RESOURCE` bind flags so it can be imported into
-    /// DX12 via `OpenSharedHandle`. The keyed mutex is the WDDM-mandated mechanism
-    /// for GPU cache coherence across D3D11↔D3D12 API boundaries: without it, the
-    /// DX12 engine's L2 cache is never invalidated and stale frames appear.
-    pub fn new(device: &ID3D11Device, width: u32, height: u32) -> Result<Self, String> {
+    /// The texture is created with `SHARED_NTHANDLE` and optionally `SHARED_KEYEDMUTEX`.
+    /// Keyed mutex is used by the encode ring (DX12→D3D11) for CPU-level ownership.
+    /// The decode ring (D3D11→DX12) uses a cross-API shared fence instead.
+    pub fn new(
+        device: &ID3D11Device,
+        width: u32,
+        height: u32,
+        use_keyed_mutex: bool,
+    ) -> Result<Self, String> {
+        let mut misc_flags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0;
+        if use_keyed_mutex {
+            misc_flags |= D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0;
+        }
         let desc = D3D11_TEXTURE2D_DESC {
             Width: width,
             Height: height,
@@ -473,8 +547,7 @@ impl SharedVramBuffer {
             Usage: D3D11_USAGE_DEFAULT,
             BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
             CPUAccessFlags: 0,
-            MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
-                | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
+            MiscFlags: misc_flags as u32,
         };
 
         let mut texture: Option<ID3D11Texture2D> = None;
@@ -513,4 +586,3 @@ impl Drop for SharedVramBuffer {
         }
     }
 }
-

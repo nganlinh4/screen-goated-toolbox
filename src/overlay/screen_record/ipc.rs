@@ -23,12 +23,11 @@ use tiny_http::{Response, Server, StatusCode};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW,
-    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows_capture::capture::GraphicsCaptureApiHandler;
@@ -333,7 +332,19 @@ fn capture_monitor_thumbnail(x: i32, y: i32, width: i32, height: i32) -> Option<
         }
         let old = SelectObject(hdc_thumb, hbitmap.into());
         let _ = SetStretchBltMode(hdc_thumb, HALFTONE);
-        let _ = StretchBlt(hdc_thumb, 0, 0, t_w, t_h, Some(hdc_screen), x, y, width, height, SRCCOPY);
+        let _ = StretchBlt(
+            hdc_thumb,
+            0,
+            0,
+            t_w,
+            t_h,
+            Some(hdc_screen),
+            x,
+            y,
+            width,
+            height,
+            SRCCOPY,
+        );
 
         let mut bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -405,8 +416,7 @@ fn capture_window_thumbnail_with_timeout(hwnd: HWND) -> Option<String> {
 }
 
 fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
-    let windows =
-        windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
+    let windows = windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
     let mut window_infos = Vec::new();
     for window in windows {
         if !window.is_valid() {
@@ -429,8 +439,7 @@ fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
             .and_then(|path| extract_icon_data_url_from_exe(&path));
         let mut is_admin = false;
         if let Ok(pid) = window.process_id() {
-            let handle =
-                unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
             if handle.is_err() {
                 is_admin = true;
             } else if let Ok(h) = handle {
@@ -455,8 +464,7 @@ fn gather_window_infos() -> Result<Vec<serde_json::Value>, String> {
 /// Fast metadata-only enumeration — no thumbnail capture.
 /// Returns each window with `winW`/`winH` for aspect ratio display.
 fn gather_window_metadata() -> Result<Vec<serde_json::Value>, String> {
-    let windows =
-        windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
+    let windows = windows_capture::window::Window::enumerate().map_err(|e| e.to_string())?;
     let mut infos = Vec::new();
     for window in windows {
         if !window.is_valid() {
@@ -498,12 +506,13 @@ fn gather_window_metadata() -> Result<Vec<serde_json::Value>, String> {
             .and_then(|path| extract_icon_data_url_from_exe(&path));
         let mut is_admin = false;
         if let Ok(pid) = window.process_id() {
-            let handle =
-                unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
             if handle.is_err() {
                 is_admin = true;
             } else if let Ok(h) = handle {
-                unsafe { let _ = CloseHandle(h); }
+                unsafe {
+                    let _ = CloseHandle(h);
+                }
             }
         }
         infos.push(serde_json::json!({
@@ -641,10 +650,15 @@ pub fn handle_ipc_command(
         "save_cursor_anim_cache" => {
             let slot_id = args["slotId"].as_u64().ok_or("missing slotId")? as u32;
             let svg_hash = args["svgHash"].as_str().ok_or("missing svgHash")?;
-            let loop_duration = args["loopDuration"].as_f64().ok_or("missing loopDuration")?;
-            let natural_width = args["naturalWidth"].as_u64().ok_or("missing naturalWidth")? as u32;
-            let natural_height =
-                args["naturalHeight"].as_u64().ok_or("missing naturalHeight")? as u32;
+            let loop_duration = args["loopDuration"]
+                .as_f64()
+                .ok_or("missing loopDuration")?;
+            let natural_width = args["naturalWidth"]
+                .as_u64()
+                .ok_or("missing naturalWidth")? as u32;
+            let natural_height = args["naturalHeight"]
+                .as_u64()
+                .ok_or("missing naturalHeight")? as u32;
 
             let decode_png_array = |key: &str| -> Result<Vec<Vec<u8>>, String> {
                 let arr = args[key].as_array().ok_or(format!("missing {key}"))?;
@@ -846,7 +860,9 @@ pub fn handle_ipc_command(
 
             // Request 1ms timer resolution so thread::sleep(1ms) actually sleeps ~1ms
             // instead of the default ~15.6ms Windows scheduler quantum.
-            unsafe { timeBeginPeriod(1); }
+            unsafe {
+                timeBeginPeriod(1);
+            }
 
             if target_type == "window" {
                 let hwnd_val = target_id.parse::<usize>().unwrap_or(0);
@@ -879,8 +895,7 @@ pub fn handle_ipc_command(
                     hwnd_val as *mut std::ffi::c_void,
                 );
 
-                super::engine::TARGET_HWND
-                    .store(hwnd_val, std::sync::atomic::Ordering::Relaxed);
+                super::engine::TARGET_HWND.store(hwnd_val, std::sync::atomic::Ordering::Relaxed);
 
                 unsafe {
                     let mut rect = RECT::default();
@@ -900,7 +915,9 @@ pub fn handle_ipc_command(
 
                 let update_interval = if let Some(f) = fps {
                     let target_micros = 1_000_000 / f.max(1);
-                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros((target_micros / 2) as u64))
+                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros(
+                        (target_micros / 2) as u64,
+                    ))
                 } else {
                     MinimumUpdateIntervalSettings::Default
                 };
@@ -981,7 +998,9 @@ pub fn handle_ipc_command(
 
                 let update_interval = if let Some(f) = fps {
                     let target_micros = 1_000_000 / f.max(1);
-                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros((target_micros / 2) as u64))
+                    MinimumUpdateIntervalSettings::Custom(std::time::Duration::from_micros(
+                        (target_micros / 2) as u64,
+                    ))
                 } else {
                     MinimumUpdateIntervalSettings::Default
                 };
@@ -1035,7 +1054,9 @@ pub fn handle_ipc_command(
             super::capture_border::hide_capture_border();
 
             // Restore default timer resolution (matching the timeBeginPeriod in start_recording).
-            unsafe { timeEndPeriod(1); }
+            unsafe {
+                timeEndPeriod(1);
+            }
             if let Some(control) = ACTIVE_CAPTURE_CONTROL.lock().take() {
                 control.stop();
             }
@@ -1662,11 +1683,9 @@ pub fn start_global_media_server() -> Result<u16, String> {
             if request.method() == &tiny_http::Method::Post
                 && request.url().starts_with("/write-temp")
             {
-                let cors = tiny_http::Header::from_bytes(
-                    &b"Access-Control-Allow-Origin"[..],
-                    &b"*"[..],
-                )
-                .unwrap();
+                let cors =
+                    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                        .unwrap();
                 let recordings_dir = dirs::data_local_dir()
                     .unwrap_or_else(std::env::temp_dir)
                     .join("screen-goated-toolbox")
@@ -1697,8 +1716,7 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     );
                     let _ = request.respond(res);
                 } else {
-                    let mut res =
-                        Response::from_string("Write failed").with_status_code(500);
+                    let mut res = Response::from_string("Write failed").with_status_code(500);
                     res.add_header(cors);
                     let _ = request.respond(res);
                 }
@@ -1796,11 +1814,8 @@ pub fn start_global_media_server() -> Result<u16, String> {
                                 &b"*"[..],
                             )
                             .unwrap(),
-                            tiny_http::Header::from_bytes(
-                                &b"Accept-Ranges"[..],
-                                &b"bytes"[..],
-                            )
-                            .unwrap(),
+                            tiny_http::Header::from_bytes(&b"Accept-Ranges"[..], &b"bytes"[..])
+                                .unwrap(),
                         ],
                         Box::new(f.take(end - start + 1)) as Box<dyn Read + Send>,
                         Some((end - start + 1) as usize),
