@@ -221,7 +221,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
           return (
             <div
               key={seg.id}
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
                 const rect = e.currentTarget.parentElement!.getBoundingClientRect();
                 const clickX = e.clientX - rect.left;
@@ -294,7 +294,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               </div>
               <div
                 className="keystroke-handle-start absolute inset-y-0 -left-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-                onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
+                onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'start'); }}
               >
                 <div
                   className="keystroke-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
@@ -303,7 +303,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
               </div>
               <div
                 className="keystroke-handle-end absolute inset-y-0 -right-[2px] w-[5px] cursor-ew-resize flex items-center justify-center opacity-0 group-hover:opacity-100 z-10"
-                onMouseDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
+                onPointerDown={(e) => { e.stopPropagation(); onHandleDragStart(seg.id, 'end'); }}
               >
                 <div
                   className="keystroke-handle-bar w-[3px] h-3 rounded-full shadow-[0_0_4px_rgba(0,0,0,0.4)]"
@@ -319,7 +319,7 @@ export const KeystrokeTrack: React.FC<KeystrokeTrackProps> = ({
         <button
           className="keystroke-add-btn absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-600/75 hover:bg-emerald-600 dark:bg-emerald-500/50 dark:hover:bg-emerald-500 flex items-center justify-center text-white text-[10px] leading-none font-bold transition-colors z-10 pointer-events-auto shadow-sm"
           style={{ left: hoverX - 8 }}
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
             e.stopPropagation();
             const rect = e.currentTarget.parentElement!.getBoundingClientRect();
             const time = (hoverX / rect.width) * safeDuration;
