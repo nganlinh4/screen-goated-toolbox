@@ -6,6 +6,10 @@ import { initPreviewAnimation } from './cursorAnimationCapture';
 // ---------------------------------------------------------------------------
 const CURSOR_ASSET_VERSION = `cursor-types-runtime-${Date.now()}`;
 
+export function getCursorAssetUrl(name: string): string {
+  return `/${name}.svg?v=${CURSOR_ASSET_VERSION}`;
+}
+
 // ---------------------------------------------------------------------------
 // createCursorImageSet - loads all cursor pack SVGs into HTMLImageElements
 // ---------------------------------------------------------------------------
@@ -13,7 +17,7 @@ const CURSOR_ASSET_VERSION = `cursor-types-runtime-${Date.now()}`;
 export function createCursorImageSet(): CursorImageSet {
   const loadImg = (name: string): HTMLImageElement => {
     const img = new Image();
-    img.src = `/${name}.svg?v=${CURSOR_ASSET_VERSION}`;
+    img.src = getCursorAssetUrl(name);
     return img;
   };
 
