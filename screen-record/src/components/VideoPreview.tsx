@@ -104,6 +104,7 @@ interface PlaybackControlsProps {
   isProcessing: boolean;
   isVideoReady: boolean;
   isCropping: boolean;
+  hasAppliedCrop?: boolean;
   currentTime: number;
   duration: number;
   /** Wall-clock current time (speed-adjusted) for display */
@@ -124,6 +125,7 @@ export function PlaybackControls({
   isProcessing,
   isVideoReady,
   isCropping,
+  hasAppliedCrop = false,
   currentTime,
   duration,
   wallClockCurrentTime,
@@ -177,7 +179,11 @@ export function PlaybackControls({
         onClick={onToggleCrop}
         variant="ghost"
         size="icon"
-        className="w-8 h-8 rounded-lg transition-colors text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)]"
+        className={`playback-crop-toggle-btn w-8 h-8 rounded-lg transition-colors ${
+          hasAppliedCrop
+            ? 'bg-emerald-500/18 text-emerald-500 hover:bg-emerald-500/26 dark:bg-emerald-400/18 dark:text-emerald-200 dark:hover:bg-emerald-400/26'
+            : 'text-[var(--overlay-panel-fg)]/80 hover:text-[var(--overlay-panel-fg)] hover:bg-[var(--glass-bg)]'
+        }`}
         title={t.cropVideo}
       >
         <Crop className="w-3.5 h-3.5" />
@@ -637,6 +643,15 @@ export const VideoPreview = forwardRef<HTMLDivElement, VideoPreviewProps>(({
             isProcessing={isProcessing}
             isVideoReady={isVideoReady}
             isCropping={isCropping}
+            hasAppliedCrop={Boolean(
+              segment?.crop &&
+              (
+                Math.abs(segment.crop.x) > 0.0005 ||
+                Math.abs(segment.crop.y) > 0.0005 ||
+                Math.abs(segment.crop.width - 1) > 0.0005 ||
+                Math.abs(segment.crop.height - 1) > 0.0005
+              )
+            )}
             currentTime={currentTime}
             duration={duration}
             onTogglePlayPause={onTogglePlayPause}

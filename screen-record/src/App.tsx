@@ -13,7 +13,7 @@ import { useHotkeys, useMonitors, useWindows } from '@/hooks/useAppHooks';
 import {
   useVideoPlayback, useRecording, useProjects, useExport,
   useZoomKeyframes, useTextOverlays, useAutoZoom, useCursorHiding,
-  getSavedKeystrokeLanguage, saveKeystrokeLanguage,
+  getSavedKeystrokeLanguage, saveKeystrokeLanguage, getSavedCropPref, saveCropPref,
 } from '@/hooks/useVideoState';
 
 import { Header } from '@/components/Header';
@@ -494,6 +494,17 @@ function App() {
     return 'cursor-default';
   }, [isKeystrokeResizeDragging, isKeystrokeResizeHandleHover, isPreviewDragging, currentVideo, isCropping]);
 
+  const hasAppliedCrop = useMemo(() => {
+    const crop = segment?.crop;
+    if (!crop) return false;
+    return (
+      Math.abs(crop.x) > 0.0005 ||
+      Math.abs(crop.y) > 0.0005 ||
+      Math.abs(crop.width - 1) > 0.0005 ||
+      Math.abs(crop.height - 1) > 0.0005
+    );
+  }, [segment?.crop?.x, segment?.crop?.y, segment?.crop?.width, segment?.crop?.height]);
+
   const handleBackgroundUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const inputEl = e.currentTarget;
     const file = e.target.files?.[0];
@@ -704,6 +715,12 @@ function App() {
     try { localStorage.setItem(KEYSTROKE_OVERLAY_PREF_KEY, JSON.stringify(segment.keystrokeOverlay)); } catch { /* ignore */ }
   }, [segment?.keystrokeOverlay]);
 
+  // Persist crop preference so newly recorded/imported videos inherit the last crop.
+  useEffect(() => {
+    if (!segment) return;
+    saveCropPref(segment.crop);
+  }, [segment?.crop?.x, segment?.crop?.y, segment?.crop?.width, segment?.crop?.height, segment]);
+
 
   const persistCurrentProjectNow = useCallback(async (options?: { refreshList?: boolean; includeMedia?: boolean }) => {
     if (!projects.currentProjectId || !currentVideo || !segment) return;
@@ -888,6 +905,8 @@ function App() {
   }, [handleSelectWindowForRecording]);
 
   const onStopRecording = useCallback(async () => {
+    setShowRawVideoDialog(false);
+    exportHook.setShowExportSuccessDialog(false);
     const result = await handleStopRecording();
     if (result) {
       const { mouseData, initialSegment, videoUrl, recordingMode, rawVideoPath, capturedFps } = result;
@@ -932,7 +951,7 @@ function App() {
       projects.setCurrentProjectId(project.id);
       await projects.loadProjects();
     }
-  }, [handleStopRecording, backgroundConfig, generateThumbnail, projects, rawAutoCopyEnabled, rawSaveDir, flashRawSavedButton]);
+  }, [handleStopRecording, backgroundConfig, generateThumbnail, projects, rawAutoCopyEnabled, rawSaveDir, flashRawSavedButton, setShowRawVideoDialog, exportHook]);
 
   // Effects
   useEffect(() => {
@@ -1008,6 +1027,7 @@ function App() {
           keyboardVisibilitySegments: [],
           keyboardMouseVisibilitySegments: [],
           keystrokeOverlay: getSavedKeystrokeOverlayPref(),
+          crop: getSavedCropPref(),
           useCustomCursor: true,
         };
         setSegment(initialSegment);
@@ -1144,7 +1164,7 @@ function App() {
             <div className={`playback-controls-row flex-shrink-0 flex justify-center pb-1 min-h-[56px] transition-opacity duration-200 ${currentVideo && !isLoadingVideo && !projects.showProjectsDialog ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
               {currentVideo && !isLoadingVideo && (
                 <PlaybackControls isPlaying={isPlaying} isProcessing={exportHook.isProcessing}
-                  isVideoReady={isVideoReady} isCropping={isCropping} currentTime={currentTime}
+                  isVideoReady={isVideoReady} isCropping={isCropping} hasAppliedCrop={hasAppliedCrop} currentTime={currentTime}
                   duration={duration} wallClockCurrentTime={wallClockCurrentTime} wallClockDuration={wallClockDuration}
                   onTogglePlayPause={togglePlayPause} onToggleCrop={handleToggleCrop}
                   canvasModeToggle={

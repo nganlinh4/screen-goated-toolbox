@@ -8,7 +8,7 @@ import {
   videoExporter
 } from '@/lib/videoExporter';
 import { autoZoomGenerator } from '@/lib/autoZoom';
-import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment, RawInputEvent, RecordingMode } from '@/types/video';
+import { BackgroundConfig, VideoSegment, ZoomKeyframe, MousePosition, ExportOptions, Project, TextSegment, CursorVisibilitySegment, RawInputEvent, RecordingMode, CropRect } from '@/types/video';
 import { clampVisibilitySegmentsToDuration, generateCursorVisibility, mergePointerSegments } from '@/lib/cursorHiding';
 import { normalizeSegmentTrimData } from '@/lib/trimSegments';
 import { getKeyframeRange } from '@/utils/helpers';
@@ -29,9 +29,11 @@ const KEYSTROKE_OVERLAY_PREF_KEY = 'screen-record-keystroke-overlay-pref-v1';
 const AUTO_ZOOM_PREF_KEY = 'screen-record-auto-zoom-pref-v1';
 const SMART_POINTER_PREF_KEY = 'screen-record-smart-pointer-pref-v1';
 const EXPORT_FPS_PREF_KEY = 'screen-record-export-fps-pref-v1';
+const CROP_PREF_KEY = 'screen-record-crop-pref-v1';
 const DEFAULT_EXPORT_FPS = 60;
 const MIN_EXPORT_FPS = 1;
 const MAX_EXPORT_FPS = 240;
+const MIN_CROP_SIZE = 0.05;
 
 function getSavedKeystrokeDelaySec(): number {
   try {
@@ -85,6 +87,48 @@ function getSavedKeystrokeOverlayPref(): { x: number; y: number; scale: number }
     }
   } catch { /* ignore */ }
   return { x: 50, y: 100, scale: 1 };
+}
+
+function normalizeCropRect(crop: Partial<CropRect> | null | undefined): CropRect | undefined {
+  if (!crop) return undefined;
+  const rawX = typeof crop.x === 'number' && Number.isFinite(crop.x) ? crop.x : 0;
+  const rawY = typeof crop.y === 'number' && Number.isFinite(crop.y) ? crop.y : 0;
+  const rawWidth = typeof crop.width === 'number' && Number.isFinite(crop.width) ? crop.width : 1;
+  const rawHeight = typeof crop.height === 'number' && Number.isFinite(crop.height) ? crop.height : 1;
+
+  const width = Math.max(MIN_CROP_SIZE, Math.min(1, rawWidth));
+  const height = Math.max(MIN_CROP_SIZE, Math.min(1, rawHeight));
+  const x = Math.max(0, Math.min(1 - width, rawX));
+  const y = Math.max(0, Math.min(1 - height, rawY));
+
+  if (width >= 0.999 && height >= 0.999 && x <= 0.001 && y <= 0.001) {
+    return undefined;
+  }
+  return { x, y, width, height };
+}
+
+export function getSavedCropPref(): CropRect | undefined {
+  try {
+    const raw = localStorage.getItem(CROP_PREF_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<CropRect>;
+    return normalizeCropRect(parsed);
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveCropPref(crop: CropRect | undefined): void {
+  try {
+    const normalized = normalizeCropRect(crop);
+    if (!normalized) {
+      localStorage.removeItem(CROP_PREF_KEY);
+      return;
+    }
+    localStorage.setItem(CROP_PREF_KEY, JSON.stringify(normalized));
+  } catch {
+    // ignore persistence failures
+  }
 }
 
 function getSavedAutoZoomPref(): boolean {
@@ -501,6 +545,7 @@ export function useRecording(props: UseRecordingProps) {
 
         const initialSegment: VideoSegment = {
           ...baseSegment,
+          crop: getSavedCropPref(),
           cursorVisibilitySegments: wantSmartPointer ? initialPointerSegments : defaultPointerSeg,
           smoothMotionPath: wantAutoZoom ? initialAutoPath : [],
           zoomInfluencePoints: wantAutoZoom && initialAutoPath.length > 0
@@ -670,6 +715,7 @@ export function useProjects(props: UseProjectsProps) {
     if (typeof correctedSegment.useCustomCursor !== 'boolean') {
       correctedSegment.useCustomCursor = project.recordingMode === 'withCursor' ? false : true;
     }
+    correctedSegment.crop = normalizeCropRect(correctedSegment.crop);
     correctedSegment.cursorVisibilitySegments = clampVisibilitySegmentsToDuration(
       correctedSegment.cursorVisibilitySegments,
       videoDuration
