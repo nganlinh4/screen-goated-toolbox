@@ -1370,7 +1370,9 @@ function App() {
         onExport={exportHook.startExport} exportOptions={exportHook.exportOptions}
         setExportOptions={exportHook.setExportOptions} segment={segment}
         videoRef={videoRef} backgroundConfig={backgroundConfig} hasAudio={exportHook.hasAudio}
-        sourceVideoFps={exportHook.sourceVideoFps} />
+        sourceVideoFps={exportHook.sourceVideoFps}
+        autoCopyEnabled={exportHook.exportAutoCopyEnabled}
+        onToggleAutoCopy={exportHook.setExportAutoCopyEnabled} />
       <RawVideoDialog
         show={showRawVideoDialog}
         onClose={() => setShowRawVideoDialog(false)}

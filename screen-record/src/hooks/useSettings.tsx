@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useLayoutEffect } from 'react';
 import { getTranslations, type Translations } from '@/i18n';
 
 interface SettingsState {
@@ -12,6 +12,14 @@ const initialTheme: 'dark' | 'light' =
   (window as any).__SR_INITIAL_THEME__ === 'light' ? 'light' : 'dark';
 const initialLang: string =
   (window as any).__SR_INITIAL_LANG__ || 'en';
+
+if (typeof document !== 'undefined') {
+  if (initialTheme === 'dark') {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
+}
 
 const defaultState: SettingsState = {
   theme: initialTheme,
@@ -30,7 +38,7 @@ export function useSettingsProvider(): SettingsState {
   const [lang, setLang] = useState(initialLang);
   const [t, setT] = useState<Translations>(getTranslations(initialLang));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {

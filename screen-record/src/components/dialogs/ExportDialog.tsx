@@ -29,6 +29,8 @@ interface ExportDialogProps {
   backgroundConfig: BackgroundConfig;
   hasAudio: boolean;
   sourceVideoFps?: number | null;
+  autoCopyEnabled: boolean;
+  onToggleAutoCopy: (enabled: boolean) => void;
 }
 
 function formatDataSize(bytes: number): string {
@@ -60,7 +62,9 @@ export function ExportDialog({
   videoRef,
   backgroundConfig,
   hasAudio,
-  sourceVideoFps
+  sourceVideoFps,
+  autoCopyEnabled,
+  onToggleAutoCopy
 }: ExportDialogProps) {
   const { t } = useSettings();
   const [isPickingDir, setIsPickingDir] = useState(false);
@@ -466,6 +470,18 @@ export function ExportDialog({
                 {isPickingDir ? t.browsing : t.browse}
               </Button>
             </div>
+          </div>
+
+          <div className="export-auto-copy-field">
+            <label className="export-auto-copy-toggle flex items-center gap-2 text-xs text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                className="rounded border-[var(--outline)]"
+                checked={autoCopyEnabled}
+                onChange={(e) => onToggleAutoCopy(e.target.checked)}
+              />
+              <span>{isGif ? t.autoCopyGifAfterExport : t.autoCopyVideoAfterExport}</span>
+            </label>
           </div>
         </div>
 

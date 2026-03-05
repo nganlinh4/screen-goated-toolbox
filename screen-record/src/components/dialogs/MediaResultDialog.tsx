@@ -440,6 +440,7 @@ interface ExportSuccessDialogProps {
 
 export function ExportSuccessDialog({ show, onClose, filePath, onFilePathChange, autoCopyEnabled, onToggleAutoCopy }: ExportSuccessDialogProps) {
   const { t } = useSettings();
+  const isGif = filePath.toLowerCase().endsWith('.gif');
   return (
     <MediaResultDialog
       show={show}
@@ -450,7 +451,7 @@ export function ExportSuccessDialog({ show, onClose, filePath, onFilePathChange,
       extraControls={
         <label className="media-auto-copy-toggle flex items-center gap-2 text-xs text-[var(--on-surface-variant)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
           <input type="checkbox" className="rounded border-[var(--outline)]" checked={autoCopyEnabled} onChange={(e) => onToggleAutoCopy(e.target.checked)} />
-          <span>{t.autoCopyAfterExport}</span>
+          <span>{isGif ? t.autoCopyGifAfterExport : t.autoCopyVideoAfterExport}</span>
         </label>
       }
     />

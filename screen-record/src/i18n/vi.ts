@@ -162,6 +162,8 @@ const vi: Translations = {
   copyVideo: 'Copy video',
   copyGif: 'Copy GIF',
   autoCopyAfterRecording: 'Tự copy sau khi quay cho lần sau',
+  autoCopyVideoAfterExport: 'Tự động copy video sau khi xuất',
+  autoCopyGifAfterExport: 'Tự động copy GIF sau khi xuất',
 
   // Dialogs - Projects
   noProjectsYet: 'Chưa có dự án nào',

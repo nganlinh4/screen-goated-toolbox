@@ -212,6 +212,9 @@ pub fn copy_video_file_to_clipboard(file_path: &str) -> Result<(), String> {
             let _ = unsafe { EmptyClipboard() };
             let result = set_clipboard_file_drop(&path_string);
             let _ = unsafe { CloseClipboard() };
+            if result.is_ok() {
+                crate::overlay::auto_copy_badge::show_auto_copy_badge_media_file(&path_string);
+            }
             return result;
         }
 
