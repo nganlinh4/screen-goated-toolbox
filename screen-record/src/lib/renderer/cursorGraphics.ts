@@ -104,11 +104,11 @@ export function drawCursorShape(
     const normalized = cursorShadowStrength / 100;
     const base = Math.pow(Math.min(normalized, 1), 0.8);
     const overdrive = Math.max(0, normalized - 1);
-    const alpha = Math.min(1, (0.9 * base) + (0.6 * overdrive));
+    const alpha = Math.min(1, (0.95 * base) + (0.85 * overdrive));
     ctx.shadowColor = `rgba(0, 0, 0, ${alpha.toFixed(3)})`;
-    ctx.shadowBlur = (1.2 + (9.0 * base) + (8.0 * overdrive)) * shadowScale;
-    ctx.shadowOffsetX = ((1.1 * base) + (1.0 * overdrive)) * shadowScale;
-    ctx.shadowOffsetY = ((2.2 * base) + (1.8 * overdrive)) * shadowScale;
+    ctx.shadowBlur = (1.6 + (11.5 * base) + (14.0 * overdrive)) * shadowScale;
+    ctx.shadowOffsetX = ((1.3 * base) + (1.7 * overdrive)) * shadowScale;
+    ctx.shadowOffsetY = ((2.6 * base) + (3.2 * overdrive)) * shadowScale;
   } else {
     ctx.shadowColor = 'rgba(0,0,0,0)';
     ctx.shadowBlur = 0;
@@ -445,8 +445,8 @@ export function drawMouseCursor(
   const shadowStrength = getCursorShadowStrength(backgroundConfig);
   const normalizedShadow = Math.max(0, shadowStrength) / 100;
   const shadowOverdrive = Math.max(0, normalizedShadow - 1);
-  const shadowBlur = 1.2 + (9.0 * Math.min(normalizedShadow, 1)) + (8.0 * shadowOverdrive);
-  const shadowOffset = (2.2 * Math.min(normalizedShadow, 1)) + (1.8 * shadowOverdrive);
+  const shadowBlur = 1.6 + (11.5 * Math.min(normalizedShadow, 1)) + (14.0 * shadowOverdrive);
+  const shadowOffset = (2.6 * Math.min(normalizedShadow, 1)) + (3.2 * shadowOverdrive);
   const shapeRadius = Math.max(28, scale * 32);
   const margin = Math.ceil(shapeRadius + shadowBlur + shadowOffset + 24);
   const idealSize = margin * 2;

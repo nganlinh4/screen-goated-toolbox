@@ -263,6 +263,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         baked_cursor.len()
     );
     let overlay_frames = staged.overlay_frames;
+    let cursor_slot_overrides = staged.cursor_slot_overrides;
+    println!(
+        "[Export] Browser cursor slot overrides: {}",
+        cursor_slot_overrides.len()
+    );
     // Animated cursor slots live in a persistent store (pre-computed in background,
     // survives clear_staged). Zero export-time cost.
     let animated_cursor_slots = staging::get_animated_cursor_slots();
@@ -429,6 +434,11 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let cursor_init_start = Instant::now();
     compositor.init_cursor_texture_fast(&used_cursor_slots);
+    // Frontend can stage browser-rasterized cursor tiles so export matches preview
+    // exactly (avoids SVG renderer parity differences in hotspot placement).
+    for override_tile in &cursor_slot_overrides {
+        compositor.upload_cursor_slot_rgba(override_tile.slot_id, override_tile.rgba.as_slice());
+    }
     let cursor_init_secs = cursor_init_start.elapsed().as_secs_f64();
 
     // Upload sprite atlas (text + keystroke overlays pre-rendered by frontend).
@@ -488,6 +498,10 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
     let shadow_offset = config.background_config.shadow as f32 * 0.5;
     let cursor_scale_cfg = config.background_config.cursor_scale;
     let cursor_shadow = (config.background_config.cursor_shadow as f32 / 100.0).clamp(0.0, 2.0);
+    println!(
+        "[Export] Cursor shadow setting: {}% (normalized {:.3})",
+        config.background_config.cursor_shadow, cursor_shadow
+    );
     let size_ratio = (out_w as f64 / crop_w as f64).min(out_h as f64 / crop_h as f64);
     let vw = video_w as f64;
     let vh = video_h as f64;

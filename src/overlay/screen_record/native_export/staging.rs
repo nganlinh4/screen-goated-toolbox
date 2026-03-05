@@ -9,9 +9,16 @@ use std::sync::Mutex;
 
 use super::config::{AnimatedCursorSlotData, BakedCameraFrame, BakedCursorFrame, OverlayFrame};
 
+#[derive(Clone)]
+pub struct CursorSlotOverride {
+    pub slot_id: u32,
+    pub rgba: Vec<u8>,
+}
+
 pub struct StagedExportData {
     pub camera_frames: Vec<BakedCameraFrame>,
     pub cursor_frames: Vec<BakedCursorFrame>,
+    pub cursor_slot_overrides: Vec<CursorSlotOverride>,
     /// Decoded RGBA pixels from the sprite atlas PNG (width × height × 4).
     pub atlas_rgba: Option<Vec<u8>>,
     pub atlas_w: u32,
@@ -25,6 +32,7 @@ impl StagedExportData {
         Self {
             camera_frames: Vec::new(),
             cursor_frames: Vec::new(),
+            cursor_slot_overrides: Vec::new(),
             atlas_rgba: None,
             atlas_w: 1,
             atlas_h: 1,
@@ -57,6 +65,14 @@ pub fn append_cursor_frames(frames: Vec<BakedCursorFrame>) {
     let mut guard = STAGED.lock().unwrap();
     let staged = guard.get_or_insert_with(StagedExportData::new);
     staged.cursor_frames.extend(frames);
+}
+
+/// Set cursor slot overrides (browser-rasterized tiles from frontend).
+/// Replaces previous overrides for this export session.
+pub fn set_cursor_slot_overrides(overrides: Vec<CursorSlotOverride>) {
+    let mut guard = STAGED.lock().unwrap();
+    let staged = guard.get_or_insert_with(StagedExportData::new);
+    staged.cursor_slot_overrides = overrides;
 }
 
 /// Set the sprite atlas (decoded RGBA pixels). Called once per export session.

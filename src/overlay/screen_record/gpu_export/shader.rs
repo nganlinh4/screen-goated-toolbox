@@ -60,27 +60,77 @@ fn sd_box(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// Hotspot offset function
-fn get_hotspot(type_id: f32, size: f32) -> vec2<f32> {
-    // All cursor types have hotspot at center of the 512x512 tile
-    // To align hotspot with cursor_pos, offset by half the rendered size
-    return vec2<f32>(size * 0.5, size * 0.5);
+fn get_cursor_canvas_size(type_id: f32) -> vec2<f32> {
+    let slot = i32(floor(type_id + 0.5));
+    let kind = slot % 12;
+    let pack = slot / 12;
+
+    // Match preview image natural dimensions (drawCenteredCursorImage).
+    if pack == 0 && kind == 1 {
+        return vec2<f32>(43.0, 43.0); // text-screenstudio
+    }
+    if pack == 0 && (kind == 5 || kind == 6) {
+        return vec2<f32>(56.0, 55.0); // wait/appstarting-screenstudio
+    }
+    if pack == 3 && kind == 5 {
+        return vec2<f32>(44.0, 44.0); // wait-sgtcool
+    }
+    return vec2<f32>(44.0, 43.0);
 }
 
-fn get_rotation_pivot(type_id: f32, size: f32) -> vec2<f32> {
-    let unit = size / 48.0;
+fn get_hotspot(size: vec2<f32>) -> vec2<f32> {
+    return size * 0.5;
+}
+
+fn get_rotation_pivot(type_id: f32) -> vec2<f32> {
     let slot = i32(floor(type_id + 0.5));
     let kind = slot % 12;
     if kind == 2 || kind == 3 || kind == 4 {
         // pointer/openhand/closehand
-        return vec2<f32>(3.0 * unit, 8.5 * unit);
+        return vec2<f32>(3.0, 8.5);
     }
     if kind == 1 {
         // text i-beam should stay upright
         return vec2<f32>(0.0, 0.0);
     }
     // default arrow
-    return vec2<f32>(3.6 * unit, 5.6 * unit);
+    return vec2<f32>(3.6, 5.6);
+}
+
+fn get_cursor_alignment_bias() -> vec2<f32> {
+    // Canvas2D drawImage and WGSL texture sampling do not land on identical
+    // sub-pixel centers. Apply one global source-space correction so export
+    // cursor placement matches preview without per-cursor hacks.
+    return vec2<f32>(0.16, -0.16);
+}
+
+fn cursor_uv_in_tile(sample_pos: vec2<f32>, type_id: f32, cursor_scale: f32) -> vec2<f32> {
+    let canvas_size = get_cursor_canvas_size(type_id);
+    let max_dim = max(canvas_size.x, canvas_size.y);
+    let pad = (vec2<f32>(max_dim, max_dim) - canvas_size) * 0.5;
+    let inv_scale = 1.0 / max(cursor_scale, 0.0001);
+    let canvas_pos = sample_pos * inv_scale;
+    return (canvas_pos + pad) / max_dim;
+}
+
+fn sample_cursor_color(sample_pos: vec2<f32>, type_id: f32, tile_idx: f32, cursor_scale: f32) -> vec4<f32> {
+    let uv_in_tile = cursor_uv_in_tile(sample_pos, type_id, cursor_scale);
+    let atlas_col = tile_idx - floor(tile_idx / ATLAS_COLS) * ATLAS_COLS;
+    let atlas_row = floor(tile_idx / ATLAS_COLS);
+    let atlas_uv = vec2<f32>(
+        (uv_in_tile.x + atlas_col) / ATLAS_COLS,
+        (uv_in_tile.y + atlas_row) / ATLAS_ROWS
+    );
+    // Cursor tiles are uploaded from mixed sources (tiny-skia + browser PNG decode).
+    // Normalize sampled color to straight alpha to avoid dark fringe/contour artifacts
+    // at anti-aliased edges when linearly filtering against transparent pixels.
+    var c = textureSample(cursor_tex, cursor_samp, atlas_uv);
+    if (c.a > 0.0001) {
+        c = vec4<f32>(clamp(c.rgb / c.a, vec3<f32>(0.0), vec3<f32>(1.0)), c.a);
+    } else {
+        c = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+    return c;
 }
 
 fn gradient4_color(uv_raw: vec2<f32>, c1: vec4<f32>, c2: vec4<f32>) -> vec4<f32> {
@@ -252,10 +302,13 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // render_mode 0 or 2 renders the cursor; render_mode 1 (scene-only) skips it.
     if (u.render_mode < 0.5 || u.render_mode > 1.5) {
         if u.cursor_pos.x > -99.0 {
-            let cursor_pixel_size = 48.0 * u.cursor_scale;
-            let cursor_px = (u.video_offset + (u.cursor_pos * u.video_scale)) * u.output_size;
-            let hotspot = get_hotspot(u.cursor_type_id, cursor_pixel_size);
-            let pivot = get_rotation_pivot(u.cursor_type_id, cursor_pixel_size);
+            let cursor_canvas_size = get_cursor_canvas_size(u.cursor_type_id);
+            let cursor_pixel_size = cursor_canvas_size * u.cursor_scale;
+            let cursor_px =
+                (u.video_offset + (u.cursor_pos * u.video_scale)) * u.output_size +
+                (get_cursor_alignment_bias() * u.cursor_scale);
+            let hotspot = get_hotspot(cursor_pixel_size);
+            let pivot = get_rotation_pivot(u.cursor_type_id);
             let rel = in.pixel_pos - cursor_px;
             let c = cos(-u.cursor_rotation);
             let s = sin(-u.cursor_rotation);
@@ -268,21 +321,14 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
             let tile_idx = floor(u.cursor_type_id + 0.5);
             let in_bounds =
-                sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size &&
-                sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size;
+                sample_pos.x >= 0.0 && sample_pos.x < cursor_pixel_size.x &&
+                sample_pos.y >= 0.0 && sample_pos.y < cursor_pixel_size.y;
 
             if (u.render_mode > 1.5) {
                 // Cursor-only mode: output straight-alpha cursor so ALPHA_BLENDING composites
                 // correctly over the already-rendered scene in the framebuffer (clear=false).
                 if in_bounds {
-                    let uv_in_tile = sample_pos / cursor_pixel_size;
-                    let ac = tile_idx - floor(tile_idx / ATLAS_COLS) * ATLAS_COLS;
-                    let ar = floor(tile_idx / ATLAS_COLS);
-                    let atlas_uv = vec2<f32>(
-                        (uv_in_tile.x + ac) / ATLAS_COLS,
-                        (uv_in_tile.y + ar) / ATLAS_ROWS
-                    );
-                    let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
+                    let cur_col = sample_cursor_color(sample_pos, u.cursor_type_id, tile_idx, u.cursor_scale);
                     col = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
                 }
             } else {
@@ -291,60 +337,47 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
                 if shadow_strength > 0.001 {
                     let base = pow(min(shadow_strength, 1.0), 0.8);
                     let overdrive = max(0.0, shadow_strength - 1.0);
+                    let shadow_alpha_gain = min(1.0, (0.95 * base) + (0.85 * overdrive));
                     let shadow_offset = vec2<f32>(
-                        (2.0 * (0.25 + 0.75 * base)) + (1.4 * overdrive),
-                        (2.8 * (0.25 + 0.75 * base)) + (2.2 * overdrive)
+                        (1.3 * base) + (1.7 * overdrive),
+                        (2.6 * base) + (3.2 * overdrive)
                     );
                     let shadow_pos = sample_pos - shadow_offset;
                     let shadow_in_bounds =
-                        shadow_pos.x >= 0.0 && shadow_pos.x < cursor_pixel_size &&
-                        shadow_pos.y >= 0.0 && shadow_pos.y < cursor_pixel_size;
+                        shadow_pos.x >= 0.0 && shadow_pos.x < cursor_pixel_size.x &&
+                        shadow_pos.y >= 0.0 && shadow_pos.y < cursor_pixel_size.y;
 
                     if shadow_in_bounds {
-                        let blur = 1.0 + (3.5 * base) + (3.8 * overdrive);
-                        let diag = blur * 0.75;
-                        let offsets = array<vec2<f32>, 9>(
-                            vec2<f32>(0.0, 0.0),
-                            vec2<f32>(blur, 0.0),
-                            vec2<f32>(-blur, 0.0),
-                            vec2<f32>(0.0, blur),
-                            vec2<f32>(0.0, -blur),
-                            vec2<f32>(diag, diag),
-                            vec2<f32>(-diag, diag),
-                            vec2<f32>(diag, -diag),
-                            vec2<f32>(-diag, -diag)
-                        );
+                        let blur = 1.6 + (11.5 * base) + (14.0 * overdrive);
+                        let sample_step = max(0.16, blur * 0.11);
                         var shadow_alpha = 0.0;
-                        for (var i: i32 = 0; i < 9; i = i + 1) {
-                            let p = shadow_pos + offsets[i];
-                            if p.x >= 0.0 && p.x < cursor_pixel_size && p.y >= 0.0 && p.y < cursor_pixel_size {
-                                let uv_in_tile = p / cursor_pixel_size;
-                                let atlas_col = tile_idx - floor(tile_idx / ATLAS_COLS) * ATLAS_COLS;
-                                let atlas_row = floor(tile_idx / ATLAS_COLS);
-                                let atlas_uv = vec2<f32>(
-                                    (uv_in_tile.x + atlas_col) / ATLAS_COLS,
-                                    (uv_in_tile.y + atlas_row) / ATLAS_ROWS
-                                );
-                                shadow_alpha = shadow_alpha + textureSample(cursor_tex, cursor_samp, atlas_uv).a;
+                        var shadow_weight = 0.0;
+
+                        for (var oy: i32 = -5; oy <= 5; oy = oy + 1) {
+                            for (var ox: i32 = -5; ox <= 5; ox = ox + 1) {
+                                let o = vec2<f32>(f32(ox), f32(oy));
+                                let r2 = dot(o, o);
+                                let w = exp(-0.5 * r2 / 8.0);
+                                let p = shadow_pos + o * sample_step;
+                                if p.x >= 0.0 && p.x < cursor_pixel_size.x && p.y >= 0.0 && p.y < cursor_pixel_size.y {
+                                    shadow_alpha = shadow_alpha + sample_cursor_color(p, u.cursor_type_id, tile_idx, u.cursor_scale).a * w;
+                                    shadow_weight = shadow_weight + w;
+                                }
                             }
                         }
-                        shadow_alpha = (shadow_alpha / 9.0) * min(1.0, (0.95 * base) + (0.7 * overdrive)) * u.cursor_opacity;
-                        if shadow_alpha > 0.0001 {
-                            let shadow_col = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
-                            col = mix(col, shadow_col, shadow_col.a);
+
+                        if shadow_weight > 0.0001 {
+                            shadow_alpha = (shadow_alpha / shadow_weight) * shadow_alpha_gain * u.cursor_opacity;
+                            if shadow_alpha > 0.0001 {
+                                let shadow_col = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha);
+                                col = mix(col, shadow_col, shadow_col.a);
+                            }
                         }
                     }
                 }
 
                 if in_bounds {
-                    let uv_in_tile = sample_pos / cursor_pixel_size;
-                    let atlas_col = tile_idx - floor(tile_idx / ATLAS_COLS) * ATLAS_COLS;
-                    let atlas_row = floor(tile_idx / ATLAS_COLS);
-                    let atlas_uv = vec2<f32>(
-                        (uv_in_tile.x + atlas_col) / ATLAS_COLS,
-                        (uv_in_tile.y + atlas_row) / ATLAS_ROWS
-                    );
-                    let cur_col = textureSample(cursor_tex, cursor_samp, atlas_uv);
+                    let cur_col = sample_cursor_color(sample_pos, u.cursor_type_id, tile_idx, u.cursor_scale);
                     let faded = vec4<f32>(cur_col.rgb, cur_col.a * u.cursor_opacity);
                     col = mix(col, faded, faded.a);
                 }

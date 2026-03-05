@@ -146,11 +146,26 @@ pub struct VideoSegment {
     pub speed_points: Vec<SpeedPoint>,
     #[serde(default)]
     pub smooth_motion_path: Vec<SmoothCameraPoint>,
+    #[serde(default)]
+    pub keystroke_events: Vec<KeystrokeEvent>,
+    #[serde(default)]
+    pub keystroke_delay_sec: f64,
     /// None = cursor-hiding feature off (always visible).
     /// Some([]) = feature on, no segments (always hidden).
     pub cursor_visibility_segments: Option<Vec<CursorVisibilitySegment>>,
     #[serde(default = "default_true")]
     pub use_custom_cursor: bool,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KeystrokeEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub start_time: f64,
+    pub end_time: f64,
+    #[serde(default)]
+    pub is_hold: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]

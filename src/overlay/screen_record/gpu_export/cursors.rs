@@ -353,11 +353,7 @@ fn render_cursor_tile_rgba(slot: u32) -> Option<Vec<u8>> {
     let tile_size = CURSOR_TILE_SIZE;
     let center = tile_size as f32 / 2.0;
     let mut tile = Pixmap::new(tile_size, tile_size).unwrap();
-    let target = if slot % 12 == 1 {
-        tile_size as f32 * 0.90
-    } else {
-        tile_size as f32 * 0.94
-    };
+    let target = tile_size as f32;
 
     let opt = Options::default();
     let tree = Tree::from_data(CURSOR_SVG_DATA[slot as usize], &opt).ok()?;

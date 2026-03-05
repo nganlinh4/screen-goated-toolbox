@@ -293,7 +293,7 @@ async function computeAndCache(
 
         // Render export frame (512×512, Rust atlas centering math).
         if (!transformReady) {
-          const target = EXPORT_TILE * 0.94;
+          const target = EXPORT_TILE;
           const scale = target / Math.max(naturalWidth, naturalHeight);
           exDrawW = naturalWidth * scale;
           exDrawH = naturalHeight * scale;

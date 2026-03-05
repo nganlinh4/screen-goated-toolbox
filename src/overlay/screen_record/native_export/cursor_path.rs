@@ -11,7 +11,7 @@ const FADE_OUT_DURATION: f64 = 0.25;
 const SCALE_HIDDEN: f64 = 0.5;
 
 // --- Cursor physics defaults (mirror videoRenderer.ts) ---
-const DEFAULT_CURSOR_OFFSET_SEC: f64 = 0.03;
+const DEFAULT_CURSOR_OFFSET_SEC: f64 = 0.0;
 const DEFAULT_CURSOR_WIGGLE_STRENGTH: f64 = 0.30;
 const DEFAULT_CURSOR_WIGGLE_DAMPING: f64 = 0.55;
 const DEFAULT_CURSOR_WIGGLE_RESPONSE: f64 = 6.5;
@@ -19,10 +19,13 @@ const DEFAULT_CURSOR_TILT_DEG: f64 = -10.0;
 const DEFAULT_CURSOR_SMOOTHNESS: f64 = 5.0;
 
 // --- Squish state machine constants ---
-const CLICK_FUSE_THRESHOLD: f64 = 0.15;
-const SQUISH_SPEED: f64 = 0.015;
-const RELEASE_SPEED: f64 = 0.01;
-const SIM_RATIO: f64 = 2.0;
+const CLICK_FUSE_THRESHOLD: f64 = 0.05;
+const SQUISH_TARGET: f64 = 0.75;
+const QUICK_CLICK_WINDOW: f64 = 0.1;
+const SQUISH_DOWN_DUR_BASE: f64 = 0.10;
+const SQUISH_DOWN_DUR_MIN: f64 = 0.04;
+const RELEASE_DUR_BASE: f64 = 0.15;
+const RELEASE_DUR_MIN: f64 = 0.04;
 
 // Internal processed position (after spring dynamics).
 #[derive(Clone)]
@@ -729,6 +732,114 @@ fn get_cursor_visibility(time: f64, segments: &Option<Vec<CursorVisibilitySegmen
     (0.0, SCALE_HIDDEN)
 }
 
+fn get_keystroke_delay_sec(segment: &VideoSegment) -> f64 {
+    segment.keystroke_delay_sec.clamp(-1.0, 1.0)
+}
+
+fn has_mousedown_events(segment: &VideoSegment) -> bool {
+    segment
+        .keystroke_events
+        .iter()
+        .any(|e| e.event_type.eq_ignore_ascii_case("mousedown"))
+}
+
+#[derive(Clone, Copy)]
+struct MouseDownEventView {
+    idx: usize,
+    start_time: f64,
+    end_time: f64,
+    is_hold: bool,
+}
+
+fn to_mousedown_event(idx: usize, e: &super::config::KeystrokeEvent) -> MouseDownEventView {
+    MouseDownEventView {
+        idx,
+        start_time: e.start_time,
+        end_time: e.end_time,
+        is_hold: e.is_hold,
+    }
+}
+
+fn find_active_mousedown_event(
+    segment: &VideoSegment,
+    lookup_time: f64,
+) -> Option<MouseDownEventView> {
+    segment
+        .keystroke_events
+        .iter()
+        .enumerate()
+        .find_map(|(idx, e)| {
+            if !e.event_type.eq_ignore_ascii_case("mousedown") {
+                return None;
+            }
+            let ev = to_mousedown_event(idx, e);
+            let active_end = if ev.is_hold {
+                ev.end_time
+            } else {
+                ev.start_time + QUICK_CLICK_WINDOW
+            };
+            if lookup_time >= ev.start_time && lookup_time <= active_end {
+                Some(ev)
+            } else {
+                None
+            }
+        })
+}
+
+fn find_prev_mousedown_event(
+    segment: &VideoSegment,
+    before_time: f64,
+) -> Option<MouseDownEventView> {
+    segment
+        .keystroke_events
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(idx, e)| {
+            if !e.event_type.eq_ignore_ascii_case("mousedown") || e.start_time >= before_time {
+                return None;
+            }
+            Some(to_mousedown_event(idx, e))
+        })
+}
+
+fn find_next_mousedown_event(
+    segment: &VideoSegment,
+    after_time: f64,
+) -> Option<MouseDownEventView> {
+    segment
+        .keystroke_events
+        .iter()
+        .enumerate()
+        .find_map(|(idx, e)| {
+            if !e.event_type.eq_ignore_ascii_case("mousedown") || e.start_time <= after_time {
+                return None;
+            }
+            Some(to_mousedown_event(idx, e))
+        })
+}
+
+fn effective_event_end(event: MouseDownEventView) -> f64 {
+    if event.is_hold {
+        event.end_time
+    } else {
+        event.start_time + QUICK_CLICK_WINDOW
+    }
+}
+
+fn squish_ease_down(t: f64) -> f64 {
+    1.0 - (1.0 - t).powi(3)
+}
+
+fn squish_ease_up(t: f64, has_room: bool) -> f64 {
+    if !has_room {
+        return 1.0 - (1.0 - t).powi(3);
+    }
+    let c = 1.2_f64; // Preview overshoot profile.
+    let tm1 = t - 1.0;
+    1.0 + (c + 1.0) * tm1.powi(3) + c * tm1.powi(2)
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 /// Generate baked cursor path in Rust.
@@ -760,7 +871,16 @@ pub fn generate_cursor_path(
     let mut baked = Vec::with_capacity(n_frames);
 
     let mut sim_squish_scale = 1.0_f64;
+    let mut sim_squish_target = 1.0_f64;
+    let mut sim_squish_anim_from = 1.0_f64;
+    let mut sim_squish_anim_progress = 1.0_f64;
+    let mut sim_squish_anim_duration = RELEASE_DUR_BASE;
+    let mut sim_squish_has_room = false;
     let mut sim_last_hold_time = -1.0_f64;
+    let mut sim_last_active_event_idx: Option<usize> = None;
+    let mut sim_prev_fallback_clicked = false;
+    let keystroke_delay_sec = get_keystroke_delay_sec(segment);
+    let use_keystroke_clicks = has_mousedown_events(segment);
 
     let mut t = full_start;
     loop {
@@ -768,22 +888,117 @@ pub fn generate_cursor_path(
         let pos = interpolate_pos(cursor_t, &processed);
 
         if let Some(ref pos) = pos {
-            let is_clicked = pos.is_clicked;
-            let time_since_hold = cursor_t - sim_last_hold_time;
-            let should_squish = is_clicked
-                || (sim_last_hold_time >= 0.0
-                    && time_since_hold < CLICK_FUSE_THRESHOLD
-                    && time_since_hold > 0.0);
+            let lookup_t = t - keystroke_delay_sec;
+            let active_event = if use_keystroke_clicks {
+                find_active_mousedown_event(segment, lookup_t)
+            } else {
+                None
+            };
+            let is_clicked = if use_keystroke_clicks {
+                active_event.is_some()
+            } else {
+                pos.is_clicked
+            };
+            let prev_last_hold_time = sim_last_hold_time;
 
             if is_clicked {
-                sim_last_hold_time = cursor_t;
+                sim_last_hold_time = t;
+            }
+            let time_since_last_hold = t - sim_last_hold_time;
+            let should_squish = is_clicked
+                || (sim_last_hold_time >= 0.0 && time_since_last_hold < CLICK_FUSE_THRESHOLD);
+
+            let target_scale = if should_squish { SQUISH_TARGET } else { 1.0 };
+            let active_event_idx = active_event.map(|e| e.idx);
+            let is_new_click = if use_keystroke_clicks {
+                matches!(active_event_idx, Some(idx) if sim_last_active_event_idx != Some(idx))
+            } else {
+                is_clicked && !sim_prev_fallback_clicked
+            };
+            if use_keystroke_clicks {
+                sim_last_active_event_idx = active_event_idx;
             }
 
-            let target_scale = if should_squish { 0.75 } else { 1.0 };
-            if sim_squish_scale > target_scale {
-                sim_squish_scale = (sim_squish_scale - SQUISH_SPEED * SIM_RATIO).max(target_scale);
-            } else if sim_squish_scale < target_scale {
-                sim_squish_scale = (sim_squish_scale + RELEASE_SPEED * SIM_RATIO).min(target_scale);
+            if (target_scale - sim_squish_target).abs() > 1e-9 || is_new_click {
+                if is_new_click && sim_squish_scale < 0.95 && prev_last_hold_time >= 0.0 {
+                    // Rapid re-click while still squished: reset pulse origin like preview drawFrame.ts.
+                    sim_squish_scale = 1.0;
+                }
+                sim_squish_anim_from = sim_squish_scale;
+                sim_squish_target = target_scale;
+                sim_squish_anim_progress = 0.0;
+
+                if sim_squish_target < sim_squish_anim_from {
+                    // Squish down: adapt speed to previous click proximity.
+                    let gap_from_prev = if use_keystroke_clicks {
+                        if let Some(active) = active_event {
+                            let prev_event =
+                                find_prev_mousedown_event(segment, active.start_time - 0.01);
+                            let prev_effective_end = prev_event
+                                .map(effective_event_end)
+                                .unwrap_or(f64::NEG_INFINITY);
+                            (active.start_time - prev_effective_end).max(0.0)
+                        } else {
+                            f64::INFINITY
+                        }
+                    } else {
+                        f64::INFINITY
+                    };
+                    sim_squish_anim_duration = if gap_from_prev.is_finite()
+                        && gap_from_prev < (SQUISH_DOWN_DUR_BASE * 2.0)
+                    {
+                        (gap_from_prev * 0.4).max(SQUISH_DOWN_DUR_MIN)
+                    } else {
+                        SQUISH_DOWN_DUR_BASE
+                    };
+                    sim_squish_has_room = false;
+                } else {
+                    // Release: animate only when there's real recent click context.
+                    let recent_click = sim_last_hold_time >= 0.0
+                        && t >= sim_last_hold_time
+                        && (t - sim_last_hold_time) < (CLICK_FUSE_THRESHOLD + QUICK_CLICK_WINDOW);
+                    if !recent_click {
+                        sim_squish_anim_progress = 1.0;
+                    } else {
+                        let gap_to_next = if use_keystroke_clicks {
+                            let active_effective_end =
+                                active_event.map(effective_event_end).unwrap_or(lookup_t);
+                            let next_lookup_start =
+                                active_event.map(|e| e.start_time).unwrap_or(lookup_t) + 0.01;
+                            let next_event = find_next_mousedown_event(segment, next_lookup_start);
+                            next_event
+                                .map(|e| (e.start_time - active_effective_end).max(0.0))
+                                .unwrap_or(f64::INFINITY)
+                        } else {
+                            f64::INFINITY
+                        };
+                        sim_squish_has_room = gap_to_next > (RELEASE_DUR_BASE * 2.0);
+                        sim_squish_anim_duration =
+                            if gap_to_next.is_finite() && gap_to_next < (RELEASE_DUR_BASE * 2.0) {
+                                (gap_to_next * 0.5).max(RELEASE_DUR_MIN)
+                            } else {
+                                RELEASE_DUR_BASE
+                            };
+                    }
+                }
+            }
+
+            if sim_squish_anim_progress < 1.0 {
+                let elapsed_sec = step.max(0.0001);
+                let duration = sim_squish_anim_duration.max(0.0001);
+                sim_squish_anim_progress =
+                    (sim_squish_anim_progress + elapsed_sec / duration).min(1.0);
+                let anim_t = sim_squish_anim_progress;
+                let going_down = sim_squish_target < sim_squish_anim_from;
+                let eased = if going_down {
+                    squish_ease_down(anim_t)
+                } else {
+                    squish_ease_up(anim_t, sim_squish_has_room)
+                };
+                sim_squish_scale =
+                    sim_squish_anim_from + (sim_squish_target - sim_squish_anim_from) * eased;
+            } else {
+                sim_squish_scale = sim_squish_target;
             }
 
             let (vis_opacity, vis_scale) =
@@ -805,6 +1020,9 @@ pub fn generate_cursor_path(
                 opacity: (vis_opacity * 1000.0).round() / 1000.0,
                 rotation,
             });
+            if !use_keystroke_clicks {
+                sim_prev_fallback_clicked = is_clicked;
+            }
         } else {
             // No data: hold last or emit default
             if let Some(last) = baked.last() {

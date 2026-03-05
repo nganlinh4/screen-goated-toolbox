@@ -618,6 +618,43 @@ pub fn handle_ipc_command(
                             .map_err(|e| format!("bad overlay chunk: {e}"))?;
                     native_export::staging::append_overlay_frames(frames);
                 }
+                "cursor_slots_png" => {
+                    #[derive(serde::Deserialize)]
+                    #[serde(rename_all = "camelCase")]
+                    struct SlotPng {
+                        slot_id: u32,
+                        png_base64: String,
+                    }
+
+                    let entries: Vec<SlotPng> = serde_json::from_value(args["data"].clone())
+                        .map_err(|e| format!("bad cursor_slots_png payload: {e}"))?;
+                    const CURSOR_TILE_SIZE: u32 = 512;
+                    let mut overrides = Vec::with_capacity(entries.len());
+
+                    for entry in entries {
+                        let raw = base64::engine::general_purpose::STANDARD
+                            .decode(entry.png_base64.trim_start_matches("data:image/png;base64,"))
+                            .map_err(|e| format!("cursor slot {} b64: {e}", entry.slot_id))?;
+                        let img = image::load_from_memory(&raw)
+                            .map_err(|e| format!("cursor slot {} png: {e}", entry.slot_id))?
+                            .to_rgba8();
+                        if img.width() != CURSOR_TILE_SIZE || img.height() != CURSOR_TILE_SIZE {
+                            return Err(format!(
+                                "cursor slot {} tile must be {}x{}, got {}x{}",
+                                entry.slot_id,
+                                CURSOR_TILE_SIZE,
+                                CURSOR_TILE_SIZE,
+                                img.width(),
+                                img.height()
+                            ));
+                        }
+                        overrides.push(native_export::staging::CursorSlotOverride {
+                            slot_id: entry.slot_id,
+                            rgba: img.into_raw(),
+                        });
+                    }
+                    native_export::staging::set_cursor_slot_overrides(overrides);
+                }
                 _ => return Err(format!("unknown stage dataType: {data_type}")),
             }
             Ok(serde_json::Value::Null)
