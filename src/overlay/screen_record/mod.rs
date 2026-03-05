@@ -736,6 +736,16 @@ unsafe fn internal_create_sr_loop() {
             }
         }
     };
+    let webview_background_rgba = if init_theme == "dark" {
+        (9, 9, 11, 255)
+    } else {
+        (250, 250, 250, 255)
+    };
+    let themed_html_root = if init_theme == "dark" {
+        "<html lang=\"en\" class=\"dark\" data-sr-initial-theme=\"dark\">"
+    } else {
+        "<html lang=\"en\" data-sr-initial-theme=\"light\">"
+    };
 
     // Set window icon based on initial theme
     crate::gui::utils::set_window_icon(hwnd, init_theme == "dark");
@@ -780,8 +790,10 @@ unsafe fn internal_create_sr_loop() {
         SR_WEB_CONTEXT.with(|ctx| {
             let mut ctx_ref = ctx.borrow_mut();
             let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
+                .with_background_color(webview_background_rgba)
                 .with_custom_protocol("screenrecord".to_string(), {
                     let font_style_tag = font_style_tag.clone();
+                    let themed_html_root = themed_html_root.to_string();
                     move |_id, request| {
                     let path = request.uri().path();
                     if path.ends_with("font.ttf") {
@@ -794,9 +806,10 @@ unsafe fn internal_create_sr_loop() {
                         return wnd_http_response(200, mime, Cow::Owned(bytes));
                     }
                     let (content, mime) = if path == "/" || path == "/index.html" {
-                        // Inject font CSS into HTML <head> for instant font rendering
+                        // Inject initial theme class and font CSS into HTML <head> before React mounts.
                         let html = String::from_utf8_lossy(INDEX_HTML);
-                        let modified = html.replace("</head>", &format!("{font_style_tag}</head>"));
+                        let themed = html.replace("<html lang=\"en\">", &themed_html_root);
+                        let modified = themed.replace("</head>", &format!("{font_style_tag}</head>"));
                         (Cow::Owned(modified.into_bytes()), "text/html")
                     } else if path.ends_with("index.js") {
                         (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")

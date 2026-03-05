@@ -162,6 +162,8 @@ const ko: Translations = {
   copyVideo: '비디오 복사',
   copyGif: 'GIF 복사',
   autoCopyAfterRecording: '다음 녹화부터 자동 복사',
+  autoCopyVideoAfterExport: '내보내기 후 비디오 자동 복사',
+  autoCopyGifAfterExport: '내보내기 후 GIF 자동 복사',
 
   // Dialogs - Projects
   noProjectsYet: '프로젝트가 없습니다',

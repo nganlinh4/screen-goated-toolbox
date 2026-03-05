@@ -27,6 +27,8 @@ const WM_APP_PROCESS_QUEUE: u32 = WM_USER + 201;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NotificationType {
     Success, // Green - auto copied
+    FileCopy, // Cyan - copied media file
+    GifCopy, // Pink - copied GIF file
     Info,    // Yellow - loading/warming up
     Update,  // Blue - update available (longer duration)
     Error,   // Red - error (e.g., no writable area for auto-paste)
@@ -37,6 +39,7 @@ pub struct PendingNotification {
     pub title: String,
     pub snippet: String,
     pub n_type: NotificationType,
+    pub duration_ms: Option<u32>,
 }
 
 lazy_static::lazy_static! {
@@ -70,17 +73,32 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
     }
 }
 
-fn enqueue_notification(title: String, snippet: String, n_type: NotificationType) {
-    crate::log_info!("[Badge] Enqueuing: '{}' ({:?})", title, n_type);
+fn enqueue_notification_with_duration(
+    title: String,
+    snippet: String,
+    n_type: NotificationType,
+    duration_ms: Option<u32>,
+) {
+    crate::log_info!(
+        "[Badge] Enqueuing: '{}' ({:?}, duration_ms={:?})",
+        title,
+        n_type,
+        duration_ms
+    );
     {
         let mut q = PENDING_QUEUE.lock().unwrap();
         q.push_back(PendingNotification {
             title,
             snippet,
             n_type,
+            duration_ms,
         });
     }
     ensure_window_and_post(WM_APP_PROCESS_QUEUE);
+}
+
+fn enqueue_notification(title: String, snippet: String, n_type: NotificationType) {
+    enqueue_notification_with_duration(title, snippet, n_type, None);
 }
 
 pub fn show_auto_copy_badge_text(text: &str) {
@@ -105,6 +123,35 @@ pub fn show_auto_copy_badge_image() {
     drop(app);
 
     enqueue_notification(title, snippet, NotificationType::Success);
+}
+
+pub fn show_auto_copy_badge_media_file(file_path: &str) {
+    let app = APP.lock().unwrap();
+    let ui_lang = app.config.ui_language.clone();
+    let locale = crate::gui::locale::LocaleText::get(&ui_lang);
+    let title = locale.auto_copied_badge.to_string();
+    drop(app);
+
+    let display_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file_path)
+        .replace('\n', " ")
+        .replace('\r', "");
+    let is_gif = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("gif"))
+        .unwrap_or(false);
+
+    let snippet = format!("\"{}\"", display_name);
+    // Media file copy confirmation uses dedicated themes/icons so it stands out from normal text copy.
+    let media_type = if is_gif {
+        NotificationType::GifCopy
+    } else {
+        NotificationType::FileCopy
+    };
+    enqueue_notification_with_duration(title, snippet, media_type, Some(2400));
 }
 
 /// Show a loading/info notification with just a title (yellow theme)
@@ -336,6 +383,48 @@ fn get_badge_html() -> String {
                 }},
                 duration: 1000
             }},
+            file_copy: {{
+                dark: {{
+                    bg: 'rgba(8, 22, 28, 0.95)',
+                    border: '#22D3EE',
+                    textPrio: '#ffffff',
+                    textSec: 'rgba(255, 255, 255, 0.92)',
+                    accent: '#22D3EE',
+                    bloom: 'rgba(34, 211, 238, 0.45)',
+                    shadow: 'rgba(0, 0, 0, 0.6)'
+                }},
+                light: {{
+                    bg: 'rgba(236, 254, 255, 0.95)',
+                    border: '#0891B2',
+                    textPrio: '#1a1a1a',
+                    textSec: '#334155',
+                    accent: '#0891B2',
+                    bloom: 'rgba(8, 145, 178, 0.28)',
+                    shadow: 'rgba(0, 0, 0, 0.2)'
+                }},
+                duration: 2400
+            }},
+            gif_copy: {{
+                dark: {{
+                    bg: 'rgba(34, 12, 28, 0.95)',
+                    border: '#F472B6',
+                    textPrio: '#ffffff',
+                    textSec: 'rgba(255, 255, 255, 0.92)',
+                    accent: '#F472B6',
+                    bloom: 'rgba(244, 114, 182, 0.45)',
+                    shadow: 'rgba(0, 0, 0, 0.6)'
+                }},
+                light: {{
+                    bg: 'rgba(253, 242, 248, 0.95)',
+                    border: '#DB2777',
+                    textPrio: '#1a1a1a',
+                    textSec: '#4c1d95',
+                    accent: '#DB2777',
+                    bloom: 'rgba(219, 39, 119, 0.28)',
+                    shadow: 'rgba(0, 0, 0, 0.2)'
+                }},
+                duration: 2400
+            }},
             info: {{
                 dark: {{
                     bg: 'rgba(30, 25, 10, 0.95)',
@@ -411,11 +500,32 @@ fn get_badge_html() -> String {
             const t = themes[type] || themes.success;
             return isDark ? t.dark : t.light;
         }}
+
+        function getLeadingIcon(type) {{
+            if (type === 'gif_copy') {{
+                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="5" width="18" height="14" rx="3"></rect>
+                    <text x="12" y="15" text-anchor="middle" font-size="7.5" font-weight="700" fill="currentColor" stroke="none">GIF</text>
+                </svg>`;
+            }}
+            if (type === 'file_copy') {{
+                return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="6" width="13" height="12" rx="2"></rect>
+                    <polygon points="16 10 21 7.5 21 16.5 16 14"></polygon>
+                </svg>`;
+            }}
+            return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>`;
+        }}
         
-        window.addNotification = (title, snippet, type) => {{
+        window.addNotification = (title, snippet, type, durationOverride) => {{
             const container = document.getElementById('notifications');
             const colors = getColors(type, isDarkMode);
-            const duration = (themes[type] || themes.success).duration;
+            const themeDuration = (themes[type] || themes.success).duration;
+            const duration = Number.isFinite(durationOverride) && durationOverride > 0
+                ? durationOverride
+                : themeDuration;
             
             const badge = document.createElement('div');
             badge.className = 'badge';
@@ -433,14 +543,13 @@ fn get_badge_html() -> String {
             const hasSnippet = (snippet && snippet.length > 0);
             const checkDisplay = hasSnippet ? 'flex' : 'none';
             const snippetDisplay = hasSnippet ? 'flex' : 'none';
+            const leadingIcon = getLeadingIcon(type);
             
             badge.innerHTML = `
                 <div class="row title-row">
                     <div class="title">
                         <span class="check" style="display: ${{checkDisplay}}">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="20 6 9 17 4 12"></polyline>
-                            </svg>
+                            ${{leadingIcon}}
                         </span>
                         <span>${{title}}</span>
                     </div>
@@ -691,6 +800,8 @@ unsafe extern "system" fn badge_wnd_proc(
                         for item in items {
                             let type_str = match item.n_type {
                                 NotificationType::Success => "success",
+                                NotificationType::FileCopy => "file_copy",
+                                NotificationType::GifCopy => "gif_copy",
                                 NotificationType::Info => "info",
                                 NotificationType::Update => "update",
                                 NotificationType::Error => "error",
@@ -708,10 +819,14 @@ unsafe extern "system" fn badge_wnd_proc(
                                 .replace('"', "\\\"")
                                 .replace('\'', "\\'")
                                 .replace('\n', " ");
+                            let duration_js = item
+                                .duration_ms
+                                .map(|ms| ms.to_string())
+                                .unwrap_or_else(|| "null".to_string());
 
                             let script = format!(
-                                "window.addNotification('{}', '{}', '{}');",
-                                safe_title, safe_snippet, type_str
+                                "window.addNotification('{}', '{}', '{}', {});",
+                                safe_title, safe_snippet, type_str, duration_js
                             );
                             let _ = webview.evaluate_script(&script);
                         }

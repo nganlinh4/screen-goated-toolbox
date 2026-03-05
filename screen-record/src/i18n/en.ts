@@ -160,6 +160,8 @@ const en = {
   copyVideo: 'Copy Video',
   copyGif: 'Copy GIF',
   autoCopyAfterRecording: 'Auto copy after recording for future recordings',
+  autoCopyVideoAfterExport: 'Auto copy video after export',
+  autoCopyGifAfterExport: 'Auto copy GIF after export',
 
   // Dialogs - Projects
   noProjectsYet: 'No projects yet',

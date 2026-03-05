@@ -76,7 +76,7 @@ export function Header({
   rawButtonDisabled,
   onOpenRawVideoDialog,
   onOpenProjects,
-  onOpenCursorLab,
+  onOpenCursorLab: _onOpenCursorLab,
   hideExport = false,
   hideRawVideo = false,
   captureSource,
@@ -467,6 +467,7 @@ export function Header({
               {rawButtonLabel}
             </Button>
           )}
+          {/*
           <Button
             variant="ghost"
             size="sm"
@@ -476,6 +477,7 @@ export function Header({
           >
             Cursor Lab
           </Button>
+          */}
           {currentVideo && !hideExport && (
             <Button
               onMouseDown={(e) => e.stopPropagation()}

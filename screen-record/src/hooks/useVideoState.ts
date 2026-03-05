@@ -28,6 +28,10 @@ const KEYSTROKE_MODE_PREF_KEY = 'screen-record-keystroke-mode-pref-v1';
 const KEYSTROKE_OVERLAY_PREF_KEY = 'screen-record-keystroke-overlay-pref-v1';
 const AUTO_ZOOM_PREF_KEY = 'screen-record-auto-zoom-pref-v1';
 const SMART_POINTER_PREF_KEY = 'screen-record-smart-pointer-pref-v1';
+const EXPORT_FPS_PREF_KEY = 'screen-record-export-fps-pref-v1';
+const DEFAULT_EXPORT_FPS = 60;
+const MIN_EXPORT_FPS = 1;
+const MAX_EXPORT_FPS = 240;
 
 function getSavedKeystrokeDelaySec(): number {
   try {
@@ -105,6 +109,22 @@ function getSavedSmartPointerPref(): boolean {
 
 function saveSmartPointerPref(enabled: boolean): void {
   try { localStorage.setItem(SMART_POINTER_PREF_KEY, enabled ? '1' : '0'); } catch { /* ignore */ }
+}
+
+function getSavedExportFpsPref(): number {
+  try {
+    const raw = localStorage.getItem(EXPORT_FPS_PREF_KEY);
+    if (raw === null) return DEFAULT_EXPORT_FPS;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return DEFAULT_EXPORT_FPS;
+    const rounded = Math.round(parsed);
+    if (rounded < MIN_EXPORT_FPS || rounded > MAX_EXPORT_FPS) {
+      return DEFAULT_EXPORT_FPS;
+    }
+    return rounded;
+  } catch {
+    return DEFAULT_EXPORT_FPS;
+  }
 }
 
 // ============================================================================
@@ -788,18 +808,12 @@ export function useExport(props: UseExportProps) {
     try { return localStorage.getItem('screen-record-export-auto-copy-v1') === '1'; } catch { return false; }
   });
   const [exportOptions, setExportOptions] = useState<ExportOptions>(() => {
-    let savedFps = 60;
-    try {
-      const raw = localStorage.getItem('screen-record-export-fps-pref-v1');
-      if (raw) {
-        const n = Number(raw);
-        if ([24, 30, 60, 90, 120].includes(n)) savedFps = n;
-      }
-    } catch { /* ignore */ }
     return {
       width: 0,
       height: 0,
-      fps: savedFps,
+      // Preserve user-selected source-matched FPS (for example 50fps recordings),
+      // instead of restricting to a fixed preset list.
+      fps: getSavedExportFpsPref(),
       targetVideoBitrateKbps: 0,
       speed: 1,
       exportProfile: 'turbo_nv',
@@ -1121,7 +1135,7 @@ export function useExport(props: UseExportProps) {
       setIsProcessing(false);
       setExportProgress(0);
     }
-  }, [props, exportOptions, resolveSourceVideoPath]);
+  }, [props, exportOptions, resolveSourceVideoPath, exportAutoCopyEnabled]);
 
   const cancelExport = useCallback(() => {
     videoExporter.cancel();
