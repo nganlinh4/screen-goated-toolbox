@@ -157,7 +157,7 @@ fn create_shared_gpu_context() -> Result<SharedGpuContext, String> {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: true,
                 min_binding_size: wgpu::BufferSize::new(
-                    std::mem::size_of::<CompositorUniforms>() as u64,
+                    std::mem::size_of::<CompositorUniforms>() as u64
                 ),
             },
             count: None,

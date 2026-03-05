@@ -1,6 +1,9 @@
 use bytemuck::{Pod, Zeroable};
 use std::collections::VecDeque;
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
+use windows::core::Interface;
+use windows::Win32::Graphics::Direct3D12 as d3d12;
 
 use super::cursors::{
     dedupe_valid_slots, get_or_render_cursor_tile, CURSOR_ATLAS_COLS, CURSOR_ATLAS_ROWS,
@@ -10,6 +13,137 @@ use super::setup::{shared_gpu_context, OverlayVertex, OUTPUT_TEXTURE_FORMAT};
 use crate::overlay::screen_record::native_export::config::OverlayQuad;
 
 const READBACK_RING_SIZE: usize = 5;
+
+struct Dx12SharedCopyContext {
+    device: d3d12::ID3D12Device,
+    queue: d3d12::ID3D12CommandQueue,
+}
+
+impl Dx12SharedCopyContext {
+    unsafe fn new(
+        device: &d3d12::ID3D12Device,
+        queue: &d3d12::ID3D12CommandQueue,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            device: device.clone(),
+            queue: queue.clone(),
+        })
+    }
+
+    unsafe fn texture_raw_resource(texture: &wgpu::Texture) -> Option<d3d12::ID3D12Resource> {
+        let mut raw_resource: Option<d3d12::ID3D12Resource> = None;
+        texture.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_texture| {
+            if let Some(hal_texture) = hal_texture {
+                let resource_058 = hal_texture.raw_resource();
+                let resource_062: &d3d12::ID3D12Resource =
+                    &*(resource_058 as *const _ as *const d3d12::ID3D12Resource);
+                raw_resource = Some(resource_062.clone());
+            }
+        });
+        raw_resource
+    }
+
+    fn transition_barrier(
+        resource: Option<d3d12::ID3D12Resource>,
+        before: d3d12::D3D12_RESOURCE_STATES,
+        after: d3d12::D3D12_RESOURCE_STATES,
+    ) -> d3d12::D3D12_RESOURCE_BARRIER {
+        d3d12::D3D12_RESOURCE_BARRIER {
+            Type: d3d12::D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+            Flags: d3d12::D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            Anonymous: d3d12::D3D12_RESOURCE_BARRIER_0 {
+                Transition: ManuallyDrop::new(d3d12::D3D12_RESOURCE_TRANSITION_BARRIER {
+                    pResource: ManuallyDrop::new(resource),
+                    Subresource: d3d12::D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                    StateBefore: before,
+                    StateAfter: after,
+                }),
+            },
+        }
+    }
+
+    fn global_uav_barrier() -> d3d12::D3D12_RESOURCE_BARRIER {
+        d3d12::D3D12_RESOURCE_BARRIER {
+            Type: d3d12::D3D12_RESOURCE_BARRIER_TYPE_UAV,
+            Flags: d3d12::D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            Anonymous: d3d12::D3D12_RESOURCE_BARRIER_0 {
+                UAV: ManuallyDrop::new(d3d12::D3D12_RESOURCE_UAV_BARRIER {
+                    pResource: ManuallyDrop::new(None),
+                }),
+            },
+        }
+    }
+
+    unsafe fn copy_shared_to_video(
+        &self,
+        source: &wgpu::Texture,
+        video_texture: &wgpu::Texture,
+    ) -> Result<(), String> {
+        let source_resource =
+            Self::texture_raw_resource(source).ok_or("Source texture has no DX12 resource")?;
+        let video_resource = Self::texture_raw_resource(video_texture)
+            .ok_or("Video texture has no DX12 resource")?;
+
+        let shader_read = d3d12::D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+            | d3d12::D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+        let allocator = self
+            .device
+            .CreateCommandAllocator::<d3d12::ID3D12CommandAllocator>(
+                d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT,
+            )
+            .map_err(|e| format!("CreateCommandAllocator: {e}"))?;
+        let command_list = self
+            .device
+            .CreateCommandList::<_, _, d3d12::ID3D12GraphicsCommandList>(
+                0,
+                d3d12::D3D12_COMMAND_LIST_TYPE_DIRECT,
+                &allocator,
+                None,
+            )
+            .map_err(|e| format!("CreateCommandList: {e}"))?;
+
+        let pre_barriers = [
+            Self::transition_barrier(
+                Some(source_resource.clone()),
+                d3d12::D3D12_RESOURCE_STATE_COMMON,
+                d3d12::D3D12_RESOURCE_STATE_COPY_SOURCE,
+            ),
+            Self::transition_barrier(
+                Some(video_resource.clone()),
+                shader_read,
+                d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
+            ),
+            Self::global_uav_barrier(),
+        ];
+        command_list.ResourceBarrier(&pre_barriers);
+        command_list.CopyResource(&video_resource, &source_resource);
+
+        let post_barriers = [
+            Self::transition_barrier(
+                Some(video_resource),
+                d3d12::D3D12_RESOURCE_STATE_COPY_DEST,
+                shader_read,
+            ),
+            Self::transition_barrier(
+                Some(source_resource),
+                d3d12::D3D12_RESOURCE_STATE_COPY_SOURCE,
+                d3d12::D3D12_RESOURCE_STATE_COMMON,
+            ),
+        ];
+        command_list.ResourceBarrier(&post_barriers);
+
+        command_list
+            .Close()
+            .map_err(|e| format!("CommandList::Close: {e}"))?;
+
+        let command_list_base: d3d12::ID3D12CommandList = command_list
+            .cast()
+            .map_err(|e| format!("CommandList cast: {e}"))?;
+        self.queue.ExecuteCommandLists(&[Some(command_list_base)]);
+        Ok(())
+    }
+}
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -69,6 +203,16 @@ pub struct GpuCompositor {
     padded_bytes_per_row: u32,
     video_width: u32,
     video_height: u32,
+    // Tiny buffer for cache-flush trick: a 1-pixel copy_buffer_to_texture forces
+    // the shared decode texture into COPY_DST state, then copy_texture_to_texture
+    // transitions it to COPY_SRC — the COPY_DST→COPY_SRC barrier flushes L2 cache.
+    cache_flush_buffer: wgpu::Buffer,
+    // 1x1 throwaway target used to force shared encode-ring slots through a
+    // COPY_DST→COPY_SRC transition after each write (DX12 cache/state flush).
+    output_state_reset_texture: wgpu::Texture,
+    // Raw DX12 copy path for shared decode textures. This bypasses wgpu's texture
+    // state tracker and enforces explicit resource transitions around the copy.
+    dx12_shared_copy: Option<Dx12SharedCopyContext>,
     // Sprite atlas overlay pipeline
     atlas_texture: wgpu::Texture,
     atlas_bind_group: wgpu::BindGroup,
@@ -238,9 +382,7 @@ impl GpuCompositor {
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &uniform_buffer,
                     offset: 0,
-                    size: wgpu::BufferSize::new(
-                        std::mem::size_of::<CompositorUniforms>() as u64,
-                    ),
+                    size: wgpu::BufferSize::new(std::mem::size_of::<CompositorUniforms>() as u64),
                 }),
             }],
         });
@@ -329,6 +471,43 @@ impl GpuCompositor {
                 },
             ],
         });
+        // 4-byte buffer for cache-flush trick on shared decode textures.
+        // copy_buffer_to_texture writes 1 pixel (4 bytes BGRA) to force COPY_DST state.
+        let cache_flush_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Cache Flush Buffer"),
+            size: 4,
+            usage: wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let output_state_reset_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Output State Reset Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            usage: wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let dx12_shared_copy = unsafe {
+            let mut ctx: Option<Dx12SharedCopyContext> = None;
+            device.as_hal::<wgpu::hal::api::Dx12, _, _>(|hal_device| {
+                if let Some(hal_device) = hal_device {
+                    let raw_device: &d3d12::ID3D12Device =
+                        &*(hal_device.raw_device() as *const _ as *const d3d12::ID3D12Device);
+                    let raw_queue: &d3d12::ID3D12CommandQueue =
+                        &*(hal_device.raw_queue() as *const _ as *const d3d12::ID3D12CommandQueue);
+                    ctx = Dx12SharedCopyContext::new(raw_device, raw_queue).ok();
+                }
+            });
+            ctx
+        };
+
         // 1MB vertex buffer — enough for ~8000 quads (6 verts × 24 bytes each).
         let overlay_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Overlay VB"),
@@ -365,6 +544,9 @@ impl GpuCompositor {
             padded_bytes_per_row,
             video_width,
             video_height,
+            cache_flush_buffer,
+            output_state_reset_texture,
+            dx12_shared_copy,
             atlas_texture,
             atlas_bind_group,
             atlas_sampler,
@@ -497,7 +679,12 @@ impl GpuCompositor {
         self.background_height = height;
     }
 
-    pub fn render_to_output(&self, uniforms: &CompositorUniforms, clear: bool) {
+    pub fn render_to_output(
+        &self,
+        uniforms: &CompositorUniforms,
+        clear: bool,
+        video_bg: Option<&wgpu::BindGroup>,
+    ) {
         let uniform_data = bytemuck::bytes_of(uniforms);
         self.queue
             .write_buffer(&self.uniform_buffer, 0, uniform_data);
@@ -531,7 +718,7 @@ impl GpuCompositor {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.uniform_bind_group, &[0]);
-            pass.set_bind_group(1, &self.video_bind_group, &[]);
+            pass.set_bind_group(1, video_bg.unwrap_or(&self.video_bind_group), &[]);
             pass.set_bind_group(2, &self.cursor_bind_group, &[]);
             pass.set_bind_group(3, &self.background_bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -666,7 +853,7 @@ impl GpuCompositor {
         &mut self,
         uniforms: &CompositorUniforms,
     ) -> Result<(), String> {
-        self.render_to_output(uniforms, true);
+        self.render_to_output(uniforms, true, None);
         self.enqueue_output_readback()
     }
 
@@ -691,7 +878,11 @@ impl GpuCompositor {
     /// between draw calls — no encoder recreation overhead per pass. This replaces
     /// N separate encoder+submit cycles with 1, cutting ~0.2ms × N overhead from
     /// every motion-blur frame.
-    pub fn render_accumulate_batched(&self, passes: &[(CompositorUniforms, f64)]) {
+    pub fn render_accumulate_batched(
+        &self,
+        passes: &[(CompositorUniforms, f64)],
+        video_bg: Option<&wgpu::BindGroup>,
+    ) {
         if passes.is_empty() {
             return;
         }
@@ -749,7 +940,7 @@ impl GpuCompositor {
             });
 
             pass.set_pipeline(&self.accumulate_pipeline);
-            pass.set_bind_group(1, &self.video_bind_group, &[]);
+            pass.set_bind_group(1, video_bg.unwrap_or(&self.video_bind_group), &[]);
             pass.set_bind_group(2, &self.cursor_bind_group, &[]);
             pass.set_bind_group(3, &self.background_bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -832,15 +1023,60 @@ impl GpuCompositor {
 
     /// Copy a shared decode texture into the video input texture (GPU-to-GPU).
     ///
-    /// Replaces the CPU `upload_frame()` path: instead of PCIe download + upload,
-    /// this is an internal GPU memory copy (~0.1ms at 4K vs ~6ms for CPU round-trip).
+    /// Uses a cache-flush barrier trick to ensure DX12 reads fresh VRAM data:
+    ///   1. copy_buffer_to_texture (1 pixel) → forces source into COPY_DST state
+    ///   2. copy_texture_to_texture (full)   → transitions COPY_DST→COPY_SRC
+    /// The COPY_DST→COPY_SRC barrier flushes L2 cache, guaranteeing DX12 reads
+    /// the data that D3D11 just wrote (not stale cached data).
+    /// Both commands in the same encoder/submit for correct ordering.
     pub fn copy_frame_from_shared(&self, source: &wgpu::Texture) {
+        // Experimental raw-DX12 copy path. Keep this opt-in only until it is
+        // proven stable across content and drivers.
+        if std::env::var("SGT_EXPERIMENTAL_RAW_DX12_COPY").is_ok() {
+            if let Some(raw_dx12_copy) = &self.dx12_shared_copy {
+                if unsafe { raw_dx12_copy.copy_shared_to_video(source, &self.video_texture) }
+                    .is_ok()
+                {
+                    return;
+                }
+            }
+        }
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Copy Decode to Video"),
             });
 
+        // Step 1: 1-pixel buffer→texture copy to force source into COPY_DST state.
+        // This is a no-op data-wise (writes 1 pixel at origin with zeroed data)
+        // but forces DX12 to transition the resource state to COPY_DEST.
+        // bytes_per_row=None is valid for a single-row copy (wgpu skips alignment check).
+        encoder.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.cache_flush_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: None,
+                    rows_per_image: None,
+                },
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: source,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        // Step 2: Full copy from source to video_texture.
+        // This transitions source from COPY_DST→COPY_SRC, which includes an
+        // L2 cache flush barrier — ensuring DX12 reads fresh data from VRAM.
         encoder.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: source,
@@ -891,6 +1127,28 @@ impl GpuCompositor {
             wgpu::Extent3d {
                 width: self.width,
                 height: self.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        // Force target through COPY_DST→COPY_SRC once per write. This flushes DX12
+        // caches/state for shared encode textures before D3D11 acquires the slot.
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.output_state_reset_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
                 depth_or_array_layers: 1,
             },
         );

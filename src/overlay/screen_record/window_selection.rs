@@ -62,9 +62,9 @@ unsafe extern "system" fn selector_wnd_proc(
                     let mut r = RECT::default();
                     let _ = GetClientRect(hwnd, &mut r);
                     let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Physical(
-                            wry::dpi::PhysicalPosition::new(0, 0),
-                        ),
+                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
+                            0, 0,
+                        )),
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
                             (r.right - r.left) as u32,
                             (r.bottom - r.top) as u32,
@@ -518,8 +518,7 @@ pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool,
         // Use the shared WebContext (same profile as other overlays).
         SELECTOR_WEB_CONTEXT.with(|c| {
             if c.borrow().is_none() {
-                let shared_data_dir =
-                    crate::overlay::get_shared_webview_data_dir(Some("common"));
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
                 *c.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
             }
         });
@@ -534,11 +533,8 @@ pub fn show_window_selector(windows_data: Vec<serde_json::Value>, is_dark: bool,
         let html = generate_html(&windows_data, &font_css, is_dark, &title, &subtitle);
 
         // Serve HTML via font manager's local HTTP server for same-origin font loading.
-        let page_url =
-            crate::overlay::html_components::font_manager::store_html_page(html.clone())
-                .unwrap_or_else(|| {
-                    format!("data:text/html,{}", urlencoding::encode(&html))
-                });
+        let page_url = crate::overlay::html_components::font_manager::store_html_page(html.clone())
+            .unwrap_or_else(|| format!("data:text/html,{}", urlencoding::encode(&html)));
 
         let wrapper = HwndWrapper(hwnd);
 

@@ -181,12 +181,7 @@ pub fn hide_capture_border() {
     let val = BORDER_HWND.load(Ordering::SeqCst);
     if val != 0 {
         unsafe {
-            let _ = PostMessageW(
-                Some(HWND(val as *mut _)),
-                WM_CLOSE,
-                WPARAM(0),
-                LPARAM(0),
-            );
+            let _ = PostMessageW(Some(HWND(val as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
     }
 }

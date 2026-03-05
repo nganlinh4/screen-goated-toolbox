@@ -162,9 +162,9 @@ fn probe_dx12() -> bool {
 /// Uses MFTEnumEx (enumerate-only, no instantiation) so it is cheap (<1 ms).
 fn probe_mf_h264_hardware() -> bool {
     use windows::Win32::Media::MediaFoundation::{
-        IMFActivate, MFMediaType_Video, MFT_CATEGORY_VIDEO_ENCODER,
-        MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER, MFT_REGISTER_TYPE_INFO,
-        MFTEnumEx, MFVideoFormat_H264, MFVideoFormat_NV12,
+        IMFActivate, MFMediaType_Video, MFTEnumEx, MFVideoFormat_H264, MFVideoFormat_NV12,
+        MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER,
+        MFT_REGISTER_TYPE_INFO,
     };
     use windows::Win32::System::Com::CoTaskMemFree;
 
@@ -287,11 +287,12 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
 
     let audio_volume = config.background_config.volume.clamp(0.0, 2.0);
     // Volume 0 or GIF format → omit audio track (GIF is silent looping video).
-    let source_audio_path = if !config.audio_path.is_empty() && audio_volume > 0.0 && config.format != "gif" {
-        Some(config.audio_path.clone())
-    } else {
-        None
-    };
+    let source_audio_path =
+        if !config.audio_path.is_empty() && audio_volume > 0.0 && config.format != "gif" {
+            Some(config.audio_path.clone())
+        } else {
+            None
+        };
 
     let output_base_dir = if config.output_dir.trim().is_empty() {
         dirs::download_dir().unwrap_or_else(|| PathBuf::from("."))
@@ -309,11 +310,8 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         .as_millis();
 
     // Final output path: always uses the user-selected extension.
-    let final_output_path = output_base_dir.join(format!(
-        "SGT_Export_{}.{}",
-        timestamp_ms,
-        config.format
-    ));
+    let final_output_path =
+        output_base_dir.join(format!("SGT_Export_{}.{}", timestamp_ms, config.format));
     // For GIF: GPU encodes a temp silent MP4, then FFmpeg converts it to a real
     // animated GIF (two-pass palettegen+paletteuse). For MP4: encode directly.
     let encode_output_path = if is_gif {
@@ -593,7 +591,6 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
         output_path: encode_output_path.to_str().unwrap().to_string(),
         audio_path: source_audio_path.clone(),
         audio_volume,
-        format: "mp4".to_string(), // GPU encoder always produces MP4
         output_width: out_w,
         output_height: out_h,
         framerate: config.framerate,

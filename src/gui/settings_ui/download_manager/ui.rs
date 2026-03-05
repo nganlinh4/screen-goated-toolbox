@@ -185,8 +185,9 @@ impl DownloadManager {
                             for i in 0..self.sessions.len() {
                                 let is_active = i == self.active_tab_idx;
                                 let label = self.sessions[i].tab_name.clone();
-                                let tab_btn = egui::Button::new(egui::RichText::new(&label).size(11.0))
-                                    .selected(is_active);
+                                let tab_btn =
+                                    egui::Button::new(egui::RichText::new(&label).size(11.0))
+                                        .selected(is_active);
                                 if ui.add(tab_btn).clicked() {
                                     switch_tab_idx = Some(i);
                                 }
@@ -290,9 +291,11 @@ impl DownloadManager {
                         }
 
                         // Auto-analyze Logic
-                        let time_since_edit = ctx.input(|i| i.time) - self.sessions[idx].last_input_change;
+                        let time_since_edit =
+                            ctx.input(|i| i.time) - self.sessions[idx].last_input_change;
                         let is_analyzing = *self.sessions[idx].is_analyzing.lock().unwrap();
-                        let url_changed = self.sessions[idx].input_url.trim() != self.sessions[idx].last_url_analyzed;
+                        let url_changed = self.sessions[idx].input_url.trim()
+                            != self.sessions[idx].last_url_analyzed;
 
                         // Trigger analysis
                         if time_since_edit > 0.8
@@ -310,13 +313,21 @@ impl DownloadManager {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(text.download_format_label).strong());
                             if ui
-                                .radio_value(&mut self.sessions[idx].download_type, DownloadType::Video, "Video")
+                                .radio_value(
+                                    &mut self.sessions[idx].download_type,
+                                    DownloadType::Video,
+                                    "Video",
+                                )
                                 .changed()
                             {
                                 self.save_settings();
                             }
                             if ui
-                                .radio_value(&mut self.sessions[idx].download_type, DownloadType::Audio, "Audio")
+                                .radio_value(
+                                    &mut self.sessions[idx].download_type,
+                                    DownloadType::Audio,
+                                    "Audio",
+                                )
                                 .changed()
                             {
                                 self.save_settings();
@@ -327,8 +338,10 @@ impl DownloadManager {
 
                             // Quality UI
                             if self.sessions[idx].download_type == DownloadType::Video {
-                                let formats = self.sessions[idx].available_formats.lock().unwrap().clone();
-                                let error = self.sessions[idx].analysis_error.lock().unwrap().clone();
+                                let formats =
+                                    self.sessions[idx].available_formats.lock().unwrap().clone();
+                                let error =
+                                    self.sessions[idx].analysis_error.lock().unwrap().clone();
 
                                 if is_analyzing {
                                     ui.spinner();
@@ -367,8 +380,11 @@ impl DownloadManager {
                                     {
                                         let use_sub = *self.use_subtitles.lock().unwrap();
                                         if use_sub {
-                                            let manual_subs =
-                                                self.sessions[idx].available_subs_manual.lock().unwrap().clone();
+                                            let manual_subs = self.sessions[idx]
+                                                .available_subs_manual
+                                                .lock()
+                                                .unwrap()
+                                                .clone();
 
                                             if !manual_subs.is_empty() {
                                                 ui.add_space(8.0);
@@ -395,7 +411,8 @@ impl DownloadManager {
 
                                                         if ui
                                                             .selectable_value(
-                                                                &mut self.sessions[idx].selected_subtitle,
+                                                                &mut self.sessions[idx]
+                                                                    .selected_subtitle,
                                                                 None,
                                                                 &auto_text,
                                                             )
@@ -407,13 +424,15 @@ impl DownloadManager {
                                                         for sub in manual_subs {
                                                             if ui
                                                                 .selectable_label(
-                                                                    self.sessions[idx].selected_subtitle
+                                                                    self.sessions[idx]
+                                                                        .selected_subtitle
                                                                         == Some(sub.clone()),
                                                                     &sub,
                                                                 )
                                                                 .clicked()
                                                             {
-                                                                self.sessions[idx].selected_subtitle =
+                                                                self.sessions[idx]
+                                                                    .selected_subtitle =
                                                                     Some(sub.clone());
                                                                 self.save_settings();
                                                             }
@@ -595,7 +614,8 @@ impl DownloadManager {
                                         .button(egui::RichText::new(btn_text).size(10.0))
                                         .clicked()
                                     {
-                                        self.sessions[idx].show_error_log = !self.sessions[idx].show_error_log;
+                                        self.sessions[idx].show_error_log =
+                                            !self.sessions[idx].show_error_log;
                                     }
 
                                     // Show Log Area

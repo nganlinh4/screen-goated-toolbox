@@ -9,9 +9,9 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallWindowProcW, DefWindowProcW, GetWindowLongPtrW, GetWindowLongW, GetWindowRect, GWL_STYLE,
-    GWLP_WNDPROC, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTNOWHERE, HTRIGHT,
-    HTTOP, HTTOPLEFT, HTTOPRIGHT, SetWindowLongPtrW, WM_NCHITTEST, WS_MAXIMIZE,
+    CallWindowProcW, DefWindowProcW, GetWindowLongPtrW, GetWindowLongW, GetWindowRect,
+    SetWindowLongPtrW, GWLP_WNDPROC, GWL_STYLE, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT,
+    HTLEFT, HTNOWHERE, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, WM_NCHITTEST, WS_MAXIMIZE,
 };
 
 /// Logical resize border width in pixels at 96 DPI.

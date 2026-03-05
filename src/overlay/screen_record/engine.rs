@@ -14,11 +14,11 @@ use wc_windows::core::Interface as WcInterface;
 use windows::core::{Interface as AppInterface, BOOL};
 use windows::Graphics::Capture::GraphicsCaptureItem;
 use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Direct3D11::{
     ID3D11Device, ID3D11DeviceContext, ID3D11Multithread, ID3D11Texture2D,
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE,
 };
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
     DeleteObject, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, GetObjectW, BITMAP,
@@ -108,8 +108,7 @@ pub static LAST_RECORDING_FPS: std::sync::Mutex<Option<u32>> = std::sync::Mutex:
 pub static mut MONITOR_X: i32 = 0;
 pub static mut MONITOR_Y: i32 = 0;
 /// Dynamically track target window so cursor math stays accurate if the window moves.
-pub static TARGET_HWND: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+pub static TARGET_HWND: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 const DEFAULT_GRAB_SIGNATURE: &str = "hot(13,13)|mask(32x32)|color(32x32)|mono(0)";
 const DEFAULT_TARGET_FPS: u32 = 60;
@@ -610,9 +609,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             if let Ok(interop) =
                 windows::core::factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
             {
-                if let Ok(item) = unsafe {
-                    interop.CreateForWindow::<GraphicsCaptureItem>(hwnd)
-                } {
+                if let Ok(item) = unsafe { interop.CreateForWindow::<GraphicsCaptureItem>(hwnd) } {
                     if let Ok(size) = item.Size() {
                         if size.Width >= 300 && size.Height >= 300 {
                             w = size.Width as u32;
@@ -1003,17 +1000,15 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             }
 
             if now_100ns >= due_100ns {
-                let due_ticks = ((now_100ns.saturating_sub(due_100ns))
-                    / self.frame_interval_100ns)
+                let due_ticks = ((now_100ns.saturating_sub(due_100ns)) / self.frame_interval_100ns)
                     .saturating_add(1);
                 let missed_ticks = due_ticks.saturating_sub(1) as u32;
                 frames_to_submit = due_ticks as u32;
-                self.window_paced_skips =
-                    self.window_paced_skips.saturating_add(missed_ticks);
-                self.next_submit_timestamp_100ns =
-                    Some(due_100ns.saturating_add(
-                        self.frame_interval_100ns.saturating_mul(due_ticks as i64),
-                    ));
+                self.window_paced_skips = self.window_paced_skips.saturating_add(missed_ticks);
+                self.next_submit_timestamp_100ns = Some(
+                    due_100ns
+                        .saturating_add(self.frame_interval_100ns.saturating_mul(due_ticks as i64)),
+                );
                 should_submit = true;
             } else {
                 self.window_paced_skips = self.window_paced_skips.saturating_add(1);

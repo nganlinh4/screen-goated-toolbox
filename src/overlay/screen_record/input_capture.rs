@@ -492,11 +492,11 @@ fn vk_to_name(vk: u32) -> Option<&'static str> {
         38 => Some("Up"),
         39 => Some("Right"),
         40 => Some("Down"),
-        21 => Some("한/영"),   // VK_HANGUL (Korean IME toggle) / VK_KANA (Japanese)
-        23 => Some("전자"),    // VK_JUNJA
-        25 => Some("한자"),    // VK_HANJA (Korean) / VK_KANJI (Japanese)
-        28 => Some("変換"),    // VK_CONVERT (Japanese)
-        29 => Some("無変換"),  // VK_NONCONVERT (Japanese)
+        21 => Some("한/영"), // VK_HANGUL (Korean IME toggle) / VK_KANA (Japanese)
+        23 => Some("전자"),  // VK_JUNJA
+        25 => Some("한자"),  // VK_HANJA (Korean) / VK_KANJI (Japanese)
+        28 => Some("変換"),  // VK_CONVERT (Japanese)
+        29 => Some("無変換"), // VK_NONCONVERT (Japanese)
         44 => Some("PrintScreen"),
         45 => Some("Insert"),
         46 => Some("Delete"),

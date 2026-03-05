@@ -185,7 +185,7 @@ impl MfEncoder {
             MFCreateDXGISurfaceBuffer(
                 &ID3D11Texture2D::IID,
                 texture,
-                0,    // subresource index
+                0,     // subresource index
                 false, // bottom-up = false
             )
             .map_err(|e| format!("MFCreateDXGISurfaceBuffer: {e}"))?
@@ -320,9 +320,9 @@ fn create_output_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Stri
             .SetUINT32(&MF_MT_MPEG2_PROFILE, profile)
             .map_err(|e| format!("SetUINT32 PROFILE: {e}"))?;
 
-        // Enforce Full Range Color + BT.709 to prevent the Color Converter MFT
-        // from compressing 0-255 RGB into 16-235 YUV, which washes out blacks/whites.
-        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255.0 as u32);
+        // Use limited range (16-235) to match typical source H.264 playback behavior
+        // and avoid forcing full-range yuvj420p output in no-effects exports.
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32);
         let _ = media_type.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
         let _ = media_type.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32);
     }
@@ -360,9 +360,8 @@ fn create_input_media_type(config: &EncoderConfig) -> Result<IMFMediaType, Strin
             .SetUINT32(&MF_MT_INTERLACE_MODE, 2)
             .map_err(|e| format!("SetUINT32 INTERLACE: {e}"))?;
 
-        // Enforce Full Range Color + BT.709 to prevent the Color Converter MFT
-        // from compressing 0-255 RGB into 16-235 YUV, which washes out blacks/whites.
-        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_0_255.0 as u32);
+        // Keep nominal range aligned with the encoder output type.
+        let _ = media_type.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32);
         let _ = media_type.SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32);
         let _ = media_type.SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32);
     }

@@ -91,7 +91,8 @@ fn get_cursor_pack(bg: Option<&BackgroundConfig>) -> &str {
         if let Some(v) = variant_field {
             match v {
                 "jepriwin11" | "sgtpixel" | "sgtai" | "sgtcool" | "sgtcute" | "macos26"
-                | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" | "sgtvietnam" | "sgtkorea" | "screenstudio" => return v,
+                | "sgtwatermelon" | "sgtfastfood" | "sgtveggie" | "sgtvietnam" | "sgtkorea"
+                | "screenstudio" => return v,
                 _ => {}
             }
         }
