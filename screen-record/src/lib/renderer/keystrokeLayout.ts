@@ -519,6 +519,13 @@ export function buildActiveKeystrokeFrameLayout(
   canvasWidth: number,
   canvasHeight: number
 ): ActiveKeystrokeFrameLayout {
+  const visibilitySegments = cache.visibilityRef ?? [];
+  if (!visibilitySegments.length || !isTimeInsideSegments(sampleTime, visibilitySegments)) {
+    return {
+      keyboard: [],
+      mouse: [],
+    };
+  }
   const overlayTransform = getKeystrokeOverlayTransform(segment, canvasWidth, canvasHeight);
   const keyboard = findActiveKeystrokeEventsForKind(cache, sampleTime, delaySec, 'keyboard');
   const mouse = cache.mode === 'keyboardMouse'

@@ -293,6 +293,22 @@ export class VideoExporter {
     return id;
   }
 
+  private buildTimeSegmentStamp(
+    segments: Array<{ startTime: number; endTime: number }> | undefined
+  ): string {
+    if (!segments || segments.length === 0) return '0:0';
+    let hash = 2166136261 >>> 0;
+    for (const seg of segments) {
+      const startMs = Math.round(seg.startTime * 1000);
+      const endMs = Math.round(seg.endTime * 1000);
+      hash ^= startMs;
+      hash = Math.imul(hash, 16777619) >>> 0;
+      hash ^= endMs;
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return `${segments.length}:${hash.toString(16)}`;
+  }
+
   private estimatePreparedPayloadBytes(payload: PreparedBakePayload): number {
     const cameraBytes = payload.bakedPath.length * 32;
     const cursorBytes = payload.bakedCursorPath.length * 48;
@@ -417,8 +433,14 @@ export class VideoExporter {
         segment.zoomKeyframes?.length || 0,
         segment.textSegments?.length || 0,
         segment.trimSegments?.length || 0,
+        segment.keystrokeMode ?? 'off',
+        (segment.keystrokeDelaySec ?? 0).toFixed(4),
+        segment.keystrokeLanguage ?? 'en',
+        this.buildTimeSegmentStamp(segment.keyboardVisibilitySegments),
+        this.buildTimeSegmentStamp(segment.keyboardMouseVisibilitySegments),
         segment.keystrokeEvents?.length || 0,
-        segment.cursorVisibilitySegments?.length || 0
+        segment.cursorVisibilitySegments?.length || 0,
+        this.buildTimeSegmentStamp(segment.cursorVisibilitySegments),
       ].join(':')
       : 'none';
     const mousePositions = context.mousePositions ?? [];
