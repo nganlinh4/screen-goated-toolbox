@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { VideoSegment, BackgroundConfig } from '@/types/video';
 import { Slider } from '@/components/ui/Slider';
 import { Switch } from '@/components/ui/Switch';
@@ -14,6 +14,10 @@ import {
 export const CURSOR_ASSET_VERSION = `cursor-variants-runtime-${Date.now()}`;
 export const CURSOR_VARIANT_ROW_HEIGHT = 58;
 export const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
+export const CURSOR_VARIANT_COLUMN_WIDTH = 40;
+export const CURSOR_VARIANT_COLUMN_GAP = 6;
+export const CURSOR_VARIANT_CANVAS_PADDING_X = 6;
+export const CURSOR_VARIANT_PAN_THRESHOLD_PX = 4;
 
 type CursorVariant = CursorPack;
 
@@ -89,6 +93,10 @@ export function CursorPanel({
 }: CursorPanelProps) {
   const { t } = useSettings();
   const [variantScrollTop, setVariantScrollTop] = useState(0);
+  const [isVariantCanvasPanning, setIsVariantCanvasPanning] = useState(false);
+  const variantScrollRef = useRef<HTMLDivElement | null>(null);
+  const variantPanCleanupRef = useRef<(() => void) | null>(null);
+  const suppressVariantClickRef = useRef(false);
   const useCustomCursor = segment?.useCustomCursor !== false;
   const canToggleCustomCursor = Boolean(segment);
   const inferredPack: CursorVariant =
@@ -123,10 +131,80 @@ export function CursorPanel({
   ]), [t.cursorDefault, t.cursorText, t.cursorPointer, t.cursorOpenHand]);
   const viewportHeight = CURSOR_VARIANT_VIEWPORT_HEIGHT;
   const totalHeight = rows.length * CURSOR_VARIANT_ROW_HEIGHT;
+  const variantGridWidth = (CURSOR_PACKS.length * CURSOR_VARIANT_COLUMN_WIDTH)
+    + ((CURSOR_PACKS.length - 1) * CURSOR_VARIANT_COLUMN_GAP);
+  const variantCanvasWidth = variantGridWidth + (CURSOR_VARIANT_CANVAS_PADDING_X * 2);
   const startIndex = Math.max(0, Math.floor(variantScrollTop / CURSOR_VARIANT_ROW_HEIGHT) - 2);
   const visibleCount = Math.ceil(viewportHeight / CURSOR_VARIANT_ROW_HEIGHT) + 4;
   const endIndex = Math.min(rows.length, startIndex + visibleCount);
   const visibleRows = rows.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    return () => {
+      variantPanCleanupRef.current?.();
+      variantPanCleanupRef.current = null;
+      suppressVariantClickRef.current = false;
+    };
+  }, []);
+
+  const handleVariantCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const scrollEl = variantScrollRef.current;
+    if (!scrollEl) return;
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startScrollLeft = scrollEl.scrollLeft;
+    const startScrollTop = scrollEl.scrollTop;
+    let isDragging = false;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+
+      if (!isDragging) {
+        if (Math.hypot(dx, dy) < CURSOR_VARIANT_PAN_THRESHOLD_PX) return;
+        isDragging = true;
+        suppressVariantClickRef.current = true;
+        setIsVariantCanvasPanning(true);
+      }
+
+      scrollEl.scrollLeft = startScrollLeft - dx;
+      scrollEl.scrollTop = startScrollTop - dy;
+      moveEvent.preventDefault();
+    };
+
+    const handlePointerEnd = () => {
+      variantPanCleanupRef.current?.();
+      variantPanCleanupRef.current = null;
+      setIsVariantCanvasPanning(false);
+      if (!isDragging) {
+        suppressVariantClickRef.current = false;
+        return;
+      }
+      window.setTimeout(() => {
+        suppressVariantClickRef.current = false;
+      }, 0);
+    };
+
+    variantPanCleanupRef.current?.();
+    variantPanCleanupRef.current = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+    };
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+  };
+
+  const handleVariantCanvasClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!suppressVariantClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressVariantClickRef.current = false;
+  };
+
   return (
     <PanelCard className="cursor-panel">
       <div className="cursor-controls space-y-3.5">
@@ -186,10 +264,21 @@ export function CursorPanel({
             style={{ height: `${viewportHeight}px` }}
           >
             <div
-              className="cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-y-auto"
+              ref={variantScrollRef}
+              className={`cursor-variant-virtualized-scroll thin-scrollbar h-full overflow-auto ${isVariantCanvasPanning ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
               onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
+              onPointerDown={handleVariantCanvasPointerDown}
+              onClickCapture={handleVariantCanvasClickCapture}
+              style={{ touchAction: 'none' }}
             >
-              <div className="cursor-variant-column-header sticky top-0 z-10 min-h-8 py-1 px-1.5 border-b border-glass-border grid grid-cols-12 gap-1.5 items-start bg-surface">
+              <div
+                className="cursor-variant-column-header sticky top-0 z-10 min-h-8 py-1 px-1.5 border-b border-glass-border grid items-start bg-surface"
+                style={{
+                  width: `${variantCanvasWidth}px`,
+                  gridTemplateColumns: `repeat(${CURSOR_PACKS.length}, ${CURSOR_VARIANT_COLUMN_WIDTH}px)`,
+                  gap: `${CURSOR_VARIANT_COLUMN_GAP}px`,
+                }}
+              >
                 {CURSOR_PACKS.map((pack) => (
                   <span
                     key={pack}
@@ -200,7 +289,10 @@ export function CursorPanel({
                   </span>
                 ))}
               </div>
-              <div className="cursor-variant-virtualized-inner relative" style={{ height: `${totalHeight}px` }}>
+              <div
+                className="cursor-variant-virtualized-inner relative"
+                style={{ height: `${totalHeight}px`, width: `${variantCanvasWidth}px` }}
+              >
                 {visibleRows.map((row, i) => {
                   const absoluteIndex = startIndex + i;
                   const tiltDeg = backgroundConfig.cursorTiltAngle ?? -10;
@@ -213,8 +305,14 @@ export function CursorPanel({
                   return (
                     <div
                       key={row.id}
-                      className="cursor-variant-row absolute left-0 right-0 px-1.5 grid grid-cols-12 gap-1.5 items-center"
-                      style={{ top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`, height: `${CURSOR_VARIANT_ROW_HEIGHT}px` }}
+                      className="cursor-variant-row absolute left-0 px-1.5 grid items-center"
+                      style={{
+                        top: `${absoluteIndex * CURSOR_VARIANT_ROW_HEIGHT}px`,
+                        height: `${CURSOR_VARIANT_ROW_HEIGHT}px`,
+                        width: `${variantCanvasWidth}px`,
+                        gridTemplateColumns: `repeat(${CURSOR_PACKS.length}, ${CURSOR_VARIANT_COLUMN_WIDTH}px)`,
+                        gap: `${CURSOR_VARIANT_COLUMN_GAP}px`,
+                      }}
                     >
                       {variantKeys.map(({ pack, src }) => (
                         <CursorVariantButton
