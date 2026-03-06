@@ -1,20 +1,29 @@
 use crate::gui::locale::LocaleText;
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "HTML generation keeps each runtime display option explicit"
-)]
-pub fn get_realtime_html(
-    is_translation: bool,
-    audio_source: &str,
-    languages: &[String],
-    current_language: &str,
-    translation_model: &str,
-    transcription_model: &str,
-    font_size: u32,
-    text: &LocaleText,
-    is_dark: bool,
-) -> String {
+pub struct RealtimeHtmlOptions<'a> {
+    pub is_translation: bool,
+    pub audio_source: &'a str,
+    pub languages: &'a [String],
+    pub current_language: &'a str,
+    pub translation_model: &'a str,
+    pub transcription_model: &'a str,
+    pub font_size: u32,
+    pub text: &'a LocaleText,
+    pub is_dark: bool,
+}
+
+pub fn get_realtime_html(options: RealtimeHtmlOptions<'_>) -> String {
+    let RealtimeHtmlOptions {
+        is_translation,
+        audio_source,
+        languages,
+        current_language,
+        translation_model,
+        transcription_model,
+        font_size,
+        text,
+        is_dark,
+    } = options;
     let _title_icon = if is_translation {
         "translate"
     } else {

@@ -1,4 +1,11 @@
-import { CursorImageSet } from './cursorGraphics';
+import {
+  CURSOR_PACKS,
+  CURSOR_RENDER_KINDS,
+  getCursorImageFieldName,
+  isCursorPack,
+  type CursorImageSet,
+  type CursorRenderKind,
+} from './cursorTypes';
 import { initPreviewAnimation } from './cursorAnimationCapture';
 
 // ---------------------------------------------------------------------------
@@ -21,52 +28,12 @@ export function createCursorImageSet(): CursorImageSet {
     return img;
   };
 
-  // Cursor types in consistent order per pack
-  const types = [
-    'default', 'text', 'pointer', 'openhand', 'closehand',
-    'wait', 'appstarting', 'crosshair', 'resize-ns', 'resize-we',
-    'resize-nwse', 'resize-nesw',
-  ] as const;
-
-  // Pack slug -> CursorImageSet field suffix
-  const packs = [
-    { slug: 'screenstudio', suffix: 'ScreenStudio' },
-    { slug: 'macos26', suffix: 'Macos26' },
-    { slug: 'sgtcute', suffix: 'Sgtcute' },
-    { slug: 'sgtcool', suffix: 'Sgtcool' },
-    { slug: 'sgtai', suffix: 'Sgtai' },
-    { slug: 'sgtpixel', suffix: 'Sgtpixel' },
-    { slug: 'jepriwin11', suffix: 'Jepriwin11' },
-    { slug: 'sgtwatermelon', suffix: 'Sgtwatermelon' },
-    { slug: 'sgtfastfood', suffix: 'Sgtfastfood' },
-    { slug: 'sgtveggie', suffix: 'Sgtveggie' },
-    { slug: 'sgtvietnam', suffix: 'Sgtvietnam' },
-    { slug: 'sgtkorea', suffix: 'Sgtkorea' },
-  ] as const;
-
-  // Map cursor type slug -> CursorImageSet field prefix
-  const typeFieldPrefix: Record<string, string> = {
-    'default': 'default',
-    'text': 'text',
-    'pointer': 'pointer',
-    'openhand': 'openHand',
-    'closehand': 'closeHand',
-    'wait': 'wait',
-    'appstarting': 'appStarting',
-    'crosshair': 'crosshair',
-    'resize-ns': 'resizeNs',
-    'resize-we': 'resizeWe',
-    'resize-nwse': 'resizeNwse',
-    'resize-nesw': 'resizeNesw',
-  };
-
   const images: Record<string, HTMLImageElement> = {};
 
-  for (const pack of packs) {
-    for (const cursorType of types) {
-      const prefix = typeFieldPrefix[cursorType];
-      const fieldName = `${prefix}${pack.suffix}Image`;
-      images[fieldName] = loadImg(`cursor-${cursorType}-${pack.slug}`);
+  for (const pack of CURSOR_PACKS) {
+    for (const cursorKind of CURSOR_RENDER_KINDS) {
+      const fieldName = getCursorImageFieldName(pack, cursorKind);
+      images[fieldName] = loadImg(`cursor-${cursorKind}-${pack}`);
     }
   }
 
@@ -78,30 +45,10 @@ export function createCursorImageSet(): CursorImageSet {
 // ---------------------------------------------------------------------------
 
 // Animated cursor types that need preview pre-rendering.
-const ANIMATED_CURSOR_TYPES = ['wait', 'appstarting'] as const;
+const ANIMATED_CURSOR_TYPES: readonly CursorRenderKind[] = ['wait', 'appstarting'];
 
 // Raw cursor_type values from recordings that map to animated types.
 const ANIMATED_RAW_TYPES = new Set(['wait', 'appstarting']);
-
-const PACK_SUFFIXES: Record<string, string> = {
-  screenstudio: 'ScreenStudio',
-  macos26: 'Macos26',
-  sgtcute: 'Sgtcute',
-  sgtcool: 'Sgtcool',
-  sgtai: 'Sgtai',
-  sgtpixel: 'Sgtpixel',
-  jepriwin11: 'Jepriwin11',
-  sgtwatermelon: 'Sgtwatermelon',
-  sgtfastfood: 'Sgtfastfood',
-  sgtveggie: 'Sgtveggie',
-  sgtvietnam: 'Sgtvietnam',
-  sgtkorea: 'Sgtkorea',
-};
-
-const TYPE_FIELD_PREFIX: Record<string, string> = {
-  wait: 'wait',
-  appstarting: 'appStarting',
-};
 
 // Track which packs have already been initialized.
 const _initedPacks = new Set<string>();
@@ -116,7 +63,7 @@ export function ensureCursorAnimations(
   mousePositions: { cursor_type?: string }[],
   images: CursorImageSet,
 ): void {
-  if (_initedPacks.has(pack)) return;
+  if (!isCursorPack(pack) || _initedPacks.has(pack)) return;
 
   const hasAnimated = mousePositions.some(
     p => ANIMATED_RAW_TYPES.has((p.cursor_type || '').toLowerCase()),
@@ -125,12 +72,9 @@ export function ensureCursorAnimations(
 
   _initedPacks.add(pack);
 
-  const suffix = PACK_SUFFIXES[pack];
-  if (!suffix) return;
-
   for (const type of ANIMATED_CURSOR_TYPES) {
-    const fieldName = `${TYPE_FIELD_PREFIX[type]}${suffix}Image`;
-    const img = (images as unknown as Record<string, HTMLImageElement>)[fieldName];
+    const fieldName = getCursorImageFieldName(pack, type);
+    const img = images[fieldName];
     if (img) initPreviewAnimation(img, `${type}-${pack}`);
   }
 }

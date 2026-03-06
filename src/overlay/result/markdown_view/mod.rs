@@ -20,9 +20,6 @@ pub mod webview;
 lazy_static::lazy_static! {
     /// Store WebViews per parent window - wrapped in thread-local storage to avoid Send issues
     pub(crate) static ref WEBVIEW_STATES: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
-    /// Global flag to indicate WebView2 is ready
-    #[allow(dead_code)]
-    static ref WEBVIEW_READY: Mutex<bool> = Mutex::new(false);
     /// Flag to skip next navigation handler call (set before history.back())
     pub(crate) static ref SKIP_NEXT_NAVIGATION: Mutex<HashMap<isize, bool>> = Mutex::new(HashMap::new());
 }

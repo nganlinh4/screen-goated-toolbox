@@ -3,8 +3,8 @@
 
 use crate::config::{Config, ProcessingBlock};
 use crate::overlay::result::{
-    create_result_window, get_chain_color, link_windows, ChainCancelToken, RefineContext,
-    WindowType, WINDOW_STATES,
+    ChainCancelToken, RefineContext, ResultWindowParams, WINDOW_STATES, WindowType,
+    create_result_window, get_chain_color, link_windows,
 };
 use crate::win_types::SendHwnd;
 use std::sync::{Arc, Mutex};
@@ -12,30 +12,48 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-use super::execution::execute_block;
+use super::execution::{ExecuteBlockRequest, execute_block};
 use super::post_process::{continue_chain, handle_auto_copy, handle_auto_speak, save_to_history};
 use super::templates::{generate_audio_player_html, generate_image_display_html};
 use crate::overlay::process::types::get_next_window_position_for_chain;
 
-/// Recursive step to run a block in the chain (supports graph with connections).
-#[allow(clippy::too_many_arguments)]
-pub fn run_chain_step(
-    block_idx: usize,
-    input_text: String,
-    current_rect: RECT,
-    blocks: Vec<ProcessingBlock>,
-    connections: Vec<(usize, usize)>,
-    config: Config,
-    parent_hwnd: Arc<Mutex<Option<SendHwnd>>>,
-    context: RefineContext,
-    skip_execution: bool,
-    mut processing_indicator_hwnd: Option<SendHwnd>,
-    cancel_token: Arc<ChainCancelToken>,
-    preset_id: String,
-    disable_auto_paste: bool,
-    chain_id: String,
-    input_hwnd_refocus: Option<SendHwnd>,
-) {
+pub struct ChainStepRequest {
+    pub block_idx: usize,
+    pub input_text: String,
+    pub current_rect: RECT,
+    pub blocks: Vec<ProcessingBlock>,
+    pub connections: Vec<(usize, usize)>,
+    pub config: Config,
+    pub parent_hwnd: Arc<Mutex<Option<SendHwnd>>>,
+    pub context: RefineContext,
+    pub skip_execution: bool,
+    pub processing_indicator_hwnd: Option<SendHwnd>,
+    pub cancel_token: Arc<ChainCancelToken>,
+    pub preset_id: String,
+    pub disable_auto_paste: bool,
+    pub chain_id: String,
+    pub input_hwnd_refocus: Option<SendHwnd>,
+}
+
+/// Recursive step to run a single block in the chain.
+pub fn run_chain_step(request: ChainStepRequest) {
+    let ChainStepRequest {
+        block_idx,
+        input_text,
+        current_rect,
+        blocks,
+        connections,
+        config,
+        parent_hwnd,
+        context,
+        skip_execution,
+        mut processing_indicator_hwnd,
+        cancel_token,
+        preset_id,
+        disable_auto_paste,
+        chain_id,
+        input_hwnd_refocus,
+    } = request;
     // Check if cancelled before starting
     if cancel_token.is_cancelled() {
         if let Some(h) = processing_indicator_hwnd {
@@ -87,21 +105,21 @@ pub fn run_chain_step(
     // PERSISTENCE: Check if the preset has a saved geometry (only for first block)
     let mut starting_rect = current_rect;
     if block_idx == 0
-        && let Ok(app) = crate::APP.lock() {
-            let found_preset = app.config.presets.iter().find(|p| p.id == preset_id);
-            if let Some(p) = found_preset {
-                let is_image_category = p.preset_type == "image";
-                if !is_image_category
-                    && let Some(geom) = &p.window_geometry {
-                        starting_rect = RECT {
-                            left: geom.x,
-                            top: geom.y,
-                            right: geom.x + geom.width,
-                            bottom: geom.y + geom.height,
-                        };
-                    }
+        && let Ok(app) = crate::APP.lock()
+    {
+        let found_preset = app.config.presets.iter().find(|p| p.id == preset_id);
+        if let Some(p) = found_preset {
+            let is_image_category = p.preset_type == "image";
+            if !is_image_category && let Some(geom) = &p.window_geometry {
+                starting_rect = RECT {
+                    left: geom.x,
+                    top: geom.y,
+                    right: geom.x + geom.width,
+                    bottom: geom.y + geom.height,
+                };
             }
         }
+    }
 
     let my_rect = if block.show_overlay {
         get_next_window_position_for_chain(&chain_id, starting_rect)
@@ -117,49 +135,49 @@ pub fn run_chain_step(
     if block.block_type == "input_adapter" && !block.show_overlay {
         // Input adapter without overlay - invisible pass-through
     } else if should_create_window {
-        let (created_hwnd, new_processing_hwnd) = create_block_window(
-            &block,
+        let (created_hwnd, new_processing_hwnd) = create_block_window(CreateBlockWindowRequest {
+            block: &block,
             block_idx,
             my_rect,
-            &context,
-            &input_text,
-            &model_id,
-            &provider,
-            &final_prompt,
+            context: &context,
+            input_text: &input_text,
+            model_id: &model_id,
+            provider: &provider,
+            final_prompt: &final_prompt,
             bg_color,
             visible_count_before,
             skip_execution,
-            &parent_hwnd,
-            &cancel_token,
-            &preset_id,
-            &chain_id,
-            &config,
+            parent_hwnd: &parent_hwnd,
+            cancel_token: &cancel_token,
+            preset_id: &preset_id,
+            chain_id: &chain_id,
+            config: &config,
             processing_indicator_hwnd,
             input_hwnd_refocus,
-        );
+        });
         my_hwnd = created_hwnd;
         processing_indicator_hwnd = new_processing_hwnd;
     }
 
     // 4. Execution (API Call)
     let input_text_for_history = input_text.clone();
-    let result_text = execute_block(
-        &block,
+    let result_text = execute_block(ExecuteBlockRequest {
+        block: &block,
         block_idx,
-        &blocks,
+        blocks: &blocks,
         my_hwnd,
-        &input_text,
-        &context,
-        &model_id,
-        &provider,
-        &model_full_name,
-        &final_prompt,
+        input_text: &input_text,
+        context: &context,
+        model_id: &model_id,
+        provider: &provider,
+        model_full_name: &model_full_name,
+        final_prompt: &final_prompt,
         skip_execution,
-        &config,
-        &preset_id,
-        processing_indicator_hwnd,
-        &cancel_token,
-    );
+        config: &config,
+        preset_id: &preset_id,
+        processing_hwnd_shared: processing_indicator_hwnd,
+        cancel_token: &cancel_token,
+    });
 
     // Check cancellation after execution — skip post-processing and chain continuation
     if cancel_token.is_cancelled() {
@@ -184,9 +202,9 @@ pub fn run_chain_step(
     save_to_history(&block, &result_text, &input_text_for_history, &context);
 
     // 6. Chain Next Steps
-    continue_chain(
+    continue_chain(super::post_process::ContinueChainRequest {
         block_idx,
-        &block,
+        block: &block,
         result_text,
         blocks,
         connections,
@@ -203,31 +221,52 @@ pub fn run_chain_step(
         input_hwnd_refocus,
         my_rect,
         starting_rect,
-    );
+    });
 }
 
 /// Create window for a block and return (hwnd, updated processing_indicator_hwnd).
-#[allow(clippy::too_many_arguments)]
-fn create_block_window(
-    block: &ProcessingBlock,
+struct CreateBlockWindowRequest<'a> {
+    block: &'a ProcessingBlock,
     block_idx: usize,
     my_rect: RECT,
-    context: &RefineContext,
-    input_text: &str,
-    model_id: &str,
-    provider: &str,
-    final_prompt: &str,
+    context: &'a RefineContext,
+    input_text: &'a str,
+    model_id: &'a str,
+    provider: &'a str,
+    final_prompt: &'a str,
     bg_color: u32,
     visible_count_before: usize,
     skip_execution: bool,
-    parent_hwnd: &Arc<Mutex<Option<SendHwnd>>>,
-    cancel_token: &Arc<ChainCancelToken>,
-    preset_id: &str,
-    chain_id: &str,
-    config: &Config,
-    mut processing_indicator_hwnd: Option<SendHwnd>,
+    parent_hwnd: &'a Arc<Mutex<Option<SendHwnd>>>,
+    cancel_token: &'a Arc<ChainCancelToken>,
+    preset_id: &'a str,
+    chain_id: &'a str,
+    config: &'a Config,
+    processing_indicator_hwnd: Option<SendHwnd>,
     input_hwnd_refocus: Option<SendHwnd>,
-) -> (Option<HWND>, Option<SendHwnd>) {
+}
+
+fn create_block_window(request: CreateBlockWindowRequest<'_>) -> (Option<HWND>, Option<SendHwnd>) {
+    let CreateBlockWindowRequest {
+        block,
+        block_idx,
+        my_rect,
+        context,
+        input_text,
+        model_id,
+        provider,
+        final_prompt,
+        bg_color,
+        visible_count_before,
+        skip_execution,
+        parent_hwnd,
+        cancel_token,
+        preset_id,
+        chain_id,
+        config,
+        mut processing_indicator_hwnd,
+        input_hwnd_refocus,
+    } = request;
     let ctx_clone = if block.block_type == "input_adapter" || block_idx == 0 {
         context.clone()
     } else {
@@ -272,21 +311,21 @@ fn create_block_window(
     std::thread::spawn(move || {
         let is_root = visible_count_before == 0;
 
-        let hwnd = create_result_window(
-            my_rect,
-            WindowType::Primary,
-            ctx_clone,
-            m_id,
-            prov,
-            stream_en,
-            false,
-            prompt_c,
-            bg_color,
-            &render_md,
-            initial_content_clone,
-            Some(preset_id_for_window),
-            is_root,
-        );
+        let hwnd = create_result_window(ResultWindowParams {
+            target_rect: my_rect,
+            win_type: WindowType::Primary,
+            context: ctx_clone,
+            model_id: m_id,
+            provider: prov,
+            streaming_enabled: stream_en,
+            start_editing: false,
+            preset_prompt: prompt_c,
+            custom_bg_color: bg_color,
+            render_mode: &render_md,
+            initial_text: initial_content_clone,
+            preset_id: Some(preset_id_for_window),
+            is_chain_root: is_root,
+        });
 
         // Assign cancellation token and chain_id immediately
         {
@@ -298,9 +337,10 @@ fn create_block_window(
         }
 
         if let Ok(p_guard) = parent_clone.lock()
-            && let Some(ph) = *p_guard {
-                link_windows(ph.0, hwnd);
-            }
+            && let Some(ph) = *p_guard
+        {
+            link_windows(ph.0, hwnd);
+        }
 
         if !is_image_block {
             unsafe {
@@ -316,7 +356,7 @@ fn create_block_window(
         unsafe {
             if is_input_adapter_image {
                 use windows::Win32::UI::WindowsAndMessaging::{
-                    SetLayeredWindowAttributes, LWA_ALPHA,
+                    LWA_ALPHA, SetLayeredWindowAttributes,
                 };
                 let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
             }
@@ -348,41 +388,42 @@ fn create_block_window(
     }
 
     // Show loading state
-    if !skip_execution
-        && let Some(h) = my_hwnd {
-            if block.block_type == "input_adapter" {
-                let mut s = WINDOW_STATES.lock().unwrap();
-                if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                    st.is_refining = false;
-                    st.is_streaming_active = false;
-                    st.font_cache_dirty = true;
-                }
-            } else if block.block_type != "image" {
-                let mut s = WINDOW_STATES.lock().unwrap();
-                if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                    st.input_text = input_text.to_string();
-                    st.is_refining = true;
-                    st.is_streaming_active = true;
-                    st.was_streaming_active = true;
-                    st.font_cache_dirty = true;
-                }
-            } else {
-                let mut s = WINDOW_STATES.lock().unwrap();
-                if let Some(st) = s.get_mut(&(h.0 as isize)) {
-                    st.is_streaming_active = true;
-                    st.was_streaming_active = true;
-                }
+    if !skip_execution && let Some(h) = my_hwnd {
+        if block.block_type == "input_adapter" {
+            let mut s = WINDOW_STATES.lock().unwrap();
+            if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                st.is_refining = false;
+                st.is_streaming_active = false;
+                st.font_cache_dirty = true;
+            }
+        } else if block.block_type != "image" {
+            let mut s = WINDOW_STATES.lock().unwrap();
+            if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                st.input_text = input_text.to_string();
+                st.is_refining = true;
+                st.is_streaming_active = true;
+                st.was_streaming_active = true;
+                st.font_cache_dirty = true;
+            }
+        } else {
+            let mut s = WINDOW_STATES.lock().unwrap();
+            if let Some(st) = s.get_mut(&(h.0 as isize)) {
+                st.is_streaming_active = true;
+                st.was_streaming_active = true;
             }
         }
+    }
 
     // Close old processing overlay for text blocks
-    if block.block_type != "image" && block.block_type != "input_adapter"
-        && let Some(h) = processing_indicator_hwnd {
-            unsafe {
-                let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-            processing_indicator_hwnd = None;
+    if block.block_type != "image"
+        && block.block_type != "input_adapter"
+        && let Some(h) = processing_indicator_hwnd
+    {
+        unsafe {
+            let _ = PostMessageW(Some(h.0), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
+        processing_indicator_hwnd = None;
+    }
 
     (my_hwnd, processing_indicator_hwnd)
 }

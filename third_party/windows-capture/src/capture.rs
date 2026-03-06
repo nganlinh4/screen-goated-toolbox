@@ -22,7 +22,9 @@ use windows_future::AsyncActionCompletedHandler;
 
 use crate::d3d11::{self, create_d3d_device};
 use crate::frame::Frame;
-use crate::graphics_capture_api::{self, GraphicsCaptureApi, InternalCaptureControl};
+use crate::graphics_capture_api::{
+    self, GraphicsCaptureApi, GraphicsCaptureApiParams, InternalCaptureControl,
+};
 use crate::settings::{Settings, TryIntoCaptureItemWithType};
 
 #[derive(thiserror::Error, Debug)]
@@ -299,21 +301,21 @@ pub trait GraphicsCaptureApiHandler: Sized {
             .try_into_capture_item()
             .map_err(|_| GraphicsCaptureApiError::ItemConvertFailed)?;
 
-        let mut capture = GraphicsCaptureApi::new(
+        let mut capture = GraphicsCaptureApi::new(GraphicsCaptureApiParams {
             d3d_device,
             d3d_device_context,
             item,
             item_type,
             callback,
-            settings.cursor_capture_settings,
-            settings.draw_border_settings,
-            settings.secondary_window_settings,
-            settings.minimum_update_interval_settings,
-            settings.dirty_region_settings,
-            settings.color_format,
+            cursor_capture_settings: settings.cursor_capture_settings,
+            draw_border_settings: settings.draw_border_settings,
+            secondary_window_settings: settings.secondary_window_settings,
+            minimum_update_interval_settings: settings.minimum_update_interval_settings,
+            dirty_region_settings: settings.dirty_region_settings,
+            color_format: settings.color_format,
             thread_id,
-            result.clone(),
-        )
+            result: result.clone(),
+        })
         .map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
         capture
             .start_capture()
@@ -444,21 +446,21 @@ pub trait GraphicsCaptureApiHandler: Sized {
                     .try_into_capture_item()
                     .map_err(|_| GraphicsCaptureApiError::ItemConvertFailed)?;
 
-                let mut capture = GraphicsCaptureApi::new(
+                let mut capture = GraphicsCaptureApi::new(GraphicsCaptureApiParams {
                     d3d_device,
                     d3d_device_context,
                     item,
                     item_type,
-                    callback.clone(),
-                    settings.cursor_capture_settings,
-                    settings.draw_border_settings,
-                    settings.secondary_window_settings,
-                    settings.minimum_update_interval_settings,
-                    settings.dirty_region_settings,
-                    settings.color_format,
+                    callback: callback.clone(),
+                    cursor_capture_settings: settings.cursor_capture_settings,
+                    draw_border_settings: settings.draw_border_settings,
+                    secondary_window_settings: settings.secondary_window_settings,
+                    minimum_update_interval_settings: settings.minimum_update_interval_settings,
+                    dirty_region_settings: settings.dirty_region_settings,
+                    color_format: settings.color_format,
                     thread_id,
-                    result.clone(),
-                )
+                    result: result.clone(),
+                })
                 .map_err(GraphicsCaptureApiError::GraphicsCaptureApiError)?;
 
                 capture

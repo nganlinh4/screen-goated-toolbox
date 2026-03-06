@@ -131,13 +131,15 @@ impl SettingsApp {
 
             // Close on click outside (check if clicked outside the popup area)
             if ctx.input(|i| i.pointer.any_click())
-                && let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                    // Check if click is on the backdrop (outside popup content)
-                    if let Some(layer) = ctx.layer_id_at(pos)
-                        && layer.id == egui::Id::new("tips_backdrop") {
-                            self.show_tips_modal = false;
-                        }
+                && let Some(pos) = ctx.input(|i| i.pointer.interact_pos())
+            {
+                // Check if click is on the backdrop (outside popup content)
+                if let Some(layer) = ctx.layer_id_at(pos)
+                    && layer.id == egui::Id::new("tips_backdrop")
+                {
+                    self.show_tips_modal = false;
                 }
+            }
 
             // Close on Escape
             if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {

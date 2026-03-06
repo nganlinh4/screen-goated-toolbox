@@ -27,7 +27,7 @@ pub fn set_is_busy(busy: bool) {
 }
 
 pub mod utils; // MASTER preset wheel
-               // realtime_overlay module removed (was old GDI-based, now using realtime_webview)
+// realtime_overlay module removed (was old GDI-based, now using realtime_webview)
 pub mod favorite_bubble; // Floating bubble for favorite presets
 pub mod html_components; // Split HTML components (CSS/JS)
 pub mod realtime_egui; // Minimal mode (native egui)

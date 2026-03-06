@@ -124,14 +124,14 @@ pub fn show_help_input() {
 
                 // Initialize COM for WebView2
                 unsafe {
-                    use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+                    use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
                     let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
                 }
 
                 // Get screen center for result display
                 use windows::Win32::UI::WindowsAndMessaging::{
-                    DispatchMessageW, GetMessageW, GetSystemMetrics, SetForegroundWindow,
-                    ShowWindow, TranslateMessage, MSG, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW,
+                    DispatchMessageW, GetMessageW, GetSystemMetrics, MSG, SM_CXSCREEN, SM_CYSCREEN,
+                    SW_SHOW, SetForegroundWindow, ShowWindow, TranslateMessage,
                 };
 
                 let (screen_w, screen_h) =
@@ -147,19 +147,21 @@ pub fn show_help_input() {
                 // 1. Create the Result Window (Loading State)
                 // This must happen on the thread that runs the message loop
                 let result_hwnd = crate::overlay::result::create_result_window(
-                    center_rect,
-                    crate::overlay::result::WindowType::Primary,
-                    crate::overlay::result::RefineContext::None,
-                    "gemini-2.5-flash".to_string(),
-                    "google".to_string(),
-                    false,
-                    false,
-                    "Ask SGT".to_string(),
-                    crate::overlay::result::get_chain_color(0),
-                    "markdown",
-                    loading_msg.to_string(),
-                    None,
-                    true,
+                    crate::overlay::result::ResultWindowParams {
+                        target_rect: center_rect,
+                        win_type: crate::overlay::result::WindowType::Primary,
+                        context: crate::overlay::result::RefineContext::None,
+                        model_id: "gemini-2.5-flash".to_string(),
+                        provider: "google".to_string(),
+                        streaming_enabled: false,
+                        start_editing: false,
+                        preset_prompt: "Ask SGT".to_string(),
+                        custom_bg_color: crate::overlay::result::get_chain_color(0),
+                        render_mode: "markdown",
+                        initial_text: loading_msg.to_string(),
+                        preset_id: None,
+                        is_chain_root: true,
+                    },
                 );
 
                 // Show the window (create_result_window creates it hidden by default)

@@ -111,12 +111,13 @@ impl RealtimeState {
                 self.full_transcript.trim().is_empty() || self.source_ends_with_sentence();
 
             if needs_cap
-                && let Some(first_char_idx) = text_to_append.find(|c: char| !c.is_whitespace()) {
-                    let c = text_to_append.chars().nth(first_char_idx).unwrap();
-                    let pre_space = &text_to_append[..first_char_idx];
-                    let rest = &text_to_append[first_char_idx + 1..];
-                    text_to_append = format!("{}{}{}", pre_space, c.to_uppercase(), rest);
-                }
+                && let Some(first_char_idx) = text_to_append.find(|c: char| !c.is_whitespace())
+            {
+                let c = text_to_append.chars().nth(first_char_idx).unwrap();
+                let pre_space = &text_to_append[..first_char_idx];
+                let rest = &text_to_append[first_char_idx + 1..];
+                text_to_append = format!("{}{}{}", pre_space, c.to_uppercase(), rest);
+            }
         }
 
         self.full_transcript.push_str(&text_to_append);

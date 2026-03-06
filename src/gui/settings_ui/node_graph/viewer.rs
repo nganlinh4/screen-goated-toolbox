@@ -1,6 +1,6 @@
 use super::body::show_body;
 use super::node::ChainNode;
-use crate::gui::icons::{draw_icon_static, Icon};
+use crate::gui::icons::{Icon, draw_icon_static};
 use crate::gui::locale::LocaleText;
 use eframe::egui;
 use egui_snarl::ui::{PinInfo, SnarlViewer};
@@ -287,10 +287,12 @@ impl<'a> SnarlViewer<ChainNode> for ChainViewer<'a> {
         let from_node = snarl.get_node(from.id.node);
 
         if let (Some(to_node), Some(from_node)) = (to_node, from_node)
-            && to_node.is_special() && !from_node.is_input() {
-                // Violation: Attempting to connect non-input to Special node
-                return;
-            }
+            && to_node.is_special()
+            && !from_node.is_input()
+        {
+            // Violation: Attempting to connect non-input to Special node
+            return;
+        }
 
         snarl.connect(from.id, to.id);
         self.changed = true;

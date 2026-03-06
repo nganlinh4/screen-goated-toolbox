@@ -142,7 +142,7 @@ pub fn get(glow_color: &str, font_size: u32, is_dark: bool) -> String {
             word-wrap: normal;
             direction: ltr;
             vertical-align: middle;
-            
+
             /* SVG container sizing */
             width: 1em;
             height: 1em;

@@ -5,15 +5,15 @@ mod worker;
 
 use crate::gui::locale::LocaleText;
 use backend::{
-    apply_downloaded_collection, collection_specs, cursor_base_size_bounds,
-    delete_all_downloaded_collections, expected_file_count, has_original_cursor_backup,
-    is_collection_downloading, is_complete_files, new_stop_signal, pointer_collection_summary,
-    required_file_names, restore_original_cursor_backup, start_download_all_missing,
-    CursorCollectionSpec, PointerCollectionSummary,
+    CursorCollectionSpec, PointerCollectionSummary, apply_downloaded_collection, collection_specs,
+    cursor_base_size_bounds, delete_all_downloaded_collections, expected_file_count,
+    has_original_cursor_backup, is_collection_downloading, is_complete_files, new_stop_signal,
+    pointer_collection_summary, required_file_names, restore_original_cursor_backup,
+    start_download_all_missing,
 };
 use eframe::egui;
 use preview::{
-    preview_strip_width, render_collection_previews, render_status_label, PreviewTexture,
+    PreviewTexture, preview_strip_width, render_collection_previews, render_status_label,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;

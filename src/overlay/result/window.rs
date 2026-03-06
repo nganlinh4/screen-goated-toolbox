@@ -1,16 +1,16 @@
 use std::mem::size_of;
 use std::sync::Once;
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 
 use super::event_handler::result_wnd_proc;
 use super::state::{
-    CursorPhysics, InteractionMode, RefineContext, ResizeEdge, WindowState, WindowType,
-    WINDOW_STATES,
+    CursorPhysics, InteractionMode, RefineContext, ResizeEdge, WINDOW_STATES, WindowState,
+    WindowType,
 };
 
 pub const CHAIN_PALETTE: [u32; 5] = [
@@ -47,25 +47,38 @@ pub fn get_chain_color(visible_index: usize) -> u32 {
 
 static REGISTER_RESULT_CLASS: Once = Once::new();
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "result window creation needs explicit context, layout, and behavior flags"
-)]
-pub fn create_result_window(
-    target_rect: RECT,
-    _win_type: WindowType,
-    context: RefineContext,
-    model_id: String,
-    provider: String,
-    streaming_enabled: bool,
-    start_editing: bool,
-    preset_prompt: String,
-    custom_bg_color: u32,
-    render_mode: &str,
-    initial_text: String,
-    preset_id: Option<String>,
-    is_chain_root: bool,
-) -> HWND {
+pub struct ResultWindowParams<'a> {
+    pub target_rect: RECT,
+    pub win_type: WindowType,
+    pub context: RefineContext,
+    pub model_id: String,
+    pub provider: String,
+    pub streaming_enabled: bool,
+    pub start_editing: bool,
+    pub preset_prompt: String,
+    pub custom_bg_color: u32,
+    pub render_mode: &'a str,
+    pub initial_text: String,
+    pub preset_id: Option<String>,
+    pub is_chain_root: bool,
+}
+
+pub fn create_result_window(params: ResultWindowParams<'_>) -> HWND {
+    let ResultWindowParams {
+        target_rect,
+        win_type: _win_type,
+        context,
+        model_id,
+        provider,
+        streaming_enabled,
+        start_editing,
+        preset_prompt,
+        custom_bg_color,
+        render_mode,
+        initial_text,
+        preset_id,
+        is_chain_root,
+    } = params;
     unsafe {
         let instance = GetModuleHandleW(None).unwrap();
         let class_name = w!("TranslationResult");

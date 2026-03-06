@@ -13,7 +13,7 @@ pub struct HwndWrapper(pub HWND);
 
 impl HasWindowHandle for HwndWrapper {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0 .0 as isize;
+        let hwnd = self.0.0 as isize;
         if let Some(non_zero) = NonZeroIsize::new(hwnd) {
             let mut handle = Win32WindowHandle::new(non_zero);
             handle.hinstance = None;

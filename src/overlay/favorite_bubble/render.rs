@@ -2,7 +2,7 @@ use super::state::*;
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, UpdateLayeredWindow, ULW_ALPHA};
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, ULW_ALPHA, UpdateLayeredWindow};
 
 pub fn update_bubble_visual(hwnd: HWND) {
     // Sync theme state

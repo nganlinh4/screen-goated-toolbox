@@ -2,8 +2,8 @@
 // Shared state, atomics, and constants for text selection badge.
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicIsize, Ordering},
     Arc, Mutex, Once,
+    atomic::{AtomicBool, AtomicIsize, Ordering},
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 

@@ -1,6 +1,6 @@
 use crate::config::Config;
-use crate::gui::settings_ui::node_graph::ChainNode;
 use crate::gui::settings_ui::ViewMode;
+use crate::gui::settings_ui::node_graph::ChainNode;
 use crate::updater::{UpdateStatus, Updater};
 use auto_launch::AutoLaunch;
 use eframe::egui;
@@ -9,8 +9,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
     TrayIcon, TrayIconEvent,
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
 
 pub const MOD_ALT: u32 = 0x0001;

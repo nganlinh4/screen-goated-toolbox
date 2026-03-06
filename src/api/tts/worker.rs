@@ -1,8 +1,8 @@
 use minimp3::{Decoder, Frame};
 use std::io::{Cursor, Read};
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{Arc, atomic::Ordering};
 use std::time::{Duration, Instant};
-use tungstenite::{client, Message};
+use tungstenite::{Message, client};
 
 use super::manager::TtsManager;
 use super::types::AudioEvent;
@@ -187,10 +187,11 @@ pub fn run_socket_worker(manager: Arc<TtsManager>) {
                 }
                 Ok(Message::Binary(data)) => {
                     if let Ok(text) = String::from_utf8(data.to_vec())
-                        && text.contains("setupComplete") {
-                            setup_complete = true;
-                            break;
-                        }
+                        && text.contains("setupComplete")
+                    {
+                        setup_complete = true;
+                        break;
+                    }
                 }
                 Ok(_) => {}
                 Err(tungstenite::Error::Io(ref e))

@@ -6,7 +6,7 @@ use crate::api::realtime_audio::WM_COPY_TEXT;
 use crate::api::realtime_audio::{WM_REALTIME_UPDATE, WM_TRANSLATION_UPDATE};
 use crate::config::get_all_languages;
 use crate::gui::locale::LocaleText;
-use crate::overlay::realtime_html::get_realtime_html;
+use crate::overlay::realtime_html::{RealtimeHtmlOptions, get_realtime_html};
 use std::sync::atomic::Ordering;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -48,7 +48,7 @@ pub fn create_realtime_webview(
         true
     };
 
-    let html = get_realtime_html(
+    let html = get_realtime_html(RealtimeHtmlOptions {
         is_translation,
         audio_source,
         languages,
@@ -56,9 +56,9 @@ pub fn create_realtime_webview(
         translation_model,
         transcription_model,
         font_size,
-        &locale_text,
+        text: &locale_text,
         is_dark,
-    );
+    });
     let wrapper = HwndWrapper(hwnd);
 
     // Capture hwnd for the IPC handler closure
@@ -197,39 +197,39 @@ pub fn create_realtime_webview(
                         // Move both windows together by delta
                         if let Some((dx_str, dy_str)) = coords.split_once(',')
                             && let (Ok(dx), Ok(dy)) = (dx_str.parse::<i32>(), dy_str.parse::<i32>())
-                            {
-                                unsafe {
-                                    // Move realtime window
-                                    if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
-                                        let mut rect = RECT::default();
-                                        let _ = GetWindowRect(REALTIME_HWND, &mut rect);
-                                        let _ = SetWindowPos(
-                                            REALTIME_HWND,
-                                            None,
-                                            rect.left + dx,
-                                            rect.top + dy,
-                                            0,
-                                            0,
-                                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                                        );
-                                    }
+                        {
+                            unsafe {
+                                // Move realtime window
+                                if !std::ptr::addr_of!(REALTIME_HWND).read().is_invalid() {
+                                    let mut rect = RECT::default();
+                                    let _ = GetWindowRect(REALTIME_HWND, &mut rect);
+                                    let _ = SetWindowPos(
+                                        REALTIME_HWND,
+                                        None,
+                                        rect.left + dx,
+                                        rect.top + dy,
+                                        0,
+                                        0,
+                                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                                    );
+                                }
 
-                                    // Move translation window
-                                    if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
-                                        let mut rect = RECT::default();
-                                        let _ = GetWindowRect(TRANSLATION_HWND, &mut rect);
-                                        let _ = SetWindowPos(
-                                            TRANSLATION_HWND,
-                                            None,
-                                            rect.left + dx,
-                                            rect.top + dy,
-                                            0,
-                                            0,
-                                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                                        );
-                                    }
+                                // Move translation window
+                                if !std::ptr::addr_of!(TRANSLATION_HWND).read().is_invalid() {
+                                    let mut rect = RECT::default();
+                                    let _ = GetWindowRect(TRANSLATION_HWND, &mut rect);
+                                    let _ = SetWindowPos(
+                                        TRANSLATION_HWND,
+                                        None,
+                                        rect.left + dx,
+                                        rect.top + dy,
+                                        0,
+                                        0,
+                                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                                    );
                                 }
                             }
+                        }
                     } else if let Some(text) = body.strip_prefix("copyText:") {
                         // Copy text to clipboard via UI thread
                         let boxed = Box::new(text.to_string());
@@ -348,23 +348,23 @@ pub fn create_realtime_webview(
                         // Resize window by delta
                         if let Some((dx_str, dy_str)) = coords.split_once(',')
                             && let (Ok(dx), Ok(dy)) = (dx_str.parse::<i32>(), dy_str.parse::<i32>())
-                            {
-                                unsafe {
-                                    let mut rect = RECT::default();
-                                    let _ = GetWindowRect(hwnd_for_ipc, &mut rect);
-                                    let new_width = (rect.right - rect.left + dx).max(200);
-                                    let new_height = (rect.bottom - rect.top + dy).max(100);
-                                    let _ = SetWindowPos(
-                                        hwnd_for_ipc,
-                                        None,
-                                        rect.left,
-                                        rect.top,
-                                        new_width,
-                                        new_height,
-                                        SWP_NOZORDER | SWP_NOACTIVATE,
-                                    );
-                                }
+                        {
+                            unsafe {
+                                let mut rect = RECT::default();
+                                let _ = GetWindowRect(hwnd_for_ipc, &mut rect);
+                                let new_width = (rect.right - rect.left + dx).max(200);
+                                let new_height = (rect.bottom - rect.top + dy).max(100);
+                                let _ = SetWindowPos(
+                                    hwnd_for_ipc,
+                                    None,
+                                    rect.left,
+                                    rect.top,
+                                    new_width,
+                                    new_height,
+                                    SWP_NOZORDER | SWP_NOACTIVATE,
+                                );
                             }
+                        }
                     } else if body.starts_with("ttsEnabled:") {
                         // TTS toggle for realtime translations
                         let enabled = &body[11..] == "1";

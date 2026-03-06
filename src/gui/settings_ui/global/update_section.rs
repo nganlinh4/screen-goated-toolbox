@@ -20,9 +20,10 @@ pub fn render_update_section_content(
                 );
                 ui.label(ver_string);
                 if ui.button(text.check_for_updates_btn).clicked()
-                    && let Some(u) = updater {
-                        u.check_for_updates();
-                    }
+                    && let Some(u) = updater
+                {
+                    u.check_for_updates();
+                }
             });
         }
         UpdateStatus::Checking => {
@@ -38,9 +39,10 @@ pub fn render_update_section_content(
                         .color(egui::Color32::from_rgb(34, 139, 34)),
                 );
                 if ui.button(text.check_again_btn).clicked()
-                    && let Some(u) = updater {
-                        u.check_for_updates();
-                    }
+                    && let Some(u) = updater
+                {
+                    u.check_for_updates();
+                }
             });
         }
         UpdateStatus::UpdateAvailable { version, body } => {
@@ -57,9 +59,10 @@ pub fn render_update_section_content(
             if ui
                 .button(egui::RichText::new(text.download_update_btn).strong())
                 .clicked()
-                && let Some(u) = updater {
-                    u.perform_update();
-                }
+                && let Some(u) = updater
+            {
+                u.perform_update();
+            }
         }
         UpdateStatus::Downloading => {
             ui.horizontal(|ui| {
@@ -71,9 +74,10 @@ pub fn render_update_section_content(
             ui.colored_label(egui::Color32::RED, format!("{} {}", text.update_failed, e));
             ui.label(egui::RichText::new(text.app_folder_writable_hint).size(11.0));
             if ui.button(text.retry_btn).clicked()
-                && let Some(u) = updater {
-                    u.check_for_updates();
-                }
+                && let Some(u) = updater
+            {
+                u.check_for_updates();
+            }
         }
         UpdateStatus::UpdatedAndRestartRequired => {
             ui.label(
@@ -84,57 +88,54 @@ pub fn render_update_section_content(
             ui.label(text.restart_to_use_new_version);
             if ui.button(text.restart_app_btn).clicked()
                 && let Ok(exe_path) = std::env::current_exe()
-                    && let Some(exe_dir) = exe_path.parent()
-                        && let Ok(entries) = std::fs::read_dir(exe_dir)
-                            && let Some(newest_exe) = entries
-                                .filter_map(|e| e.ok())
-                                .filter(|e| {
-                                    let name = e.file_name();
-                                    let name_str = name.to_string_lossy();
-                                    name_str.starts_with("ScreenGoatedToolbox_v")
-                                        && name_str.ends_with(".exe")
-                                })
-                                .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
-                            {
-                                let path = newest_exe.path();
-                                println!("Attempting to spawn with delay: {:?}", path);
+                && let Some(exe_dir) = exe_path.parent()
+                && let Ok(entries) = std::fs::read_dir(exe_dir)
+                && let Some(newest_exe) = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| {
+                        let name = e.file_name();
+                        let name_str = name.to_string_lossy();
+                        name_str.starts_with("ScreenGoatedToolbox_v") && name_str.ends_with(".exe")
+                    })
+                    .max_by_key(|e| e.metadata().ok().and_then(|m| m.modified().ok()))
+            {
+                let path = newest_exe.path();
+                println!("Attempting to spawn with delay: {:?}", path);
 
-                                // Create a temporary batch file to handle the delayed restart reliably
-                                // This avoids complex escaping issues with cmd /C inline commands
-                                let kill_mutex_cmd = "timeout /t 2 /nobreak > NUL".to_string();
-                                let start_cmd =
-                                    format!("start \"\" \"{}\"", path.to_string_lossy());
-                                let self_del_cmd = "(goto) 2>nul & del \"%~f0\"";
+                // Create a temporary batch file to handle the delayed restart reliably
+                // This avoids complex escaping issues with cmd /C inline commands
+                let kill_mutex_cmd = "timeout /t 2 /nobreak > NUL".to_string();
+                let start_cmd = format!("start \"\" \"{}\"", path.to_string_lossy());
+                let self_del_cmd = "(goto) 2>nul & del \"%~f0\"";
 
-                                let batch_content = format!(
-                                    "@echo off\r\n{}\r\n{}\r\n{}",
-                                    kill_mutex_cmd, start_cmd, self_del_cmd
-                                );
+                let batch_content = format!(
+                    "@echo off\r\n{}\r\n{}\r\n{}",
+                    kill_mutex_cmd, start_cmd, self_del_cmd
+                );
 
-                                let temp_dir = std::env::temp_dir();
-                                let bat_path = temp_dir
-                                    .join(format!("sgt_restart_{}.bat", std::process::id()));
+                let temp_dir = std::env::temp_dir();
+                let bat_path = temp_dir.join(format!("sgt_restart_{}.bat", std::process::id()));
 
-                                println!("Writing batch file to: {:?}", bat_path);
-                                if std::fs::write(&bat_path, batch_content).is_ok() {
-                                    // Spawn the batch file hidden via cmd /C
-                                    let mut cmd = std::process::Command::new("cmd");
-                                    cmd.args(["/C", &bat_path.to_string_lossy()]);
-                                    #[cfg(windows)]
-                                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                println!("Writing batch file to: {:?}", bat_path);
+                if std::fs::write(&bat_path, batch_content).is_ok() {
+                    // Spawn the batch file hidden via cmd /C
+                    let mut cmd = std::process::Command::new("cmd");
+                    cmd.args(["/C", &bat_path.to_string_lossy()]);
+                    #[cfg(windows)]
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-                                    let status = cmd.spawn();
+                    let status = cmd.spawn();
 
-                                    match status {
-                                        Ok(_) => std::process::exit(0),
-                                        Err(e) => {
-                                            eprintln!("Failed to spawn batch file: {}", e);
-                                        }
-                                    }
-                                } else {
-                                    eprintln!("Failed to write batch file");
-                                }
-                            }
+                    match status {
+                        Ok(_) => std::process::exit(0),
+                        Err(e) => {
+                            eprintln!("Failed to spawn batch file: {}", e);
+                        }
+                    }
+                } else {
+                    eprintln!("Failed to write batch file");
+                }
+            }
         }
     }
 }

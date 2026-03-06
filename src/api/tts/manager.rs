@@ -3,8 +3,8 @@ use super::utils;
 use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     Condvar, Mutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);

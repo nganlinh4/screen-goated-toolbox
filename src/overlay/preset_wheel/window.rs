@@ -1,21 +1,21 @@
 // Preset Wheel Window - Persistent Hidden Window for Instant Appearance
 
 use super::html::{generate_css, generate_items_html, get_wheel_template};
-use crate::config::Preset;
 use crate::APP;
+use crate::config::Preset;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering};
 use std::sync::{Mutex, Once};
-use windows::core::w;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::w;
 use wry::{Rect, WebContext, WebView, WebViewBuilder};
 
 static REGISTER_WHEEL_CLASS: Once = Once::new();
@@ -63,7 +63,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
         let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0 .0 as isize).expect("HWND cannot be null"),
+            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
         );
         let handle = raw_window_handle::RawWindowHandle::Win32(raw);
         unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
@@ -228,11 +228,7 @@ pub fn show_preset_wheel(
 
         WHEEL_ACTIVE.store(false, Ordering::SeqCst);
         let res = WHEEL_RESULT.load(Ordering::SeqCst);
-        if res >= 0 {
-            Some(res as usize)
-        } else {
-            None
-        }
+        if res >= 0 { Some(res as usize) } else { None }
     }
 }
 
@@ -417,20 +413,21 @@ fn internal_create_window_loop() {
                             *SELECTED_PRESET.lock().unwrap() = None;
                             WHEEL_RESULT.store(-2, Ordering::SeqCst);
                         } else if let Some(idx_str) = body.strip_prefix("select:")
-                            && let Ok(idx) = idx_str.parse::<usize>() {
-                                let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
-                                let wheel_hwnd = HWND(hwnd_val as *mut _);
-                                if !wheel_hwnd.is_invalid() {
-                                    let _ = PostMessageW(
-                                        Some(wheel_hwnd),
-                                        WM_APP_HIDE,
-                                        WPARAM(0),
-                                        LPARAM(0),
-                                    );
-                                }
-                                *SELECTED_PRESET.lock().unwrap() = Some(idx);
-                                WHEEL_RESULT.store(idx as i32, Ordering::SeqCst);
+                            && let Ok(idx) = idx_str.parse::<usize>()
+                        {
+                            let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+                            let wheel_hwnd = HWND(hwnd_val as *mut _);
+                            if !wheel_hwnd.is_invalid() {
+                                let _ = PostMessageW(
+                                    Some(wheel_hwnd),
+                                    WM_APP_HIDE,
+                                    WPARAM(0),
+                                    LPARAM(0),
+                                );
                             }
+                            *SELECTED_PRESET.lock().unwrap() = Some(idx);
+                            WHEEL_RESULT.store(idx as i32, Ordering::SeqCst);
+                        }
                     })
                     .build(&wrapper)
             });
@@ -483,195 +480,199 @@ unsafe extern "system" fn overlay_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_LBUTTONDOWN | WM_RBUTTONDOWN => {
-            let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
-            let wheel_hwnd = HWND(hwnd_val as *mut _);
-            if !wheel_hwnd.is_invalid() {
-                let _ = PostMessageW(Some(wheel_hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_LBUTTONDOWN | WM_RBUTTONDOWN => {
+                let hwnd_val = WHEEL_HWND.load(Ordering::SeqCst);
+                let wheel_hwnd = HWND(hwnd_val as *mut _);
+                if !wheel_hwnd.is_invalid() {
+                    let _ = PostMessageW(Some(wheel_hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                }
+                WHEEL_RESULT.store(-2, Ordering::SeqCst);
+                LRESULT(0)
             }
-            WHEEL_RESULT.store(-2, Ordering::SeqCst);
-            LRESULT(0)
+            WM_CLOSE => LRESULT(0),
+            WM_ERASEBKGND => LRESULT(1), // Prevent GDI from clearing background to black/white
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        WM_CLOSE => LRESULT(0),
-        WM_ERASEBKGND => LRESULT(1), // Prevent GDI from clearing background to black/white
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
 unsafe extern "system" fn wheel_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_APP_SHOW => {
-            let items_html = PENDING_ITEMS_HTML.lock().unwrap().clone();
-            let dismiss_label = PENDING_DISMISS_LABEL.lock().unwrap().clone();
-            let themed_css = PENDING_CSS.lock().unwrap().clone();
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_APP_SHOW => {
+                let items_html = PENDING_ITEMS_HTML.lock().unwrap().clone();
+                let dismiss_label = PENDING_DISMISS_LABEL.lock().unwrap().clone();
+                let themed_css = PENDING_CSS.lock().unwrap().clone();
 
-            // 1. Ensure Off-screen (-4000, -4000) but VISIBLE
-            // Remove calls to SetLayeredWindowAttributes here to prevent black artifacts
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                -4000,
-                -4000,
-                0,
-                0,
-                SWP_NOACTIVATE | SWP_NOSIZE | SWP_SHOWWINDOW,
-            );
+                // 1. Ensure Off-screen (-4000, -4000) but VISIBLE
+                // Remove calls to SetLayeredWindowAttributes here to prevent black artifacts
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    -4000,
+                    -4000,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
 
-            // Re-apply glass effect to ensure it's active
-            let margins = MARGINS {
-                cxLeftWidth: -1,
-                cxRightWidth: -1,
-                cyTopHeight: -1,
-                cyBottomHeight: -1,
-            };
-            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+                // Re-apply glass effect to ensure it's active
+                let margins = MARGINS {
+                    cxLeftWidth: -1,
+                    cxRightWidth: -1,
+                    cyTopHeight: -1,
+                    cyBottomHeight: -1,
+                };
+                let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
 
-            // 2. Inject themed CSS and update content via JS
-            WHEEL_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    // Inject themed CSS
-                    let css_escaped = themed_css
-                        .replace("\\", "\\\\")
-                        .replace("`", "\\`")
-                        .replace("$", "\\$");
-                    let css_script = format!(
-                        "document.getElementById('theme-style').textContent = `{}`;",
-                        css_escaped
-                    );
-                    let _ = webview.evaluate_script(&css_script);
-
-                    // Update content
-                    let script = format!(
-                        "window.updateContent(`{}`, `{}`);",
-                        items_html
+                // 2. Inject themed CSS and update content via JS
+                WHEEL_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        // Inject themed CSS
+                        let css_escaped = themed_css
                             .replace("\\", "\\\\")
                             .replace("`", "\\`")
-                            .replace("$", "\\$"),
-                        dismiss_label.replace("`", "\\`").replace("$", "\\$")
+                            .replace("$", "\\$");
+                        let css_script = format!(
+                            "document.getElementById('theme-style').textContent = `{}`;",
+                            css_escaped
+                        );
+                        let _ = webview.evaluate_script(&css_script);
+
+                        // Update content
+                        let script = format!(
+                            "window.updateContent(`{}`, `{}`);",
+                            items_html
+                                .replace("\\", "\\\\")
+                                .replace("`", "\\`")
+                                .replace("$", "\\$"),
+                            dismiss_label.replace("`", "\\`").replace("$", "\\$")
+                        );
+                        let _ = webview.evaluate_script(&script);
+
+                        // Force bounds update to ensure WebView syncs with window size
+                        let _ = webview.set_bounds(Rect {
+                            position: wry::dpi::Position::Physical(
+                                wry::dpi::PhysicalPosition::new(0, 0),
+                            ),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                WHEEL_WIDTH as u32,
+                                WHEEL_HEIGHT as u32,
+                            )),
+                        });
+                    }
+                });
+
+                // 3. Fallback timer (150ms) - Increased robustness
+                SetTimer(Some(hwnd), 99, 150, None);
+
+                LRESULT(0)
+            }
+
+            WM_APP_REAL_SHOW => {
+                let _ = KillTimer(Some(hwnd), 99);
+                let (target_x, target_y) = *PENDING_POS.lock().unwrap();
+
+                // Show overlay
+                let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
+                let overlay = HWND(overlay_val as *mut _);
+                if !overlay.is_invalid() {
+                    let _ = ShowWindow(overlay, SW_SHOWNOACTIVATE);
+                    let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                    let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                    let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                    let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                    let _ = SetWindowPos(
+                        overlay,
+                        Some(HWND_TOPMOST),
+                        screen_x,
+                        screen_y,
+                        screen_w,
+                        screen_h - 1, // Solve taskbar hide issue
+                        SWP_NOACTIVATE | SWP_NOMOVE,
                     );
-                    let _ = webview.evaluate_script(&script);
-
-                    // Force bounds update to ensure WebView syncs with window size
-                    let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                            0, 0,
-                        )),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            WHEEL_WIDTH as u32,
-                            WHEEL_HEIGHT as u32,
-                        )),
-                    });
                 }
-            });
 
-            // 3. Fallback timer (150ms) - Increased robustness
-            SetTimer(Some(hwnd), 99, 150, None);
-
-            LRESULT(0)
-        }
-
-        WM_APP_REAL_SHOW => {
-            let _ = KillTimer(Some(hwnd), 99);
-            let (target_x, target_y) = *PENDING_POS.lock().unwrap();
-
-            // Show overlay
-            let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
-            let overlay = HWND(overlay_val as *mut _);
-            if !overlay.is_invalid() {
-                let _ = ShowWindow(overlay, SW_SHOWNOACTIVATE);
-                let screen_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                let screen_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-                let screen_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-                let screen_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                // Move wheel on-screen
+                let _ = InvalidateRect(Some(hwnd), None, true);
                 let _ = SetWindowPos(
-                    overlay,
+                    hwnd,
                     Some(HWND_TOPMOST),
-                    screen_x,
-                    screen_y,
-                    screen_w,
-                    screen_h - 1, // Solve taskbar hide issue
-                    SWP_NOACTIVATE | SWP_NOMOVE,
+                    target_x,
+                    target_y,
+                    WHEEL_WIDTH + 50,  // Explicit size buffer
+                    WHEEL_HEIGHT + 50, // Explicit size buffer
+                    SWP_NOACTIVATE,    // Removed SWP_NOSIZE
                 );
+
+                LRESULT(0)
             }
 
-            // Move wheel on-screen
-            let _ = InvalidateRect(Some(hwnd), None, true);
-            let _ = SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                target_x,
-                target_y,
-                WHEEL_WIDTH + 50,  // Explicit size buffer
-                WHEEL_HEIGHT + 50, // Explicit size buffer
-                SWP_NOACTIVATE,    // Removed SWP_NOSIZE
-            );
-
-            LRESULT(0)
-        }
-
-        WM_TIMER => {
-            if wparam.0 == 99 {
-                let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
-            }
-            LRESULT(0)
-        }
-
-        WM_APP_HIDE => {
-            let _ = KillTimer(Some(hwnd), 99);
-            let _ = ShowWindow(hwnd, SW_HIDE);
-            let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
-            let overlay = HWND(overlay_val as *mut _);
-            if !overlay.is_invalid() {
-                let _ = ShowWindow(overlay, SW_HIDE);
-            }
-
-            WHEEL_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let _ =
-                        webview.evaluate_script("document.getElementById('grid').innerHTML = '';");
+            WM_TIMER => {
+                if wparam.0 == 99 {
+                    let _ = PostMessageW(Some(hwnd), WM_APP_REAL_SHOW, WPARAM(0), LPARAM(0));
                 }
-            });
-
-            LRESULT(0)
-        }
-
-        WM_KEYDOWN => {
-            if wparam.0 as u32 == 0x1B {
-                let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
-                WHEEL_RESULT.store(-2, Ordering::SeqCst);
+                LRESULT(0)
             }
-            LRESULT(0)
-        }
 
-        // Handle DPI changes to maintain correct size
-        WM_DPICHANGED => {
-            let rect = &*(lparam.0 as *const RECT);
-            let _ = SetWindowPos(
-                hwnd,
-                None,
-                rect.left,
-                rect.top,
-                rect.right - rect.left,
-                rect.bottom - rect.top,
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-            // WebView bounds will be updated on next SHOW or we could enforce it here if active
-            // For now, next JS check/show will resync.
-            LRESULT(0)
-        }
+            WM_APP_HIDE => {
+                let _ = KillTimer(Some(hwnd), 99);
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                let overlay_val = OVERLAY_HWND.load(Ordering::SeqCst);
+                let overlay = HWND(overlay_val as *mut _);
+                if !overlay.is_invalid() {
+                    let _ = ShowWindow(overlay, SW_HIDE);
+                }
 
-        WM_DESTROY => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
+                WHEEL_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let _ = webview
+                            .evaluate_script("document.getElementById('grid').innerHTML = '';");
+                    }
+                });
 
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+                LRESULT(0)
+            }
+
+            WM_KEYDOWN => {
+                if wparam.0 as u32 == 0x1B {
+                    let _ = PostMessageW(Some(hwnd), WM_APP_HIDE, WPARAM(0), LPARAM(0));
+                    WHEEL_RESULT.store(-2, Ordering::SeqCst);
+                }
+                LRESULT(0)
+            }
+
+            // Handle DPI changes to maintain correct size
+            WM_DPICHANGED => {
+                let rect = &*(lparam.0 as *const RECT);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    rect.left,
+                    rect.top,
+                    rect.right - rect.left,
+                    rect.bottom - rect.top,
+                    SWP_NOZORDER | SWP_NOACTIVATE,
+                );
+                // WebView bounds will be updated on next SHOW or we could enforce it here if active
+                // For now, next JS check/show will resync.
+                LRESULT(0)
+            }
+
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
     }
-}}
+}

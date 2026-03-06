@@ -7,8 +7,8 @@ use crate::overlay::realtime_webview::state::REALTIME_STATE;
 use eframe::egui;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread;
 mod backgrounds;
 mod pointer_packs;
@@ -219,12 +219,13 @@ pub fn render_downloaded_tools_modal(
 
                                     // Version
                                     if let Ok(guard) = download_manager.ytdlp_version.lock()
-                                        && let Some(ver) = &*guard {
-                                            ui.label(
-                                                egui::RichText::new(format!("v{}", ver))
-                                                    .color(egui::Color32::GRAY),
-                                            );
-                                        }
+                                        && let Some(ver) = &*guard
+                                    {
+                                        ui.label(
+                                            egui::RichText::new(format!("v{}", ver))
+                                                .color(egui::Color32::GRAY),
+                                        );
+                                    }
                                 },
                             );
                         }
@@ -376,12 +377,13 @@ pub fn render_downloaded_tools_modal(
                                     }
 
                                     if let Ok(guard) = download_manager.deno_version.lock()
-                                        && let Some(ver) = &*guard {
-                                            ui.label(
-                                                egui::RichText::new(format!("v{}", ver))
-                                                    .color(egui::Color32::GRAY),
-                                            );
-                                        }
+                                        && let Some(ver) = &*guard
+                                    {
+                                        ui.label(
+                                            egui::RichText::new(format!("v{}", ver))
+                                                .color(egui::Color32::GRAY),
+                                        );
+                                    }
                                 },
                             );
                         }
@@ -559,12 +561,13 @@ pub fn render_downloaded_tools_modal(
 
                                     // Version
                                     if let Ok(guard) = download_manager.ffmpeg_version.lock()
-                                        && let Some(ver) = &*guard {
-                                            ui.label(
-                                                egui::RichText::new(format!("v{}", ver))
-                                                    .color(egui::Color32::GRAY),
-                                            );
-                                        }
+                                        && let Some(ver) = &*guard
+                                    {
+                                        ui.label(
+                                            egui::RichText::new(format!("v{}", ver))
+                                                .color(egui::Color32::GRAY),
+                                        );
+                                    }
                                 },
                             );
                         }

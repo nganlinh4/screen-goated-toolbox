@@ -7,7 +7,9 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::config::Preset;
-use crate::overlay::result::{create_result_window, get_chain_color, RefineContext, WindowType};
+use crate::overlay::result::{
+    RefineContext, ResultWindowParams, WindowType, create_result_window, get_chain_color,
+};
 use crate::win_types::SendHwnd;
 
 /// Encode PCM samples to WAV format
@@ -192,21 +194,21 @@ pub fn create_streaming_overlay(preset: &Preset) -> Option<HWND> {
             .map(|m| m.provider)
             .unwrap_or("gemini".to_string());
 
-        let hwnd = create_result_window(
-            rect,
-            WindowType::Primary,
-            RefineContext::Audio(Vec::new()),
+        let hwnd = create_result_window(ResultWindowParams {
+            target_rect: rect,
+            win_type: WindowType::Primary,
+            context: RefineContext::Audio(Vec::new()),
             model_id,
             provider,
-            true,          // streaming_enabled
-            false,         // start_editing
-            String::new(), // preset_prompt
-            get_chain_color(0),
-            &render_mode,
-            "Listening...".to_string(),
-            Some(preset_for_thread.id.clone()),
-            true,
-        );
+            streaming_enabled: true,
+            start_editing: false,
+            preset_prompt: String::new(),
+            custom_bg_color: get_chain_color(0),
+            render_mode: &render_mode,
+            initial_text: "Listening...".to_string(),
+            preset_id: Some(preset_for_thread.id.clone()),
+            is_chain_root: true,
+        });
 
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOW);

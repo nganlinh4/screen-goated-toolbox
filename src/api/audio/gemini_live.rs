@@ -1,8 +1,8 @@
 //! Real-time Gemini Live WebSocket streaming for audio transcription.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
 
@@ -11,8 +11,9 @@ use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use super::utils::{
-    calculate_result_rects, create_streaming_overlay, encode_wav, resample_to_16khz, WindowGuard,
+    WindowGuard, calculate_result_rects, create_streaming_overlay, encode_wav, resample_to_16khz,
 };
+use crate::APP;
 use crate::api::realtime_audio::websocket::{
     connect_websocket, parse_input_transcription, send_audio_chunk, send_setup_message,
     set_socket_nonblocking, set_socket_short_timeout,
@@ -20,7 +21,6 @@ use crate::api::realtime_audio::websocket::{
 use crate::config::Preset;
 use crate::overlay::recording::AUDIO_INITIALIZING;
 use crate::overlay::result::update_window_text;
-use crate::APP;
 
 #[derive(Clone, Copy, PartialEq)]
 enum AudioMode {
@@ -30,21 +30,30 @@ enum AudioMode {
 }
 
 /// Attempt WebSocket reconnection with retry logic
-#[expect(
-    clippy::too_many_arguments,
-    reason = "reconnection keeps each mutable streaming state explicit at the call site"
-)]
-fn try_reconnect(
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
-    api_key: &str,
-    audio_buffer: &Arc<Mutex<Vec<i16>>>,
-    silence_buffer: &mut Vec<i16>,
-    audio_mode: &mut AudioMode,
-    mode_start: &mut Instant,
-    last_transcription_time: &mut Instant,
-    consecutive_empty_reads: &mut u32,
-    stop_signal: &Arc<AtomicBool>,
-) -> bool {
+struct ReconnectContext<'a> {
+    socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    api_key: &'a str,
+    audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
+    silence_buffer: &'a mut Vec<i16>,
+    audio_mode: &'a mut AudioMode,
+    mode_start: &'a mut Instant,
+    last_transcription_time: &'a mut Instant,
+    consecutive_empty_reads: &'a mut u32,
+    stop_signal: &'a Arc<AtomicBool>,
+}
+
+fn try_reconnect(context: ReconnectContext<'_>) -> bool {
+    let ReconnectContext {
+        socket,
+        api_key,
+        audio_buffer,
+        silence_buffer,
+        audio_mode,
+        mode_start,
+        last_transcription_time,
+        consecutive_empty_reads,
+        stop_signal,
+    } = context;
     let mut reconnect_buffer: Vec<i16> = Vec::new();
     let _ = socket.close(None);
 
@@ -264,18 +273,18 @@ pub fn record_and_stream_gemini_live(
     println!("[GeminiLiveStream] Streaming audio...");
 
     // Run the main streaming loop
-    run_streaming_loop(
-        &preset,
-        &mut socket,
-        &gemini_api_key,
-        &audio_buffer,
-        &accumulated_text,
-        &stop_signal,
-        &pause_signal,
-        &abort_signal,
+    run_streaming_loop(StreamingLoopContext {
+        preset: &preset,
+        socket: &mut socket,
+        api_key: &gemini_api_key,
+        audio_buffer: &audio_buffer,
+        accumulated_text: &accumulated_text,
+        stop_signal: &stop_signal,
+        pause_signal: &pause_signal,
+        abort_signal: &abort_signal,
         overlay_hwnd,
-        &update_stream_text,
-    );
+        update_stream_text: &update_stream_text,
+    });
 
     drop(stream);
     println!("[GeminiLiveStream] Stopped, waiting for tail...");
@@ -443,24 +452,35 @@ fn build_audio_stream(
 }
 
 /// Main streaming loop - sends audio and receives transcriptions
-#[expect(
-    clippy::too_many_arguments,
-    reason = "streaming loop coordinates distinct buffers, control flags, and callbacks"
-)]
-fn run_streaming_loop<F>(
-    preset: &Preset,
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
-    api_key: &str,
-    audio_buffer: &Arc<Mutex<Vec<i16>>>,
-    accumulated_text: &Arc<Mutex<String>>,
-    stop_signal: &Arc<AtomicBool>,
-    pause_signal: &Arc<AtomicBool>,
-    abort_signal: &Arc<AtomicBool>,
+struct StreamingLoopContext<'a, F> {
+    preset: &'a Preset,
+    socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    api_key: &'a str,
+    audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
+    accumulated_text: &'a Arc<Mutex<String>>,
+    stop_signal: &'a Arc<AtomicBool>,
+    pause_signal: &'a Arc<AtomicBool>,
+    abort_signal: &'a Arc<AtomicBool>,
     overlay_hwnd: HWND,
-    update_stream_text: &F,
-) where
+    update_stream_text: &'a F,
+}
+
+fn run_streaming_loop<F>(context: StreamingLoopContext<'_, F>)
+where
     F: Fn(&str),
 {
+    let StreamingLoopContext {
+        preset,
+        socket,
+        api_key,
+        audio_buffer,
+        accumulated_text,
+        stop_signal,
+        pause_signal,
+        abort_signal,
+        overlay_hwnd,
+        update_stream_text,
+    } = context;
     const CHUNK_SIZE: usize = 1600;
     const NORMAL_DURATION: Duration = Duration::from_secs(20);
     const SILENCE_DURATION: Duration = Duration::from_secs(2);
@@ -556,45 +576,47 @@ fn run_streaming_loop<F>(
             match socket.read() {
                 Ok(tungstenite::Message::Text(msg)) => {
                     if let Some(t) = parse_input_transcription(msg.as_str())
-                        && !t.is_empty() {
-                            last_transcription_time = Instant::now();
-                            consecutive_empty_reads = 0;
-                            if let Ok(mut txt) = accumulated_text.lock() {
-                                txt.push_str(&t);
-                                update_stream_text(&txt);
-                            }
-                            if preset.auto_paste {
-                                crate::overlay::utils::type_text_to_window(None, &t);
-                            }
+                        && !t.is_empty()
+                    {
+                        last_transcription_time = Instant::now();
+                        consecutive_empty_reads = 0;
+                        if let Ok(mut txt) = accumulated_text.lock() {
+                            txt.push_str(&t);
+                            update_stream_text(&txt);
                         }
+                        if preset.auto_paste {
+                            crate::overlay::utils::type_text_to_window(None, &t);
+                        }
+                    }
                 }
                 Ok(tungstenite::Message::Binary(data)) => {
                     if let Ok(s) = String::from_utf8(data.to_vec())
                         && let Some(t) = parse_input_transcription(&s)
-                            && !t.is_empty() {
-                                last_transcription_time = Instant::now();
-                                consecutive_empty_reads = 0;
-                                if let Ok(mut txt) = accumulated_text.lock() {
-                                    txt.push_str(&t);
-                                    update_stream_text(&txt);
-                                }
-                                if preset.auto_paste {
-                                    crate::overlay::utils::type_text_to_window(None, &t);
-                                }
-                            }
+                        && !t.is_empty()
+                    {
+                        last_transcription_time = Instant::now();
+                        consecutive_empty_reads = 0;
+                        if let Ok(mut txt) = accumulated_text.lock() {
+                            txt.push_str(&t);
+                            update_stream_text(&txt);
+                        }
+                        if preset.auto_paste {
+                            crate::overlay::utils::type_text_to_window(None, &t);
+                        }
+                    }
                 }
                 Ok(tungstenite::Message::Close(_)) => {
-                    if !try_reconnect(
+                    if !try_reconnect(ReconnectContext {
                         socket,
                         api_key,
                         audio_buffer,
-                        &mut silence_buffer,
-                        &mut audio_mode,
-                        &mut mode_start,
-                        &mut last_transcription_time,
-                        &mut consecutive_empty_reads,
+                        silence_buffer: &mut silence_buffer,
+                        audio_mode: &mut audio_mode,
+                        mode_start: &mut mode_start,
+                        last_transcription_time: &mut last_transcription_time,
+                        consecutive_empty_reads: &mut consecutive_empty_reads,
                         stop_signal,
-                    ) {
+                    }) {
                         return;
                     }
                 }
@@ -607,17 +629,17 @@ fn run_streaming_loop<F>(
                     if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                         && last_transcription_time.elapsed()
                             > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
-                        && !try_reconnect(
+                        && !try_reconnect(ReconnectContext {
                             socket,
                             api_key,
                             audio_buffer,
-                            &mut silence_buffer,
-                            &mut audio_mode,
-                            &mut mode_start,
-                            &mut last_transcription_time,
-                            &mut consecutive_empty_reads,
+                            silence_buffer: &mut silence_buffer,
+                            audio_mode: &mut audio_mode,
+                            mode_start: &mut mode_start,
+                            last_transcription_time: &mut last_transcription_time,
+                            consecutive_empty_reads: &mut consecutive_empty_reads,
                             stop_signal,
-                        )
+                        })
                     {
                         return;
                     }
@@ -629,17 +651,17 @@ fn run_streaming_loop<F>(
                         || error_str.contains("closed")
                         || error_str.contains("broken")
                     {
-                        if !try_reconnect(
+                        if !try_reconnect(ReconnectContext {
                             socket,
                             api_key,
                             audio_buffer,
-                            &mut silence_buffer,
-                            &mut audio_mode,
-                            &mut mode_start,
-                            &mut last_transcription_time,
-                            &mut consecutive_empty_reads,
+                            silence_buffer: &mut silence_buffer,
+                            audio_mode: &mut audio_mode,
+                            mode_start: &mut mode_start,
+                            last_transcription_time: &mut last_transcription_time,
+                            consecutive_empty_reads: &mut consecutive_empty_reads,
                             stop_signal,
-                        ) {
+                        }) {
                             return;
                         }
                     } else {
@@ -689,28 +711,30 @@ fn wait_for_final_transcriptions(
         match socket.read() {
             Ok(tungstenite::Message::Text(msg)) => {
                 if let Some(t) = parse_input_transcription(msg.as_str())
-                    && !t.is_empty() {
-                        if let Ok(mut txt) = accumulated_text.lock() {
-                            txt.push_str(&t);
-                            if let Some(h) = streaming_hwnd {
-                                update_window_text(h, &txt);
-                            }
+                    && !t.is_empty()
+                {
+                    if let Ok(mut txt) = accumulated_text.lock() {
+                        txt.push_str(&t);
+                        if let Some(h) = streaming_hwnd {
+                            update_window_text(h, &txt);
                         }
-                        conclude_end = Instant::now() + extension;
                     }
+                    conclude_end = Instant::now() + extension;
+                }
             }
             Ok(tungstenite::Message::Binary(data)) => {
                 if let Ok(s) = String::from_utf8(data.to_vec())
                     && let Some(t) = parse_input_transcription(&s)
-                        && !t.is_empty() {
-                            if let Ok(mut txt) = accumulated_text.lock() {
-                                txt.push_str(&t);
-                            }
-                            if preset.auto_paste {
-                                crate::overlay::utils::type_text_to_window(None, &t);
-                            }
-                            conclude_end = Instant::now() + extension;
-                        }
+                    && !t.is_empty()
+                {
+                    if let Ok(mut txt) = accumulated_text.lock() {
+                        txt.push_str(&t);
+                    }
+                    if preset.auto_paste {
+                        crate::overlay::utils::type_text_to_window(None, &t);
+                    }
+                    conclude_end = Instant::now() + extension;
+                }
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(ref e))

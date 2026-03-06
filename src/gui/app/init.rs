@@ -1,4 +1,4 @@
-use super::types::{SettingsApp, UserEvent, RESTORE_SIGNAL};
+use super::types::{RESTORE_SIGNAL, SettingsApp, UserEvent};
 use crate::config::{Config, ThemeMode};
 use crate::gui::settings_ui::ViewMode;
 use crate::gui::utils::get_monitor_names;
@@ -9,42 +9,34 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
     MouseButton, TrayIconBuilder, TrayIconEvent,
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem},
 };
-use windows::core::*;
 use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
 use windows::Win32::System::Threading::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 
 impl SettingsApp {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "app initialization wires together several UI and tray dependencies"
-    )]
-    pub fn new(
-        mut config: Config,
-        app_state: Arc<Mutex<crate::AppState>>,
-        tray_menu: Menu,
-        tray_settings_item: MenuItem,
-        tray_quit_item: MenuItem,
-        tray_favorite_bubble_item: CheckMenuItem,
-        ctx: egui::Context,
-        pending_file_path: Option<std::path::PathBuf>,
-    ) -> Self {
+    pub fn new(init: SettingsAppInit) -> Self {
+        let SettingsAppInit {
+            mut config,
+            app_state,
+            tray_menu,
+            tray_settings_item,
+            tray_quit_item,
+            tray_favorite_bubble_item,
+            ctx,
+            pending_file_path,
+        } = init;
         // Unified app name for both Debug and Release to share the same registry/task spot
         let app_name = "ScreenGoatedToolbox";
         let app_path = std::env::current_exe().unwrap();
         let app_path_str = app_path.to_str().unwrap_or("");
         let args: &[&str] = &[];
 
-        let auto = AutoLaunch::new(
-            app_name,
-            app_path_str,
-            WindowsEnableMode::CurrentUser,
-            args,
-        );
+        let auto = AutoLaunch::new(app_name, app_path_str, WindowsEnableMode::CurrentUser, args);
 
         // Check for current admin state early
         let current_admin_state = if cfg!(target_os = "windows") {
@@ -65,16 +57,16 @@ impl SettingsApp {
         let mut registry_enabled_in_system = false;
         #[cfg(target_os = "windows")]
         {
-            use winreg::enums::*;
             use winreg::RegKey;
+            use winreg::enums::*;
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
             if let Ok(key) = hkcu.open_subkey_with_flags(
                 "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                 KEY_READ,
-            )
-                && key.get_value::<String, &str>(app_name).is_ok() {
-                    registry_enabled_in_system = true;
-                }
+            ) && key.get_value::<String, &str>(app_name).is_ok()
+            {
+                registry_enabled_in_system = true;
+            }
         }
         if !registry_enabled_in_system && auto.is_enabled().unwrap_or(false) {
             registry_enabled_in_system = true;
@@ -169,35 +161,37 @@ impl SettingsApp {
 
         // Restore signal listener
         let ctx_restore = ctx.clone();
-        std::thread::spawn(move || loop {
-            unsafe {
-                match OpenEventW(
-                    EVENT_ALL_ACCESS,
-                    false,
-                    w!("Global\\ScreenGoatedToolboxRestoreEvent"),
-                ) {
-                    Ok(event_handle) => {
-                        let result = WaitForSingleObject(event_handle, INFINITE);
-                        if result == WAIT_OBJECT_0 {
-                            let class_name = w!("eframe");
-                            let mut hwnd = FindWindowW(class_name, None).unwrap_or_default();
-                            if hwnd.is_invalid() {
-                                let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
-                                hwnd = FindWindowW(None, title).unwrap_or_default();
+        std::thread::spawn(move || {
+            loop {
+                unsafe {
+                    match OpenEventW(
+                        EVENT_ALL_ACCESS,
+                        false,
+                        w!("Global\\ScreenGoatedToolboxRestoreEvent"),
+                    ) {
+                        Ok(event_handle) => {
+                            let result = WaitForSingleObject(event_handle, INFINITE);
+                            if result == WAIT_OBJECT_0 {
+                                let class_name = w!("eframe");
+                                let mut hwnd = FindWindowW(class_name, None).unwrap_or_default();
+                                if hwnd.is_invalid() {
+                                    let title = w!("Screen Goated Toolbox (SGT by nganlinh4)");
+                                    hwnd = FindWindowW(None, title).unwrap_or_default();
+                                }
+                                if !hwnd.is_invalid() {
+                                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                                    let _ = ShowWindow(hwnd, SW_SHOW);
+                                    let _ = SetForegroundWindow(hwnd);
+                                    let _ = SetFocus(Some(hwnd));
+                                }
+                                RESTORE_SIGNAL.store(true, Ordering::SeqCst);
+                                ctx_restore.request_repaint();
+                                let _ = ResetEvent(event_handle);
                             }
-                            if !hwnd.is_invalid() {
-                                let _ = ShowWindow(hwnd, SW_RESTORE);
-                                let _ = ShowWindow(hwnd, SW_SHOW);
-                                let _ = SetForegroundWindow(hwnd);
-                                let _ = SetFocus(Some(hwnd));
-                            }
-                            RESTORE_SIGNAL.store(true, Ordering::SeqCst);
-                            ctx_restore.request_repaint();
-                            let _ = ResetEvent(event_handle);
+                            let _ = CloseHandle(event_handle);
                         }
-                        let _ = CloseHandle(event_handle);
+                        Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
                     }
-                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
                 }
             }
         });
@@ -377,4 +371,15 @@ impl SettingsApp {
             resize_subclass_installed: false,
         }
     }
+}
+
+pub struct SettingsAppInit {
+    pub config: Config,
+    pub app_state: Arc<Mutex<crate::AppState>>,
+    pub tray_menu: Menu,
+    pub tray_settings_item: MenuItem,
+    pub tray_quit_item: MenuItem,
+    pub tray_favorite_bubble_item: CheckMenuItem,
+    pub ctx: egui::Context,
+    pub pending_file_path: Option<std::path::PathBuf>,
 }

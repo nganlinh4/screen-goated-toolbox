@@ -3,7 +3,7 @@ use image::{ImageBuffer, Rgba};
 use std::sync::{Arc, Mutex};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -13,7 +13,10 @@ use crate::overlay::preset_wheel;
 use crate::overlay::result::{self, ChainCancelToken, RefineContext};
 use crate::overlay::text_input;
 
-use super::chain::{execute_chain_pipeline, execute_chain_pipeline_with_token, run_chain_step};
+use super::chain::{
+    ChainPipelineRequest, ChainStepRequest, execute_chain_pipeline,
+    execute_chain_pipeline_with_token, run_chain_step,
+};
 use super::types::generate_chain_id;
 use super::window::create_processing_window;
 
@@ -34,8 +37,14 @@ pub fn start_text_processing(
     localized_preset_name: String, // Already localized by caller
     cancel_hotkey_name: String,    // The actual hotkey name like "Ctrl+Shift+D"
 ) {
-    println!("[DEBUG start_text_processing] preset_id={} text_input_mode={} prompt_mode={} blocks_count={} initial_text_len={}",
-        preset.id, preset.text_input_mode, preset.prompt_mode, preset.blocks.len(), initial_text_content.len());
+    println!(
+        "[DEBUG start_text_processing] preset_id={} text_input_mode={} prompt_mode={} blocks_count={} initial_text_len={}",
+        preset.id,
+        preset.text_input_mode,
+        preset.prompt_mode,
+        preset.blocks.len(),
+        initial_text_content.len()
+    );
     if preset.text_input_mode == "type" {
         // Use first processing block's prompt (skip input_adapter)
         let first_processing_block = preset
@@ -178,10 +187,11 @@ pub fn start_text_processing(
                 } else {
                     // Continuous mode: close previous result overlays before spawning new ones
                     if let Ok(id_guard) = last_chain_id_clone.lock()
-                        && let Some(ref old_id) = *id_guard {
-                            // Close windows from previous submission
-                            result::close_chain_windows(old_id);
-                        }
+                        && let Some(ref old_id) = *id_guard
+                    {
+                        // Close windows from previous submission
+                        result::close_chain_windows(old_id);
+                    }
                 }
 
                 let overlay_rect = if is_continuous {
@@ -273,16 +283,16 @@ pub fn start_text_processing(
                     }
 
                     // Execute the chain
-                    execute_chain_pipeline_with_token(
-                        user_text,
-                        overlay_rect,
-                        config_clone,
-                        preset_clone,
-                        RefineContext::None,
-                        new_token,
-                        Some(input_hwnd_send),
+                    execute_chain_pipeline_with_token(ChainPipelineRequest {
+                        initial_input: user_text,
+                        rect: overlay_rect,
+                        config: config_clone,
+                        preset: preset_clone,
+                        context: RefineContext::None,
+                        cancel_token: new_token,
+                        input_hwnd_refocus: Some(input_hwnd_send),
                         chain_id,
-                    );
+                    });
                 });
             },
         );
@@ -388,24 +398,23 @@ pub fn show_audio_result(
     // Generate unique chain ID for this processing chain
     let chain_id = generate_chain_id();
 
-    run_chain_step(
-        0,
-        transcription_text,
-        rect,
-        preset.blocks.clone(),
-        preset.block_connections.clone(), // Graph connections
+    run_chain_step(ChainStepRequest {
+        block_idx: 0,
+        input_text: transcription_text,
+        current_rect: rect,
+        blocks: preset.blocks.clone(),
+        connections: preset.block_connections.clone(),
         config,
-        Arc::new(Mutex::new(None)),
-        RefineContext::Audio(wav_data), // Pass audio data for input overlay
-        true, // skip_execution: audio already done, just display and chain forward
-        processing_hwnd.map(SendHwnd), // Pass recording overlay - will close when first visible block appears
-        ChainCancelToken::new(),       // New chains start with cancellation = false
-        preset.id.clone(),
-        // Check if we should disable auto-paste (e.g. for Gemini Live real-time typing)
-        is_streaming_result,
-        chain_id, // Per-chain position tracking
-        None,     // No input refocus for audio results
-    );
+        parent_hwnd: Arc::new(Mutex::new(None)),
+        context: RefineContext::Audio(wav_data),
+        skip_execution: true,
+        processing_indicator_hwnd: processing_hwnd.map(SendHwnd),
+        cancel_token: ChainCancelToken::new(),
+        preset_id: preset.id.clone(),
+        disable_auto_paste: is_streaming_result,
+        chain_id,
+        input_hwnd_refocus: None,
+    });
 }
 
 pub fn start_processing_pipeline(
@@ -489,23 +498,23 @@ pub fn start_processing_pipeline(
 
                 let processing_hwnd_send = SendHwnd(processing_hwnd);
                 std::thread::spawn(move || {
-                    run_chain_step(
-                        0,
-                        String::new(),
-                        screen_rect,
+                    run_chain_step(ChainStepRequest {
+                        block_idx: 0,
+                        input_text: String::new(),
+                        current_rect: screen_rect,
                         blocks,
                         connections,
-                        config_clone,
-                        Arc::new(Mutex::new(None)),
+                        config: config_clone,
+                        parent_hwnd: Arc::new(Mutex::new(None)),
                         context,
-                        false,
-                        Some(processing_hwnd_send),
-                        ChainCancelToken::new(),
+                        skip_execution: false,
+                        processing_indicator_hwnd: Some(processing_hwnd_send),
+                        cancel_token: ChainCancelToken::new(),
                         preset_id,
-                        false,    // disable_auto_paste
-                        chain_id, // Per-chain position tracking
-                        None,     // No input refocus
-                    );
+                        disable_auto_paste: false,
+                        chain_id,
+                        input_hwnd_refocus: None,
+                    });
                 });
 
                 // Keep processing window alive until closed
@@ -555,23 +564,23 @@ pub fn start_processing_pipeline(
         let chain_id = generate_chain_id();
 
         // Start chain execution with the pre-created processing window
-        run_chain_step(
-            0,
-            String::new(),
-            screen_rect,
+        run_chain_step(ChainStepRequest {
+            block_idx: 0,
+            input_text: String::new(),
+            current_rect: screen_rect,
             blocks,
-            connections, // Graph connections
-            conf_clone,
-            Arc::new(Mutex::new(None)),
+            connections,
+            config: conf_clone,
+            parent_hwnd: Arc::new(Mutex::new(None)),
             context,
-            false,
-            Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
-            ChainCancelToken::new(),         // New chains start with cancellation = false
+            skip_execution: false,
+            processing_indicator_hwnd: Some(SendHwnd(processing_hwnd)),
+            cancel_token: ChainCancelToken::new(),
             preset_id,
-            false,    // disable_auto_paste
-            chain_id, // Per-chain position tracking
-            None,     // No input refocus
-        );
+            disable_auto_paste: false,
+            chain_id,
+            input_hwnd_refocus: None,
+        });
     });
 
     // 3. Keep the Processing Window alive on this thread until it is destroyed by the worker
@@ -630,23 +639,23 @@ pub fn start_processing_pipeline_parallel(
             let chain_id = generate_chain_id();
 
             // Start chain execution with the pre-created processing window
-            run_chain_step(
-                0,
-                String::new(),
-                screen_rect,
+            run_chain_step(ChainStepRequest {
+                block_idx: 0,
+                input_text: String::new(),
+                current_rect: screen_rect,
                 blocks,
                 connections,
-                conf_clone,
-                Arc::new(Mutex::new(None)),
+                config: conf_clone,
+                parent_hwnd: Arc::new(Mutex::new(None)),
                 context,
-                false,
-                Some(SendHwnd(processing_hwnd)), // Pass the handle to be closed later
-                ChainCancelToken::new(),
+                skip_execution: false,
+                processing_indicator_hwnd: Some(SendHwnd(processing_hwnd)),
+                cancel_token: ChainCancelToken::new(),
                 preset_id,
-                false,    // disable_auto_paste
-                chain_id, // Per-chain position tracking
-                None,     // No input refocus
-            );
+                disable_auto_paste: false,
+                chain_id,
+                input_hwnd_refocus: None,
+            });
         } else {
             // Load failed or cancelled -> Close window immediately
             unsafe {

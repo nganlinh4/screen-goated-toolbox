@@ -5,6 +5,7 @@ mod rendering;
 mod types;
 mod utils;
 
+pub use init::SettingsAppInit;
 pub use types::SettingsApp;
 pub use utils::{restart_app, signal_restore_window};
 
@@ -104,15 +105,16 @@ impl eframe::App for SettingsApp {
         // Render Splash Overlay (Last Last)
         // Note: Splash remains visible during its exit animation, covering the UI.
         if let Some(splash) = &self.splash
-            && splash.paint(ctx, &self.config.theme_mode) {
-                let is_currently_dark = ctx.style().visuals.dark_mode;
-                self.config.theme_mode = if is_currently_dark {
-                    crate::config::ThemeMode::Light
-                } else {
-                    crate::config::ThemeMode::Dark
-                };
-                self.save_and_sync();
-            }
+            && splash.paint(ctx, &self.config.theme_mode)
+        {
+            let is_currently_dark = ctx.style().visuals.dark_mode;
+            self.config.theme_mode = if is_currently_dark {
+                crate::config::ThemeMode::Light
+            } else {
+                crate::config::ThemeMode::Dark
+            };
+            self.save_and_sync();
+        }
 
         // Render Drop Overlay when dragging files (Very Last)
         if self.startup_stage >= 37 {

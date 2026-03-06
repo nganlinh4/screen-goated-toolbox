@@ -1,18 +1,18 @@
 use super::panel::{
-    close_panel, destroy_panel, ensure_panel_created, move_panel_to_bubble, save_bubble_position,
-    show_panel, WM_FORCE_SHOW_PANEL,
+    WM_FORCE_SHOW_PANEL, close_panel, destroy_panel, ensure_panel_created, move_panel_to_bubble,
+    save_bubble_position, show_panel,
 };
 use super::render::update_bubble_visual;
 use super::state::*;
 use crate::APP;
 use std::sync::atomic::Ordering;
-use windows::core::w;
 use windows::Win32::Foundation::*;
+use windows::core::w;
 
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -175,330 +175,333 @@ unsafe extern "system" fn bubble_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    const WM_MOUSELEAVE: u32 = 0x02A3;
+) -> LRESULT {
+    unsafe {
+        const WM_MOUSELEAVE: u32 = 0x02A3;
 
-    match msg {
-        WM_LBUTTONDOWN => {
-            // Stop any ongoing physics
-            let _ = KillTimer(Some(hwnd), PHYSICS_TIMER_ID);
-            PHYSICS_STATE.with(|p| *p.borrow_mut() = (0.0, 0.0));
+        match msg {
+            WM_LBUTTONDOWN => {
+                // Stop any ongoing physics
+                let _ = KillTimer(Some(hwnd), PHYSICS_TIMER_ID);
+                PHYSICS_STATE.with(|p| *p.borrow_mut() = (0.0, 0.0));
 
-            IS_DRAGGING.store(true, Ordering::SeqCst);
-            IS_DRAGGING_MOVED.store(false, Ordering::SeqCst);
+                IS_DRAGGING.store(true, Ordering::SeqCst);
+                IS_DRAGGING_MOVED.store(false, Ordering::SeqCst);
 
-            // Store initial click position for threshold check
-            let x = (lparam.0 as i32) & 0xFFFF;
-            let y = ((lparam.0 as i32) >> 16) & 0xFFFF;
-            DRAG_START_X.store(x as isize, Ordering::SeqCst);
-            DRAG_START_Y.store(y as isize, Ordering::SeqCst);
-
-            let _ = SetCapture(hwnd);
-            LRESULT(0)
-        }
-
-        WM_LBUTTONUP => {
-            let was_dragging_moved = IS_DRAGGING_MOVED.load(Ordering::SeqCst);
-            IS_DRAGGING.store(false, Ordering::SeqCst);
-            let _ = ReleaseCapture();
-
-            // Only toggle if we didn't drag/move the bubble
-            if !was_dragging_moved {
-                if IS_EXPANDED.load(Ordering::SeqCst) {
-                    close_panel();
-                } else {
-                    show_panel(hwnd);
-                }
-            } else {
-                // Start physics inertia if we were moving
-                let _ = SetTimer(Some(hwnd), PHYSICS_TIMER_ID, 16, None);
-            }
-            // Always save current position after movement interaction ends
-            save_bubble_position();
-            LRESULT(0)
-        }
-
-        WM_MOUSEMOVE => {
-            if IS_DRAGGING.load(Ordering::SeqCst) && (wparam.0 & 0x0001) != 0 {
-                // Left button held - check for drag
+                // Store initial click position for threshold check
                 let x = (lparam.0 as i32) & 0xFFFF;
                 let y = ((lparam.0 as i32) >> 16) & 0xFFFF;
+                DRAG_START_X.store(x as isize, Ordering::SeqCst);
+                DRAG_START_Y.store(y as isize, Ordering::SeqCst);
 
-                // Convert to signed 16-bit to handle negative coordinates properly
-                let x = x as i16 as i32;
-                let y = y as i16 as i32;
+                let _ = SetCapture(hwnd);
+                LRESULT(0)
+            }
 
-                // Check if we've exceeded the drag threshold
-                if !IS_DRAGGING_MOVED.load(Ordering::SeqCst) {
-                    let start_x = DRAG_START_X.load(Ordering::SeqCst) as i32;
-                    let start_y = DRAG_START_Y.load(Ordering::SeqCst) as i32;
-                    let dx = (x - start_x).abs();
-                    let dy = (y - start_y).abs();
+            WM_LBUTTONUP => {
+                let was_dragging_moved = IS_DRAGGING_MOVED.load(Ordering::SeqCst);
+                IS_DRAGGING.store(false, Ordering::SeqCst);
+                let _ = ReleaseCapture();
 
-                    if dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD {
-                        IS_DRAGGING_MOVED.store(true, Ordering::SeqCst);
-                    }
-                }
-
-                // Only actually move the window if threshold was exceeded
-                if IS_DRAGGING_MOVED.load(Ordering::SeqCst) {
-                    let mut rect = RECT::default();
-                    let _ = GetWindowRect(hwnd, &mut rect);
-
-                    // Use Virtual Screen bounds for cross-monitor dragging
-                    let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
-                    let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
-                    let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-                    let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-
-                    let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
-                    let new_x =
-                        (rect.left + x - bubble_size / 2).clamp(v_x, v_x + v_w - bubble_size);
-                    let new_y =
-                        (rect.top + y - bubble_size / 2).clamp(v_y, v_y + v_h - bubble_size);
-
-                    // Track velocity (instantaneous delta) with smoothing and boost
-                    let raw_vx = (new_x - rect.left) as f32;
-                    let raw_vy = (new_y - rect.top) as f32;
-
-                    // Boost factor allows "throwing" to feel more powerful
-                    // Smoothing helps filter out jitter from high polling rates
-                    const THROW_BOOST: f32 = 2.5;
-                    const SMOOTHING: f32 = 0.6; // Weight for new value
-
-                    PHYSICS_STATE.with(|p| {
-                        let (old_vx, old_vy) = *p.borrow();
-                        let target_vx = raw_vx * THROW_BOOST;
-                        let target_vy = raw_vy * THROW_BOOST;
-
-                        let final_vx = old_vx * (1.0 - SMOOTHING) + target_vx * SMOOTHING;
-                        let final_vy = old_vy * (1.0 - SMOOTHING) + target_vy * SMOOTHING;
-
-                        *p.borrow_mut() = (final_vx, final_vy);
-                    });
-
-                    let _ = SetWindowPos(
-                        hwnd,
-                        None,
-                        new_x,
-                        new_y,
-                        0,
-                        0,
-                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                    );
-
-                    // Move panel if open
+                // Only toggle if we didn't drag/move the bubble
+                if !was_dragging_moved {
                     if IS_EXPANDED.load(Ordering::SeqCst) {
-                        move_panel_to_bubble(new_x, new_y);
+                        close_panel();
+                    } else {
+                        show_panel(hwnd);
+                    }
+                } else {
+                    // Start physics inertia if we were moving
+                    let _ = SetTimer(Some(hwnd), PHYSICS_TIMER_ID, 16, None);
+                }
+                // Always save current position after movement interaction ends
+                save_bubble_position();
+                LRESULT(0)
+            }
+
+            WM_MOUSEMOVE => {
+                if IS_DRAGGING.load(Ordering::SeqCst) && (wparam.0 & 0x0001) != 0 {
+                    // Left button held - check for drag
+                    let x = (lparam.0 as i32) & 0xFFFF;
+                    let y = ((lparam.0 as i32) >> 16) & 0xFFFF;
+
+                    // Convert to signed 16-bit to handle negative coordinates properly
+                    let x = x as i16 as i32;
+                    let y = y as i16 as i32;
+
+                    // Check if we've exceeded the drag threshold
+                    if !IS_DRAGGING_MOVED.load(Ordering::SeqCst) {
+                        let start_x = DRAG_START_X.load(Ordering::SeqCst) as i32;
+                        let start_y = DRAG_START_Y.load(Ordering::SeqCst) as i32;
+                        let dx = (x - start_x).abs();
+                        let dy = (y - start_y).abs();
+
+                        if dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD {
+                            IS_DRAGGING_MOVED.store(true, Ordering::SeqCst);
+                        }
+                    }
+
+                    // Only actually move the window if threshold was exceeded
+                    if IS_DRAGGING_MOVED.load(Ordering::SeqCst) {
+                        let mut rect = RECT::default();
+                        let _ = GetWindowRect(hwnd, &mut rect);
+
+                        // Use Virtual Screen bounds for cross-monitor dragging
+                        let v_x = GetSystemMetrics(SM_XVIRTUALSCREEN);
+                        let v_y = GetSystemMetrics(SM_YVIRTUALSCREEN);
+                        let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                        let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+                        let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
+                        let new_x =
+                            (rect.left + x - bubble_size / 2).clamp(v_x, v_x + v_w - bubble_size);
+                        let new_y =
+                            (rect.top + y - bubble_size / 2).clamp(v_y, v_y + v_h - bubble_size);
+
+                        // Track velocity (instantaneous delta) with smoothing and boost
+                        let raw_vx = (new_x - rect.left) as f32;
+                        let raw_vy = (new_y - rect.top) as f32;
+
+                        // Boost factor allows "throwing" to feel more powerful
+                        // Smoothing helps filter out jitter from high polling rates
+                        const THROW_BOOST: f32 = 2.5;
+                        const SMOOTHING: f32 = 0.6; // Weight for new value
+
+                        PHYSICS_STATE.with(|p| {
+                            let (old_vx, old_vy) = *p.borrow();
+                            let target_vx = raw_vx * THROW_BOOST;
+                            let target_vy = raw_vy * THROW_BOOST;
+
+                            let final_vx = old_vx * (1.0 - SMOOTHING) + target_vx * SMOOTHING;
+                            let final_vy = old_vy * (1.0 - SMOOTHING) + target_vy * SMOOTHING;
+
+                            *p.borrow_mut() = (final_vx, final_vy);
+                        });
+
+                        let _ = SetWindowPos(
+                            hwnd,
+                            None,
+                            new_x,
+                            new_y,
+                            0,
+                            0,
+                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                        );
+
+                        // Move panel if open
+                        if IS_EXPANDED.load(Ordering::SeqCst) {
+                            move_panel_to_bubble(new_x, new_y);
+                        }
                     }
                 }
+
+                if !IS_HOVERED.load(Ordering::SeqCst) {
+                    IS_HOVERED.store(true, Ordering::SeqCst);
+
+                    // Start animation timer
+                    let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None); // ~60 FPS
+
+                    // Track mouse leave
+                    let mut tme = TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE,
+                        hwndTrack: hwnd,
+                        dwHoverTime: 0,
+                    };
+                    let _ = TrackMouseEvent(&mut tme);
+                }
+                LRESULT(0)
             }
 
-            if !IS_HOVERED.load(Ordering::SeqCst) {
-                IS_HOVERED.store(true, Ordering::SeqCst);
-
-                // Start animation timer
-                let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None); // ~60 FPS
-
-                // Track mouse leave
-                let mut tme = TRACKMOUSEEVENT {
-                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
-                    dwFlags: TME_LEAVE,
-                    hwndTrack: hwnd,
-                    dwHoverTime: 0,
-                };
-                let _ = TrackMouseEvent(&mut tme);
+            WM_MOUSELEAVE => {
+                IS_HOVERED.store(false, Ordering::SeqCst);
+                // Start animation timer to fade out (unless expanded)
+                let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None);
+                LRESULT(0)
             }
-            LRESULT(0)
-        }
 
-        WM_MOUSELEAVE => {
-            IS_HOVERED.store(false, Ordering::SeqCst);
-            // Start animation timer to fade out (unless expanded)
-            let _ = SetTimer(Some(hwnd), OPACITY_TIMER_ID, 16, None);
-            LRESULT(0)
-        }
+            WM_TIMER => {
+                if wparam.0 == OPACITY_TIMER_ID {
+                    let is_hovered = IS_HOVERED.load(Ordering::SeqCst);
+                    let is_expanded = IS_EXPANDED.load(Ordering::SeqCst);
+                    let blink_state = BLINK_STATE.load(Ordering::SeqCst);
+                    let is_fading_out = FADE_OUT_STATE.load(Ordering::SeqCst);
 
-        WM_TIMER => {
-            if wparam.0 == OPACITY_TIMER_ID {
-                let is_hovered = IS_HOVERED.load(Ordering::SeqCst);
-                let is_expanded = IS_EXPANDED.load(Ordering::SeqCst);
-                let blink_state = BLINK_STATE.load(Ordering::SeqCst);
-                let is_fading_out = FADE_OUT_STATE.load(Ordering::SeqCst);
-
-                // Fade-out takes priority over everything
-                let target = if is_fading_out {
-                    0u8
-                } else if blink_state > 0 {
-                    // Blink animation: Odd state = Active (255), Even state = Low (50)
-                    if !blink_state.is_multiple_of(2) {
+                    // Fade-out takes priority over everything
+                    let target = if is_fading_out {
+                        0u8
+                    } else if blink_state > 0 {
+                        // Blink animation: Odd state = Active (255), Even state = Low (50)
+                        if !blink_state.is_multiple_of(2) {
+                            OPACITY_ACTIVE
+                        } else {
+                            50 // Drop lower than inactive to be distinct
+                        }
+                    } else if is_hovered || is_expanded {
                         OPACITY_ACTIVE
                     } else {
-                        50 // Drop lower than inactive to be distinct
-                    }
-                } else if is_hovered || is_expanded {
-                    OPACITY_ACTIVE
-                } else {
-                    OPACITY_INACTIVE
-                };
-
-                let current = CURRENT_OPACITY.load(Ordering::SeqCst);
-
-                if current != target {
-                    // Faster step for blinking, normal step otherwise
-                    let step = if blink_state > 0 { 45 } else { OPACITY_STEP };
-
-                    let new_opacity = if current < target {
-                        (current as u16 + step as u16).min(target as u16) as u8
-                    } else {
-                        (current as i16 - step as i16).max(target as i16) as u8
+                        OPACITY_INACTIVE
                     };
-                    CURRENT_OPACITY.store(new_opacity, Ordering::SeqCst);
-                    update_bubble_visual(hwnd);
-                } else {
-                    // Target reached
-                    if is_fading_out && current == 0 {
-                        // Fade-out complete, now close the window
-                        let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
-                        FADE_OUT_STATE.store(false, Ordering::SeqCst);
-                        let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-                    } else if blink_state > 0 {
-                        // Transition to next blink state
-                        if blink_state >= 4 {
-                            BLINK_STATE.store(0, Ordering::SeqCst);
+
+                    let current = CURRENT_OPACITY.load(Ordering::SeqCst);
+
+                    if current != target {
+                        // Faster step for blinking, normal step otherwise
+                        let step = if blink_state > 0 { 45 } else { OPACITY_STEP };
+
+                        let new_opacity = if current < target {
+                            (current as u16 + step as u16).min(target as u16) as u8
                         } else {
-                            BLINK_STATE.fetch_add(1, Ordering::SeqCst);
-                        }
-                        // Keep timer running for next phase (no KillTimer)
+                            (current as i16 - step as i16).max(target as i16) as u8
+                        };
+                        CURRENT_OPACITY.store(new_opacity, Ordering::SeqCst);
+                        update_bubble_visual(hwnd);
                     } else {
-                        let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
+                        // Target reached
+                        if is_fading_out && current == 0 {
+                            // Fade-out complete, now close the window
+                            let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
+                            FADE_OUT_STATE.store(false, Ordering::SeqCst);
+                            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                        } else if blink_state > 0 {
+                            // Transition to next blink state
+                            if blink_state >= 4 {
+                                BLINK_STATE.store(0, Ordering::SeqCst);
+                            } else {
+                                BLINK_STATE.fetch_add(1, Ordering::SeqCst);
+                            }
+                            // Keep timer running for next phase (no KillTimer)
+                        } else {
+                            let _ = KillTimer(Some(hwnd), OPACITY_TIMER_ID);
+                        }
+                    }
+                } else if wparam.0 == PHYSICS_TIMER_ID {
+                    PHYSICS_STATE.with(|p| {
+                        let (mut vx, mut vy) = *p.borrow();
+
+                        // Lower friction for longer travel (was 0.92)
+                        vx *= 0.95;
+                        vy *= 0.95;
+
+                        // Stop if slow
+                        if vx.abs() < 0.2 && vy.abs() < 0.2 {
+                            // Lower threshold for smoother stop
+                            let _ = KillTimer(Some(hwnd), PHYSICS_TIMER_ID);
+                            *p.borrow_mut() = (0.0, 0.0);
+                            // Save the final resting position
+                            save_bubble_position();
+                            return;
+                        }
+
+                        let mut rect = RECT::default();
+                        let _ = GetWindowRect(hwnd, &mut rect);
+
+                        let mut next_x = rect.left as f32 + vx;
+                        let mut next_y = rect.top as f32 + vy;
+
+                        let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
+                        let bubble_size_f = bubble_size as f32;
+
+                        // Use Virtual Screen bounds for physics bouncing
+                        let min_x = GetSystemMetrics(SM_XVIRTUALSCREEN) as f32;
+                        let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+                        let max_x = (min_x + v_w as f32) - bubble_size_f;
+
+                        let min_y = GetSystemMetrics(SM_YVIRTUALSCREEN) as f32;
+                        let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+                        let max_y = (min_y + v_h as f32) - bubble_size_f;
+
+                        let bounce_factor = 0.75; // Rubbery bounce
+
+                        // Bounce off edges
+                        if next_x < min_x {
+                            next_x = min_x;
+                            vx = -vx * bounce_factor;
+                        } else if next_x > max_x {
+                            next_x = max_x;
+                            vx = -vx * bounce_factor;
+                        }
+
+                        if next_y < min_y {
+                            next_y = min_y;
+                            vy = -vy * bounce_factor;
+                        } else if next_y > max_y {
+                            next_y = max_y;
+                            vy = -vy * bounce_factor;
+                        }
+
+                        *p.borrow_mut() = (vx, vy);
+
+                        let _ = SetWindowPos(
+                            hwnd,
+                            None,
+                            next_x as i32,
+                            next_y as i32,
+                            0,
+                            0,
+                            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                        );
+
+                        if IS_EXPANDED.load(Ordering::SeqCst) {
+                            move_panel_to_bubble(next_x as i32, next_y as i32);
+                        }
+                    });
+                }
+                LRESULT(0)
+            }
+
+            WM_CLOSE => {
+                close_panel();
+                let _ = DestroyWindow(hwnd);
+                LRESULT(0)
+            }
+
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+
+            WM_FORCE_SHOW_PANEL => {
+                // Received request from main thread to show/refresh update panel
+                if !IS_EXPANDED.load(Ordering::SeqCst) {
+                    // Not open? Open it (this triggers refresh internally)
+                    show_panel(hwnd);
+                } else {
+                    // Already open? Force refresh manually
+                    let panel_val = PANEL_HWND.load(Ordering::SeqCst);
+                    if panel_val != 0 {
+                        let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
+                        let _ =
+                            PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
                     }
                 }
-            } else if wparam.0 == PHYSICS_TIMER_ID {
-                PHYSICS_STATE.with(|p| {
-                    let (mut vx, mut vy) = *p.borrow();
-
-                    // Lower friction for longer travel (was 0.92)
-                    vx *= 0.95;
-                    vy *= 0.95;
-
-                    // Stop if slow
-                    if vx.abs() < 0.2 && vy.abs() < 0.2 {
-                        // Lower threshold for smoother stop
-                        let _ = KillTimer(Some(hwnd), PHYSICS_TIMER_ID);
-                        *p.borrow_mut() = (0.0, 0.0);
-                        // Save the final resting position
-                        save_bubble_position();
-                        return;
-                    }
-
-                    let mut rect = RECT::default();
-                    let _ = GetWindowRect(hwnd, &mut rect);
-
-                    let mut next_x = rect.left as f32 + vx;
-                    let mut next_y = rect.top as f32 + vy;
-
-                    let bubble_size = BUBBLE_SIZE.load(Ordering::SeqCst);
-                    let bubble_size_f = bubble_size as f32;
-
-                    // Use Virtual Screen bounds for physics bouncing
-                    let min_x = GetSystemMetrics(SM_XVIRTUALSCREEN) as f32;
-                    let v_w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
-                    let max_x = (min_x + v_w as f32) - bubble_size_f;
-
-                    let min_y = GetSystemMetrics(SM_YVIRTUALSCREEN) as f32;
-                    let v_h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-                    let max_y = (min_y + v_h as f32) - bubble_size_f;
-
-                    let bounce_factor = 0.75; // Rubbery bounce
-
-                    // Bounce off edges
-                    if next_x < min_x {
-                        next_x = min_x;
-                        vx = -vx * bounce_factor;
-                    } else if next_x > max_x {
-                        next_x = max_x;
-                        vx = -vx * bounce_factor;
-                    }
-
-                    if next_y < min_y {
-                        next_y = min_y;
-                        vy = -vy * bounce_factor;
-                    } else if next_y > max_y {
-                        next_y = max_y;
-                        vy = -vy * bounce_factor;
-                    }
-
-                    *p.borrow_mut() = (vx, vy);
-
-                    let _ = SetWindowPos(
-                        hwnd,
-                        None,
-                        next_x as i32,
-                        next_y as i32,
-                        0,
-                        0,
-                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                    );
-
-                    if IS_EXPANDED.load(Ordering::SeqCst) {
-                        move_panel_to_bubble(next_x as i32, next_y as i32);
-                    }
-                });
+                LRESULT(0)
             }
-            LRESULT(0)
-        }
 
-        WM_CLOSE => {
-            close_panel();
-            let _ = DestroyWindow(hwnd);
-            LRESULT(0)
-        }
-
-        WM_DESTROY => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-
-        WM_FORCE_SHOW_PANEL => {
-            // Received request from main thread to show/refresh update panel
-            if !IS_EXPANDED.load(Ordering::SeqCst) {
-                // Not open? Open it (this triggers refresh internally)
-                show_panel(hwnd);
-            } else {
-                // Already open? Force refresh manually
-                let panel_val = PANEL_HWND.load(Ordering::SeqCst);
-                if panel_val != 0 {
-                    let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
-                    let _ = PostMessageW(Some(panel_hwnd), WM_REFRESH_PANEL, WPARAM(0), LPARAM(0));
+            WM_BUBBLE_THEME_UPDATE => {
+                // Theme changed: refresh panel CSS (if open) BEFORE updating bubble visual,
+                // because update_bubble_visual writes LAST_THEME_IS_DARK which the panel
+                // checks to detect theme changes. SendMessageW is synchronous on same thread.
+                if IS_EXPANDED.load(Ordering::SeqCst) {
+                    let panel_val = PANEL_HWND.load(Ordering::SeqCst);
+                    if panel_val != 0 {
+                        let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
+                        // Synchronous: panel refresh runs before we return, updating CSS+HTML+bubble
+                        SendMessageW(
+                            panel_hwnd,
+                            WM_REFRESH_PANEL,
+                            Some(WPARAM(0)),
+                            Some(LPARAM(0)),
+                        );
+                    }
+                } else {
+                    // Panel not open, just update the bubble icon
+                    update_bubble_visual(hwnd);
                 }
+                LRESULT(0)
             }
-            LRESULT(0)
-        }
 
-        WM_BUBBLE_THEME_UPDATE => {
-            // Theme changed: refresh panel CSS (if open) BEFORE updating bubble visual,
-            // because update_bubble_visual writes LAST_THEME_IS_DARK which the panel
-            // checks to detect theme changes. SendMessageW is synchronous on same thread.
-            if IS_EXPANDED.load(Ordering::SeqCst) {
-                let panel_val = PANEL_HWND.load(Ordering::SeqCst);
-                if panel_val != 0 {
-                    let panel_hwnd = HWND(panel_val as *mut std::ffi::c_void);
-                    // Synchronous: panel refresh runs before we return, updating CSS+HTML+bubble
-                    SendMessageW(
-                        panel_hwnd,
-                        WM_REFRESH_PANEL,
-                        Some(WPARAM(0)),
-                        Some(LPARAM(0)),
-                    );
-                }
-            } else {
-                // Panel not open, just update the bubble icon
-                update_bubble_visual(hwnd);
-            }
-            LRESULT(0)
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}

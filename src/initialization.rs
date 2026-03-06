@@ -1,9 +1,9 @@
 // --- INITIALIZATION ---
 // Application bootstrap: COM init, dark mode, cleanup, and warmups.
 
-use windows::core::*;
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 
 /// Enable dark mode for Win32 native menus (context menus, tray menus).
 /// Uses undocumented SetPreferredAppMode API from uxtheme.dll.
@@ -50,64 +50,67 @@ pub fn cleanup_temporary_files() {
         .join("bin");
 
     if bin_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(&bin_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "tmp") {
-                    let _ = std::fs::remove_file(&path);
-                }
+        && let Ok(entries) = std::fs::read_dir(&bin_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "tmp") {
+                let _ = std::fs::remove_file(&path);
             }
         }
+    }
 
     // 3. Clean up any update-related files in current directory
     if let Ok(exe_path) = std::env::current_exe()
-        && let Some(exe_dir) = exe_path.parent() {
-            let temp_download = exe_dir.join("temp_download");
-            if temp_download.exists() {
-                let _ = std::fs::remove_file(temp_download);
-            }
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        let temp_download = exe_dir.join("temp_download");
+        if temp_download.exists() {
+            let _ = std::fs::remove_file(temp_download);
         }
+    }
 }
 
 /// Apply any pending updates and clean up old exe files.
 pub fn apply_pending_updates() {
     if let Ok(exe_path) = std::env::current_exe()
-        && let Some(exe_dir) = exe_path.parent() {
-            let staging_path = exe_dir.join("update_pending.exe");
-            let backup_path = exe_path.with_extension("exe.old");
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        let staging_path = exe_dir.join("update_pending.exe");
+        let backup_path = exe_path.with_extension("exe.old");
 
-            // If there's a pending update, apply it
-            if staging_path.exists() {
-                // Backup current exe
-                let _ = std::fs::copy(&exe_path, &backup_path);
-                // Replace with staged exe
-                if std::fs::rename(&staging_path, &exe_path).is_ok() {
-                    // Success - cleanup temp file
-                    let _ = std::fs::remove_file("temp_download");
-                }
+        // If there's a pending update, apply it
+        if staging_path.exists() {
+            // Backup current exe
+            let _ = std::fs::copy(&exe_path, &backup_path);
+            // Replace with staged exe
+            if std::fs::rename(&staging_path, &exe_path).is_ok() {
+                // Success - cleanup temp file
+                let _ = std::fs::remove_file("temp_download");
             }
+        }
 
-            // Clean up old exe files
-            let current_exe_name = exe_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if let Ok(entries) = std::fs::read_dir(exe_dir) {
-                for entry in entries.filter_map(|e| e.ok()) {
-                    let file_name = entry.file_name();
-                    let name_str = file_name.to_string_lossy();
+        // Clean up old exe files
+        let current_exe_name = exe_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if let Ok(entries) = std::fs::read_dir(exe_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let file_name = entry.file_name();
+                let name_str = file_name.to_string_lossy();
 
-                    // Delete old ScreenGoatedToolbox_v*.exe files (keep only current)
-                    if (name_str.starts_with("ScreenGoatedToolbox_v") && name_str.ends_with(".exe"))
-                        && name_str.as_ref() != current_exe_name
-                    {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
+                // Delete old ScreenGoatedToolbox_v*.exe files (keep only current)
+                if (name_str.starts_with("ScreenGoatedToolbox_v") && name_str.ends_with(".exe"))
+                    && name_str.as_ref() != current_exe_name
+                {
+                    let _ = std::fs::remove_file(entry.path());
+                }
 
-                    // Delete .old backup files
-                    if name_str.ends_with(".exe.old") {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
+                // Delete .old backup files
+                if name_str.ends_with(".exe.old") {
+                    let _ = std::fs::remove_file(entry.path());
                 }
             }
         }
+    }
 }
 
 /// Set up crash handler to show message box on panic.
@@ -159,11 +162,12 @@ pub fn init_com_and_dpi() {
 
         // Force Per-Monitor V2 DPI Awareness for correct screen metrics
         if let Ok(hidpi) = LoadLibraryW(w!("user32.dll"))
-            && let Some(set_context) = GetProcAddress(hidpi, s!("SetProcessDpiAwarenessContext")) {
-                let func: extern "system" fn(isize) -> BOOL = std::mem::transmute(set_context);
-                // -4 is DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-                let _ = func(-4);
-            }
+            && let Some(set_context) = GetProcAddress(hidpi, s!("SetProcessDpiAwarenessContext"))
+        {
+            let func: extern "system" fn(isize) -> BOOL = std::mem::transmute(set_context);
+            // -4 is DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            let _ = func(-4);
+        }
     }
 }
 

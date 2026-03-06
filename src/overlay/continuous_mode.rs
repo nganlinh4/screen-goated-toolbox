@@ -3,8 +3,8 @@
 //! This module handles the "hold-to-activate continuous mode" feature for image and text presets.
 //! When activated, the preset will automatically retrigger after each completion.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Whether continuous mode is currently active
 static CONTINUOUS_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);

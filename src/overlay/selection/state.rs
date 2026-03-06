@@ -2,8 +2,8 @@
 // Static variables, atomics, and constants for selection overlay.
 
 use crate::win_types::{SendHbitmap, SendHwnd};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::{HMODULE, HWND, POINT};
 use windows::Win32::Graphics::Gdi::HBITMAP;
 use windows::Win32::UI::WindowsAndMessaging::HHOOK;

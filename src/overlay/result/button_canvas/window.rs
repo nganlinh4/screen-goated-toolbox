@@ -1,11 +1,10 @@
 //! Window creation for button canvas
 
 use super::{
-    html::generate_canvas_html, ipc::handle_ipc_message, wnd_proc::canvas_wnd_proc, CANVAS_HWND,
-    CANVAS_WEBVIEW, CANVAS_WEB_CONTEXT, IS_WARMED_UP, REGISTER_CANVAS_CLASS,
+    CANVAS_HWND, CANVAS_WEB_CONTEXT, CANVAS_WEBVIEW, IS_WARMED_UP, REGISTER_CANVAS_CLASS,
+    html::generate_canvas_html, ipc::handle_ipc_message, wnd_proc::canvas_wnd_proc,
 };
 use std::sync::atomic::Ordering;
-use windows::core::w;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 use windows::Win32::Graphics::Gdi::*;
@@ -13,6 +12,7 @@ use windows::Win32::System::Com::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::w;
 use wry::{Rect, WebContext, WebViewBuilder};
 
 // Re-export send_windows_update from wnd_proc
@@ -27,7 +27,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
         let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0 .0 as isize).expect("HWND cannot be null"),
+            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
         );
         let handle = raw_window_handle::RawWindowHandle::Win32(raw);
         unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }

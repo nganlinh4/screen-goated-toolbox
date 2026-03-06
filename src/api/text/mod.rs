@@ -4,5 +4,5 @@
 mod refine;
 mod translate;
 
-pub use refine::refine_text_streaming;
-pub use translate::translate_text_streaming;
+pub use refine::{RefineTextRequest, refine_text_streaming};
+pub use translate::{TranslateTextRequest, translate_text_streaming};

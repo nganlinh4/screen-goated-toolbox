@@ -9,7 +9,7 @@ use super::types::SettingsApp;
 use crate::gui::locale::LocaleText;
 use crate::gui::settings_ui::node_graph::{blocks_to_snarl, snarl_to_graph};
 use crate::gui::settings_ui::{
-    render_global_settings, render_history_panel, render_preset_editor, render_sidebar, ViewMode,
+    ViewMode, render_global_settings, render_history_panel, render_preset_editor, render_sidebar,
 };
 use eframe::egui;
 
@@ -156,14 +156,15 @@ impl SettingsApp {
                 &self.hotkey_conflict_msg,
                 text,
                 snarl,
-            ) {
-                // Sync back to blocks and connections
-                if idx < self.config.presets.len() {
-                    let (blocks, connections) = snarl_to_graph(snarl);
-                    self.config.presets[idx].blocks = blocks;
-                    self.config.presets[idx].block_connections = connections;
-                }
-                self.save_and_sync();
+            )
+        {
+            // Sync back to blocks and connections
+            if idx < self.config.presets.len() {
+                let (blocks, connections) = snarl_to_graph(snarl);
+                self.config.presets[idx].blocks = blocks;
+                self.config.presets[idx].block_connections = connections;
             }
+            self.save_and_sync();
+        }
     }
 }

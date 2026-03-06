@@ -1,3 +1,5 @@
+import type { CursorPack } from '@/lib/renderer/cursorModel';
+
 // Resolution/FPS options are computed dynamically from canvas dimensions
 
 export interface ZoomKeyframe {
@@ -144,11 +146,11 @@ export interface BackgroundConfig {
   motionBlurCursor?: number; // 0-100 intensity (default 25, 0=off, 100=extreme)
   motionBlurZoom?: number;   // 0-100 intensity
   motionBlurPan?: number;    // 0-100 intensity
-  cursorPack?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' | 'sgtkorea';
-  cursorDefaultVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' | 'sgtkorea';
-  cursorTextVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' | 'sgtkorea';
-  cursorPointerVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' | 'sgtkorea';
-  cursorOpenHandVariant?: 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' | 'sgtkorea';
+  cursorPack?: CursorPack;
+  cursorDefaultVariant?: CursorPack;
+  cursorTextVariant?: CursorPack;
+  cursorPointerVariant?: CursorPack;
+  cursorOpenHandVariant?: CursorPack;
   customBackground?: string;
   cropBottom?: number; // 0-100 percentage
   volume?: number; // 0-1

@@ -1,5 +1,5 @@
-use super::catalog::{source_name_for_file, CursorCollectionSpec, REQUIRED_FILES};
 use super::GalleryEvent;
+use super::catalog::{CursorCollectionSpec, REQUIRED_FILES, source_name_for_file};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;

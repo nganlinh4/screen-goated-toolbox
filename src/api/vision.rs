@@ -1,36 +1,49 @@
 use super::client::UREQ_AGENT;
 use super::types::{ChatCompletionResponse, StreamChunk};
-use crate::gui::locale::LocaleText;
 use crate::APP;
+use crate::gui::locale::LocaleText;
 use anyhow::Result;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use image::{ImageBuffer, Rgba};
 use std::io::{BufRead, BufReader, Cursor};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "vision translation needs explicit model, image, and streaming parameters"
-)]
+pub struct TranslateImageRequest<'a> {
+    pub groq_api_key: &'a str,
+    pub gemini_api_key: &'a str,
+    pub prompt: String,
+    pub model: String,
+    pub provider: String,
+    pub image: ImageBuffer<Rgba<u8>, Vec<u8>>,
+    pub original_bytes: Option<Vec<u8>>,
+    pub streaming_enabled: bool,
+    pub use_json_format: bool,
+    pub cancel_token: Option<Arc<AtomicBool>>,
+}
+
 pub fn translate_image_streaming<F>(
-    groq_api_key: &str,
-    gemini_api_key: &str,
-    prompt: String,
-    model: String,
-    provider: String,
-    image: ImageBuffer<Rgba<u8>, Vec<u8>>,
-    original_bytes: Option<Vec<u8>>, // Zero-Copy support
-    streaming_enabled: bool,
-    use_json_format: bool,
-    cancel_token: Option<Arc<AtomicBool>>,
+    request: TranslateImageRequest<'_>,
     mut on_chunk: F,
 ) -> Result<String>
 where
     F: FnMut(&str),
 {
+    let TranslateImageRequest {
+        groq_api_key,
+        gemini_api_key,
+        prompt,
+        model,
+        provider,
+        image,
+        original_bytes,
+        streaming_enabled,
+        use_json_format,
+        cancel_token,
+    } = request;
+
     let openrouter_api_key = crate::APP
         .lock()
         .ok()
@@ -253,19 +266,22 @@ where
         // Response format: [{"type":"qrcode","symbol":[{"seq":0,"data":"content","error":null}]}]
         if let Some(first) = json.as_array().and_then(|a| a.first())
             && let Some(symbols) = first.get("symbol").and_then(|s| s.as_array())
-                && let Some(first_symbol) = symbols.first() {
-                    if let Some(data) = first_symbol.get("data").and_then(|d| d.as_str())
-                        && !data.is_empty() {
-                            full_content = data.to_string();
-                            on_chunk(&full_content);
-                            return Ok(full_content);
-                        }
-                    // Check for error
-                    if let Some(error) = first_symbol.get("error").and_then(|e| e.as_str())
-                        && !error.is_empty() {
-                            return Err(anyhow::anyhow!("QR_NOT_FOUND: {}", error));
-                        }
-                }
+            && let Some(first_symbol) = symbols.first()
+        {
+            if let Some(data) = first_symbol.get("data").and_then(|d| d.as_str())
+                && !data.is_empty()
+            {
+                full_content = data.to_string();
+                on_chunk(&full_content);
+                return Ok(full_content);
+            }
+            // Check for error
+            if let Some(error) = first_symbol.get("error").and_then(|e| e.as_str())
+                && !error.is_empty()
+            {
+                return Err(anyhow::anyhow!("QR_NOT_FOUND: {}", error));
+            }
+        }
 
         return Err(anyhow::anyhow!(
             "QR_NOT_FOUND: No QR code detected in image"
@@ -356,9 +372,10 @@ where
 
             for line in reader.lines() {
                 if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed) {
-                        return Err(anyhow::anyhow!("Cancelled"));
-                    }
+                    && ct.load(Ordering::Relaxed)
+                {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
                 let line = line.map_err(|e| anyhow::anyhow!("Failed to read line: {}", e))?;
                 if let Some(json_str) = line.strip_prefix("data: ") {
                     if json_str.trim() == "[DONE]" {
@@ -368,47 +385,42 @@ where
                     if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
                         && let Some(candidates) =
                             chunk_resp.get("candidates").and_then(|c| c.as_array())
-                            && let Some(first_candidate) = candidates.first()
-                                && let Some(parts) = first_candidate
-                                    .get("content")
-                                    .and_then(|c| c.get("parts"))
-                                    .and_then(|p| p.as_array())
-                                {
-                                    for part in parts {
-                                        let is_thought = part
-                                            .get("thought")
-                                            .and_then(|t| t.as_bool())
-                                            .unwrap_or(false);
+                        && let Some(first_candidate) = candidates.first()
+                        && let Some(parts) = first_candidate
+                            .get("content")
+                            .and_then(|c| c.get("parts"))
+                            .and_then(|p| p.as_array())
+                    {
+                        for part in parts {
+                            let is_thought = part
+                                .get("thought")
+                                .and_then(|t| t.as_bool())
+                                .unwrap_or(false);
 
-                                        if let Some(text) =
-                                            part.get("text").and_then(|t| t.as_str())
-                                        {
-                                            if is_thought {
-                                                // Model is thinking - show thinking indicator (only once)
-                                                if !thinking_shown && !content_started {
-                                                    on_chunk(locale.model_thinking);
-                                                    thinking_shown = true;
-                                                }
-                                            } else {
-                                                // Regular content
-                                                if !content_started && thinking_shown {
-                                                    content_started = true;
-                                                    full_content.push_str(text);
-                                                    let wipe_content = format!(
-                                                        "{}{}",
-                                                        crate::api::WIPE_SIGNAL,
-                                                        full_content
-                                                    );
-                                                    on_chunk(&wipe_content);
-                                                } else {
-                                                    content_started = true;
-                                                    full_content.push_str(text);
-                                                    on_chunk(text);
-                                                }
-                                            }
-                                        }
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                if is_thought {
+                                    // Model is thinking - show thinking indicator (only once)
+                                    if !thinking_shown && !content_started {
+                                        on_chunk(locale.model_thinking);
+                                        thinking_shown = true;
+                                    }
+                                } else {
+                                    // Regular content
+                                    if !content_started && thinking_shown {
+                                        content_started = true;
+                                        full_content.push_str(text);
+                                        let wipe_content =
+                                            format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                        on_chunk(&wipe_content);
+                                    } else {
+                                        content_started = true;
+                                        full_content.push_str(text);
+                                        on_chunk(text);
                                     }
                                 }
+                            }
+                        }
+                    }
                 }
             }
         } else {
@@ -419,22 +431,20 @@ where
 
             if let Some(candidates) = chat_resp.get("candidates").and_then(|c| c.as_array())
                 && let Some(first_choice) = candidates.first()
-                    && let Some(parts) = first_choice
-                        .get("content")
-                        .and_then(|c| c.get("parts"))
-                        .and_then(|p| p.as_array())
-                    {
-                        // Filter out thought parts and collect only content
-                        full_content = parts
-                            .iter()
-                            .filter(|p| {
-                                !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false)
-                            })
-                            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                            .collect::<String>();
+                && let Some(parts) = first_choice
+                    .get("content")
+                    .and_then(|c| c.get("parts"))
+                    .and_then(|p| p.as_array())
+            {
+                // Filter out thought parts and collect only content
+                full_content = parts
+                    .iter()
+                    .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<String>();
 
-                        on_chunk(&full_content);
-                    }
+                on_chunk(&full_content);
+            }
         }
     } else if provider == "openrouter" {
         // --- OPENROUTER API ---
@@ -485,9 +495,10 @@ where
 
             for line in reader.lines() {
                 if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed) {
-                        return Err(anyhow::anyhow!("Cancelled"));
-                    }
+                    && ct.load(Ordering::Relaxed)
+                {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
                 let line = line?;
                 if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
@@ -587,7 +598,8 @@ where
             payload_obj
         };
 
-        let resp = UREQ_AGENT.post("https://api.groq.com/openai/v1/chat/completions")
+        let resp = UREQ_AGENT
+            .post("https://api.groq.com/openai/v1/chat/completions")
             .header("Authorization", &format!("Bearer {}", groq_api_key))
             .send_json(payload)
             .map_err(|e| {
@@ -595,9 +607,14 @@ where
                 if err_str.contains("401") {
                     anyhow::anyhow!("INVALID_API_KEY")
                 } else if err_str.contains("400") {
-                    anyhow::anyhow!("Groq API 400: Bad request. Check model availability or API request format.")
+                    anyhow::anyhow!(
+                        "Groq API 400: Bad request. Check model availability or API request format."
+                    )
                 } else {
-                    anyhow::anyhow!("Error: https://api.groq.com/openai/v1/chat/completions: {}", err_str)
+                    anyhow::anyhow!(
+                        "Error: https://api.groq.com/openai/v1/chat/completions: {}",
+                        err_str
+                    )
                 }
             })?;
 
@@ -622,9 +639,10 @@ where
             let reader = BufReader::new(resp.into_body().into_reader());
             for line in reader.lines() {
                 if let Some(ref ct) = cancel_token
-                    && ct.load(Ordering::Relaxed) {
-                        return Err(anyhow::anyhow!("Cancelled"));
-                    }
+                    && ct.load(Ordering::Relaxed)
+                {
+                    return Err(anyhow::anyhow!("Cancelled"));
+                }
                 let line = line?;
 
                 if let Some(data) = line.strip_prefix("data: ") {

@@ -54,50 +54,52 @@ unsafe extern "system" fn selector_wnd_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_SIZE => {
-            SELECTOR_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let mut r = RECT::default();
-                    let _ = GetClientRect(hwnd, &mut r);
-                    let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                            0, 0,
-                        )),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            (r.right - r.left) as u32,
-                            (r.bottom - r.top) as u32,
-                        )),
-                    });
-                }
-            });
-            LRESULT(0)
-        }
-        WM_APP_RUN_SCRIPT => {
-            let script_ptr = lparam.0 as *mut String;
-            if !script_ptr.is_null() {
-                let script = Box::from_raw(script_ptr);
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_SIZE => {
                 SELECTOR_WEBVIEW.with(|wv| {
                     if let Some(webview) = wv.borrow().as_ref() {
-                        let _ = webview.evaluate_script(&script);
+                        let mut r = RECT::default();
+                        let _ = GetClientRect(hwnd, &mut r);
+                        let _ = webview.set_bounds(Rect {
+                            position: wry::dpi::Position::Physical(
+                                wry::dpi::PhysicalPosition::new(0, 0),
+                            ),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                (r.right - r.left) as u32,
+                                (r.bottom - r.top) as u32,
+                            )),
+                        });
                     }
                 });
+                LRESULT(0)
             }
-            LRESULT(0)
+            WM_APP_RUN_SCRIPT => {
+                let script_ptr = lparam.0 as *mut String;
+                if !script_ptr.is_null() {
+                    let script = Box::from_raw(script_ptr);
+                    SELECTOR_WEBVIEW.with(|wv| {
+                        if let Some(webview) = wv.borrow().as_ref() {
+                            let _ = webview.evaluate_script(&script);
+                        }
+                    });
+                }
+                LRESULT(0)
+            }
+            WM_CLOSE => {
+                let _ = DestroyWindow(hwnd);
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                SELECTOR_HWND.store(0, Ordering::SeqCst);
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        WM_CLOSE => {
-            let _ = DestroyWindow(hwnd);
-            LRESULT(0)
-        }
-        WM_DESTROY => {
-            SELECTOR_HWND.store(0, Ordering::SeqCst);
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
 /// Returns true if the selector overlay has been closed (or was never opened).
 pub fn selector_is_closed() -> bool {

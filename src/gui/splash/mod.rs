@@ -83,9 +83,10 @@ impl SplashScreen {
 
         std::thread::spawn(move || {
             if let Some(audio) = SplashAudio::new()
-                && let Ok(mut lock) = audio_container_clone.lock() {
-                    *lock = Some(audio);
-                }
+                && let Ok(mut lock) = audio_container_clone.lock()
+            {
+                *lock = Some(audio);
+            }
         });
 
         let mut slf = Self {
@@ -128,19 +129,19 @@ impl SplashScreen {
     pub fn update(&mut self, ctx: &egui::Context) -> SplashStatus {
         let was_exiting = self.exit_start_time.is_some();
 
-        let status = render::update(
+        let status = render::update(render::SplashUpdateContext {
             ctx,
-            self.start_time,
-            &mut self.exit_start_time,
-            &mut self.voxels,
-            &mut self.clouds,
-            &mut self.mouse_influence,
-            &mut self.mouse_world_pos,
-            &mut self.loading_text,
-            &mut self.is_dark,
-            &self.audio,
-            &mut self.has_played_impact,
-        );
+            start_time: self.start_time,
+            exit_start_time: &mut self.exit_start_time,
+            voxels: &mut self.voxels,
+            clouds: &mut self.clouds,
+            mouse_influence: &mut self.mouse_influence,
+            mouse_world_pos: &mut self.mouse_world_pos,
+            loading_text: &mut self.loading_text,
+            is_dark: &mut self.is_dark,
+            audio: &self.audio,
+            has_played_impact: &mut self.has_played_impact,
+        });
 
         // Create escape overlay on first frame of exit
         if self.exit_start_time.is_some() && !was_exiting {
@@ -156,19 +157,19 @@ impl SplashScreen {
     }
 
     pub fn paint(&self, ctx: &egui::Context, _theme_mode: &crate::config::ThemeMode) -> bool {
-        let result = render::paint(
+        let result = render::paint(render::SplashPaintContext {
             ctx,
-            self.start_time,
-            self.exit_start_time,
-            &self.voxels,
-            &self.clouds,
-            &self.stars,
-            &self.moon_features,
-            self.mouse_influence,
-            self.is_dark,
-            &self.loading_text,
-            &self.draw_list,
-        );
+            start_time: self.start_time,
+            exit_start_time: self.exit_start_time,
+            voxels: &self.voxels,
+            clouds: &self.clouds,
+            stars: &self.stars,
+            moon_features: &self.moon_features,
+            mouse_influence: self.mouse_influence,
+            is_dark: self.is_dark,
+            loading_text: &self.loading_text,
+            draw_list: &self.draw_list,
+        });
 
         // After paint fills draw_list, send escaped voxels to the overlay
         if self.escape_overlay.borrow().is_some() {

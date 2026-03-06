@@ -2,16 +2,16 @@
 
 use anyhow::Result;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::APP;
 use crate::config::Preset;
 use crate::overlay::realtime_webview::SELECTED_APP_PID;
-use crate::APP;
 
 use super::capture::{start_device_loopback_capture, start_mic_capture, start_per_app_capture};
 use super::state::SharedRealtimeState;
@@ -153,21 +153,23 @@ fn transcription_thread_entry(
 
         if restart_source
             && let Ok(new_source) = NEW_AUDIO_SOURCE.lock()
-                && !new_source.is_empty() {
-                    // println!("Changing audio source to: {}", new_source);
-                    let mut app = APP.lock().unwrap();
-                    app.config.realtime_audio_source = new_source.clone();
-                    current_preset.audio_source = new_source.clone();
-                    // Save config? Optional, but UI should sync.
-                }
+            && !new_source.is_empty()
+        {
+            // println!("Changing audio source to: {}", new_source);
+            let mut app = APP.lock().unwrap();
+            app.config.realtime_audio_source = new_source.clone();
+            current_preset.audio_source = new_source.clone();
+            // Save config? Optional, but UI should sync.
+        }
 
         if restart_model
             && let Ok(new_model) = NEW_TRANSCRIPTION_MODEL.lock()
-                && !new_model.is_empty() {
-                    // println!("Changing transcription model to: {}", new_model);
-                    let mut app = APP.lock().unwrap();
-                    app.config.realtime_transcription_model = new_model.clone();
-                }
+            && !new_model.is_empty()
+        {
+            // println!("Changing transcription model to: {}", new_model);
+            let mut app = APP.lock().unwrap();
+            app.config.realtime_transcription_model = new_model.clone();
+        }
 
         // If a restart is triggered, reset stop signal to allow the new transcription to run
         if restart_source || restart_model {
@@ -447,48 +449,50 @@ fn run_main_loop(
             Ok(tungstenite::Message::Text(msg)) => {
                 let msg = msg.as_str();
                 if let Some(transcript) = parse_input_transcription(msg)
-                    && !transcript.is_empty() {
-                        last_transcription_time = Instant::now();
-                        consecutive_empty_reads = 0;
-                        let display_text = if let Ok(mut s) = state.lock() {
-                            s.append_transcript(&transcript);
-                            s.display_transcript.clone()
-                        } else {
-                            String::new()
-                        };
-                        if !display_text.is_empty() {
-                            update_overlay_text(overlay_hwnd, &display_text);
-                        }
+                    && !transcript.is_empty()
+                {
+                    last_transcription_time = Instant::now();
+                    consecutive_empty_reads = 0;
+                    let display_text = if let Ok(mut s) = state.lock() {
+                        s.append_transcript(&transcript);
+                        s.display_transcript.clone()
+                    } else {
+                        String::new()
+                    };
+                    if !display_text.is_empty() {
+                        update_overlay_text(overlay_hwnd, &display_text);
                     }
+                }
             }
             Ok(tungstenite::Message::Binary(data)) => {
                 if let Ok(text) = String::from_utf8(data.to_vec())
                     && let Some(transcript) = parse_input_transcription(&text)
-                        && !transcript.is_empty() {
-                            last_transcription_time = Instant::now();
-                            consecutive_empty_reads = 0;
-                            let display_text = if let Ok(mut s) = state.lock() {
-                                s.append_transcript(&transcript);
-                                s.display_transcript.clone()
-                            } else {
-                                String::new()
-                            };
-                            if !display_text.is_empty() {
-                                update_overlay_text(overlay_hwnd, &display_text);
-                            }
-                        }
+                    && !transcript.is_empty()
+                {
+                    last_transcription_time = Instant::now();
+                    consecutive_empty_reads = 0;
+                    let display_text = if let Ok(mut s) = state.lock() {
+                        s.append_transcript(&transcript);
+                        s.display_transcript.clone()
+                    } else {
+                        String::new()
+                    };
+                    if !display_text.is_empty() {
+                        update_overlay_text(overlay_hwnd, &display_text);
+                    }
+                }
             }
             Ok(tungstenite::Message::Close(_)) => {
-                if !try_reconnect(
-                    &mut socket,
-                    gemini_api_key,
-                    &audio_buffer,
-                    &mut silence_buffer,
-                    &mut audio_mode,
-                    &mut mode_start,
-                    &mut last_transcription_time,
-                    &mut consecutive_empty_reads,
-                ) {
+                if !try_reconnect(ReconnectContext {
+                    socket: &mut socket,
+                    api_key: gemini_api_key,
+                    audio_buffer: &audio_buffer,
+                    silence_buffer: &mut silence_buffer,
+                    audio_mode: &mut audio_mode,
+                    mode_start: &mut mode_start,
+                    last_transcription_time: &mut last_transcription_time,
+                    consecutive_empty_reads: &mut consecutive_empty_reads,
+                }) {
                     break;
                 }
             }
@@ -501,16 +505,16 @@ fn run_main_loop(
                 if consecutive_empty_reads >= EMPTY_READ_CHECK_COUNT
                     && last_transcription_time.elapsed()
                         > Duration::from_secs(NO_RESULT_THRESHOLD_SECS)
-                    && !try_reconnect(
-                        &mut socket,
-                        gemini_api_key,
-                        &audio_buffer,
-                        &mut silence_buffer,
-                        &mut audio_mode,
-                        &mut mode_start,
-                        &mut last_transcription_time,
-                        &mut consecutive_empty_reads,
-                    )
+                    && !try_reconnect(ReconnectContext {
+                        socket: &mut socket,
+                        api_key: gemini_api_key,
+                        audio_buffer: &audio_buffer,
+                        silence_buffer: &mut silence_buffer,
+                        audio_mode: &mut audio_mode,
+                        mode_start: &mut mode_start,
+                        last_transcription_time: &mut last_transcription_time,
+                        consecutive_empty_reads: &mut consecutive_empty_reads,
+                    })
                 {
                     break;
                 }
@@ -521,16 +525,16 @@ fn run_main_loop(
                     || error_str.contains("closed")
                     || error_str.contains("broken")
                 {
-                    if !try_reconnect(
-                        &mut socket,
-                        gemini_api_key,
-                        &audio_buffer,
-                        &mut silence_buffer,
-                        &mut audio_mode,
-                        &mut mode_start,
-                        &mut last_transcription_time,
-                        &mut consecutive_empty_reads,
-                    ) {
+                    if !try_reconnect(ReconnectContext {
+                        socket: &mut socket,
+                        api_key: gemini_api_key,
+                        audio_buffer: &audio_buffer,
+                        silence_buffer: &mut silence_buffer,
+                        audio_mode: &mut audio_mode,
+                        mode_start: &mut mode_start,
+                        last_transcription_time: &mut last_transcription_time,
+                        consecutive_empty_reads: &mut consecutive_empty_reads,
+                    }) {
                         break;
                     }
                 } else {
@@ -546,20 +550,28 @@ fn run_main_loop(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "reconnection keeps each mutable streaming state explicit at the call site"
-)]
-fn try_reconnect(
-    socket: &mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
-    api_key: &str,
-    audio_buffer: &Arc<Mutex<Vec<i16>>>,
-    silence_buffer: &mut Vec<i16>,
-    audio_mode: &mut AudioMode,
-    mode_start: &mut Instant,
-    last_transcription_time: &mut Instant,
-    consecutive_empty_reads: &mut u32,
-) -> bool {
+struct ReconnectContext<'a> {
+    socket: &'a mut tungstenite::WebSocket<native_tls::TlsStream<std::net::TcpStream>>,
+    api_key: &'a str,
+    audio_buffer: &'a Arc<Mutex<Vec<i16>>>,
+    silence_buffer: &'a mut Vec<i16>,
+    audio_mode: &'a mut AudioMode,
+    mode_start: &'a mut Instant,
+    last_transcription_time: &'a mut Instant,
+    consecutive_empty_reads: &'a mut u32,
+}
+
+fn try_reconnect(context: ReconnectContext<'_>) -> bool {
+    let ReconnectContext {
+        socket,
+        api_key,
+        audio_buffer,
+        silence_buffer,
+        audio_mode,
+        mode_start,
+        last_transcription_time,
+        consecutive_empty_reads,
+    } = context;
     let mut reconnect_buffer: Vec<i16> = Vec::new();
     let _ = socket.close(None);
 

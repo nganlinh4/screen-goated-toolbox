@@ -8,7 +8,7 @@ pub mod splash;
 pub mod utils;
 
 pub use app::signal_restore_window;
-pub use app::SettingsApp;
+pub use app::{SettingsApp, SettingsAppInit};
 pub use utils::configure_fonts;
 
 lazy_static::lazy_static! {

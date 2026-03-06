@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::HBITMAP;
@@ -335,10 +335,12 @@ pub fn get_window_group(hwnd: HWND) -> Vec<(HWND, RECT)> {
 
         if let Some(s) = states.get(&(current.0 as isize))
             && let Some(linked) = s.linked_window
-                && states.contains_key(&(linked.0 as isize)) && !visited.contains(&linked.0) {
-                    visited.insert(linked.0);
-                    queue.push_back(linked);
-                }
+            && states.contains_key(&(linked.0 as isize))
+            && !visited.contains(&linked.0)
+        {
+            visited.insert(linked.0);
+            queue.push_back(linked);
+        }
     }
 
     group

@@ -4,23 +4,23 @@ use raw_window_handle::{
 use std::borrow::Cow;
 use std::num::NonZeroIsize;
 use std::sync::Once;
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::HBRUSH;
 use windows::Win32::Media::Audio::{
-    eMultimedia, eRender, IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator,
-    ISimpleAudioVolume, MMDeviceEnumerator,
+    IAudioSessionControl2, IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume,
+    MMDeviceEnumerator, eMultimedia, eRender,
 };
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetFocus};
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 use wry::{Rect, WebContext, WebViewBuilder};
 
 use crate::win_types::SendHwnd;
@@ -68,114 +68,121 @@ fn update_child_pids() {
     let output = cmd.output();
 
     if let Ok(o) = output
-        && let Ok(s) = String::from_utf8(o.stdout) {
-            let mut tree = std::collections::HashMap::new();
+        && let Ok(s) = String::from_utf8(o.stdout)
+    {
+        let mut tree = std::collections::HashMap::new();
 
-            // Parse CSV output
-            for line in s.lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let parts: Vec<&str> = line.split(',').collect();
-                // Format is: Node, ParentProcessId, ProcessId (usually)
-                // But wmic csv header is: Node,ParentProcessId,ProcessId
-                if parts.len() >= 3
-                    && let (Ok(ppid), Ok(pid)) = (
-                        parts[1].trim().parse::<u32>(),
-                        parts[2].trim().parse::<u32>(),
-                    ) {
-                        tree.entry(ppid).or_insert_with(Vec::new).push(pid);
-                    }
+        // Parse CSV output
+        for line in s.lines() {
+            if line.trim().is_empty() {
+                continue;
             }
-
-            // Find all descendants recursively
-            let mut descendants = Vec::new();
-            let mut queue = vec![current_pid];
-            let mut visited = std::collections::HashSet::new();
-            visited.insert(current_pid);
-
-            while let Some(pid) = queue.pop() {
-                if let Some(children) = tree.get(&pid) {
-                    for &child in children {
-                        if visited.insert(child) {
-                            descendants.push(child);
-                            queue.push(child);
-                        }
-                    }
-                }
-            }
-
-            if let Ok(mut lock) = CHILD_PIDS.lock() {
-                *lock = descendants;
+            let parts: Vec<&str> = line.split(',').collect();
+            // Format is: Node, ParentProcessId, ProcessId (usually)
+            // But wmic csv header is: Node,ParentProcessId,ProcessId
+            if parts.len() >= 3
+                && let (Ok(ppid), Ok(pid)) = (
+                    parts[1].trim().parse::<u32>(),
+                    parts[2].trim().parse::<u32>(),
+                )
+            {
+                tree.entry(ppid).or_insert_with(Vec::new).push(pid);
             }
         }
+
+        // Find all descendants recursively
+        let mut descendants = Vec::new();
+        let mut queue = vec![current_pid];
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(current_pid);
+
+        while let Some(pid) = queue.pop() {
+            if let Some(children) = tree.get(&pid) {
+                for &child in children {
+                    if visited.insert(child) {
+                        descendants.push(child);
+                        queue.push(child);
+                    }
+                }
+            }
+        }
+
+        if let Ok(mut lock) = CHILD_PIDS.lock() {
+            *lock = descendants;
+        }
+    }
 }
 
-unsafe fn set_app_volume(volume: f32) -> Result<()> { unsafe {
-    // Access cache
-    let current_pid = GetCurrentProcessId();
-    let child_pids = CHILD_PIDS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+unsafe fn set_app_volume(volume: f32) -> Result<()> {
+    unsafe {
+        // Access cache
+        let current_pid = GetCurrentProcessId();
+        let child_pids = CHILD_PIDS.lock().unwrap_or_else(|e| e.into_inner()).clone();
 
-    // We try to initialize COM, but ignore error if already initialized
-    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        // We try to initialize COM, but ignore error if already initialized
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
-    let device_enumerator: IMMDeviceEnumerator =
-        CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let device_enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
 
-    let device = device_enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
-    let session_manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
-    let session_enumerator = session_manager.GetSessionEnumerator()?;
-    let count = session_enumerator.GetCount()?;
+        let device = device_enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)?;
+        let session_manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
+        let session_enumerator = session_manager.GetSessionEnumerator()?;
+        let count = session_enumerator.GetCount()?;
 
-    for i in 0..count {
-        if let Ok(session_control) = session_enumerator.GetSession(i)
-            && let Ok(session_control2) = session_control.cast::<IAudioSessionControl2>()
-                && let Ok(pid) = session_control2.GetProcessId() {
-                    // Match Main Process OR known Children
-                    if (pid == current_pid || child_pids.contains(&pid))
-                        && let Ok(simple_volume) = session_control.cast::<ISimpleAudioVolume>() {
-                            let _ = simple_volume.SetMasterVolume(volume, std::ptr::null());
-                        }
+        for i in 0..count {
+            if let Ok(session_control) = session_enumerator.GetSession(i)
+                && let Ok(session_control2) = session_control.cast::<IAudioSessionControl2>()
+                && let Ok(pid) = session_control2.GetProcessId()
+            {
+                // Match Main Process OR known Children
+                if (pid == current_pid || child_pids.contains(&pid))
+                    && let Ok(simple_volume) = session_control.cast::<ISimpleAudioVolume>()
+                {
+                    let _ = simple_volume.SetMasterVolume(volume, std::ptr::null());
                 }
+            }
+        }
+        Ok(())
     }
-    Ok(())
-}}
+}
 
 unsafe extern "system" fn pdj_wnd_proc(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    match msg {
-        WM_APP_SHOW => {
-            // Update lang and theme if needed
-            let (api_key, lang, theme_mode) = {
-                let app = crate::APP.lock().unwrap();
-                (
-                    app.config.gemini_api_key.clone(),
-                    app.config.ui_language.clone(),
-                    app.config.theme_mode.clone(),
-                )
-            };
+) -> LRESULT {
+    unsafe {
+        match msg {
+            WM_APP_SHOW => {
+                // Update lang and theme if needed
+                let (api_key, lang, theme_mode) = {
+                    let app = crate::APP.lock().unwrap();
+                    (
+                        app.config.gemini_api_key.clone(),
+                        app.config.ui_language.clone(),
+                        app.config.theme_mode.clone(),
+                    )
+                };
 
-            let theme_str = match theme_mode {
-                crate::config::ThemeMode::Dark => "dark",
-                crate::config::ThemeMode::Light => "light",
-                crate::config::ThemeMode::System => {
-                    if crate::gui::utils::is_system_in_dark_mode() {
-                        "dark"
-                    } else {
-                        "light"
+                let theme_str = match theme_mode {
+                    crate::config::ThemeMode::Dark => "dark",
+                    crate::config::ThemeMode::Light => "light",
+                    crate::config::ThemeMode::System => {
+                        if crate::gui::utils::is_system_in_dark_mode() {
+                            "dark"
+                        } else {
+                            "light"
+                        }
                     }
-                }
-            };
+                };
 
-            // Update window icon based on theme
-            let is_dark = theme_str == "dark";
-            crate::gui::utils::set_window_icon(hwnd, is_dark);
+                // Update window icon based on theme
+                let is_dark = theme_str == "dark";
+                crate::gui::utils::set_window_icon(hwnd, is_dark);
 
-            PDJ_WEBVIEW.with(|wv| {
+                PDJ_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
                     let script = format!(
                         r#"
@@ -190,105 +197,107 @@ unsafe extern "system" fn pdj_wnd_proc(
                 }
             });
 
-            let _ = ShowWindow(hwnd, SW_SHOW);
-            let _ = SetForegroundWindow(hwnd);
-            let _ = SetFocus(Some(hwnd));
-            LRESULT(0)
-        }
-        WM_APP_UPDATE_SETTINGS => {
-            // Update lang and theme immediately even if hidden
-            let (api_key, lang, theme_mode) = {
-                let app = crate::APP.lock().unwrap();
-                (
-                    app.config.gemini_api_key.clone(),
-                    app.config.ui_language.clone(),
-                    app.config.theme_mode.clone(),
-                )
-            };
-
-            let theme_str = match theme_mode {
-                crate::config::ThemeMode::Dark => "dark",
-                crate::config::ThemeMode::Light => "light",
-                crate::config::ThemeMode::System => {
-                    if crate::gui::utils::is_system_in_dark_mode() {
-                        "dark"
-                    } else {
-                        "light"
-                    }
-                }
-            };
-
-            let is_dark = theme_str == "dark";
-            crate::gui::utils::set_window_icon(hwnd, is_dark);
-
-            PDJ_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let script = format!(
-                        r#"
-                        if (window.postMessage) {{
-                            window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
-                            window.postMessage({{ type: 'pm-dj-set-theme', theme: '{}' }}, '*');
-                        }}
-                        "#,
-                        api_key, lang, theme_str
-                    );
-                    let _ = webview.evaluate_script(&script);
-                }
-            });
-            LRESULT(0)
-        }
-        WM_CLOSE => {
-            PDJ_WEBVIEW.with(|wv| {
-                if let Some(webview) = wv.borrow().as_ref() {
-                    let _ = webview
-                        .evaluate_script("window.postMessage({ type: 'pm-dj-stop-audio' }, '*')");
-                }
-            });
-            let _ = ShowWindow(hwnd, SW_HIDE);
-            LRESULT(0)
-        }
-        WM_DESTROY => {
-            PostQuitMessage(0);
-            LRESULT(0)
-        }
-        WM_ERASEBKGND => LRESULT(1),
-        WM_NCCALCSIZE => {
-            if wparam.0 != 0 {
+                let _ = ShowWindow(hwnd, SW_SHOW);
+                let _ = SetForegroundWindow(hwnd);
+                let _ = SetFocus(Some(hwnd));
                 LRESULT(0)
-            } else {
-                DefWindowProcW(hwnd, msg, wparam, lparam)
             }
-        }
-        WM_SIZE => {
-            PDJ_WEBVIEW.with(|wv| {
+            WM_APP_UPDATE_SETTINGS => {
+                // Update lang and theme immediately even if hidden
+                let (api_key, lang, theme_mode) = {
+                    let app = crate::APP.lock().unwrap();
+                    (
+                        app.config.gemini_api_key.clone(),
+                        app.config.ui_language.clone(),
+                        app.config.theme_mode.clone(),
+                    )
+                };
+
+                let theme_str = match theme_mode {
+                    crate::config::ThemeMode::Dark => "dark",
+                    crate::config::ThemeMode::Light => "light",
+                    crate::config::ThemeMode::System => {
+                        if crate::gui::utils::is_system_in_dark_mode() {
+                            "dark"
+                        } else {
+                            "light"
+                        }
+                    }
+                };
+
+                let is_dark = theme_str == "dark";
+                crate::gui::utils::set_window_icon(hwnd, is_dark);
+
+                PDJ_WEBVIEW.with(|wv| {
                 if let Some(webview) = wv.borrow().as_ref() {
-                    let mut r = RECT::default();
-                    let _ = GetClientRect(hwnd, &mut r);
-                    let width = r.right - r.left;
-                    let height = r.bottom - r.top;
-                    let _ = webview.set_bounds(Rect {
-                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(
-                            0, 0,
-                        )),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-                            width as u32,
-                            height as u32,
-                        )),
-                    });
+                    let script = format!(
+                        r#"
+                        if (window.postMessage) {{
+                            window.postMessage({{ type: 'pm-dj-set-api-key', apiKey: '{}', lang: '{}' }}, '*');
+                            window.postMessage({{ type: 'pm-dj-set-theme', theme: '{}' }}, '*');
+                        }}
+                        "#,
+                        api_key, lang, theme_str
+                    );
+                    let _ = webview.evaluate_script(&script);
                 }
             });
-            LRESULT(0)
+                LRESULT(0)
+            }
+            WM_CLOSE => {
+                PDJ_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let _ = webview.evaluate_script(
+                            "window.postMessage({ type: 'pm-dj-stop-audio' }, '*')",
+                        );
+                    }
+                });
+                let _ = ShowWindow(hwnd, SW_HIDE);
+                LRESULT(0)
+            }
+            WM_DESTROY => {
+                PostQuitMessage(0);
+                LRESULT(0)
+            }
+            WM_ERASEBKGND => LRESULT(1),
+            WM_NCCALCSIZE => {
+                if wparam.0 != 0 {
+                    LRESULT(0)
+                } else {
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
+                }
+            }
+            WM_SIZE => {
+                PDJ_WEBVIEW.with(|wv| {
+                    if let Some(webview) = wv.borrow().as_ref() {
+                        let mut r = RECT::default();
+                        let _ = GetClientRect(hwnd, &mut r);
+                        let width = r.right - r.left;
+                        let height = r.bottom - r.top;
+                        let _ = webview.set_bounds(Rect {
+                            position: wry::dpi::Position::Physical(
+                                wry::dpi::PhysicalPosition::new(0, 0),
+                            ),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                                width as u32,
+                                height as u32,
+                            )),
+                        });
+                    }
+                });
+                LRESULT(0)
+            }
+            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
-        _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}}
+}
 
 // Wrapper for HWND
 struct HwndWrapper(HWND);
 
 impl HasWindowHandle for HwndWrapper {
     fn window_handle(&self) -> std::result::Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0 .0 as isize;
+        let hwnd = self.0.0 as isize;
         if hwnd == 0 {
             return Err(HandleError::Unavailable);
         }
@@ -368,101 +377,102 @@ pub fn update_settings() {
     }
 }
 
-unsafe fn internal_create_pdj_loop() { unsafe {
-    // 1. Create Window
-    let instance = GetModuleHandleW(None).unwrap();
-    let class_name = w!("PromptDJ_Class_Persistent");
+unsafe fn internal_create_pdj_loop() {
+    unsafe {
+        // 1. Create Window
+        let instance = GetModuleHandleW(None).unwrap();
+        let class_name = w!("PromptDJ_Class_Persistent");
 
-    REGISTER_PDJ_CLASS.call_once(|| {
-        let wc = WNDCLASSW {
-            lpfnWndProc: Some(pdj_wnd_proc),
-            hInstance: instance.into(),
-            lpszClassName: class_name,
-            hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
-            hbrBackground: HBRUSH(std::ptr::null_mut()),
-            ..Default::default()
+        REGISTER_PDJ_CLASS.call_once(|| {
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(pdj_wnd_proc),
+                hInstance: instance.into(),
+                lpszClassName: class_name,
+                hCursor: LoadCursorW(None, IDC_ARROW).unwrap(),
+                hbrBackground: HBRUSH(std::ptr::null_mut()),
+                ..Default::default()
+            };
+            let _ = RegisterClassW(&wc);
+        });
+
+        let screen_w = GetSystemMetrics(SM_CXSCREEN);
+        let screen_h = GetSystemMetrics(SM_CYSCREEN);
+
+        // Adaptive sizing based on screen aspect ratio:
+        // - Width: Use 70% of screen width, capped between 1200 and 1600 pixels
+        // - Height: Scales inversely with aspect ratio for consistent UI appearance
+        //   - At 16:9 (1.78:1): ~72% of screen height → 775px on 1080p
+        //   - At 21:9 (2.37:1): ~60% of screen height → 650px on 1080p ultrawide
+        let aspect_ratio = screen_w as f64 / screen_h as f64;
+        let base_aspect = 16.0 / 9.0; // 1.778
+        let height_pct = (0.72 - (aspect_ratio - base_aspect) * 0.20).clamp(0.50, 0.80);
+
+        let width = ((screen_w as f64 * 0.70) as i32).clamp(1200, 1600);
+        let height = ((screen_h as f64 * height_pct) as i32).clamp(550, 900);
+        let x = (screen_w - width) / 2;
+        let y = (screen_h - height) / 2;
+
+        let (api_key, lang, theme_mode) = {
+            let app = crate::APP.lock().unwrap();
+            (
+                app.config.gemini_api_key.clone(),
+                app.config.ui_language.clone(),
+                app.config.theme_mode.clone(),
+            )
         };
-        let _ = RegisterClassW(&wc);
-    });
 
-    let screen_w = GetSystemMetrics(SM_CXSCREEN);
-    let screen_h = GetSystemMetrics(SM_CYSCREEN);
+        let title_wide = windows::core::HSTRING::from("SGT DJ");
 
-    // Adaptive sizing based on screen aspect ratio:
-    // - Width: Use 70% of screen width, capped between 1200 and 1600 pixels
-    // - Height: Scales inversely with aspect ratio for consistent UI appearance
-    //   - At 16:9 (1.78:1): ~72% of screen height → 775px on 1080p
-    //   - At 21:9 (2.37:1): ~60% of screen height → 650px on 1080p ultrawide
-    let aspect_ratio = screen_w as f64 / screen_h as f64;
-    let base_aspect = 16.0 / 9.0; // 1.778
-    let height_pct = (0.72 - (aspect_ratio - base_aspect) * 0.20).clamp(0.50, 0.80);
-
-    let width = ((screen_w as f64 * 0.70) as i32).clamp(1200, 1600);
-    let height = ((screen_h as f64 * height_pct) as i32).clamp(550, 900);
-    let x = (screen_w - width) / 2;
-    let y = (screen_h - height) / 2;
-
-    let (api_key, lang, theme_mode) = {
-        let app = crate::APP.lock().unwrap();
-        (
-            app.config.gemini_api_key.clone(),
-            app.config.ui_language.clone(),
-            app.config.theme_mode.clone(),
+        let hwnd = CreateWindowExW(
+            WS_EX_APPWINDOW,
+            class_name,
+            PCWSTR(title_wide.as_ptr()),
+            WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_SYSMENU, // Start hidden (no WS_VISIBLE)
+            x,
+            y,
+            width,
+            height,
+            None,
+            None,
+            Some(instance.into()),
+            None,
         )
-    };
+        .unwrap();
 
-    let title_wide = windows::core::HSTRING::from("SGT DJ");
+        PDJ_HWND = SendHwnd(hwnd);
 
-    let hwnd = CreateWindowExW(
-        WS_EX_APPWINDOW,
-        class_name,
-        PCWSTR(title_wide.as_ptr()),
-        WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_SYSMENU, // Start hidden (no WS_VISIBLE)
-        x,
-        y,
-        width,
-        height,
-        None,
-        None,
-        Some(instance.into()),
-        None,
-    )
-    .unwrap();
+        // Enable rounded corners
+        let corner_pref = DWMWCP_ROUND;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner_pref as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&corner_pref) as u32,
+        );
 
-    PDJ_HWND = SendHwnd(hwnd);
+        // Set Window Icon
+        let is_dark = match theme_mode {
+            crate::config::ThemeMode::Dark => true,
+            crate::config::ThemeMode::Light => false,
+            crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
+        };
+        crate::gui::utils::set_window_icon(hwnd, is_dark);
 
-    // Enable rounded corners
-    let corner_pref = DWMWCP_ROUND;
-    let _ = DwmSetWindowAttribute(
-        hwnd,
-        DWMWA_WINDOW_CORNER_PREFERENCE,
-        &corner_pref as *const _ as *const std::ffi::c_void,
-        std::mem::size_of_val(&corner_pref) as u32,
-    );
+        // 2. Create WebView
+        let wrapper = HwndWrapper(hwnd);
 
-    // Set Window Icon
-    let is_dark = match theme_mode {
-        crate::config::ThemeMode::Dark => true,
-        crate::config::ThemeMode::Light => false,
-        crate::config::ThemeMode::System => crate::gui::utils::is_system_in_dark_mode(),
-    };
-    crate::gui::utils::set_window_icon(hwnd, is_dark);
+        let theme_str = match theme_mode {
+            crate::config::ThemeMode::Dark => "dark",
+            crate::config::ThemeMode::Light => "light",
+            crate::config::ThemeMode::System => "dark",
+        };
 
-    // 2. Create WebView
-    let wrapper = HwndWrapper(hwnd);
+        // Font CSS from local HTTP server — CSS @font-face url() only works over http/https, not custom protocols
+        let font_css = crate::overlay::html_components::font_manager::get_font_css();
+        let font_style_tag = format!("<style>{}</style>", font_css);
 
-    let theme_str = match theme_mode {
-        crate::config::ThemeMode::Dark => "dark",
-        crate::config::ThemeMode::Light => "light",
-        crate::config::ThemeMode::System => "dark",
-    };
-
-    // Font CSS from local HTTP server — CSS @font-face url() only works over http/https, not custom protocols
-    let font_css = crate::overlay::html_components::font_manager::get_font_css();
-    let font_style_tag = format!("<style>{}</style>", font_css);
-
-    let init_script = format!(
-        r#"
+        let init_script = format!(
+            r#"
         // --- High-Priority Audio Hook ---
         (function() {{
             window._currentVolume = 1.0;
@@ -619,138 +629,140 @@ unsafe fn internal_create_pdj_loop() { unsafe {
         }});
 
         "#,
-        api_key, lang, theme_str
-    );
+            api_key, lang, theme_str
+        );
 
-    let hwnd_ipc = hwnd;
+        let hwnd_ipc = hwnd;
 
-    PDJ_WEB_CONTEXT.with(|ctx| {
-        if ctx.borrow().is_none() {
-            let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
-            *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
-        }
-    });
+        PDJ_WEB_CONTEXT.with(|ctx| {
+            if ctx.borrow().is_none() {
+                let shared_data_dir = crate::overlay::get_shared_webview_data_dir(Some("common"));
+                *ctx.borrow_mut() = Some(WebContext::new(Some(shared_data_dir)));
+            }
+        });
 
-    // Brief delay to ensure window is fully initialized before creating WebView
-    std::thread::sleep(std::time::Duration::from_millis(100));
+        // Brief delay to ensure window is fully initialized before creating WebView
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
-    let webview_result = {
-        // LOCK SCOPE: Serialized build to prevent resource contention
-        let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
-        crate::log_info!("[PromptDJ] Acquired init lock. Building...");
+        let webview_result = {
+            // LOCK SCOPE: Serialized build to prevent resource contention
+            let _init_lock = crate::overlay::GLOBAL_WEBVIEW_MUTEX.lock().unwrap();
+            crate::log_info!("[PromptDJ] Acquired init lock. Building...");
 
-        let build_res = PDJ_WEB_CONTEXT.with(|ctx| {
-            let mut ctx_ref = ctx.borrow_mut();
-            let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
-                .with_custom_protocol("promptdj".to_string(), {
-                    let font_style_tag = font_style_tag.clone();
-                    move |_id, request| {
-                        let path = request.uri().path();
-                        let (content, mime) = if path == "/" || path == "/index.html" {
-                            // Inject font CSS into HTML <head> for instant font rendering
-                            let html = String::from_utf8_lossy(INDEX_HTML);
-                            let modified =
-                                html.replace("</head>", &format!("{font_style_tag}</head>"));
-                            (Cow::Owned(modified.into_bytes()), "text/html")
-                        } else if path.ends_with("index.js") {
-                            (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
-                        } else if path.ends_with("index.css") {
-                            (Cow::Borrowed(ASSET_INDEX_CSS), "text/css")
-                        } else if path.ends_with("cubic.js") {
-                            (Cow::Borrowed(ASSET_CUBIC_JS), "application/javascript")
-                        } else if path.ends_with("morph-fixed.js") {
-                            (Cow::Borrowed(ASSET_MORPH_JS), "application/javascript")
-                        } else if path.ends_with("roundedPolygon.js") {
-                            (Cow::Borrowed(ASSET_ROUNDED_JS), "application/javascript")
-                        } else if path.ends_with("utils.js") {
-                            (Cow::Borrowed(ASSET_UTILS_JS), "application/javascript")
-                        } else {
-                            return wnd_http_response(
-                                404,
-                                "text/plain",
-                                Cow::Borrowed(b"Not Found".as_slice()),
+            let build_res = PDJ_WEB_CONTEXT.with(|ctx| {
+                let mut ctx_ref = ctx.borrow_mut();
+                let mut builder = WebViewBuilder::new_with_web_context(ctx_ref.as_mut().unwrap())
+                    .with_custom_protocol("promptdj".to_string(), {
+                        let font_style_tag = font_style_tag.clone();
+                        move |_id, request| {
+                            let path = request.uri().path();
+                            let (content, mime) = if path == "/" || path == "/index.html" {
+                                // Inject font CSS into HTML <head> for instant font rendering
+                                let html = String::from_utf8_lossy(INDEX_HTML);
+                                let modified =
+                                    html.replace("</head>", &format!("{font_style_tag}</head>"));
+                                (Cow::Owned(modified.into_bytes()), "text/html")
+                            } else if path.ends_with("index.js") {
+                                (Cow::Borrowed(ASSET_INDEX_JS), "application/javascript")
+                            } else if path.ends_with("index.css") {
+                                (Cow::Borrowed(ASSET_INDEX_CSS), "text/css")
+                            } else if path.ends_with("cubic.js") {
+                                (Cow::Borrowed(ASSET_CUBIC_JS), "application/javascript")
+                            } else if path.ends_with("morph-fixed.js") {
+                                (Cow::Borrowed(ASSET_MORPH_JS), "application/javascript")
+                            } else if path.ends_with("roundedPolygon.js") {
+                                (Cow::Borrowed(ASSET_ROUNDED_JS), "application/javascript")
+                            } else if path.ends_with("utils.js") {
+                                (Cow::Borrowed(ASSET_UTILS_JS), "application/javascript")
+                            } else {
+                                return wnd_http_response(
+                                    404,
+                                    "text/plain",
+                                    Cow::Borrowed(b"Not Found".as_slice()),
+                                );
+                            };
+                            wnd_http_response(200, mime, content)
+                        }
+                    })
+                    .with_initialization_script(&init_script)
+                    .with_ipc_handler(move |msg: wry::http::Request<String>| {
+                        let body = msg.body().as_str();
+                        if body == "drag_window" {
+                            let _ = ReleaseCapture();
+                            let _ = SendMessageW(
+                                hwnd_ipc,
+                                WM_NCLBUTTONDOWN,
+                                Some(WPARAM(HTCAPTION as usize)),
+                                Some(LPARAM(0)),
                             );
-                        };
-                        wnd_http_response(200, mime, content)
-                    }
-                })
-                .with_initialization_script(&init_script)
-                .with_ipc_handler(move |msg: wry::http::Request<String>| {
-                    let body = msg.body().as_str();
-                    if body == "drag_window" {
-                        let _ = ReleaseCapture();
-                        let _ = SendMessageW(
-                            hwnd_ipc,
-                            WM_NCLBUTTONDOWN,
-                            Some(WPARAM(HTCAPTION as usize)),
-                            Some(LPARAM(0)),
-                        );
-                    } else if body == "minimize_window" {
-                        let _ = ShowWindow(hwnd_ipc, SW_MINIMIZE);
-                    } else if body == "close_window" {
-                        let _ = ShowWindow(hwnd_ipc, SW_HIDE);
-                    } else if body.starts_with("set_volume:")
-                        && let Ok(val) = body.trim_start_matches("set_volume:").parse::<f32>() {
+                        } else if body == "minimize_window" {
+                            let _ = ShowWindow(hwnd_ipc, SW_MINIMIZE);
+                        } else if body == "close_window" {
+                            let _ = ShowWindow(hwnd_ipc, SW_HIDE);
+                        } else if body.starts_with("set_volume:")
+                            && let Ok(val) = body.trim_start_matches("set_volume:").parse::<f32>()
+                        {
                             let _ = set_app_volume(val);
                         }
-                })
-                .with_url("promptdj://localhost/index.html");
+                    })
+                    .with_url("promptdj://localhost/index.html");
 
-            builder = crate::overlay::html_components::font_manager::configure_webview(builder);
-            builder.build_as_child(&wrapper)
+                builder = crate::overlay::html_components::font_manager::configure_webview(builder);
+                builder.build_as_child(&wrapper)
+            });
+            crate::log_info!(
+                "[PromptDJ] Build finished. Status: {}",
+                if build_res.is_ok() { "OK" } else { "ERR" }
+            );
+            build_res
+        };
+
+        let webview = match webview_result {
+            Ok(wv) => wv,
+            Err(e) => {
+                eprintln!("Failed to create PromptDJ WebView: {:?}", e);
+                // Clean up and exit gracefully
+                let _ = DestroyWindow(hwnd);
+                PDJ_HWND = SendHwnd::default();
+                return;
+            }
+        };
+        // Initial Resize
+        let mut r = RECT::default();
+        let _ = GetClientRect(hwnd, &mut r);
+        let _ = webview.set_bounds(Rect {
+            position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
+            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
+                (r.right - r.left) as u32,
+                (r.bottom - r.top) as u32,
+            )),
         });
-        crate::log_info!(
-            "[PromptDJ] Build finished. Status: {}",
-            if build_res.is_ok() { "OK" } else { "ERR" }
-        );
-        build_res
-    };
 
-    let webview = match webview_result {
-        Ok(wv) => wv,
-        Err(e) => {
-            eprintln!("Failed to create PromptDJ WebView: {:?}", e);
-            // Clean up and exit gracefully
-            let _ = DestroyWindow(hwnd);
-            PDJ_HWND = SendHwnd::default();
-            return;
+        PDJ_WEBVIEW.with(|wv| {
+            *wv.borrow_mut() = Some(webview);
+        });
+
+        // Mark as warmed up and ready
+        IS_WARMED_UP = true;
+
+        // Spawn thread to cache child PIDs for volume control
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            update_child_pids();
+        });
+
+        // 3. Message Loop
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            let _ = DispatchMessageW(&msg);
         }
-    };
-    // Initial Resize
-    let mut r = RECT::default();
-    let _ = GetClientRect(hwnd, &mut r);
-    let _ = webview.set_bounds(Rect {
-        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(0, 0)),
-        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(
-            (r.right - r.left) as u32,
-            (r.bottom - r.top) as u32,
-        )),
-    });
 
-    PDJ_WEBVIEW.with(|wv| {
-        *wv.borrow_mut() = Some(webview);
-    });
-
-    // Mark as warmed up and ready
-    IS_WARMED_UP = true;
-
-    // Spawn thread to cache child PIDs for volume control
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        update_child_pids();
-    });
-
-    // 3. Message Loop
-    let mut msg = MSG::default();
-    while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-        let _ = TranslateMessage(&msg);
-        let _ = DispatchMessageW(&msg);
+        PDJ_WEBVIEW.with(|wv| {
+            *wv.borrow_mut() = None;
+        });
+        PDJ_HWND = SendHwnd::default();
+        IS_WARMED_UP = false;
+        IS_INITIALIZING = false;
     }
-
-    PDJ_WEBVIEW.with(|wv| {
-        *wv.borrow_mut() = None;
-    });
-    PDJ_HWND = SendHwnd::default();
-    IS_WARMED_UP = false;
-    IS_INITIALIZING = false;
-}}
+}

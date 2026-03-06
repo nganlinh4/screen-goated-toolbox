@@ -11,12 +11,12 @@ mod tts;
 
 // Re-export all types for easy access
 pub use enums::{
-    get_system_ui_language, BlockType, ThemeMode, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT,
+    BlockType, DEFAULT_HISTORY_LIMIT, DEFAULT_PROJECTS_LIMIT, ThemeMode, get_system_ui_language,
 };
 
 pub use hotkey::Hotkey;
 
 pub use tts::{
-    default_tts_language_conditions, EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition,
-    TtsMethod,
+    EdgeTtsSettings, EdgeTtsVoiceConfig, TtsLanguageCondition, TtsMethod,
+    default_tts_language_conditions,
 };

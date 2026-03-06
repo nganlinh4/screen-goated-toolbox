@@ -27,19 +27,20 @@ pub fn is_text_input_focused() -> bool {
         // We use a pattern-based approach which is robust for Chrome/Electron/VSCode
         if let Ok(uia) =
             CoCreateInstance::<_, IUIAutomation>(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-            && let Ok(focused) = uia.GetFocusedElement() {
-                // Check for ValuePattern (simpler text inputs)
-                // UIA_ValuePatternId = 10002
-                if focused.GetCurrentPattern(UIA_ValuePatternId).is_ok() {
-                    return true;
-                }
-
-                // Check for TextPattern (rich text editors)
-                // UIA_TextPatternId = 10014
-                if focused.GetCurrentPattern(UIA_TextPatternId).is_ok() {
-                    return true;
-                }
+            && let Ok(focused) = uia.GetFocusedElement()
+        {
+            // Check for ValuePattern (simpler text inputs)
+            // UIA_ValuePatternId = 10002
+            if focused.GetCurrentPattern(UIA_ValuePatternId).is_ok() {
+                return true;
             }
+
+            // Check for TextPattern (rich text editors)
+            // UIA_TextPatternId = 10014
+            if focused.GetCurrentPattern(UIA_TextPatternId).is_ok() {
+                return true;
+            }
+        }
 
         // Fallback: Check legacy Win32 caret (for traditional Win32 apps like Notepad)
         let hwnd_foreground = GetForegroundWindow();
@@ -678,9 +679,10 @@ fn extract_http_status_code(error: &str) -> Option<u16> {
             .collect();
         if last_3.chars().all(|c| c.is_ascii_digit())
             && let Ok(code) = last_3.parse::<u16>()
-                && (400..=599).contains(&code) {
-                    return Some(code);
-                }
+            && (400..=599).contains(&code)
+        {
+            return Some(code);
+        }
     }
 
     // Check for "XXX" anywhere (common error codes)

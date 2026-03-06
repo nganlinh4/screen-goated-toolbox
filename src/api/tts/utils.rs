@@ -79,28 +79,30 @@ pub fn get_output_devices() -> Vec<(String, String)> {
         if let Ok(enumerator) =
             CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
             && let Ok(collection) = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
-                && let Ok(count) = collection.GetCount() {
-                    for i in 0..count {
-                        if let Ok(device) = collection.Item(i)
-                            && let Ok(id) = device.GetId() {
-                                let id_str = id.to_string().unwrap_or_default();
-                                // Try to get friendly name
-                                let name = if let Ok(_props) = device.OpenPropertyStore(STGM_READ) {
-                                    // PKEY_Device_FriendlyName would be ideal but requires property key definition
-                                    // For now, let's just use the ID or partial ID if needed,
-                                    // but usually we rely on the ID.
-                                    // If we really need the name, we would need to implement property getters.
-                                    // Given the original code had this logic, we keep it simple or reuse if possible.
-                                    // The original code comment said: "In windows 0.62, PropVariant access is verbose."
-                                    // and "Let's rely on the ID matching...".
-                                    id_str.clone()
-                                } else {
-                                    id_str.clone()
-                                };
-                                devices.push((id_str, name));
-                            }
-                    }
+            && let Ok(count) = collection.GetCount()
+        {
+            for i in 0..count {
+                if let Ok(device) = collection.Item(i)
+                    && let Ok(id) = device.GetId()
+                {
+                    let id_str = id.to_string().unwrap_or_default();
+                    // Try to get friendly name
+                    let name = if let Ok(_props) = device.OpenPropertyStore(STGM_READ) {
+                        // PKEY_Device_FriendlyName would be ideal but requires property key definition
+                        // For now, let's just use the ID or partial ID if needed,
+                        // but usually we rely on the ID.
+                        // If we really need the name, we would need to implement property getters.
+                        // Given the original code had this logic, we keep it simple or reuse if possible.
+                        // The original code comment said: "In windows 0.62, PropVariant access is verbose."
+                        // and "Let's rely on the ID matching...".
+                        id_str.clone()
+                    } else {
+                        id_str.clone()
+                    };
+                    devices.push((id_str, name));
                 }
+            }
+        }
     }
     devices
 }

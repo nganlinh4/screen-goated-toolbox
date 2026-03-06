@@ -1,5 +1,5 @@
-use super::backend::{collection_specs, preload_collection};
 use super::GalleryEvent;
+use super::backend::{collection_specs, preload_collection};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
 

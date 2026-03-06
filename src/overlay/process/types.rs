@@ -59,19 +59,19 @@ lazy_static::lazy_static! {
 /// Returns the original rect if no saved geometry exists or if it's an image preset.
 pub fn get_rect_with_saved_geometry(preset_id: &str, original_rect: RECT) -> RECT {
     if let Ok(app) = crate::APP.lock()
-        && let Some(preset) = app.config.presets.iter().find(|p| p.id == preset_id) {
-            // Only apply saved geometry for non-image presets
-            let is_image_category = preset.preset_type == "image";
-            if !is_image_category
-                && let Some(geom) = &preset.window_geometry {
-                    return RECT {
-                        left: geom.x,
-                        top: geom.y,
-                        right: geom.x + geom.width,
-                        bottom: geom.y + geom.height,
-                    };
-                }
+        && let Some(preset) = app.config.presets.iter().find(|p| p.id == preset_id)
+    {
+        // Only apply saved geometry for non-image presets
+        let is_image_category = preset.preset_type == "image";
+        if !is_image_category && let Some(geom) = &preset.window_geometry {
+            return RECT {
+                left: geom.x,
+                top: geom.y,
+                right: geom.x + geom.width,
+                bottom: geom.y + geom.height,
+            };
         }
+    }
     original_rect
 }
 

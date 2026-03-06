@@ -3,8 +3,8 @@
 
 use std::cell::RefCell;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering},
     Arc, Mutex, Once,
+    atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering},
 };
 use windows::Win32::UI::WindowsAndMessaging::WM_USER;
 use wry::{WebContext, WebView};

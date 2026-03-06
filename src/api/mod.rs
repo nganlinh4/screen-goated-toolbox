@@ -9,8 +9,10 @@ pub mod types;
 pub mod vision;
 
 pub use audio::{record_and_stream_gemini_live, record_audio_and_transcribe};
-pub use text::{refine_text_streaming, translate_text_streaming};
-pub use vision::translate_image_streaming;
+pub use text::{
+    RefineTextRequest, TranslateTextRequest, refine_text_streaming, translate_text_streaming,
+};
+pub use vision::{TranslateImageRequest, translate_image_streaming};
 // realtime_audio types/functions are used directly where needed via crate::api::realtime_audio::
 
 /// Special prefix signal that tells callbacks to clear their accumulator before processing

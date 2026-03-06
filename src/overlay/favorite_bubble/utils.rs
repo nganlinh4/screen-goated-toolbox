@@ -9,7 +9,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
         &self,
     ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
         let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0 .0 as isize).expect("HWND cannot be null"),
+            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
         );
         let handle = raw_window_handle::RawWindowHandle::Win32(raw);
         unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }

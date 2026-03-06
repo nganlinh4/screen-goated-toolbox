@@ -53,9 +53,10 @@ impl InputHistory {
         let path = Self::history_path();
         if path.exists()
             && let Ok(data) = fs::read_to_string(&path)
-                && let Ok(history) = serde_json::from_str::<InputHistory>(&data) {
-                    return history;
-                }
+            && let Ok(history) = serde_json::from_str::<InputHistory>(&data)
+        {
+            return history;
+        }
         Self::default()
     }
 

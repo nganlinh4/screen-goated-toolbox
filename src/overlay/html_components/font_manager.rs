@@ -176,9 +176,10 @@ fn get_server_url() -> Option<String> {
     // Wait for URL to be available (up to 2 seconds)
     for _ in 0..40 {
         if let Ok(guard) = SERVER_URL.lock()
-            && let Some(url) = guard.as_ref() {
-                return Some(url.clone());
-            }
+            && let Some(url) = guard.as_ref()
+        {
+            return Some(url.clone());
+        }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     None

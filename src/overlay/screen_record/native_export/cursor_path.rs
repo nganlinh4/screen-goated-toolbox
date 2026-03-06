@@ -128,11 +128,7 @@ fn resolve_semantic(raw: &str) -> &'static str {
 fn build_cursor_type(semantic: &str, pack: &str, is_clicked: bool) -> String {
     // "grab" semantic resolves to openhand/closehand based on click state
     let effective = if semantic == "grab" {
-        if is_clicked {
-            "closehand"
-        } else {
-            "openhand"
-        }
+        if is_clicked { "closehand" } else { "openhand" }
     } else {
         semantic
     };

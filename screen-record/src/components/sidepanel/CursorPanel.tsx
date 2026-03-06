@@ -5,28 +5,22 @@ import { Switch } from '@/components/ui/Switch';
 import { PanelCard } from '@/components/layout/PanelCard';
 import { SettingRow } from '@/components/layout/SettingRow';
 import { useSettings } from '@/hooks/useSettings';
+import {
+  CURSOR_PACKS,
+  type CursorPack,
+  type CursorRenderKind,
+} from '@/lib/renderer/cursorModel';
 
 export const CURSOR_ASSET_VERSION = `cursor-variants-runtime-${Date.now()}`;
 export const CURSOR_VARIANT_ROW_HEIGHT = 58;
 export const CURSOR_VARIANT_VIEWPORT_HEIGHT = 280;
 
-export type CursorVariant = 'screenstudio' | 'macos26' | 'sgtcute' | 'sgtcool' | 'sgtai' | 'sgtpixel' | 'jepriwin11' | 'sgtwatermelon' | 'sgtfastfood' | 'sgtveggie' | 'sgtvietnam' | 'sgtkorea';
+type CursorVariant = CursorPack;
 
 export interface CursorVariantRow {
-  id: string;
+  id: CursorRenderKind;
   label: string;
-  screenstudioSrc: string;
-  macos26Src: string;
-  sgtcuteSrc: string;
-  sgtcoolSrc: string;
-  sgtaiSrc: string;
-  sgtpixelSrc: string;
-  jepriwin11Src: string;
-  sgtwatermelonSrc: string;
-  sgtfastfoodSrc: string;
-  sgtveggieSrc: string;
-  sgtvietnamSrc: string;
-  sgtkoreaSrc: string;
+  variants: Record<CursorVariant, string>;
 }
 
 interface CursorVariantButtonProps {
@@ -34,6 +28,33 @@ interface CursorVariantButtonProps {
   onClick: () => void;
   label: string;
   children: React.ReactNode;
+}
+
+const CURSOR_PACK_LABELS: Record<CursorVariant, string> = {
+  screenstudio: 'Mac OG',
+  macos26: 'Mac Tahoe+',
+  sgtcute: 'SGT Cute',
+  sgtcool: 'SGT Cool',
+  sgtai: 'SGT AI',
+  sgtpixel: 'SGT Pixel',
+  jepriwin11: 'Jepri Win11',
+  sgtwatermelon: 'SGT Watermelon',
+  sgtfastfood: 'SGT Fastfood',
+  sgtveggie: 'SGT Veggie',
+  sgtvietnam: 'SGT Vietnam',
+  sgtkorea: 'SGT Korea',
+};
+
+function getCursorVariantSrc(kind: CursorRenderKind, pack: CursorVariant): string {
+  return `/cursor-${kind}-${pack}.svg`;
+}
+
+function buildCursorVariantRow(id: CursorRenderKind, label: string): CursorVariantRow {
+  const variants = {} as Record<CursorVariant, string>;
+  for (const pack of CURSOR_PACKS) {
+    variants[pack] = getCursorVariantSrc(id, pack);
+  }
+  return { id, label, variants };
 }
 
 function CursorVariantButton({ isSelected, onClick, label, children }: CursorVariantButtonProps) {
@@ -87,18 +108,18 @@ export function CursorPanel({
       cursorOpenHandVariant: pack,
     }));
   const rows = useMemo<CursorVariantRow[]>(() => ([
-    { id: 'default', label: t.cursorDefault, screenstudioSrc: '/cursor-default-screenstudio.svg', macos26Src: '/cursor-default-macos26.svg', sgtcuteSrc: '/cursor-default-sgtcute.svg', sgtcoolSrc: '/cursor-default-sgtcool.svg', sgtaiSrc: '/cursor-default-sgtai.svg', sgtpixelSrc: '/cursor-default-sgtpixel.svg', jepriwin11Src: '/cursor-default-jepriwin11.svg', sgtwatermelonSrc: '/cursor-default-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-default-sgtfastfood.svg', sgtveggieSrc: '/cursor-default-sgtveggie.svg', sgtvietnamSrc: '/cursor-default-sgtvietnam.svg', sgtkoreaSrc: '/cursor-default-sgtkorea.svg' },
-    { id: 'text', label: t.cursorText, screenstudioSrc: '/cursor-text-screenstudio.svg', macos26Src: '/cursor-text-macos26.svg', sgtcuteSrc: '/cursor-text-sgtcute.svg', sgtcoolSrc: '/cursor-text-sgtcool.svg', sgtaiSrc: '/cursor-text-sgtai.svg', sgtpixelSrc: '/cursor-text-sgtpixel.svg', jepriwin11Src: '/cursor-text-jepriwin11.svg', sgtwatermelonSrc: '/cursor-text-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-text-sgtfastfood.svg', sgtveggieSrc: '/cursor-text-sgtveggie.svg', sgtvietnamSrc: '/cursor-text-sgtvietnam.svg', sgtkoreaSrc: '/cursor-text-sgtkorea.svg' },
-    { id: 'pointer', label: t.cursorPointer, screenstudioSrc: '/cursor-pointer-screenstudio.svg', macos26Src: '/cursor-pointer-macos26.svg', sgtcuteSrc: '/cursor-pointer-sgtcute.svg', sgtcoolSrc: '/cursor-pointer-sgtcool.svg', sgtaiSrc: '/cursor-pointer-sgtai.svg', sgtpixelSrc: '/cursor-pointer-sgtpixel.svg', jepriwin11Src: '/cursor-pointer-jepriwin11.svg', sgtwatermelonSrc: '/cursor-pointer-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-pointer-sgtfastfood.svg', sgtveggieSrc: '/cursor-pointer-sgtveggie.svg', sgtvietnamSrc: '/cursor-pointer-sgtvietnam.svg', sgtkoreaSrc: '/cursor-pointer-sgtkorea.svg' },
-    { id: 'openhand', label: t.cursorOpenHand, screenstudioSrc: '/cursor-openhand-screenstudio.svg', macos26Src: '/cursor-openhand-macos26.svg', sgtcuteSrc: '/cursor-openhand-sgtcute.svg', sgtcoolSrc: '/cursor-openhand-sgtcool.svg', sgtaiSrc: '/cursor-openhand-sgtai.svg', sgtpixelSrc: '/cursor-openhand-sgtpixel.svg', jepriwin11Src: '/cursor-openhand-jepriwin11.svg', sgtwatermelonSrc: '/cursor-openhand-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-openhand-sgtfastfood.svg', sgtveggieSrc: '/cursor-openhand-sgtveggie.svg', sgtvietnamSrc: '/cursor-openhand-sgtvietnam.svg', sgtkoreaSrc: '/cursor-openhand-sgtkorea.svg' },
-    { id: 'closehand', label: 'Closed Hand', screenstudioSrc: '/cursor-closehand-screenstudio.svg', macos26Src: '/cursor-closehand-macos26.svg', sgtcuteSrc: '/cursor-closehand-sgtcute.svg', sgtcoolSrc: '/cursor-closehand-sgtcool.svg', sgtaiSrc: '/cursor-closehand-sgtai.svg', sgtpixelSrc: '/cursor-closehand-sgtpixel.svg', jepriwin11Src: '/cursor-closehand-jepriwin11.svg', sgtwatermelonSrc: '/cursor-closehand-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-closehand-sgtfastfood.svg', sgtveggieSrc: '/cursor-closehand-sgtveggie.svg', sgtvietnamSrc: '/cursor-closehand-sgtvietnam.svg', sgtkoreaSrc: '/cursor-closehand-sgtkorea.svg' },
-    { id: 'wait', label: 'Wait', screenstudioSrc: '/cursor-wait-screenstudio.svg', macos26Src: '/cursor-wait-macos26.svg', sgtcuteSrc: '/cursor-wait-sgtcute.svg', sgtcoolSrc: '/cursor-wait-sgtcool.svg', sgtaiSrc: '/cursor-wait-sgtai.svg', sgtpixelSrc: '/cursor-wait-sgtpixel.svg', jepriwin11Src: '/cursor-wait-jepriwin11.svg', sgtwatermelonSrc: '/cursor-wait-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-wait-sgtfastfood.svg', sgtveggieSrc: '/cursor-wait-sgtveggie.svg', sgtvietnamSrc: '/cursor-wait-sgtvietnam.svg', sgtkoreaSrc: '/cursor-wait-sgtkorea.svg' },
-    { id: 'appstarting', label: 'App Starting', screenstudioSrc: '/cursor-appstarting-screenstudio.svg', macos26Src: '/cursor-appstarting-macos26.svg', sgtcuteSrc: '/cursor-appstarting-sgtcute.svg', sgtcoolSrc: '/cursor-appstarting-sgtcool.svg', sgtaiSrc: '/cursor-appstarting-sgtai.svg', sgtpixelSrc: '/cursor-appstarting-sgtpixel.svg', jepriwin11Src: '/cursor-appstarting-jepriwin11.svg', sgtwatermelonSrc: '/cursor-appstarting-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-appstarting-sgtfastfood.svg', sgtveggieSrc: '/cursor-appstarting-sgtveggie.svg', sgtvietnamSrc: '/cursor-appstarting-sgtvietnam.svg', sgtkoreaSrc: '/cursor-appstarting-sgtkorea.svg' },
-    { id: 'crosshair', label: 'Crosshair', screenstudioSrc: '/cursor-crosshair-screenstudio.svg', macos26Src: '/cursor-crosshair-macos26.svg', sgtcuteSrc: '/cursor-crosshair-sgtcute.svg', sgtcoolSrc: '/cursor-crosshair-sgtcool.svg', sgtaiSrc: '/cursor-crosshair-sgtai.svg', sgtpixelSrc: '/cursor-crosshair-sgtpixel.svg', jepriwin11Src: '/cursor-crosshair-jepriwin11.svg', sgtwatermelonSrc: '/cursor-crosshair-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-crosshair-sgtfastfood.svg', sgtveggieSrc: '/cursor-crosshair-sgtveggie.svg', sgtvietnamSrc: '/cursor-crosshair-sgtvietnam.svg', sgtkoreaSrc: '/cursor-crosshair-sgtkorea.svg' },
-    { id: 'resize_ns', label: 'Resize N-S', screenstudioSrc: '/cursor-resize-ns-screenstudio.svg', macos26Src: '/cursor-resize-ns-macos26.svg', sgtcuteSrc: '/cursor-resize-ns-sgtcute.svg', sgtcoolSrc: '/cursor-resize-ns-sgtcool.svg', sgtaiSrc: '/cursor-resize-ns-sgtai.svg', sgtpixelSrc: '/cursor-resize-ns-sgtpixel.svg', jepriwin11Src: '/cursor-resize-ns-jepriwin11.svg', sgtwatermelonSrc: '/cursor-resize-ns-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-resize-ns-sgtfastfood.svg', sgtveggieSrc: '/cursor-resize-ns-sgtveggie.svg', sgtvietnamSrc: '/cursor-resize-ns-sgtvietnam.svg', sgtkoreaSrc: '/cursor-resize-ns-sgtkorea.svg' },
-    { id: 'resize_we', label: 'Resize W-E', screenstudioSrc: '/cursor-resize-we-screenstudio.svg', macos26Src: '/cursor-resize-we-macos26.svg', sgtcuteSrc: '/cursor-resize-we-sgtcute.svg', sgtcoolSrc: '/cursor-resize-we-sgtcool.svg', sgtaiSrc: '/cursor-resize-we-sgtai.svg', sgtpixelSrc: '/cursor-resize-we-sgtpixel.svg', jepriwin11Src: '/cursor-resize-we-jepriwin11.svg', sgtwatermelonSrc: '/cursor-resize-we-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-resize-we-sgtfastfood.svg', sgtveggieSrc: '/cursor-resize-we-sgtveggie.svg', sgtvietnamSrc: '/cursor-resize-we-sgtvietnam.svg', sgtkoreaSrc: '/cursor-resize-we-sgtkorea.svg' },
-    { id: 'resize_nwse', label: 'Resize NW-SE', screenstudioSrc: '/cursor-resize-nwse-screenstudio.svg', macos26Src: '/cursor-resize-nwse-macos26.svg', sgtcuteSrc: '/cursor-resize-nwse-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nwse-sgtcool.svg', sgtaiSrc: '/cursor-resize-nwse-sgtai.svg', sgtpixelSrc: '/cursor-resize-nwse-sgtpixel.svg', jepriwin11Src: '/cursor-resize-nwse-jepriwin11.svg', sgtwatermelonSrc: '/cursor-resize-nwse-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-resize-nwse-sgtfastfood.svg', sgtveggieSrc: '/cursor-resize-nwse-sgtveggie.svg', sgtvietnamSrc: '/cursor-resize-nwse-sgtvietnam.svg', sgtkoreaSrc: '/cursor-resize-nwse-sgtkorea.svg' },
-    { id: 'resize_nesw', label: 'Resize NE-SW', screenstudioSrc: '/cursor-resize-nesw-screenstudio.svg', macos26Src: '/cursor-resize-nesw-macos26.svg', sgtcuteSrc: '/cursor-resize-nesw-sgtcute.svg', sgtcoolSrc: '/cursor-resize-nesw-sgtcool.svg', sgtaiSrc: '/cursor-resize-nesw-sgtai.svg', sgtpixelSrc: '/cursor-resize-nesw-sgtpixel.svg', jepriwin11Src: '/cursor-resize-nesw-jepriwin11.svg', sgtwatermelonSrc: '/cursor-resize-nesw-sgtwatermelon.svg', sgtfastfoodSrc: '/cursor-resize-nesw-sgtfastfood.svg', sgtveggieSrc: '/cursor-resize-nesw-sgtveggie.svg', sgtvietnamSrc: '/cursor-resize-nesw-sgtvietnam.svg', sgtkoreaSrc: '/cursor-resize-nesw-sgtkorea.svg' },
+    buildCursorVariantRow('default', t.cursorDefault),
+    buildCursorVariantRow('text', t.cursorText),
+    buildCursorVariantRow('pointer', t.cursorPointer),
+    buildCursorVariantRow('openhand', t.cursorOpenHand),
+    buildCursorVariantRow('closehand', 'Closed Hand'),
+    buildCursorVariantRow('wait', 'Wait'),
+    buildCursorVariantRow('appstarting', 'App Starting'),
+    buildCursorVariantRow('crosshair', 'Crosshair'),
+    buildCursorVariantRow('resize-ns', 'Resize N-S'),
+    buildCursorVariantRow('resize-we', 'Resize W-E'),
+    buildCursorVariantRow('resize-nwse', 'Resize NW-SE'),
+    buildCursorVariantRow('resize-nesw', 'Resize NE-SW'),
   ]), [t.cursorDefault, t.cursorText, t.cursorPointer, t.cursorOpenHand]);
   const viewportHeight = CURSOR_VARIANT_VIEWPORT_HEIGHT;
   const totalHeight = rows.length * CURSOR_VARIANT_ROW_HEIGHT;
@@ -169,13 +190,13 @@ export function CursorPanel({
               onScroll={(e) => setVariantScrollTop(e.currentTarget.scrollTop)}
             >
               <div className="cursor-variant-column-header sticky top-0 z-10 min-h-8 py-1 px-1.5 border-b border-glass-border grid grid-cols-12 gap-1.5 items-start bg-surface">
-                {['Mac OG', 'Mac Tahoe+', 'SGT Cute', 'SGT Cool', 'SGT AI', 'SGT Pixel', 'Jepri Win11', 'SGT Watermelon', 'SGT Fastfood', 'SGT Veggie', 'SGT Vietnam', 'SGT Korea'].map((name) => (
+                {CURSOR_PACKS.map((pack) => (
                   <span
-                    key={name}
+                    key={pack}
                     className="cursor-variant-col-label text-center text-[9px] leading-[1.05] tracking-tight whitespace-normal break-words text-on-surface-variant"
                     style={{ fontFamily: "'Google Sans Flex', 'Segoe UI', system-ui, sans-serif", fontVariationSettings: "'wdth' 30, 'ROND' 100" }}
                   >
-                    {name}
+                    {CURSOR_PACK_LABELS[pack]}
                   </span>
                 ))}
               </div>
@@ -185,20 +206,10 @@ export function CursorPanel({
                   const tiltDeg = backgroundConfig.cursorTiltAngle ?? -10;
                   const hasTilt = (row.id === 'default' || row.id === 'pointer') && Math.abs(tiltDeg) > 0.5;
                   const tiltStyle = hasTilt ? { rotate: `${tiltDeg}deg` } as React.CSSProperties : undefined;
-                  const variantKeys: Array<{ pack: CursorVariant; src: string }> = [
-                    { pack: 'screenstudio', src: row.screenstudioSrc },
-                    { pack: 'macos26', src: row.macos26Src },
-                    { pack: 'sgtcute', src: row.sgtcuteSrc },
-                    { pack: 'sgtcool', src: row.sgtcoolSrc },
-                    { pack: 'sgtai', src: row.sgtaiSrc },
-                    { pack: 'sgtpixel', src: row.sgtpixelSrc },
-                    { pack: 'jepriwin11', src: row.jepriwin11Src },
-                    { pack: 'sgtwatermelon', src: row.sgtwatermelonSrc },
-                    { pack: 'sgtfastfood', src: row.sgtfastfoodSrc },
-                    { pack: 'sgtveggie', src: row.sgtveggieSrc },
-                    { pack: 'sgtvietnam', src: row.sgtvietnamSrc },
-                    { pack: 'sgtkorea', src: row.sgtkoreaSrc },
-                  ];
+                  const variantKeys = CURSOR_PACKS.map((pack) => ({
+                    pack,
+                    src: row.variants[pack],
+                  }));
                   return (
                     <div
                       key={row.id}

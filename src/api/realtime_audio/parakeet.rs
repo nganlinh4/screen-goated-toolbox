@@ -31,14 +31,16 @@ pub fn run_parakeet_transcription(
     }
 
     run_parakeet_session(
-        stop_signal.clone(),
-        dummy_pause_signal,
-        full_audio_buffer,
-        hwnd_overlay, // Send volume updates to overlay
-        hide_recording_ui,
-        false, // Download progress shown in WebView modal, not badge
-        None,  // Use global config
-        false, // auto_stop_enabled - DISABLED for realtime mode to prevent killing the transcription thread on silence
+        ParakeetSessionOptions {
+            stop_signal: stop_signal.clone(),
+            pause_signal: dummy_pause_signal,
+            full_audio_buffer,
+            overlay_hwnd_opt: hwnd_overlay,
+            hide_recording_ui,
+            use_badge: false,
+            audio_source_override: None,
+            auto_stop_recording: false,
+        },
         move |text| {
             // Callback for each text segment
             if let Ok(mut s) = state.lock() {
@@ -57,24 +59,32 @@ pub fn run_parakeet_transcription(
 }
 
 /// Generic Parakeet session that can be used by both Realtime Overlay and Prompt DJ
-#[expect(
-    clippy::too_many_arguments,
-    reason = "session startup needs explicit runtime toggles and shared handles"
-)]
-pub fn run_parakeet_session<F>(
-    stop_signal: Arc<AtomicBool>,
-    pause_signal: Arc<AtomicBool>,
-    full_audio_buffer: Option<Arc<Mutex<Vec<i16>>>>,
-    overlay_hwnd_opt: Option<HWND>,
-    hide_recording_ui: bool,
-    use_badge: bool,
-    audio_source_override: Option<String>,
-    auto_stop_recording: bool,
-    mut callback: F,
-) -> Result<()>
+pub struct ParakeetSessionOptions {
+    pub stop_signal: Arc<AtomicBool>,
+    pub pause_signal: Arc<AtomicBool>,
+    pub full_audio_buffer: Option<Arc<Mutex<Vec<i16>>>>,
+    pub overlay_hwnd_opt: Option<HWND>,
+    pub hide_recording_ui: bool,
+    pub use_badge: bool,
+    pub audio_source_override: Option<String>,
+    pub auto_stop_recording: bool,
+}
+
+pub fn run_parakeet_session<F>(options: ParakeetSessionOptions, mut callback: F) -> Result<()>
 where
     F: FnMut(String),
 {
+    let ParakeetSessionOptions {
+        stop_signal,
+        pause_signal,
+        full_audio_buffer,
+        overlay_hwnd_opt,
+        hide_recording_ui,
+        use_badge,
+        audio_source_override,
+        auto_stop_recording,
+    } = options;
+
     // 1. Check/Download Model
     if !super::model_loader::is_model_downloaded() {
         // Pass use_badge to download function
@@ -159,11 +169,10 @@ where
     while !stop_signal.load(Ordering::Relaxed) {
         if !hide_recording_ui
             && let Some(hwnd) = overlay_hwnd_opt
-                && unsafe {
-                    !windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
-                } {
-                    break;
-                }
+            && unsafe { !windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool() }
+        {
+            break;
+        }
         if pause_signal.load(Ordering::Relaxed) {
             std::thread::sleep(std::time::Duration::from_millis(50));
             continue;
@@ -203,12 +212,12 @@ where
                     }
                 } else if has_spoken
                     && let Some(start) = first_speech
-                        && last_active.elapsed().as_millis() > 800
-                            && start.elapsed().as_millis() > 2000
-                        {
-                            stop_signal.store(true, Ordering::SeqCst);
-                            break;
-                        }
+                    && last_active.elapsed().as_millis() > 800
+                    && start.elapsed().as_millis() > 2000
+                {
+                    stop_signal.store(true, Ordering::SeqCst);
+                    break;
+                }
             }
 
             if let Some(hwnd) = overlay_hwnd_opt {
@@ -220,9 +229,10 @@ where
             }
 
             if let Some(full_buf) = &full_audio_buffer
-                && let Ok(mut full) = full_buf.lock() {
-                    full.extend(new_samples.iter().map(|&s| (s * 32768.0) as i16));
-                }
+                && let Ok(mut full) = full_buf.lock()
+            {
+                full.extend(new_samples.iter().map(|&s| (s * 32768.0) as i16));
+            }
 
             sample_accumulator.extend(new_samples);
         }
@@ -252,12 +262,13 @@ where
     let silence = vec![0.0f32; CHUNK_SIZE];
     for _ in 0..3 {
         if let Ok(text) = parakeet.transcribe(&silence, false)
-            && !text.is_empty() {
-                let processed = process_sentencepiece_text(&text);
-                if !processed.is_empty() {
-                    callback(processed);
-                }
+            && !text.is_empty()
+        {
+            let processed = process_sentencepiece_text(&text);
+            if !processed.is_empty() {
+                callback(processed);
             }
+        }
     }
 
     Ok(())

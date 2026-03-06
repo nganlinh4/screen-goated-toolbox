@@ -1,9 +1,9 @@
 //! IPC message handling for button canvas
 
 use super::{
-    get_dpi_scale, send_refine_text_update, update_canvas, ACTIVE_DRAG_SNAPSHOT,
-    ACTIVE_DRAG_TARGET, CANVAS_HWND, DRAG_IS_GROUP, IS_DRAGGING_EXTERNAL, LAST_DRAG_POS,
-    MARKDOWN_WINDOWS, START_DRAG_POS,
+    ACTIVE_DRAG_SNAPSHOT, ACTIVE_DRAG_TARGET, CANVAS_HWND, DRAG_IS_GROUP, IS_DRAGGING_EXTERNAL,
+    LAST_DRAG_POS, MARKDOWN_WINDOWS, START_DRAG_POS, get_dpi_scale, send_refine_text_update,
+    update_canvas,
 };
 use crate::overlay::result::state::WINDOW_STATES;
 use std::sync::atomic::Ordering;
@@ -257,7 +257,7 @@ fn handle_set_opacity(hwnd: HWND, json: &serde_json::Value) {
         }
 
         unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::{SetLayeredWindowAttributes, LWA_ALPHA};
+            use windows::Win32::UI::WindowsAndMessaging::{LWA_ALPHA, SetLayeredWindowAttributes};
             let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), alpha, LWA_ALPHA);
         }
     }

@@ -5,12 +5,12 @@
 // 2. Shows the appropriate preset wheel
 // 3. Triggers the processing pipeline with the selected preset
 
+use crate::APP;
 use crate::overlay::preset_wheel::show_preset_wheel;
 use crate::overlay::process::pipeline::{
     start_processing_pipeline, start_processing_pipeline_parallel, start_text_processing,
 };
 use crate::overlay::utils::get_clipboard_image_bytes;
-use crate::APP;
 use eframe::egui;
 use image::{ImageBuffer, Rgba};
 use std::io::Cursor;
@@ -311,10 +311,11 @@ pub fn process_file_path(path: &Path) {
         std::thread::spawn(move || {
             // Read file bytes directly (preserves original format e.g. JPEG)
             if let Ok(bytes) = std::fs::read(&path_clone)
-                && let Ok(img) = image::load_from_memory(&bytes) {
-                    let _ = tx.send(Some((img.to_rgba8(), bytes)));
-                    return;
-                }
+                && let Ok(img) = image::load_from_memory(&bytes)
+            {
+                let _ = tx.send(Some((img.to_rgba8(), bytes)));
+                return;
+            }
             let _ = tx.send(None);
         });
         process_image_parallel(rx);
@@ -360,10 +361,10 @@ pub fn handle_dropped_files(ctx: &egui::Context) -> bool {
                     let rgba = img.to_rgba8();
                     // For direct bytes drop, we also pass the bytes as "original"
                     process_image_content(rgba); // Fallback to serial for bytes-drop or update process_image_content?
-                                                 // NOTE: process_image_content expects just ImageBuffer.
-                                                 // To support zero-copy for bytes-drop too, we would need to update process_image_content.
-                                                 // But user specifically asked for "dragging job" (files).
-                                                 // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
+                // NOTE: process_image_content expects just ImageBuffer.
+                // To support zero-copy for bytes-drop too, we would need to update process_image_content.
+                // But user specifically asked for "dragging job" (files).
+                // Leaving bytes-drop as-is for now (it uses process_image_content, not parallel pipeline yet? No wait, process_image_content spawns thread).
                 }
                 // Try as text
                 else if let Ok(text) = String::from_utf8(bytes_clone.to_vec()) {
@@ -481,22 +482,24 @@ pub fn handle_paste(ctx: &egui::Context) -> bool {
 
     // First try to get image from clipboard (images take priority)
     if let Some(img_bytes) = get_clipboard_image_bytes()
-        && let Ok(img) = image::load_from_memory(&img_bytes) {
-            let rgba = img.to_rgba8();
-            std::thread::spawn(move || {
-                process_image_content(rgba);
-            });
-            return true;
-        }
+        && let Ok(img) = image::load_from_memory(&img_bytes)
+    {
+        let rgba = img.to_rgba8();
+        std::thread::spawn(move || {
+            process_image_content(rgba);
+        });
+        return true;
+    }
 
     // Try to get text from clipboard via Windows API
     if let Some(text) = get_clipboard_text()
-        && !text.is_empty() {
-            std::thread::spawn(move || {
-                process_text_content(text);
-            });
-            return true;
-        }
+        && !text.is_empty()
+    {
+        std::thread::spawn(move || {
+            process_text_content(text);
+        });
+        return true;
+    }
 
     false
 }

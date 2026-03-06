@@ -3,17 +3,17 @@
 use isolang;
 use std::io::BufRead;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
 use urlencoding;
 use windows::Win32::Foundation::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::config::Preset;
-use crate::APP;
 
 use super::state::SharedRealtimeState;
 use super::utils::{refresh_transcription_window, update_translation_text};
@@ -68,12 +68,13 @@ pub fn run_translation_loop(
 
         if crate::overlay::realtime_webview::LANGUAGE_CHANGE.load(Ordering::SeqCst) {
             if let Ok(new_lang) = crate::overlay::realtime_webview::NEW_TARGET_LANGUAGE.lock()
-                && !new_lang.is_empty() {
-                    target_language = new_lang.clone();
-                    if let Ok(mut s) = state.lock() {
-                        s.translation_history.clear();
-                    }
+                && !new_lang.is_empty()
+            {
+                target_language = new_lang.clone();
+                if let Ok(mut s) = state.lock() {
+                    s.translation_history.clear();
                 }
+            }
             crate::overlay::realtime_webview::LANGUAGE_CHANGE.store(false, Ordering::SeqCst);
         }
 
@@ -85,13 +86,12 @@ pub fn run_translation_loop(
         // Timeout check
         {
             let should_force = { state.lock().unwrap().should_force_commit_on_timeout() };
-            if should_force
-                && let Ok(mut s) = state.lock() {
-                    s.force_commit_all();
-                    let display = s.display_translation.clone();
-                    update_translation_text(translation_hwnd, &display);
-                    refresh_transcription_window();
-                }
+            if should_force && let Ok(mut s) = state.lock() {
+                s.force_commit_all();
+                let display = s.display_translation.clone();
+                update_translation_text(translation_hwnd, &display);
+                refresh_transcription_window();
+            }
         }
 
         if last_run.elapsed() >= interval {
@@ -126,9 +126,8 @@ pub fn run_translation_loop(
                     s.start_new_translation();
                 }
 
-                let (groq_key, gemini_key, cerebras_key, translation_model, history_messages) = {
+                let (gemini_key, cerebras_key, translation_model, history_messages) = {
                     let app = APP.lock().unwrap();
-                    let groq = app.config.api_key.clone();
                     let gemini = app.config.gemini_api_key.clone();
                     let cerebras = app.config.cerebras_api_key.clone();
                     let model = app.config.realtime_translation_model.clone();
@@ -138,7 +137,7 @@ pub fn run_translation_loop(
                     } else {
                         Vec::new()
                     };
-                    (groq, gemini, cerebras, model, history)
+                    (gemini, cerebras, model, history)
                 };
 
                 let current_model = translation_model.as_str();
@@ -172,7 +171,10 @@ pub fn run_translation_loop(
                     };
 
                     let mut messages: Vec<serde_json::Value> = Vec::new();
-                    let system_instruction = format!("You are a professional translator. Translate text to {} to append suitably to the context. Output ONLY the translation, nothing else.", target_language);
+                    let system_instruction = format!(
+                        "You are a professional translator. Translate text to {} to append suitably to the context. Output ONLY the translation, nothing else.",
+                        target_language
+                    );
 
                     if is_google {
                         messages.extend(history_messages.clone());
@@ -199,19 +201,19 @@ pub fn run_translation_loop(
                                         .headers()
                                         .get("x-ratelimit-remaining-requests-tokens")
                                         .and_then(|v| v.to_str().ok())
-                                    {
-                                        let limit = resp
-                                            .headers()
-                                            .get("x-ratelimit-limit-tokens")
-                                            .and_then(|v| v.to_str().ok())
-                                            .unwrap_or("?");
-                                        if let Ok(mut app) = APP.lock() {
-                                            app.model_usage_stats.insert(
-                                                "gpt-oss-120b".to_string(),
-                                                format!("{} / {}", remaining, limit),
-                                            );
-                                        }
+                                {
+                                    let limit = resp
+                                        .headers()
+                                        .get("x-ratelimit-limit-tokens")
+                                        .and_then(|v| v.to_str().ok())
+                                        .unwrap_or("?");
+                                    if let Ok(mut app) = APP.lock() {
+                                        app.model_usage_stats.insert(
+                                            "gpt-oss-120b".to_string(),
+                                            format!("{} / {}", remaining, limit),
+                                        );
                                     }
+                                }
                                 let reader =
                                     std::io::BufReader::new(resp.into_body().into_reader());
                                 let mut full_translation = String::new();
@@ -232,28 +234,24 @@ pub fn run_translation_loop(
                                                 .and_then(|f| f.get("delta"))
                                                 .and_then(|d| d.get("content"))
                                                 .and_then(|t| t.as_str())
-                                            {
-                                                full_translation.push_str(content);
-                                                if let Ok(mut s) = state.lock() {
-                                                    s.append_translation(content);
-                                                    let display = s.display_translation.clone();
-                                                    update_translation_text(
-                                                        translation_hwnd,
-                                                        &display,
-                                                    );
-                                                }
+                                        {
+                                            full_translation.push_str(content);
+                                            if let Ok(mut s) = state.lock() {
+                                                s.append_translation(content);
+                                                let display = s.display_translation.clone();
+                                                update_translation_text(translation_hwnd, &display);
                                             }
+                                        }
                                     }
                                 }
 
                                 // FIXED: Commit exact bytes processed
-                                if has_finished
-                                    && let Ok(mut s) = state.lock() {
-                                        if !full_translation.is_empty() {
-                                            s.commit_current_translation();
-                                        }
-                                        s.advance_committed_pos(bytes_to_commit);
+                                if has_finished && let Ok(mut s) = state.lock() {
+                                    if !full_translation.is_empty() {
+                                        s.commit_current_translation();
                                     }
+                                    s.advance_committed_pos(bytes_to_commit);
+                                }
                             }
                             Err(_) => {
                                 primary_failed = true;
@@ -265,20 +263,19 @@ pub fn run_translation_loop(
                 }
 
                 if primary_failed {
-                    handle_fallback_translation(
-                        &chunk,
-                        &target_language,
+                    handle_fallback_translation(FallbackTranslationRequest {
+                        chunk: &chunk,
+                        target_language: &target_language,
                         current_model,
-                        &groq_key,
-                        &gemini_key,
-                        &cerebras_key,
-                        &history_messages,
+                        gemini_key: &gemini_key,
+                        cerebras_key: &cerebras_key,
+                        history_messages: &history_messages,
                         has_finished,
                         bytes_to_commit,
                         translation_hwnd,
-                        &state,
-                        &stop_signal,
-                    );
+                        state: &state,
+                        stop_signal: &stop_signal,
+                    });
                 }
             }
             last_run = Instant::now();
@@ -287,24 +284,34 @@ pub fn run_translation_loop(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "fallback translation needs explicit provider keys and stream state"
-)]
-fn handle_fallback_translation(
-    chunk: &str,
-    target_language: &str,
-    current_model: &str,
-    _groq_key: &str,
-    gemini_key: &str,
-    cerebras_key: &str,
-    history_messages: &[serde_json::Value],
+struct FallbackTranslationRequest<'a> {
+    chunk: &'a str,
+    target_language: &'a str,
+    current_model: &'a str,
+    gemini_key: &'a str,
+    cerebras_key: &'a str,
+    history_messages: &'a [serde_json::Value],
     has_finished: bool,
     bytes_to_commit: usize,
     translation_hwnd: HWND,
-    state: &SharedRealtimeState,
-    stop_signal: &Arc<AtomicBool>,
-) {
+    state: &'a SharedRealtimeState,
+    stop_signal: &'a Arc<AtomicBool>,
+}
+
+fn handle_fallback_translation(request: FallbackTranslationRequest<'_>) {
+    let FallbackTranslationRequest {
+        chunk,
+        target_language,
+        current_model,
+        gemini_key,
+        cerebras_key,
+        history_messages,
+        has_finished,
+        bytes_to_commit,
+        translation_hwnd,
+        state,
+        stop_signal,
+    } = request;
     let alt_model = if current_model == "cerebras-oss" {
         "google-gtx"
     } else if current_model == "google-gtx" {
@@ -339,15 +346,16 @@ fn handle_fallback_translation(
 
     if alt_model == "google-gtx" {
         if let Some(text) = translate_with_google_gtx(chunk, target_language)
-            && let Ok(mut s) = state.lock() {
-                s.append_translation(&text);
-                if has_finished {
-                    s.commit_current_translation();
-                    s.advance_committed_pos(bytes_to_commit);
-                }
-                let display = s.display_translation.clone();
-                update_translation_text(translation_hwnd, &display);
+            && let Ok(mut s) = state.lock()
+        {
+            s.append_translation(&text);
+            if has_finished {
+                s.commit_current_translation();
+                s.advance_committed_pos(bytes_to_commit);
             }
+            let display = s.display_translation.clone();
+            update_translation_text(translation_hwnd, &display);
+        }
     } else {
         let alt_is_google = alt_model == "google-gemma";
         let (alt_url, alt_model_name, alt_key) = if alt_is_google {
@@ -367,7 +375,10 @@ fn handle_fallback_translation(
 
         if !alt_key.is_empty() {
             let mut alt_msgs = Vec::new();
-            let alt_sys = format!("You are a professional translator. Translate text to {} to append suitably to the context. Output ONLY the translation, nothing else.", target_language);
+            let alt_sys = format!(
+                "You are a professional translator. Translate text to {} to append suitably to the context. Output ONLY the translation, nothing else.",
+                target_language
+            );
             if alt_is_google {
                 alt_msgs.extend(history_messages.iter().cloned());
                 alt_msgs.push(serde_json::json!({"role": "user", "content": format!("{}\n\nTranslate to {}:\n{}", alt_sys, target_language, chunk)}));
@@ -388,19 +399,19 @@ fn handle_fallback_translation(
                         .headers()
                         .get("x-ratelimit-remaining-requests-tokens")
                         .and_then(|v| v.to_str().ok())
-                    {
-                        let limit = resp
-                            .headers()
-                            .get("x-ratelimit-limit-tokens")
-                            .and_then(|v| v.to_str().ok())
-                            .unwrap_or("?");
-                        if let Ok(mut app) = APP.lock() {
-                            app.model_usage_stats.insert(
-                                "gpt-oss-120b".to_string(),
-                                format!("{} / {}", remaining, limit),
-                            );
-                        }
+                {
+                    let limit = resp
+                        .headers()
+                        .get("x-ratelimit-limit-tokens")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("?");
+                    if let Ok(mut app) = APP.lock() {
+                        app.model_usage_stats.insert(
+                            "gpt-oss-120b".to_string(),
+                            format!("{} / {}", remaining, limit),
+                        );
                     }
+                }
                 let reader = std::io::BufReader::new(resp.into_body().into_reader());
                 let mut full_t = String::new();
                 for line in reader.lines().map_while(Result::ok) {
@@ -419,25 +430,24 @@ fn handle_fallback_translation(
                                 .and_then(|f| f.get("delta"))
                                 .and_then(|d| d.get("content"))
                                 .and_then(|s| s.as_str())
-                            {
-                                full_t.push_str(txt);
-                                if let Ok(mut s) = state.lock() {
-                                    s.append_translation(txt);
-                                    let d = s.display_translation.clone();
-                                    update_translation_text(translation_hwnd, &d);
-                                }
+                        {
+                            full_t.push_str(txt);
+                            if let Ok(mut s) = state.lock() {
+                                s.append_translation(txt);
+                                let d = s.display_translation.clone();
+                                update_translation_text(translation_hwnd, &d);
                             }
+                        }
                     }
                 }
 
                 // FIXED: Commit exact bytes
-                if has_finished
-                    && let Ok(mut s) = state.lock() {
-                        if !full_t.is_empty() {
-                            s.commit_current_translation();
-                        }
-                        s.advance_committed_pos(bytes_to_commit);
+                if has_finished && let Ok(mut s) = state.lock() {
+                    if !full_t.is_empty() {
+                        s.commit_current_translation();
                     }
+                    s.advance_committed_pos(bytes_to_commit);
+                }
             }
         }
     }
@@ -461,16 +471,17 @@ pub fn translate_with_google_gtx(text: &str, target_lang: &str) -> Option<String
         .header("User-Agent", "Mozilla/5.0")
         .call()
         && let Ok(json) = resp.into_body().read_json::<serde_json::Value>()
-            && let Some(sentences) = json.get(0).and_then(|v| v.as_array()) {
-                let mut full_text = String::new();
-                for sentence_node in sentences {
-                    if let Some(segment) = sentence_node.get(0).and_then(|s| s.as_str()) {
-                        full_text.push_str(segment);
-                    }
-                }
-                if !full_text.is_empty() {
-                    return Some(full_text);
-                }
+        && let Some(sentences) = json.get(0).and_then(|v| v.as_array())
+    {
+        let mut full_text = String::new();
+        for sentence_node in sentences {
+            if let Some(segment) = sentence_node.get(0).and_then(|s| s.as_str()) {
+                full_text.push_str(segment);
             }
+        }
+        if !full_text.is_empty() {
+            return Some(full_text);
+        }
+    }
     None
 }

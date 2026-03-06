@@ -7,7 +7,7 @@ use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -267,12 +267,12 @@ pub fn enumerate_audio_apps() -> Vec<(u32, String)> {
 /// Show a popup window for selecting which app to capture audio from
 /// This is called when TTS is enabled in device mode
 pub fn show_app_selection_popup() {
-    use crate::gui::locale::LocaleText;
     use crate::APP;
+    use crate::gui::locale::LocaleText;
     use std::sync::atomic::Ordering;
-    use windows::core::*;
     use windows::Win32::Graphics::Gdi::*;
     use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::core::*;
 
     // Get locale text
     let locale_text = {
@@ -388,9 +388,9 @@ pub fn show_app_selection_popup() {
     std::thread::spawn(move || {
         unsafe {
             use windows::Win32::Graphics::Dwm::{
-                DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+                DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
             };
-            use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, WS_CLIPCHILDREN};
+            use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow, WS_CLIPCHILDREN};
 
             // Register window class
             let class_name = w!("AppSelectPopup");
@@ -481,62 +481,58 @@ pub fn show_app_selection_popup() {
                         .with_ipc_handler(move |req| {
                             let body = req.body();
                             if let Some(rest) = body.strip_prefix("selectApp:")
-                                && let Some((pid_str, name)) = rest.split_once(':') {
-                                    if let Ok(pid) = pid_str.parse::<u32>() {
-                                        // Store selected app
-                                        SELECTED_APP_PID.store(pid, Ordering::SeqCst);
-                                        if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
-                                            *app_name = name.to_string();
-                                        }
+                                && let Some((pid_str, name)) = rest.split_once(':')
+                            {
+                                if let Ok(pid) = pid_str.parse::<u32>() {
+                                    // Store selected app
+                                    SELECTED_APP_PID.store(pid, Ordering::SeqCst);
+                                    if let Ok(mut app_name) = SELECTED_APP_NAME.lock() {
+                                        *app_name = name.to_string();
+                                    }
 
-                                        // Set audio source to trigger restart (must set this for restart to work!)
-                                        if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
-                                            *new_source = "device".to_string();
-                                        }
-                                        AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
+                                    // Set audio source to trigger restart (must set this for restart to work!)
+                                    if let Ok(mut new_source) = NEW_AUDIO_SOURCE.lock() {
+                                        *new_source = "device".to_string();
+                                    }
+                                    AUDIO_SOURCE_CHANGE.store(true, Ordering::SeqCst);
 
-                                        let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
-                                        // Close native popup
-                                        let _ = ShowWindow(hwnd, SW_HIDE);
+                                    let hwnd = HWND(hwnd_val as *mut std::ffi::c_void);
+                                    // Close native popup
+                                    let _ = ShowWindow(hwnd, SW_HIDE);
+                                    let _ =
+                                        PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+
+                                    // Close TTS Modal using shared flag (more robust)
+                                    CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
+
+                                    // Trigger updates on both windows to ensure the flag is checked immediately
+                                    let trans_hwnd = std::ptr::addr_of!(TRANSLATION_HWND).read();
+                                    let real_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
+
+                                    if !trans_hwnd.is_invalid() {
                                         let _ = PostMessageW(
-                                            Some(hwnd),
-                                            WM_CLOSE,
+                                            Some(trans_hwnd),
+                                            crate::api::realtime_audio::WM_TRANSLATION_UPDATE,
                                             WPARAM(0),
                                             LPARAM(0),
                                         );
+                                    }
 
-                                        // Close TTS Modal using shared flag (more robust)
-                                        CLOSE_TTS_MODAL_REQUEST.store(true, Ordering::SeqCst);
-
-                                        // Trigger updates on both windows to ensure the flag is checked immediately
-                                        let trans_hwnd =
-                                            std::ptr::addr_of!(TRANSLATION_HWND).read();
-                                        let real_hwnd = std::ptr::addr_of!(REALTIME_HWND).read();
-
-                                        if !trans_hwnd.is_invalid() {
-                                            let _ = PostMessageW(
-                                                Some(trans_hwnd),
-                                                crate::api::realtime_audio::WM_TRANSLATION_UPDATE,
-                                                WPARAM(0),
-                                                LPARAM(0),
-                                            );
-                                        }
-
-                                        if !real_hwnd.is_invalid() {
-                                            let _ = PostMessageW(
-                                                Some(real_hwnd),
-                                                crate::api::realtime_audio::WM_REALTIME_UPDATE,
-                                                WPARAM(0),
-                                                LPARAM(0),
-                                            );
-                                        }
-                                    } else {
-                                        eprintln!(
-                                            "App Selection: Failed to parse PID from '{}'",
-                                            pid_str
+                                    if !real_hwnd.is_invalid() {
+                                        let _ = PostMessageW(
+                                            Some(real_hwnd),
+                                            crate::api::realtime_audio::WM_REALTIME_UPDATE,
+                                            WPARAM(0),
+                                            LPARAM(0),
                                         );
                                     }
+                                } else {
+                                    eprintln!(
+                                        "App Selection: Failed to parse PID from '{}'",
+                                        pid_str
+                                    );
                                 }
+                            }
                         })
                         .build_as_child(&HwndWrapper(hwnd));
                 crate::log_info!(
@@ -573,53 +569,56 @@ pub unsafe extern "system" fn app_select_wndproc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        use crate::api::realtime_audio::WM_THEME_UPDATE;
-        use windows::Win32::UI::WindowsAndMessaging::*;
+) -> LRESULT {
+    unsafe {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            use crate::api::realtime_audio::WM_THEME_UPDATE;
+            use windows::Win32::UI::WindowsAndMessaging::*;
 
-        match msg {
-            WM_THEME_UPDATE => {
-                update_app_selection_theme(hwnd);
-                LRESULT(0)
-            }
-            WM_CLOSE => {
-                let _ = DestroyWindow(hwnd);
-                LRESULT(0)
-            }
-            WM_DESTROY => {
-                // Drop WebView before thread exit to ensure clean cleanup
-                APP_SELECT_WEBVIEW.with(|w| {
-                    *w.borrow_mut() = None;
-                });
+            match msg {
+                WM_THEME_UPDATE => {
+                    update_app_selection_theme(hwnd);
+                    LRESULT(0)
+                }
+                WM_CLOSE => {
+                    let _ = DestroyWindow(hwnd);
+                    LRESULT(0)
+                }
+                WM_DESTROY => {
+                    // Drop WebView before thread exit to ensure clean cleanup
+                    APP_SELECT_WEBVIEW.with(|w| {
+                        *w.borrow_mut() = None;
+                    });
 
-                APP_SELECTION_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
-                PostQuitMessage(0);
-                LRESULT(0)
-            }
-            WM_SIZE => {
-                // Resize child (WebView) to match parent
-                let width = (lparam.0 & 0xFFFF) as i32;
-                let height = ((lparam.0 >> 16) & 0xFFFF) as i32;
-                if let Ok(child) = GetWindow(hwnd, GW_CHILD)
-                    && !child.0.is_null() {
+                    APP_SELECTION_HWND.store(0, std::sync::atomic::Ordering::SeqCst);
+                    PostQuitMessage(0);
+                    LRESULT(0)
+                }
+                WM_SIZE => {
+                    // Resize child (WebView) to match parent
+                    let width = (lparam.0 & 0xFFFF) as i32;
+                    let height = ((lparam.0 >> 16) & 0xFFFF) as i32;
+                    if let Ok(child) = GetWindow(hwnd, GW_CHILD)
+                        && !child.0.is_null()
+                    {
                         let _ = MoveWindow(child, 0, 0, width, height, true);
                     }
-                LRESULT(0)
+                    LRESULT(0)
+                }
+                _ => DefWindowProcW(hwnd, msg, wparam, lparam),
             }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
-        }
-    }));
+        }));
 
-    match result {
-        Ok(lresult) => lresult,
-        Err(_) => {
-            eprintln!("Panic in app_select_wndproc");
-            // Try to provide default processing if panic occurred
-            windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(hwnd, msg, wparam, lparam)
+        match result {
+            Ok(lresult) => lresult,
+            Err(_) => {
+                eprintln!("Panic in app_select_wndproc");
+                // Try to provide default processing if panic occurred
+                windows::Win32::UI::WindowsAndMessaging::DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
         }
     }
-}}
+}
 
 fn get_app_selection_css(is_dark: bool) -> String {
     let font_css = crate::overlay::html_components::font_manager::get_font_css();

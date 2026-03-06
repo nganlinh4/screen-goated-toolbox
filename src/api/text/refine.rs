@@ -1,40 +1,50 @@
 // --- TEXT REFINEMENT ---
 // Streaming text refinement with multiple LLM providers.
 
+use crate::APP;
 use crate::api::client::UREQ_AGENT;
 use crate::api::types::{ChatCompletionResponse, StreamChunk};
 use crate::api::vision::translate_image_streaming as vision_translate_image_streaming;
 use crate::gui::locale::LocaleText;
 use crate::overlay::result::RefineContext;
 use crate::overlay::utils::get_context_quote;
-use crate::APP;
 use anyhow::Result;
 use std::io::{BufRead, BufReader};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "refine entrypoint passes distinct provider, prompt, and callback state"
-)]
-pub fn refine_text_streaming<F>(
-    groq_api_key: &str,
-    gemini_api_key: &str,
-    context: RefineContext,
-    previous_text: String,
-    user_prompt: String,
-    original_model_id: &str,
-    original_provider: &str,
-    streaming_enabled: bool,
-    ui_language: &str,
-    cancel_token: Option<Arc<AtomicBool>>,
-    mut on_chunk: F,
-) -> Result<String>
+pub struct RefineTextRequest<'a> {
+    pub groq_api_key: &'a str,
+    pub gemini_api_key: &'a str,
+    pub context: RefineContext,
+    pub previous_text: String,
+    pub user_prompt: String,
+    pub original_model_id: &'a str,
+    pub original_provider: &'a str,
+    pub streaming_enabled: bool,
+    pub ui_language: &'a str,
+    pub cancel_token: Option<Arc<AtomicBool>>,
+}
+
+pub fn refine_text_streaming<F>(request: RefineTextRequest<'_>, mut on_chunk: F) -> Result<String>
 where
     F: FnMut(&str),
 {
+    let RefineTextRequest {
+        groq_api_key,
+        gemini_api_key,
+        context,
+        previous_text,
+        user_prompt,
+        original_model_id,
+        original_provider,
+        streaming_enabled,
+        ui_language,
+        cancel_token,
+    } = request;
+
     let openrouter_api_key = crate::APP
         .lock()
         .ok()
@@ -92,19 +102,19 @@ where
     }
 
     let mut exec_text_only = |p_model: String, p_provider: String| -> Result<String> {
-        refine_text_only(
+        refine_text_only(RefineTextOnlyRequest {
             groq_api_key,
             gemini_api_key,
-            &openrouter_api_key,
-            &cerebras_api_key,
-            &final_prompt,
-            p_model,
-            p_provider,
+            openrouter_api_key: &openrouter_api_key,
+            cerebras_api_key: &cerebras_api_key,
+            final_prompt: &final_prompt,
+            model: p_model,
+            provider: p_provider,
             streaming_enabled,
             ui_language,
-            &cancel_token,
-            &mut on_chunk,
-        )
+            cancel_token: &cancel_token,
+            on_chunk: &mut on_chunk,
+        })
     };
 
     match context {
@@ -115,16 +125,18 @@ where
                 }
                 let img = image::load_from_memory(&img_bytes)?.to_rgba8();
                 vision_translate_image_streaming(
-                    groq_api_key,
-                    gemini_api_key,
-                    final_prompt,
-                    target_id_or_name,
-                    target_provider,
-                    img,
-                    Some(img_bytes.clone()),
-                    streaming_enabled,
-                    false,
-                    cancel_token,
+                    crate::api::TranslateImageRequest {
+                        groq_api_key,
+                        gemini_api_key,
+                        prompt: final_prompt,
+                        model: target_id_or_name,
+                        provider: target_provider,
+                        image: img,
+                        original_bytes: Some(img_bytes.clone()),
+                        streaming_enabled,
+                        use_json_format: false,
+                        cancel_token,
+                    },
                     on_chunk,
                 )
             } else if target_provider == "gemini-live" {
@@ -144,16 +156,18 @@ where
                 }
                 let img = image::load_from_memory(&img_bytes)?.to_rgba8();
                 vision_translate_image_streaming(
-                    groq_api_key,
-                    gemini_api_key,
-                    final_prompt,
-                    target_id_or_name,
-                    target_provider,
-                    img,
-                    Some(img_bytes.clone()),
-                    streaming_enabled,
-                    false,
-                    cancel_token,
+                    crate::api::TranslateImageRequest {
+                        groq_api_key,
+                        gemini_api_key,
+                        prompt: final_prompt,
+                        model: target_id_or_name,
+                        provider: target_provider,
+                        image: img,
+                        original_bytes: Some(img_bytes.clone()),
+                        streaming_enabled,
+                        use_json_format: false,
+                        cancel_token,
+                    },
                     on_chunk,
                 )
             }
@@ -164,37 +178,49 @@ where
 }
 
 // --- TEXT-ONLY REFINEMENT ---
-#[expect(
-    clippy::too_many_arguments,
-    reason = "provider-specific refinement keeps request pieces explicit instead of bundling ad hoc structs"
-)]
-fn refine_text_only<F>(
-    groq_api_key: &str,
-    gemini_api_key: &str,
-    openrouter_api_key: &str,
-    cerebras_api_key: &str,
-    final_prompt: &str,
-    p_model: String,
-    p_provider: String,
+struct RefineTextOnlyRequest<'a, F> {
+    groq_api_key: &'a str,
+    gemini_api_key: &'a str,
+    openrouter_api_key: &'a str,
+    cerebras_api_key: &'a str,
+    final_prompt: &'a str,
+    model: String,
+    provider: String,
     streaming_enabled: bool,
-    ui_language: &str,
-    cancel_token: &Option<Arc<AtomicBool>>,
-    on_chunk: &mut F,
-) -> Result<String>
+    ui_language: &'a str,
+    cancel_token: &'a Option<Arc<AtomicBool>>,
+    on_chunk: &'a mut F,
+}
+
+fn refine_text_only<F>(request: RefineTextOnlyRequest<'_, F>) -> Result<String>
 where
     F: FnMut(&str),
 {
-    if p_provider == "google" {
+    let RefineTextOnlyRequest {
+        groq_api_key,
+        gemini_api_key,
+        openrouter_api_key,
+        cerebras_api_key,
+        final_prompt,
+        model,
+        provider,
+        streaming_enabled,
+        ui_language,
+        cancel_token,
+        on_chunk,
+    } = request;
+
+    if provider == "google" {
         refine_gemini(
             gemini_api_key,
             final_prompt,
-            &p_model,
+            &model,
             streaming_enabled,
             ui_language,
             cancel_token,
             on_chunk,
         )
-    } else if p_provider == "gemini-live" {
+    } else if provider == "gemini-live" {
         crate::api::gemini_live::gemini_live_generate(
             final_prompt.to_string(),
             String::new(),
@@ -204,21 +230,21 @@ where
             ui_language,
             on_chunk,
         )
-    } else if p_provider == "cerebras" {
+    } else if provider == "cerebras" {
         refine_cerebras(
             cerebras_api_key,
             final_prompt,
-            &p_model,
+            &model,
             streaming_enabled,
             ui_language,
             cancel_token,
             on_chunk,
         )
-    } else if p_provider == "openrouter" {
+    } else if provider == "openrouter" {
         refine_openrouter(
             openrouter_api_key,
             final_prompt,
-            &p_model,
+            &model,
             streaming_enabled,
             ui_language,
             cancel_token,
@@ -228,7 +254,7 @@ where
         refine_groq(
             groq_api_key,
             final_prompt,
-            &p_model,
+            &model,
             streaming_enabled,
             ui_language,
             cancel_token,
@@ -309,9 +335,10 @@ where
 
         for line in reader.lines() {
             if let Some(ct) = cancel_token
-                && ct.load(Ordering::Relaxed) {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
+                && ct.load(Ordering::Relaxed)
+            {
+                return Err(anyhow::anyhow!("Cancelled"));
+            }
             let line = line?;
             if let Some(json_str) = line.strip_prefix("data: ") {
                 if json_str.trim() == "[DONE]" {
@@ -320,59 +347,56 @@ where
                 if let Ok(chunk_resp) = serde_json::from_str::<serde_json::Value>(json_str)
                     && let Some(candidates) =
                         chunk_resp.get("candidates").and_then(|c| c.as_array())
-                        && let Some(first) = candidates.first()
-                            && let Some(parts) = first
-                                .get("content")
-                                .and_then(|c| c.get("parts"))
-                                .and_then(|p| p.as_array())
-                            {
-                                for part in parts {
-                                    let is_thought = part
-                                        .get("thought")
-                                        .and_then(|t| t.as_bool())
-                                        .unwrap_or(false);
+                    && let Some(first) = candidates.first()
+                    && let Some(parts) = first
+                        .get("content")
+                        .and_then(|c| c.get("parts"))
+                        .and_then(|p| p.as_array())
+                {
+                    for part in parts {
+                        let is_thought = part
+                            .get("thought")
+                            .and_then(|t| t.as_bool())
+                            .unwrap_or(false);
 
-                                    if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
-                                        if is_thought {
-                                            if !thinking_shown && !content_started {
-                                                on_chunk(locale.model_thinking);
-                                                thinking_shown = true;
-                                            }
-                                        } else if !content_started && thinking_shown {
-                                            content_started = true;
-                                            full_content.push_str(t);
-                                            let wipe_content = format!(
-                                                "{}{}",
-                                                crate::api::WIPE_SIGNAL,
-                                                full_content
-                                            );
-                                            on_chunk(&wipe_content);
-                                        } else {
-                                            content_started = true;
-                                            full_content.push_str(t);
-                                            on_chunk(t);
-                                        }
-                                    }
+                        if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
+                            if is_thought {
+                                if !thinking_shown && !content_started {
+                                    on_chunk(locale.model_thinking);
+                                    thinking_shown = true;
                                 }
+                            } else if !content_started && thinking_shown {
+                                content_started = true;
+                                full_content.push_str(t);
+                                let wipe_content =
+                                    format!("{}{}", crate::api::WIPE_SIGNAL, full_content);
+                                on_chunk(&wipe_content);
+                            } else {
+                                content_started = true;
+                                full_content.push_str(t);
+                                on_chunk(t);
                             }
+                        }
+                    }
+                }
             }
         }
     } else {
         let json: serde_json::Value = resp.into_body().read_json()?;
         if let Some(candidates) = json.get("candidates").and_then(|c| c.as_array())
             && let Some(first) = candidates.first()
-                && let Some(parts) = first
-                    .get("content")
-                    .and_then(|c| c.get("parts"))
-                    .and_then(|p| p.as_array())
-                {
-                    full_content = parts
-                        .iter()
-                        .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
-                        .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                        .collect::<String>();
-                    on_chunk(&full_content);
-                }
+            && let Some(parts) = first
+                .get("content")
+                .and_then(|c| c.get("parts"))
+                .and_then(|p| p.as_array())
+        {
+            full_content = parts
+                .iter()
+                .filter(|p| !p.get("thought").and_then(|t| t.as_bool()).unwrap_or(false))
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .collect::<String>();
+            on_chunk(&full_content);
+        }
     }
 
     Ok(full_content)
@@ -427,9 +451,10 @@ where
 
     if limit == "?"
         && let Some(conf) = crate::model_config::get_model_by_id(p_model)
-            && let Some(val) = conf.quota_limit_en.split_whitespace().next() {
-                limit = val.to_string();
-            }
+        && let Some(val) = conf.quota_limit_en.split_whitespace().next()
+    {
+        limit = val.to_string();
+    }
 
     if remaining != "?" || limit != "?" {
         let usage_str = format!("{} / {}", remaining, limit);
@@ -450,9 +475,10 @@ where
 
         for line in reader.lines() {
             if let Some(ct) = cancel_token
-                && ct.load(Ordering::Relaxed) {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
+                && ct.load(Ordering::Relaxed)
+            {
+                return Err(anyhow::anyhow!("Cancelled"));
+            }
             let line = line?;
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
@@ -553,9 +579,10 @@ where
 
         for line in reader.lines() {
             if let Some(ct) = cancel_token
-                && ct.load(Ordering::Relaxed) {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
+                && ct.load(Ordering::Relaxed)
+            {
+                return Err(anyhow::anyhow!("Cancelled"));
+            }
             let line = line?;
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
@@ -668,9 +695,10 @@ where
         let reader = BufReader::new(resp.into_body().into_reader());
         for line in reader.lines() {
             if let Some(ct) = cancel_token
-                && ct.load(Ordering::Relaxed) {
-                    return Err(anyhow::anyhow!("Cancelled"));
-                }
+                && ct.load(Ordering::Relaxed)
+            {
+                return Err(anyhow::anyhow!("Cancelled"));
+            }
             let line = line?;
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
@@ -679,10 +707,10 @@ where
                 if let Ok(chunk) = serde_json::from_str::<StreamChunk>(data)
                     && let Some(content) =
                         chunk.choices.first().and_then(|c| c.delta.content.as_ref())
-                    {
-                        full_content.push_str(content);
-                        on_chunk(content);
-                    }
+                {
+                    full_content.push_str(content);
+                    on_chunk(content);
+                }
             }
         }
     } else {
@@ -760,96 +788,92 @@ where
 
     if let Some(choices) = json.get("choices").and_then(|c| c.as_array())
         && let Some(first_choice) = choices.first()
-            && let Some(message) = first_choice.get("message") {
-                if let Some(executed_tools) =
-                    message.get("executed_tools").and_then(|t| t.as_array())
+        && let Some(message) = first_choice.get("message")
+    {
+        if let Some(executed_tools) = message.get("executed_tools").and_then(|t| t.as_array()) {
+            let mut search_queries = Vec::new();
+            for tool in executed_tools {
+                if tool.get("type").and_then(|t| t.as_str()) == Some("search")
+                    && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
+                    && let Ok(args_json) = serde_json::from_str::<serde_json::Value>(args)
+                    && let Some(query) = args_json.get("query").and_then(|q| q.as_str())
                 {
-                    let mut search_queries = Vec::new();
-                    for tool in executed_tools {
-                        if tool.get("type").and_then(|t| t.as_str()) == Some("search")
-                            && let Some(args) = tool.get("arguments").and_then(|a| a.as_str())
-                                && let Ok(args_json) =
-                                    serde_json::from_str::<serde_json::Value>(args)
-                                    && let Some(query) =
-                                        args_json.get("query").and_then(|q| q.as_str())
-                                    {
-                                        search_queries.push(query.to_string());
-                                    }
-                    }
-
-                    if !search_queries.is_empty() {
-                        let context_quote = get_context_quote(final_prompt);
-                        let mut phase1 = format!(
-                            "{}\n\n🔍 {} {}...\n\n{}\n",
-                            context_quote,
-                            locale.search_doing.to_uppercase(),
-                            locale.search_searching.to_uppercase(),
-                            locale.search_query_label
-                        );
-                        for (i, q) in search_queries.iter().enumerate() {
-                            phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, q));
-                        }
-                        on_chunk(&phase1);
-                        std::thread::sleep(std::time::Duration::from_millis(600));
-                    }
-
-                    let mut all_sources = Vec::new();
-                    for tool in executed_tools {
-                        if let Some(results) = tool
-                            .get("search_results")
-                            .and_then(|s| s.get("results"))
-                            .and_then(|r| r.as_array())
-                        {
-                            for r in results {
-                                let title = r
-                                    .get("title")
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or(locale.search_no_title);
-                                let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
-                                let score = r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
-                                all_sources.push((title.to_string(), url.to_string(), score));
-                            }
-                        }
-                    }
-
-                    if !all_sources.is_empty() {
-                        all_sources.sort_by(|a, b| {
-                            b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
-                        });
-                        let context_quote = get_context_quote(final_prompt);
-                        let mut phase2 = format!(
-                            "{}\n\n{}\n\n",
-                            context_quote,
-                            locale
-                                .search_found_sources
-                                .replace("{}", &all_sources.len().to_string())
-                        );
-                        for (i, (title, url, score)) in all_sources.iter().take(5).enumerate() {
-                            let t = if title.chars().count() > 50 {
-                                format!("{}...", title.chars().take(47).collect::<String>())
-                            } else {
-                                title.clone()
-                            };
-                            let domain = url.split('/').nth(2).unwrap_or("");
-                            phase2.push_str(&format!(
-                                "{}. {} [{}%]\n   🔗 {}\n",
-                                i + 1,
-                                t,
-                                (score * 100.0) as i32,
-                                domain
-                            ));
-                        }
-                        phase2.push_str(&format!("\n{}", locale.search_synthesizing));
-                        on_chunk(&phase2);
-                        std::thread::sleep(std::time::Duration::from_millis(800));
-                    }
-                }
-
-                if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
-                    full_content = content.to_string();
-                    on_chunk(&full_content);
+                    search_queries.push(query.to_string());
                 }
             }
+
+            if !search_queries.is_empty() {
+                let context_quote = get_context_quote(final_prompt);
+                let mut phase1 = format!(
+                    "{}\n\n🔍 {} {}...\n\n{}\n",
+                    context_quote,
+                    locale.search_doing.to_uppercase(),
+                    locale.search_searching.to_uppercase(),
+                    locale.search_query_label
+                );
+                for (i, q) in search_queries.iter().enumerate() {
+                    phase1.push_str(&format!("  {}. \"{}\"\n", i + 1, q));
+                }
+                on_chunk(&phase1);
+                std::thread::sleep(std::time::Duration::from_millis(600));
+            }
+
+            let mut all_sources = Vec::new();
+            for tool in executed_tools {
+                if let Some(results) = tool
+                    .get("search_results")
+                    .and_then(|s| s.get("results"))
+                    .and_then(|r| r.as_array())
+                {
+                    for r in results {
+                        let title = r
+                            .get("title")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or(locale.search_no_title);
+                        let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                        let score = r.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
+                        all_sources.push((title.to_string(), url.to_string(), score));
+                    }
+                }
+            }
+
+            if !all_sources.is_empty() {
+                all_sources
+                    .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+                let context_quote = get_context_quote(final_prompt);
+                let mut phase2 = format!(
+                    "{}\n\n{}\n\n",
+                    context_quote,
+                    locale
+                        .search_found_sources
+                        .replace("{}", &all_sources.len().to_string())
+                );
+                for (i, (title, url, score)) in all_sources.iter().take(5).enumerate() {
+                    let t = if title.chars().count() > 50 {
+                        format!("{}...", title.chars().take(47).collect::<String>())
+                    } else {
+                        title.clone()
+                    };
+                    let domain = url.split('/').nth(2).unwrap_or("");
+                    phase2.push_str(&format!(
+                        "{}. {} [{}%]\n   🔗 {}\n",
+                        i + 1,
+                        t,
+                        (score * 100.0) as i32,
+                        domain
+                    ));
+                }
+                phase2.push_str(&format!("\n{}", locale.search_synthesizing));
+                on_chunk(&phase2);
+                std::thread::sleep(std::time::Duration::from_millis(800));
+            }
+        }
+
+        if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+            full_content = content.to_string();
+            on_chunk(&full_content);
+        }
+    }
 
     Ok(full_content)
 }

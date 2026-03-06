@@ -11,7 +11,7 @@ pub fn get(font_size: u32) -> String {
         const fontIncrease = document.getElementById('font-increase');
         const resizeHint = document.getElementById('resize-hint');
         const copyBtn = document.getElementById('copy-btn');
-        
+
         let currentFontSize = {font_size};
         let isResizing = false;
         let resizeStartX = 0;
@@ -19,7 +19,7 @@ pub fn get(font_size: u32) -> String {
         let micVisible = true;
         let transVisible = true;
         let headerCollapsed = false;
-        
+
         // TTS Modal elements
         const speakBtn = document.getElementById('speak-btn');
         const ttsModal = document.getElementById('tts-modal');
@@ -29,7 +29,7 @@ pub fn get(font_size: u32) -> String {
         const speedValue = document.getElementById('speed-value');
         let ttsEnabled = false;
         let ttsSpeed = 100;
-        
+
         // TTS Modal Logic
         if (speakBtn && ttsModal && ttsModalOverlay) {{
             speakBtn.addEventListener('click', function(e) {{
@@ -37,13 +37,13 @@ pub fn get(font_size: u32) -> String {
                 ttsModal.classList.toggle('show');
                 ttsModalOverlay.classList.toggle('show');
             }});
-            
+
             ttsModalOverlay.addEventListener('click', function() {{
                 ttsModal.classList.remove('show');
                 ttsModalOverlay.classList.remove('show');
             }});
         }}
-        
+
         if (ttsToggle) {{
             ttsToggle.addEventListener('click', function(e) {{
                 e.stopPropagation();
@@ -53,7 +53,7 @@ pub fn get(font_size: u32) -> String {
                 window.ipc.postMessage('ttsEnabled:' + (ttsEnabled ? '1' : '0'));
             }});
         }}
-        
+
         if (speedSlider && speedValue) {{
             const autoToggle = document.getElementById('auto-speed-toggle');
             let autoSpeed = true; // Default: auto is on
@@ -90,7 +90,7 @@ pub fn get(font_size: u32) -> String {
                 window.ipc.postMessage('ttsVolume:' + vol);
             }});
         }}
-        
+
         // Header toggle (with null check in case element is commented out)
         if (headerToggle) {{
             headerToggle.addEventListener('click', function(e) {{
@@ -100,7 +100,7 @@ pub fn get(font_size: u32) -> String {
                 headerToggle.classList.toggle('collapsed', headerCollapsed);
             }});
         }}
-        
+
         // Copy button handler
         if (copyBtn) {{
             copyBtn.addEventListener('click', function(e) {{
@@ -121,24 +121,24 @@ pub fn get(font_size: u32) -> String {
                 }}
             }});
         }}
-        
+
         // Drag support (left click for single window)
         container.addEventListener('mousedown', function(e) {{
             if (e.button !== 0) return; // Only left click
             if (e.target.closest('#controls') || e.target.closest('#header-toggle') || e.target.id === 'resize-hint' || isResizing) return;
             window.ipc.postMessage('startDrag');
         }});
-        
+
         // Right-click group drag support (moves both windows together)
         let isGroupDragging = false;
         let groupDragStartX = 0;
         let groupDragStartY = 0;
-        
+
         container.addEventListener('mousedown', function(e) {{
             if (e.button !== 2) return; // Only right click
             // Allow context menu on interactive controls
             if (e.target.closest('#controls') || e.target.closest('select')) return;
-            
+
             e.preventDefault();
             isGroupDragging = true;
             groupDragStartX = e.screenX;
@@ -147,14 +147,14 @@ pub fn get(font_size: u32) -> String {
             document.addEventListener('mousemove', onGroupDragMove);
             document.addEventListener('mouseup', onGroupDragEnd);
         }});
-        
+
         // Prevent context menu when right-click dragging on the window body
         container.addEventListener('contextmenu', function(e) {{
             // Allow context menu on interactive controls and selects
             if (e.target.closest('#controls') || e.target.closest('select')) return;
             e.preventDefault();
         }});
-        
+
         function onGroupDragMove(e) {{
             if (!isGroupDragging) return;
             const dx = e.screenX - groupDragStartX;
@@ -165,7 +165,7 @@ pub fn get(font_size: u32) -> String {
                 groupDragStartY = e.screenY;
             }}
         }}
-        
+
         function onGroupDragEnd(e) {{
             if (isGroupDragging) {{
                 isGroupDragging = false;
@@ -173,7 +173,7 @@ pub fn get(font_size: u32) -> String {
                 document.removeEventListener('mouseup', onGroupDragEnd);
             }}
         }}
-        
+
         // Resize support
         resizeHint.addEventListener('mousedown', function(e) {{
             e.stopPropagation();
@@ -184,7 +184,7 @@ pub fn get(font_size: u32) -> String {
             document.addEventListener('mousemove', onResizeMove);
             document.addEventListener('mouseup', onResizeEnd);
         }});
-        
+
         function onResizeMove(e) {{
             if (!isResizing) return;
             const dx = e.screenX - resizeStartX;
@@ -195,14 +195,14 @@ pub fn get(font_size: u32) -> String {
                 resizeStartY = e.screenY;
             }}
         }}
-        
+
         function onResizeEnd(e) {{
             isResizing = false;
             document.removeEventListener('mousemove', onResizeMove);
             document.removeEventListener('mouseup', onResizeEnd);
             window.ipc.postMessage('saveResize');
         }}
-        
+
         // Visibility toggle buttons
         toggleMic.addEventListener('click', function(e) {{
             e.stopPropagation();
@@ -211,7 +211,7 @@ pub fn get(font_size: u32) -> String {
             this.classList.toggle('inactive', !micVisible);
             window.ipc.postMessage('toggleMic:' + (micVisible ? '1' : '0'));
         }});
-        
+
         toggleTrans.addEventListener('click', function(e) {{
             e.stopPropagation();
             transVisible = !transVisible;
@@ -219,7 +219,7 @@ pub fn get(font_size: u32) -> String {
             this.classList.toggle('inactive', !transVisible);
             window.ipc.postMessage('toggleTrans:' + (transVisible ? '1' : '0'));
         }});
-        
+
         // Function to update visibility state from native side
         window.setVisibility = function(mic, trans) {{
             micVisible = mic;
@@ -229,14 +229,14 @@ pub fn get(font_size: u32) -> String {
             toggleTrans.classList.toggle('active', trans);
             toggleTrans.classList.toggle('inactive', !trans);
         }};
-        
+
         // Function to update current TTS speed from native side
         window.updateTtsSpeed = function(speed) {{
             ttsSpeed = speed;
             if (speedSlider) speedSlider.value = speed;
             if (speedValue) speedValue.textContent = (speed / 100).toFixed(1) + 'x';
         }};
-        
+
         // Font size controls
         fontDecrease.addEventListener('click', function(e) {{
             e.stopPropagation();
@@ -249,7 +249,7 @@ pub fn get(font_size: u32) -> String {
                 window.ipc.postMessage('fontSize:' + currentFontSize);
             }}
         }});
-        
+
         fontIncrease.addEventListener('click', function(e) {{
             e.stopPropagation();
             if (currentFontSize < 32) {{
@@ -261,33 +261,33 @@ pub fn get(font_size: u32) -> String {
                 window.ipc.postMessage('fontSize:' + currentFontSize);
             }}
         }});
-        
+
         // Audio source toggle buttons
         const micBtn = document.getElementById('mic-btn');
         const deviceBtn = document.getElementById('device-btn');
-        
+
         if (micBtn) {{
             micBtn.addEventListener('click', (e) => {{
                 e.stopPropagation();
                 e.preventDefault();
-                
+
                 // Switch to mic mode
                 micBtn.classList.add('active');
                 if (deviceBtn) deviceBtn.classList.remove('active');
-                
+
                 window.ipc.postMessage('audioSource:mic');
             }});
         }}
-        
+
         if (deviceBtn) {{
             deviceBtn.addEventListener('click', (e) => {{
                 e.stopPropagation();
                 e.preventDefault();
-                
+
                 // Switch to device mode
                 if (micBtn) micBtn.classList.remove('active');
                 deviceBtn.classList.add('active');
-                
+
                 window.ipc.postMessage('audioSource:device');
             }});
         }}
@@ -302,31 +302,31 @@ pub fn get(font_size: u32) -> String {
             options.forEach(opt => {{
                 opt.dataset.fullname = opt.textContent;
             }});
-            
+
             // Function to show short codes (when collapsed)
             function showCodes() {{
                 options.forEach(opt => {{
                     opt.textContent = opt.dataset.code || opt.dataset.fullname.substring(0, 2).toUpperCase();
                 }});
             }}
-            
+
             // Function to show full names (when dropdown open)
             function showFullNames() {{
                 options.forEach(opt => {{
                     opt.textContent = opt.dataset.fullname;
                 }});
             }}
-            
+
             // Initially show codes
             showCodes();
-            
+
             // Show full names when dropdown opens
             langSelect.addEventListener('focus', showFullNames);
-            langSelect.addEventListener('mousedown', function(e) {{ 
+            langSelect.addEventListener('mousedown', function(e) {{
                 e.stopPropagation();
                 showFullNames();
             }});
-            
+
             // Show codes when dropdown closes
             langSelect.addEventListener('blur', showCodes);
             langSelect.addEventListener('change', function(e) {{
@@ -344,18 +344,18 @@ pub fn get(font_size: u32) -> String {
                 icon.addEventListener('click', (e) => {{
                     e.stopPropagation();
                     e.preventDefault();
-                    
+
                     // Update UI - toggle active class
                     modelIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
-                    
+
                     // Send IPC
                     const val = icon.getAttribute('data-value');
                     window.ipc.postMessage('translationModel:' + val);
                 }});
             }});
         }}
-        
+
         // Transcription Model Logic
         const transModelIcons = document.querySelectorAll('.trans-model-icon');
         if (transModelIcons.length) {{
@@ -363,10 +363,10 @@ pub fn get(font_size: u32) -> String {
                 icon.addEventListener('click', (e) => {{
                     e.stopPropagation();
                     e.preventDefault();
-                    
+
                     transModelIcons.forEach(i => i.classList.remove('active'));
                     icon.classList.add('active');
-                    
+
                     const val = icon.getAttribute('data-value');
                     window.ipc.postMessage('transcriptionModel:' + val);
                 }});
@@ -380,7 +380,7 @@ pub fn get(font_size: u32) -> String {
             const titleEl = document.getElementById('download-title');
             const msgEl = document.getElementById('download-msg');
             const fillEl = document.getElementById('download-fill');
-            
+
             if (modal && overlay) {{
                 modal.classList.add('show');
                 overlay.classList.add('show');
@@ -389,7 +389,7 @@ pub fn get(font_size: u32) -> String {
                 if (fillEl) fillEl.style.width = progress + '%';
             }}
         }};
-        
+
         window.hideDownloadModal = function() {{
             const modal = document.getElementById('download-modal');
             const overlay = document.getElementById('download-modal-overlay');
@@ -398,7 +398,7 @@ pub fn get(font_size: u32) -> String {
                 overlay.classList.remove('show');
             }}
         }};
-        
+
         // Cancel download button handler
         const downloadCancelBtn = document.getElementById('download-cancel-btn');
         if (downloadCancelBtn) {{
@@ -408,7 +408,7 @@ pub fn get(font_size: u32) -> String {
                 window.ipc.postMessage('cancelDownload');
             }});
         }}
-        
+
         // Update settings from native side (used when overlay is shown with saved config)
         window.updateSettings = function(settings) {{
             // Update audio source toggle
@@ -421,12 +421,12 @@ pub fn get(font_size: u32) -> String {
                     deviceBtn.classList.remove('active');
                 }}
             }}
-            
+
             // Update language select
             if (settings.targetLanguage && langSelect) {{
                 langSelect.value = settings.targetLanguage;
             }}
-            
+
             // Update translation model
             if (settings.translationModel && modelIcons.length) {{
                 modelIcons.forEach(icon => {{
@@ -434,7 +434,7 @@ pub fn get(font_size: u32) -> String {
                     icon.classList.toggle('active', val === settings.translationModel);
                 }});
             }}
-            
+
             // Update transcription model
             if (settings.transcriptionModel && transModelIcons && transModelIcons.length) {{
                 transModelIcons.forEach(icon => {{
@@ -442,7 +442,7 @@ pub fn get(font_size: u32) -> String {
                     icon.classList.toggle('active', val === settings.transcriptionModel);
                 }});
             }}
-            
+
             // Update font size
             if (settings.fontSize && settings.fontSize !== currentFontSize) {{
                 currentFontSize = settings.fontSize;
@@ -451,7 +451,7 @@ pub fn get(font_size: u32) -> String {
                 content.style.minHeight = '';
             }}
         }};
-        
+
         // Handle resize to keep text at bottom
         let lastWidth = viewport.clientWidth;
         const resizeObserver = new ResizeObserver(entries => {{
@@ -461,7 +461,7 @@ pub fn get(font_size: u32) -> String {
                     // Reset min height on width change (reflow)
                     minContentHeight = 0;
                     content.style.minHeight = '';
-                    
+
                     // Force scroll to bottom immediately to prevent jump
                     if (content.scrollHeight > viewport.clientHeight) {{
                         viewport.scrollTop = content.scrollHeight - viewport.clientHeight;
@@ -472,16 +472,16 @@ pub fn get(font_size: u32) -> String {
             }}
         }});
         resizeObserver.observe(viewport);
-        
+
         let isFirstText = true;
         let currentScrollTop = 0;
         let targetScrollTop = 0;
         let animationFrame = null;
         let minContentHeight = 0;
-        
+
         function animateScroll() {{
             const diff = targetScrollTop - currentScrollTop;
-            
+
             if (Math.abs(diff) > 0.5) {{
                 const ease = Math.min(0.08, Math.max(0.02, Math.abs(diff) / 1000));
                 currentScrollTop += diff * ease;
@@ -493,7 +493,7 @@ pub fn get(font_size: u32) -> String {
                 animationFrame = null;
             }}
         }}
-        
+
         let currentOldTextLength = 0;
         let previousNewText = '';
 "###,

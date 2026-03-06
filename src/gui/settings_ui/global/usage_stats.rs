@@ -1,4 +1,4 @@
-use crate::gui::icons::{icon_button, Icon};
+use crate::gui::icons::{Icon, icon_button};
 use crate::gui::locale::LocaleText;
 use crate::model_config::{get_all_models, get_all_models_with_ollama};
 use eframe::egui;
@@ -41,16 +41,16 @@ pub fn render_usage_modal(
             });
             ui.separator();
             ui.add_space(4.0);
-            
+
             // Get all models including Ollama models from cache
             let all_models = if use_ollama {
                 get_all_models_with_ollama()
             } else {
                 get_all_models().to_vec()
             };
-            
+
             let mut shown_models = std::collections::HashSet::new();
-            
+
             egui::ScrollArea::vertical()
                 .max_height(450.0)
                 .auto_shrink([false, false])
@@ -64,14 +64,14 @@ pub fn render_usage_modal(
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
                             ui.end_row();
-                            
+
                             for model in &all_models {
                                 if !model.enabled || model.provider != "groq" { continue; }
                                 if shown_models.contains(&model.full_name) { continue; }
                                 shown_models.insert(model.full_name.clone());
-                                
+
                                 ui.label(&model.full_name);
-                                
+
                                 if model.model_type == crate::model_config::ModelType::Audio {
                                     ui.label("");
                                     ui.end_row();
@@ -80,7 +80,7 @@ pub fn render_usage_modal(
 
                                 let static_limit = model.quota_limit_en.split_whitespace().next().unwrap_or("?");
                                 let default_status = format!("??? / {}", static_limit);
-                                
+
                                 let raw_status = usage_stats.get(&model.full_name).cloned().unwrap_or(default_status);
                                 let display_status = if let Some((usage, limit)) = raw_status.split_once(" / ") {
                                     let final_limit = if limit == "?" { static_limit } else { limit };
@@ -92,11 +92,11 @@ pub fn render_usage_modal(
                                 ui.label(display_status);
                                 ui.end_row();
                             }
-                            
+
                         });
                     });
                 }
-                
+
                 if use_cerebras {
                     egui::CollapsingHeader::new(egui::RichText::new("🔥 Cerebras").strong().size(13.0))
                         .default_open(true)
@@ -105,17 +105,17 @@ pub fn render_usage_modal(
                             ui.label(egui::RichText::new(text.usage_model_column).strong().size(11.0));
                             ui.label(egui::RichText::new(text.usage_remaining_column).strong().size(11.0));
                             ui.end_row();
-                            
+
                             for model in &all_models {
                                 if !model.enabled || model.provider != "cerebras" { continue; }
                                 if shown_models.contains(&model.full_name) { continue; }
                                 shown_models.insert(model.full_name.clone());
-                                
+
                                 ui.label(&model.full_name);
 
                                 let static_limit = model.quota_limit_en.split_whitespace().next().unwrap_or("?");
                                 let default_status = format!("??? / {}", static_limit);
-                                
+
                                 let raw_status = usage_stats.get(&model.full_name).cloned().unwrap_or(default_status);
                                 let display_status = if let Some((usage, limit)) = raw_status.split_once(" / ") {
                                     let final_limit = if limit == "?" { static_limit } else { limit };
@@ -149,7 +149,7 @@ pub fn render_usage_modal(
                         ui.hyperlink_to(text.usage_check_link, "https://cloud.cerebras.ai/");
                     });
                 }
-                
+
                 if use_gemini {
                     egui::CollapsingHeader::new(egui::RichText::new("✨ Google Gemini").strong().size(13.0))
                         .default_open(true)
@@ -160,17 +160,17 @@ pub fn render_usage_modal(
                             ui.hyperlink_to(text.usage_check_link, "https://aistudio.google.com/usage?timeRange=last-1-day&tab=rate-limit");
                         });
                         ui.add_space(4.0);
-                        
+
                         for model in &all_models {
                             if !model.enabled || model.provider != "google" { continue; }
                             if shown_models.contains(&model.full_name) { continue; }
                             shown_models.insert(model.full_name.clone());
-                            
+
                             ui.label(&model.full_name);
                         }
                     });
                 }
-                
+
                 if use_openrouter {
                     egui::CollapsingHeader::new(egui::RichText::new("🌐 OpenRouter").strong().size(13.0))
                         .default_open(true)
@@ -181,17 +181,17 @@ pub fn render_usage_modal(
                             ui.hyperlink_to(text.usage_check_link, "https://openrouter.ai/activity");
                         });
                         ui.add_space(4.0);
-                        
+
                         for model in &all_models {
                             if !model.enabled || model.provider != "openrouter" { continue; }
                             if shown_models.contains(&model.full_name) { continue; }
                             shown_models.insert(model.full_name.clone());
-                            
+
                             ui.label(&model.full_name);
                         }
                     });
                 }
-                
+
                 if use_ollama {
                     egui::CollapsingHeader::new(egui::RichText::new("🏠 Ollama (Local)").strong().size(13.0))
                         .default_open(true)
@@ -202,12 +202,12 @@ pub fn render_usage_modal(
                             ui.label("∞ Unlimited");
                         });
                         ui.add_space(4.0);
-                        
+
                         for model in &all_models {
                             if !model.enabled || model.provider != "ollama" { continue; }
                             if shown_models.contains(&model.full_name) { continue; }
                             shown_models.insert(model.full_name.clone());
-                            
+
                             ui.label(&model.full_name);
                         }
                     });

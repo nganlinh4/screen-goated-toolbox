@@ -11,14 +11,14 @@ use wry::{Rect, WebViewBuilder};
 use super::conversion::markdown_to_html;
 use super::ipc::handle_markdown_ipc;
 use super::navigation::update_markdown_content_ex;
-use super::{SHARED_WEB_CONTEXT, SKIP_NEXT_NAVIGATION, WEBVIEWS, WEBVIEW_STATES};
+use super::{SHARED_WEB_CONTEXT, SKIP_NEXT_NAVIGATION, WEBVIEW_STATES, WEBVIEWS};
 
 /// Wrapper for HWND to implement HasWindowHandle
 struct HwndWrapper(HWND);
 
 impl HasWindowHandle for HwndWrapper {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        let hwnd = self.0 .0 as isize;
+        let hwnd = self.0.0 as isize;
         if let Some(non_zero) = NonZeroIsize::new(hwnd) {
             let mut handle = Win32WindowHandle::new(non_zero);
             // hinstance is optional, can be null
@@ -237,15 +237,16 @@ fn handle_navigation(hwnd_key: isize, url: &str) -> bool {
     if is_external {
         // Update browsing state and increment depth counter
         if let Ok(mut states) = crate::overlay::result::state::WINDOW_STATES.lock()
-            && let Some(state) = states.get_mut(&hwnd_key) {
-                state.is_browsing = true;
-                state.navigation_depth += 1;
-                state.max_navigation_depth = state.navigation_depth;
+            && let Some(state) = states.get_mut(&hwnd_key)
+        {
+            state.is_browsing = true;
+            state.navigation_depth += 1;
+            state.max_navigation_depth = state.navigation_depth;
 
-                if state.is_editing {
-                    state.is_editing = false;
-                }
+            if state.is_editing {
+                state.is_editing = false;
             }
+        }
         crate::overlay::result::button_canvas::update_window_position(HWND(
             hwnd_key as *mut std::ffi::c_void,
         ));
@@ -253,21 +254,22 @@ fn handle_navigation(hwnd_key: isize, url: &str) -> bool {
         // If we hit an internal URL, we are likely back at the start (or initial load)
         if let Ok(mut states) = crate::overlay::result::state::WINDOW_STATES.lock()
             && let Some(state) = states.get_mut(&hwnd_key)
-                && state.is_browsing {
-                    state.is_browsing = false;
-                    state.navigation_depth = 0;
-                    state.max_navigation_depth = 0;
-                    unsafe {
-                        let _ = windows::Win32::Graphics::Gdi::InvalidateRect(
-                            Some(HWND(hwnd_key as *mut std::ffi::c_void)),
-                            None,
-                            false,
-                        );
-                    }
-                    crate::overlay::result::button_canvas::update_window_position(HWND(
-                        hwnd_key as *mut std::ffi::c_void,
-                    ));
-                }
+            && state.is_browsing
+        {
+            state.is_browsing = false;
+            state.navigation_depth = 0;
+            state.max_navigation_depth = 0;
+            unsafe {
+                let _ = windows::Win32::Graphics::Gdi::InvalidateRect(
+                    Some(HWND(hwnd_key as *mut std::ffi::c_void)),
+                    None,
+                    false,
+                );
+            }
+            crate::overlay::result::button_canvas::update_window_position(HWND(
+                hwnd_key as *mut std::ffi::c_void,
+            ));
+        }
     }
 
     // Allow all navigation
@@ -280,16 +282,15 @@ fn handle_ipc(parent_hwnd: HWND, body: &str) {
     handle_markdown_ipc(parent_hwnd, body);
 
     if let Some(opacity) = body.strip_prefix("opacity:")
-        && let Ok(opacity_percent) = opacity.parse::<f32>() {
-            let alpha = ((opacity_percent / 100.0) * 255.0) as u8;
-            unsafe {
-                use windows::Win32::Foundation::COLORREF;
-                use windows::Win32::UI::WindowsAndMessaging::{
-                    SetLayeredWindowAttributes, LWA_ALPHA,
-                };
-                let _ = SetLayeredWindowAttributes(parent_hwnd, COLORREF(0), alpha, LWA_ALPHA);
-            }
+        && let Ok(opacity_percent) = opacity.parse::<f32>()
+    {
+        let alpha = ((opacity_percent / 100.0) * 255.0) as u8;
+        unsafe {
+            use windows::Win32::Foundation::COLORREF;
+            use windows::Win32::UI::WindowsAndMessaging::{LWA_ALPHA, SetLayeredWindowAttributes};
+            let _ = SetLayeredWindowAttributes(parent_hwnd, COLORREF(0), alpha, LWA_ALPHA);
         }
+    }
 }
 
 /// Resize the WebView to match parent window

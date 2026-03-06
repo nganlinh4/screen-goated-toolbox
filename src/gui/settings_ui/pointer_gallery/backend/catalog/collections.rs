@@ -50,30 +50,18 @@ const VISION_BLACK_ZIP_URL: &str =
     "https://github.com/zDyant/Vision-Cursor/releases/download/v1.0/Vision-Black-Windows.zip";
 const VISION_WHITE_ZIP_URL: &str =
     "https://github.com/zDyant/Vision-Cursor/releases/download/v1.0/Vision-White-Windows.zip";
-const BIBATA_MODERN_AMBER_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Amber-Windows.zip";
-const BIBATA_MODERN_AMBER_RIGHT_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Amber-Right-Windows.zip";
-const BIBATA_MODERN_CLASSIC_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Classic-Windows.zip";
-const BIBATA_MODERN_CLASSIC_RIGHT_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Classic-Right-Windows.zip";
-const BIBATA_MODERN_ICE_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice-Windows.zip";
-const BIBATA_MODERN_ICE_RIGHT_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice-Right-Windows.zip";
-const BIBATA_ORIGINAL_AMBER_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Amber-Windows.zip";
-const BIBATA_ORIGINAL_AMBER_RIGHT_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Amber-Right-Windows.zip";
-const BIBATA_ORIGINAL_CLASSIC_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Classic-Windows.zip";
-const BIBATA_ORIGINAL_CLASSIC_RIGHT_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Classic-Right-Windows.zip";
-const BIBATA_ORIGINAL_ICE_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Ice-Windows.zip";
-const BIBATA_ORIGINAL_ICE_RIGHT_ZIP_URL: &str =
-    "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Ice-Right-Windows.zip";
+const BIBATA_MODERN_AMBER_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Amber-Windows.zip";
+const BIBATA_MODERN_AMBER_RIGHT_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Amber-Right-Windows.zip";
+const BIBATA_MODERN_CLASSIC_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Classic-Windows.zip";
+const BIBATA_MODERN_CLASSIC_RIGHT_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Classic-Right-Windows.zip";
+const BIBATA_MODERN_ICE_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice-Windows.zip";
+const BIBATA_MODERN_ICE_RIGHT_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Modern-Ice-Right-Windows.zip";
+const BIBATA_ORIGINAL_AMBER_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Amber-Windows.zip";
+const BIBATA_ORIGINAL_AMBER_RIGHT_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Amber-Right-Windows.zip";
+const BIBATA_ORIGINAL_CLASSIC_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Classic-Windows.zip";
+const BIBATA_ORIGINAL_CLASSIC_RIGHT_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Classic-Right-Windows.zip";
+const BIBATA_ORIGINAL_ICE_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Ice-Windows.zip";
+const BIBATA_ORIGINAL_ICE_RIGHT_ZIP_URL: &str = "https://github.com/ful1e5/Bibata_Cursor/releases/download/v2.0.7/Bibata-Original-Ice-Right-Windows.zip";
 const POSY_DEFAULT_ZIP_URL: &str = "https://www.michieldb.nl/other/cursors/Posy%27s%20Cursor.zip";
 const POSY_BLACK_ZIP_URL: &str =
     "https://www.michieldb.nl/other/cursors/Posy%27s%20Cursor%20Black.zip";

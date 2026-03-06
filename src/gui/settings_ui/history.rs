@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::gui::icons::{draw_icon_static, icon_button, Icon};
+use crate::gui::icons::{Icon, draw_icon_static, icon_button};
 use crate::gui::locale::LocaleText;
 use crate::history::{HistoryItem, HistoryManager, HistoryType};
 use eframe::egui;

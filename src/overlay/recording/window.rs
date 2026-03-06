@@ -6,16 +6,16 @@ use super::state::*;
 use super::ui::generate_html;
 use crate::APP;
 use std::sync::atomic::Ordering;
-use windows::core::*;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::{
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
 };
 use windows::Win32::System::Com::{CoInitialize, CoUninitialize};
 use windows::Win32::System::LibraryLoader::*;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::*;
 use wry::{Rect, WebContext, WebViewBuilder};
 
 /// HWND wrapper for raw_window_handle trait
@@ -29,7 +29,7 @@ impl raw_window_handle::HasWindowHandle for HwndWrapper {
     ) -> std::result::Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError>
     {
         let raw = raw_window_handle::Win32WindowHandle::new(
-            std::num::NonZeroIsize::new(self.0 .0 as isize).expect("HWND cannot be null"),
+            std::num::NonZeroIsize::new(self.0.0 as isize).expect("HWND cannot be null"),
         );
         let handle = raw_window_handle::RawWindowHandle::Win32(raw);
         unsafe { Ok(raw_window_handle::WindowHandle::borrow_raw(handle)) }
@@ -239,14 +239,15 @@ pub fn start_audio_thread(hwnd: HWND, preset_idx: usize) {
 
         for block in &preset.blocks {
             if block.block_type == "audio"
-                && let Some(config) = crate::model_config::get_model_by_id(&block.model) {
-                    if config.provider == "gemini-live" {
-                        gemini = true;
-                    }
-                    if config.provider == "parakeet" {
-                        parakeet = true;
-                    }
+                && let Some(config) = crate::model_config::get_model_by_id(&block.model)
+            {
+                if config.provider == "gemini-live" {
+                    gemini = true;
                 }
+                if config.provider == "parakeet" {
+                    parakeet = true;
+                }
+            }
         }
         (gemini, parakeet)
     };

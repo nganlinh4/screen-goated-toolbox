@@ -2,9 +2,9 @@
 
 use windows::Win32::Foundation::*;
 
+use super::WEBVIEWS;
 use super::conversion::markdown_to_html;
 use super::webview::create_markdown_webview_ex;
-use super::WEBVIEWS;
 
 /// Stream markdown content - optimized for rapid updates during streaming
 /// Uses innerHTML instead of document.write to avoid document recreation

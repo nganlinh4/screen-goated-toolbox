@@ -3,17 +3,17 @@
 
 use super::bg_download;
 use super::engine::{
-    get_monitors, CaptureHandler, ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR,
-    ENCODER_ACTIVE, ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH,
-    MOUSE_POSITIONS, SHOULD_STOP, VIDEO_PATH,
+    ACTIVE_CAPTURE_CONTROL, AUDIO_ENCODING_FINISHED, CAPTURE_ERROR, CaptureHandler, ENCODER_ACTIVE,
+    ENCODING_FINISHED, LAST_CAPTURE_FRAME_HEIGHT, LAST_CAPTURE_FRAME_WIDTH, MOUSE_POSITIONS,
+    SHOULD_STOP, VIDEO_PATH, get_monitors,
 };
 use super::input_capture;
 use super::mf_decode;
 use super::native_export;
 use super::raw_video;
 use super::{SERVER_PORT, SR_HWND};
-use crate::config::Hotkey;
 use crate::APP;
+use crate::config::Hotkey;
 use base64::Engine as _;
 use std::fs;
 use std::fs::File;
@@ -22,12 +22,12 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use tiny_http::{Response, Server, StatusCode};
 use windows::Win32::Foundation::*;
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Media::{timeBeginPeriod, timeEndPeriod};
-use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
+use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -35,7 +35,7 @@ use windows_capture::capture::GraphicsCaptureApiHandler;
 use windows_capture::monitor::Monitor;
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
-    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
+    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings, SettingsOptions,
 };
 
 const WM_RELOAD_HOTKEYS: u32 = WM_USER + 101;
@@ -967,13 +967,15 @@ pub fn handle_ipc_command(
 
                 let settings = Settings::new(
                     window,
-                    cursor_setting,
-                    DrawBorderSettings::WithoutBorder,
-                    SecondaryWindowSettings::Default,
-                    update_interval,
-                    DirtyRegionSettings::Default,
-                    ColorFormat::Bgra8,
-                    flag_str,
+                    SettingsOptions {
+                        cursor_capture_settings: cursor_setting,
+                        draw_border_settings: DrawBorderSettings::WithoutBorder,
+                        secondary_window_settings: SecondaryWindowSettings::Default,
+                        minimum_update_interval_settings: update_interval,
+                        dirty_region_settings: DirtyRegionSettings::Default,
+                        color_format: ColorFormat::Bgra8,
+                        flags: flag_str,
+                    },
                 );
 
                 match CaptureHandler::start_free_threaded(settings) {
@@ -1050,13 +1052,15 @@ pub fn handle_ipc_command(
 
                 let settings = Settings::new(
                     monitor,
-                    cursor_setting,
-                    DrawBorderSettings::Default,
-                    SecondaryWindowSettings::Include,
-                    update_interval,
-                    DirtyRegionSettings::Default,
-                    ColorFormat::Bgra8,
-                    flag_str,
+                    SettingsOptions {
+                        cursor_capture_settings: cursor_setting,
+                        draw_border_settings: DrawBorderSettings::Default,
+                        secondary_window_settings: SecondaryWindowSettings::Include,
+                        minimum_update_interval_settings: update_interval,
+                        dirty_region_settings: DirtyRegionSettings::Default,
+                        color_format: ColorFormat::Bgra8,
+                        flags: flag_str,
+                    },
                 );
 
                 match CaptureHandler::start_free_threaded(settings) {
@@ -1297,11 +1301,10 @@ pub fn handle_ipc_command(
                 if let Ok(hwnd) = FindWindowW(
                     windows::core::w!("HotkeyListenerClass"),
                     windows::core::w!("Listener"),
-                )
-                    && !hwnd.is_invalid() {
-                        let _ =
-                            PostMessageW(Some(hwnd), WM_UNREGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
-                    }
+                ) && !hwnd.is_invalid()
+                {
+                    let _ = PostMessageW(Some(hwnd), WM_UNREGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
+                }
             }
             Ok(serde_json::Value::Null)
         }
@@ -1310,10 +1313,10 @@ pub fn handle_ipc_command(
                 if let Ok(hwnd) = FindWindowW(
                     windows::core::w!("HotkeyListenerClass"),
                     windows::core::w!("Listener"),
-                )
-                    && !hwnd.is_invalid() {
-                        let _ = PostMessageW(Some(hwnd), WM_REGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
-                    }
+                ) && !hwnd.is_invalid()
+                {
+                    let _ = PostMessageW(Some(hwnd), WM_REGISTER_HOTKEYS, WPARAM(0), LPARAM(0));
+                }
             }
             Ok(serde_json::Value::Null)
         }
@@ -1611,10 +1614,10 @@ fn trigger_hotkey_reload() {
         if let Ok(hwnd) = FindWindowW(
             windows::core::w!("HotkeyListenerClass"),
             windows::core::w!("Listener"),
-        )
-            && !hwnd.is_invalid() {
-                let _ = PostMessageW(Some(hwnd), WM_RELOAD_HOTKEYS, WPARAM(0), LPARAM(0));
-            }
+        ) && !hwnd.is_invalid()
+        {
+            let _ = PostMessageW(Some(hwnd), WM_RELOAD_HOTKEYS, WPARAM(0), LPARAM(0));
+        }
     }
 }
 
@@ -1819,18 +1822,20 @@ pub fn start_global_media_server() -> Result<u16, String> {
                     .headers()
                     .iter()
                     .find(|h| h.field.as_str() == "Range")
-                    && let Some(r) = range.value.as_str().strip_prefix("bytes=") {
-                        let parts: Vec<&str> = r.split('-').collect();
-                        if parts.len() == 2 {
-                            if let Ok(s) = parts[0].parse::<u64>() {
-                                start = s;
-                            }
-                            if let Ok(e) = parts[1].parse::<u64>()
-                                && !parts[1].is_empty() {
-                                    end = e;
-                                }
+                    && let Some(r) = range.value.as_str().strip_prefix("bytes=")
+                {
+                    let parts: Vec<&str> = r.split('-').collect();
+                    if parts.len() == 2 {
+                        if let Ok(s) = parts[0].parse::<u64>() {
+                            start = s;
+                        }
+                        if let Ok(e) = parts[1].parse::<u64>()
+                            && !parts[1].is_empty()
+                        {
+                            end = e;
                         }
                     }
+                }
 
                 if let Ok(mut f) = File::open(media_path) {
                     let _ = f.seek(std::io::SeekFrom::Start(start));

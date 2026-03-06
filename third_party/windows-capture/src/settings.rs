@@ -114,6 +114,18 @@ pub struct Settings<Flags, T: TryIntoCaptureItemWithType> {
     pub(crate) flags: Flags,
 }
 
+/// All capture configuration except for the item being captured.
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct SettingsOptions<Flags> {
+    pub cursor_capture_settings: CursorCaptureSettings,
+    pub draw_border_settings: DrawBorderSettings,
+    pub secondary_window_settings: SecondaryWindowSettings,
+    pub minimum_update_interval_settings: MinimumUpdateIntervalSettings,
+    pub dirty_region_settings: DirtyRegionSettings,
+    pub color_format: ColorFormat,
+    pub flags: Flags,
+}
+
 impl<Flags, T: TryIntoCaptureItemWithType> Settings<Flags, T> {
     /// Creates a new `Settings` configuration.
     ///
@@ -129,17 +141,16 @@ impl<Flags, T: TryIntoCaptureItemWithType> Settings<Flags, T> {
     /// * `flags` - Custom flags to be passed to the capture implementation's `new` function.
     #[must_use]
     #[inline]
-    #[allow(clippy::too_many_arguments)]
-    pub const fn new(
-        item: T,
-        cursor_capture_settings: CursorCaptureSettings,
-        draw_border_settings: DrawBorderSettings,
-        secondary_window_settings: SecondaryWindowSettings,
-        minimum_update_interval_settings: MinimumUpdateIntervalSettings,
-        dirty_region_settings: DirtyRegionSettings,
-        color_format: ColorFormat,
-        flags: Flags,
-    ) -> Self {
+    pub fn new(item: T, options: SettingsOptions<Flags>) -> Self {
+        let SettingsOptions {
+            cursor_capture_settings,
+            draw_border_settings,
+            secondary_window_settings,
+            minimum_update_interval_settings,
+            dirty_region_settings,
+            color_format,
+            flags,
+        } = options;
         Self {
             item,
             cursor_capture_settings,

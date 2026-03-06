@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -151,9 +151,18 @@ pub fn download_parakeet_model(
 
     let result = (|| {
         let files_to_download = vec![
-             ("encoder.onnx", "https://huggingface.co/altunenes/parakeet-rs/resolve/main/realtime_eou_120m-v1-onnx/encoder.onnx"),
-             ("decoder_joint.onnx", "https://huggingface.co/altunenes/parakeet-rs/resolve/main/realtime_eou_120m-v1-onnx/decoder_joint.onnx"),
-             ("tokenizer.json", "https://huggingface.co/altunenes/parakeet-rs/resolve/main/realtime_eou_120m-v1-onnx/tokenizer.json"),
+            (
+                "encoder.onnx",
+                "https://huggingface.co/altunenes/parakeet-rs/resolve/main/realtime_eou_120m-v1-onnx/encoder.onnx",
+            ),
+            (
+                "decoder_joint.onnx",
+                "https://huggingface.co/altunenes/parakeet-rs/resolve/main/realtime_eou_120m-v1-onnx/decoder_joint.onnx",
+            ),
+            (
+                "tokenizer.json",
+                "https://huggingface.co/altunenes/parakeet-rs/resolve/main/realtime_eou_120m-v1-onnx/tokenizer.json",
+            ),
         ];
 
         for (filename, url) in files_to_download {

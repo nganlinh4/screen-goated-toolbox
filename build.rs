@@ -29,10 +29,11 @@ fn main() {
     let app_icon_small_path = assets_dir.join("app-icon-small.png");
 
     if app_icon_path.exists()
-        && let Ok(img) = image::open(&app_icon_path) {
-            let resized = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
-            let _ = resized.save(&app_icon_small_path);
-        }
+        && let Ok(img) = image::open(&app_icon_path)
+    {
+        let resized = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
+        let _ = resized.save(&app_icon_small_path);
+    }
 
     // Generate multi-size ICO from the optimized small icon
     if app_icon_small_path.exists() {

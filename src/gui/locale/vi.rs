@@ -6,14 +6,14 @@ pub fn get() -> LocaleText {
         history_title: "Thư viện kết quả",
         max_items_label: "Giới hạn lưu:",
         history_empty: "Chưa có lịch sử nào.",
-        clear_all_history_btn: "Dọn tất cả", 
+        clear_all_history_btn: "Dọn tất cả",
         view_image_btn: "Xem ảnh",
         listen_audio_btn: "Nghe audio",
         view_text_btn: "Xem text",
-        
+
         prompt_mode_fixed: "Làm theo lệnh sẵn",
         prompt_mode_dynamic: "Viết lệnh tại chỗ",
-        
+
         get_key_link: "Lấy tại console.groq.com",
         gemini_api_key_label: "Mã API Gemini:",
         gemini_get_key_link: "Lấy mã tại aistudio.google.com",
@@ -25,14 +25,12 @@ pub fn get() -> LocaleText {
         cerebras_api_key_label: "Mã API Cerebras:",
         cerebras_get_key_link: "Lấy mã tại cloud.cerebras.ai",
         use_cerebras_checkbox: "Cerebras",
-        
+
         global_settings: "Cài Đặt Chung",
         preset_name_label: "Tên Cấu Hình:",
-        
-        
-        
+
         search_placeholder: "Tìm...",
-        
+
         auto_paste_label: "Tự động dán",
         auto_paste_newline_label: "Tự thêm ký tự xuống dòng sau khi copy",
         startup_label: "Khởi động cùng Windows",
@@ -41,17 +39,13 @@ pub fn get() -> LocaleText {
         cancel_label: "Hủy",
         reset_defaults_btn: "Khôi phục mặc định",
         force_quit: "Buộc thoát",
-        
-        
-        
+
         preset_type_label: "Loại hình:",
         preset_type_image: "Hiểu hình ảnh",
         preset_type_audio: "Hiểu âm thanh",
         preset_type_video: "Hiểu video (upcoming)",
         preset_type_text: "Hiểu văn bản", // NEW
-        
-        
-        
+
         audio_source_label: "Nguồn:",
         audio_src_mic: "Microphone",
         audio_src_device: "Âm thanh máy tính",
@@ -71,7 +65,7 @@ pub fn get() -> LocaleText {
         usage_model_column: "Mô hình",
         usage_remaining_column: "Còn lại / Tổng",
         usage_check_link: "Xem lượng dùng ↗",
-        
+
         footer_admin_text: "chạy bằng admin để dịch game",
         footer_version: "phiên bản",
         check_for_updates_btn: "Kiểm Tra Cập Nhật",
@@ -118,42 +112,41 @@ pub fn get() -> LocaleText {
         node_menu_add_special_audio: "⭐ Thêm node Audio -> Text",
         input_auto_copy_tooltip: "Tự động copy (Nguồn)",
         input_auto_speak_tooltip: "Đọc to nguồn",
-        
-        
+
         tips_title: "Mẹo sử dụng",
         tips_click_hint: "Click vào dòng chữ này để xem danh sách mẹo",
         tips_list: vec![
-        "Nhấp **chuột giữa** một overlay bất kỳ giúp xoá tất cả overlay trên màn hình!",
-        "**Chuột phải** lên một overlay giúp copy nhanh nội dung của overlay đó!",
-        "Khi đang vẽ hộp trên màn hình tối (chưa thả chuột), có thể bấm **ESC** hoặc Phím tắt một lần nữa để hủy.",
-        "Nếu thích ứng dụng **SGT** hãy bấm Star cho Github và chia sẻ cho mọi người biết nha!",
-        "Bạn có biết? Phím tắt có thể gán cho **chuột giữa, chuột 4, chuột 5** nữa nha, không chỉ cho bàn phím.",
-        "Nếu bị **crash** trong lúc hiện overlay thì bạn hãy thử đổi Đồ hoạ sang Tối giản thử xem!",
-        "Bạn không thể đổi tên các Cấu hình có sẵn nhưng **Cấu hình mới** thì đổi được bình thường nha!",
-        "**Thư viện lịch sử** kết quả có cơ chế tự dọn kết quả cũ khi vượt Giới hạn lưu nên bạn khỏi lo nha!",
-        "Trong chuỗi hành động, chỉ **một bước** trong đó được phép bật Tự động copy, hoặc không bước nào.",
-        "Dù **Tự động dán** có được bật, nó cần nó nơi dán text được (con trỏ text nhấp nháy) thì mới dán được.",
-        "Điều khiển **Tự thêm xuống dòng** sau khi copy chỉ xuất hiện khi Tự động copy bật (tại 1 bước nào đó).",
-        "Những tên Cấu hình có nền **xanh lá** nghĩa là nó đã được gán phím tắt để sẵn sàng sử dụng.",
-        "Kéo bằng **chuột trái** chỉ dịch chuyển overlay hiện tại nhưng chuột phải sẽ dịch chuyển hết các overlay cùng nhóm.",
-        "Trên **canvas**: cuộn: zoom, kéo: pan, click đúp: reset view, chuột phải: thêm node. Trên node: kéo: dời, chuột phải: xoá node.",
-        "Cơ chế đặc biệt của **chế độ bôi đen** text: Nếu text đã bôi đen sẵn, bấm phím tắt sẽ xử lý ngay và luôn!",
-        "**Thu âm** có chế độ dừng thông minh nữa đó, nhớ dùng thử nha",
-        "Khi lướt **web** ngay bên trong overlay, chỉ dùng chuột chứ không dùng bàn phím được, thông cảm nha",
-        "Gán phím tắt cho **'Ảnh MASTER'** hoặc **'Bôi MASTER'**,... để gọi vòng tròn chọn (Wheel), giúp truy cập nhiều công cụ chỉ với 1 phím.",
-        "Bấm nút **Chỉnh sửa** không chỉ để sửa text, bạn có thể nhập lệnh để AI viết lại nội dung (VD: 'Dịch sang tiếng Nhật').",
-        "Bạn có thể **kéo thả/dán** file ảnh hoặc file text trực tiếp vào cửa sổ cài đặt để xử lý ngay lập tức!",
-        "Bật **'Bong bóng yêu thích'** (Favorite Bubble) trong menu khay hệ thống để truy cập nhanh các cấu hình mà không cần nhớ phím tắt.",
-        "Trong Cài đặt giọng đọc, hãy thử **tuỳ chọn giọng Xịn** và điều chỉnh giọng vùng miền xem sao!",
-        "Chế độ **'Dịch cabin'** (Thời gian thực) có thể tự động điều chỉnh tốc độ đọc (TTS) để đuổi kịp tốc độ nói của người phát.",
-        "Bấm vào **nút chế độ hiển thị** (bên cạnh biểu tượng con mắt) để chuyển đổi giữa dạng văn bản thô và dạng Markdown/HTML đẹp mắt.",
-        "Các **mô hình** có biểu tượng kính lúp có khả năng truy cập internet để tìm dẫn chứng và thông tin mới nhất.",
-        "Khi **'Tự động copy'** kích hoạt, một thông báo nhỏ màu xanh sẽ hiện ra ở góc dưới màn hình để bạn biết nội dung đã vào Clipboard.",
-        "Không biết cách dùng? Mở **'Hỏi cách dùng'** để trợ lý AI hướng dẫn bạn tận tình nhé!",
-        "Căng thẳng quá thì ghé **'Làm DJ'** để tạo nhạc nền thư giãn vừa làm vừa chill.",
-        "Cần tải video? **'Tải video'** tích hợp sẵn hỗ trợ YouTube, Facebook và nhiều trang khác, hỗ trợ cả 4K và phụ đề!",
-        "**Giữ chặt Phím tắt** hoặc Cấu hình trong bong bóng để vào **Chế độ Liên tục**, giúp bạn xử lý nhiều vùng hoặc nhiều đoạn văn liên tiếp.",
-        "Bạn có bàn phím MIDI? Cắm vào máy khi mở **Làm DJ** để điều chỉnh nhạc bằng núm vặn vật lý nhé!",
+            "Nhấp **chuột giữa** một overlay bất kỳ giúp xoá tất cả overlay trên màn hình!",
+            "**Chuột phải** lên một overlay giúp copy nhanh nội dung của overlay đó!",
+            "Khi đang vẽ hộp trên màn hình tối (chưa thả chuột), có thể bấm **ESC** hoặc Phím tắt một lần nữa để hủy.",
+            "Nếu thích ứng dụng **SGT** hãy bấm Star cho Github và chia sẻ cho mọi người biết nha!",
+            "Bạn có biết? Phím tắt có thể gán cho **chuột giữa, chuột 4, chuột 5** nữa nha, không chỉ cho bàn phím.",
+            "Nếu bị **crash** trong lúc hiện overlay thì bạn hãy thử đổi Đồ hoạ sang Tối giản thử xem!",
+            "Bạn không thể đổi tên các Cấu hình có sẵn nhưng **Cấu hình mới** thì đổi được bình thường nha!",
+            "**Thư viện lịch sử** kết quả có cơ chế tự dọn kết quả cũ khi vượt Giới hạn lưu nên bạn khỏi lo nha!",
+            "Trong chuỗi hành động, chỉ **một bước** trong đó được phép bật Tự động copy, hoặc không bước nào.",
+            "Dù **Tự động dán** có được bật, nó cần nó nơi dán text được (con trỏ text nhấp nháy) thì mới dán được.",
+            "Điều khiển **Tự thêm xuống dòng** sau khi copy chỉ xuất hiện khi Tự động copy bật (tại 1 bước nào đó).",
+            "Những tên Cấu hình có nền **xanh lá** nghĩa là nó đã được gán phím tắt để sẵn sàng sử dụng.",
+            "Kéo bằng **chuột trái** chỉ dịch chuyển overlay hiện tại nhưng chuột phải sẽ dịch chuyển hết các overlay cùng nhóm.",
+            "Trên **canvas**: cuộn: zoom, kéo: pan, click đúp: reset view, chuột phải: thêm node. Trên node: kéo: dời, chuột phải: xoá node.",
+            "Cơ chế đặc biệt của **chế độ bôi đen** text: Nếu text đã bôi đen sẵn, bấm phím tắt sẽ xử lý ngay và luôn!",
+            "**Thu âm** có chế độ dừng thông minh nữa đó, nhớ dùng thử nha",
+            "Khi lướt **web** ngay bên trong overlay, chỉ dùng chuột chứ không dùng bàn phím được, thông cảm nha",
+            "Gán phím tắt cho **'Ảnh MASTER'** hoặc **'Bôi MASTER'**,... để gọi vòng tròn chọn (Wheel), giúp truy cập nhiều công cụ chỉ với 1 phím.",
+            "Bấm nút **Chỉnh sửa** không chỉ để sửa text, bạn có thể nhập lệnh để AI viết lại nội dung (VD: 'Dịch sang tiếng Nhật').",
+            "Bạn có thể **kéo thả/dán** file ảnh hoặc file text trực tiếp vào cửa sổ cài đặt để xử lý ngay lập tức!",
+            "Bật **'Bong bóng yêu thích'** (Favorite Bubble) trong menu khay hệ thống để truy cập nhanh các cấu hình mà không cần nhớ phím tắt.",
+            "Trong Cài đặt giọng đọc, hãy thử **tuỳ chọn giọng Xịn** và điều chỉnh giọng vùng miền xem sao!",
+            "Chế độ **'Dịch cabin'** (Thời gian thực) có thể tự động điều chỉnh tốc độ đọc (TTS) để đuổi kịp tốc độ nói của người phát.",
+            "Bấm vào **nút chế độ hiển thị** (bên cạnh biểu tượng con mắt) để chuyển đổi giữa dạng văn bản thô và dạng Markdown/HTML đẹp mắt.",
+            "Các **mô hình** có biểu tượng kính lúp có khả năng truy cập internet để tìm dẫn chứng và thông tin mới nhất.",
+            "Khi **'Tự động copy'** kích hoạt, một thông báo nhỏ màu xanh sẽ hiện ra ở góc dưới màn hình để bạn biết nội dung đã vào Clipboard.",
+            "Không biết cách dùng? Mở **'Hỏi cách dùng'** để trợ lý AI hướng dẫn bạn tận tình nhé!",
+            "Căng thẳng quá thì ghé **'Làm DJ'** để tạo nhạc nền thư giãn vừa làm vừa chill.",
+            "Cần tải video? **'Tải video'** tích hợp sẵn hỗ trợ YouTube, Facebook và nhiều trang khác, hỗ trợ cả 4K và phụ đề!",
+            "**Giữ chặt Phím tắt** hoặc Cấu hình trong bong bóng để vào **Chế độ Liên tục**, giúp bạn xử lý nhiều vùng hoặc nhiều đoạn văn liên tiếp.",
+            "Bạn có bàn phím MIDI? Cắm vào máy khi mở **Làm DJ** để điều chỉnh nhạc bằng núm vặn vật lý nhé!",
         ],
         restore_preset_btn: "Khôi phục",
         restore_preset_tooltip: "Đặt lại cài đặt về mặc định",
@@ -169,7 +162,7 @@ pub fn get() -> LocaleText {
         search_processing: "🧠 Đang xử lý và tóm tắt kết quả...",
         // --- MASTER PRESET UI VI ---
         controller_checkbox_label: "Bộ điều khiển",
-        
+
         // --- GLOBAL SETTINGS UI HEADERS VI ---
         api_keys_header: "🔑 Mã API",
         groq_label: "Mã API Groq:",
@@ -209,16 +202,16 @@ pub fn get() -> LocaleText {
         tts_speed_fast: "Nhanh",
         _tts_voice_label: "Giọng đọc:",
         tts_preview_texts: vec![
-        "Xin chào, tôi là {}, tôi có thể đọc giúp bạn đoạn văn này.",
-        "Cuộc sống thật đẹp tươi, {} rất vui khi được trò chuyện cùng bạn.",
-        "Hôm nay trời đẹp quá, {} nghĩ chúng ta nên đi dạo một chút.",
-        "Công nghệ giúp cuộc sống trở nên dễ dàng hơn, đúng không nào?",
-        "Hãy luôn giữ nụ cười trên môi nhé, {} chúc bạn một ngày vui vẻ.",
-        "Kiến thức là kho báu mà không ai có thể lấy đi.",
-        "Bạn đang nghe thử giọng đọc của {}, hy vọng bạn sẽ thích.",
-        "{} chúc bạn một ngày làm việc thật hiệu quả và tràn đầy năng lượng.",
-        "Đừng quên uống đủ nước mỗi ngày nhé.",
-        "Cảm ơn bạn đã sử dụng phần mềm Screen Goated Toolbox.",
+            "Xin chào, tôi là {}, tôi có thể đọc giúp bạn đoạn văn này.",
+            "Cuộc sống thật đẹp tươi, {} rất vui khi được trò chuyện cùng bạn.",
+            "Hôm nay trời đẹp quá, {} nghĩ chúng ta nên đi dạo một chút.",
+            "Công nghệ giúp cuộc sống trở nên dễ dàng hơn, đúng không nào?",
+            "Hãy luôn giữ nụ cười trên môi nhé, {} chúc bạn một ngày vui vẻ.",
+            "Kiến thức là kho báu mà không ai có thể lấy đi.",
+            "Bạn đang nghe thử giọng đọc của {}, hy vọng bạn sẽ thích.",
+            "{} chúc bạn một ngày làm việc thật hiệu quả và tràn đầy năng lượng.",
+            "Đừng quên uống đủ nước mỗi ngày nhé.",
+            "Cảm ơn bạn đã sử dụng phần mềm Screen Goated Toolbox.",
         ],
         tts_male: "Nam",
         tts_female: "Nữ",
@@ -299,7 +292,7 @@ pub fn get() -> LocaleText {
         overlay_back_tooltip: "Quay lại",
         overlay_forward_tooltip: "Tiếp theo",
         overlay_opacity_tooltip: "Độ mờ",
-        
+
         download_feature_btn: "Tải video",
         download_feature_title: "Tải video",
         download_delete_deps_btn: "Xoá yt-dlp ({}), ffmpeg ({}) và Deno ({})",
@@ -321,7 +314,7 @@ pub fn get() -> LocaleText {
         download_file_label: "Tập tin:",
         download_size_label: "Kích thước:",
         download_change_folder_btn: "Thay đổi nơi lưu...",
-        
+
         download_progress_info_fmt: "{}% của {}, tốc độ {}, còn {}",
         download_advanced_header: "Tính năng nâng cao",
         download_opt_metadata: "Full Metadata (Ảnh bìa, Chapter, Info)",
@@ -348,7 +341,7 @@ pub fn get() -> LocaleText {
         download_deno_failed_fmt: "Tải Deno thất bại: {}",
         download_deno_yes_btn: "Có, tải Deno",
         download_deno_no_btn: "Không, dùng không cookie",
-        
+
         downloaded_tools_button: "Công cụ đã tải",
         downloaded_tools_title: "Quản lý công cụ đã tải",
         tool_parakeet: "Mô hình Parakeet Realtime",

@@ -21,7 +21,9 @@ use overlay::load_custom_background_rgba;
 use sampling::{sample_baked_path, sample_parsed_baked_cursor};
 
 use super::SR_HWND;
-use super::gpu_export::{CompositorUniforms, GpuCompositor, create_uniforms};
+use super::gpu_export::{
+    CompositorUniformParams, CompositorUniforms, GpuCompositor, create_uniforms,
+};
 use super::gpu_pipeline;
 use super::mf_decode;
 use super::mf_encode;
@@ -140,32 +142,32 @@ pub fn warm_up_export_pipeline() {
             let blank_frame = vec![0u8; (warm_w * warm_h * 4) as usize];
             compositor.upload_frame(&blank_frame);
 
-            let uniforms = create_uniforms(
-                (0.0, 0.0),
-                (1.0, 1.0),
-                (warm_w as f32, warm_h as f32),
-                (warm_w as f32, warm_h as f32),
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                [0.0, 0.0, 0.0, 1.0],
-                [0.0, 0.0, 0.0, 1.0],
-                0.0,
-                0.0, // render_mode
-                (-1.0, -1.0),
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                false,
-                1.0,
-                (0.5, 0.5),
-                0.0,
-                0.0,
-                0.0,
-            );
+            let uniforms = create_uniforms(CompositorUniformParams {
+                video_offset: (0.0, 0.0),
+                video_scale: (1.0, 1.0),
+                output_size: (warm_w as f32, warm_h as f32),
+                video_size: (warm_w as f32, warm_h as f32),
+                border_radius: 0.0,
+                shadow_offset: 0.0,
+                shadow_blur: 0.0,
+                shadow_opacity: 0.0,
+                gradient_color1: [0.0, 0.0, 0.0, 1.0],
+                gradient_color2: [0.0, 0.0, 0.0, 1.0],
+                time: 0.0,
+                render_mode: 0.0,
+                cursor_pos: (-1.0, -1.0),
+                cursor_scale: 0.0,
+                cursor_opacity: 0.0,
+                cursor_type_id: 0.0,
+                cursor_rotation: 0.0,
+                cursor_shadow: 0.0,
+                use_background_texture: false,
+                bg_zoom: 1.0,
+                bg_anchor: (0.5, 0.5),
+                background_style: 0.0,
+                bg_tex_w: 0.0,
+                bg_tex_h: 0.0,
+            });
 
             let mut warm_compositor = compositor;
             let _ = warm_compositor.render_frame(&uniforms);
@@ -624,32 +626,32 @@ pub fn start_native_export(args: serde_json::Value) -> Result<serde_json::Value,
             (-1.0, -1.0, 0.0, 0.0, 0.0, 0.0)
         };
 
-        create_uniforms(
-            (ox as f32, oy as f32),
-            (zvw as f32 / ow32, zvh as f32 / oh32),
-            (ow32, oh32),
-            (zvw as f32, zvh as f32),
+        create_uniforms(CompositorUniformParams {
+            video_offset: (ox as f32, oy as f32),
+            video_scale: (zvw as f32 / ow32, zvh as f32 / oh32),
+            output_size: (ow32, oh32),
+            video_size: (zvw as f32, zvh as f32),
             border_radius,
             shadow_offset,
             shadow_blur,
             shadow_opacity,
-            grad1,
-            grad2,
-            base_time as f32,
-            0.0, // render_mode (0 = all channels)
-            (cp_x, cp_y),
-            cs,
-            co,
-            ct,
-            cr,
+            gradient_color1: grad1,
+            gradient_color2: grad2,
+            time: base_time as f32,
+            render_mode: 0.0,
+            cursor_pos: (cp_x, cp_y),
+            cursor_scale: cs,
+            cursor_opacity: co,
+            cursor_type_id: ct,
+            cursor_rotation: cr,
             cursor_shadow,
-            use_custom_background,
-            zoom as f32,
-            (rx as f32, ry as f32),
-            bg_style,
-            actual_bg_w,
-            actual_bg_h,
-        )
+            use_background_texture: use_custom_background,
+            bg_zoom: zoom as f32,
+            bg_anchor: (rx as f32, ry as f32),
+            background_style: bg_style,
+            bg_tex_w: actual_bg_w,
+            bg_tex_h: actual_bg_h,
+        })
     };
 
     let bitrate = if config.target_video_bitrate_kbps > 0 {

@@ -10,7 +10,7 @@ pub fn create_image_presets() -> Vec<Preset> {
         // =====================================================================
         // TRANSLATION PRESETS
         // =====================================================================
-        
+
         // Translate - Basic image-to-text translation
         PresetBuilder::new("preset_translate", "Translate")
             .image()

@@ -11,25 +11,27 @@ use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 /// Get text from clipboard
-pub unsafe fn get_clipboard_text() -> String { unsafe {
-    let mut result = String::new();
-    if OpenClipboard(Some(HWND::default())).is_ok() {
-        if let Ok(h_data) = GetClipboardData(13u32) {
-            let h_global: HGLOBAL = std::mem::transmute(h_data);
-            let ptr = GlobalLock(h_global);
-            if !ptr.is_null() {
-                let size = GlobalSize(h_global);
-                let wide_slice = std::slice::from_raw_parts(ptr as *const u16, size / 2);
-                if let Some(end) = wide_slice.iter().position(|&c| c == 0) {
-                    result = String::from_utf16_lossy(&wide_slice[..end]);
+pub unsafe fn get_clipboard_text() -> String {
+    unsafe {
+        let mut result = String::new();
+        if OpenClipboard(Some(HWND::default())).is_ok() {
+            if let Ok(h_data) = GetClipboardData(13u32) {
+                let h_global: HGLOBAL = std::mem::transmute(h_data);
+                let ptr = GlobalLock(h_global);
+                if !ptr.is_null() {
+                    let size = GlobalSize(h_global);
+                    let wide_slice = std::slice::from_raw_parts(ptr as *const u16, size / 2);
+                    if let Some(end) = wide_slice.iter().position(|&c| c == 0) {
+                        result = String::from_utf16_lossy(&wide_slice[..end]);
+                    }
                 }
+                let _ = GlobalUnlock(h_global);
             }
-            let _ = GlobalUnlock(h_global);
+            let _ = CloseClipboard();
         }
-        let _ = CloseClipboard();
+        result
     }
-    result
-}}
+}
 
 /// Process selected text with the given preset
 pub fn process_selected_text(preset_idx: usize, clipboard_text: String) {
@@ -242,31 +244,33 @@ pub unsafe extern "system" fn keyboard_hook_proc(
     code: i32,
     wparam: WPARAM,
     lparam: LPARAM,
-) -> LRESULT { unsafe {
-    if code == HC_ACTION as i32 {
-        let kbd_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
-            // ESC always exits continuous mode
-            if kbd_struct.vkCode == VK_ESCAPE.0 as u32 {
-                // If image_continuous_mode is active, let its own hook handle ESC
-                // (it may cancel a drag instead of fully exiting)
-                if crate::overlay::image_continuous_mode::is_active() {
-                    return CallNextHookEx(None, code, wparam, lparam);
+) -> LRESULT {
+    unsafe {
+        if code == HC_ACTION as i32 {
+            let kbd_struct = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+            if wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize {
+                // ESC always exits continuous mode
+                if kbd_struct.vkCode == VK_ESCAPE.0 as u32 {
+                    // If image_continuous_mode is active, let its own hook handle ESC
+                    // (it may cancel a drag instead of fully exiting)
+                    if crate::overlay::image_continuous_mode::is_active() {
+                        return CallNextHookEx(None, code, wparam, lparam);
+                    }
+                    crate::overlay::continuous_mode::deactivate();
+                    super::cancel_selection();
+                    TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
+                    return LRESULT(1);
                 }
-                crate::overlay::continuous_mode::deactivate();
-                super::cancel_selection();
-                TAG_ABORT_SIGNAL.store(true, Ordering::SeqCst);
-                return LRESULT(1);
+                // Track trigger key held state
+                if kbd_struct.vkCode == TRIGGER_VK_CODE && TRIGGER_VK_CODE != 0 {
+                    IS_HOTKEY_HELD.store(true, Ordering::SeqCst);
+                }
+            } else if (wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize)
+                && kbd_struct.vkCode == TRIGGER_VK_CODE
+            {
+                IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
             }
-            // Track trigger key held state
-            if kbd_struct.vkCode == TRIGGER_VK_CODE && TRIGGER_VK_CODE != 0 {
-                IS_HOTKEY_HELD.store(true, Ordering::SeqCst);
-            }
-        } else if (wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize)
-            && kbd_struct.vkCode == TRIGGER_VK_CODE
-        {
-            IS_HOTKEY_HELD.store(false, Ordering::SeqCst);
         }
+        CallNextHookEx(None, code, wparam, lparam)
     }
-    CallNextHookEx(None, code, wparam, lparam)
-}}
+}

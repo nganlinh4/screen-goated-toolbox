@@ -124,20 +124,22 @@
 //! let settings = Settings::new(
 //!     // Item to capture
 //!     primary_monitor,
-//!     // Capture cursor settings
-//!     CursorCaptureSettings::Default,
-//!     // Draw border settings
-//!     DrawBorderSettings::Default,
-//!     // Secondary window settings, if you want to include secondary windows in the capture
-//!     SecondaryWindowSettings::Default,
-//!     // Minimum update interval, if you want to change the frame rate limit (default is 60 FPS or 16.67 ms)
-//!     MinimumUpdateIntervalSettings::Default,
-//!     // Dirty region settings,
-//!     DirtyRegionSettings::Default,
-//!     // The desired color format for the captured frame.
-//!     ColorFormat::Rgba8,
-//!     // Additional flags for the capture settings that will be passed to the user-defined `new` function.
-//!     "Yea this works".to_string(),
+//!     windows_capture::settings::SettingsOptions {
+//!         // Capture cursor settings
+//!         cursor_capture_settings: CursorCaptureSettings::Default,
+//!         // Draw border settings
+//!         draw_border_settings: DrawBorderSettings::Default,
+//!         // Secondary window settings, if you want to include secondary windows in the capture
+//!         secondary_window_settings: SecondaryWindowSettings::Default,
+//!         // Minimum update interval, if you want to change the frame rate limit (default is 60 FPS or 16.67 ms)
+//!         minimum_update_interval_settings: MinimumUpdateIntervalSettings::Default,
+//!         // Dirty region settings
+//!         dirty_region_settings: DirtyRegionSettings::Default,
+//!         // The desired color format for the captured frame.
+//!         color_format: ColorFormat::Rgba8,
+//!         // Additional flags for the capture settings that will be passed to the user-defined `new` function.
+//!         flags: "Yea this works".to_string(),
+//!     },
 //! );
 //!
 //! // Starts the capture and takes control of the current thread.
