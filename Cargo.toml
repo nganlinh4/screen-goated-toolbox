@@ -19,6 +19,7 @@ anyhow = "1.0"
 base64 = "0.22"
 self_update = { version = "0.42", features = ["archive-zip", "compression-zip-deflate"] }
 zip = "8.2"
+flate2 = "1.1"
 byteorder = "1.5"
 rayon = "1.11"
 

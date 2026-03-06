@@ -61,7 +61,7 @@ pub fn record_and_stream_parakeet(
             full_audio_buffer: Some(full_audio_buffer.clone()),
             overlay_hwnd_opt: Some(overlay_hwnd),
             hide_recording_ui: preset.hide_recording_ui,
-            use_badge: false,
+            use_badge: true,
             audio_source_override: Some(preset.audio_source.clone()),
             auto_stop_recording: preset.auto_stop_recording,
         },

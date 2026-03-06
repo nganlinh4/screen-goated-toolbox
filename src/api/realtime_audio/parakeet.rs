@@ -85,9 +85,25 @@ where
         auto_stop_recording,
     } = options;
 
-    // 1. Check/Download Model
+    let runtime_ui = if use_badge {
+        crate::unpack_dlls::AiRuntimeUi::Badge
+    } else {
+        crate::unpack_dlls::AiRuntimeUi::RealtimeOverlay
+    };
+
+    // 1. Check/Download Local Runtime
+    if let Err(e) = crate::unpack_dlls::ensure_ai_runtime_installed(stop_signal.clone(), runtime_ui)
+    {
+        let err_msg = e.to_string();
+        if err_msg.contains("cancelled") || stop_signal.load(Ordering::Relaxed) {
+            println!("Local AI runtime install was cancelled by user");
+            return Ok(());
+        }
+        return Err(e);
+    }
+
+    // 2. Check/Download Model
     if !super::model_loader::is_model_downloaded() {
-        // Pass use_badge to download function
         match super::model_loader::download_parakeet_model(stop_signal.clone(), use_badge) {
             Ok(_) => {}
             Err(e) => {
@@ -104,14 +120,14 @@ where
         }
     }
 
-    // 2. Load Model
+    // 3. Load Model
     let model_dir = super::model_loader::get_parakeet_model_dir();
     let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::DirectML);
 
     let mut parakeet = ParakeetEOU::from_pretrained(&model_dir, Some(config))
         .map_err(|e| anyhow::anyhow!("Failed to load Parakeet model: {:?}", e))?;
 
-    // 3. Audio Setup
+    // 4. Audio Setup
     let audio_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
 
     let (audio_source, check_per_app) = if let Some(s) = audio_source_override {
@@ -165,7 +181,7 @@ where
     let mut last_active = std::time::Instant::now();
     let mut first_speech: Option<std::time::Instant> = None;
 
-    // 4. Processing Loop
+    // 5. Processing Loop
     while !stop_signal.load(Ordering::Relaxed) {
         if !hide_recording_ui
             && let Some(hwnd) = overlay_hwnd_opt

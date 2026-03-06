@@ -1,19 +1,27 @@
+mod ai_runtime;
+mod remote_zip;
+
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use windows::Win32::System::LibraryLoader::SetDllDirectoryW;
 
-/// Unpacks embedded DLLs to the local app data directory if they are missing.
-/// This avoids cluttering the folder where the EXE is located.
-pub fn unpack_dlls() {
-    // Determine the path to %LOCALAPPDATA%/screen-goated-toolbox/bin
-    let mut bin_dir = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    bin_dir.push("screen-goated-toolbox");
-    bin_dir.push("bin");
+pub use self::ai_runtime::{
+    AiRuntimeStatus, AiRuntimeUi, current_ai_runtime_status, ensure_ai_runtime_installed,
+    remove_ai_runtime, start_ai_runtime_install,
+};
 
-    // Ensure the directory exists
-    let _ = fs::create_dir_all(&bin_dir);
+pub(super) fn private_bin_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("screen-goated-toolbox")
+        .join("bin")
+}
 
-    // We embed the DLLs using include_bytes!
+fn ensure_private_bin_dir_exists(bin_dir: &Path) {
+    let _ = fs::create_dir_all(bin_dir);
+}
+
+fn unpack_support_dlls(bin_dir: &Path) {
     let dlls: &[(&str, &[u8])] = &[
         (
             "vcruntime140.dll",
@@ -28,22 +36,17 @@ pub fn unpack_dlls() {
             "msvcp140_1.dll",
             include_bytes!("embed_dlls/msvcp140_1.dll"),
         ),
-        ("DirectML.dll", include_bytes!("embed_dlls/DirectML.dll")),
-        (
-            "onnxruntime.dll",
-            include_bytes!("embed_dlls/onnxruntime.dll"),
-        ),
     ];
 
     for (name, bytes) in dlls {
         let path = bin_dir.join(name);
-        // Only write if missing to avoid unnecessary disk IO
         if !path.exists() {
             let _ = fs::write(&path, bytes);
         }
     }
+}
 
-    // Tell Windows to look in our private bin directory for DLLs (for the current process)
+fn configure_private_bin_dir(bin_dir: &Path) {
     unsafe {
         let path_wide: Vec<u16> = bin_dir
             .to_string_lossy()
@@ -53,13 +56,21 @@ pub fn unpack_dlls() {
         let _ = SetDllDirectoryW(windows::core::PCWSTR(path_wide.as_ptr()));
     }
 
-    // Add to PATH so child processes (like WebView2 helpers) can also find them
     if let Ok(current_path) = std::env::var("PATH") {
         let new_path = format!("{};{}", bin_dir.to_string_lossy(), current_path);
         unsafe {
             std::env::set_var("PATH", new_path);
         }
     }
+}
 
-    crate::log_info!("[Unpacker] DLLs verified/unpacked to {:?}", bin_dir);
+/// Prepare the private runtime directory and unpack only the small CRT support DLLs.
+/// The large local AI runtime is installed on demand via `ensure_ai_runtime_installed`.
+pub fn unpack_dlls() {
+    let bin_dir = private_bin_dir();
+    ensure_private_bin_dir_exists(&bin_dir);
+    unpack_support_dlls(&bin_dir);
+    configure_private_bin_dir(&bin_dir);
+
+    crate::log_info!("[Unpacker] Support DLLs verified/unpacked to {:?}", bin_dir);
 }
