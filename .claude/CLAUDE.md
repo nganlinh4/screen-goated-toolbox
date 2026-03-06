@@ -81,6 +81,10 @@ cargo test               # Run tests
 - Mirror every cursor asset update into both locations:
   - `screen-record/public/...`
   - `src/overlay/screen_record/dist/...`
+- New cursor packs must also be wired into the packaged recorder mini app asset server in `src/overlay/screen_record/mod.rs`:
+  - add `include_bytes!` constants for each `cursor-*-<slug>.svg`
+  - add `path.ends_with("cursor-*-<slug>.svg")` branches in the WebView asset handler
+  - otherwise the dev frontend can work while the packaged app shows broken-image placeholders for the new pack
 - Apply per-cursor position offsets by editing the SVG content transform (not temporary runtime mapping), so preview/UI/export stay aligned.
 - Recorder-side cursor capture can receive non-system/custom cursor handles (won't match IDC_*). Keep fallback mapping resilient so drag cursors still classify as `grab/openhand/closehand` instead of collapsing to default.
 - Prefer stable cursor-shape/signature based detection for custom drag cursors and persist learned grab signatures per machine; avoid relying on volatile raw handle values.

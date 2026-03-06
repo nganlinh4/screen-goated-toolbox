@@ -1,6 +1,6 @@
 ---
 name: add-cursor-pack
-description: Wire a new cursor pack into all required app files (video.ts, CursorPanel, cursorTypes, cursorGraphics, cursors.rs, etc.)
+description: Wire a new cursor pack into all required app files, including the packaged mini app asset server in screen_record/mod.rs
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
@@ -27,7 +27,7 @@ Ask the user for any that weren't provided in the command arguments:
    The script will:
    - Generate per-cursor SVGs from the spritesheet (if provided) via `generate_cursor_pack.mjs`
    - Strip off-screen paths via `clean_svg_viewport.mjs` (spritesheet-split files are ~34KB raw → ~3KB cleaned — **always required**)
-   - Patch all 10 source files automatically
+   - Patch all required frontend/export/runtime files automatically, including `src/overlay/screen_record/mod.rs`
 
 3. **Verify TypeScript**:
    ```
@@ -51,6 +51,7 @@ Ask the user for any that weren't provided in the command arguments:
 - Slot IDs are auto-detected from `native_export/cursor.rs` — each pack gets 12 contiguous slots
 - GPU atlas rows auto-recalculate via `div_ceil` — no shader UV update needed
 - Both `screen-record/public/` and `src/overlay/screen_record/dist/` must have the SVG files (the script handles this)
+- The packaged recorder mini app serves cursor SVGs through `src/overlay/screen_record/mod.rs`; if that file misses the new slug, the dev app can work while the packaged app shows broken-image placeholders
 - Cursor Lab offsets are in lab canvas space (86×86), not SVG canvas space (44×43); the conversion is `svgX = labX * (44/86)`
 
 ## Known bugs in `add_cursor_pack.mjs` — always manually verify these after running
@@ -80,3 +81,5 @@ After the automation script runs, check and fix each of these by hand:
    Missing → export silently uses screenstudio atlas slots instead of the new pack's slots.
 
 7. **`native_export/cursor_path.rs` `get_cursor_pack()` fallback** — add slug to the variant-inferred match arm too (same file, a few lines above `build_cursor_type`).
+
+8. **Packaged mini app preview** — after `build.ps1`, open the screen recorder mini app and confirm the new pack renders there too, not just in the dev frontend. This catches missing `screen_record/mod.rs` asset-server wiring immediately.

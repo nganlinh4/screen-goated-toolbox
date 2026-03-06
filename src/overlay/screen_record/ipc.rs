@@ -633,7 +633,11 @@ pub fn handle_ipc_command(
 
                     for entry in entries {
                         let raw = base64::engine::general_purpose::STANDARD
-                            .decode(entry.png_base64.trim_start_matches("data:image/png;base64,"))
+                            .decode(
+                                entry
+                                    .png_base64
+                                    .trim_start_matches("data:image/png;base64,"),
+                            )
                             .map_err(|e| format!("cursor slot {} b64: {e}", entry.slot_id))?;
                         let img = image::load_from_memory(&raw)
                             .map_err(|e| format!("cursor slot {} png: {e}", entry.slot_id))?
